@@ -2,6 +2,25 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 
+type UsernameStatus = 'idle' | 'checking' | 'ok' | 'taken' | 'invalid'
+type VerificationEntry = {
+  provided: string
+  extracted?: string
+  message: string
+}
+type VerificationResults = {
+  verification: Record<string, VerificationEntry>
+}
+type DniValidation = {
+  reasons?: string[]
+}
+type VerifyDniResponse = {
+  success: boolean
+  verification?: Record<string, VerificationEntry>
+  validation?: DniValidation | null
+  message?: string
+}
+
 function onlyDigits(value: string) {
   return value.replace(/\D/g, '')
 }
@@ -43,6 +62,54 @@ function isStrongPassword(pw: string) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(pw)
 }
 
+function getPasswordStrength(password: string) {
+  if (password.length === 0) return 0
+  return isStrongPassword(password) ? 100 : Math.min(75, password.length * 8)
+}
+
+function getStrengthBarClass(strength: number) {
+  if (strength > 80) return 'bg-emerald-500'
+  if (strength > 50) return 'bg-yellow-500'
+  return 'bg-red-500'
+}
+
+function getUsernameStatus(status: UsernameStatus) {
+  switch (status) {
+    case 'checking':
+      return { text: 'Verificando...', className: 'text-gray-500' }
+    case 'ok':
+      return { text: 'Disponible', className: 'text-green-600' }
+    case 'taken':
+      return { text: 'No disponible', className: 'text-red-600' }
+    case 'invalid':
+      return { text: 'Inválido', className: 'text-red-600' }
+    default:
+      return null
+  }
+}
+
+function getVerificationFieldLabel(field: string) {
+  switch (field) {
+    case 'firstName':
+      return 'Nombre'
+    case 'lastName':
+      return 'Apellido'
+    case 'nationalId':
+      return 'Cédula'
+    default:
+      return 'Fecha de nacimiento'
+  }
+}
+
+function getVerificationMessageClass(message: string) {
+  return String(message).includes('✓') ? 'text-green-600' : 'text-red-600'
+}
+
+function resolveUsernameStatus(valid: boolean, available: boolean): UsernameStatus {
+  if (!valid) return 'invalid'
+  return available ? 'ok' : 'taken'
+}
+
 type Me = {
   email: string
   username?: string
@@ -58,7 +125,7 @@ type Me = {
 export default function OnboardingPage() {
   const [me, setMe] = useState<Me | null>(null)
   const [username, setUsername] = useState('')
-  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'ok' | 'taken' | 'invalid'>('idle')
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle')
   const [nationalId, setNationalId] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -74,8 +141,8 @@ export default function OnboardingPage() {
   const [dniPreviewUrl, setDniPreviewUrl] = useState('')
   const [processingDni, setProcessingDni] = useState(false)
   const [verificationStep, setVerificationStep] = useState(0)
-  const [verificationResults, setVerificationResults] = useState<any>(null)
-  const [dniValidation, setDniValidation] = useState<any>(null)
+  const [verificationResults, setVerificationResults] = useState<VerificationResults | null>(null)
+  const [dniValidation, setDniValidation] = useState<DniValidation | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -117,7 +184,8 @@ export default function OnboardingPage() {
     const t = setTimeout(async () => {
       try {
         const res = await api<{ available: boolean; valid: boolean }>(`/auth/check-username?u=${encodeURIComponent(username)}`)
-        setUsernameStatus(res.valid ? (res.available ? 'ok' : 'taken') : 'invalid')
+        const nextStatus = resolveUsernameStatus(res.valid, res.available)
+        setUsernameStatus(nextStatus)
       } catch {
         setUsernameStatus('invalid')
       }
@@ -227,11 +295,11 @@ export default function OnboardingPage() {
       const compressedImage = await compressImage(file, 0.8, 1024)
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
+        reader.onload = () => resolve(String(reader.result || ''))
         reader.readAsDataURL(compressedImage)
       })
 
-      const response = await api('/auth/verify-step-by-step', {
+      const response = await api<VerifyDniResponse>('/auth/verify-step-by-step', {
         method: 'POST',
         body: JSON.stringify({
           image: base64,
@@ -242,14 +310,13 @@ export default function OnboardingPage() {
         }),
       })
 
-      if ((response as any).success) {
-        setVerificationResults(response)
+      if (response.success && response.verification) {
+        setVerificationResults({ verification: response.verification })
         setVerificationStep(5)
       } else {
-        const errorResponse = response as any
-        setDniValidation(errorResponse.validation || null)
+        setDniValidation(response.validation || null)
         setVerificationStep(0)
-        setError(errorResponse.message || 'No se pudo verificar el DNI.')
+        setError(response.message || 'No se pudo verificar el DNI.')
       }
     } catch (err: any) {
       setDniValidation(err?.data?.validation || null)
@@ -312,7 +379,8 @@ export default function OnboardingPage() {
 
   if (!me) return null
 
-  const strength = password.length === 0 ? 0 : isStrongPassword(password) ? 100 : Math.min(75, password.length * 8)
+  const strength = getPasswordStrength(password)
+  const usernameStatusInfo = getUsernameStatus(usernameStatus)
 
   return (
     <main className="min-h-screen gradient-light flex items-center justify-center p-4">
@@ -335,10 +403,7 @@ export default function OnboardingPage() {
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Usuario
-                  {usernameStatus === 'checking' && <span className="ml-2 text-xs text-gray-500">Verificando...</span>}
-                  {usernameStatus === 'ok' && <span className="ml-2 text-xs text-green-600">Disponible</span>}
-                  {usernameStatus === 'taken' && <span className="ml-2 text-xs text-red-600">No disponible</span>}
-                  {usernameStatus === 'invalid' && <span className="ml-2 text-xs text-red-600">Inválido</span>}
+                  {usernameStatusInfo && <span className={`ml-2 text-xs ${usernameStatusInfo.className}`}>{usernameStatusInfo.text}</span>}
                 </label>
                 <input value={username} onChange={(e) => setUsername(e.target.value)} className="input-field" placeholder="nombre.apellido" />
               </div>
@@ -390,7 +455,7 @@ export default function OnboardingPage() {
                       </button>
                     </div>
                     <div className="h-2 bg-gray-200 rounded mt-2">
-                      <div className={`${strength > 80 ? 'bg-emerald-500' : strength > 50 ? 'bg-yellow-500' : 'bg-red-500'} h-2 rounded transition-all duration-300`} style={{ width: `${strength}%` }} />
+                      <div className={`${getStrengthBarClass(strength)} h-2 rounded transition-all duration-300`} style={{ width: `${strength}%` }} />
                     </div>
                   </div>
 
@@ -447,16 +512,16 @@ export default function OnboardingPage() {
 
               {verificationResults?.verification && (
                 <div className="mt-4 space-y-3">
-                  {Object.entries(verificationResults.verification).map(([field, data]: [string, any]) => (
+                  {Object.entries(verificationResults.verification).map(([field, data]) => (
                     <div key={field} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-800 capitalize">
-                          {field === 'firstName' ? 'Nombre' : field === 'lastName' ? 'Apellido' : field === 'nationalId' ? 'Cédula' : 'Fecha de nacimiento'}
+                          {getVerificationFieldLabel(field)}
                         </p>
                         <p className="text-sm text-gray-600">Ingresado: <span className="font-medium">{data.provided}</span></p>
                         {data.extracted && <p className="text-sm text-gray-600">DNI: <span className="font-medium">{data.extracted}</span></p>}
                       </div>
-                      <div className={`text-sm font-medium ${String(data.message).includes('✓') ? 'text-green-600' : 'text-red-600'}`}>{data.message}</div>
+                      <div className={`text-sm font-medium ${getVerificationMessageClass(data.message)}`}>{data.message}</div>
                     </div>
                   ))}
                 </div>
@@ -466,8 +531,8 @@ export default function OnboardingPage() {
                 <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
                   <h3 className="font-medium text-red-800 mb-2">No se pudo validar el DNI</h3>
                   <div className="space-y-1">
-                    {dniValidation.reasons?.map((reason: string, index: number) => (
-                      <p key={index} className="text-sm text-red-600">{reason}</p>
+                    {dniValidation.reasons?.map((reason) => (
+                      <p key={reason} className="text-sm text-red-600">{reason}</p>
                     ))}
                   </div>
                 </div>

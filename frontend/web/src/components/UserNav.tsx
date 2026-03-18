@@ -1,8 +1,27 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { api } from '@/lib/api'
 
-const itemsByRole: Record<string, { href: string; label: string }[]> = {
+type NavLink = { href: string; label: string }
+
+type MeUser = {
+  role: string
+  name?: string
+  email?: string
+  isApproved?: boolean
+  isActive?: boolean
+  needsProfileCompletion?: boolean
+  /** Viene del API: lista autorizada (evita enlaces viejos en caché del navegador) */
+  navLinks?: NavLink[]
+}
+
+function canAccessModules(me: MeUser) {
+  return Boolean(me.isApproved && me.isActive && !me.needsProfileCompletion)
+}
+
+/** Si el backend viejo no manda navLinks */
+const FALLBACK_NAV: Record<string, NavLink[]> = {
   ADMIN: [
     { href: '/admin/users', label: 'Usuarios' },
     { href: '/admin/attendance', label: 'Asistencias' },
@@ -12,33 +31,36 @@ const itemsByRole: Record<string, { href: string; label: string }[]> = {
   TEACHER: [
     { href: '/teacher/attendance', label: 'Mis asistencias' },
     { href: '/teacher/events', label: 'Mis eventos' },
-    { href: '/teacher/reports', label: 'Reportes' },
   ],
   STAFF: [
     { href: '/staff/attendance', label: 'Mis asistencias' },
     { href: '/staff/events', label: 'Mis eventos' },
-    { href: '/staff/reports', label: 'Reportes' },
   ],
 }
 
+function navItemsForMe(me: MeUser | null): NavLink[] {
+  if (!me) return []
+  if (Array.isArray(me.navLinks)) return me.navLinks
+  return canAccessModules(me) ? FALLBACK_NAV[me.role] || [] : []
+}
+
 export default function UserNav() {
-  const [me, setMe] = useState<any>(null)
+  const [me, setMe] = useState<MeUser | null>(null)
   const [open, setOpen] = useState(false)
-  const [currentPath, setCurrentPath] = useState('')
+  const pathname = usePathname()
 
   async function loadMe() {
     try {
-      const u = await api('/auth/me')
+      const u = await api<MeUser>('/auth/me')
       setMe(u)
     } catch {
       setMe(null)
     }
   }
 
-  useEffect(() => { 
-    loadMe()
-    setCurrentPath(window.location.pathname)
-  }, [])
+  useEffect(() => {
+    void loadMe()
+  }, [pathname])
 
   async function logout() {
     try { await api('/auth/logout', { method: 'POST' }) } catch {}
@@ -46,8 +68,8 @@ export default function UserNav() {
     window.location.href = '/login'
   }
 
-  const roleItems = me ? (itemsByRole[me.role] || []) : []
-  const showBackButton = currentPath !== '/' && currentPath !== '/login' && currentPath !== '/register'
+  const roleItems = navItemsForMe(me)
+  const showBackButton = pathname !== '/' && pathname !== '/login' && pathname !== '/register'
 
   return (
     <header className="header-modern">
@@ -69,8 +91,8 @@ export default function UserNav() {
             EduTrack
           </a>
         </div>
-        {me && (
-          <nav className="hidden md:flex gap-8 text-sm font-medium">
+        {me && roleItems.length > 0 && (
+          <nav className="flex flex-wrap justify-center gap-4 md:gap-8 text-sm font-medium max-w-[50%] md:max-w-none" data-nav-api="1">
             {roleItems.map(it => (
               <a
                 key={it.label}

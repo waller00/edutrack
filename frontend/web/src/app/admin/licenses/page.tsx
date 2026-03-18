@@ -36,6 +36,10 @@ type User = {
   username?: string
 }
 
+function getDefaultStartDate() {
+  return `${new Date().getFullYear()}-01-01`
+}
+
 export default function LicensesPage() {
   const [licenses, setLicenses] = useState<License[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -47,13 +51,13 @@ export default function LicensesPage() {
     userId: '',
     type: '',
     status: '',
-    startDate: '',
+    startDate: getDefaultStartDate(),
     endDate: ''
   })
 
   const [newLicense, setNewLicense] = useState({
     userId: '',
-    type: 'MEDICAL_LEAVE' as const,
+    type: 'MEDICAL_LEAVE',
     startDate: '',
     endDate: '',
     reason: '',
@@ -78,9 +82,9 @@ export default function LicensesPage() {
       if (filters.startDate) params.set('startDate', filters.startDate)
       if (filters.endDate) params.set('endDate', filters.endDate)
 
-      const data = await api(`/medical-leaves/all?${params.toString()}`) as {
+      const data = await api<{
         data: License[]
-      }
+      }>(`/medical-leaves/all?${params.toString()}`)
       
       setLicenses(data.data)
     } catch (error) {
@@ -92,9 +96,9 @@ export default function LicensesPage() {
 
   async function loadUsers() {
     try {
-      const data = await api('/admin/users?pageSize=100') as {
+      const data = await api<{
         data: User[]
-      }
+      }>('/admin/users?pageSize=100')
       // Procesar usuarios para tener el campo name
       const processedUsers = data.data.map(user => ({
         ...user,
@@ -211,6 +215,82 @@ export default function LicensesPage() {
     return labels[status] || status
   }
 
+  function renderLicensesRows() {
+    if (loading) {
+      return (
+        <tr>
+          <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+            Cargando...
+          </td>
+        </tr>
+      )
+    }
+
+    if (licenses.length === 0) {
+      return (
+        <tr>
+          <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+            No hay licencias registradas
+          </td>
+        </tr>
+      )
+    }
+
+    return licenses.map(license => (
+      <tr key={license.id}>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+          {license.user.name}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+          {getTypeLabel(license.type)}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+          {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm">
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(license.status)}`}>
+            {getStatusLabel(license.status)}
+          </span>
+        </td>
+        <td className="px-6 py-4 text-sm text-gray-900">
+          {license.reason}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm">
+          <div className="flex gap-2">
+            {license.status === 'PENDING' && (
+              <>
+                <button
+                  onClick={() => updateLicenseStatus(license.id, 'APPROVED')}
+                  className="text-green-600 hover:text-green-900"
+                >
+                  Aprobar
+                </button>
+                <button
+                  onClick={() => updateLicenseStatus(license.id, 'REJECTED')}
+                  className="text-red-600 hover:text-red-900"
+                >
+                  Rechazar
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => setEditing(license)}
+              className="text-indigo-600 hover:text-indigo-900"
+            >
+              Editar
+            </button>
+            <button
+              onClick={() => deleteLicense(license.id)}
+              className="text-red-600 hover:text-red-900"
+            >
+              Eliminar
+            </button>
+          </div>
+        </td>
+      </tr>
+    ))
+  }
+
   return (
     <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-8">
@@ -249,7 +329,7 @@ export default function LicensesPage() {
                   userId: '',
                   type: '',
                   status: '',
-                  startDate: '',
+                  startDate: getDefaultStartDate(),
                   endDate: ''
                 })
               }}
@@ -348,73 +428,7 @@ export default function LicensesPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
-                      Cargando...
-                    </td>
-                  </tr>
-                ) : licenses.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
-                      No hay licencias registradas
-                    </td>
-                  </tr>
-                ) : (
-                  licenses.map(license => (
-                    <tr key={license.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {license.user.name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {getTypeLabel(license.type)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(license.status)}`}>
-                          {getStatusLabel(license.status)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {license.reason}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div className="flex gap-2">
-                          {license.status === 'PENDING' && (
-                            <>
-                              <button
-                                onClick={() => updateLicenseStatus(license.id, 'APPROVED')}
-                                className="text-green-600 hover:text-green-900"
-                              >
-                                Aprobar
-                              </button>
-                              <button
-                                onClick={() => updateLicenseStatus(license.id, 'REJECTED')}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                Rechazar
-                              </button>
-                            </>
-                          )}
-                          <button
-                            onClick={() => setEditing(license)}
-                            className="text-indigo-600 hover:text-indigo-900"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            onClick={() => deleteLicense(license.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                {renderLicensesRows()}
               </tbody>
             </table>
           </div>

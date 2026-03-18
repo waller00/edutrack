@@ -1,6 +1,40 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+
+type RegisterRole = 'STAFF' | 'TEACHER' | ''
+type UsernameStatus = 'idle'|'checking'|'ok'|'taken'|'invalid'
+type VerificationEntry = {
+  provided: string
+  extracted?: string
+  message: string
+}
+
+type VerificationResults = {
+  verifiedFields: number
+  totalFields: number
+  verification: Record<string, VerificationEntry>
+}
+
+type DniValidation = {
+  confidence: number
+  reasons: string[]
+}
+
+type ProcessDniResponse = {
+  success: boolean
+  data: { firstName: string; lastName: string; nationalId: string; birthdate: string }
+  message: string
+}
+
+type VerifyDniResponse = {
+  success: boolean
+  message?: string
+  validation?: DniValidation
+  verifiedFields?: number
+  totalFields?: number
+  verification?: Record<string, VerificationEntry>
+}
 
 function onlyDigits(value: string) {
   return value.replace(/\D/g, '')
@@ -49,6 +83,147 @@ function isValidLocalPhoneUY(local: string) {
   return /^\d{8}$/.test(nz)
 }
 
+function isValidEmail(email: string) {
+  const trimmed = email.trim()
+  if (!trimmed || /\s/.test(trimmed)) return false
+
+  const atIndex = trimmed.indexOf('@')
+  if (atIndex <= 0 || atIndex !== trimmed.lastIndexOf('@') || atIndex === trimmed.length - 1) return false
+
+  const localPart = trimmed.slice(0, atIndex)
+  const domain = trimmed.slice(atIndex + 1)
+  if (!localPart || !domain || domain.startsWith('.') || domain.endsWith('.')) return false
+
+  const labels = domain.split('.')
+  if (labels.length < 2 || labels.some((label) => label.length === 0)) return false
+
+  return true
+}
+
+function getPasswordStrength(password: string) {
+  if (password.length === 0) return 0
+  return isStrongPassword(password) ? 100 : Math.min(75, password.length * 8)
+}
+
+function getStrengthBarClass(strength: number) {
+  if (strength > 80) return 'bg-emerald-500'
+  if (strength > 50) return 'bg-yellow-500'
+  return 'bg-red-500'
+}
+
+function getVerificationMessageIcon(message: string) {
+  if (message.includes('✓')) return '✅'
+  if (message.includes('✗')) return '❌'
+  if (message.includes('⚠️')) return '⚠️'
+  return '❓'
+}
+
+function getVerificationMessageClass(message: string) {
+  if (message.includes('✓')) return 'text-green-600'
+  if (message.includes('✗')) return 'text-red-600'
+  if (message.includes('⚠️')) return 'text-orange-600'
+  return 'text-yellow-600'
+}
+
+function getVerificationFieldLabel(field: string) {
+  switch (field) {
+    case 'firstName':
+      return 'Nombre'
+    case 'lastName':
+      return 'Apellidos'
+    case 'nationalId':
+      return 'Cédula'
+    default:
+      return 'Fecha de Nacimiento'
+  }
+}
+
+function isWarningVerificationMessage(field: VerificationEntry) {
+  return field.message.includes('⚠️ Faltan apellidos') || field.message.includes('⚠️ No se pudo extraer')
+}
+
+function resolveUsernameStatus(valid: boolean, available: boolean) {
+  if (!valid) return 'invalid'
+  return available ? 'ok' : 'taken'
+}
+
+function getDniProcessingErrorMessage(error: unknown) {
+  const message = String((error as { message?: string })?.message || '')
+  if (message.includes('400')) return '❌ Formato de imagen no válido. Por favor, sube una imagen clara del DNI.'
+  if (message.includes('500')) return '❌ Error del servidor. Por favor, intenta nuevamente.'
+  return '❌ Error al procesar el DNI. Por favor, completa los campos manualmente.'
+}
+
+function validateDniUploadInput(params: {
+  file?: File
+  firstName: string
+  lastName: string
+  nationalId: string
+  birthdate: string
+}) {
+  if (!params.file) return 'missing-file'
+  if (!params.file.type.startsWith('image/')) return '❌ Por favor, selecciona una imagen válida'
+  if (params.file.size > 5 * 1024 * 1024) return '❌ La imagen es demasiado grande. Máximo 5MB'
+  if (!params.firstName || !params.lastName || !params.nationalId || !params.birthdate) {
+    return '❌ Por favor, completa todos los campos manualmente antes de verificar con el DNI'
+  }
+  return null
+}
+
+function getBirthdateValidationError(birthdate: string) {
+  if (!birthdate) return 'Fecha de nacimiento obligatoria'
+  const bd = new Date(birthdate)
+  const today = new Date()
+  if (bd > today) return 'La fecha de nacimiento no puede ser futura'
+  const minAgeYears = 5
+  const age = today.getFullYear() - bd.getFullYear() - (today < new Date(today.getFullYear(), bd.getMonth(), bd.getDate()) ? 1 : 0)
+  if (age < minAgeYears) return `La edad mínima es ${minAgeYears} años`
+  return null
+}
+
+function getIdentityValidationError(params: {
+  username: string
+  usernameStatus: UsernameStatus
+  nationalId: string
+  firstName: string
+  lastName: string
+  role: RegisterRole
+}) {
+  if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(params.username)) return 'Usuario inválido (3-30, letras, números, punto, guion)'
+  if (params.usernameStatus === 'taken') return 'Nombre de usuario no disponible'
+  if (!isValidUruguayanCI(params.nationalId)) return 'Cédula uruguaya inválida'
+  if (params.firstName.trim().length === 0 || params.lastName.trim().length === 0) return 'Nombres y apellidos son obligatorios'
+  if (!params.role) return 'Debes seleccionar un perfil'
+  return null
+}
+
+function validateRegisterForm(params: {
+  email: string
+  password: string
+  confirm: string
+  username: string
+  usernameStatus: UsernameStatus
+  nationalId: string
+  firstName: string
+  lastName: string
+  role: RegisterRole
+  phoneLocal: string
+  birthdate: string
+  dniFile: File | null
+  verificationResults: VerificationResults | null
+}) {
+  if (!isValidEmail(params.email)) return 'Email inválido'
+  if (!isStrongPassword(params.password)) return 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número'
+  if (params.password !== params.confirm) return 'Las contraseñas no coinciden'
+  const identityError = getIdentityValidationError(params)
+  if (identityError) return identityError
+  if (params.phoneLocal && !isValidLocalPhoneUY(params.phoneLocal)) return 'Teléfono inválido (ingresa 8 dígitos o 09XXXXXXXX)'
+  const birthdateError = getBirthdateValidationError(params.birthdate)
+  if (birthdateError) return birthdateError
+  if (!params.dniFile || !params.verificationResults) return 'Debes verificar tu DNI antes de crear la cuenta'
+  return null
+}
+
 export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -56,13 +231,13 @@ export default function RegisterPage() {
   const [showPwd, setShowPwd] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [username, setUsername] = useState('')
-  const [usernameStatus, setUsernameStatus] = useState<'idle'|'checking'|'ok'|'taken'|'invalid'>('idle')
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle')
   const [nationalId, setNationalId] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [phoneLocal, setPhoneLocal] = useState('')
   const [birthdate, setBirthdate] = useState('')
-  const [role, setRole] = useState<'STAFF'|'TEACHER'|''>('')
+  const [role, setRole] = useState<RegisterRole>('')
   const [error, setError] = useState('')
   const [ok, setOk] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -70,12 +245,26 @@ export default function RegisterPage() {
   const [dniPreviewUrl, setDniPreviewUrl] = useState('')
   const [processingDni, setProcessingDni] = useState(false)
   const [verificationStep, setVerificationStep] = useState(0) // 0: not started, 1: names, 2: surnames, 3: id, 4: birthdate, 5: complete
-  const [verificationResults, setVerificationResults] = useState<any>(null)
-  const [dniValidation, setDniValidation] = useState<any>(null)
+  const [verificationResults, setVerificationResults] = useState<VerificationResults | null>(null)
+  const [dniValidation, setDniValidation] = useState<DniValidation | null>(null)
+  const [sessionGate, setSessionGate] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    api('/auth/me')
+      .then(() => {
+        if (alive) window.location.replace('/')
+      })
+      .catch(() => {
+        if (alive) setSessionGate(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // Función para manejar el cambio de cédula con formato automático
   function handleNationalIdChange(value: string) {
-    const digits = onlyDigits(value)
     const formatted = formatUruguayanCI(value)
     setNationalId(formatted)
   }
@@ -94,17 +283,17 @@ export default function RegisterPage() {
       // Convert file to base64
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
+        reader.onload = () => resolve(String(reader.result || ''))
         reader.readAsDataURL(compressedImage)
       })
 
       console.log('Base64 length:', base64.length);
 
       // Call OCR API (we'll implement this endpoint)
-      const response = await api('/auth/process-dni', {
+      const response = await api<ProcessDniResponse>('/auth/process-dni', {
         method: 'POST',
         body: JSON.stringify({ image: base64 })
-      }) as { success: boolean; data: { firstName: string; lastName: string; nationalId: string; birthdate: string }; message: string }
+      })
 
       console.log('DNI processing response:', response);
 
@@ -126,13 +315,7 @@ export default function RegisterPage() {
     } catch (error: any) {
       console.error('Error processing DNI:', error)
       console.error('Error details:', error.message, error.stack)
-      if (error.message?.includes('400')) {
-        setError('❌ Formato de imagen no válido. Por favor, sube una imagen clara del DNI.')
-      } else if (error.message?.includes('500')) {
-        setError('❌ Error del servidor. Por favor, intenta nuevamente.')
-      } else {
-        setError('❌ Error al procesar el DNI. Por favor, completa los campos manualmente.')
-      }
+      setError(getDniProcessingErrorMessage(error))
     } finally {
       setProcessingDni(false)
     }
@@ -175,25 +358,12 @@ export default function RegisterPage() {
     });
   }
 
-  async function handleDniUpload(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleDniUpload(event: React.ChangeEvent<HTMLInputElement>) { // NOSONAR preserve current verification flow
     const file = event.target.files?.[0]
-    if (!file) return
-    
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      setError('❌ Por favor, selecciona una imagen válida')
-      return
-    }
-    
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      setError('❌ La imagen es demasiado grande. Máximo 5MB')
-      return
-    }
-    
-    // Validate that all manual fields are filled
-    if (!firstName || !lastName || !nationalId || !birthdate) {
-      setError('❌ Por favor, completa todos los campos manualmente antes de verificar con el DNI')
+    const validationError = validateDniUploadInput({ file, firstName, lastName, nationalId, birthdate })
+    if (validationError === 'missing-file') return
+    if (validationError) {
+      setError(validationError)
       return
     }
     
@@ -213,12 +383,12 @@ export default function RegisterPage() {
       // Convert file to base64
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
+        reader.onload = () => resolve(String(reader.result || ''))
         reader.readAsDataURL(compressedImage)
       })
 
       // Call verification API with context
-      const response = await api('/auth/verify-step-by-step', {
+      const response = await api<VerifyDniResponse>('/auth/verify-step-by-step', {
         method: 'POST',
         body: JSON.stringify({ 
           image: base64,
@@ -231,21 +401,24 @@ export default function RegisterPage() {
 
       console.log('Verification Response:', response);
 
-      if ((response as any).success) {
-        setVerificationResults(response)
+      if (response.success && response.verification && typeof response.verifiedFields === 'number' && typeof response.totalFields === 'number') {
+        setVerificationResults({
+          verification: response.verification,
+          verifiedFields: response.verifiedFields,
+          totalFields: response.totalFields,
+        })
         setVerificationStep(5) // Complete
         setError('')
       } else {
-        const errorResponse = response as any;
-        if (errorResponse.validation) {
+        if (response.validation) {
           // DNI validation failed
-          setError(`❌ ${errorResponse.message}`)
-          setDniValidation(errorResponse.validation)
+          setError(`❌ ${response.message}`)
+          setDniValidation(response.validation)
           setVerificationStep(0)
           // Show validation details
-          console.log('DNI Validation Failed:', errorResponse.validation);
+          console.log('DNI Validation Failed:', response.validation);
         } else {
-          setError(errorResponse.message || 'Error al verificar el DNI.')
+          setError(response.message || 'Error al verificar el DNI.')
           setVerificationStep(0)
         }
       }
@@ -340,7 +513,8 @@ export default function RegisterPage() {
     const t = setTimeout(async () => {
       try {
         const res = await api<{available:boolean; valid:boolean}>(`/auth/check-username?u=${encodeURIComponent(username)}`)
-        setUsernameStatus(res.valid ? (res.available ? 'ok' : 'taken') : 'invalid')
+        const nextStatus = resolveUsernameStatus(res.valid, res.available)
+        setUsernameStatus(nextStatus)
       } catch { setUsernameStatus('invalid') }
     }, 400)
     return () => clearTimeout(t)
@@ -360,27 +534,27 @@ export default function RegisterPage() {
   }
 
   function validate(): string | null {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Email inválido'
-    if (!isStrongPassword(password)) return 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número'
-    if (password !== confirm) return 'Las contraseñas no coinciden'
-    if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(username)) return 'Usuario inválido (3-30, letras, números, punto, guion)'
-    if (usernameStatus === 'taken') return 'Nombre de usuario no disponible'
-    if (!isValidUruguayanCI(nationalId)) return 'Cédula uruguaya inválida'
-    if (firstName.trim().length === 0 || lastName.trim().length === 0) return 'Nombres y apellidos son obligatorios'
-    if (!role) return 'Debes seleccionar un perfil'
-    if (phoneLocal && !isValidLocalPhoneUY(phoneLocal)) return 'Teléfono inválido (ingresa 8 dígitos o 09XXXXXXXX)'
-    if (!birthdate) return 'Fecha de nacimiento obligatoria'
-    const bd = new Date(birthdate)
-    const today = new Date()
-    if (bd > today) return 'La fecha de nacimiento no puede ser futura'
-    const minAgeYears = 5
-    const age = today.getFullYear() - bd.getFullYear() - (today < new Date(today.getFullYear(), bd.getMonth(), bd.getDate()) ? 1 : 0)
-    if (age < minAgeYears) return `La edad mínima es ${minAgeYears} años`
-    if (!dniFile || !verificationResults || verificationHasIssues()) return 'Debes verificar tu DNI antes de crear la cuenta'
+    const baseValidation = validateRegisterForm({
+      email,
+      password,
+      confirm,
+      username,
+      usernameStatus,
+      nationalId,
+      firstName,
+      lastName,
+      role,
+      phoneLocal,
+      birthdate,
+      dniFile,
+      verificationResults,
+    })
+    if (baseValidation) return baseValidation
+    if (verificationHasIssues()) return 'Debes verificar tu DNI antes de crear la cuenta'
     return null
   }
 
-  const strength = password.length === 0 ? 0 : isStrongPassword(password) ? 100 : Math.min(75, password.length * 8)
+  const strength = getPasswordStrength(password)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -411,6 +585,14 @@ export default function RegisterPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (sessionGate) {
+    return (
+      <main className="min-h-screen gradient-light flex items-center justify-center p-4">
+        <p className="text-gray-600">Cargando…</p>
+      </main>
+    )
   }
 
   if (ok) {
@@ -513,7 +695,7 @@ export default function RegisterPage() {
                   </button>
                 </div>
                 <div className="h-2 bg-gray-200 rounded mt-2">
-                  <div className={`${strength>80?'bg-emerald-500':strength>50?'bg-yellow-500':'bg-red-500'} h-2 rounded transition-all duration-300`} style={{width: `${strength}%`}} />
+                  <div className={`${getStrengthBarClass(strength)} h-2 rounded transition-all duration-300`} style={{width: `${strength}%`}} />
                 </div>
               </div>
               
@@ -600,7 +782,7 @@ export default function RegisterPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Perfil</label>
                 <select 
                   value={role} 
-                  onChange={e=>setRole(e.target.value as any)} 
+                  onChange={e=>setRole(e.target.value as RegisterRole)} 
                   className="select-field"
                   required
                 >
@@ -675,15 +857,7 @@ export default function RegisterPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          if (dniFile) {
-                            // Reprocess the same file
-                            const event = {
-                              target: {
-                                files: [dniFile]
-                              }
-                            } as unknown as React.ChangeEvent<HTMLInputElement>;
-                            handleDniUpload(event);
-                          }
+                          if (dniFile) handleDniUpload({ target: { files: [dniFile] } } as React.ChangeEvent<HTMLInputElement>)
                         }}
                         className="btn-secondary text-sm px-3 py-1"
                         disabled={processingDni || !dniFile}
@@ -708,19 +882,15 @@ export default function RegisterPage() {
                     </div>
                   </div>
                   
-                  {Object.entries(verificationResults.verification).map(([field, data]: [string, any]) => (
+                  {Object.entries(verificationResults.verification).map(([field, data]) => (
                     <div key={field} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center space-x-3">
                         <span className="text-xl">
-                          {data.message.includes('✓') ? '✅' : 
-                           data.message.includes('✗') ? '❌' : 
-                           data.message.includes('⚠️') ? '⚠️' : '❓'}
+                          {getVerificationMessageIcon(data.message)}
                         </span>
                         <div>
                           <p className="font-medium text-gray-800 capitalize">
-                            {field === 'firstName' ? 'Nombre' : 
-                             field === 'lastName' ? 'Apellidos' :
-                             field === 'nationalId' ? 'Cédula' : 'Fecha de Nacimiento'}
+                            {getVerificationFieldLabel(field)}
                           </p>
                           <p className="text-sm text-gray-600">
                             Ingresado: <span className="font-medium">{data.provided}</span>
@@ -732,11 +902,7 @@ export default function RegisterPage() {
                           )}
                         </div>
                       </div>
-                      <div className={`text-sm font-medium ${
-                        data.message.includes('✓') ? 'text-green-600' : 
-                        data.message.includes('✗') ? 'text-red-600' : 
-                        data.message.includes('⚠️') ? 'text-orange-600' : 'text-yellow-600'
-                      }`}>
+                      <div className={`text-sm font-medium ${getVerificationMessageClass(data.message)}`}>
                         {data.message}
                       </div>
                     </div>
@@ -746,9 +912,7 @@ export default function RegisterPage() {
                     <p className="text-sm font-medium text-blue-800">
                       Verificación: {verificationResults.verifiedFields}/{verificationResults.totalFields} campos correctos
                     </p>
-                    {Object.values(verificationResults.verification).some((field: any) => 
-                      field.message.includes('⚠️ Faltan apellidos') || field.message.includes('⚠️ No se pudo extraer')
-                    ) && (
+                    {Object.values(verificationResults.verification).some(isWarningVerificationMessage) && (
                       <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                         <p className="text-sm text-orange-600 font-medium">
                           ⚠️ Completa todos los campos correctamente antes de crear la cuenta
@@ -777,8 +941,8 @@ export default function RegisterPage() {
                     </span>
                   </div>
                   <div className="space-y-1">
-                    {dniValidation.reasons.map((reason: string, index: number) => (
-                      <p key={index} className="text-xs text-red-600">{reason}</p>
+                    {dniValidation.reasons.map((reason) => (
+                      <p key={reason} className="text-xs text-red-600">{reason}</p>
                     ))}
                   </div>
                   <div className="mt-3 pt-2 border-t border-red-200">

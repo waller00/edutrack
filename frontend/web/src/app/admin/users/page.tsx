@@ -18,9 +18,70 @@ type UserRow = {
 	isActive:boolean
 }
 
+function cloneUser(user: UserRow) {
+	return { ...user }
+}
+
+function buildEditChanges(original: UserRow | null, edited: UserRow) {
+	if (!original) return []
+	const changes:string[] = []
+	if (original.role !== edited.role) changes.push(`Rol: ${original.role} → ${edited.role}`)
+	if ((original.username || '') !== (edited.username || '')) changes.push(`Usuario: ${original.username || '-'} → ${edited.username || '-'}`)
+	if ((original.nationalId || '') !== (edited.nationalId || '')) {
+		changes.push(`Cédula: ${original.nationalId || '-'} → ${edited.nationalId || '-'}`)
+	}
+	return changes
+}
+
+function getSaveEditErrorMessage(error: unknown) {
+	const message = String((error as { message?: string })?.message || '')
+	if (message.includes('409')) return 'Usuario o cédula ya registrados'
+	if (message.includes('400')) return 'Datos inválidos (verifica cédula)'
+	return 'No se pudo guardar'
+}
+
+function getVerificationBadge(emailVerifiedAt?: string) {
+	return emailVerifiedAt
+		? 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700'
+		: 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700'
+}
+
+function getVerificationLabel(emailVerifiedAt?: string) {
+	return emailVerifiedAt ? 'Verificado' : 'No verificado'
+}
+
+function getApprovalBadge(isApproved: boolean) {
+	return isApproved
+		? 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700'
+		: 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700'
+}
+
+function getApprovalLabel(isApproved: boolean) {
+	return isApproved ? 'Aprobado' : 'Pendiente'
+}
+
+function getActiveBadge(isActive: boolean) {
+	return isActive
+		? 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-700'
+		: 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700'
+}
+
+function getActiveLabel(isActive: boolean) {
+	return isActive ? 'Alta' : 'Baja'
+}
+
+function getLockBadge(lockUntil?: string) {
+	return lockUntil
+		? 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700'
+		: 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-700'
+}
+
+function getLockLabel(lockUntil?: string) {
+	return lockUntil ? 'Bloqueado' : 'Sin bloqueo'
+}
+
 export default function AdminUsersPage() {
 	const [data, setData] = useState<{ total:number; data:UserRow[] }>({ total: 0, data: [] })
-	const [loading, setLoading] = useState(false)
 	const [edit, setEdit] = useState<UserRow | null>(null)
 	const [editOrig, setEditOrig] = useState<UserRow | null>(null)
 	const [saving, setSaving] = useState(false)
@@ -29,29 +90,20 @@ export default function AdminUsersPage() {
 	const [role, setRole] = useState<'ALL'|'ADMIN'|'STAFF'|'TEACHER'>('ALL')
 
 	async function load() {
-		setLoading(true)
 		const params = new URLSearchParams({ page: '1', pageSize: '20' })
 		if (q) params.set('q', q)
 		if (role !== 'ALL') params.set('role', role)
-		try { setData(await api(`/admin/users?${params.toString()}`)) } finally { setLoading(false) }
+		setData(await api(`/admin/users?${params.toString()}`))
 	}
 
 	useEffect(() => { load() }, [])
 
-	function openEdit(u: UserRow) { setEdit({ ...u } as any); setEditOrig({ ...u } as any) }
+	function openEdit(u: UserRow) { setEdit(cloneUser(u)); setEditOrig(cloneUser(u)) }
 	function closeEdit() { setEdit(null); setEditOrig(null); setMsg('') }
 
 	async function saveEdit() {
 		if (!edit) return
-		// construir resumen de cambios
-		const changes:string[] = []
-		if (editOrig) {
-			if (editOrig.role !== edit.role) changes.push(`Rol: ${editOrig.role} → ${edit.role}`)
-			if ((editOrig.username||'') !== (edit.username||'')) changes.push(`Usuario: ${editOrig.username||'-'} → ${edit.username||'-'}`)
-			const origCi = (editOrig as any).nationalId || ''
-			const newCi = (edit as any).nationalId || ''
-			if (origCi !== newCi) changes.push(`Cédula: ${origCi || '-'} → ${newCi || '-'}`)
-		}
+		const changes = buildEditChanges(editOrig, edit)
 		const proceed = confirm(changes.length ? `Confirmar cambios:\n - ${changes.join('\n - ')}` : 'No hay cambios. ¿Guardar igualmente?')
 		if (!proceed) return
 
@@ -73,9 +125,7 @@ export default function AdminUsersPage() {
 			await load()
 			closeEdit()
 		} catch (e:any) {
-			if (String(e?.message||'').includes('409')) setMsg('Usuario o cédula ya registrados')
-			else if (String(e?.message||'').includes('400')) setMsg('Datos inválidos (verifica cédula)')
-			else setMsg('No se pudo guardar')
+			setMsg(getSaveEditErrorMessage(e))
 		} finally { setSaving(false) }
 	}
 
@@ -104,6 +154,64 @@ export default function AdminUsersPage() {
 		if (!confirm(next ? '¿Dar de alta al usuario?' : '¿Dar de baja al usuario?')) return
 		await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isActive: next }) })
 		await load()
+	}
+
+	function renderUserRow(u: UserRow) {
+		return (
+			<tr key={u.id} className="border-t hover:bg-slate-50">
+				<td className="px-3 py-2">{u.email}</td>
+				<td className="px-3 py-2">{u.username || '-'}</td>
+				<td className="px-3 py-2">{u.role}</td>
+				<td className="px-3 py-2">{u.firstName || ''} {u.lastName || ''}</td>
+				<td className="px-3 py-2">
+					<span className={getVerificationBadge(u.emailVerifiedAt)}>{getVerificationLabel(u.emailVerifiedAt)}</span>
+				</td>
+				<td className="px-3 py-2">
+					<span className={getApprovalBadge(u.isApproved)}>{getApprovalLabel(u.isApproved)}</span>
+				</td>
+				<td className="px-3 py-2">
+					<span className={getActiveBadge(u.isActive)}>{getActiveLabel(u.isActive)}</span>
+				</td>
+				<td className="px-3 py-2">
+					<span className={getLockBadge(u.lockUntil)}>{getLockLabel(u.lockUntil)}</span>
+				</td>
+				<td className="px-3 py-2 text-right space-x-1">
+					<button onClick={()=>toggleApproval(u)} className="inline-grid place-items-center px-2 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-xs" title={u.isApproved ? 'Volver a pendiente' : 'Aprobar'}>
+						{u.isApproved ? 'Pendiente' : 'Aprobar'}
+					</button>
+					<button onClick={()=>toggleActive(u)} className="inline-grid place-items-center px-2 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-xs" title={u.isActive ? 'Dar de baja' : 'Dar de alta'}>
+						{u.isActive ? 'Dar baja' : 'Dar alta'}
+					</button>
+					<button onClick={()=>openEdit(u)} className="inline-grid place-items-center w-8 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400" aria-label="Editar" title="Editar">
+						<span className="sr-only">Editar</span>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+							<path d="M13.586 3.586a2 2 0 0 1 2.828 2.828l-9.192 9.192a2 2 0 0 1-.878.505l-3.06.785a.5 .5 0 0 1-.606-.606l.785-3.06a2 2 0 0 1 .505-.878l9.192-9.192Z"/>
+							<path d="M12.172 4.999 15 7.828"/>
+						</svg>
+					</button>
+					<button onClick={()=>toggleLock(u)} className="inline-grid place-items-center w-8 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400" aria-label={u.lockUntil ? 'Desbloquear' : 'Bloquear'} title={u.lockUntil ? 'Desbloquear' : 'Bloquear'}>
+						<span className="sr-only">{u.lockUntil ? 'Desbloquear' : 'Bloquear'}</span>
+						{u.lockUntil ? (
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+								<path d="M5 8a5 5 0 1 1 10 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h7V8a3 3 0 0 0-6 0H5Z"/>
+							</svg>
+						) : (
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+								<path d="M10 2a5 5 0 0 1 5 5v1h-2V7a3 3 0 1 0-6 0v1H5V7a5 5 0 0 1 5-5Z"/>
+								<path d="M4 9h12a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/>
+							</svg>
+						)}
+					</button>
+					<button onClick={()=>resetPassword(u)} className="inline-grid place-items-center w-8 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400" aria-label="Resetear contraseña" title="Resetear contraseña">
+						<span className="sr-only">Resetear contraseña</span>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+							<path d="M10 2a4 4 0 0 1 3.464 1.94l.536.894a1 1 0 0 1-1.732 1.032l-.536-.894A2 2 0 1 0 9 6h1a1 1 0 1 1 0 2H9a4 4 0 1 1 1-6Z"/>
+							<path d="M7 11a3 3 0 0 1 3-3h1a1 1 0 1 1 0 2h-1a1 1 0 1 0 0 2h2a3 3 0 1 1 0 6H7a1 1 0 1 1 0-2h5a1 1 0 1 0 0-2H10a3 3 0 0 1-3-3Z"/>
+						</svg>
+					</button>
+				</td>
+			</tr>
+		)
 	}
 
 	return (
@@ -147,79 +255,7 @@ export default function AdminUsersPage() {
 								<th className="px-3 py-2"></th>
 								</tr>
 						</thead>
-						<tbody>
-							{data.data.map((u) => (
-								<tr key={u.id} className="border-t hover:bg-slate-50">
-									<td className="px-3 py-2">{u.email}</td>
-									<td className="px-3 py-2">{u.username || '-'}</td>
-									<td className="px-3 py-2">{u.role}</td>
-									<td className="px-3 py-2">{u.firstName || ''} {u.lastName || ''}</td>
-									<td className="px-3 py-2">
-										{u.emailVerifiedAt ? (
-											<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Verificado</span>
-										) : (
-											<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">No verificado</span>
-										)}
-									</td>
-									<td className="px-3 py-2">
-										{u.isApproved ? (
-											<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Aprobado</span>
-										) : (
-											<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Pendiente</span>
-										)}
-									</td>
-									<td className="px-3 py-2">
-										{u.isActive ? (
-											<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-700">Alta</span>
-										) : (
-											<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Baja</span>
-										)}
-									</td>
-									<td className="px-3 py-2">
-										{u.lockUntil ? (
-											<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Bloqueado</span>
-										) : (
-											<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-700">Sin bloqueo</span>
-										)}
-									</td>
-									<td className="px-3 py-2 text-right space-x-1">
-										<button onClick={()=>toggleApproval(u)} className="inline-grid place-items-center px-2 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-xs" title={u.isApproved ? 'Volver a pendiente' : 'Aprobar'}>
-											{u.isApproved ? 'Pendiente' : 'Aprobar'}
-										</button>
-										<button onClick={()=>toggleActive(u)} className="inline-grid place-items-center px-2 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-xs" title={u.isActive ? 'Dar de baja' : 'Dar de alta'}>
-											{u.isActive ? 'Dar baja' : 'Dar alta'}
-										</button>
-										<button onClick={()=>openEdit(u)} className="inline-grid place-items-center w-8 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400" aria-label="Editar" title="Editar">
-											<span className="sr-only">Editar</span>
-											<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-												<path d="M13.586 3.586a2 2 0 0 1 2.828 2.828l-9.192 9.192a2 2 0 0 1-.878.505l-3.06.785a.5 .5 0 0 1-.606-.606l.785-3.06a2 2 0 0 1 .505-.878l9.192-9.192Z"/>
-												<path d="M12.172 4.999 15 7.828"/>
-											</svg>
-										</button>
-										<button onClick={()=>toggleLock(u)} className="inline-grid place-items-center w-8 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400" aria-label={u.lockUntil ? 'Desbloquear' : 'Bloquear'} title={u.lockUntil ? 'Desbloquear' : 'Bloquear'}>
-											<span className="sr-only">{u.lockUntil ? 'Desbloquear' : 'Bloquear'}</span>
-											{u.lockUntil ? (
-												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-													<path d="M5 8a5 5 0 1 1 10 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h7V8a3 3 0 0 0-6 0H5Z"/>
-												</svg>
-											) : (
-												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-													<path d="M10 2a5 5 0 0 1 5 5v1h-2V7a3 3 0 1 0-6 0v1H5V7a5 5 0 0 1 5-5Z"/>
-													<path d="M4 9h12a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/>
-												</svg>
-											)}
-										</button>
-										<button onClick={()=>resetPassword(u)} className="inline-grid place-items-center w-8 h-8 border rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400" aria-label="Resetear contraseña" title="Resetear contraseña">
-											<span className="sr-only">Resetear contraseña</span>
-											<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-												<path d="M10 2a4 4 0 0 1 3.464 1.94l.536.894a1 1 0 0 1-1.732 1.032l-.536-.894A2 2 0 1 0 9 6h1a1 1 0 1 1 0 2H9a4 4 0 1 1 1-6Z"/>
-												<path d="M7 11a3 3 0 0 1 3-3h1a1 1 0 1 1 0 2h-1a1 1 0 1 0 0 2h2a3 3 0 1 1 0 6H7a1 1 0 1 1 0-2h5a1 1 0 1 0 0-2H10a3 3 0 0 1-3-3Z"/>
-											</svg>
-										</button>
-								</td>
-							</tr>
-							))}
-						</tbody>
+							<tbody>{data.data.map(renderUserRow)}</tbody>
 					</table>
 				</div>
 

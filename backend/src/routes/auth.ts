@@ -7,9 +7,26 @@ import { authGuard } from "../middlewares/auth.js";
 import passport from "../passportGoogle.js";
 import crypto from "crypto";
 import { sendMail } from "../email.js";
-import { createHash } from "crypto";
 
 const r = Router();
+
+/** Enlaces de cabecera: solo lo que el rol puede usar (fuente única, no en el bundle del front) */
+const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
+  ADMIN: [
+    { href: "/admin/users", label: "Usuarios" },
+    { href: "/admin/attendance", label: "Asistencias" },
+    { href: "/admin/events", label: "Eventos" },
+    { href: "/admin/licenses", label: "Licencias" },
+  ],
+  TEACHER: [
+    { href: "/teacher/attendance", label: "Mis asistencias" },
+    { href: "/teacher/events", label: "Mis eventos" },
+  ],
+  STAFF: [
+    { href: "/staff/attendance", label: "Mis asistencias" },
+    { href: "/staff/events", label: "Mis eventos" },
+  ],
+};
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -30,7 +47,9 @@ function resolveCookieConfig() {
   const envSecure = (process.env.COOKIE_SECURE || "").toLowerCase();
   const secure = envSecure ? envSecure === "true" : process.env.NODE_ENV === "production";
   const rawSameSite = (process.env.COOKIE_SAMESITE || (secure ? "none" : "lax")).toLowerCase();
-  const sameSite: any = rawSameSite === "none" ? "none" : rawSameSite === "strict" ? "strict" : "lax";
+  let sameSite: "none" | "strict" | "lax" = "lax";
+  if (rawSameSite === "none") sameSite = "none";
+  else if (rawSameSite === "strict") sameSite = "strict";
   let domain: string | undefined = process.env.COOKIE_DOMAIN || undefined;
   if (!domain && process.env.COOKIE_AUTO_DOMAIN === "true" && process.env.FRONTEND_URL) {
     try {
@@ -73,7 +92,7 @@ function parseDurationMs(input: string) {
   return n * map[unit];
 }
 function hashToken(token: string) {
-  return createHash("sha256").update(token).digest("hex");
+  return crypto.createHash("sha256").update(token).digest("hex");
 }
 
 // helpers comunes
@@ -106,6 +125,96 @@ function normalizePhoneUY(input: string | undefined) {
   const noZero = d.startsWith("0") ? d.slice(1) : d;
   if (noZero.length >= 8) return "+598" + noZero.slice(0, 8);
   return undefined;
+}
+
+function buildProfileName(firstName?: string, lastName?: string) {
+  return `${firstName ?? ""} ${lastName ?? ""}`.trim();
+}
+
+function parseBirthdateInput(birthdate: string) {
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(birthdate)) {
+    const [dd, mm, yyyy] = birthdate.split('/').map(Number);
+    return new Date(yyyy, mm - 1, dd);
+  }
+  return new Date(birthdate);
+}
+
+async function validateUniqueUsername(userId: string, username?: string) {
+  if (!username) return null;
+  const exist = await prisma.user.findUnique({ where: { username } });
+  if (exist && exist.id !== userId) throw new Error('USERNAME_CONFLICT');
+  return username;
+}
+
+async function validateNationalIdUpdate(userId: string, nationalId: string | undefined, isAdmin: boolean, isSettingInitialNationalId: boolean) {
+  if (!nationalId) return undefined;
+  if (!isValidUruguayanCI(nationalId)) throw new Error('INVALID_CI');
+  const normCi = onlyDigits(nationalId);
+  const existCi = await prisma.user.findUnique({ where: { nationalId: normCi } });
+  if (existCi && existCi.id !== userId) throw new Error('CI_CONFLICT');
+  if (!isAdmin && !isSettingInitialNationalId) throw new Error('FORBIDDEN');
+  return normCi;
+}
+
+function validateRoleUpdate(role: "ADMIN" | "STAFF" | "TEACHER" | undefined, isAdmin: boolean, me: any) {
+  if (!role) return undefined;
+  if (!isAdmin && me?.isApproved) throw new Error('FORBIDDEN');
+  if (!isAdmin && role === "ADMIN") throw new Error('FORBIDDEN');
+  return role;
+}
+
+function validatePhoneUpdate(phone?: string) {
+  if (!phone) return undefined;
+  const normPhone = normalizePhoneUY(phone);
+  if (!normPhone) throw new Error('INVALID_PHONE');
+  return normPhone;
+}
+
+function validateBirthdateUpdate(birthdate?: string) {
+  if (!birthdate) return undefined;
+  const parsedBirthdate = parseBirthdateInput(birthdate);
+  if (isNaN(parsedBirthdate.getTime()) || parsedBirthdate > new Date()) throw new Error('INVALID_BIRTHDATE');
+  return parsedBirthdate;
+}
+
+function mapProfileUpdateError(error: Error, res: any) {
+  if (error.message === 'USERNAME_CONFLICT') return res.status(409).json({ message: "Usuario ya en uso" });
+  if (error.message === 'CI_CONFLICT') return res.status(409).json({ message: "Cédula ya registrada" });
+  if (error.message === 'INVALID_CI') return res.status(400).json({ message: "Cédula inválida" });
+  if (error.message === 'INVALID_PHONE') return res.status(400).json({ message: "Teléfono inválido" });
+  if (error.message === 'INVALID_BIRTHDATE') return res.status(400).json({ message: "Fecha inválida" });
+  if (error.message === 'FORBIDDEN') return res.status(403).json({ message: "Prohibido" });
+  throw error;
+}
+
+async function validateAndBuildProfileUpdate(data: {
+  userId: string
+  userRole: string
+  username?: string
+  nationalId?: string
+  firstName?: string
+  lastName?: string
+  phone?: string
+  birthdate?: string
+  role?: "ADMIN" | "STAFF" | "TEACHER"
+}) {
+  const update: any = {};
+  const me = await prisma.user.findUnique({ where: { id: data.userId } });
+  const isAdmin = data.userRole === 'ADMIN';
+  const isSettingInitialNationalId = !me?.nationalId;
+
+  update.username = await validateUniqueUsername(data.userId, data.username);
+  update.nationalId = await validateNationalIdUpdate(data.userId, data.nationalId, isAdmin, isSettingInitialNationalId);
+  update.role = validateRoleUpdate(data.role, isAdmin, me);
+
+  if (data.firstName) update.firstName = data.firstName;
+  if (data.lastName) update.lastName = data.lastName;
+  if (data.firstName || data.lastName) update.name = buildProfileName(data.firstName, data.lastName);
+
+  update.phone = validatePhoneUpdate(data.phone);
+  update.birthdate = validateBirthdateUpdate(data.birthdate);
+
+  return update;
 }
 
 async function registerFailedLogin(userId: string) {
@@ -257,50 +366,23 @@ r.put("/profile", authGuard, async (req, res) => {
   });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
-
-  const data: any = {};
   const { username, nationalId, firstName, lastName, phone, birthdate, role } = parsed.data;
-
-  if (username) {
-    const exist = await prisma.user.findUnique({ where: { username } });
-    if (exist && exist.id !== u.sub) return res.status(409).json({ message: "Usuario ya en uso" });
-    data.username = username;
-  }
-  // Sólo ADMIN puede cambiar role y nationalId fuera del onboarding
-  const me = await prisma.user.findUnique({ where: { id: u.sub } });
-  const isAdmin = u.role === 'ADMIN';
-  const isSettingInitialNationalId = !me?.nationalId;
-  if (nationalId) {
-    if (!isValidUruguayanCI(nationalId)) return res.status(400).json({ message: "Cédula inválida" });
-    const normCi = onlyDigits(nationalId);
-    const existCi = await prisma.user.findUnique({ where: { nationalId: normCi } });
-    if (existCi && existCi.id !== u.sub) return res.status(409).json({ message: "Cédula ya registrada" });
-    if (!isAdmin && !isSettingInitialNationalId) return res.status(403).json({ message: "Prohibido" });
-    data.nationalId = normCi;
-  }
-  if (role) {
-    if (!isAdmin && me?.isApproved) return res.status(403).json({ message: "Prohibido" });
-    if (!isAdmin && role === "ADMIN") return res.status(403).json({ message: "Prohibido" });
-    data.role = role;
-  }
-  if (firstName) data.firstName = firstName;
-  if (lastName) data.lastName = lastName;
-  if (firstName || lastName) data.name = `${firstName ?? ""} ${lastName ?? ""}`.trim();
-  if (phone) {
-    const normPhone = normalizePhoneUY(phone);
-    if (!normPhone) return res.status(400).json({ message: "Teléfono inválido" });
-    data.phone = normPhone;
-  }
-  if (birthdate) {
-    let d: Date | null = null;
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(birthdate)) {
-      const [dd, mm, yyyy] = birthdate.split('/').map(Number);
-      d = new Date(yyyy, mm - 1, dd);
-    } else {
-      d = new Date(birthdate);
-    }
-    if (!d || isNaN(d.getTime()) || d > new Date()) return res.status(400).json({ message: "Fecha inválida" });
-    data.birthdate = d;
+  let data: any;
+  try {
+    data = await validateAndBuildProfileUpdate({
+      userId: u.sub,
+      userRole: u.role,
+      username,
+      nationalId,
+      firstName,
+      lastName,
+      phone,
+      birthdate,
+      role,
+    });
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return mapProfileUpdateError(error, res);
   }
 
   const updated = await prisma.user.update({ where: { id: u.sub }, data });
@@ -455,8 +537,13 @@ r.get("/me", authGuard, async (req, res) => {
   if (!db) return res.status(401).json({ message: "No autorizado" });
   const needsProfileCompletion = !db.firstName || !db.lastName || !db.nationalId || !db.birthdate || !db.username;
   const hasPassword = !!db.passwordHash;
+  const canShowNav =
+    Boolean(db.isApproved && db.isActive && !needsProfileCompletion);
+  const navLinks = canShowNav
+    ? NAV_LINKS_BY_ROLE[db.role] || []
+    : [];
   const { passwordHash, ...safe } = db as any;
-  res.json({ ...safe, needsProfileCompletion, hasPassword });
+  res.json({ ...safe, needsProfileCompletion, hasPassword, navLinks });
 });
 
 r.post("/logout", async (req, res) => {
@@ -478,7 +565,7 @@ r.get(
   "/google/callback",
   passport.authenticate("google", { session: false, failureRedirect: "/auth/google/failure" }),
   async (req, res) => {
-    const user = (req as any).user as any;
+    const user = (req as any).user;
     if (!user.isActive) {
       res.clearCookie("access_token");
       res.clearCookie("refresh_token", { path: "/auth" });

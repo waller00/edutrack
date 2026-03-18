@@ -2,14 +2,47 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 
+type Me = {
+  name?: string
+  email: string
+  role: 'ADMIN' | 'TEACHER' | 'STAFF'
+  emailVerifiedAt?: string | null
+  needsProfileCompletion?: boolean
+  isApproved: boolean
+  isActive: boolean
+}
+
+type Section = { title: string; desc: string; cta: string; href: string }
+
+function getWelcomeMessage(inactiveAccount: boolean, pendingApproval: boolean) {
+  if (inactiveAccount) return 'Tu cuenta está desactivada y no puede usar módulos operativos.'
+  if (pendingApproval) return 'Tu información fue recibida. Cuando un administrador te apruebe, vas a ver las herramientas correspondientes a tu rol.'
+  return 'Bienvenido al sistema de gestión de asistencias. Accede a las herramientas disponibles para tu rol.'
+}
+
+function getSectionIcon(title: string) {
+  if (title.includes('usuarios')) return '👥'
+  if (title.includes('asistencias')) return '📊'
+  if (title.includes('eventos')) return '📅'
+  if (title.includes('licencias')) return '📄'
+  if (title.includes('Panel')) return '📈'
+  return '🔧'
+}
+
+function getResendButtonLabel(resent: boolean, resending: boolean) {
+  if (resent) return '✅ Enviado'
+  if (resending) return '⏳ Enviando…'
+  return '📧 Reenviar'
+}
+
 export default function Home() {
-  const [me, setMe] = useState<any>(null)
+  const [me, setMe] = useState<Me | null>(null)
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
 
   useEffect(() => {
-    api('/auth/me')
-      .then((u:any) => {
+    api<Me>('/auth/me')
+      .then((u) => {
         setMe(u)
       })
       .catch(() => (window.location.href = '/login'))
@@ -26,7 +59,7 @@ export default function Home() {
   const pendingApproval = !me.isApproved
   const inactiveAccount = !me.isActive
 
-  const sectionsByRole: Record<string, { title: string; desc: string; cta: string; href: string }[]> = {
+  const sectionsByRole: Record<Me['role'], Section[]> = {
     ADMIN: [
       { title: 'Gestión de usuarios', desc: 'Altas, roles y permisos.', cta: 'Administrar usuarios', href: '/admin/users' },
       { title: 'Gestión de asistencias', desc: 'Registro y control de asistencias del personal.', cta: 'Gestionar asistencias', href: '/admin/attendance' },
@@ -43,7 +76,8 @@ export default function Home() {
     ],
   }
 
-  const sections = pendingApproval || inactiveAccount ? [] : (sectionsByRole[me.role] || [])
+  const sections =
+    pendingApproval || inactiveAccount || needsProfile ? [] : (sectionsByRole[me.role] || [])
 
   return (
     <main className="mx-auto max-w-7xl p-6 space-y-8">
@@ -63,7 +97,7 @@ export default function Home() {
               disabled={resending || resent} 
               className="btn-warning text-sm disabled:opacity-60"
             >
-              {resent ? '✅ Enviado' : resending ? '⏳ Enviando…' : '📧 Reenviar'}
+              {getResendButtonLabel(resent, resending)}
             </button>
           </div>
         </div>
@@ -125,28 +159,18 @@ export default function Home() {
             <p className="text-emerald-600 font-medium">{me.role}</p>
           </div>
         </div>
-        <p className="text-gray-600 max-w-2xl mx-auto">
-          {inactiveAccount
-            ? 'Tu cuenta está desactivada y no puede usar módulos operativos.'
-            : pendingApproval
-            ? 'Tu información fue recibida. Cuando un administrador te apruebe, vas a ver las herramientas correspondientes a tu rol.'
-            : 'Bienvenido al sistema de gestión de asistencias. Accede a las herramientas disponibles para tu rol.'}
-        </p>
+        <p className="text-gray-600 max-w-2xl mx-auto">{getWelcomeMessage(inactiveAccount, pendingApproval)}</p>
       </section>
 
       {/* Tarjetas de funcionalidades */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {sections.map((s, i) => (
-          <div key={i} className="card group hover:shadow-lg transition-all duration-300 fade-in">
+        {sections.map((s) => (
+          <div key={s.href} className="card group hover:shadow-lg transition-all duration-300 fade-in">
             <div className="card-header">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
                   <span className="text-emerald-600 text-lg">
-                    {s.title.includes('usuarios') ? '👥' :
-                     s.title.includes('asistencias') ? '📊' :
-                     s.title.includes('eventos') ? '📅' :
-                     s.title.includes('licencias') ? '📄' :
-                     s.title.includes('Panel') ? '📈' : '🔧'}
+                    {getSectionIcon(s.title)}
                   </span>
                 </div>
                 <h2 className="font-semibold text-lg text-gray-900">{s.title}</h2>

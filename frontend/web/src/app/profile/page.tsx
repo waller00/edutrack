@@ -11,11 +11,68 @@ function formatCI(input: string){
   return `${d[0]}.${d.slice(1,4)}.${d.slice(4,7)}-${d.slice(7)}`
 }
 function computeCI(base7:string){ const w=[2,9,8,7,6,3,4]; const p=base7.padStart(7,'0'); const s=p.split('').map((d,i)=>parseInt(d)*w[i]).reduce((a,b)=>a+b,0); return (10-(s%10))%10 }
-function validCI(input:string){ const d=onlyDigits(input); if(d.length<7||d.length>8) return false; const b=d.slice(0,-1); return computeCI(b)===parseInt(d.slice(-1)) }
-function normLocalPhoneUY(local:string){ const d=onlyDigits(local); if(!d) return ''; return d.startsWith('0')?d.slice(1):d }
+function validCI(input:string){
+  const d=onlyDigits(input)
+  if(d.length<7||d.length>8) return false
+  const b=d.slice(0,-1)
+  return computeCI(b)===parseInt(d.slice(-1))
+}
+function normLocalPhoneUY(local:string){
+  const d=onlyDigits(local)
+  if(!d) return ''
+  return d.startsWith('0')?d.slice(1):d
+}
 function isValidLocalPhone(local:string){ return /^\d{8}$/.test(normLocalPhoneUY(local)) }
+function canEditNationalId(role?: string){ return role === 'ADMIN' }
+function isStrongPassword(password: string) { return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password) }
+function getProfileErrorMessage(error: unknown) {
+  const message = String((error as { message?: string })?.message || '')
+  if (message.includes('409')) return 'Usuario o cédula ya registrados'
+  if (message.includes('403')) return 'No tienes permisos para cambiar cédula/rol'
+  return 'Error al guardar'
+}
+function getPasswordErrorMessage(error: unknown) {
+  const message = String((error as { message?: string })?.message || '')
+  if (message.includes('401')) return 'Contraseña actual incorrecta'
+  return 'No se pudo actualizar la contraseña'
+}
+function buildProfilePayload(params: {
+  username: string
+  firstName: string
+  lastName: string
+  phoneLocal: string
+  birthdate: string
+  nationalId: string
+  isAdmin: boolean
+}) {
+  const payload:any = {
+    username: params.username,
+    firstName: params.firstName,
+    lastName: params.lastName,
+    phone: params.phoneLocal ? `+598${normLocalPhoneUY(params.phoneLocal)}` : undefined,
+    birthdate: params.birthdate ? new Date(params.birthdate).toISOString() : undefined,
+  }
+  if (params.isAdmin) {
+    payload.nationalId = params.nationalId
+  }
+  return payload
+}
+function validateProfileForm(params: {
+  username: string
+  nationalId: string
+  firstName: string
+  lastName: string
+  phoneLocal: string
+  canEditCi: boolean
+}) {
+  if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(params.username)) return 'Usuario inválido'
+  if (params.canEditCi && !validCI(params.nationalId)) return 'Cédula inválida'
+  if (!params.firstName.trim() || !params.lastName.trim()) return 'Nombre y apellido obligatorios'
+  if (params.phoneLocal && !isValidLocalPhone(params.phoneLocal)) return 'Teléfono inválido'
+  return null
+}
 
-export default function ProfilePage(){
+export default function ProfilePage(){ // NOSONAR preserve current profile UI flow
   const [me,setMe]=useState<any>(null)
   const [username,setUsername]=useState('')
   const [nationalId,setNationalId]=useState('')
@@ -53,30 +110,30 @@ export default function ProfilePage(){
 
   async function saveProfile(){
     setMsg('')
-    if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(username)) return setMsg('Usuario inválido')
-    if (me?.role === 'ADMIN') {
-      if (!validCI(nationalId)) return setMsg('Cédula inválida')
-    }
-    if (!firstName.trim() || !lastName.trim()) return setMsg('Nombre y apellido obligatorios')
-    if (phoneLocal && !isValidLocalPhone(phoneLocal)) return setMsg('Teléfono inválido')
+    const validationError = validateProfileForm({
+      username,
+      nationalId,
+      firstName,
+      lastName,
+      phoneLocal,
+      canEditCi: canEditNationalId(me?.role),
+    })
+    if (validationError) return setMsg(validationError)
     setSaving(true)
     try{
-      const payload:any = {
+      const payload = buildProfilePayload({
         username,
         firstName,
         lastName,
-        phone: phoneLocal? `+598${normLocalPhoneUY(phoneLocal)}`: undefined,
-        birthdate: birthdate? new Date(birthdate).toISOString(): undefined,
-      }
-      if (me?.role === 'ADMIN') {
-        payload.nationalId = nationalId
-      }
+        phoneLocal,
+        birthdate,
+        nationalId,
+        isAdmin: canEditNationalId(me?.role),
+      })
       await api('/auth/profile',{ method:'PUT', body: JSON.stringify(payload)})
       setMsg('Perfil actualizado')
     }catch(e:any){
-      if(String(e?.message||'').includes('409')) setMsg('Usuario o cédula ya registrados')
-      else if(String(e?.message||'').includes('403')) setMsg('No tienes permisos para cambiar cédula/rol')
-      else setMsg('Error al guardar')
+      setMsg(getProfileErrorMessage(e))
     }finally{ setSaving(false) }
   }
 
@@ -84,15 +141,14 @@ export default function ProfilePage(){
     if(!hasPassword) return
     setMsg('')
     if(newPassword!==confirm) return setMsg('Las contraseñas no coinciden')
-    if(!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)) return setMsg('Contraseña débil')
+    if(!isStrongPassword(newPassword)) return setMsg('Contraseña débil')
     setSavingPass(true)
     try{
       await api('/auth/password/change',{ method:'PUT', body: JSON.stringify({ currentPassword, newPassword }) })
       setMsg('Contraseña actualizada')
       setCurrentPassword(''); setNewPassword(''); setConfirm('')
     }catch(e:any){
-      if(String(e?.message||'').includes('401')) setMsg('Contraseña actual incorrecta')
-      else setMsg('No se pudo actualizar la contraseña')
+      setMsg(getPasswordErrorMessage(e))
     }finally{ setSavingPass(false) }
   }
 

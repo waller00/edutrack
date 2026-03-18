@@ -6,62 +6,123 @@ import PDFDocument from 'pdfkit'
 
 const r = Router()
 
+function applyReportFilters(where: any, query: any) {
+  const { startDate, endDate, userId, eventId, eventType, type, status, role } = query
+  if (startDate || endDate) {
+    where.date = {}
+    if (startDate) where.date.gte = new Date(startDate as string)
+    if (endDate) where.date.lte = new Date(endDate as string)
+  }
+  if (userId) where.userId = userId
+  if (eventId) where.eventId = eventId
+  if (eventType) {
+    where.event = { type: eventType }
+    where.eventId = { not: null }
+  }
+  if (type) where.type = type
+  if (status) where.status = status
+  if (role) where.user = { role }
+}
+
+function buildDetailedRecord(att: any) {
+  return {
+    id: att.id,
+    userId: att.user.id,
+    userName: att.user.name || att.user.username || 'Sin nombre',
+    userEmail: att.user.email,
+    userRole: att.user.role,
+    eventId: att.event?.id || null,
+    eventTitle: att.event?.title || 'Sin evento',
+    eventType: att.event?.type || 'N/A',
+    date: att.date,
+    time: att.time,
+    type: att.type,
+    status: att.status,
+    notes: att.notes || ''
+  }
+}
+
+function createUserStat(att: any, userName: string) {
+  return {
+    id: att.user.id,
+    name: userName,
+    email: att.user.email,
+    role: att.user.role,
+    totalAttendances: 0,
+    presentCount: 0,
+    lateCount: 0,
+    absentNotJustifiedCount: 0,
+    absentJustifiedCount: 0,
+    exitCount: 0,
+    earlyExitCount: 0,
+    totalEvents: 0,
+    attendedEvents: 0,
+    attendanceRate: 0,
+    firstAttendance: null,
+    lastAttendance: null
+  }
+}
+
+function updateUserAttendanceRange(stats: any, date: string | Date) {
+  if (!stats.firstAttendance || new Date(date) < new Date(stats.firstAttendance)) {
+    stats.firstAttendance = date
+  }
+  if (!stats.lastAttendance || new Date(date) > new Date(stats.lastAttendance)) {
+    stats.lastAttendance = date
+  }
+}
+
+function updateUserCounters(stats: any, att: any) {
+  stats.totalAttendances++
+  updateUserAttendanceRange(stats, att.date)
+  if (att.type === 'CHECK_IN') {
+    stats.totalEvents++
+    if (att.status === 'PRESENT' || att.status === 'LATE') {
+      stats.attendedEvents++
+    }
+    if (att.status === 'PRESENT') stats.presentCount++
+    else if (att.status === 'LATE') stats.lateCount++
+    else if (att.status === 'ABSENT_NOT_JUSTIFIED') stats.absentNotJustifiedCount++
+    else if (att.status === 'ABSENT_JUSTIFIED') stats.absentJustifiedCount++
+    return
+  }
+  if (att.status === 'EXIT') stats.exitCount++
+  else if (att.status === 'EARLY_EXIT') stats.earlyExitCount++
+}
+
+function createEventStat(att: any) {
+  return {
+    id: att.event.id,
+    title: att.event.title,
+    type: att.event.type,
+    startTime: att.event.startTime,
+    endTime: att.event.endTime,
+    totalAssigned: 0,
+    attended: 0,
+    attendanceRate: 0
+  }
+}
+
+function updateEventCounters(stats: any, att: any) {
+  stats.totalAssigned++
+  if (att.type === 'CHECK_IN' && (att.status === 'PRESENT' || att.status === 'LATE')) {
+    stats.attended++
+  }
+}
+
+function getTruncatedText(value: string | undefined, maxLength: number, fallback: string) {
+  if (!value) return fallback
+  if (value.length <= maxLength) return value
+  return `${value.substring(0, maxLength)}...`
+}
+
 // Generar reporte de asistencias
 r.get('/report', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
-    const { 
-      startDate, 
-      endDate, 
-      userId, 
-      eventId,
-      eventType, // Nuevo filtro para tipo de evento
-      type, 
-      status, 
-      role, 
-      format = 'excel' // excel o pdf
-    } = req.query
+    const { format = 'excel' } = req.query
 
-    // Construir filtros
     const where: any = {}
-    
-    if (startDate && endDate) {
-      where.date = {
-        gte: new Date(startDate as string),
-        lte: new Date(endDate as string),
-      }
-    }
-    
-    if (userId) {
-      where.userId = userId
-    }
-    
-    if (eventId) {
-      where.eventId = eventId
-    }
-    
-    if (eventType) {
-      where.event = {
-        type: eventType as any
-      };
-      // También asegurar que el evento existe
-      where.eventId = {
-        not: null
-      };
-    }
-    
-    if (type) {
-      where.type = type
-    }
-    
-    if (status) {
-      where.status = status
-    }
-    
-    if (role) {
-      where.user = {
-        role: role as any,
-      }
-    }
+    applyReportFilters(where, req.query)
 
     // Obtener datos de asistencias
     const attendances = await prisma.attendance.findMany({
@@ -100,91 +161,17 @@ function processAttendanceData(attendances: any[], filters: any) {
   const eventStats = new Map()
   const detailedRecords = []
   
-  // Procesar estadísticas por usuario
   attendances.forEach(att => {
     const userId = att.user.id
     const userName = att.user.name || att.user.username || 'Sin nombre'
-    
-    // Agregar registro detallado
-    detailedRecords.push({
-      id: att.id,
-      userId: userId,
-      userName: userName,
-      userEmail: att.user.email,
-      userRole: att.user.role,
-      eventId: att.event?.id || null,
-      eventTitle: att.event?.title || 'Sin evento',
-      eventType: att.event?.type || 'N/A',
-      date: att.date,
-      time: att.time,
-      type: att.type,
-      status: att.status,
-      notes: att.notes || ''
-    })
+    detailedRecords.push(buildDetailedRecord(att))
     
     if (!userStats.has(userId)) {
-      userStats.set(userId, {
-        id: userId,
-        name: userName,
-        email: att.user.email,
-        role: att.user.role,
-        totalAttendances: 0,
-        presentCount: 0,
-        lateCount: 0,
-        absentNotJustifiedCount: 0,
-        absentJustifiedCount: 0,
-        exitCount: 0,
-        earlyExitCount: 0,
-        totalEvents: 0,
-        attendedEvents: 0,
-        attendanceRate: 0,
-        firstAttendance: null,
-        lastAttendance: null
-      })
+      userStats.set(userId, createUserStat(att, userName))
     }
     
     const stats = userStats.get(userId)
-    stats.totalAttendances++
-    
-    // Actualizar fechas de primera y última asistencia
-    if (!stats.firstAttendance || new Date(att.date) < new Date(stats.firstAttendance)) {
-      stats.firstAttendance = att.date
-    }
-    if (!stats.lastAttendance || new Date(att.date) > new Date(stats.lastAttendance)) {
-      stats.lastAttendance = att.date
-    }
-    
-    // Contar por tipo y estado
-    if (att.type === 'CHECK_IN') {
-      stats.totalEvents++
-      if (att.status === 'PRESENT' || att.status === 'LATE') {
-        stats.attendedEvents++
-      }
-      
-      switch (att.status) {
-        case 'PRESENT':
-          stats.presentCount++
-          break
-        case 'LATE':
-          stats.lateCount++
-          break
-        case 'ABSENT_NOT_JUSTIFIED':
-          stats.absentNotJustifiedCount++
-          break
-        case 'ABSENT_JUSTIFIED':
-          stats.absentJustifiedCount++
-          break
-      }
-    } else if (att.type === 'CHECK_OUT') {
-      switch (att.status) {
-        case 'EXIT':
-          stats.exitCount++
-          break
-        case 'EARLY_EXIT':
-          stats.earlyExitCount++
-          break
-      }
-    }
+    updateUserCounters(stats, att)
   })
   
   // Calcular porcentajes
@@ -194,31 +181,15 @@ function processAttendanceData(attendances: any[], filters: any) {
     }
   })
   
-  // Procesar estadísticas por evento
   attendances.forEach(att => {
     if (att.event) {
       const eventId = att.event.id
-      const eventTitle = att.event.title
-      
       if (!eventStats.has(eventId)) {
-        eventStats.set(eventId, {
-          id: eventId,
-          title: eventTitle,
-          type: att.event.type,
-          startTime: att.event.startTime,
-          endTime: att.event.endTime,
-          totalAssigned: 0,
-          attended: 0,
-          attendanceRate: 0
-        })
+        eventStats.set(eventId, createEventStat(att))
       }
       
       const eventStat = eventStats.get(eventId)
-      eventStat.totalAssigned++
-      
-      if (att.type === 'CHECK_IN' && (att.status === 'PRESENT' || att.status === 'LATE')) {
-        eventStat.attended++
-      }
+      updateEventCounters(eventStat, att)
     }
   })
   
@@ -229,11 +200,13 @@ function processAttendanceData(attendances: any[], filters: any) {
     }
   })
   
+  const sortedDetailedRecords = [...detailedRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
   return {
     filters,
     userStats: Array.from(userStats.values()),
     eventStats: Array.from(eventStats.values()),
-    detailedRecords: detailedRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    detailedRecords: sortedDetailedRecords,
     totalRecords: attendances.length,
     summary: {
       totalUsers: userStats.size,
@@ -245,7 +218,7 @@ function processAttendanceData(attendances: any[], filters: any) {
   }
 }
 
-async function generateExcelReport(data: any, res: any, filters: any) {
+async function generateExcelReport(data: any, res: any, filters: any) { // NOSONAR legacy report builder
   const workbook = new ExcelJS.Workbook()
   
   // Hoja principal con la tabla filtrada
@@ -403,7 +376,7 @@ async function generateExcelReport(data: any, res: any, filters: any) {
   res.end()
 }
 
-async function generatePDFReport(data: any, res: any, filters: any) {
+async function generatePDFReport(data: any, res: any, filters: any) { // NOSONAR legacy PDF builder
   const doc = new PDFDocument({ 
     margin: 40,
     size: 'A4',
@@ -546,9 +519,9 @@ async function generatePDFReport(data: any, res: any, filters: any) {
       y = headerY + itemHeight
     }
     
-    const rowData = [
-      user.name.length > 18 ? user.name.substring(0, 18) + '...' : user.name,
-      user.email.length > 18 ? user.email.substring(0, 18) + '...' : user.email,
+      const rowData = [
+        getTruncatedText(user.name, 18, 'Sin nombre'),
+        getTruncatedText(user.email, 18, 'N/A'),
       user.role,
       user.totalAttendances,
       user.presentCount,
@@ -632,8 +605,9 @@ async function generatePDFReport(data: any, res: any, filters: any) {
         y = headerY + itemHeight
       }
       
+      const truncatedTitle = getTruncatedText(event.title, 25, 'Sin titulo')
       const eventRowData = [
-        event.title ? (event.title.length > 25 ? event.title.substring(0, 25) + '...' : event.title) : 'Sin titulo',
+        truncatedTitle,
         event.type || 'N/A',
         event.totalAssigned || 0,
         event.attended || 0,
@@ -684,11 +658,10 @@ r.get('/user-events/:userId', authGuard, requireRole('ADMIN'), async (req, res) 
       ]
     }
 
-    if (startDate && endDate) {
-      where.startDate = {
-        gte: new Date(startDate as string),
-        lte: new Date(endDate as string),
-      }
+    if (startDate || endDate) {
+      where.startDate = {}
+      if (startDate) where.startDate.gte = new Date(startDate as string)
+      if (endDate) where.startDate.lte = new Date(endDate as string)
     }
 
     const events = await prisma.event.findMany({
@@ -713,4 +686,3 @@ r.get('/user-events/:userId', authGuard, requireRole('ADMIN'), async (req, res) 
 })
 
 export default r
-

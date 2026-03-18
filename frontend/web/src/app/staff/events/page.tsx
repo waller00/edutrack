@@ -40,7 +40,7 @@ export default function StaffEvents() {
 
   useEffect(() => {
     api('/auth/me')
-      .then((u: any) => {
+      .then((u) => {
         setMe(u)
         setLoading(false)
       })
@@ -81,7 +81,7 @@ export default function StaffEvents() {
       if (endDate) params.set('endDate', endDate)
       params.set('assignedUserId', me.id)
 
-      const data = await api(`/events/my-events?${params.toString()}`) as Event[]
+      const data = await api<Event[]>(`/events/my-events?${params.toString()}`)
       setEvents(data)
     } catch (error) {
       console.error('Error cargando eventos:', error)

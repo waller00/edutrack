@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma.js';
 import { authGuard, requireRole, requireAnyRole } from '../middlewares/auth.js';
 
@@ -18,6 +19,79 @@ const attendanceUpdateSchema = z.object({
   status: z.enum(['PRESENT', 'LATE', 'ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'EXIT', 'EARLY_EXIT']).optional(),
   notes: z.string().optional(),
 });
+
+type RegisterStatus = 'PRESENT' | 'LATE' | 'ABSENT_JUSTIFIED' | 'EXIT' | 'EARLY_EXIT';
+
+function getDuplicateAttendanceMessage(type: 'CHECK_IN' | 'CHECK_OUT') {
+  return `Ya existe un registro de ${type === 'CHECK_IN' ? 'entrada' : 'salida'} para este evento en esta fecha`
+}
+
+function getAttendanceStatus(params: {
+  type: 'CHECK_IN' | 'CHECK_OUT'
+  actualTime: Date
+  startTime?: Date | string | null
+  endTime?: Date | string | null
+  hasApprovedLicense: boolean
+}): RegisterStatus {
+  if (params.hasApprovedLicense) return 'ABSENT_JUSTIFIED'
+  if (params.type === 'CHECK_IN') {
+    if (!params.startTime) return 'PRESENT'
+    const expectedTime = new Date(params.startTime)
+    const minutesLate = Math.floor((params.actualTime.getTime() - expectedTime.getTime()) / (1000 * 60))
+    return minutesLate > 5 ? 'LATE' : 'PRESENT'
+  }
+  if (!params.endTime) return 'PRESENT'
+  const expectedTime = new Date(params.endTime)
+  const minutesEarly = Math.floor((expectedTime.getTime() - params.actualTime.getTime()) / (1000 * 60))
+  return minutesEarly > 5 ? 'EARLY_EXIT' : 'EXIT'
+}
+
+function normalizeAttendanceDate(date: string) {
+  return new Date(date)
+}
+
+function buildBiometricAttendancePayload(params: {
+  userId: string
+  attendanceDate: Date
+  attendanceTime: Date
+  deviceId?: string
+  isLate?: boolean
+  type: 'CHECK_IN' | 'CHECK_OUT'
+}): Prisma.AttendanceUncheckedCreateInput {
+  const baseNote = params.type === 'CHECK_OUT' ? 'Salida automática' : 'Entrada automática'
+  const lateNote = params.type === 'CHECK_IN' && params.isLate ? ' - RETRASO' : ''
+  return {
+    userId: params.userId,
+    type: params.type,
+    status: getBiometricStatus(params.type, params.isLate),
+    date: params.attendanceDate,
+    time: params.attendanceTime,
+    notes: `${baseNote}${lateNote} - Dispositivo: ${params.deviceId || 'N/A'}`
+  }
+}
+
+function isBiometricLate(attendanceTime: Date) {
+  return attendanceTime.getHours() > 8 || (attendanceTime.getHours() === 8 && attendanceTime.getMinutes() > 30)
+}
+
+function getBiometricStatus(type: 'CHECK_IN' | 'CHECK_OUT', isLate?: boolean) {
+  if (type !== 'CHECK_IN') return 'PRESENT'
+  return isLate ? 'LATE' : 'PRESENT'
+}
+
+function applyDateRangeFilter(where: any, startDate?: unknown, endDate?: unknown) {
+  if (!startDate && !endDate) return
+
+  where.date = {}
+
+  if (startDate) {
+    where.date.gte = new Date(startDate as string)
+  }
+
+  if (endDate) {
+    where.date.lte = new Date(endDate as string)
+  }
+}
 
 // Registrar asistencia (CHECK_IN o CHECK_OUT)
 r.post('/register', authGuard, async (req, res) => {
@@ -64,13 +138,11 @@ r.post('/register', authGuard, async (req, res) => {
     });
 
     if (existingAttendance) {
-      return res.status(409).json({ 
-        message: `Ya existe un registro de ${type === 'CHECK_IN' ? 'entrada' : 'salida'} para este evento en esta fecha` 
-      });
+      return res.status(409).json({ message: getDuplicateAttendanceMessage(type) });
     }
 
     // Verificar si el usuario tiene una licencia médica aprobada en esta fecha
-    const attendanceDate = new Date(date);
+    const attendanceDate = normalizeAttendanceDate(date);
     const approvedLicense = await prisma.medicalLeave.findFirst({
       where: {
         userId: user.sub,
@@ -81,41 +153,14 @@ r.post('/register', authGuard, async (req, res) => {
     });
 
     // Calcular el status basado en el evento
-    let status = 'PRESENT';
     const actualTime = new Date(time);
-    
-    if (type === 'CHECK_IN') {
-      // Para CHECK_IN, comparar con startTime del evento
-      if (event.startTime) {
-        const expectedTime = new Date(event.startTime);
-        const timeDiff = actualTime.getTime() - expectedTime.getTime();
-        const minutesLate = Math.floor(timeDiff / (1000 * 60));
-        
-        if (minutesLate > 5) { // Más de 5 minutos tarde
-          status = 'LATE';
-        } else {
-          status = 'PRESENT';
-        }
-      }
-    } else if (type === 'CHECK_OUT') {
-      // Para CHECK_OUT, comparar con endTime del evento
-      if (event.endTime) {
-        const expectedTime = new Date(event.endTime);
-        const timeDiff = expectedTime.getTime() - actualTime.getTime();
-        const minutesEarly = Math.floor(timeDiff / (1000 * 60));
-        
-        if (minutesEarly > 5) { // Más de 5 minutos antes
-          status = 'EARLY_EXIT';
-        } else {
-          status = 'EXIT';
-        }
-      }
-    }
-
-    // Si tiene licencia médica aprobada, marcar como ausente justificado
-    if (approvedLicense) {
-      status = 'ABSENT_JUSTIFIED';
-    }
+    const status = getAttendanceStatus({
+      type,
+      actualTime,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      hasApprovedLicense: Boolean(approvedLicense),
+    });
 
     const attendance = await prisma.attendance.create({
       data: {
@@ -125,7 +170,7 @@ r.post('/register', authGuard, async (req, res) => {
         time: actualTime,
         notes,
         eventId,
-        status: status as any,
+        status,
       },
       include: {
         user: {
@@ -156,12 +201,7 @@ r.get('/my-attendances', authGuard, async (req, res) => {
       userId: user.sub,
     };
 
-    if (startDate && endDate) {
-      where.date = {
-        gte: new Date(startDate as string),
-        lte: new Date(endDate as string),
-      };
-    }
+    applyDateRangeFilter(where, startDate, endDate)
 
     if (type) {
       where.type = type;
@@ -197,12 +237,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
 
     const where: any = {};
 
-    if (startDate && endDate) {
-      where.date = {
-        gte: new Date(startDate as string),
-        lte: new Date(endDate as string),
-      };
-    }
+    applyDateRangeFilter(where, startDate, endDate)
 
     if (userId) {
       where.userId = userId;
@@ -255,7 +290,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
     console.error('Error obteniendo todas las asistencias:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
-});
+})
 
 // Actualizar asistencia (solo ADMIN)
 r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
@@ -313,12 +348,7 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
     
     const where: any = {};
     
-    if (startDate && endDate) {
-      where.date = {
-        gte: new Date(startDate as string),
-        lte: new Date(endDate as string),
-      };
-    }
+    applyDateRangeFilter(where, startDate, endDate)
 
     // Si no es ADMIN, solo puede ver sus propias estadísticas
     if (user.role !== 'ADMIN') {
@@ -354,7 +384,7 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
 // Registrar asistencia automática (desde sistema biométrico)
 r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
-    const { userId, timestamp, biometricData, deviceId } = req.body;
+    const { userId, timestamp, deviceId } = req.body;
     
     if (!userId || !timestamp) {
       return res.status(400).json({ message: 'userId y timestamp son requeridos' });
@@ -374,7 +404,6 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
     });
 
     if (existingEntry) {
-      // Ya existe entrada, crear salida
       const existingExit = await prisma.attendance.findFirst({
         where: {
           userId,
@@ -389,16 +418,8 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
         });
       }
 
-      // Crear salida
       const exitAttendance = await prisma.attendance.create({
-        data: {
-          userId,
-          type: 'CHECK_OUT',
-          status: 'PRESENT',
-          date: attendanceDate,
-          time: attendanceTime,
-          notes: `Salida automática - Dispositivo: ${deviceId || 'N/A'}`
-        },
+        data: buildBiometricAttendancePayload({ userId, attendanceDate, attendanceTime, deviceId, type: 'CHECK_OUT' }),
         include: {
           user: { select: { id: true, name: true, email: true, role: true } }
         }
@@ -409,33 +430,23 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
         attendance: exitAttendance,
         message: 'Salida registrada automáticamente'
       });
-    } else {
-      // No existe entrada, crear entrada
-      // Determinar si es entrada tardía (después de las 8:30 AM)
-      const isLate = attendanceTime.getHours() > 8 || 
-                    (attendanceTime.getHours() === 8 && attendanceTime.getMinutes() > 30);
-      
-      const entryAttendance = await prisma.attendance.create({
-        data: {
-          userId,
-          type: 'CHECK_IN',
-          status: isLate ? 'LATE' : 'PRESENT',
-          date: attendanceDate,
-          time: attendanceTime,
-          notes: `Entrada automática${isLate ? ' - RETRASO' : ''} - Dispositivo: ${deviceId || 'N/A'}`
-        },
-        include: {
-          user: { select: { id: true, name: true, email: true, role: true } }
-        }
-      });
-
-      return res.status(201).json({
-        type: 'CHECK_IN',
-        attendance: entryAttendance,
-        message: isLate ? 'Entrada registrada - RETRASO detectado' : 'Entrada registrada correctamente',
-        isLate
-      });
     }
+
+    const isLate = isBiometricLate(attendanceTime)
+    
+    const entryAttendance = await prisma.attendance.create({
+      data: buildBiometricAttendancePayload({ userId, attendanceDate, attendanceTime, deviceId, isLate, type: 'CHECK_IN' }),
+      include: {
+        user: { select: { id: true, name: true, email: true, role: true } }
+      }
+    });
+
+    return res.status(201).json({
+      type: 'CHECK_IN',
+      attendance: entryAttendance,
+      message: isLate ? 'Entrada registrada - RETRASO detectado' : 'Entrada registrada correctamente',
+      isLate
+    });
   } catch (error) {
     console.error('Error registrando asistencia biométrica:', error);
     res.status(500).json({ message: 'Error interno del servidor' });

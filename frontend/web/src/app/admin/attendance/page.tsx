@@ -33,13 +33,177 @@ type User = {
   username?: string
 }
 
+type AttendanceStatusOption = AttendanceRecord['status']
+type AttendanceTypeOption = AttendanceRecord['type']
+
+function getMessageClass(message: string) {
+  return message.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+}
+
+function getAttendanceTypeStyle(type: AttendanceTypeOption) {
+  return type === 'CHECK_IN' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+}
+
+function getAttendanceTypeLabel(type: AttendanceTypeOption) {
+  return type === 'CHECK_IN' ? 'Entrada' : 'Salida'
+}
+
+function getAttendanceStatusStyle(status: AttendanceStatusOption) {
+  switch (status) {
+    case 'PRESENT':
+    case 'EXIT':
+      return 'bg-green-100 text-green-800'
+    case 'LATE':
+      return 'bg-yellow-100 text-yellow-800'
+    case 'EARLY_EXIT':
+    case 'ABSENT_NOT_JUSTIFIED':
+      return 'bg-red-100 text-red-800'
+    case 'ABSENT_JUSTIFIED':
+      return 'bg-orange-100 text-orange-800'
+  }
+}
+
+function getAttendanceStatusLabel(status: AttendanceStatusOption) {
+  switch (status) {
+    case 'PRESENT':
+      return 'Presente'
+    case 'LATE':
+      return 'Tarde'
+    case 'EXIT':
+      return 'Salida'
+    case 'EARLY_EXIT':
+      return 'Salida Anticipada'
+    case 'ABSENT_NOT_JUSTIFIED':
+      return 'Ausente (No Justificada)'
+    case 'ABSENT_JUSTIFIED':
+      return 'Ausente (Justificada)'
+  }
+}
+
+function getPlannedTimeLabel(attendance: AttendanceRecord) {
+  if (!attendance.event) return 'N/A'
+
+  if (attendance.type === 'CHECK_IN' && attendance.event.startTime) {
+    return new Date(attendance.event.startTime).toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  if (attendance.type === 'CHECK_OUT' && attendance.event.endTime) {
+    return new Date(attendance.event.endTime).toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  return 'N/A'
+}
+
+function renderAttendancesTable(
+  attendances: AttendanceRecord[],
+  onEdit: (attendance: AttendanceRecord) => void,
+  onDelete: (id: string) => void
+) {
+  if (attendances.length === 0) {
+    return <div className="p-6 text-center text-gray-500">No hay registros de asistencia</div>
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hora</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200">
+          {attendances.map((attendance) => (
+            <tr key={attendance.id}>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <div>
+                  <div className="font-medium text-gray-900">{attendance.user.name}</div>
+                  <div className="text-gray-500">{attendance.user.email}</div>
+                  <div className="text-xs text-gray-400">{attendance.user.role}</div>
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                {new Date(attendance.date).toLocaleDateString('es-ES')}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <div className="flex flex-col">
+                  <div className="font-medium">
+                    {new Date(attendance.time).toLocaleTimeString('es-ES', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </div>
+                  {attendance.event && (
+                    <div className="text-xs text-gray-500">
+                      Planificado: {getPlannedTimeLabel(attendance)}
+                    </div>
+                  )}
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                {attendance.event ? (
+                  <div>
+                    <div className="font-medium">{attendance.event.title}</div>
+                    <div className="text-xs text-gray-500">{attendance.event.type}</div>
+                  </div>
+                ) : (
+                  <span className="text-gray-400">Sin evento</span>
+                )}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceTypeStyle(attendance.type)}`}>
+                  {getAttendanceTypeLabel(attendance.type)}
+                </span>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceStatusStyle(attendance.status)}`}>
+                  {getAttendanceStatusLabel(attendance.status)}
+                </span>
+              </td>
+              <td className="px-6 py-4 text-sm text-gray-900">
+                {attendance.notes || '-'}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <div className="flex gap-2">
+                  <button onClick={() => onEdit(attendance)} className="text-indigo-600 hover:text-indigo-900">
+                    Editar
+                  </button>
+                  <button onClick={() => onDelete(attendance.id)} className="text-red-600 hover:text-red-900">
+                    Eliminar
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function getDefaultStartDate() {
+  return `${new Date().getFullYear()}-01-01`
+}
+
 export default function AdminAttendance() {
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<AttendanceRecord | null>(null)
   const [filters, setFilters] = useState({
-    startDate: '',
+    startDate: getDefaultStartDate(),
     endDate: '',
     userId: '',
     eventId: '',
@@ -89,12 +253,12 @@ export default function AdminAttendance() {
       if (filters.status) params.set('status', filters.status)
       if (filters.role) params.set('role', filters.role)
 
-      const data = await api(`/attendance/all?${params.toString()}`) as {
+      const data = await api<{
         total: number
         page: number
         pageSize: number
         data: AttendanceRecord[]
-      }
+      }>(`/attendance/all?${params.toString()}`)
       
       setAttendances(data.data)
       setTotal(data.total)
@@ -107,9 +271,9 @@ export default function AdminAttendance() {
 
   async function loadUsers() {
     try {
-      const data = await api('/admin/users?pageSize=100') as {
+      const data = await api<{
         data: User[]
-      }
+      }>('/admin/users?pageSize=100')
       setUsers(data.data)
     } catch (error) {
       console.error('Error cargando usuarios:', error)
@@ -127,7 +291,7 @@ export default function AdminAttendance() {
       if (filters.startDate) params.set('startDate', filters.startDate)
       if (filters.endDate) params.set('endDate', filters.endDate)
       
-      const data = await api(`/reports/user-events/${userId}?${params.toString()}`) as any[]
+      const data = await api<any[]>(`/reports/user-events/${userId}?${params.toString()}`)
       setUserEvents(data)
     } catch (error) {
       console.error('Error cargando eventos del usuario:', error)
@@ -299,7 +463,7 @@ export default function AdminAttendance() {
                 <button
                   onClick={() => {
                     setFilters({
-                      startDate: '',
+                      startDate: getDefaultStartDate(),
                       endDate: '',
                       userId: '',
                       eventId: '',
@@ -531,9 +695,7 @@ export default function AdminAttendance() {
         </div>
 
         {message && (
-          <div className={`p-3 rounded ${
-            message.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-          }`}>
+          <div className={`p-3 rounded ${getMessageClass(message)}`}>
             {message}
           </div>
         )}
@@ -544,128 +706,9 @@ export default function AdminAttendance() {
             <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
           </div>
           
-          {loading ? (
-            <div className="p-6 text-center text-gray-500">Cargando...</div>
-          ) : attendances.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">No hay registros de asistencia</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hora</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {attendances.map((attendance) => (
-                    <tr key={attendance.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div>
-                          <div className="font-medium text-gray-900">{attendance.user.name}</div>
-                          <div className="text-gray-500">{attendance.user.email}</div>
-                          <div className="text-xs text-gray-400">{attendance.user.role}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(attendance.date).toLocaleDateString('es-ES')}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <div className="flex flex-col">
-                          <div className="font-medium">
-                            {new Date(attendance.time).toLocaleTimeString('es-ES', { 
-                              hour: '2-digit', 
-                              minute: '2-digit' 
-                            })}
-                          </div>
-                          {attendance.event && (
-                            <div className="text-xs text-gray-500">
-                              Planificado: {
-                                attendance.type === 'CHECK_IN' && attendance.event.startTime
-                                  ? new Date(attendance.event.startTime).toLocaleTimeString('es-ES', { 
-                                      hour: '2-digit', 
-                                      minute: '2-digit' 
-                                    })
-                                  : attendance.type === 'CHECK_OUT' && attendance.event.endTime
-                                  ? new Date(attendance.event.endTime).toLocaleTimeString('es-ES', { 
-                                      hour: '2-digit', 
-                                      minute: '2-digit' 
-                                    })
-                                  : 'N/A'
-                              }
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {attendance.event ? (
-                          <div>
-                            <div className="font-medium">{attendance.event.title}</div>
-                            <div className="text-xs text-gray-500">{attendance.event.type}</div>
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">Sin evento</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          attendance.type === 'CHECK_IN' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {attendance.type === 'CHECK_IN' ? 'Entrada' : 'Salida'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          attendance.status === 'PRESENT' ? 'bg-green-100 text-green-800' :
-                          attendance.status === 'LATE' ? 'bg-yellow-100 text-yellow-800' :
-                          attendance.status === 'EXIT' ? 'bg-green-100 text-green-800' :
-                          attendance.status === 'EARLY_EXIT' ? 'bg-red-100 text-red-800' :
-                          attendance.status === 'ABSENT_NOT_JUSTIFIED' ? 'bg-red-100 text-red-800' :
-                          attendance.status === 'ABSENT_JUSTIFIED' ? 'bg-orange-100 text-orange-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {attendance.status === 'PRESENT' ? 'Presente' :
-                           attendance.status === 'LATE' ? 'Tarde' :
-                           attendance.status === 'EXIT' ? 'Salida' :
-                           attendance.status === 'EARLY_EXIT' ? 'Salida Anticipada' :
-                           attendance.status === 'ABSENT_NOT_JUSTIFIED' ? 'Ausente (No Justificada)' :
-                           attendance.status === 'ABSENT_JUSTIFIED' ? 'Ausente (Justificada)' :
-                           'Desconocido'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {attendance.notes || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setEditing(attendance)}
-                            className="text-indigo-600 hover:text-indigo-900"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            onClick={() => deleteAttendance(attendance.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {loading
+            ? <div className="p-6 text-center text-gray-500">Cargando...</div>
+            : renderAttendancesTable(attendances, setEditing, deleteAttendance)}
 
           {/* Paginación */}
           {total > 20 && (
@@ -706,7 +749,7 @@ export default function AdminAttendance() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
                   <select
                     value={editing.status}
-                    onChange={(e) => setEditing({ ...editing, status: e.target.value as any })}
+                    onChange={(e) => setEditing({ ...editing, status: e.target.value as AttendanceStatusOption })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
                     {editing.type === 'CHECK_IN' ? (

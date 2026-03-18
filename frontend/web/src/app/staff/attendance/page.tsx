@@ -17,14 +17,62 @@ type AttendanceRecord = {
   }
 }
 
+type Me = {
+  id: string
+  email: string
+  role: 'STAFF'
+}
+
+function getDefaultStartDate() {
+  return `${new Date().getFullYear()}-01-01`
+}
+
+function getAttendanceTypeStyle(type: AttendanceRecord['type']) {
+  return type === 'CHECK_IN' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+}
+
+function getAttendanceTypeLabel(type: AttendanceRecord['type']) {
+  return type === 'CHECK_IN' ? 'Entrada' : 'Salida'
+}
+
+function getAttendanceStatusStyle(status: AttendanceRecord['status']) {
+  switch (status) {
+    case 'PRESENT':
+      return 'bg-green-100 text-green-800'
+    case 'LATE':
+      return 'bg-yellow-100 text-yellow-800'
+    case 'MEDICAL_LEAVE':
+      return 'bg-blue-100 text-blue-800'
+    default:
+      return 'bg-gray-100 text-gray-800'
+  }
+}
+
+function getAttendanceStatusLabel(status: AttendanceRecord['status']) {
+  switch (status) {
+    case 'PRESENT':
+      return 'Presente'
+    case 'LATE':
+      return 'Tarde'
+    case 'MEDICAL_LEAVE':
+      return 'Licencia Médica'
+    case 'JUSTIFIED_ABSENCE':
+      return 'Ausencia Justificada'
+    default:
+      return 'Ausente'
+  }
+}
+
 export default function StaffAttendance() {
-  const [me, setMe] = useState<any>(null)
+  const [me, setMe] = useState<Me | null>(null)
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [startDate, setStartDate] = useState(getDefaultStartDate())
+  const [endDate, setEndDate] = useState('')
 
   useEffect(() => {
-    api('/auth/me')
-      .then((u: any) => {
+    api<Me>('/auth/me')
+      .then((u) => {
         setMe(u)
         setLoading(false)
       })
@@ -37,12 +85,16 @@ export default function StaffAttendance() {
     if (me) {
       loadAttendances()
     }
-  }, [me])
+  }, [me, startDate, endDate])
 
   async function loadAttendances() {
     setLoading(true)
     try {
-      const data = await api('/attendance/my-attendances') as AttendanceRecord[]
+      const params = new URLSearchParams()
+      if (startDate) params.set('startDate', startDate)
+      if (endDate) params.set('endDate', endDate)
+      const query = params.toString()
+      const data = await api<AttendanceRecord[]>(`/attendance/my-attendances${query ? `?${query}` : ''}`)
       setAttendances(data)
     } catch (error) {
       console.error('Error cargando asistencias:', error)
@@ -68,6 +120,27 @@ export default function StaffAttendance() {
           </div>
           <div className="text-sm text-gray-500">
             Total: {attendances.length} registros
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
           </div>
         </div>
 
@@ -106,26 +179,13 @@ export default function StaffAttendance() {
                         })}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          attendance.type === 'CHECK_IN' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {attendance.type === 'CHECK_IN' ? 'Entrada' : 'Salida'}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceTypeStyle(attendance.type)}`}>
+                          {getAttendanceTypeLabel(attendance.type)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          attendance.status === 'PRESENT' ? 'bg-green-100 text-green-800' :
-                          attendance.status === 'LATE' ? 'bg-yellow-100 text-yellow-800' :
-                          attendance.status === 'MEDICAL_LEAVE' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {attendance.status === 'PRESENT' ? 'Presente' :
-                           attendance.status === 'LATE' ? 'Tarde' :
-                           attendance.status === 'MEDICAL_LEAVE' ? 'Licencia Médica' :
-                           attendance.status === 'JUSTIFIED_ABSENCE' ? 'Ausencia Justificada' :
-                           'Ausente'}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceStatusStyle(attendance.status)}`}>
+                          {getAttendanceStatusLabel(attendance.status)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">

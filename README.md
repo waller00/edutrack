@@ -16,21 +16,10 @@ Stack:
 
 ## Desarrollo rápido
 ```bash
-# 1) Clonar y entrar
-# 2) Levantar Postgres
-cd backend && docker compose up -d
+# 1) Clonar y entrar al proyecto
 
-# 3) Migraciones
-npx prisma migrate dev --name init
-
-# 4) Backend
-npm install
-npm run dev
-
-# 5) Frontend
-cd ../frontend/web
-npm install
-npm run dev
+# 2) Levantar todo con Docker Compose
+docker compose -f docker-compose.cloud.yml up -d --build
 ```
 
 ## Variables
@@ -38,7 +27,7 @@ npm run dev
 - Copiar `.env.local.example` a `.env.local` en frontend.
 
 ## Producción / Cloud
-- Construir imágenes con los Dockerfiles de backend y frontend.
+- Levantar servicios con `docker compose -f docker-compose.cloud.yml up -d --build`.
 - Definir `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL` y Google OAuth callback según dominio HTTPS.
 - Detrás de HTTPS habilitar `secure: true` en cookie (ver `src/routes/auth.ts`).
 
@@ -85,5 +74,5 @@ Notas:
 ```
 backend/      # auth-service
 frontend/web/ # Next.js
-docker-compose.cloud.yml  # ejemplo para desplegar ambos + postgres
+docker-compose.cloud.yml  # levanta backend + frontend + postgres
 ```

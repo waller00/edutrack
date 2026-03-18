@@ -61,7 +61,7 @@ export default function TestPreprocessingPage() {
       const compressedImage = await compressImage(dniFile, 0.8, 1024);
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
+        reader.onload = () => resolve(String(reader.result || ''));
         reader.readAsDataURL(compressedImage);
       });
 
@@ -195,12 +195,12 @@ export default function TestPreprocessingPage() {
             <h2 className="text-xl font-semibold text-gray-800">Resultados de Pruebas</h2>
             
             <div className="space-y-4">
-              {testResults.map((result, index) => (
-                <div key={index} className={`border rounded-lg p-4 space-y-3 ${index === 0 ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200'}`}>
+              {testResults.map((result) => (
+                <div key={result.strategy} className={`border rounded-lg p-4 space-y-3 ${result.strategy === recommendation?.strategy ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200'}`}>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-gray-800">{result.strategy}</h3>
-                      {index === 0 && <span className="px-2 py-1 rounded text-xs font-medium bg-emerald-100 text-emerald-700">🏆 MEJOR</span>}
+                      {result.strategy === recommendation?.strategy && <span className="px-2 py-1 rounded text-xs font-medium bg-emerald-100 text-emerald-700">🏆 MEJOR</span>}
                     </div>
                     <div className="flex gap-2">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${getConfidenceColor(result.confidence)}`}>

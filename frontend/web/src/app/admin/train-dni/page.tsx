@@ -3,10 +3,61 @@ import { useState } from 'react'
 import { api } from '@/lib/api'
 import RoleGuard from '@/components/RoleGuard'
 
+type TrainingSuggestion = {
+  type: 'success' | 'warning' | 'info'
+  message: string
+  examples?: string[]
+}
+
+type TrainingResult = {
+  imageIndex: number
+  textLength: number
+  score: number
+  extractedData?: {
+    firstName?: string
+    lastName?: string
+    nationalId?: string
+    birthdate?: string
+  }
+  ocrText: string
+}
+
+type TrainingResponse = {
+  analysis: {
+    successfulExtractions: number
+    failedExtractions: number
+    ocrQuality: {
+      averageTextLength: number
+    }
+  }
+  suggestions?: TrainingSuggestion[]
+  results: TrainingResult[]
+}
+
+function getSuggestionCardClass(type: TrainingSuggestion['type']) {
+  if (type === 'success') return 'bg-green-50 border border-green-200'
+  if (type === 'warning') return 'bg-yellow-50 border border-yellow-200'
+  return 'bg-blue-50 border border-blue-200'
+}
+
+function getSuggestionTextClass(type: TrainingSuggestion['type']) {
+  if (type === 'success') return 'text-green-700'
+  if (type === 'warning') return 'text-yellow-700'
+  return 'text-blue-700'
+}
+
+function getTrainingResultStatus(result: TrainingResult) {
+  const isSuccessful = !!(result.extractedData?.firstName && result.extractedData?.lastName)
+  return {
+    className: isSuccessful ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800',
+    label: isSuccessful ? '✅ Exitoso' : '❌ Fallido',
+  }
+}
+
 export default function TrainDniPage() {
   const [images, setImages] = useState<File[]>([])
   const [training, setTraining] = useState(false)
-  const [results, setResults] = useState<any>(null)
+  const [results, setResults] = useState<TrainingResponse | null>(null)
   const [error, setError] = useState('')
 
   function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
@@ -48,7 +99,7 @@ export default function TrainDniPage() {
       const base64Images = await Promise.all(
         images.map(file => new Promise<string>((resolve) => {
           const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
+          reader.onload = () => resolve(String(reader.result || ''))
           reader.readAsDataURL(file)
         }))
       )
@@ -56,10 +107,10 @@ export default function TrainDniPage() {
       console.log(`Training with ${base64Images.length} images...`)
 
       // Call training endpoint
-      const response = await api('/auth/train-patterns', {
+      const response = await api<TrainingResponse>('/auth/train-patterns', {
         method: 'POST',
         body: JSON.stringify({ images: base64Images })
-      }) as any
+      })
 
       console.log('Training results:', response)
       setResults(response)
@@ -126,13 +177,13 @@ export default function TrainDniPage() {
                     Imágenes seleccionadas ({images.length}):
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {images.map((file, index) => (
-                      <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                    {images.map((file) => (
+                      <div key={`${file.name}-${file.size}`} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
                         <span className="text-sm text-gray-600 flex-1 truncate">
                           {file.name}
                         </span>
                         <button
-                          onClick={() => removeImage(index)}
+                          onClick={() => removeImage(images.findIndex((candidate) => candidate === file))}
                           className="text-red-600 hover:text-red-800 text-sm"
                           disabled={training}
                         >
@@ -197,20 +248,12 @@ export default function TrainDniPage() {
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-3">💡 Sugerencias</h3>
                     <div className="space-y-2">
-                      {results.suggestions.map((suggestion: any, index: number) => (
+                      {results.suggestions.map((suggestion) => (
                         <div
-                          key={index}
-                          className={`p-3 rounded-lg ${
-                            suggestion.type === 'success' ? 'bg-green-50 border border-green-200' :
-                            suggestion.type === 'warning' ? 'bg-yellow-50 border border-yellow-200' :
-                            'bg-blue-50 border border-blue-200'
-                          }`}
+                          key={`${suggestion.type}-${suggestion.message}`}
+                          className={`p-3 rounded-lg ${getSuggestionCardClass(suggestion.type)}`}
                         >
-                          <p className={`text-sm ${
-                            suggestion.type === 'success' ? 'text-green-700' :
-                            suggestion.type === 'warning' ? 'text-yellow-700' :
-                            'text-blue-700'
-                          }`}>
+                          <p className={`text-sm ${getSuggestionTextClass(suggestion.type)}`}>
                             {suggestion.message}
                           </p>
                           {suggestion.examples && (
@@ -228,21 +271,16 @@ export default function TrainDniPage() {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-3">📋 Resultados Detallados</h3>
                   <div className="space-y-3">
-                    {results.results.map((result: any, index: number) => (
-                      <div key={index} className="p-4 bg-gray-50 rounded-lg">
+                    {results.results.map((result) => {
+                      const status = getTrainingResultStatus(result)
+                      return (
+                      <div key={`image-${result.imageIndex}`} className="p-4 bg-gray-50 rounded-lg">
                         <div className="flex justify-between items-start mb-2">
                           <h4 className="font-medium text-gray-900">
                             Imagen {result.imageIndex}
                           </h4>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            result.extractedData && result.extractedData.firstName && result.extractedData.lastName
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {result.extractedData && result.extractedData.firstName && result.extractedData.lastName
-                              ? '✅ Exitoso'
-                              : '❌ Fallido'
-                            }
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${status.className}`}>
+                            {status.label}
                           </span>
                         </div>
                         
@@ -264,7 +302,7 @@ export default function TrainDniPage() {
                           </pre>
                         </details>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               </div>
@@ -275,7 +313,6 @@ export default function TrainDniPage() {
     </RoleGuard>
   )
 }
-
 
 
 

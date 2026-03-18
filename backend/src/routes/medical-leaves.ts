@@ -40,8 +40,8 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
     if (userId) where.userId = userId
     if (type) where.type = type
     if (status) where.status = status
-    if (startDate) where.startDate = { gte: new Date(startDate as string) }
-    if (endDate) where.endDate = { lte: new Date(endDate as string) }
+    if (startDate) where.startDate = { gte: new Date(String(startDate)) }
+    if (endDate) where.endDate = { lte: new Date(String(endDate)) }
 
     const skip = (Number(page) - 1) * Number(pageSize)
     const take = Number(pageSize)
@@ -84,7 +84,8 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
 // Obtener licencias médicas del usuario actual
 r.get('/my-leaves', authGuard, async (req, res) => {
   try {
-    const userId = req.user!.id
+    const userId = req.user?.id
+    if (!userId) return res.status(401).json({ message: 'No autorizado' })
     const { page = 1, pageSize = 20 } = req.query
 
     const skip = (Number(page) - 1) * Number(pageSize)
@@ -260,7 +261,7 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
         ...(status && { status }),
         ...(notes && { notes }),
         ...(status && status !== 'PENDING' && {
-          approvedBy: req.user!.id,
+          approvedBy: req.user?.id,
           approvedAt: new Date()
         })
       },
@@ -336,7 +337,7 @@ r.get('/:id', authGuard, async (req, res) => {
     }
 
     // Solo admin puede ver todas las licencias, usuarios solo pueden ver las suyas
-    if (req.user!.role !== 'ADMIN' && license.userId !== req.user!.id) {
+    if (!req.user || (req.user.role !== 'ADMIN' && license.userId !== req.user.id)) {
       return res.status(403).json({ message: 'No tienes permisos para ver esta licencia' })
     }
 

@@ -45,6 +45,95 @@ type User = {
   role: string
 }
 
+type EventTypeOption = Event['type']
+type EventStatusOption = Event['status']
+type RoleOption = 'TEACHER' | 'STAFF' | ''
+type EditableEvent = Pick<Event, 'title' | 'description' | 'type' | 'startDate' | 'startTime' | 'endTime' | 'assignedUserId' | 'recurrenceType' | 'isRecurring' | 'daysOfWeek' | 'recurrenceEnd'> & {
+  assignedUserId: string
+  recurrenceEnd: string
+}
+
+function getMessageClass(message: string) {
+  return message.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+}
+
+function getEventTypeLabel(type: EventTypeOption) {
+  switch (type) {
+    case 'JORNADA_LABORAL':
+      return 'Jornada Laboral'
+    case 'REUNION':
+      return 'Reunión'
+    case 'CLASE':
+      return 'Clase'
+    case 'EVENTO':
+      return 'Evento'
+    case 'CAPACITACION':
+      return 'Capacitación'
+    case 'CITA_MEDICA':
+      return 'Cita Médica'
+  }
+}
+
+function getEventStatusStyle(status: EventStatusOption) {
+  switch (status) {
+    case 'SCHEDULED':
+      return 'bg-blue-100 text-blue-800'
+    case 'IN_PROGRESS':
+      return 'bg-yellow-100 text-yellow-800'
+    case 'COMPLETED':
+      return 'bg-green-100 text-green-800'
+    case 'EXPIRED':
+      return 'bg-gray-100 text-gray-800'
+    case 'CANCELLED':
+      return 'bg-red-100 text-red-800'
+  }
+}
+
+function getEventStatusLabel(status: EventStatusOption) {
+  switch (status) {
+    case 'SCHEDULED':
+      return 'Programado'
+    case 'IN_PROGRESS':
+      return 'En Progreso'
+    case 'COMPLETED':
+      return 'Completado'
+    case 'EXPIRED':
+      return 'Vencido'
+    case 'CANCELLED':
+      return 'Cancelado'
+  }
+}
+
+function getRoleTypeOptions(role: RoleOption) {
+  if (role === 'TEACHER') {
+    return [
+      { value: 'CLASE', label: 'Clase' },
+      { value: 'REUNION', label: 'Reunión' },
+    ]
+  }
+
+  if (role === 'STAFF') {
+    return [
+      { value: 'JORNADA_LABORAL', label: 'Jornada Laboral' },
+      { value: 'REUNION', label: 'Reunión' },
+    ]
+  }
+
+  return []
+}
+
+function renderEventsEmptyState(events: Event[]) {
+  if (events.length === 0) {
+    return <div className="p-6 text-center text-gray-500">No hay eventos</div>
+  }
+
+  return null
+}
+
+function getDefaultStartDate() {
+  return `${new Date().getFullYear()}-01-01`
+}
+
 export default function AdminEvents() {
   const [events, setEvents] = useState<Event[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -52,7 +141,7 @@ export default function AdminEvents() {
   const [creating, setCreating] = useState(false)
   const [editingEvent, setEditingEvent] = useState<Event | null>(null)
   const [filters, setFilters] = useState({
-    startDate: '',
+    startDate: getDefaultStartDate(),
     endDate: '',
     userId: '',
     assignedUserId: '',
@@ -63,21 +152,21 @@ export default function AdminEvents() {
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
 
-  const [newEvent, setNewEvent] = useState({
+  const [newEvent, setNewEvent] = useState<EditableEvent>({
     title: '',
     description: '',
-    type: 'JORNADA_LABORAL' as const,
+    type: 'JORNADA_LABORAL',
     startDate: new Date().toISOString().split('T')[0],
     startTime: '',
     endTime: '',
     assignedUserId: '',
-    recurrenceType: 'NONE' as const,
+    recurrenceType: 'NONE',
     isRecurring: false,
-    daysOfWeek: [] as number[],
+    daysOfWeek: [],
     recurrenceEnd: ''
   })
   
-  const [selectedRole, setSelectedRole] = useState<'TEACHER' | 'STAFF' | ''>('')
+  const [selectedRole, setSelectedRole] = useState<RoleOption>('')
 
   useEffect(() => {
     loadEvents()
@@ -99,12 +188,12 @@ export default function AdminEvents() {
       if (filters.type) params.set('type', filters.type)
       if (filters.status) params.set('status', filters.status)
 
-      const data = await api(`/events/all?${params.toString()}`) as {
+      const data = await api<{
         total: number
         page: number
         pageSize: number
         data: Event[]
-      }
+      }>(`/events/all?${params.toString()}`)
       
       setEvents(data.data)
       setTotal(data.total)
@@ -117,9 +206,9 @@ export default function AdminEvents() {
 
   async function loadUsers() {
     try {
-      const data = await api('/admin/users?pageSize=100') as {
+      const data = await api<{
         data: User[]
-      }
+      }>('/admin/users?pageSize=100')
       setUsers(data.data)
     } catch (error) {
       console.error('Error cargando usuarios:', error)
@@ -249,7 +338,7 @@ export default function AdminEvents() {
             <h2 className="text-lg font-semibold">Filtros</h2>
             <button
               onClick={() => setFilters({
-                startDate: '',
+                startDate: getDefaultStartDate(),
                 endDate: '',
                 userId: '',
                 assignedUserId: '',
@@ -339,9 +428,7 @@ export default function AdminEvents() {
         </div>
 
         {message && (
-          <div className={`p-3 rounded ${
-            message.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-          }`}>
+          <div className={`p-3 rounded ${getMessageClass(message)}`}>
             {message}
           </div>
         )}
@@ -354,9 +441,7 @@ export default function AdminEvents() {
           
           {loading ? (
             <div className="p-6 text-center text-gray-500">Cargando...</div>
-          ) : events.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">No hay eventos</div>
-          ) : (
+          ) : renderEventsEmptyState(events) || (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
@@ -384,12 +469,7 @@ export default function AdminEvents() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {event.type === 'JORNADA_LABORAL' ? 'Jornada Laboral' :
-                           event.type === 'REUNION' ? 'Reunión' :
-                           event.type === 'CLASE' ? 'Clase' :
-                           event.type === 'EVENTO' ? 'Evento' :
-                           event.type === 'CAPACITACION' ? 'Capacitación' :
-                           'Cita Médica'}
+                          {getEventTypeLabel(event.type)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -435,18 +515,8 @@ export default function AdminEvents() {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          event.status === 'SCHEDULED' ? 'bg-blue-100 text-blue-800' :
-                          event.status === 'IN_PROGRESS' ? 'bg-yellow-100 text-yellow-800' :
-                          event.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
-                          event.status === 'EXPIRED' ? 'bg-gray-100 text-gray-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {event.status === 'SCHEDULED' ? 'Programado' :
-                           event.status === 'IN_PROGRESS' ? 'En Progreso' :
-                           event.status === 'COMPLETED' ? 'Completado' :
-                           event.status === 'EXPIRED' ? 'Vencido' :
-                           'Cancelado'}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getEventStatusStyle(event.status)}`}>
+                          {getEventStatusLabel(event.status)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -538,8 +608,8 @@ export default function AdminEvents() {
                           ...newEvent, 
                           isRecurring,
                           recurrenceType: isRecurring ? 'WEEKLY' : 'NONE',
-                          daysOfWeek: isRecurring ? [] : [],
-                          recurrenceEnd: isRecurring ? '' : ''
+                          daysOfWeek: [],
+                          recurrenceEnd: ''
                         })
                       }}
                       className="mr-3 h-4 w-4"
@@ -577,7 +647,7 @@ export default function AdminEvents() {
                   <select
                     value={selectedRole}
                     onChange={(e) => {
-                      const role = e.target.value as 'TEACHER' | 'STAFF' | ''
+                      const role = e.target.value as RoleOption
                       setSelectedRole(role)
                       // Resetear tipo cuando cambia el rol
                       if (role === 'TEACHER') {
@@ -598,22 +668,16 @@ export default function AdminEvents() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
                   <select
                     value={newEvent.type}
-                    onChange={(e) => setNewEvent({ ...newEvent, type: e.target.value as any })}
+                    onChange={(e) => setNewEvent({ ...newEvent, type: e.target.value as EventTypeOption })}
                     disabled={!selectedRole}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
-                    {selectedRole === 'TEACHER' ? (
-                      <>
-                        <option value="CLASE">Clase</option>
-                        <option value="REUNION">Reunión</option>
-                      </>
-                    ) : selectedRole === 'STAFF' ? (
-                      <>
-                        <option value="JORNADA_LABORAL">Jornada Laboral</option>
-                        <option value="REUNION">Reunión</option>
-                      </>
-                    ) : (
+                    {getRoleTypeOptions(selectedRole).length === 0 ? (
                       <option value="">Selecciona un rol primero</option>
+                    ) : (
+                      getRoleTypeOptions(selectedRole).map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))
                     )}
                   </select>
                 </div>
@@ -789,7 +853,7 @@ export default function AdminEvents() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
                   <select
                     value={editingEvent.type}
-                    onChange={(e) => setEditingEvent({ ...editingEvent, type: e.target.value as any })}
+                    onChange={(e) => setEditingEvent({ ...editingEvent, type: e.target.value as EventTypeOption })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
                     <option value="JORNADA_LABORAL">Jornada Laboral</option>
@@ -805,7 +869,7 @@ export default function AdminEvents() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
                   <select
                     value={editingEvent.status}
-                    onChange={(e) => setEditingEvent({ ...editingEvent, status: e.target.value as any })}
+                    onChange={(e) => setEditingEvent({ ...editingEvent, status: e.target.value as EventStatusOption })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
                     <option value="SCHEDULED">Programado</option>

@@ -5,6 +5,20 @@ import { authGuard, requireRole, requireAnyRole } from '../middlewares/auth.js';
 
 const r = Router();
 
+function applyEventStartDateFilter(where: any, startDate?: unknown, endDate?: unknown) {
+  if (!startDate && !endDate) return
+
+  where.startDate = {}
+
+  if (startDate) {
+    where.startDate.gte = new Date(startDate as string)
+  }
+
+  if (endDate) {
+    where.startDate.lte = new Date(endDate as string)
+  }
+}
+
 // Esquemas de validación
 const eventSchema = z.object({
   title: z.string().min(1).max(200),
@@ -60,7 +74,7 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         startTime: eventData.startTime ? new Date(eventData.startTime) : null,
         endTime: eventData.endTime ? new Date(eventData.endTime) : null,
         recurrenceEnd: eventData.recurrenceEnd ? new Date(eventData.recurrenceEnd) : null,
-        daysOfWeek: eventData.daysOfWeek || [],
+        daysOfWeek: eventData.daysOfWeek,
       } as any,
       include: {
         user: {
@@ -85,7 +99,7 @@ r.get('/my-events', authGuard, async (req, res) => {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
-    const { startDate, endDate, type, status, assignedUserId } = req.query;
+    const { startDate, endDate, type, status } = req.query;
     
     const where: any = {
       OR: [
@@ -95,46 +109,43 @@ r.get('/my-events', authGuard, async (req, res) => {
     };
 
     // Si hay filtro de fecha, buscar eventos que puedan tener instancias en ese rango
-    if (startDate && endDate) {
-      const start = new Date(startDate as string);
-      const end = new Date(endDate as string);
-      
+    if (startDate || endDate) {
+      const start = startDate ? new Date(startDate as string) : null;
+      const end = endDate ? new Date(endDate as string) : null;
+      const singleEventDateFilter: any = { isRecurring: false }
+
+      if (start || end) {
+        singleEventDateFilter.startDate = {}
+        if (start) singleEventDateFilter.startDate.gte = start
+        if (end) singleEventDateFilter.startDate.lte = end
+      }
+
+      const recurringEventFilter: any = { isRecurring: true }
+      if (end) {
+        recurringEventFilter.startDate = { lte: end }
+      }
+      if (start) {
+        recurringEventFilter.OR = [
+          { recurrenceEnd: null },
+          { recurrenceEnd: { gte: start } }
+        ]
+      }
+
       where.AND = [
-        // Mantener el filtro del usuario
         {
           OR: [
             { userId: user.sub },
             { assignedUserId: user.sub }
           ]
         },
-        // Agregar filtro de fecha
         {
           OR: [
-            // Eventos únicos que caen en el rango
-            {
-              AND: [
-                { isRecurring: false },
-                { startDate: { gte: start, lte: end } }
-              ]
-            },
-            // Eventos repetitivos que pueden tener instancias en el rango
-            {
-              AND: [
-                { isRecurring: true },
-                { startDate: { lte: end } }, // El evento debe haber empezado antes del final del rango
-                {
-                  OR: [
-                    { recurrenceEnd: null }, // Sin fecha de fin
-                    { recurrenceEnd: { gte: start } } // O que termine después del inicio del rango
-                  ]
-                }
-              ]
-            }
+            singleEventDateFilter,
+            recurringEventFilter
           ]
         }
       ];
-      
-      // Limpiar el OR anterior ya que ahora usamos AND
+
       delete where.OR;
     }
 
@@ -166,12 +177,16 @@ r.get('/my-events', authGuard, async (req, res) => {
     const processedEvents = [];
     
     for (const event of events) {
-      if (event.isRecurring && startDate && endDate && event.daysOfWeek && event.daysOfWeek.length > 0) {
-        const start = new Date(startDate as string);
-        const end = new Date(endDate as string);
+      if (event.isRecurring && event.daysOfWeek && event.daysOfWeek.length > 0 && (startDate || endDate)) {
+        const rangeStart = startDate ? new Date(startDate as string) : new Date(event.startDate)
+        const rangeEnd = endDate
+          ? new Date(endDate as string)
+          : event.recurrenceEnd
+            ? new Date(event.recurrenceEnd)
+            : new Date(Math.max(Date.now(), new Date(event.startDate).getTime()))
         
         // Generar instancias para cada día de la semana en el rango
-        const instances = generateRecurringInstances(event, start, end);
+        const instances = generateRecurringInstances(event, rangeStart, rangeEnd);
         processedEvents.push(...instances);
       } else {
         processedEvents.push(event);
@@ -250,12 +265,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
 
     const where: any = {};
 
-    if (startDate && endDate) {
-      where.startDate = {
-        gte: new Date(startDate as string),
-        lte: new Date(endDate as string),
-      };
-    }
+    applyEventStartDateFilter(where, startDate, endDate)
 
     if (userId) {
       where.userId = userId;

@@ -22,6 +22,40 @@ function isValidUruguayanCI(ci: string) {
   return computeCICheckDigit(base) === check
 }
 
+async function buildAdminUserUpdateData(id: string, payload: {
+  role?: 'ADMIN'|'STAFF'|'TEACHER'
+  username?: string
+  nationalId?: string
+  firstName?: string
+  lastName?: string
+  isApproved?: boolean
+  isActive?: boolean
+}) {
+  const data: any = {}
+  if (payload.role) data.role = payload.role
+  if (payload.username) data.username = payload.username
+  if (payload.firstName) data.firstName = payload.firstName
+  if (payload.lastName) data.lastName = payload.lastName
+  if (payload.firstName || payload.lastName) {
+    const current = await prisma.user.findUnique({ where: { id }, select: { firstName: true, lastName: true } })
+    const firstName = payload.firstName ?? current?.firstName ?? ''
+    const lastName = payload.lastName ?? current?.lastName ?? ''
+    data.name = `${firstName} ${lastName}`.trim()
+  }
+  if (payload.nationalId) {
+    if (!isValidUruguayanCI(payload.nationalId)) throw new Error('INVALID_CI')
+    data.nationalId = onlyDigits(payload.nationalId)
+  }
+  if (typeof payload.isApproved === 'boolean') {
+    data.isApproved = payload.isApproved
+    data.approvedAt = payload.isApproved ? new Date() : null
+  }
+  if (typeof payload.isActive === 'boolean') {
+    data.isActive = payload.isActive
+  }
+  return data
+}
+
 // Listar usuarios (paginado + filtro + búsqueda)
 r.get('/users', async (req, res) => {
   const page = Number((req.query.page as string) || 1)
@@ -67,27 +101,14 @@ r.put('/users/:id', async (req, res) => {
     isActive: z.boolean().optional(),
   }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
-  const data: any = {}
-  if (parsed.data.role) data.role = parsed.data.role
-  if (parsed.data.username) data.username = parsed.data.username
-  if (parsed.data.firstName) data.firstName = parsed.data.firstName
-  if (parsed.data.lastName) data.lastName = parsed.data.lastName
-  if (parsed.data.firstName || parsed.data.lastName) {
-    const current = await prisma.user.findUnique({ where: { id }, select: { firstName: true, lastName: true } })
-    const firstName = parsed.data.firstName ?? current?.firstName ?? ''
-    const lastName = parsed.data.lastName ?? current?.lastName ?? ''
-    data.name = `${firstName} ${lastName}`.trim()
-  }
-  if (parsed.data.nationalId) {
-    if (!isValidUruguayanCI(parsed.data.nationalId)) return res.status(400).json({ message: 'Cédula inválida' })
-    data.nationalId = onlyDigits(parsed.data.nationalId)
-  }
-  if (typeof parsed.data.isApproved === 'boolean') {
-    data.isApproved = parsed.data.isApproved
-    data.approvedAt = parsed.data.isApproved ? new Date() : null
-  }
-  if (typeof parsed.data.isActive === 'boolean') {
-    data.isActive = parsed.data.isActive
+  let data: any
+  try {
+    data = await buildAdminUserUpdateData(id, parsed.data)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_CI') {
+      return res.status(400).json({ message: 'Cédula inválida' })
+    }
+    throw error
   }
   await prisma.user.update({ where: { id }, data })
   res.json({ ok: true })

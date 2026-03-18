@@ -11,11 +11,27 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [externalError, setExternalError] = useState('')
+  /** true hasta saber si ya hay sesión (evita mostrar login estando logueado) */
+  const [sessionPending, setSessionPending] = useState(true)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     setExternalError(params.get('error') || '')
   }, [])
+
+  useEffect(() => {
+    let alive = true
+    api('/auth/me')
+      .then(() => {
+        if (alive) router.replace('/')
+      })
+      .catch(() => {
+        if (alive) setSessionPending(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [router])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -36,6 +52,14 @@ export default function LoginPage() {
 
   function loginWithGoogle() {
     window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/google`
+  }
+
+  if (sessionPending) {
+    return (
+      <main className="min-h-screen gradient-light flex items-center justify-center p-4">
+        <p className="text-gray-600">Cargando…</p>
+      </main>
+    )
   }
 
   return (
