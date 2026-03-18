@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Variables CSS personalizadas para el esquema verde */
+:root {
+  --primary-green: #10b981;
+  --primary-green-dark: #059669;
+  --primary-green-light: #34d399;
+  --secondary-green: #6ee7b7;
+  --accent-green: #a7f3d0;
+  --background-green: #f0fdf4;
+  --border-green: #bbf7d0;
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+}
+
+/* Estilos base modernos */
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+/* Componentes personalizados */
+.btn-primary {
+  @apply bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+}
+
+.btn-secondary {
+  @apply bg-white hover:bg-gray-50 text-emerald-600 border border-emerald-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+}
+
+.btn-success {
+  @apply bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+}
+
+.btn-warning {
+  @apply bg-yellow-500 hover:bg-yellow-600 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+}
+
+.btn-danger {
+  @apply bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+}
+
+.card {
+  @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6 transition-all duration-200 hover:shadow-md;
+}
+
+.card-header {
+  @apply border-b border-gray-100 pb-4 mb-4;
+}
+
+.input-field {
+  @apply w-full border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200;
+}
+
+.select-field {
+  @apply w-full border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 bg-white;
+}
+
+.badge-success {
+  @apply px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800;
+}
+
+.badge-warning {
+  @apply px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800;
+}
+
+.badge-danger {
+  @apply px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800;
+}
+
+.badge-info {
+  @apply px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800;
+}
+
+/* Header moderno */
+.header-modern {
+  @apply bg-white/80 backdrop-blur-md border-b border-gray-200 shadow-sm;
+}
+
+/* Sidebar moderno */
+.sidebar-modern {
+  @apply bg-white border-r border-gray-200 shadow-sm;
+}
+
+/* Tabla moderna */
+.table-modern {
+  @apply min-w-full divide-y divide-gray-200 bg-white rounded-xl overflow-hidden shadow-sm;
+}
+
+.table-modern th {
+  @apply px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider bg-gray-50;
+}
+
+.table-modern td {
+  @apply px-6 py-4 whitespace-nowrap text-sm text-gray-900;
+}
+
+/* Modal moderno */
+.modal-overlay {
+  @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm;
+}
+
+.modal-content {
+  @apply bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto;
+}
+
+/* Loader moderno */
+.loader {
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid var(--primary-green);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Animaciones suaves */
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+/* Gradientes modernos */
+.gradient-green {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.gradient-light {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+/* Sombras modernas */
+.shadow-modern {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-modern-lg {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}

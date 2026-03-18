@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  TEACHER
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  username     String?  @unique
+  nationalId   String?  @unique
+  firstName    String?
+  lastName     String?
+  name         String?
+  phone        String?
+  birthdate    DateTime?
+  passwordHash String?
+  googleId     String?  @unique
+  role         Role     @default(STAFF)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  // relations
+  passwordResets     PasswordReset[]
+  emailVerifications EmailVerification[]
+  refreshTokens      RefreshToken[]
+  attendances        Attendance[]
+  events             Event[]
+  assignedEvents     Event[]       @relation("EventAssignment")
+  medicalLeaves      MedicalLeave[]
+  // security
+  emailVerifiedAt     DateTime?
+  failedLoginAttempts Int       @default(0)
+  lockUntil           DateTime?
+  isApproved          Boolean   @default(true)
+  approvedAt          DateTime?
+  isActive            Boolean   @default(true)
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerification {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id             String   @id @default(uuid())
+  tokenHash      String
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  replacedById   String?
+  createdAt      DateTime @default(now())
+  userAgent      String?
+  ipAddress      String?
+
+  @@index([userId])
+}
+
+// Sistema de Asistencias
+enum AttendanceType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum AttendanceStatus {
+  // Estados para CHECK_IN
+  PRESENT
+  LATE
+  ABSENT_NOT_JUSTIFIED
+  ABSENT_JUSTIFIED
+  
+  // Estados para CHECK_OUT
+  EXIT
+  EARLY_EXIT
+}
+
+model Attendance {
+  id          String           @id @default(uuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        AttendanceType
+  status      AttendanceStatus @default(PRESENT)
+  date        DateTime
+  time        DateTime
+  notes       String?
+  eventId     String?
+  event       Event?           @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([date])
+  @@index([eventId])
+}
+
+// Sistema de Eventos y Turnos
+enum EventType {
+  // Para STAFF
+  JORNADA_LABORAL
+  REUNION
+  // Para TEACHER  
+  CLASE
+  // Comunes
+  EVENTO
+  CAPACITACION
+  CITA_MEDICA
+}
+
+enum EventStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum RecurrenceType {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model Event {
+  id              String         @id @default(uuid())
+  title           String
+  description     String?
+  type            EventType
+  status          EventStatus    @default(SCHEDULED)
+  startDate       DateTime
+  endDate         DateTime?
+  startTime       DateTime?
+  endTime         DateTime?
+  location        String?
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedUserId  String?
+  assignedUser    User?          @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  recurrenceType  RecurrenceType @default(NONE)
+  recurrenceEnd   DateTime?
+  isRecurring     Boolean        @default(false)
+  daysOfWeek      Int[]          @default([]) // Array de días de la semana (0=Domingo, 1=Lunes, etc.)
+  parentEventId   String?
+  parentEvent     Event?         @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
+  childEvents     Event[]        @relation("EventRecurrence")
+  attendances     Attendance[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([assignedUserId])
+  @@index([startDate])
+  @@index([type])
+}
+
+// Sistema de Licencias Médicas
+enum MedicalLeaveType {
+  MEDICAL_LEAVE
+  WORK_LEAVE
+  OTHER
+}
+
+enum MedicalLeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model MedicalLeave {
+  id          String              @id @default(uuid())
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        MedicalLeaveType
+  status      MedicalLeaveStatus  @default(PENDING)
+  startDate   DateTime
+  endDate     DateTime
+  reason      String
+  doctorName  String?
+  doctorPhone String?
+  certificate String? // URL del certificado médico
+  approvedBy  String?
+  approvedAt  DateTime?
+  notes       String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([startDate])
+  @@index([status])
+}
