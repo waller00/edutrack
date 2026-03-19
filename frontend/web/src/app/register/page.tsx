@@ -144,6 +144,7 @@ export default function RegisterPage() {
       setError(validationError)
       return
     }
+    if (!file) return
     
     if (dniPreviewUrl) URL.revokeObjectURL(dniPreviewUrl)
     setDniFile(file)
@@ -614,7 +615,7 @@ export default function RegisterPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          if (dniFile) handleDniUpload({ target: { files: [dniFile] } } as React.ChangeEvent<HTMLInputElement>)
+                          if (dniFile) handleDniUpload({ target: { files: [dniFile] } } as unknown as React.ChangeEvent<HTMLInputElement>)
                         }}
                         className="btn-secondary text-sm px-3 py-1"
                         disabled={processingDni || !dniFile}
@@ -675,7 +676,7 @@ export default function RegisterPage() {
                           ⚠️ Completa todos los campos correctamente antes de crear la cuenta
                         </p>
                         <p className="text-xs text-orange-500 mt-1">
-                          Puedes corregir los datos manualmente y usar "Volver a Verificar" para reprocesar la imagen
+                          Puedes corregir los datos manualmente y usar &quot;Volver a Verificar&quot; para reprocesar la imagen
                         </p>
                       </div>
                     )}

@@ -12,6 +12,8 @@ import eventsRoutes from "./routes/events.js";
 import medicalLeavesRoutes from "./routes/medical-leaves.js";
 import reportsRoutes from "./routes/reports.js";
 import dniProcessorRoutes from "./routes/dni-processor.js";
+import analyticsRoutes from "./routes/analytics.js";
+import exportsRoutes from "./routes/exports.js";
 
 const app = express();
 
@@ -35,6 +37,8 @@ app.use("/events", eventsRoutes);
 app.use("/medical-leaves", medicalLeavesRoutes);
 app.use("/reports", reportsRoutes);
 app.use("/auth", dniProcessorRoutes);
+app.use("/analytics", analyticsRoutes);
+app.use("/exports", exportsRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 

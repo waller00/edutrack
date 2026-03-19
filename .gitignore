@@ -24,3 +24,5 @@ backend/prisma/*.db
 coverage/
 .tmp/
 .cache/
+playwright-report/
+test-results/

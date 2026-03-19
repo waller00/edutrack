@@ -36,7 +36,7 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    api('/auth/me')
+    api<{ id: string }>('/auth/me')
       .then((u: { id: string }) => {
         setMe(u)
         setLoading(false)

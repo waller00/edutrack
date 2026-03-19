@@ -25,6 +25,8 @@ describe('AdminAttendance', () => {
         return { total: 0, page: 1, pageSize: 20, data: [] }
       }
       if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 0, presentCount: 0, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 0 }
       return {}
     })
 
@@ -51,6 +53,8 @@ describe('AdminAttendance', () => {
         return { total: 1, page: 1, pageSize: 20, data: [rec] }
       }
       if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 0, presentCount: 0, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 0 }
       return {}
     })
 
@@ -78,6 +82,10 @@ describe('AdminAttendance', () => {
         return { total: 0, page: 1, pageSize: 20, data: [] }
       }
       if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 0, presentCount: 0, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 0 }
+      if (String(url) === '/exports') return { exportId: 'exp-1' }
+      if (String(url) === '/exports/exp-1') return { status: 'DONE', downloadUrl: '/exports/exp-1/download' }
       return {}
     })
 
@@ -89,9 +97,9 @@ describe('AdminAttendance', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled()
       const call = fetchMock.mock.calls[0][0] as string
-      expect(call).toContain('localhost:4000/reports/report')
-      expect(call).toContain('format=excel')
+      expect(call).toContain('localhost:4000/exports/exp-1/download')
     })
+    expect(mockedApi).toHaveBeenCalledWith('/exports', expect.objectContaining({ method: 'POST' }))
   })
 
   it('marca ausencias vía fetch', async () => {
@@ -106,6 +114,8 @@ describe('AdminAttendance', () => {
         return { total: 0, page: 1, pageSize: 20, data: [] }
       }
       if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 0, presentCount: 0, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 0 }
       return {}
     })
 
@@ -140,6 +150,8 @@ describe('AdminAttendance', () => {
         return { total: 1, page: 1, pageSize: 20, data: [rec] }
       }
       if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 0, presentCount: 0, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 0 }
       if (String(url).endsWith('/attendance/a1') && init?.method === 'DELETE') return {}
       return {}
     })

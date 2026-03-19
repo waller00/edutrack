@@ -37,7 +37,7 @@ export default function MyAttendancePage({ role }: { role: 'TEACHER' | 'STAFF' }
   ).toString()
 
   useEffect(() => {
-    api('/auth/me')
+    api<{ id: string }>('/auth/me')
       .then((u: { id: string }) => {
         setMe(u)
         setLoading(false)

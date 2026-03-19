@@ -294,7 +294,7 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
-    const { startDate, endDate, userId } = req.query;
+    const { startDate, endDate, userId, eventType, eventId, type, status, role } = req.query;
     
     const where: any = {};
     
@@ -307,15 +307,42 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
       where.userId = userId;
     }
 
+    // Filtros equivalentes a los usados para el listado
+    if (user.role === 'ADMIN' && role) {
+      where.user = { role: role as any };
+    }
+    if (eventType) {
+      where.event = { type: eventType as any };
+      // Asegura que eventId no sea null cuando filtramos por tipo de evento
+      where.eventId = { not: null };
+    }
+    if (eventId) {
+      where.eventId = eventId as string;
+    }
+    if (type) {
+      where.type = type as any;
+    }
+    if (status) {
+      where.status = status as any;
+    }
+
     const [totalAttendances, presentCount, absentCount, lateCount, medicalLeaveCount] = await Promise.all([
       prisma.attendance.count({ where }),
       prisma.attendance.count({ where: { ...where, status: 'PRESENT' } }),
-      prisma.attendance.count({ where: { ...where, status: 'ABSENT' } }),
+      prisma.attendance.count({
+        where: {
+          ...where,
+          status: { in: ['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED'] },
+        },
+      }),
       prisma.attendance.count({ where: { ...where, status: 'LATE' } }),
-      prisma.attendance.count({ where: { ...where, status: 'MEDICAL_LEAVE' } }),
-    ]);
+      // Para el panel de asistencias, "médica" se refleja como ausencia justificada.
+      prisma.attendance.count({ where: { ...where, status: 'ABSENT_JUSTIFIED' } }),
+    ])
 
     const attendanceRate = totalAttendances > 0 ? (presentCount / totalAttendances) * 100 : 0;
+    const lateRate = totalAttendances > 0 ? (lateCount / totalAttendances) * 100 : 0;
+    const absenceRate = totalAttendances > 0 ? (absentCount / totalAttendances) * 100 : 0;
 
     res.json({
       totalAttendances,
@@ -324,6 +351,8 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
       lateCount,
       medicalLeaveCount,
       attendanceRate: Math.round(attendanceRate * 100) / 100,
+      lateRate: Math.round(lateRate * 100) / 100,
+      absenceRate: Math.round(absenceRate * 100) / 100,
     });
   } catch (error) {
     console.error('Error obteniendo estadísticas:', error);

@@ -68,9 +68,10 @@ describe('MyAssignedEventsPage', () => {
       .mockResolvedValueOnce([] as never)
 
     render(<MyAssignedEventsPage role="STAFF" />)
+    const allButton = await screen.findByRole('button', { name: 'Todos' })
     await screen.findByText('No hay eventos para mostrar')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Todos' }))
+    fireEvent.click(allButton)
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenLastCalledWith('/events/my-events?assignedUserId=user-1'),

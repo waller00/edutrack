@@ -19,6 +19,12 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       // dni-processor: ~2.3k líneas OCR/sharp/tesseract; excluido de métrica (ver sonar.coverage.exclusions)
       exclude: ["src/**/*.test.ts", "src/routes/dni-processor.ts"],
+      thresholds: {
+        lines: 70,
+        statements: 70,
+        functions: 60,
+        branches: 75,
+      },
     },
   },
 });

@@ -37,6 +37,17 @@ type AttendanceRecord = {
   }
 }
 
+type AttendanceStats = {
+  totalAttendances: number
+  presentCount: number
+  absentCount: number
+  lateCount: number
+  medicalLeaveCount: number
+  attendanceRate: number
+  lateRate: number
+  absenceRate: number
+}
+
 type User = {
   id: string
   name: string
@@ -166,6 +177,9 @@ export default function AdminAttendance() {
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
 
+  const [stats, setStats] = useState<AttendanceStats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
+
   useEffect(() => {
     loadAttendances()
     loadUsers()
@@ -180,6 +194,11 @@ export default function AdminAttendance() {
       setFilters(prev => ({ ...prev, eventId: '' }))
     }
   }, [filters.userId, filters.startDate, filters.endDate])
+
+  useEffect(() => {
+    loadStats()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.startDate, filters.endDate, filters.userId, filters.eventType, filters.eventId, filters.type, filters.status, filters.role])
 
   async function loadAttendances() {
     setLoading(true)
@@ -198,6 +217,31 @@ export default function AdminAttendance() {
       console.error('Error cargando asistencias:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadStats() {
+    setStatsLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (filters.startDate) params.set('startDate', filters.startDate)
+      if (filters.endDate) params.set('endDate', filters.endDate)
+      if (filters.userId) params.set('userId', filters.userId)
+      if (filters.eventType) params.set('eventType', filters.eventType)
+      if (filters.eventId) params.set('eventId', filters.eventId)
+      if (filters.type) params.set('type', filters.type)
+      if (filters.status) params.set('status', filters.status)
+      if (filters.role) params.set('role', filters.role)
+
+      const qs = params.toString()
+      const url = qs ? `/attendance/stats?${qs}` : '/attendance/stats'
+      const data = await api<AttendanceStats>(url)
+      setStats(data)
+    } catch (error) {
+      console.error('Error cargando métricas:', error)
+      setStats(null)
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -260,44 +304,78 @@ export default function AdminAttendance() {
 
   async function exportReport(format: 'excel' | 'pdf') {
     try {
-      const qs = buildAttendanceExportReportQueryString(format, filters)
-      console.log('Generando reporte...', qs)
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+      const to = filters.endDate || new Date().toISOString().split('T')[0]
 
-      const response = await fetch(`http://localhost:4000/reports/report?${qs}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'Accept': format === 'excel' 
-            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            : 'application/pdf',
+      const sanitizePart = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_')
+      const shortUuid = (id: string) => (id && id.length > 10 ? id.slice(-8) : id)
+      const shortText = (s: string) => (s && s.length > 18 ? s.slice(0, 18) : s)
+
+      const userNameForFilename = (() => {
+        const raw = selectedUserName
+        if (raw) return raw.startsWith('@') ? raw.slice(1) : raw
+        if (!filters.userId) return null
+        const u = users.find((x) => x.id === filters.userId)
+        if (!u) return null
+        return u.name || u.username || u.email || null
+      })()
+
+      const suffixParts: string[] = []
+      if (filters.role) suffixParts.push(`role-${sanitizePart(filters.role)}`)
+      if (filters.userId) {
+        const part = userNameForFilename ? shortText(sanitizePart(userNameForFilename)) : shortUuid(filters.userId)
+        suffixParts.push(`user-${part}`)
+      }
+      if (filters.eventType) suffixParts.push(`eventType-${sanitizePart(filters.eventType)}`)
+      if (filters.eventId) suffixParts.push(`event-${shortUuid(filters.eventId)}`)
+      if (filters.type) suffixParts.push(`type-${sanitizePart(filters.type)}`)
+      if (filters.status) suffixParts.push(`status-${sanitizePart(filters.status)}`)
+      const filterSuffix = suffixParts.length ? `__${suffixParts.join('__')}` : ''
+
+      const payload = {
+        reportKey: 'attendance_detail',
+        format: format === 'excel' ? 'XLSX' : 'PDF',
+        from: filters.startDate,
+        to,
+        filters: {
+          role: filters.role || undefined,
+          userId: filters.userId || undefined,
+          eventId: filters.eventId || undefined,
+          eventType: filters.eventType || undefined,
+          type: filters.type || undefined,
+          status: filters.status || undefined,
         },
-      })
-
-      console.log('Response status:', response.status)
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Error response:', errorText)
-        throw new Error(`Error al generar el reporte: ${response.status}`)
       }
 
-      const blob = await response.blob()
-      console.log('Blob size:', blob.size)
-      
+      const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(payload) })
+      const exportId = res.exportId
+
+      for (let i = 0; i < 40; i++) {
+        const st = await api<{ status: string; downloadUrl: string | null }>(`/exports/${exportId}`)
+        if (st.status === 'DONE') break
+        await new Promise((r) => setTimeout(r, 250))
+      }
+
+      const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
+      if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
+
+      const blob = await dl.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `reporte_asistencias_mejorado.${format === 'excel' ? 'xlsx' : 'pdf'}`
+      a.download =
+        format === 'excel'
+          ? `EduTrack_Asistencia_Detallada_${filters.startDate}_${to}${filterSuffix}.xlsx`
+          : `EduTrack_Asistencia_Detallada_${filters.startDate}_${to}${filterSuffix}.pdf`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
-      
-      setMessage(`✅ Reporte ${format.toUpperCase()} generado correctamente`)
+
+      setMessage(`✅ Export ${format.toUpperCase()} generado correctamente`)
     } catch (error: any) {
       console.error('Error completo:', error)
-      setMessage(`❌ Error: ${error.message || 'Error al generar el reporte'}`)
+      setMessage(`❌ Error: ${error.message || 'Error al exportar el reporte'}`)
     }
   }
 
@@ -612,6 +690,95 @@ export default function AdminAttendance() {
               </select>
             </div>
           </div>
+        </div>
+
+        {/* Métricas (KPIs) */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="p-4 bg-white border rounded-lg shadow-sm">
+            <div className="text-sm text-gray-500">Tasa de Presencia</div>
+            <div className="text-2xl font-bold text-emerald-600">
+              {statsLoading || !stats || typeof stats.attendanceRate !== 'number' ? '—' : `${stats.attendanceRate}%`}
+            </div>
+            <div className="text-xs text-gray-500">Sobre el rango filtrado</div>
+          </div>
+
+          <div className="p-4 bg-white border rounded-lg shadow-sm">
+            <div className="text-sm text-gray-500">Presentes</div>
+            <div className="text-2xl font-bold text-emerald-600">
+              {statsLoading || !stats || typeof stats.presentCount !== 'number' ? '—' : stats.presentCount}
+            </div>
+            <div className="text-xs text-gray-500">Cantidad de registros</div>
+          </div>
+
+          <div className="p-4 bg-white border rounded-lg shadow-sm">
+            <div className="text-sm text-gray-500">Tarde</div>
+            <div className="text-2xl font-bold text-yellow-600">
+              {statsLoading || !stats || typeof stats.lateCount !== 'number' ? '—' : stats.lateCount}
+            </div>
+            <div className="text-xs text-gray-500">
+              {statsLoading || !stats || typeof stats.lateRate !== 'number' ? '' : `${stats.lateRate}%`} tasa
+            </div>
+          </div>
+
+          <div className="p-4 bg-white border rounded-lg shadow-sm">
+            <div className="text-sm text-gray-500">Ausentes</div>
+            <div className="text-2xl font-bold text-red-600">
+              {statsLoading || !stats || typeof stats.absentCount !== 'number' ? '—' : stats.absentCount}
+            </div>
+            <div className="text-xs text-gray-500">
+              {statsLoading || !stats || typeof stats.medicalLeaveCount !== 'number' ? '' : `Justificadas: ${stats.medicalLeaveCount}`}
+            </div>
+          </div>
+        </div>
+
+        {/* Gráfico (simple) de distribución de estados */}
+        <div className="bg-white border rounded-lg shadow-sm p-6">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <h3 className="text-lg font-semibold">Distribución de Estados</h3>
+            <div className="text-sm text-gray-500">
+              {statsLoading ? 'Cargando…' : stats ? `Total: ${stats.totalAttendances}` : ''}
+            </div>
+          </div>
+          {statsLoading || !stats ? (
+            <div className="text-sm text-gray-500">—</div>
+          ) : (
+            (() => {
+              const present = stats.presentCount
+              const late = stats.lateCount
+              const absent = stats.absentCount
+              const max = Math.max(1, present, late, absent)
+              const hMax = 90
+              const bar = (value: number) => (value / max) * hMax
+
+              const bar1H = bar(present)
+              const bar2H = bar(late)
+              const bar3H = bar(absent)
+
+              return (
+                <svg viewBox="0 0 600 140" className="w-full" role="img" aria-label="Distribución de estados">
+                  <rect x="40" y="20" width="520" height="100" fill="none" stroke="#e5e7eb" rx="8" />
+                  {/* Eje / baseline */}
+                  <line x1="60" y1="110" x2="560" y2="110" stroke="#e5e7eb" />
+
+                  {/* Barras */}
+                  <rect x="130" y={110 - bar1H} width="90" height={bar1H} fill="#16a34a" rx="6" />
+                  <rect x="255" y={110 - bar2H} width="90" height={bar2H} fill="#f59e0b" rx="6" />
+                  <rect x="380" y={110 - bar3H} width="90" height={bar3H} fill="#dc2626" rx="6" />
+
+                  {/* Labels */}
+                  <text x="175" y="130" textAnchor="middle" fontSize="12" fill="#374151">
+                    Presente ({present})
+                  </text>
+                  <text x="300" y="130" textAnchor="middle" fontSize="12" fill="#374151">
+                    Tarde ({late})
+                  </text>
+                  <text x="425" y="130" textAnchor="middle" fontSize="12" fill="#374151">
+                    Ausente ({absent})
+                  </text>
+                </svg>
+              )
+            })()
+          )}
         </div>
 
         {message && (

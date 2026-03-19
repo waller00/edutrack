@@ -40,6 +40,7 @@ type Event = {
     email: string
     role: string
   }
+  assignedUserId?: string
   recurrenceType: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
   isRecurring: boolean
   daysOfWeek: number[]
