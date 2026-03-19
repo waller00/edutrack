@@ -56,14 +56,11 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
         let startDate = ''
         let endDate = ''
         if (filter === 'upcoming') {
-          const startOfWeek = new Date(now)
-          startOfWeek.setDate(now.getDate() - now.getDay() + 1)
-          startOfWeek.setHours(0, 0, 0, 0)
-          const endOfWeek = new Date(startOfWeek)
-          endOfWeek.setDate(startOfWeek.getDate() + 6)
-          endOfWeek.setHours(23, 59, 59, 999)
-          startDate = startOfWeek.toISOString()
-          endDate = endOfWeek.toISOString()
+          // Próximos móviles: desde "ahora" hasta +7 días.
+          const to = new Date(now)
+          to.setDate(to.getDate() + 7)
+          startDate = now.toISOString()
+          endDate = to.toISOString()
         }
         const params = new URLSearchParams()
         if (startDate) params.set('startDate', startDate)
@@ -94,6 +91,17 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
 
   if (loading) return <p>Cargando...</p>
 
+  const visibleEvents =
+    filter === 'upcoming'
+      ? events
+          .filter((e) => e.status === 'SCHEDULED' || e.status === 'IN_PROGRESS')
+          .sort((a, b) => {
+            // IN_PROGRESS primero; luego por fecha/hora ascendente.
+            if (a.status !== b.status) return a.status === 'IN_PROGRESS' ? -1 : 1
+            return new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+          })
+      : events
+
   return (
     <RoleGuard allow={[role]}>
       <main className="mx-auto max-w-6xl p-6 space-y-6">
@@ -107,7 +115,7 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
               <p className="text-sm text-gray-600">Consulta tus eventos asignados</p>
             </div>
           </div>
-          <div className="text-sm text-gray-500">Total: {events.length} eventos</div>
+          <div className="text-sm text-gray-500">Total: {visibleEvents.length} eventos</div>
         </div>
 
         <div className="bg-white border rounded-lg p-4 shadow-sm">
@@ -141,11 +149,11 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
           <div className="p-6 border-b">
             <h2 className="text-lg font-semibold">Eventos</h2>
           </div>
-          {events.length === 0 ? (
+          {visibleEvents.length === 0 ? (
             <div className="p-6 text-center text-gray-500">No hay eventos para mostrar</div>
           ) : (
             <div className="divide-y divide-gray-200">
-              {events.map((event) => {
+              {visibleEvents.map((event) => {
                 const isExpanded = expandedEvents.has(event.id)
                 return (
                   <div key={event.id} className="p-6 hover:bg-gray-50">

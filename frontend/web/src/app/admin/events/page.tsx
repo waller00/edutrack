@@ -3,6 +3,7 @@ import DateRangeFields from '@/components/DateRangeFields'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '@/lib/api'
 import {
   buildAdminEventsAllQueryString,
@@ -66,6 +67,120 @@ type EditableEvent = Pick<Event, 'title' | 'description' | 'type' | 'startDate' 
   recurrenceEnd: string
 }
 
+function timeStringToMinutes(t: string): number | null {
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(t.trim())
+  if (!m) return null
+  return Number(m[1]) * 60 + Number(m[2])
+}
+
+function getApiErrorDetail(error: unknown): string {
+  const e = error as {
+    message?: string
+    data?: {
+      message?: string
+      detail?: string
+      errors?: { path: (string | number)[]; message: string }[]
+      issues?: { path: (string | number)[]; message: string }[]
+      fieldErrors?: Record<string, string[] | undefined>
+    }
+  }
+  if (e.data?.detail) return e.data.detail
+  const fe = e.data?.fieldErrors
+  if (fe && typeof fe === 'object') {
+    const parts = Object.entries(fe).flatMap(([k, msgs]) =>
+      (msgs ?? []).map((msg) => `${k}: ${msg}`),
+    )
+    if (parts.length > 0) return parts.join(' · ')
+  }
+  const zod = e.data?.errors ?? e.data?.issues
+  if (zod && zod.length > 0) {
+    return zod.map((err) => (err.path?.length ? `${err.path.join('.')}: ` : '') + err.message).join(' · ')
+  }
+  return e.data?.message || e.message || 'Error desconocido'
+}
+
+/** Horas 00–23 (formato 24 h civil; no AM/PM). */
+const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+
+function parseHhMm(value: string): { h: string; m: string } {
+  if (!value || typeof value !== 'string') return { h: '09', m: '00' }
+  const t = value.trim()
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(t)
+  if (!match) return { h: '09', m: '00' }
+  return { h: match[1].padStart(2, '0'), m: match[2].padStart(2, '0') }
+}
+
+function eventTimeToHhMm(isoOrHhmm: string | undefined): string {
+  if (!isoOrHhmm) return '09:00'
+  if (isoOrHhmm.includes('T')) {
+    const part = isoOrHhmm.split('T')[1]
+    return part ? part.substring(0, 5) : '09:00'
+  }
+  const p = parseHhMm(isoOrHhmm)
+  return `${p.h}:${p.m}`
+}
+
+function AdminTime24Selects({
+  label,
+  value,
+  onChange,
+  idPrefix,
+}: {
+  label: string
+  value: string
+  onChange: (hhmm: string) => void
+  idPrefix: string
+}) {
+  const { h, m } = parseHhMm(value || '09:00')
+  return (
+    <div>
+      <span className="block text-sm font-medium text-gray-700 mb-1">{label} (24 h)</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={`${idPrefix}-h`} className="sr-only">
+          {label} horas
+        </label>
+        <select
+          id={`${idPrefix}-h`}
+          data-testid={`${idPrefix}-h`}
+          className="w-[5.5rem] border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          value={h}
+          onChange={(e) => {
+            const nh = e.target.value.padStart(2, '0')
+            onChange(`${nh}:${m}`)
+          }}
+        >
+          {HOURS_24.map((hour) => (
+            <option key={hour} value={hour}>
+              {hour}
+            </option>
+          ))}
+        </select>
+        <span className="text-lg font-semibold leading-none text-gray-500">:</span>
+        <label htmlFor={`${idPrefix}-m`} className="sr-only">
+          {label} minutos
+        </label>
+        <select
+          id={`${idPrefix}-m`}
+          data-testid={`${idPrefix}-m`}
+          className="w-[5.5rem] border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          value={m}
+          onChange={(e) => {
+            const nm = e.target.value.padStart(2, '0')
+            onChange(`${h}:${nm}`)
+          }}
+        >
+          {MINUTES_60.map((min) => (
+            <option key={min} value={min}>
+              {min}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
+}
+
 function renderEventsEmptyState(events: Event[]) {
   if (events.length === 0) {
     return <div className="p-6 text-center text-gray-500">No hay eventos</div>
@@ -91,14 +206,16 @@ export default function AdminEvents() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
+  /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
+  const [createModalError, setCreateModalError] = useState('')
 
   const [newEvent, setNewEvent] = useState<EditableEvent>({
     title: '',
     description: '',
     type: 'JORNADA_LABORAL',
     startDate: new Date().toISOString().split('T')[0],
-    startTime: '',
-    endTime: '',
+    startTime: '09:00',
+    endTime: '10:00',
     assignedUserId: '',
     recurrenceType: 'NONE',
     isRecurring: false,
@@ -107,11 +224,16 @@ export default function AdminEvents() {
   })
   
   const [selectedRole, setSelectedRole] = useState<RoleOption>('')
+  const [portalReady, setPortalReady] = useState(false)
 
   useEffect(() => {
     loadEvents()
     loadUsers()
   }, [page, filters])
+
+  useEffect(() => {
+    setPortalReady(true)
+  }, [])
 
   async function loadEvents() {
     setLoading(true)
@@ -144,39 +266,84 @@ export default function AdminEvents() {
     }
   }
 
-  async function createEvent() {
-    try {
-      // Preparar datos del evento
-      const eventData = {
-        ...newEvent,
-        recurrenceType: newEvent.isRecurring ? 'WEEKLY' : 'NONE',
-        recurrenceEnd: newEvent.isRecurring && newEvent.recurrenceEnd ? newEvent.recurrenceEnd : null
+  function resetCreateForm() {
+    setSelectedRole('')
+    setCreateModalError('')
+    setNewEvent({
+      title: '',
+      description: '',
+      type: 'JORNADA_LABORAL',
+      startDate: new Date().toISOString().split('T')[0],
+      startTime: '09:00',
+      endTime: '10:00',
+      assignedUserId: '',
+      recurrenceType: 'NONE',
+      isRecurring: false,
+      daysOfWeek: [],
+      recurrenceEnd: ''
+    })
+  }
+
+  function closeCreateModal() {
+    setCreating(false)
+    resetCreateForm()
+  }
+
+  function validateNewEventBeforeSubmit(): string | null {
+    if (!newEvent.title.trim()) return 'El título es obligatorio.'
+    if (!selectedRole) return 'Selecciona el rol del usuario.'
+    if (!newEvent.startTime || !newEvent.endTime) return 'Indica hora de inicio y hora de fin.'
+    const startM = timeStringToMinutes(newEvent.startTime)
+    const endM = timeStringToMinutes(newEvent.endTime)
+    if (startM === null || endM === null) return 'Formato de hora inválido (usa HH:MM).'
+    if (endM <= startM) {
+      return 'La hora de fin debe ser mayor que la de inicio. Muy común: elegir “12:11 AM” para el fin (eso es 00:11 de la madrugada, antes que las 11:11 de la mañana). Para terminar a las 12:11 del mediodía usá 12:11 en 24 h o “12:11 PM”.'
+    }
+    if (newEvent.isRecurring) {
+      if (!newEvent.recurrenceEnd) return 'Los eventos repetitivos requieren fecha de fin de recurrencia.'
+      if (newEvent.recurrenceEnd < newEvent.startDate) {
+        return 'La fecha de fin de recurrencia debe ser igual o posterior a la fecha de inicio.'
       }
-      
+    }
+    return null
+  }
+
+  async function createEvent() {
+    setMessage('')
+    setCreateModalError('')
+    const localErr = validateNewEventBeforeSubmit()
+    if (localErr) {
+      setCreateModalError(localErr)
+      return
+    }
+    try {
+      const eventData: Record<string, unknown> = {
+        title: newEvent.title.trim(),
+        description: newEvent.description?.trim() || undefined,
+        type: newEvent.type,
+        startDate: newEvent.startDate,
+        startTime: newEvent.startTime,
+        endTime: newEvent.endTime,
+        isRecurring: newEvent.isRecurring,
+        recurrenceType: newEvent.isRecurring ? 'WEEKLY' : 'NONE',
+        daysOfWeek: newEvent.isRecurring ? newEvent.daysOfWeek.map((d) => Number(d)) : [],
+        recurrenceEnd: newEvent.isRecurring && newEvent.recurrenceEnd ? newEvent.recurrenceEnd : null,
+      }
+      if (newEvent.assignedUserId) {
+        eventData.assignedUserId = newEvent.assignedUserId
+      }
+
       await api('/events/', {
         method: 'POST',
-        body: JSON.stringify(eventData)
+        body: JSON.stringify(eventData),
       })
-      
+
       setMessage('✅ Evento creado correctamente')
       await loadEvents()
       setCreating(false)
-      setSelectedRole('')
-      setNewEvent({
-        title: '',
-        description: '',
-        type: 'JORNADA_LABORAL',
-        startDate: new Date().toISOString().split('T')[0],
-        startTime: '',
-        endTime: '',
-        assignedUserId: '',
-        recurrenceType: 'NONE',
-        isRecurring: false,
-        daysOfWeek: [],
-        recurrenceEnd: ''
-      })
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al crear evento'}`)
+      resetCreateForm()
+    } catch (error: unknown) {
+      setCreateModalError(getApiErrorDetail(error))
     }
   }
 
@@ -250,7 +417,11 @@ export default function AdminEvents() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => setCreating(true)}
+              onClick={() => {
+                setMessage('')
+                setCreateModalError('')
+                setCreating(true)
+              }}
               className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
             >
               Crear Evento
@@ -344,7 +515,8 @@ export default function AdminEvents() {
           </div>
         </div>
 
-        {message && (
+        {/* Oculto si hay modal abierto: si no, el aviso se ve “detrás” del overlay y parece que no se actualizó nada */}
+        {message && !creating && !editingEvent && (
           <div className={`p-3 rounded ${getAdminFlashMessageClass(message)}`}>
             {message}
           </div>
@@ -480,12 +652,45 @@ export default function AdminEvents() {
           <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>
 
-        {/* Modal de creación */}
-        {creating && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-4">Crear Evento</h3>
-              
+        {/* Modal de creación (portal a document.body → siempre encima, no queda “tapado” por el layout) */}
+        {portalReady &&
+          creating &&
+          createPortal(
+            <div
+              className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+              style={{ zIndex: 2147483647 }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="create-event-title"
+            >
+            <div
+              data-testid="create-event-modal"
+              className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative"
+            >
+              <button
+                type="button"
+                onClick={closeCreateModal}
+                className="absolute top-3 right-3 z-[2] flex h-12 w-12 items-center justify-center rounded-full border-4 border-indigo-600 bg-white text-2xl font-bold leading-none text-indigo-700 shadow-lg hover:bg-indigo-50"
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                ×
+              </button>
+              <div className="mb-4 border-b border-gray-200 pb-3 pr-14">
+                <h3 id="create-event-title" className="text-lg font-semibold">
+                  Crear Evento
+                </h3>
+              </div>
+
+              {createModalError && (
+                <div
+                  className="mb-4 rounded-md border-2 border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-900 shadow-sm"
+                  role="alert"
+                >
+                  {createModalError}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Evento Repetitivo - Primera opción */}
                 <div className="md:col-span-2">
@@ -591,25 +796,19 @@ export default function AdminEvents() {
                   </select>
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hora inicio</label>
-                  <input
-                    type="time"
-                    value={newEvent.startTime}
-                    onChange={(e) => setNewEvent({ ...newEvent, startTime: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hora fin</label>
-                  <input
-                    type="time"
-                    value={newEvent.endTime}
-                    onChange={(e) => setNewEvent({ ...newEvent, endTime: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  />
-                </div>
+                <AdminTime24Selects
+                  label="Hora inicio"
+                  idPrefix="create-event-start"
+                  value={newEvent.startTime ?? '09:00'}
+                  onChange={(hhmm) => setNewEvent({ ...newEvent, startTime: hhmm })}
+                />
+
+                <AdminTime24Selects
+                  label="Hora fin"
+                  idPrefix="create-event-end"
+                  value={newEvent.endTime ?? '10:00'}
+                  onChange={(hhmm) => setNewEvent({ ...newEvent, endTime: hhmm })}
+                />
                 
                 {/* Campos de fecha según si es repetitivo o no */}
                 {newEvent.isRecurring ? (
@@ -682,43 +881,44 @@ export default function AdminEvents() {
               
               <div className="flex gap-3 mt-6">
                 <button
+                  type="button"
                   onClick={createEvent}
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
                   Crear Evento
                 </button>
-                <button
-                  onClick={() => {
-                    setCreating(false)
-                    setSelectedRole('')
-                    setNewEvent({
-                      title: '',
-                      description: '',
-                      type: 'JORNADA_LABORAL',
-                      startDate: new Date().toISOString().split('T')[0],
-                      startTime: '',
-                      endTime: '',
-                      assignedUserId: '',
-                      recurrenceType: 'NONE',
-                      isRecurring: false,
-                      daysOfWeek: [],
-                      recurrenceEnd: ''
-                    })
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
-                >
+                <button type="button" onClick={closeCreateModal} className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50">
                   Cancelar
                 </button>
               </div>
             </div>
-          </div>
-        )}
+          </div>,
+            document.body,
+          )}
 
-        {/* Modal de edición */}
-        {editingEvent && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-4">Editar Evento</h3>
+        {/* Modal de edición (portal) */}
+        {portalReady &&
+          editingEvent &&
+          createPortal(
+            <div
+              className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+              style={{ zIndex: 2147483647 }}
+              role="dialog"
+              aria-modal="true"
+            >
+            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
+              <button
+                type="button"
+                onClick={() => setEditingEvent(null)}
+                className="absolute top-3 right-3 z-[2] flex h-12 w-12 items-center justify-center rounded-full border-4 border-indigo-600 bg-white text-2xl font-bold leading-none text-indigo-700 shadow-lg hover:bg-indigo-50"
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                ×
+              </button>
+              <div className="mb-4 border-b border-gray-200 pb-3 pr-14">
+                <h3 className="text-lg font-semibold">Editar Evento</h3>
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
@@ -792,25 +992,19 @@ export default function AdminEvents() {
                   />
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hora inicio</label>
-                  <input
-                    type="time"
-                    value={editingEvent.startTime ? editingEvent.startTime.split('T')[1].substring(0, 5) : ''}
-                    onChange={(e) => setEditingEvent({ ...editingEvent, startTime: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hora fin</label>
-                  <input
-                    type="time"
-                    value={editingEvent.endTime ? editingEvent.endTime.split('T')[1].substring(0, 5) : ''}
-                    onChange={(e) => setEditingEvent({ ...editingEvent, endTime: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  />
-                </div>
+                <AdminTime24Selects
+                  label="Hora inicio"
+                  idPrefix="edit-event-start"
+                  value={eventTimeToHhMm(editingEvent.startTime)}
+                  onChange={(hhmm) => setEditingEvent({ ...editingEvent, startTime: hhmm })}
+                />
+
+                <AdminTime24Selects
+                  label="Hora fin"
+                  idPrefix="edit-event-end"
+                  value={eventTimeToHhMm(editingEvent.endTime)}
+                  onChange={(hhmm) => setEditingEvent({ ...editingEvent, endTime: hhmm })}
+                />
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Asignado a</label>
@@ -844,8 +1038,9 @@ export default function AdminEvents() {
                 </button>
               </div>
             </div>
-          </div>
-        )}
+          </div>,
+            document.body,
+          )}
       </main>
     </RoleGuard>
   )

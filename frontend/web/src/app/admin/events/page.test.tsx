@@ -173,7 +173,7 @@ describe('AdminEvents', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Crear Evento' })[0])
 
-    const createModal = screen.getByRole('heading', { name: 'Crear Evento' }).parentElement!
+    const createModal = screen.getByTestId('create-event-modal')
     const selects = () => createModal.querySelectorAll('select')
     fireEvent.change(selects()[0], { target: { value: 'TEACHER' } })
     await waitFor(() => expect(selects()[2]).not.toBeDisabled())
@@ -181,6 +181,10 @@ describe('AdminEvents', () => {
     fireEvent.change(within(createModal).getByPlaceholderText('Ej: Turno matutino'), {
       target: { value: 'Nuevo curso' },
     })
+    fireEvent.change(within(createModal).getByTestId('create-event-start-h'), { target: { value: '10' } })
+    fireEvent.change(within(createModal).getByTestId('create-event-start-m'), { target: { value: '00' } })
+    fireEvent.change(within(createModal).getByTestId('create-event-end-h'), { target: { value: '11' } })
+    fireEvent.change(within(createModal).getByTestId('create-event-end-m'), { target: { value: '00' } })
 
     const crearBtns = screen.getAllByRole('button', { name: 'Crear Evento' })
     fireEvent.click(crearBtns[crearBtns.length - 1])

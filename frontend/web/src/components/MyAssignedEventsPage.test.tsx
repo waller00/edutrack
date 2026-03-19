@@ -87,7 +87,7 @@ describe('MyAssignedEventsPage', () => {
           title: 'Jornada Especial',
           description: 'Detalle extendido',
           type: 'EVENTO',
-          status: 'COMPLETED',
+          status: 'SCHEDULED',
           startDate: '2026-03-18T00:00:00.000Z',
           isRecurring: true,
           daysOfWeek: [1, 3],

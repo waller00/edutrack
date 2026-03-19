@@ -11,33 +11,106 @@ import {
 
 const r = Router();
 
+function isYmdDateString(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s)
+}
+
+function parseUtcDateInput(s: string) {
+  // Acepta "YYYY-MM-DD" o ISO datetime.
+  if (isYmdDateString(s)) return new Date(`${s}T00:00:00.000Z`)
+  return new Date(s)
+}
+
+function parseUtcTimeInput(s: string) {
+  // Acepta "HH:MM" o "H:MM" (mismo criterio que el front) + ISO datetime.
+  const hhmm = /^([01]?\d|2[0-3]):([0-5]\d)$/
+  const m = s.trim().match(hhmm)
+  if (m) {
+    const hh = Number(m[1])
+    const mm = Number(m[2])
+    if (hh < 0 || hh > 23) return null
+    return { hh, mm }
+  }
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return null
+  return { hh: d.getUTCHours(), mm: d.getUTCMinutes() }
+}
+
+function toTimeMinutes(hh: number, mm: number) {
+  return hh * 60 + mm
+}
+
+function parseRecurrenceEndToUtcInclusiveEndOfDay(s: string) {
+  if (isYmdDateString(s)) {
+    // Inclusive: fin del día UTC.
+    return new Date(`${s}T23:59:59.999Z`)
+  }
+  const d = new Date(s)
+  return new Date(d.getTime())
+}
+
 // Esquemas de validación
+const optionalUuidFromInput = z.preprocess(
+  (v) => (v === '' || v === null || v === undefined ? undefined : v),
+  z.string().uuid().optional(),
+)
+
+const nullableOptionalUuidFromUpdateInput = z.preprocess(
+  (v) => (v === '' || v === null ? null : v),
+  z.string().uuid().nullable().optional(),
+)
+
+const boolish = z.preprocess((v) => {
+  if (v === true || v === 'true' || v === 1 || v === '1') return true
+  if (v === false || v === 'false' || v === 0 || v === '0') return false
+  return Boolean(v)
+}, z.boolean())
+
+const daysOfWeekish = z.preprocess((v) => {
+  if (!Array.isArray(v)) return []
+  return v
+    .map((x) => (typeof x === 'string' ? Number.parseInt(x, 10) : Number(x)))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+}, z.array(z.number().min(0).max(6)).default([]))
+
 const eventSchema = z.object({
   title: z.string().min(1).max(200),
-  description: z.string().optional(),
+  description: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().optional()),
   type: z.enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA']),
-  startDate: z.string().datetime(),
-  startTime: z.string().datetime().optional(),
-  endTime: z.string().datetime().optional(),
-  assignedUserId: z.string().uuid().optional(),
+  // Soportamos "YYYY-MM-DD" o ISO datetime (Z).
+  startDate: z.string().min(1),
+  // Soportamos "HH:MM" o ISO datetime; lo normalizamos a UTC.
+  startTime: z.string().min(1),
+  endTime: z.string().min(1),
+  // El front puede mandar "" cuando el select está en "Sin asignar"; no es UUID válido.
+  assignedUserId: optionalUuidFromInput,
   recurrenceType: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']).default('NONE'),
-  recurrenceEnd: z.string().datetime().optional().nullable(),
-  isRecurring: z.boolean().default(false),
-  daysOfWeek: z.array(z.number().min(0).max(6)).default([]),
+  recurrenceEnd: z.string().optional().nullable(),
+  isRecurring: boolish.default(false),
+  daysOfWeek: daysOfWeekish,
 });
 
 const eventUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
-  description: z.string().optional(),
+  description: z.preprocess((v) => (v === null || v === '' ? null : v), z.string().nullable().optional()),
   type: z.enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA']).optional(),
-  startDate: z.string().datetime().optional(),
-  startTime: z.string().datetime().optional(),
-  endTime: z.string().datetime().optional(),
-  assignedUserId: z.string().uuid().optional(),
+  startDate: z.string().min(1).optional(),
+  startTime: z.string().min(1).optional(),
+  endTime: z.string().min(1).optional(),
+  assignedUserId: nullableOptionalUuidFromUpdateInput,
   status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED']).optional(),
-  isRecurring: z.boolean().optional(),
-  daysOfWeek: z.array(z.number().min(0).max(6)).optional(),
-  recurrenceEnd: z.string().datetime().optional().nullable(),
+  isRecurring: boolish.optional(),
+  daysOfWeek: z.preprocess(
+    (v) => {
+      if (v === undefined) return undefined
+      if (!Array.isArray(v)) return undefined
+      return v
+        .map((x) => (typeof x === 'string' ? Number.parseInt(x, 10) : Number(x)))
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+    },
+    z.array(z.number().min(0).max(6)).optional(),
+  ),
+  recurrenceEnd: z.preprocess((v) => (v === '' || v === null ? null : v), z.string().optional().nullable()),
 });
 
 // Crear evento
@@ -48,7 +121,16 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
 
     const parsed = eventSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
+      const flat = parsed.error.flatten();
+      const detail = parsed.error.issues
+        .map((i) => `${i.path.length ? i.path.join('.') : 'formulario'}: ${i.message}`)
+        .join(' · ');
+      return res.status(400).json({
+        message: 'Datos inválidos',
+        detail,
+        errors: parsed.error.issues,
+        fieldErrors: flat.fieldErrors,
+      });
     }
 
     const eventData = parsed.data;
@@ -58,16 +140,69 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
       return res.status(403).json({ message: 'No puedes asignar eventos a otros usuarios' });
     }
 
+    // Normalización + validación temporal (UTC).
+    const baseStart = parseUtcDateInput(eventData.startDate);
+    const tStart = parseUtcTimeInput(eventData.startTime);
+    const tEnd = parseUtcTimeInput(eventData.endTime);
+    if (!baseStart || Number.isNaN(baseStart.getTime()) || !tStart || !tEnd) {
+      return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM, en UTC)' });
+    }
+
+    const startMinutes = toTimeMinutes(tStart.hh, tStart.mm);
+    const endMinutes = toTimeMinutes(tEnd.hh, tEnd.mm);
+    if (endMinutes <= startMinutes) {
+      return res.status(400).json({ message: 'Hora fin debe ser mayor que hora inicio' });
+    }
+
+    const startDateUtc = new Date(
+      Date.UTC(baseStart.getUTCFullYear(), baseStart.getUTCMonth(), baseStart.getUTCDate(), tStart.hh, tStart.mm, 0, 0),
+    );
+    const endTimeUtc = new Date(
+      Date.UTC(baseStart.getUTCFullYear(), baseStart.getUTCMonth(), baseStart.getUTCDate(), tEnd.hh, tEnd.mm, 0, 0),
+    );
+
+    // Validaciones para recurrencia.
+    const isRecurring = Boolean(eventData.isRecurring);
+    const recurrenceType = eventData.recurrenceType ?? (isRecurring ? 'WEEKLY' : 'NONE');
+    if (isRecurring && recurrenceType === 'NONE') {
+      return res.status(400).json({ message: 'Evento repetitivo requiere recurrenceType válido' });
+    }
+    if (isRecurring && (eventData.recurrenceEnd === null || !eventData.recurrenceEnd)) {
+      return res.status(400).json({ message: 'Evento repetitivo requiere recurrenceEnd' });
+    }
+    if (isRecurring && recurrenceType === 'WEEKLY' && eventData.daysOfWeek.length === 0) {
+      // UX: si no seleccionan días pero el usuario definió una fecha base,
+      // inferimos el día de la semana desde startDate para que el evento sea utilizable.
+      // (Así evitamos “no deja” por validación demasiado estricta).
+      eventData.daysOfWeek = [new Date(startDateUtc).getUTCDay()];
+    }
+    if (isRecurring && recurrenceType === 'WEEKLY' && eventData.daysOfWeek.length === 0) {
+      return res.status(400).json({ message: 'Evento repetitivo semanal requiere al menos un día de la semana' });
+    }
+    if (isRecurring && eventData.recurrenceEnd) {
+      const recEnd = parseRecurrenceEndToUtcInclusiveEndOfDay(eventData.recurrenceEnd);
+      if (recEnd.getTime() < startDateUtc.getTime()) {
+        return res.status(400).json({ message: 'recurrenceEnd debe ser >= startDate (base)' });
+      }
+    }
+
     const event = await prisma.event.create({
       data: {
-        ...eventData,
+        title: eventData.title,
+        description: eventData.description ?? null,
+        type: eventData.type,
+        status: 'SCHEDULED',
         userId: user.sub,
-        startDate: new Date(eventData.startDate),
-        startTime: eventData.startTime ? new Date(eventData.startTime) : null,
-        endTime: eventData.endTime ? new Date(eventData.endTime) : null,
-        recurrenceEnd: eventData.recurrenceEnd ? new Date(eventData.recurrenceEnd) : null,
-        daysOfWeek: eventData.daysOfWeek,
-      } as any,
+        assignedUserId: eventData.assignedUserId ?? null,
+        startDate: startDateUtc,
+        startTime: startDateUtc,
+        endTime: endTimeUtc,
+        endDate: null,
+        recurrenceType,
+        recurrenceEnd: eventData.recurrenceEnd ? parseRecurrenceEndToUtcInclusiveEndOfDay(eventData.recurrenceEnd) : null,
+        isRecurring,
+        daysOfWeek: eventData.daysOfWeek ?? [],
+      },
       include: {
         user: {
           select: { id: true, name: true, email: true, role: true }
@@ -94,6 +229,8 @@ r.get('/my-events', authGuard, async (req, res) => {
     const { startDate, endDate, type, status } = req.query;
 
     const where: any = buildMyEventsBaseFilter(user.sub)
+    // Excluimos excepciones materializadas en childEvents para evitar duplicados.
+    where.parentEventId = null
 
     // Si hay filtro de fecha, buscar eventos que puedan tener instancias en ese rango
     applyMyEventsDateFilter(where, user.sub, startDate, endDate)
@@ -114,6 +251,23 @@ r.get('/my-events', authGuard, async (req, res) => {
         },
         assignedUser: {
           select: { id: true, name: true, email: true, role: true }
+        },
+        childEvents: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            type: true,
+            status: true,
+            startDate: true,
+            startTime: true,
+            endTime: true,
+            endDate: true,
+            recurrenceType: true,
+            isRecurring: true,
+            daysOfWeek: true,
+            parentEventId: true,
+          },
         },
         _count: {
           select: { attendances: true }
@@ -264,13 +418,29 @@ r.put('/:id', authGuard, async (req, res) => {
 
     const parsed = eventUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
+      return res.status(400).json({
+        message: 'Datos inválidos',
+        detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
+        errors: parsed.error.issues,
+      });
     }
 
     // Verificar que el evento existe y el usuario tiene permisos
     const existingEvent = await prisma.event.findUnique({
       where: { id },
-      select: { userId: true, assignedUserId: true }
+      select: {
+        id: true,
+        userId: true,
+        assignedUserId: true,
+        startDate: true,
+        startTime: true,
+        endTime: true,
+        isRecurring: true,
+        recurrenceType: true,
+        recurrenceEnd: true,
+        daysOfWeek: true,
+        status: true,
+      }
     });
 
     if (!existingEvent) {
@@ -283,12 +453,70 @@ r.put('/:id', authGuard, async (req, res) => {
     }
 
     const updateData: any = { ...parsed.data };
-    
-    // Convertir fechas si están presentes
-    if (updateData.startDate) updateData.startDate = new Date(updateData.startDate);
-    if (updateData.endDate) updateData.endDate = new Date(updateData.endDate);
-    if (updateData.startTime) updateData.startTime = new Date(updateData.startTime);
-    if (updateData.endTime) updateData.endTime = new Date(updateData.endTime);
+
+    // Normalización UTC de startDate/startTime/endTime si se envían.
+    // Si no se envían, conservamos componentes del evento actual.
+    const nextStartDateInput = updateData.startDate ?? null;
+    const nextStartTimeInput = updateData.startTime ?? null;
+    const nextEndTimeInput = updateData.endTime ?? null;
+
+    if (nextStartDateInput || nextStartTimeInput || nextEndTimeInput) {
+      const baseDateForCombine = nextStartDateInput
+        ? parseUtcDateInput(String(nextStartDateInput))
+        : new Date(existingEvent.startDate);
+
+      const startHHmm = nextStartTimeInput
+        ? parseUtcTimeInput(String(nextStartTimeInput))
+        : { hh: new Date(existingEvent.startTime ?? existingEvent.startDate).getUTCHours(), mm: new Date(existingEvent.startTime ?? existingEvent.startDate).getUTCMinutes() };
+
+      const endHHmm = nextEndTimeInput
+        ? parseUtcTimeInput(String(nextEndTimeInput))
+        : { hh: new Date(existingEvent.endTime ?? existingEvent.startDate).getUTCHours(), mm: new Date(existingEvent.endTime ?? existingEvent.startDate).getUTCMinutes() };
+
+      if (!baseDateForCombine || Number.isNaN(baseDateForCombine.getTime()) || !startHHmm || !endHHmm) {
+        return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM)' });
+      }
+
+      const startMinutes = toTimeMinutes(startHHmm.hh, startHHmm.mm);
+      const endMinutes = toTimeMinutes(endHHmm.hh, endHHmm.mm);
+      if (endMinutes <= startMinutes) {
+        return res.status(400).json({ message: 'Hora fin debe ser mayor que hora inicio' });
+      }
+
+      const startDateUtc = new Date(
+        Date.UTC(baseDateForCombine.getUTCFullYear(), baseDateForCombine.getUTCMonth(), baseDateForCombine.getUTCDate(), startHHmm.hh, startHHmm.mm, 0, 0),
+      )
+      const endTimeUtc = new Date(
+        Date.UTC(baseDateForCombine.getUTCFullYear(), baseDateForCombine.getUTCMonth(), baseDateForCombine.getUTCDate(), endHHmm.hh, endHHmm.mm, 0, 0),
+      )
+
+      updateData.startDate = startDateUtc
+      updateData.startTime = startDateUtc
+      updateData.endTime = endTimeUtc
+      updateData.endDate = null
+    }
+
+    if (updateData.recurrenceEnd !== undefined) {
+      updateData.recurrenceEnd = updateData.recurrenceEnd
+        ? parseRecurrenceEndToUtcInclusiveEndOfDay(String(updateData.recurrenceEnd))
+        : null
+    }
+
+    // Validación mínima para recurrencia si se está actualizando.
+    if (typeof updateData.isRecurring === 'boolean' ? updateData.isRecurring : existingEvent.isRecurring) {
+      const recType = updateData.recurrenceType ?? existingEvent.recurrenceType
+      if (recType === 'NONE') {
+        return res.status(400).json({ message: 'Evento repetitivo requiere recurrenceType válido' })
+      }
+      const recEnd = updateData.recurrenceEnd ?? existingEvent.recurrenceEnd
+      if (!recEnd) {
+        return res.status(400).json({ message: 'Evento repetitivo requiere recurrenceEnd' })
+      }
+      const days = updateData.daysOfWeek ?? existingEvent.daysOfWeek
+      if (recType === 'WEEKLY' && (!days || days.length === 0)) {
+        return res.status(400).json({ message: 'Evento repetitivo semanal requiere al menos un día de la semana' })
+      }
+    }
 
     const event = await prisma.event.update({
       where: { id },

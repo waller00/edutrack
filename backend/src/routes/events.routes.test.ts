@@ -35,6 +35,8 @@ const minimalEvent = {
   title: "Clase test",
   type: "CLASE",
   startDate: iso,
+  startTime: "10:00",
+  endTime: "11:00",
   isRecurring: false,
   daysOfWeek: [],
   recurrenceType: "NONE" as const,
@@ -244,9 +246,41 @@ describe("events routes (prisma mock)", () => {
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
-      .send({ title: "Nuevo", startDate: iso, startTime: iso, endTime: iso });
+      .send({ title: "Nuevo", startDate: iso, startTime: iso, endTime: "2025-12-15T15:00:00.000Z" });
     expect(res.status).toBe(200);
     expect(prismaMock.event.update).toHaveBeenCalled();
+  });
+
+  it("PUT /events/:id permite limpiar descripción y desasignar usuario", async () => {
+    prismaMock.event.findUnique.mockResolvedValue({
+      userId: "u1",
+      assignedUserId: "00000000-0000-4000-8000-000000000010",
+      startDate: new Date("2025-12-15T10:00:00.000Z"),
+      startTime: new Date("2025-12-15T10:00:00.000Z"),
+      endTime: new Date("2025-12-15T11:00:00.000Z"),
+      isRecurring: false,
+      recurrenceType: "NONE",
+      recurrenceEnd: null,
+      daysOfWeek: [],
+      status: "SCHEDULED",
+    });
+    prismaMock.event.update.mockResolvedValue({ id: "e1", description: null, assignedUserId: null });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ description: "", assignedUserId: "" });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.event.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          description: null,
+          assignedUserId: null,
+        }),
+      }),
+    );
   });
 
   it("PUT /events/:id 500 si update falla", async () => {
