@@ -1,0 +1,84 @@
+
+> web@0.1.0 test:coverage
+> vitest run --coverage --run
+
+
+ RUN  v4.1.0 /home/waller/Documentos/final_class/frontend/web
+      Coverage enabled with v8
+
+
+ Test Files  23 passed (23)
+      Tests  124 passed (124)
+   Start at  19:40:41
+   Duration  1.88s (transform 1.92s, setup 3.57s, import 3.16s, tests 2.54s, environment 16.03s)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   29.23 |    24.11 |   29.43 |   29.08 |                   
+ src               |     100 |      100 |     100 |     100 |                   
+  middleware.ts    |     100 |      100 |     100 |     100 |                   
+ src/app           |     100 |    93.33 |     100 |     100 |                   
+  layout.tsx       |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |    93.33 |     100 |     100 | 119               
+ ...min/attendance |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-766             
+ ...p/admin/events |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-913             
+ ...admin/licenses |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-679             
+ ...-preprocessing |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-161             
+ ...dmin/train-dni |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-276             
+ ...pp/admin/users |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-304             
+ src/app/forgot    |    92.5 |    89.28 |   85.71 |   97.22 |                   
+  page.tsx         |    92.5 |    89.28 |   85.71 |   97.22 | 33                
+ src/app/login     |     100 |    88.88 |     100 |     100 |                   
+  page.tsx         |     100 |    88.88 |     100 |     100 | 26,44,122         
+ ...app/onboarding |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-460             
+ src/app/profile   |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-251             
+ src/app/register  |       0 |        0 |       0 |       0 |                   
+  page.tsx         |       0 |        0 |       0 |       0 | 1-835             
+ ...r-step-by-step |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ src/app/reset     |     100 |    91.66 |     100 |     100 |                   
+  page.tsx         |     100 |    91.66 |     100 |     100 | 15                
+ ...aff/attendance |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ ...p/staff/events |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ .../staff/reports |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ ...ent/attendance |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ ...her/attendance |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ ...teacher/events |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ ...eacher/reports |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ src/app/verify    |     100 |      100 |     100 |     100 |                   
+  page.tsx         |     100 |      100 |     100 |     100 |                   
+ src/components    |   97.43 |    90.19 |   95.65 |   96.96 |                   
+  ...ngeFields.tsx |     100 |      100 |     100 |     100 |                   
+  ...ventsPage.tsx |   96.55 |     90.9 |    92.3 |   96.07 | 75,117            
+  ...dancePage.tsx |   94.11 |    71.42 |    90.9 |   93.33 | 61,96             
+  ...nControls.tsx |     100 |      100 |     100 |     100 |                   
+  ...ateFields.tsx |     100 |      100 |     100 |     100 |                   
+  RoleGuard.tsx    |     100 |      100 |     100 |     100 |                   
+  UserNav.tsx      |     100 |    92.85 |     100 |     100 | 44,117            
+ src/lib           |    99.5 |    96.45 |     100 |     100 |                   
+  api.ts           |     100 |    91.66 |     100 |     100 | 2                 
+  ...nt-display.ts |     100 |      100 |     100 |     100 |                   
+  ...-dashboard.ts |     100 |      100 |     100 |     100 |                   
+  image-upload.ts  |     100 |    83.33 |     100 |     100 | 40                
+  ...ce-display.ts |     100 |      100 |     100 |     100 |                   
+  ...d-strength.ts |     100 |      100 |     100 |     100 |                   
+  profile-form.ts  |     100 |    95.45 |     100 |     100 | 46,53             
+  uruguay-forms.ts |   96.15 |    92.85 |     100 |     100 | 35                
+-------------------|---------|----------|---------|---------|-------------------

@@ -1,8 +1,23 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import { compressImage, fileToDataUrl } from '@/lib/image-upload'
+import {
+  onlyDigits,
+  formatUruguayanCI,
+  isValidUruguayanCI,
+  isValidLocalPhoneUY,
+  normalizeLocalPhoneUY,
+} from '@/lib/uruguay-forms'
+import { isStrongPassword, getPasswordStrength, getStrengthBarClass } from '@/lib/password-strength'
+import {
+  getOnboardingUsernameStatusDisplay,
+  getOnboardingVerificationFieldLabel,
+  getOnboardingVerificationMessageClass,
+  resolveOnboardingUsernameStatus,
+  type OnboardingUsernameStatus,
+} from '@/lib/onboarding-form-helpers'
 
-type UsernameStatus = 'idle' | 'checking' | 'ok' | 'taken' | 'invalid'
 type VerificationEntry = {
   provided: string
   extracted?: string
@@ -21,95 +36,6 @@ type VerifyDniResponse = {
   message?: string
 }
 
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, '')
-}
-
-function formatUruguayanCI(input: string) {
-  const digits = onlyDigits(input).slice(0, 8)
-  if (digits.length <= 1) return digits
-  if (digits.length <= 4) return `${digits[0]}.${digits.slice(1)}`
-  if (digits.length <= 7) return `${digits[0]}.${digits.slice(1, 4)}.${digits.slice(4)}`
-  return `${digits[0]}.${digits.slice(1, 4)}.${digits.slice(4, 7)}-${digits.slice(7)}`
-}
-
-function computeCICheckDigit(base7: string) {
-  const weights = [2, 9, 8, 7, 6, 3, 4]
-  const padded = base7.padStart(7, '0')
-  const sum = padded.split('').map((d, i) => parseInt(d, 10) * weights[i]).reduce((a, b) => a + b, 0)
-  return (10 - (sum % 10)) % 10
-}
-
-function isValidUruguayanCI(input: string) {
-  const digits = onlyDigits(input)
-  if (digits.length < 7 || digits.length > 8) return false
-  const base = digits.slice(0, -1)
-  const check = parseInt(digits.slice(-1), 10)
-  return computeCICheckDigit(base) === check
-}
-
-function normalizeLocalPhoneUY(local: string) {
-  const digits = onlyDigits(local)
-  if (!digits) return ''
-  return digits.startsWith('0') ? digits.slice(1) : digits
-}
-
-function isValidLocalPhoneUY(local: string) {
-  return /^\d{8}$/.test(normalizeLocalPhoneUY(local))
-}
-
-function isStrongPassword(pw: string) {
-  return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(pw)
-}
-
-function getPasswordStrength(password: string) {
-  if (password.length === 0) return 0
-  return isStrongPassword(password) ? 100 : Math.min(75, password.length * 8)
-}
-
-function getStrengthBarClass(strength: number) {
-  if (strength > 80) return 'bg-emerald-500'
-  if (strength > 50) return 'bg-yellow-500'
-  return 'bg-red-500'
-}
-
-function getUsernameStatus(status: UsernameStatus) {
-  switch (status) {
-    case 'checking':
-      return { text: 'Verificando...', className: 'text-gray-500' }
-    case 'ok':
-      return { text: 'Disponible', className: 'text-green-600' }
-    case 'taken':
-      return { text: 'No disponible', className: 'text-red-600' }
-    case 'invalid':
-      return { text: 'Inválido', className: 'text-red-600' }
-    default:
-      return null
-  }
-}
-
-function getVerificationFieldLabel(field: string) {
-  switch (field) {
-    case 'firstName':
-      return 'Nombre'
-    case 'lastName':
-      return 'Apellido'
-    case 'nationalId':
-      return 'Cédula'
-    default:
-      return 'Fecha de nacimiento'
-  }
-}
-
-function getVerificationMessageClass(message: string) {
-  return String(message).includes('✓') ? 'text-green-600' : 'text-red-600'
-}
-
-function resolveUsernameStatus(valid: boolean, available: boolean): UsernameStatus {
-  if (!valid) return 'invalid'
-  return available ? 'ok' : 'taken'
-}
-
 type Me = {
   email: string
   username?: string
@@ -125,7 +51,7 @@ type Me = {
 export default function OnboardingPage() {
   const [me, setMe] = useState<Me | null>(null)
   const [username, setUsername] = useState('')
-  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle')
+  const [usernameStatus, setUsernameStatus] = useState<OnboardingUsernameStatus>('idle')
   const [nationalId, setNationalId] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -184,7 +110,7 @@ export default function OnboardingPage() {
     const t = setTimeout(async () => {
       try {
         const res = await api<{ available: boolean; valid: boolean }>(`/auth/check-username?u=${encodeURIComponent(username)}`)
-        const nextStatus = resolveUsernameStatus(res.valid, res.available)
+        const nextStatus = resolveOnboardingUsernameStatus(res.valid, res.available)
         setUsernameStatus(nextStatus)
       } catch {
         setUsernameStatus('invalid')
@@ -242,34 +168,6 @@ export default function OnboardingPage() {
     )
   }
 
-  function compressImage(file: File, quality: number, maxWidth: number): Promise<File> {
-    return new Promise((resolve) => {
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      const img = new Image()
-
-      img.onload = () => {
-        let { width, height } = img
-        if (width > maxWidth) {
-          height = (height * maxWidth) / width
-          width = maxWidth
-        }
-        canvas.width = width
-        canvas.height = height
-        ctx?.drawImage(img, 0, 0, width, height)
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            resolve(file)
-            return
-          }
-          resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }))
-        }, 'image/jpeg', quality)
-      }
-
-      img.src = URL.createObjectURL(file)
-    })
-  }
-
   async function handleDniUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
@@ -293,11 +191,7 @@ export default function OnboardingPage() {
 
     try {
       const compressedImage = await compressImage(file, 0.8, 1024)
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result || ''))
-        reader.readAsDataURL(compressedImage)
-      })
+      const base64 = await fileToDataUrl(compressedImage)
 
       const response = await api<VerifyDniResponse>('/auth/verify-step-by-step', {
         method: 'POST',
@@ -380,7 +274,7 @@ export default function OnboardingPage() {
   if (!me) return null
 
   const strength = getPasswordStrength(password)
-  const usernameStatusInfo = getUsernameStatus(usernameStatus)
+  const usernameStatusInfo = getOnboardingUsernameStatusDisplay(usernameStatus)
 
   return (
     <main className="min-h-screen gradient-light flex items-center justify-center p-4">
@@ -516,12 +410,12 @@ export default function OnboardingPage() {
                     <div key={field} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-800 capitalize">
-                          {getVerificationFieldLabel(field)}
+                          {getOnboardingVerificationFieldLabel(field)}
                         </p>
                         <p className="text-sm text-gray-600">Ingresado: <span className="font-medium">{data.provided}</span></p>
                         {data.extracted && <p className="text-sm text-gray-600">DNI: <span className="font-medium">{data.extracted}</span></p>}
                       </div>
-                      <div className={`text-sm font-medium ${getVerificationMessageClass(data.message)}`}>{data.message}</div>
+                      <div className={`text-sm font-medium ${getOnboardingVerificationMessageClass(data.message)}`}>{data.message}</div>
                     </div>
                   ))}
                 </div>

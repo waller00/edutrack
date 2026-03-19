@@ -1,0 +1,181 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import request from "supertest";
+import express from "express";
+import cookieParser from "cookie-parser";
+import { signAccessToken } from "../jwt.js";
+import { computeCICheckDigit } from "../uruguay-ci.js";
+
+const { prismaMock } = vi.hoisted(() => ({
+  prismaMock: {
+    user: {
+      count: vi.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    passwordReset: { create: vi.fn() },
+  },
+}));
+
+vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+
+import adminRoutes from "./admin.js";
+
+function app() {
+  const a = express();
+  a.use(express.json());
+  a.use(cookieParser());
+  a.use("/admin", adminRoutes);
+  return a;
+}
+
+const adminHdr = () => ({
+  Authorization: `Bearer ${signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" })}`,
+});
+
+describe("admin routes (prisma mock)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("GET /admin/users paginado", async () => {
+    prismaMock.user.count.mockResolvedValue(2);
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: "1", email: "a@a.com", role: "TEACHER" },
+    ]);
+    const res = await request(app()).get("/admin/users?page=1&pageSize=10").set(adminHdr());
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(2);
+    expect(res.body.data).toHaveLength(1);
+  });
+
+  it("GET /admin/users con filtro q arma OR", async () => {
+    prismaMock.user.count.mockResolvedValue(0);
+    prismaMock.user.findMany.mockResolvedValue([]);
+    await request(app()).get("/admin/users?q=juan").set(adminHdr());
+    expect(prismaMock.user.findMany).toHaveBeenCalled();
+    const arg = prismaMock.user.findMany.mock.calls[0][0];
+    expect(arg.where.OR).toBeDefined();
+  });
+
+  it("GET /admin/users capea pageSize y filtra por role", async () => {
+    prismaMock.user.count.mockResolvedValue(0);
+    prismaMock.user.findMany.mockResolvedValue([]);
+    const res = await request(app()).get("/admin/users?pageSize=999&role=STAFF").set(adminHdr());
+    expect(res.status).toBe(200);
+    const arg = prismaMock.user.findMany.mock.calls[0][0];
+    expect(arg.take).toBe(100);
+    expect(arg.where.role).toBe("STAFF");
+  });
+
+  it("POST /admin/users 400 body inválido", async () => {
+    const res = await request(app()).post("/admin/users").set(adminHdr()).send({ email: "bad" });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /admin/users 409 email existente", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: "x" });
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "e@e.com", role: "STAFF" });
+    expect(res.status).toBe(409);
+  });
+
+  it("POST /admin/users 201 crea", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "new-id" });
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe("new-id");
+  });
+
+  it("PUT /admin/users/:id 400 cédula inválida", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
+    const res = await request(app())
+      .put("/admin/users/u1")
+      .set(adminHdr())
+      .send({ nationalId: "abcdef" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Cédula/i);
+  });
+
+  it("PUT /admin/users/:id ok actualiza nombre", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
+    prismaMock.user.update.mockResolvedValue({});
+    const res = await request(app())
+      .put("/admin/users/u1")
+      .set(adminHdr())
+      .send({ firstName: "Ana", lastName: "López" });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it("PUT /admin/users/:id normaliza cédula válida", async () => {
+    const d = computeCICheckDigit("3045865");
+    const nationalId = `3.045.865-${d}`;
+    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
+    prismaMock.user.update.mockResolvedValue({});
+    const res = await request(app())
+      .put("/admin/users/u1")
+      .set(adminHdr())
+      .send({ nationalId });
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ nationalId: `3045865${d}` }),
+      }),
+    );
+  });
+
+  it("PUT /admin/users/:id actualiza aprobación e inactividad", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
+    prismaMock.user.update.mockResolvedValue({});
+    const res = await request(app())
+      .put("/admin/users/u1")
+      .set(adminHdr())
+      .send({ isApproved: false, isActive: false });
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "u1" },
+        data: expect.objectContaining({ isApproved: false, approvedAt: null, isActive: false }),
+      }),
+    );
+  });
+
+  it("PUT /admin/users/:id/lock", async () => {
+    prismaMock.user.update.mockResolvedValue({});
+    const res = await request(app()).put("/admin/users/u1/lock?lock=true").set(adminHdr());
+    expect(res.status).toBe(200);
+  });
+
+  it("PUT /admin/users/:id/lock permite desbloquear", async () => {
+    prismaMock.user.update.mockResolvedValue({});
+    const res = await request(app()).put("/admin/users/u1/lock?lock=false").set(adminHdr());
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ lockUntil: null, failedLoginAttempts: 0 }),
+      }),
+    );
+  });
+
+  it("POST /admin/users/:id/password/reset devuelve token", async () => {
+    prismaMock.passwordReset.create.mockResolvedValue({});
+    const res = await request(app()).post("/admin/users/u1/password/reset").set(adminHdr());
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBeDefined();
+    expect(res.body.expiresAt).toBeDefined();
+  });
+
+  it("403 sin rol ADMIN", async () => {
+    const tok = signAccessToken({ sub: "t", email: "t@t.com", role: "TEACHER" });
+    const res = await request(app()).get("/admin/users").set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(403);
+  });
+});

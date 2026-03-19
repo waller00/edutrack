@@ -2,22 +2,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { authGuard, requireRole, requireAnyRole } from '../middlewares/auth.js';
+import {
+  applyEventStartDateFilter,
+  buildMyEventsBaseFilter,
+  applyMyEventsDateFilter,
+  expandRecurringEvent,
+} from '../events-query.js';
 
 const r = Router();
-
-function applyEventStartDateFilter(where: any, startDate?: unknown, endDate?: unknown) {
-  if (!startDate && !endDate) return
-
-  where.startDate = {}
-
-  if (startDate) {
-    where.startDate.gte = new Date(startDate as string)
-  }
-
-  if (endDate) {
-    where.startDate.lte = new Date(endDate as string)
-  }
-}
 
 // Esquemas de validación
 const eventSchema = z.object({
@@ -100,54 +92,11 @@ r.get('/my-events', authGuard, async (req, res) => {
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
     const { startDate, endDate, type, status } = req.query;
-    
-    const where: any = {
-      OR: [
-        { userId: user.sub },
-        { assignedUserId: user.sub }
-      ],
-    };
+
+    const where: any = buildMyEventsBaseFilter(user.sub)
 
     // Si hay filtro de fecha, buscar eventos que puedan tener instancias en ese rango
-    if (startDate || endDate) {
-      const start = startDate ? new Date(startDate as string) : null;
-      const end = endDate ? new Date(endDate as string) : null;
-      const singleEventDateFilter: any = { isRecurring: false }
-
-      if (start || end) {
-        singleEventDateFilter.startDate = {}
-        if (start) singleEventDateFilter.startDate.gte = start
-        if (end) singleEventDateFilter.startDate.lte = end
-      }
-
-      const recurringEventFilter: any = { isRecurring: true }
-      if (end) {
-        recurringEventFilter.startDate = { lte: end }
-      }
-      if (start) {
-        recurringEventFilter.OR = [
-          { recurrenceEnd: null },
-          { recurrenceEnd: { gte: start } }
-        ]
-      }
-
-      where.AND = [
-        {
-          OR: [
-            { userId: user.sub },
-            { assignedUserId: user.sub }
-          ]
-        },
-        {
-          OR: [
-            singleEventDateFilter,
-            recurringEventFilter
-          ]
-        }
-      ];
-
-      delete where.OR;
-    }
+    applyMyEventsDateFilter(where, user.sub, startDate, endDate)
 
     if (type) {
       where.type = type;
@@ -174,24 +123,7 @@ r.get('/my-events', authGuard, async (req, res) => {
     });
 
     // Para eventos repetitivos, generar instancias específicas para el rango de fechas
-    const processedEvents = [];
-    
-    for (const event of events) {
-      if (event.isRecurring && event.daysOfWeek && event.daysOfWeek.length > 0 && (startDate || endDate)) {
-        const rangeStart = startDate ? new Date(startDate as string) : new Date(event.startDate)
-        const rangeEnd = endDate
-          ? new Date(endDate as string)
-          : event.recurrenceEnd
-            ? new Date(event.recurrenceEnd)
-            : new Date(Math.max(Date.now(), new Date(event.startDate).getTime()))
-        
-        // Generar instancias para cada día de la semana en el rango
-        const instances = generateRecurringInstances(event, rangeStart, rangeEnd);
-        processedEvents.push(...instances);
-      } else {
-        processedEvents.push(event);
-      }
-    }
+    const processedEvents = events.flatMap((event) => expandRecurringEvent(event, startDate, endDate))
 
     res.json(processedEvents);
   } catch (error) {
@@ -199,37 +131,6 @@ r.get('/my-events', authGuard, async (req, res) => {
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 });
-
-// Función para generar instancias de eventos repetitivos
-function generateRecurringInstances(event: any, startDate: Date, endDate: Date) {
-  const instances = [];
-  const current = new Date(startDate);
-  
-  while (current <= endDate) {
-    const dayOfWeek = current.getDay();
-    
-    // Verificar si este día está en los días de la semana del evento
-    if (event.daysOfWeek.includes(dayOfWeek)) {
-      // Crear una instancia para este día
-      const instance = {
-        ...event,
-        id: `${event.id}_${current.toISOString().split('T')[0]}`, // ID único para esta instancia
-        startDate: new Date(current),
-        // Mantener las horas originales pero con la fecha específica
-        startTime: event.startTime ? new Date(`${current.toISOString().split('T')[0]}T${new Date(event.startTime).toTimeString().split(' ')[0]}`) : null,
-        endTime: event.endTime ? new Date(`${current.toISOString().split('T')[0]}T${new Date(event.endTime).toTimeString().split(' ')[0]}`) : null,
-        isInstance: true, // Marcar como instancia
-        originalEventId: event.id
-      };
-      
-      instances.push(instance);
-    }
-    
-    current.setDate(current.getDate() + 1);
-  }
-  
-  return instances;
-}
 
 // Marcar eventos vencidos automáticamente
 async function markExpiredEvents() {

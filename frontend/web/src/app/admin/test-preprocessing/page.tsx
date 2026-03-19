@@ -2,119 +2,74 @@
 import { useState } from 'react'
 import { api } from '@/lib/api'
 import RoleGuard from '@/components/RoleGuard'
-
-// Re-use the compressImage function from register/page.tsx
-function compressImage(file: File, quality: number, maxWidth: number): Promise<File> {
-  return new Promise((resolve) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    
-    img.onload = () => {
-      let { width, height } = img;
-      if (width > maxWidth) {
-        height = (height * maxWidth) / width;
-        width = maxWidth;
-      }
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      ctx?.drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const compressedFile = new File([blob], file.name, {
-            type: 'image/jpeg',
-            lastModified: Date.now(),
-          });
-          resolve(compressedFile);
-        } else {
-          resolve(file);
-        }
-      }, 'image/jpeg', quality);
-    };
-    
-    img.src = URL.createObjectURL(file);
-  });
-}
+import { compressImage, fileToDataUrl } from '@/lib/image-upload'
+import {
+  applyPreprocessingTestApiResponse,
+  getPreprocessingConfidenceColorClass,
+  type PreprocessingTestApiResponse,
+  validateDniTestImageFile,
+} from '@/lib/dni-preprocessing-test'
 
 export default function TestPreprocessingPage() {
-  const [dniFile, setDniFile] = useState<File | null>(null);
-  const [testResults, setTestResults] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [recommendation, setRecommendation] = useState<any>(null);
+  const [dniFile, setDniFile] = useState<File | null>(null)
+  const [testResults, setTestResults] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [recommendation, setRecommendation] = useState<any>(null)
 
   async function handleTest() {
-    setLoading(true);
-    setError('');
-    setTestResults([]);
-    setRecommendation(null);
+    setLoading(true)
+    setError('')
+    setTestResults([])
+    setRecommendation(null)
 
     if (!dniFile) {
-      setError('Por favor, selecciona una imagen de DNI para probar.');
-      setLoading(false);
-      return;
+      setError('Por favor, selecciona una imagen de DNI para probar.')
+      setLoading(false)
+      return
     }
 
     try {
-      const compressedImage = await compressImage(dniFile, 0.8, 1024);
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.readAsDataURL(compressedImage);
-      });
+      const compressedImage = await compressImage(dniFile, 0.8, 1024)
+      const base64 = await fileToDataUrl(compressedImage)
 
-      const response = await api('/auth/test-all-strategies', {
-        method: 'POST',
-        body: JSON.stringify({ image: base64 }),
-      });
+      const response = await api<PreprocessingTestApiResponse>(
+        '/auth/test-all-strategies',
+        {
+          method: 'POST',
+          body: JSON.stringify({ image: base64 }),
+        },
+      )
 
-      if (response.success) {
-        setTestResults(response.results);
-        setRecommendation(response.recommendation);
-        setError('✅ Prueba de preprocesamiento completada exitosamente.');
-      } else {
-        setError(response.message || 'Error durante la prueba de preprocesamiento.');
-      }
+      const out = applyPreprocessingTestApiResponse(response)
+      setTestResults(out.testResults as any[])
+      setRecommendation(out.recommendation)
+      setError(out.userMessage)
     } catch (err: any) {
-      console.error('Error during preprocessing test:', err);
-      setError(err.message || 'Error al probar el preprocesamiento.');
+      console.error('Error during preprocessing test:', err)
+      setError(err.message || 'Error al probar el preprocesamiento.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
   }
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const file = event.target.files?.[0]
     if (file) {
-      if (file.type.startsWith('image/') && file.size <= 5 * 1024 * 1024) {
-        setDniFile(file);
-        setError('');
+      const validationError = validateDniTestImageFile(file)
+      if (validationError) {
+        setError(validationError)
       } else {
-        setError('El archivo debe ser una imagen válida y no exceder 5MB.');
+        setDniFile(file)
+        setError('')
       }
     }
   }
 
-  function getConfidenceColor(confidence: number) {
-    if (confidence >= 80) return 'text-green-600 bg-green-50';
-    if (confidence >= 60) return 'text-yellow-600 bg-yellow-50';
-    return 'text-red-600 bg-red-50';
-  }
-
-  function getTypeLabel(type: string) {
-    const labels = {
-      original: 'Imagen Original',
-      preprocessed: 'Preprocesada',
-      cropped: 'Recortada',
-      full_pipeline: 'Pipeline Completo'
-    };
-    return labels[type as keyof typeof labels] || type;
-  }
+  const getConfidenceColor = getPreprocessingConfidenceColorClass
 
   return (
-    <RoleGuard requiredRole="ADMIN">
+    <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-8">
         <div className="header-modern">
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
@@ -150,9 +105,11 @@ export default function TestPreprocessingPage() {
             {loading ? '⏳ Probando...' : '🧪 Probar Preprocesamiento'}
           </button>
           {error && (
-            <div className={`p-3 rounded-lg text-sm ${
-              error.includes('✅') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
-            }`}>
+            <div
+              className={`p-3 rounded-lg text-sm ${
+                error.includes('✅') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
+              }`}
+            >
               {error}
             </div>
           )}
@@ -168,7 +125,9 @@ export default function TestPreprocessingPage() {
               </div>
               <div>
                 <p className="font-medium text-emerald-700">Confianza:</p>
-                <span className={`px-2 py-1 rounded text-sm font-medium ${getConfidenceColor(recommendation.confidence)}`}>
+                <span
+                  className={`px-2 py-1 rounded text-sm font-medium ${getConfidenceColor(recommendation.confidence)}`}
+                >
                   {recommendation.confidence.toFixed(1)}%
                 </span>
               </div>
@@ -193,14 +152,21 @@ export default function TestPreprocessingPage() {
         {testResults.length > 0 && (
           <div className="card shadow-modern-lg p-6 space-y-6">
             <h2 className="text-xl font-semibold text-gray-800">Resultados de Pruebas</h2>
-            
+
             <div className="space-y-4">
               {testResults.map((result) => (
-                <div key={result.strategy} className={`border rounded-lg p-4 space-y-3 ${result.strategy === recommendation?.strategy ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200'}`}>
+                <div
+                  key={result.strategy}
+                  className={`border rounded-lg p-4 space-y-3 ${
+                    result.strategy === recommendation?.strategy ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200'
+                  }`}
+                >
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-gray-800">{result.strategy}</h3>
-                      {result.strategy === recommendation?.strategy && <span className="px-2 py-1 rounded text-xs font-medium bg-emerald-100 text-emerald-700">🏆 MEJOR</span>}
+                      {result.strategy === recommendation?.strategy && (
+                        <span className="px-2 py-1 rounded text-xs font-medium bg-emerald-100 text-emerald-700">🏆 MEJOR</span>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${getConfidenceColor(result.confidence)}`}>
@@ -214,7 +180,7 @@ export default function TestPreprocessingPage() {
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2 text-sm">
                     <div>
                       <p className="font-medium text-gray-700">Datos extraídos:</p>
@@ -225,14 +191,14 @@ export default function TestPreprocessingPage() {
                         <p><strong>Fecha:</strong> {result.extractedData?.birthdate || 'N/A'}</p>
                       </div>
                     </div>
-                    
+
                     <div>
                       <p className="font-medium text-gray-700">Texto OCR ({result.textLength} chars):</p>
                       <pre className="whitespace-pre-wrap text-xs bg-gray-50 p-2 rounded mt-1 max-h-32 overflow-y-auto">
                         {result.text || 'Sin texto extraído'}
                       </pre>
                     </div>
-                    
+
                     {result.error && (
                       <div className="p-2 bg-red-50 border border-red-200 rounded text-red-600 text-xs">
                         Error: {result.error}
@@ -246,5 +212,5 @@ export default function TestPreprocessingPage() {
         )}
       </main>
     </RoleGuard>
-  );
+  )
 }

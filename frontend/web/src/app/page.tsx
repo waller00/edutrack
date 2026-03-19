@@ -1,47 +1,21 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
-
-type Me = {
-  name?: string
-  email: string
-  role: 'ADMIN' | 'TEACHER' | 'STAFF'
-  emailVerifiedAt?: string | null
-  needsProfileCompletion?: boolean
-  isApproved: boolean
-  isActive: boolean
-}
-
-type Section = { title: string; desc: string; cta: string; href: string }
-
-function getWelcomeMessage(inactiveAccount: boolean, pendingApproval: boolean) {
-  if (inactiveAccount) return 'Tu cuenta está desactivada y no puede usar módulos operativos.'
-  if (pendingApproval) return 'Tu información fue recibida. Cuando un administrador te apruebe, vas a ver las herramientas correspondientes a tu rol.'
-  return 'Bienvenido al sistema de gestión de asistencias. Accede a las herramientas disponibles para tu rol.'
-}
-
-function getSectionIcon(title: string) {
-  if (title.includes('usuarios')) return '👥'
-  if (title.includes('asistencias')) return '📊'
-  if (title.includes('eventos')) return '📅'
-  if (title.includes('licencias')) return '📄'
-  if (title.includes('Panel')) return '📈'
-  return '🔧'
-}
-
-function getResendButtonLabel(resent: boolean, resending: boolean) {
-  if (resent) return '✅ Enviado'
-  if (resending) return '⏳ Enviando…'
-  return '📧 Reenviar'
-}
+import type { HomeMe } from '@/lib/home-dashboard'
+import {
+  getResendButtonLabel,
+  getSectionIcon,
+  getVisibleHomeSections,
+  getWelcomeMessage,
+} from '@/lib/home-dashboard'
 
 export default function Home() {
-  const [me, setMe] = useState<Me | null>(null)
+  const [me, setMe] = useState<HomeMe | null>(null)
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
 
   useEffect(() => {
-    api<Me>('/auth/me')
+    api<HomeMe>('/auth/me')
       .then((u) => {
         setMe(u)
       })
@@ -50,7 +24,12 @@ export default function Home() {
 
   async function resend() {
     setResending(true)
-    try { await api('/auth/verify/resend', { method: 'POST' }); setResent(true) } finally { setResending(false) }
+    try {
+      await api('/auth/verify/resend', { method: 'POST' })
+      setResent(true)
+    } finally {
+      setResending(false)
+    }
   }
 
   if (!me) return null
@@ -59,25 +38,7 @@ export default function Home() {
   const pendingApproval = !me.isApproved
   const inactiveAccount = !me.isActive
 
-  const sectionsByRole: Record<Me['role'], Section[]> = {
-    ADMIN: [
-      { title: 'Gestión de usuarios', desc: 'Altas, roles y permisos.', cta: 'Administrar usuarios', href: '/admin/users' },
-      { title: 'Gestión de asistencias', desc: 'Registro y control de asistencias del personal.', cta: 'Gestionar asistencias', href: '/admin/attendance' },
-      { title: 'Gestión de eventos', desc: 'Crear y administrar turnos y eventos.', cta: 'Gestionar eventos', href: '/admin/events' },
-      { title: 'Gestión de licencias', desc: 'Administra licencias médicas y laborales.', cta: 'Gestionar licencias', href: '/admin/licenses' },
-    ],
-    TEACHER: [
-      { title: 'Mis asistencias', desc: 'Consulta tu historial de asistencias.', cta: 'Ver asistencias', href: '/teacher/attendance' },
-      { title: 'Mis eventos', desc: 'Consulta tus eventos.', cta: 'Ver eventos', href: '/teacher/events' },
-    ],
-    STAFF: [
-      { title: 'Mis asistencias', desc: 'Consulta tu historial de asistencias.', cta: 'Ver asistencias', href: '/staff/attendance' },
-      { title: 'Mis eventos', desc: 'Consulta tus eventos.', cta: 'Ver eventos', href: '/staff/events' },
-    ],
-  }
-
-  const sections =
-    pendingApproval || inactiveAccount || needsProfile ? [] : (sectionsByRole[me.role] || [])
+  const sections = getVisibleHomeSections(me)
 
   return (
     <main className="mx-auto max-w-7xl p-6 space-y-8">
@@ -92,9 +53,9 @@ export default function Home() {
               <p className="text-sm font-medium text-yellow-800">Email no verificado</p>
               <p className="text-sm text-yellow-700">Revisa tu bandeja o reenvía el correo de verificación.</p>
             </div>
-            <button 
-              onClick={resend} 
-              disabled={resending || resent} 
+            <button
+              onClick={resend}
+              disabled={resending || resent}
               className="btn-warning text-sm disabled:opacity-60"
             >
               {getResendButtonLabel(resent, resending)}
@@ -177,8 +138,8 @@ export default function Home() {
               </div>
               <p className="text-gray-600 text-sm leading-relaxed">{s.desc}</p>
             </div>
-            <a 
-              href={s.href} 
+            <a
+              href={s.href}
               className="btn-primary w-full text-center justify-center group-hover:scale-105 transition-transform"
             >
               {s.cta}

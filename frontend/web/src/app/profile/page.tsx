@@ -1,76 +1,16 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
-
-function onlyDigits(v:string){ return v.replace(/\D/g,'') }
-function formatCI(input: string){
-  const d = onlyDigits(input).slice(0,8)
-  if (d.length<=1) return d
-  if (d.length<=4) return `${d[0]}.${d.slice(1)}`
-  if (d.length<=7) return `${d[0]}.${d.slice(1,4)}.${d.slice(4)}`
-  return `${d[0]}.${d.slice(1,4)}.${d.slice(4,7)}-${d.slice(7)}`
-}
-function computeCI(base7:string){ const w=[2,9,8,7,6,3,4]; const p=base7.padStart(7,'0'); const s=p.split('').map((d,i)=>parseInt(d)*w[i]).reduce((a,b)=>a+b,0); return (10-(s%10))%10 }
-function validCI(input:string){
-  const d=onlyDigits(input)
-  if(d.length<7||d.length>8) return false
-  const b=d.slice(0,-1)
-  return computeCI(b)===parseInt(d.slice(-1))
-}
-function normLocalPhoneUY(local:string){
-  const d=onlyDigits(local)
-  if(!d) return ''
-  return d.startsWith('0')?d.slice(1):d
-}
-function isValidLocalPhone(local:string){ return /^\d{8}$/.test(normLocalPhoneUY(local)) }
-function canEditNationalId(role?: string){ return role === 'ADMIN' }
-function isStrongPassword(password: string) { return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password) }
-function getProfileErrorMessage(error: unknown) {
-  const message = String((error as { message?: string })?.message || '')
-  if (message.includes('409')) return 'Usuario o cédula ya registrados'
-  if (message.includes('403')) return 'No tienes permisos para cambiar cédula/rol'
-  return 'Error al guardar'
-}
-function getPasswordErrorMessage(error: unknown) {
-  const message = String((error as { message?: string })?.message || '')
-  if (message.includes('401')) return 'Contraseña actual incorrecta'
-  return 'No se pudo actualizar la contraseña'
-}
-function buildProfilePayload(params: {
-  username: string
-  firstName: string
-  lastName: string
-  phoneLocal: string
-  birthdate: string
-  nationalId: string
-  isAdmin: boolean
-}) {
-  const payload:any = {
-    username: params.username,
-    firstName: params.firstName,
-    lastName: params.lastName,
-    phone: params.phoneLocal ? `+598${normLocalPhoneUY(params.phoneLocal)}` : undefined,
-    birthdate: params.birthdate ? new Date(params.birthdate).toISOString() : undefined,
-  }
-  if (params.isAdmin) {
-    payload.nationalId = params.nationalId
-  }
-  return payload
-}
-function validateProfileForm(params: {
-  username: string
-  nationalId: string
-  firstName: string
-  lastName: string
-  phoneLocal: string
-  canEditCi: boolean
-}) {
-  if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(params.username)) return 'Usuario inválido'
-  if (params.canEditCi && !validCI(params.nationalId)) return 'Cédula inválida'
-  if (!params.firstName.trim() || !params.lastName.trim()) return 'Nombre y apellido obligatorios'
-  if (params.phoneLocal && !isValidLocalPhone(params.phoneLocal)) return 'Teléfono inválido'
-  return null
-}
+import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
+import {
+  buildProfilePayload,
+  canEditNationalId,
+  formatCI,
+  getPasswordErrorMessage,
+  getProfileErrorMessage,
+  isStrongPassword,
+  validateProfileForm,
+} from '@/lib/profile-form'
 
 export default function ProfilePage(){ // NOSONAR preserve current profile UI flow
   const [me,setMe]=useState<any>(null)
@@ -229,28 +169,12 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
               placeholder="Tu apellido"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
-            <div className="flex gap-2 items-center">
-              <span className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 select-none text-sm font-medium">+598</span>
-              <input 
-                value={phoneLocal} 
-                onChange={e=>setPhoneLocal(e.target.value)} 
-                placeholder="094481122" 
-                className="input-field flex-1"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Fecha de nacimiento</label>
-            <input 
-              value={birthdate} 
-              onChange={e=>setBirthdate(e.target.value)} 
-              type="date" 
-              max={new Date().toISOString().split('T')[0]} 
-              className="input-field"
-            />
-          </div>
+          <PhoneBirthdateFields
+            phoneLocal={phoneLocal}
+            birthdate={birthdate}
+            onPhoneChange={setPhoneLocal}
+            onBirthdateChange={setBirthdate}
+          />
         </div>
         <div className="flex justify-end pt-6 border-t border-gray-200">
           <button 

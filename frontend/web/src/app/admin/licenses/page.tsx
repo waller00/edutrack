@@ -1,7 +1,17 @@
 'use client'
+import DateRangeFields from '@/components/DateRangeFields'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import {
+  buildMedicalLeavesQueryString,
+  formatLicenseAdminUserDisplayName,
+  getLicenseAdminDefaultStartDate,
+  getLicenseStatusBadgeClass,
+  getLicenseStatusLabel,
+  getLicenseTypeLabel,
+} from '@/lib/admin-licenses-display'
+import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
 
 type License = {
   id: string
@@ -36,10 +46,6 @@ type User = {
   username?: string
 }
 
-function getDefaultStartDate() {
-  return `${new Date().getFullYear()}-01-01`
-}
-
 export default function LicensesPage() {
   const [licenses, setLicenses] = useState<License[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -51,7 +57,7 @@ export default function LicensesPage() {
     userId: '',
     type: '',
     status: '',
-    startDate: getDefaultStartDate(),
+    startDate: getLicenseAdminDefaultStartDate(),
     endDate: ''
   })
 
@@ -74,17 +80,10 @@ export default function LicensesPage() {
   async function loadLicenses() {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      
-      if (filters.userId) params.set('userId', filters.userId)
-      if (filters.type) params.set('type', filters.type)
-      if (filters.status) params.set('status', filters.status)
-      if (filters.startDate) params.set('startDate', filters.startDate)
-      if (filters.endDate) params.set('endDate', filters.endDate)
-
+      const qs = buildMedicalLeavesQueryString(filters)
       const data = await api<{
         data: License[]
-      }>(`/medical-leaves/all?${params.toString()}`)
+      }>(`/medical-leaves/all?${qs}`)
       
       setLicenses(data.data)
     } catch (error) {
@@ -100,11 +99,9 @@ export default function LicensesPage() {
         data: User[]
       }>('/admin/users?pageSize=100')
       // Procesar usuarios para tener el campo name
-      const processedUsers = data.data.map(user => ({
+      const processedUsers = data.data.map((user) => ({
         ...user,
-        name: user.firstName && user.lastName 
-          ? `${user.firstName} ${user.lastName}` 
-          : user.username || user.email
+        name: formatLicenseAdminUserDisplayName(user),
       }))
       setUsers(processedUsers)
     } catch (error) {
@@ -188,33 +185,6 @@ export default function LicensesPage() {
     }
   }
 
-  const getTypeLabel = (type: string) => {
-    const labels: { [key: string]: string } = {
-      'MEDICAL_LEAVE': 'Licencia Médica',
-      'WORK_LEAVE': 'Licencia Laboral',
-      'OTHER': 'Otro'
-    }
-    return labels[type] || type
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'APPROVED': return 'bg-green-100 text-green-800'
-      case 'REJECTED': return 'bg-red-100 text-red-800'
-      case 'PENDING': return 'bg-yellow-100 text-yellow-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  }
-
-  const getStatusLabel = (status: string) => {
-    const labels: { [key: string]: string } = {
-      'APPROVED': 'Aprobada',
-      'REJECTED': 'Rechazada',
-      'PENDING': 'Pendiente'
-    }
-    return labels[status] || status
-  }
-
   function renderLicensesRows() {
     if (loading) {
       return (
@@ -242,14 +212,14 @@ export default function LicensesPage() {
           {license.user.name}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-          {getTypeLabel(license.type)}
+          {getLicenseTypeLabel(license.type)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
           {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
-          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(license.status)}`}>
-            {getStatusLabel(license.status)}
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLicenseStatusBadgeClass(license.status)}`}>
+            {getLicenseStatusLabel(license.status)}
           </span>
         </td>
         <td className="px-6 py-4 text-sm text-gray-900">
@@ -314,7 +284,7 @@ export default function LicensesPage() {
         </div>
 
         {message && (
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded text-blue-800">
+          <div className={`p-4 border rounded ${getAdminFlashMessageClass(message)}`}>
             {message}
           </div>
         )}
@@ -329,7 +299,7 @@ export default function LicensesPage() {
                   userId: '',
                   type: '',
                   status: '',
-                  startDate: getDefaultStartDate(),
+                  startDate: getLicenseAdminDefaultStartDate(),
                   endDate: ''
                 })
               }}
@@ -382,25 +352,12 @@ export default function LicensesPage() {
               </select>
             </div>
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-              <input
-                type="date"
-                value={filters.startDate}
-                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-              <input
-                type="date"
-                value={filters.endDate}
-                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
+            <DateRangeFields
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+              onStartDateChange={(value) => setFilters({ ...filters, startDate: value })}
+              onEndDateChange={(value) => setFilters({ ...filters, endDate: value })}
+            />
           </div>
           
           <div className="mt-4">

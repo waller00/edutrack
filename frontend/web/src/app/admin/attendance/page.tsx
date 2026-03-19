@@ -1,7 +1,19 @@
 'use client'
+import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import {
+  buildAdminAttendanceAllQueryString,
+  buildAttendanceExportReportQueryString,
+  getAdminAttendanceDefaultStartDate,
+  getAdminAttendancePlannedTimeLabel,
+  getAdminAttendanceStatusLabel,
+  getAdminAttendanceStatusStyle,
+  getAdminAttendanceTypeLabel,
+  getAdminAttendanceTypeStyle,
+} from '@/lib/admin-attendance-display'
+import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
 
 type AttendanceRecord = {
   id: string
@@ -35,70 +47,6 @@ type User = {
 
 type AttendanceStatusOption = AttendanceRecord['status']
 type AttendanceTypeOption = AttendanceRecord['type']
-
-function getMessageClass(message: string) {
-  return message.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-}
-
-function getAttendanceTypeStyle(type: AttendanceTypeOption) {
-  return type === 'CHECK_IN' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-}
-
-function getAttendanceTypeLabel(type: AttendanceTypeOption) {
-  return type === 'CHECK_IN' ? 'Entrada' : 'Salida'
-}
-
-function getAttendanceStatusStyle(status: AttendanceStatusOption) {
-  switch (status) {
-    case 'PRESENT':
-    case 'EXIT':
-      return 'bg-green-100 text-green-800'
-    case 'LATE':
-      return 'bg-yellow-100 text-yellow-800'
-    case 'EARLY_EXIT':
-    case 'ABSENT_NOT_JUSTIFIED':
-      return 'bg-red-100 text-red-800'
-    case 'ABSENT_JUSTIFIED':
-      return 'bg-orange-100 text-orange-800'
-  }
-}
-
-function getAttendanceStatusLabel(status: AttendanceStatusOption) {
-  switch (status) {
-    case 'PRESENT':
-      return 'Presente'
-    case 'LATE':
-      return 'Tarde'
-    case 'EXIT':
-      return 'Salida'
-    case 'EARLY_EXIT':
-      return 'Salida Anticipada'
-    case 'ABSENT_NOT_JUSTIFIED':
-      return 'Ausente (No Justificada)'
-    case 'ABSENT_JUSTIFIED':
-      return 'Ausente (Justificada)'
-  }
-}
-
-function getPlannedTimeLabel(attendance: AttendanceRecord) {
-  if (!attendance.event) return 'N/A'
-
-  if (attendance.type === 'CHECK_IN' && attendance.event.startTime) {
-    return new Date(attendance.event.startTime).toLocaleTimeString('es-ES', {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  if (attendance.type === 'CHECK_OUT' && attendance.event.endTime) {
-    return new Date(attendance.event.endTime).toLocaleTimeString('es-ES', {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  return 'N/A'
-}
 
 function renderAttendancesTable(
   attendances: AttendanceRecord[],
@@ -147,7 +95,7 @@ function renderAttendancesTable(
                   </div>
                   {attendance.event && (
                     <div className="text-xs text-gray-500">
-                      Planificado: {getPlannedTimeLabel(attendance)}
+                      Planificado: {getAdminAttendancePlannedTimeLabel(attendance)}
                     </div>
                   )}
                 </div>
@@ -163,13 +111,13 @@ function renderAttendancesTable(
                 )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceTypeStyle(attendance.type)}`}>
-                  {getAttendanceTypeLabel(attendance.type)}
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceTypeStyle(attendance.type)}`}>
+                  {getAdminAttendanceTypeLabel(attendance.type)}
                 </span>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceStatusStyle(attendance.status)}`}>
-                  {getAttendanceStatusLabel(attendance.status)}
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
+                  {getAdminAttendanceStatusLabel(attendance.status)}
                 </span>
               </td>
               <td className="px-6 py-4 text-sm text-gray-900">
@@ -193,17 +141,13 @@ function renderAttendancesTable(
   )
 }
 
-function getDefaultStartDate() {
-  return `${new Date().getFullYear()}-01-01`
-}
-
 export default function AdminAttendance() {
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<AttendanceRecord | null>(null)
   const [filters, setFilters] = useState({
-    startDate: getDefaultStartDate(),
+    startDate: getAdminAttendanceDefaultStartDate(),
     endDate: '',
     userId: '',
     eventId: '',
@@ -240,25 +184,13 @@ export default function AdminAttendance() {
   async function loadAttendances() {
     setLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        pageSize: '20'
-      })
-      
-      if (filters.startDate) params.set('startDate', filters.startDate)
-      if (filters.endDate) params.set('endDate', filters.endDate)
-      if (filters.userId) params.set('userId', filters.userId)
-      if (filters.eventType) params.set('eventType', filters.eventType)
-      if (filters.type) params.set('type', filters.type)
-      if (filters.status) params.set('status', filters.status)
-      if (filters.role) params.set('role', filters.role)
-
+      const qs = buildAdminAttendanceAllQueryString(page, filters)
       const data = await api<{
         total: number
         page: number
         pageSize: number
         data: AttendanceRecord[]
-      }>(`/attendance/all?${params.toString()}`)
+      }>(`/attendance/all?${qs}`)
       
       setAttendances(data.data)
       setTotal(data.total)
@@ -328,22 +260,10 @@ export default function AdminAttendance() {
 
   async function exportReport(format: 'excel' | 'pdf') {
     try {
-      const params = new URLSearchParams({
-        format: format
-      })
-      
-      if (filters.startDate) params.set('startDate', filters.startDate)
-      if (filters.endDate) params.set('endDate', filters.endDate)
-      if (filters.userId) params.set('userId', filters.userId)
-      if (filters.eventId) params.set('eventId', filters.eventId)
-      if (filters.eventType) params.set('eventType', filters.eventType)
-      if (filters.type) params.set('type', filters.type)
-      if (filters.status) params.set('status', filters.status)
-      if (filters.role) params.set('role', filters.role)
+      const qs = buildAttendanceExportReportQueryString(format, filters)
+      console.log('Generando reporte...', qs)
 
-      console.log('Generando reporte...', params.toString())
-
-      const response = await fetch(`http://localhost:4000/reports/report?${params.toString()}`, {
+      const response = await fetch(`http://localhost:4000/reports/report?${qs}`, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -463,7 +383,7 @@ export default function AdminAttendance() {
                 <button
                   onClick={() => {
                     setFilters({
-                      startDate: getDefaultStartDate(),
+                      startDate: getAdminAttendanceDefaultStartDate(),
                       endDate: '',
                       userId: '',
                       eventId: '',
@@ -695,7 +615,7 @@ export default function AdminAttendance() {
         </div>
 
         {message && (
-          <div className={`p-3 rounded ${getMessageClass(message)}`}>
+          <div className={`p-3 rounded ${getAdminFlashMessageClass(message)}`}>
             {message}
           </div>
         )}
@@ -710,32 +630,7 @@ export default function AdminAttendance() {
             ? <div className="p-6 text-center text-gray-500">Cargando...</div>
             : renderAttendancesTable(attendances, setEditing, deleteAttendance)}
 
-          {/* Paginación */}
-          {total > 20 && (
-            <div className="px-6 py-3 border-t bg-gray-50">
-              <div className="flex justify-between items-center">
-                <div className="text-sm text-gray-700">
-                  Página {page} de {Math.ceil(total / 20)}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setPage(page - 1)}
-                    disabled={page === 1}
-                    className="px-3 py-1 border rounded disabled:opacity-50"
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    onClick={() => setPage(page + 1)}
-                    disabled={page >= Math.ceil(total / 20)}
-                    className="px-3 py-1 border rounded disabled:opacity-50"
-                  >
-                    Siguiente
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>
 
         {/* Modal de edición */}

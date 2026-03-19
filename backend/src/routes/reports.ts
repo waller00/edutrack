@@ -6,7 +6,7 @@ import PDFDocument from 'pdfkit'
 
 const r = Router()
 
-function applyReportFilters(where: any, query: any) {
+export function applyReportFilters(where: any, query: any) {
   const { startDate, endDate, userId, eventId, eventType, type, status, role } = query
   if (startDate || endDate) {
     where.date = {}
@@ -24,7 +24,7 @@ function applyReportFilters(where: any, query: any) {
   if (role) where.user = { role }
 }
 
-function buildDetailedRecord(att: any) {
+export function buildDetailedRecord(att: any) {
   return {
     id: att.id,
     userId: att.user.id,
@@ -42,7 +42,7 @@ function buildDetailedRecord(att: any) {
   }
 }
 
-function createUserStat(att: any, userName: string) {
+export function createUserStat(att: any, userName: string) {
   return {
     id: att.user.id,
     name: userName,
@@ -63,7 +63,7 @@ function createUserStat(att: any, userName: string) {
   }
 }
 
-function updateUserAttendanceRange(stats: any, date: string | Date) {
+export function updateUserAttendanceRange(stats: any, date: string | Date) {
   if (!stats.firstAttendance || new Date(date) < new Date(stats.firstAttendance)) {
     stats.firstAttendance = date
   }
@@ -72,7 +72,7 @@ function updateUserAttendanceRange(stats: any, date: string | Date) {
   }
 }
 
-function updateUserCounters(stats: any, att: any) {
+export function updateUserCounters(stats: any, att: any) {
   stats.totalAttendances++
   updateUserAttendanceRange(stats, att.date)
   if (att.type === 'CHECK_IN') {
@@ -90,7 +90,7 @@ function updateUserCounters(stats: any, att: any) {
   else if (att.status === 'EARLY_EXIT') stats.earlyExitCount++
 }
 
-function createEventStat(att: any) {
+export function createEventStat(att: any) {
   return {
     id: att.event.id,
     title: att.event.title,
@@ -103,14 +103,14 @@ function createEventStat(att: any) {
   }
 }
 
-function updateEventCounters(stats: any, att: any) {
+export function updateEventCounters(stats: any, att: any) {
   stats.totalAssigned++
   if (att.type === 'CHECK_IN' && (att.status === 'PRESENT' || att.status === 'LATE')) {
     stats.attended++
   }
 }
 
-function getTruncatedText(value: string | undefined, maxLength: number, fallback: string) {
+export function getTruncatedText(value: string | undefined, maxLength: number, fallback: string) {
   if (!value) return fallback
   if (value.length <= maxLength) return value
   return `${value.substring(0, maxLength)}...`
@@ -156,7 +156,7 @@ r.get('/report', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 })
 
-function processAttendanceData(attendances: any[], filters: any) {
+export function processAttendanceData(attendances: any[], filters: any) {
   const userStats = new Map()
   const eventStats = new Map()
   const detailedRecords = []
@@ -218,7 +218,7 @@ function processAttendanceData(attendances: any[], filters: any) {
   }
 }
 
-async function generateExcelReport(data: any, res: any, filters: any) { // NOSONAR legacy report builder
+export async function generateExcelReport(data: any, res: any, filters: any) { // NOSONAR legacy report builder
   const workbook = new ExcelJS.Workbook()
   
   // Hoja principal con la tabla filtrada
@@ -376,7 +376,7 @@ async function generateExcelReport(data: any, res: any, filters: any) { // NOSON
   res.end()
 }
 
-async function generatePDFReport(data: any, res: any, filters: any) { // NOSONAR legacy PDF builder
+export async function generatePDFReport(data: any, res: any, filters: any) { // NOSONAR legacy PDF builder
   const doc = new PDFDocument({ 
     margin: 40,
     size: 'A4',

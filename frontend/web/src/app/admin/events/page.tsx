@@ -1,7 +1,19 @@
 'use client'
+import DateRangeFields from '@/components/DateRangeFields'
+import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import {
+  buildAdminEventsAllQueryString,
+  getAdminEventRoleTypeOptions,
+  getAdminEventStatusLabel,
+  getAdminEventStatusStyle,
+  getAdminEventTypeLabel,
+  getAdminEventsDefaultStartDate,
+  type AdminEventCreatorRole,
+} from '@/lib/admin-events-display'
+import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
 
 type Event = {
   id: string
@@ -47,79 +59,10 @@ type User = {
 
 type EventTypeOption = Event['type']
 type EventStatusOption = Event['status']
-type RoleOption = 'TEACHER' | 'STAFF' | ''
+type RoleOption = AdminEventCreatorRole
 type EditableEvent = Pick<Event, 'title' | 'description' | 'type' | 'startDate' | 'startTime' | 'endTime' | 'assignedUserId' | 'recurrenceType' | 'isRecurring' | 'daysOfWeek' | 'recurrenceEnd'> & {
   assignedUserId: string
   recurrenceEnd: string
-}
-
-function getMessageClass(message: string) {
-  return message.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-}
-
-function getEventTypeLabel(type: EventTypeOption) {
-  switch (type) {
-    case 'JORNADA_LABORAL':
-      return 'Jornada Laboral'
-    case 'REUNION':
-      return 'Reunión'
-    case 'CLASE':
-      return 'Clase'
-    case 'EVENTO':
-      return 'Evento'
-    case 'CAPACITACION':
-      return 'Capacitación'
-    case 'CITA_MEDICA':
-      return 'Cita Médica'
-  }
-}
-
-function getEventStatusStyle(status: EventStatusOption) {
-  switch (status) {
-    case 'SCHEDULED':
-      return 'bg-blue-100 text-blue-800'
-    case 'IN_PROGRESS':
-      return 'bg-yellow-100 text-yellow-800'
-    case 'COMPLETED':
-      return 'bg-green-100 text-green-800'
-    case 'EXPIRED':
-      return 'bg-gray-100 text-gray-800'
-    case 'CANCELLED':
-      return 'bg-red-100 text-red-800'
-  }
-}
-
-function getEventStatusLabel(status: EventStatusOption) {
-  switch (status) {
-    case 'SCHEDULED':
-      return 'Programado'
-    case 'IN_PROGRESS':
-      return 'En Progreso'
-    case 'COMPLETED':
-      return 'Completado'
-    case 'EXPIRED':
-      return 'Vencido'
-    case 'CANCELLED':
-      return 'Cancelado'
-  }
-}
-
-function getRoleTypeOptions(role: RoleOption) {
-  if (role === 'TEACHER') {
-    return [
-      { value: 'CLASE', label: 'Clase' },
-      { value: 'REUNION', label: 'Reunión' },
-    ]
-  }
-
-  if (role === 'STAFF') {
-    return [
-      { value: 'JORNADA_LABORAL', label: 'Jornada Laboral' },
-      { value: 'REUNION', label: 'Reunión' },
-    ]
-  }
-
-  return []
 }
 
 function renderEventsEmptyState(events: Event[]) {
@@ -130,10 +73,6 @@ function renderEventsEmptyState(events: Event[]) {
   return null
 }
 
-function getDefaultStartDate() {
-  return `${new Date().getFullYear()}-01-01`
-}
-
 export default function AdminEvents() {
   const [events, setEvents] = useState<Event[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -141,7 +80,7 @@ export default function AdminEvents() {
   const [creating, setCreating] = useState(false)
   const [editingEvent, setEditingEvent] = useState<Event | null>(null)
   const [filters, setFilters] = useState({
-    startDate: getDefaultStartDate(),
+    startDate: getAdminEventsDefaultStartDate(),
     endDate: '',
     userId: '',
     assignedUserId: '',
@@ -176,24 +115,13 @@ export default function AdminEvents() {
   async function loadEvents() {
     setLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        pageSize: '20'
-      })
-      
-      if (filters.startDate) params.set('startDate', filters.startDate)
-      if (filters.endDate) params.set('endDate', filters.endDate)
-      if (filters.userId) params.set('userId', filters.userId)
-      if (filters.assignedUserId) params.set('assignedUserId', filters.assignedUserId)
-      if (filters.type) params.set('type', filters.type)
-      if (filters.status) params.set('status', filters.status)
-
+      const qs = buildAdminEventsAllQueryString(page, filters)
       const data = await api<{
         total: number
         page: number
         pageSize: number
         data: Event[]
-      }>(`/events/all?${params.toString()}`)
+      }>(`/events/all?${qs}`)
       
       setEvents(data.data)
       setTotal(data.total)
@@ -338,7 +266,7 @@ export default function AdminEvents() {
             <h2 className="text-lg font-semibold">Filtros</h2>
             <button
               onClick={() => setFilters({
-                startDate: getDefaultStartDate(),
+                startDate: getAdminEventsDefaultStartDate(),
                 endDate: '',
                 userId: '',
                 assignedUserId: '',
@@ -352,24 +280,12 @@ export default function AdminEvents() {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-              <input
-                type="date"
-                value={filters.startDate}
-                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-              <input
-                type="date"
-                value={filters.endDate}
-                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
+            <DateRangeFields
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+              onStartDateChange={(value) => setFilters({ ...filters, startDate: value })}
+              onEndDateChange={(value) => setFilters({ ...filters, endDate: value })}
+            />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Creador</label>
               <select
@@ -428,7 +344,7 @@ export default function AdminEvents() {
         </div>
 
         {message && (
-          <div className={`p-3 rounded ${getMessageClass(message)}`}>
+          <div className={`p-3 rounded ${getAdminFlashMessageClass(message)}`}>
             {message}
           </div>
         )}
@@ -469,7 +385,7 @@ export default function AdminEvents() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {getEventTypeLabel(event.type)}
+                          {getAdminEventTypeLabel(event.type)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -515,8 +431,8 @@ export default function AdminEvents() {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getEventStatusStyle(event.status)}`}>
-                          {getEventStatusLabel(event.status)}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminEventStatusStyle(event.status)}`}>
+                          {getAdminEventStatusLabel(event.status)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -560,32 +476,7 @@ export default function AdminEvents() {
             </div>
           )}
 
-          {/* Paginación */}
-          {total > 20 && (
-            <div className="px-6 py-3 border-t bg-gray-50">
-              <div className="flex justify-between items-center">
-                <div className="text-sm text-gray-700">
-                  Página {page} de {Math.ceil(total / 20)}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setPage(page - 1)}
-                    disabled={page === 1}
-                    className="px-3 py-1 border rounded disabled:opacity-50"
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    onClick={() => setPage(page + 1)}
-                    disabled={page >= Math.ceil(total / 20)}
-                    className="px-3 py-1 border rounded disabled:opacity-50"
-                  >
-                    Siguiente
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>
 
         {/* Modal de creación */}
@@ -672,10 +563,10 @@ export default function AdminEvents() {
                     disabled={!selectedRole}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
-                    {getRoleTypeOptions(selectedRole).length === 0 ? (
+                    {getAdminEventRoleTypeOptions(selectedRole).length === 0 ? (
                       <option value="">Selecciona un rol primero</option>
                     ) : (
-                      getRoleTypeOptions(selectedRole).map((option) => (
+                      getAdminEventRoleTypeOptions(selectedRole).map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))
                     )}

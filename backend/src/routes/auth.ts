@@ -7,6 +7,15 @@ import { authGuard } from "../middlewares/auth.js";
 import passport from "../passportGoogle.js";
 import crypto from "crypto";
 import { sendMail } from "../email.js";
+import { onlyDigits, isValidUruguayanCI } from "../uruguay-ci.js";
+import {
+  normalizePhoneUY,
+  buildProfileName,
+  validateRoleUpdate,
+  validatePhoneUpdate,
+  validateBirthdateUpdate,
+  mapProfileUpdateError,
+} from "../auth-profile-pure.js";
 
 const r = Router();
 
@@ -99,46 +108,6 @@ function hashToken(token: string) {
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 
-function onlyDigits(v: string) { return v.replace(/\D/g, ""); }
-function computeCICheckDigit(base7: string) {
-  const weights = [2, 9, 8, 7, 6, 3, 4];
-  const padded = base7.padStart(7, "0");
-  const sum = padded.split("").map((d, i) => parseInt(d) * weights[i]).reduce((a, b) => a + b, 0);
-  const check = (10 - (sum % 10)) % 10;
-  return check;
-}
-function isValidUruguayanCI(ci: string) {
-  const digits = onlyDigits(ci);
-  if (digits.length < 7 || digits.length > 8) return false;
-  const base = digits.slice(0, -1);
-  const check = parseInt(digits.slice(-1));
-  return computeCICheckDigit(base) === check;
-}
-function normalizePhoneUY(input: string | undefined) {
-  if (!input) return undefined;
-  const d = onlyDigits(input);
-  if (!d) return undefined;
-  if (d.startsWith("598")) {
-    const rest = d.slice(3).replace(/^0/, "");
-    return "+598" + rest;
-  }
-  const noZero = d.startsWith("0") ? d.slice(1) : d;
-  if (noZero.length >= 8) return "+598" + noZero.slice(0, 8);
-  return undefined;
-}
-
-function buildProfileName(firstName?: string, lastName?: string) {
-  return `${firstName ?? ""} ${lastName ?? ""}`.trim();
-}
-
-function parseBirthdateInput(birthdate: string) {
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(birthdate)) {
-    const [dd, mm, yyyy] = birthdate.split('/').map(Number);
-    return new Date(yyyy, mm - 1, dd);
-  }
-  return new Date(birthdate);
-}
-
 async function validateUniqueUsername(userId: string, username?: string) {
   if (!username) return null;
   const exist = await prisma.user.findUnique({ where: { username } });
@@ -154,37 +123,6 @@ async function validateNationalIdUpdate(userId: string, nationalId: string | und
   if (existCi && existCi.id !== userId) throw new Error('CI_CONFLICT');
   if (!isAdmin && !isSettingInitialNationalId) throw new Error('FORBIDDEN');
   return normCi;
-}
-
-function validateRoleUpdate(role: "ADMIN" | "STAFF" | "TEACHER" | undefined, isAdmin: boolean, me: any) {
-  if (!role) return undefined;
-  if (!isAdmin && me?.isApproved) throw new Error('FORBIDDEN');
-  if (!isAdmin && role === "ADMIN") throw new Error('FORBIDDEN');
-  return role;
-}
-
-function validatePhoneUpdate(phone?: string) {
-  if (!phone) return undefined;
-  const normPhone = normalizePhoneUY(phone);
-  if (!normPhone) throw new Error('INVALID_PHONE');
-  return normPhone;
-}
-
-function validateBirthdateUpdate(birthdate?: string) {
-  if (!birthdate) return undefined;
-  const parsedBirthdate = parseBirthdateInput(birthdate);
-  if (isNaN(parsedBirthdate.getTime()) || parsedBirthdate > new Date()) throw new Error('INVALID_BIRTHDATE');
-  return parsedBirthdate;
-}
-
-function mapProfileUpdateError(error: Error, res: any) {
-  if (error.message === 'USERNAME_CONFLICT') return res.status(409).json({ message: "Usuario ya en uso" });
-  if (error.message === 'CI_CONFLICT') return res.status(409).json({ message: "Cédula ya registrada" });
-  if (error.message === 'INVALID_CI') return res.status(400).json({ message: "Cédula inválida" });
-  if (error.message === 'INVALID_PHONE') return res.status(400).json({ message: "Teléfono inválido" });
-  if (error.message === 'INVALID_BIRTHDATE') return res.status(400).json({ message: "Fecha inválida" });
-  if (error.message === 'FORBIDDEN') return res.status(403).json({ message: "Prohibido" });
-  throw error;
 }
 
 async function validateAndBuildProfileUpdate(data: {

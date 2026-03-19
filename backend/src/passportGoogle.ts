@@ -2,7 +2,7 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { prisma } from "./prisma.js";
 
-function getGoogleProfileData(profile: any) {
+export function getGoogleProfileData(profile: any) {
   const email = profile.emails?.[0]?.value;
   const givenName = profile.name?.givenName?.trim() || null;
   const familyName = profile.name?.familyName?.trim() || null;
@@ -10,7 +10,7 @@ function getGoogleProfileData(profile: any) {
   return { email, givenName, familyName, fullName };
 }
 
-function buildGoogleUpdateData(user: any, profileId: string, givenName: string | null, familyName: string | null, fullName: string | null | undefined) {
+export function buildGoogleUpdateData(user: any, profileId: string, givenName: string | null, familyName: string | null, fullName: string | null | undefined) {
   const updateData: Record<string, unknown> = {};
   if (!user.googleId) updateData.googleId = profileId;
   if (!user.firstName && givenName) updateData.firstName = givenName;

@@ -3,24 +3,10 @@ import { prisma } from '../prisma.js'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
+import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
 
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
-
-function onlyDigits(v:string){ return v.replace(/\D/g,'') }
-function computeCICheckDigit(base7: string) {
-  const weights = [2,9,8,7,6,3,4]
-  const padded = base7.padStart(7,'0')
-  const sum = padded.split('').map((d,i)=>parseInt(d)*weights[i]).reduce((a,b)=>a+b,0)
-  return (10 - (sum % 10)) % 10
-}
-function isValidUruguayanCI(ci: string) {
-  const digits = onlyDigits(ci)
-  if (digits.length < 7 || digits.length > 8) return false
-  const base = digits.slice(0, -1)
-  const check = parseInt(digits.slice(-1))
-  return computeCICheckDigit(base) === check
-}
 
 async function buildAdminUserUpdateData(id: string, payload: {
   role?: 'ADMIN'|'STAFF'|'TEACHER'
