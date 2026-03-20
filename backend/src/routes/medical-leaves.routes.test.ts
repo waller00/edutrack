@@ -15,7 +15,14 @@ const { prismaMock } = vi.hoisted(() => ({
       delete: vi.fn(),
     },
     user: { findUnique: vi.fn() },
-    attendance: { findMany: vi.fn(), updateMany: vi.fn() },
+    event: { findMany: vi.fn() },
+    attendance: {
+      findMany: vi.fn(),
+      updateMany: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
   },
 }));
 
@@ -112,9 +119,12 @@ describe("medical-leaves (prisma mock)", () => {
       ...leaveBody,
       user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
     });
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.attendance.updateMany.mockResolvedValue({ count: 0 });
     const res = await request(app()).post("/medical-leaves").set(admin()).send(leaveBody);
     expect(res.status).toBe(201);
     expect(res.body.id).toBe("L1");
+    expect(res.body.reconciliation).toBeDefined();
   });
 
   it("POST /medical-leaves 500 si prisma falla", async () => {
@@ -152,13 +162,15 @@ describe("medical-leaves (prisma mock)", () => {
       type: "MEDICAL_LEAVE",
       reason: "x",
     };
-    prismaMock.medicalLeave.findUnique.mockResolvedValue(lic);
+    prismaMock.medicalLeave.findUnique
+      .mockResolvedValueOnce(lic)
+      .mockResolvedValueOnce({ ...lic, status: "APPROVED" as const });
     prismaMock.medicalLeave.update.mockResolvedValue({
       ...lic,
       status: "APPROVED",
       user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
     });
-    prismaMock.attendance.findMany.mockResolvedValue([]);
+    prismaMock.event.findMany.mockResolvedValue([]);
     prismaMock.attendance.updateMany.mockResolvedValue({ count: 0 });
     const res = await request(app())
       .put("/medical-leaves/l1")
@@ -166,6 +178,7 @@ describe("medical-leaves (prisma mock)", () => {
       .send({ status: "APPROVED" });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("APPROVED");
+    expect(res.body.reconciliation).toBeDefined();
   });
 
   it("PUT /medical-leaves/:id con notas persiste aprobador cuando cambia estado", async () => {

@@ -17,7 +17,7 @@ const { prismaMock } = vi.hoisted(() => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
-    medicalLeave: { findFirst: vi.fn() },
+    medicalLeave: { findFirst: vi.fn(), findMany: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   },
 }));
@@ -103,11 +103,12 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
+      startDate: new Date("2025-06-01T00:00:00.000Z"),
       startTime: new Date("2025-06-01T08:00:00.000Z"),
       endTime: null,
     });
     prismaMock.attendance.findFirst.mockResolvedValue(null);
-    prismaMock.medicalLeave.findFirst.mockResolvedValue(null);
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     prismaMock.attendance.create.mockResolvedValue({
       id: "a1",
       status: "PRESENT",
@@ -122,38 +123,43 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.body.id).toBe("a1");
   });
 
-  it("POST /attendance/register marca ausencia justificada si hay licencia aprobada", async () => {
+  it("POST /attendance/register 403 si licencia aprobada cubre el horario del evento", async () => {
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
+      startDate: new Date("2025-06-01T00:00:00.000Z"),
       startTime: new Date("2025-06-01T08:00:00.000Z"),
       endTime: null,
     });
     prismaMock.attendance.findFirst.mockResolvedValue(null);
-    prismaMock.medicalLeave.findFirst.mockResolvedValue({ id: "ml-1" });
-    prismaMock.attendance.create.mockResolvedValue({
-      id: "a2",
-      status: "ABSENT_JUSTIFIED",
-      user: {},
-      event: {},
-    });
+    prismaMock.medicalLeave.findMany.mockResolvedValue([
+      {
+        id: "ml-1",
+        userId: "user-1",
+        status: "APPROVED",
+        startDate: new Date("2025-05-30T00:00:00.000Z"),
+        endDate: new Date("2025-06-15T23:59:59.999Z"),
+      },
+    ]);
     const res = await request(app())
       .post("/attendance/register")
       .set("Authorization", `Bearer ${tok()}`)
       .send(validBody);
-    expect(res.status).toBe(200);
-    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("ABSENT_JUSTIFIED");
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("ATTENDANCE_BLOCKED_BY_LICENSE");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
   });
 
   it("POST /attendance/register 500 si falla la creación", async () => {
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
+      startDate: new Date("2025-06-01T00:00:00.000Z"),
       startTime: new Date("2025-06-01T08:00:00.000Z"),
       endTime: null,
     });
     prismaMock.attendance.findFirst.mockResolvedValue(null);
-    prismaMock.medicalLeave.findFirst.mockResolvedValue(null);
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     prismaMock.attendance.create.mockRejectedValueOnce(new Error("db"));
     const res = await request(app())
       .post("/attendance/register")

@@ -8,6 +8,7 @@ import {
   buildBiometricAttendancePayload,
   isBiometricLate,
 } from '../attendance-logic.js';
+import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveReconciliation.js';
 
 const r = Router();
 
@@ -59,13 +60,14 @@ r.post('/register', authGuard, async (req, res) => {
     // Obtener el evento para calcular el status
     const event = await prisma.event.findUnique({
       where: { id: eventId },
-      select: { 
-        id: true, 
-        title: true, 
-        startTime: true, 
+      select: {
+        id: true,
+        title: true,
+        startDate: true,
+        startTime: true,
         endTime: true,
-        assignedUserId: true 
-      }
+        assignedUserId: true,
+      },
     });
 
     if (!event) {
@@ -91,25 +93,25 @@ r.post('/register', authGuard, async (req, res) => {
       return res.status(409).json({ message: getDuplicateAttendanceMessage(type) });
     }
 
-    // Verificar si el usuario tiene una licencia médica aprobada en esta fecha
-    const attendanceDate = normalizeAttendanceDate(date);
-    const approvedLicense = await prisma.medicalLeave.findFirst({
-      where: {
-        userId: user.sub,
-        status: 'APPROVED',
-        startDate: { lte: attendanceDate },
-        endDate: { gte: attendanceDate }
-      }
-    });
+    const evStart = event.startTime ? new Date(event.startTime) : new Date(event.startDate)
+    const evEnd = event.endTime ? new Date(event.endTime) : evStart
+    const blockingLicense = await findApprovedLicenseCoveringEventTime(user.sub, evStart, evEnd)
+    if (blockingLicense) {
+      return res.status(403).json({
+        message:
+          'No se puede registrar asistencia presencial en este evento: el horario está cubierto por una licencia médica aprobada. La inasistencia debe figurar como justificada (reconciliación automática).',
+        code: 'ATTENDANCE_BLOCKED_BY_LICENSE',
+        licenseId: blockingLicense.id,
+      })
+    }
 
-    // Calcular el status basado en el evento
     const actualTime = new Date(time);
     const status = getAttendanceStatus({
       type,
       actualTime,
       startTime: event.startTime,
       endTime: event.endTime,
-      hasApprovedLicense: Boolean(approvedLicense),
+      hasApprovedLicense: false,
     });
 
     const attendance = await prisma.attendance.create({
@@ -373,6 +375,16 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
     const attendanceDate = new Date(attendanceTime);
     attendanceDate.setHours(0, 0, 0, 0); // Solo la fecha, sin hora
 
+    const licBio = await findApprovedLicenseCoveringEventTime(userId, attendanceTime, attendanceTime);
+    if (licBio) {
+      return res.status(403).json({
+        message:
+          'Marcación biométrica no permitida: instante cubierto por licencia médica aprobada. Debe figurar como inasistencia justificada.',
+        code: 'BIOMETRIC_BLOCKED_BY_LICENSE',
+        licenseId: licBio.id,
+      });
+    }
+
     // Verificar si ya existe una entrada para este usuario en esta fecha
     const existingEntry = await prisma.attendance.findFirst({
       where: {
@@ -463,7 +475,7 @@ r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), as
 
     // Si se marca como salida anticipada y es salida
     if (markEarlyExit && existingAttendance.type === 'CHECK_OUT') {
-      updateData.status = 'JUSTIFIED_ABSENCE';
+      updateData.status = 'EARLY_EXIT';
     }
 
     const updatedAttendance = await prisma.attendance.update({

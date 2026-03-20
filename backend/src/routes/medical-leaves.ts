@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { prisma } from '../prisma.js'
+import { reconcileAttendancesForMedicalLeave } from '../services/medicalLeaveReconciliation.js'
 
 const r = Router()
 
@@ -168,69 +169,14 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
       }
     })
 
-    res.status(201).json(license)
+    const reconciliation = await reconcileAttendancesForMedicalLeave(license.id)
+
+    res.status(201).json({ ...license, reconciliation })
   } catch (error) {
     console.error('Error creando licencia médica:', error)
     res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
-
-// Función para justificar ausencias automáticamente cuando se aprueba una licencia
-async function justifyAbsencesForLicense(licenseId: string) {
-  try {
-    const license = await prisma.medicalLeave.findUnique({
-      where: { id: licenseId },
-      select: {
-        userId: true,
-        startDate: true,
-        endDate: true,
-        type: true,
-        reason: true
-      }
-    })
-
-    if (!license) {
-      console.error('Licencia no encontrada:', licenseId)
-      return
-    }
-
-    // Buscar ausencias no justificadas en el período de la licencia
-    const unjustifiedAbsences = await prisma.attendance.findMany({
-      where: {
-        userId: license.userId,
-        date: {
-          gte: license.startDate,
-          lte: license.endDate
-        },
-        status: 'ABSENT_NOT_JUSTIFIED',
-        type: 'CHECK_IN'
-      }
-    })
-
-    if (unjustifiedAbsences.length > 0) {
-      // Justificar las ausencias
-      const updated = await prisma.attendance.updateMany({
-        where: {
-          userId: license.userId,
-          date: {
-            gte: license.startDate,
-            lte: license.endDate
-          },
-          status: 'ABSENT_NOT_JUSTIFIED',
-          type: 'CHECK_IN'
-        },
-        data: {
-          status: 'ABSENT_JUSTIFIED',
-          notes: `Ausencia justificada por licencia ${license.type.toLowerCase()} del ${license.startDate.toLocaleDateString('es-ES')} al ${license.endDate.toLocaleDateString('es-ES')}`
-        }
-      })
-
-      console.log(`✅ Justificadas ${updated.count} ausencias para licencia ${licenseId}`)
-    }
-  } catch (error) {
-    console.error('Error justificando ausencias:', error)
-  }
-}
 
 // Actualizar estado de licencia médica (solo admin)
 r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
@@ -277,12 +223,12 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       }
     })
 
-    // Si se aprobó la licencia, justificar ausencias automáticamente
+    let reconciliation: Awaited<ReturnType<typeof reconcileAttendancesForMedicalLeave>> | undefined
     if (status === 'APPROVED') {
-      await justifyAbsencesForLicense(id)
+      reconciliation = await reconcileAttendancesForMedicalLeave(id)
     }
 
-    res.json(updatedLicense)
+    res.json(reconciliation ? { ...updatedLicense, reconciliation } : updatedLicense)
   } catch (error) {
     console.error('Error actualizando licencia médica:', error)
     res.status(500).json({ message: 'Error interno del servidor' })
