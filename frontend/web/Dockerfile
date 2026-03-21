@@ -1,20 +1,41 @@
-FROM node:20-alpine AS deps
+# STAGE 1: Instalar dependencias
+FROM node:20-bookworm-slim AS deps
 WORKDIR /app
+# Instalamos libc6-compat para compatibilidad con librerías nativas si fuera necesario
+RUN apt-get update && apt-get install -y --no-install-recommends libc6 && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 RUN npm ci
 
-FROM node:20-alpine AS build
+# STAGE 2: Construir la aplicación
+FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Desactivamos la telemetría de Next durante el build
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:20-alpine
+# STAGE 3: Imagen de producción final (Liviana)
+FROM node:20-bookworm-slim AS runner
 WORKDIR /app
+
 ENV NODE_ENV=production
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/public ./public
-COPY --from=build /app/package*.json ./
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Creamos un usuario de sistema para no correr como root (seguridad)
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copiamos solo lo estrictamente necesario para ejecutar
+COPY --from=builder /app/public ./public
+# El truco: Next genera una carpeta 'standalone' con lo mínimo para correr
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
 EXPOSE 3000
-CMD ["npm","start"]
+ENV PORT=3000
+
+# El servidor de Next.js standalone se arranca con node server.js
+CMD ["node", "server.js"]

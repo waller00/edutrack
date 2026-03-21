@@ -4,11 +4,19 @@ services:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-asistencias}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d asistencias"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks: [net]
+
   auth:
     build: ./backend
+    # Este comando asegura que las tablas se creen antes de iniciar el servidor
+    command: sh -c "npx prisma db push && npm start"
     environment:
       PORT: 4000
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
@@ -19,17 +27,24 @@ services:
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:4000/auth/google/callback}
     ports:
       - "4000:4000"
-    depends_on: [pg]
+    depends_on:
+      pg:
+        condition: service_healthy
     networks: [net]
+
   web:
     build: ./frontend/web
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
     ports:
       - "3000:3000"
-    depends_on: [auth]
+    depends_on:
+      auth:
+        condition: service_started
     networks: [net]
+
 volumes:
   pgdata:
+
 networks:
   net:
