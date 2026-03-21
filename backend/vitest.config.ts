@@ -5,6 +5,9 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // --- LÍNEA AGREGADA PARA EL CI ---
+    setupFiles: ["./vitest.setup.ts"],
+    // ---------------------------------
     env: {
       JWT_SECRET: "vitest-jwt-secret-key-min-32-characters-x",
       NODE_ENV: "test",
@@ -17,7 +20,7 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage",
       include: ["src/**/*.ts"],
-      // dni-processor: ~2.3k líneas OCR/sharp/tesseract; excluido de métrica (ver sonar.coverage.exclusions)
+      // dni-processor: ~2.3k líneas OCR/sharp/tesseract; excluido de métrica
       exclude: ["src/**/*.test.ts", "src/routes/dni-processor.ts"],
       thresholds: {
         lines: 70,
