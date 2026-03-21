@@ -1,0 +1,24 @@
+name: Deploy EduTrack to DigitalOcean
+
+on:
+  push:
+    branches: [ "main" ] # Se activa cada vez que hacés push a la rama main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /root/edutrack || mkdir -p /root/edutrack
+            # Aquí irán los comandos para levantar tu Docker más adelante
+            echo "El robot de GitHub entró al servidor con éxito!"
+            docker --version
