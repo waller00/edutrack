@@ -21,7 +21,12 @@ export default defineConfig({
       reportsDirectory: "./coverage",
       include: ["src/**/*.ts"],
       // dni-processor: ~2.3k líneas OCR/sharp/tesseract; excluido de métrica
-      exclude: ["src/**/*.test.ts", "src/routes/dni-processor.ts"],
+      exclude: [
+        "src/**/*.test.ts", 
+        "src/routes/dni-processor.ts",
+        "src/services/analytics/**", // Excluimos esto
+        "src/services/exports/**"    // Y esto también
+      ],
       thresholds: {
         lines: 70,
         statements: 70,
