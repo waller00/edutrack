@@ -76,3 +76,4 @@ backend/      # auth-service
 frontend/web/ # Next.js
 docker-compose.cloud.yml  # levanta backend + frontend + postgres
 ```
+## Último despliegue: 21 de marzo de 2026 - Prueba de CI/CD Exitosa.
