@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import type { CorsOptions } from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
@@ -17,17 +18,63 @@ import exportsRoutes from "./routes/exports.js";
 
 const app = express();
 
-app.use(helmet());
+function normalizeOrigin(url: string): string {
+  return url
+    .trim()
+    .replace(/\r/g, "")
+    .replace(/\/$/, "");
+}
+
+/** Orígenes permitidos: FRONTEND_URL + lista opcional CORS_ORIGINS (separados por coma), p. ej. https://edutrack-uy.com,https://www.edutrack-uy.com */
+function buildAllowedOrigins(): Set<string> {
+  const set = new Set<string>();
+  const primary = process.env.FRONTEND_URL || "http://localhost:3000";
+  set.add(normalizeOrigin(primary));
+  const extra = process.env.CORS_ORIGINS;
+  if (extra) {
+    for (const part of extra.split(",")) {
+      const o = normalizeOrigin(part);
+      if (o) set.add(o);
+    }
+  }
+  return set;
+}
+
+const allowedOrigins = buildAllowedOrigins();
+
+const corsOptions: CorsOptions = {
+  credentials: true,
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    const normalized = normalizeOrigin(origin);
+    if (allowedOrigins.has(normalized)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  },
+};
+// 1. Forzar que responda a los OPTIONS antes que nada
+app.options("*", cors(corsOptions));
+
+// 2. Confiar en el proxy (DigitalOcean/Cloudflare)
+app.set("trust proxy", 1);
+
+// CORS primero: el preflight OPTIONS debe recibir cabeceras aunque Helmet limite otras cosas.
+app.use(cors(corsOptions));
+app.use(
+  helmet({
+    // Por defecto Helmet puede usar CORP same-origin y romper respuestas consumidas desde otro subdominio.
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
 app.use(morgan("dev"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    credentials: true,
-  })
-);
 
 app.use(passport.initialize());
 app.use("/auth", authRoutes);

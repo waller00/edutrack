@@ -1,3 +1,7 @@
+# Deploy por SSH al droplet. El git pull usa git@github.com en el SERVIDOR:
+# hace falta una Deploy key (solo lectura) en el repo y la clave privada en ~/.ssh del servidor.
+# No se usa GH_PAT ni secrets extra en GitHub Actions.
+
 name: Deploy EduTrack to DigitalOcean
 
 on:
@@ -18,26 +22,38 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # 1. Entramos a la raíz
+            set -e
+            ORIGIN_SSH="git@github.com:joaquinwaller/edutrack.git"
+
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            ssh-keyscan -t rsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+
             cd /root
 
-            # 2. Si la carpeta no existe, clonamos. Si existe, entramos y actualizamos.
             if [ ! -d "edutrack" ]; then
-              echo "Clonando por primera vez..."
-              git clone https://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@github.com/joaquinwaller/edutrack.git
+              echo "Clonando por primera vez (SSH)..."
+              git clone "$ORIGIN_SSH" edutrack
               cd edutrack
             else
-              echo "Actualizando repositorio existente..."
+              echo "Actualizando repositorio (SSH)..."
               cd edutrack
-              # Forzamos el pull para traer lo nuevo sin borrar el .env
-              git pull origin main
+              git remote set-url origin "$ORIGIN_SSH"
+              git fetch origin main
+              git reset --hard origin/main
             fi
 
-            # 3. Bajamos los contenedores actuales (opcional, pero asegura limpieza)
-            docker-compose -f docker-compose.cloud.yml down
+            if docker compose version >/dev/null 2>&1; then
+              DC="docker compose"
+            else
+              DC="docker-compose"
+            fi
 
-            # 4. Build y Up (Docker usará el .env que ya vive en la carpeta del servidor)
-            docker-compose -f docker-compose.cloud.yml up -d --build
+            $DC -f docker-compose.cloud.yml down || true
 
-            echo "EduTrack actualizado con éxito. ¡El .env sigue ahí!"
+            $DC -f docker-compose.cloud.yml build --no-cache auth
+            $DC -f docker-compose.cloud.yml build web
+            $DC -f docker-compose.cloud.yml up -d
+
+            echo "Deploy listo."
             docker ps
