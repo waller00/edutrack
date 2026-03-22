@@ -18,7 +18,19 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd /root/edutrack || mkdir -p /root/edutrack
-            # Aquí irán los comandos para levantar tu Docker más adelante
-            echo "El robot de GitHub entró al servidor con éxito!"
-            docker --version
+            mkdir -p /root/edutrack
+            cd /root/edutrack
+            
+            # 1. Si ya existe el código, lo actualizamos. Si no, lo clonamos.
+            if [ -d ".git" ]; then
+              git pull origin main
+            else
+              git clone https://github.com/${{ github.repository }}.git .
+            fi
+
+            # 2. Levantamos la flota de contenedores
+            # Usamos -d para que queden corriendo de fondo
+            docker-compose up -d --build
+
+            echo "¡EduTrack desplegado y rugiendo en New York!"
+            docker ps
