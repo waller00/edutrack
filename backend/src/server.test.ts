@@ -22,8 +22,8 @@ describe("server", () => {
     await import("./server.js");
 
     expect(listenSpy).toHaveBeenCalledWith(4321, expect.any(Function));
-    expect(logSpy).toHaveBeenCalledWith("Auth-service en http://localhost:4321");
-  });
+// En src/server.test.ts (alrededor de la línea 25)
+expect(logSpy).toHaveBeenCalledWith("🚀 Auth-service corriendo en HTTP (puerto 4321)");  });
 
   it("falls back to port 4000", async () => {
     delete process.env.PORT;
