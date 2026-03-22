@@ -19,12 +19,14 @@ services:
     command: sh -c "npx prisma db push && npm start"
     environment:
       PORT: 4000
-      FRONTEND_URL: ${FRONTEND_URL:-http://165.22.34.95:3000}
+      FRONTEND_URL: ${FRONTEND_URL:-https://165.22.34.95:3000}
       JWT_SECRET: ${JWT_SECRET}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://165.22.34.95:4000/auth/google/callback}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-https://165.22.34.95:4000/auth/google/callback}
+    volumes:
+      - /etc/ssl/cloudflare:/etc/ssl/cloudflare:ro
     ports:
       - "4000:4000"
     depends_on:
@@ -37,9 +39,9 @@ services:
       context: ./frontend/web
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://165.22.34.95:4000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://165.22.34.95:4000}
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://165.22.34.95:4000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://165.22.34.95:4000}
     ports:
       - "3000:3000"
     depends_on:
