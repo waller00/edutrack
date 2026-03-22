@@ -17,10 +17,10 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
+          script: |
             mkdir -p /root/edutrack
             cd /root/edutrack
-            
+
             # 1. Traemos el código
             if [ -d ".git" ]; then
               git pull origin main
@@ -28,9 +28,8 @@ jobs:
               git clone https://github.com/${{ github.repository }}.git .
             fi
 
-            # 2. Levantamos usando el archivo CORRECTO
-            # Ojo acá: usamos -f para especificar el nombre del archivo
-            docker-compose -f docker-compose-cloud.yml up -d --build
+            # 2. Levantamos con el mismo nombre que en el repo
+            docker compose -f docker-compose.cloud.yml up -d --build
 
-            echo "¡EduTrack desplegado con docker-compose-cloud!"
+            echo "EduTrack desplegado con docker-compose.cloud.yml"
             docker ps
