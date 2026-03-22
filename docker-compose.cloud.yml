@@ -33,7 +33,11 @@ services:
     networks: [net]
 
   web:
-    build: ./frontend/web
+    build:
+      context: ./frontend/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://165.22.34.95:4000}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://165.22.34.95:4000}
     ports:

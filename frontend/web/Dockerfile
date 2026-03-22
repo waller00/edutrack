@@ -7,11 +7,13 @@ COPY package*.json ./
 RUN npm ci
 
 # STAGE 2: Construir la aplicación
+# NEXT_PUBLIC_* se inyecta en el cliente en tiempo de build (no alcanza con env en runtime).
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
+ARG NEXT_PUBLIC_API_URL=http://localhost:4000
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Desactivamos la telemetría de Next durante el build
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

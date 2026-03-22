@@ -381,10 +381,11 @@ export default function AdminAttendance() {
 
   async function markAbsences() {
     try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
       const startDate = filters.startDate || new Date().toISOString().split('T')[0]
       const endDate = filters.endDate || new Date().toISOString().split('T')[0]
 
-      const response = await fetch('http://localhost:4000/attendance/mark-absences', {
+      const response = await fetch(`${apiUrl}/attendance/mark-absences`, {
         method: 'POST',
         credentials: 'include',
         headers: {
