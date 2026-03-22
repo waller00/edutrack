@@ -1,29 +1,13 @@
-import fs from "node:fs";
-import https from "node:https";
-import path from "node:path";
 import app from "./app.js";
 
+// Definimos el puerto (4000 por defecto para el backend)
 const port = Number(process.env.PORT || 4000);
-const sslDir = process.env.SSL_CERT_DIR ?? "/etc/ssl/cloudflare";
-const keyPath = path.join(sslDir, "key.pem");
-const certPath = path.join(sslDir, "cert.pem");
 
-const tlsFilesPresent =
-  fs.existsSync(keyPath) &&
-  fs.existsSync(certPath) &&
-  fs.statSync(keyPath).size > 0 &&
-  fs.statSync(certPath).size > 0;
-
-if (tlsFilesPresent) {
-  const httpsOptions = {
-    key: fs.readFileSync(keyPath),
-    cert: fs.readFileSync(certPath),
-  };
-  https.createServer(httpsOptions, app).listen(port, () => {
-    console.log(`Auth-service en https (puerto ${port})`);
-  });
-} else {
-  app.listen(port, () => {
-    console.log(`Auth-service en http://localhost:${port}`);
-  });
-}
+/**
+ * En producción, el backend corre en HTTP. 
+ * El certificado SSL (HTTPS) lo gestiona Cloudflare o un Proxy externo.
+ * Esto evita conflictos de certificados y errores de CORS en el 'preflight'.
+ */
+app.listen(port, () => {
+  console.log(`🚀 Auth-service corriendo en HTTP (puerto ${port})`);
+});
