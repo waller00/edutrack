@@ -17,19 +17,21 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
+         script: |
             mkdir -p /root/edutrack
             cd /root/edutrack
 
-            # 1. Traemos el código
+            # 1. Traemos el código usando el token que nos funcionó hoy
             if [ -d ".git" ]; then
+              # Esto actualiza la URL por si cambió el token y hace el pull
+              git remote set-url origin https://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@github.com/joaquinwaller/edutrack.git
               git pull origin main
             else
-              git clone https://github.com/${{ github.repository }}.git .
+              git clone https://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@github.com/joaquinwaller/edutrack.git .
             fi
 
-            # 2. Levantamos con el mismo nombre que en el repo
-            docker compose -f docker-compose.cloud.yml up -d --build
+            # 2. Levantamos con el archivo correcto (el que tiene el punto)
+            docker-compose -f docker-compose.cloud.yml up -d --build
 
-            echo "EduTrack desplegado con docker-compose.cloud.yml"
+            echo "EduTrack desplegado con éxito"
             docker ps
