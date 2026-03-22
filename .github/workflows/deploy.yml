@@ -18,21 +18,21 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # 1. Limpieza total de la zona
             cd /root
-            rm -rf edutrack
             
-            # 2. Clonamos con el token directo (el que sabemos que anda)
-            git clone https://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@github.com/joaquinwaller/edutrack.git
+            # 1. Si la carpeta no existe, la clonamos. Si existe, solo actualizamos el código.
+            if [ ! -d "edutrack" ]; then
+              git clone https://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@github.com/joaquinwaller/edutrack.git
+              cd edutrack
+            else
+              cd edutrack
+              git fetch --all
+              git reset --hard origin/main
+            fi
             
-            # 3. Entramos y levantamos
-            cd edutrack
-            
-            # 4. Bajamos lo que haya quedado colgado por las dudas
+            # 2. Levantamos los contenedores (Docker va a usar el .env que ya esté en la carpeta)
             docker-compose -f docker-compose.cloud.yml down
-            
-            # 5. Build y Up
             docker-compose -f docker-compose.cloud.yml up -d --build
 
-            echo "EduTrack desplegado"
+            echo "EduTrack actualizado sin borrar el .env"
             docker ps
