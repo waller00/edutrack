@@ -1,7 +1,3 @@
-# Deploy por SSH al droplet. El git pull usa git@github.com en el SERVIDOR:
-# hace falta una Deploy key (solo lectura) en el repo y la clave privada en ~/.ssh del servidor.
-# No se usa GH_PAT ni secrets extra en GitHub Actions.
-
 name: Deploy EduTrack to DigitalOcean
 
 on:
@@ -22,38 +18,21 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            set -e
-            ORIGIN_SSH="git@github.com:joaquinwaller/edutrack.git"
-
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-            ssh-keyscan -t rsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
-
+            # 1. Limpieza total de la zona
             cd /root
+            rm -rf edutrack
+            
+            # 2. Clonamos con el token directo (el que sabemos que anda)
+            git clone https://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@github.com/joaquinwaller/edutrack.git
+            
+            # 3. Entramos y levantamos
+            cd edutrack
+            
+            # 4. Bajamos lo que haya quedado colgado por las dudas
+            docker-compose -f docker-compose.cloud.yml down
+            
+            # 5. Build y Up
+            docker-compose -f docker-compose.cloud.yml up -d --build
 
-            if [ ! -d "edutrack" ]; then
-              echo "Clonando por primera vez (SSH)..."
-              git clone "$ORIGIN_SSH" edutrack
-              cd edutrack
-            else
-              echo "Actualizando repositorio (SSH)..."
-              cd edutrack
-              git remote set-url origin "$ORIGIN_SSH"
-              git fetch origin main
-              git reset --hard origin/main
-            fi
-
-            if docker compose version >/dev/null 2>&1; then
-              DC="docker compose"
-            else
-              DC="docker-compose"
-            fi
-
-            $DC -f docker-compose.cloud.yml down || true
-
-            $DC -f docker-compose.cloud.yml build --no-cache auth
-            $DC -f docker-compose.cloud.yml build web
-            $DC -f docker-compose.cloud.yml up -d
-
-            echo "Deploy listo."
+            echo "EduTrack desplegado"
             docker ps
