@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
+import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
 import {
   buildProfilePayload,
   canEditNationalId,
@@ -208,13 +209,11 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                   className="input-field pr-10"
                   placeholder="Tu contraseña actual"
                 />
-                <button 
-                  type="button" 
-                  onClick={()=>setShowCur(s=>!s)} 
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  {showCur ? '🙈' : '👁️'}
-                </button>
+                <PasswordVisibilityToggle
+                  visible={showCur}
+                  onToggle={() => setShowCur((s) => !s)}
+                  field="contraseña actual"
+                />
               </div>
             </div>
             <div>
@@ -227,13 +226,11 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                   className="input-field pr-10"
                   placeholder="Mín 8, Aa y 0-9"
                 />
-                <button 
-                  type="button" 
-                  onClick={()=>setShowNew(s=>!s)} 
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  {showNew ? '🙈' : '👁️'}
-                </button>
+                <PasswordVisibilityToggle
+                  visible={showNew}
+                  onToggle={() => setShowNew((s) => !s)}
+                  field="nueva contraseña"
+                />
               </div>
             </div>
             <div>
@@ -246,13 +243,11 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                   className="input-field pr-10"
                   placeholder="Repite la nueva contraseña"
                 />
-                <button 
-                  type="button" 
-                  onClick={()=>setShowConf(s=>!s)} 
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  {showConf ? '🙈' : '👁️'}
-                </button>
+                <PasswordVisibilityToggle
+                  visible={showConf}
+                  onToggle={() => setShowConf((s) => !s)}
+                  field="confirmación"
+                />
               </div>
             </div>
             <div className="md:col-span-3 flex justify-end pt-6 border-t border-gray-200">

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -106,13 +107,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   required
                 />
-                <button
-                  type="button"
-                  onClick={() => setShow(!show)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  {show ? '🙈' : '👁️'}
-                </button>
+                <PasswordVisibilityToggle visible={show} onToggle={() => setShow(!show)} />
               </div>
             </div>
             

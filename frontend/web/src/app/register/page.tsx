@@ -7,6 +7,7 @@ import {
   formatUruguayanCI,
   normalizeLocalPhoneUY,
 } from '@/lib/uruguay-forms'
+import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
 import { getPasswordStrength, getStrengthBarClass } from '@/lib/password-strength'
 import { compressImage, fileToDataUrl } from '@/lib/image-upload'
 import {
@@ -461,13 +462,7 @@ export default function RegisterPage() {
                     className="input-field pr-10"
                     placeholder="Mín 8, Aa y 0-9"
                   />
-                  <button 
-                    type="button" 
-                    onClick={()=>setShowPwd(s=>!s)} 
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                  >
-                    {showPwd ? '🙈' : '👁️'}
-                  </button>
+                  <PasswordVisibilityToggle visible={showPwd} onToggle={() => setShowPwd((s) => !s)} />
                 </div>
                 <div className="h-2 bg-gray-200 rounded mt-2">
                   <div className={`${getStrengthBarClass(strength)} h-2 rounded transition-all duration-300`} style={{width: `${strength}%`}} />
@@ -485,13 +480,11 @@ export default function RegisterPage() {
                     className="input-field pr-10"
                     placeholder="Repite tu contraseña"
                   />
-                  <button 
-                    type="button" 
-                    onClick={()=>setShowConfirm(s=>!s)} 
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirm ? '🙈' : '👁️'}
-                  </button>
+                  <PasswordVisibilityToggle
+                    visible={showConfirm}
+                    onToggle={() => setShowConfirm((s) => !s)}
+                    field="confirmación"
+                  />
                 </div>
               </div>
               
