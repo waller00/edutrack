@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/RoleGuard'
+import { BarChart3 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import {
@@ -77,7 +78,7 @@ export default function MyAttendancePage({ role }: { role: 'TEACHER' | 'STAFF' }
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <span className="text-emerald-600 text-xl">📊</span>
+              <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Mis Asistencias</h1>

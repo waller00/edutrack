@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { DateTime } from "luxon";
+import { APP_TIMEZONE } from "./app-timezone.js";
 import {
   applyEventStartDateFilter,
   buildMyEventsBaseFilter,
@@ -91,7 +93,12 @@ describe("events-query", () => {
     const start = new Date("2025-06-01T12:00:00.000Z");
     const end = new Date("2025-06-10T12:00:00.000Z");
     const inst = generateRecurringInstances(ev, start, end);
-    expect(inst.every((i) => new Date(i.startDate).getUTCDay() === 3)).toBe(true);
+    expect(
+      inst.every(
+        (i) =>
+          DateTime.fromJSDate(new Date(i.startDate), { zone: "utc" }).setZone(APP_TIMEZONE).weekday % 7 === 3,
+      ),
+    ).toBe(true);
   });
 
   it("generateRecurringInstances propaga startTime y endTime por instancia", () => {

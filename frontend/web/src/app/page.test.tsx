@@ -40,14 +40,14 @@ describe('Home page', () => {
     render(<Home />)
 
     expect(await screen.findByText('Gestión de usuarios')).toBeInTheDocument()
-    expect(screen.getByText('📅')).toBeInTheDocument()
+    expect(screen.getByText('Gestión de eventos')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '📧 Reenviar' }))
+    fireEvent.click(screen.getByRole('button', { name: /reenviar correo/i }))
 
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith('/auth/verify/resend', { method: 'POST' })
     )
-    expect(screen.getByRole('button', { name: '✅ Enviado' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /enviado/i })).toBeDisabled()
   })
 
   it('shows the profile completion state instead of role sections', async () => {

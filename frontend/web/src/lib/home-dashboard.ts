@@ -19,19 +19,21 @@ export function getWelcomeMessage(inactiveAccount: boolean, pendingApproval: boo
   return 'Bienvenido al sistema de gestión de asistencias. Accede a las herramientas disponibles para tu rol.'
 }
 
-export function getSectionIcon(title: string): string {
-  if (title.includes('usuarios')) return '👥'
-  if (title.includes('asistencias')) return '📊'
-  if (title.includes('eventos')) return '📅'
-  if (title.includes('licencias')) return '📄'
-  if (title.includes('Panel')) return '📈'
-  return '🔧'
-}
+export type HomeSectionIconKind =
+  | 'users'
+  | 'chart'
+  | 'calendar'
+  | 'file'
+  | 'dashboard'
+  | 'default'
 
-export function getResendButtonLabel(resent: boolean, resending: boolean): string {
-  if (resent) return '✅ Enviado'
-  if (resending) return '⏳ Enviando…'
-  return '📧 Reenviar'
+export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
+  if (title.includes('usuarios')) return 'users'
+  if (title.includes('asistencias')) return 'chart'
+  if (title.includes('eventos')) return 'calendar'
+  if (title.includes('licencias')) return 'file'
+  if (title.includes('Panel')) return 'dashboard'
+  return 'default'
 }
 
 export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {

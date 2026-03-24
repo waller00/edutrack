@@ -97,8 +97,7 @@ describe('TrainDniPage', () => {
     fireEvent.change(input, { target: { files: [png('one.png'), png('two.png')] } })
 
     expect(screen.getByText('one.png')).toBeInTheDocument()
-    const removeBtns = screen.getAllByRole('button', { name: '✕' })
-    fireEvent.click(removeBtns[0])
+    fireEvent.click(screen.getByRole('button', { name: /quitar one\.png/i }))
 
     await waitFor(() => {
       expect(screen.queryByText('one.png')).not.toBeInTheDocument()

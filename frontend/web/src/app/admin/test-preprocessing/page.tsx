@@ -1,5 +1,7 @@
 'use client'
 import { useState } from 'react'
+import { FlaskConical, Target } from 'lucide-react'
+import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { api } from '@/lib/api'
 import RoleGuard from '@/components/RoleGuard'
 import { compressImage, fileToDataUrl } from '@/lib/image-upload'
@@ -72,8 +74,9 @@ export default function TestPreprocessingPage() {
     <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-8">
         <div className="header-modern">
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-            <span className="text-emerald-600 text-4xl">🧪</span> Prueba de Preprocesamiento OCR
+          <h1 className="flex items-center gap-3 text-3xl font-bold text-gray-900">
+            <FlaskConical className="h-9 w-9 shrink-0 text-emerald-600" aria-hidden />
+            Prueba de Preprocesamiento OCR
           </h1>
           <p className="text-gray-600">Prueba diferentes configuraciones de preprocesamiento para optimizar la extracción de datos del DNI.</p>
         </div>
@@ -99,10 +102,19 @@ export default function TestPreprocessingPage() {
           )}
           <button
             onClick={handleTest}
-            className="btn-primary w-full justify-center"
+            className="btn-primary inline-flex w-full items-center justify-center gap-2"
             disabled={loading || !dniFile}
           >
-            {loading ? '⏳ Probando...' : '🧪 Probar Preprocesamiento'}
+            <PendingButtonContent
+              pending={loading}
+              pendingText="Probando…"
+              idle={
+                <>
+                  <FlaskConical className="h-4 w-4 shrink-0" aria-hidden />
+                  Probar preprocesamiento
+                </>
+              }
+            />
           </button>
           {error && (
             <div
@@ -117,7 +129,10 @@ export default function TestPreprocessingPage() {
 
         {recommendation && (
           <div className="card shadow-modern-lg p-6 bg-emerald-50 border border-emerald-200">
-            <h2 className="text-xl font-semibold text-emerald-800 mb-4">🎯 Mejor Estrategia</h2>
+            <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold text-emerald-800">
+              <Target className="h-6 w-6 shrink-0" aria-hidden />
+              Mejor estrategia
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <p className="font-medium text-emerald-700">Estrategia:</p>

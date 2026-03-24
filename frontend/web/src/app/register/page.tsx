@@ -8,6 +8,8 @@ import {
   normalizeLocalPhoneUY,
 } from '@/lib/uruguay-forms'
 import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
+import { Lightbulb } from 'lucide-react'
+import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { getPasswordStrength, getStrengthBarClass } from '@/lib/password-strength'
 import { compressImage, fileToDataUrl } from '@/lib/image-upload'
 import {
@@ -697,8 +699,12 @@ export default function RegisterPage() {
                     ))}
                   </div>
                   <div className="mt-3 pt-2 border-t border-red-200">
-                    <p className="text-xs text-red-500">
-                      💡 <strong>Sugerencia:</strong> Asegúrate de subir una foto clara de un DNI uruguayo real, no un formulario o imagen de prueba.
+                    <p className="flex items-start gap-1.5 text-xs text-red-500">
+                      <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                      <span>
+                        <strong>Sugerencia:</strong> Asegúrate de subir una foto clara de un DNI uruguayo real, no un
+                        formulario o imagen de prueba.
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -716,7 +722,7 @@ export default function RegisterPage() {
                 disabled={loading || verificationHasIssues()}
                 className="btn-primary flex-1 disabled:opacity-60"
               >
-                {loading ? '⏳ Creando…' : 'Crear cuenta'}
+                <PendingButtonContent pending={loading} pendingText="Creando…" idle="Crear cuenta" />
               </button>
               <a href="/login" className="btn-secondary flex-1 text-center">
                 Cancelar

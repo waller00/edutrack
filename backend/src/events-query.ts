@@ -1,5 +1,8 @@
 /** Consultas/filtros de eventos (lógica pura + expansión recurrente) */
 
+import { DateTime } from 'luxon'
+import { APP_TIMEZONE } from './app-timezone.js'
+
 export function applyEventStartDateFilter(where: any, startDate?: unknown, endDate?: unknown) {
   if (!startDate && !endDate) return;
   where.startDate = {};
@@ -41,15 +44,6 @@ export function resolveRecurringRangeEnd(event: any, endDate?: unknown) {
   return new Date(Math.max(Date.now(), new Date(event.startDate).getTime()));
 }
 
-function toYmdUtc(d: Date) {
-  return d.toISOString().slice(0, 10)
-}
-
-function combineUtcYmdWithHhMm(ymdUtc: string, hh: number, mm: number) {
-  const [y, m, day] = ymdUtc.split('-').map((x) => Number(x))
-  return new Date(Date.UTC(y, m - 1, day, hh, mm, 0, 0))
-}
-
 function deriveOccurrenceStatus(baseStatus: any, occStartAt: Date, occEndAt: Date) {
   if (baseStatus === 'CANCELLED') return 'CANCELLED'
   if (baseStatus === 'EXPIRED') return 'EXPIRED'
@@ -62,40 +56,72 @@ function deriveOccurrenceStatus(baseStatus: any, occStartAt: Date, occEndAt: Dat
 export function generateRecurringInstances(event: any, startDate: Date, endDate: Date) {
   const instances: any[] = []
 
-  const rangeStartYmd = toYmdUtc(startDate)
-  const rangeEndYmd = toYmdUtc(endDate)
-
   const baseStartTime = event.startTime ? new Date(event.startTime) : null
   const baseEndTime = event.endTime ? new Date(event.endTime) : null
 
-  const startHH = baseStartTime ? baseStartTime.getUTCHours() : 0
-  const startMM = baseStartTime ? baseStartTime.getUTCMinutes() : 0
-  const endHH = baseEndTime ? baseEndTime.getUTCHours() : 0
-  const endMM = baseEndTime ? baseEndTime.getUTCMinutes() : 0
+  const wallStart = baseStartTime
+    ? DateTime.fromJSDate(baseStartTime, { zone: 'utc' }).setZone(APP_TIMEZONE)
+    : null
+  const wallEnd = baseEndTime
+    ? DateTime.fromJSDate(baseEndTime, { zone: 'utc' }).setZone(APP_TIMEZONE)
+    : null
 
-  const cursor = new Date(`${rangeStartYmd}T00:00:00.000Z`)
-  const final = new Date(`${rangeEndYmd}T00:00:00.000Z`)
+  const startHH = wallStart ? wallStart.hour : 0
+  const startMM = wallStart ? wallStart.minute : 0
+  const endHH = wallEnd ? wallEnd.hour : 0
+  const endMM = wallEnd ? wallEnd.minute : 0
+
+  let cursor = DateTime.fromJSDate(startDate, { zone: 'utc' }).setZone(APP_TIMEZONE).startOf('day')
+  const final = DateTime.fromJSDate(endDate, { zone: 'utc' }).setZone(APP_TIMEZONE).endOf('day')
 
   const recurrenceType = event.recurrenceType || (event.isRecurring ? 'WEEKLY' : 'NONE')
 
-  const baseStartDateYmd = event.startDate ? toYmdUtc(new Date(event.startDate)) : rangeStartYmd
-  const baseStartDayOfMonth = Number(baseStartDateYmd.slice(8, 10))
+  const baseStartAtUy = event.startDate
+    ? DateTime.fromJSDate(new Date(event.startDate), { zone: 'utc' }).setZone(APP_TIMEZONE)
+    : cursor
+  const baseStartDayOfMonth = baseStartAtUy.day
 
   while (cursor <= final) {
-    const ymd = toYmdUtc(cursor)
-    const dow = cursor.getUTCDay() // 0=Domingo
+    const dow = cursor.weekday % 7
 
     const matches =
       recurrenceType === 'DAILY'
         ? true
         : recurrenceType === 'MONTHLY'
-          ? Number(ymd.slice(8, 10)) === baseStartDayOfMonth
-          : // WEEKLY / fallback
-            event.daysOfWeek?.includes(dow)
+          ? cursor.day === baseStartDayOfMonth
+          : event.daysOfWeek?.includes(dow)
 
     if (matches) {
-      const occStartAt = combineUtcYmdWithHhMm(ymd, startHH, startMM)
-      const occEndAt = combineUtcYmdWithHhMm(ymd, endHH, endMM)
+      const occStartAt = DateTime.fromObject(
+        {
+          year: cursor.year,
+          month: cursor.month,
+          day: cursor.day,
+          hour: startHH,
+          minute: startMM,
+          second: 0,
+          millisecond: 0,
+        },
+        { zone: APP_TIMEZONE },
+      )
+        .toUTC()
+        .toJSDate()
+      const occEndAt = DateTime.fromObject(
+        {
+          year: cursor.year,
+          month: cursor.month,
+          day: cursor.day,
+          hour: endHH,
+          minute: endMM,
+          second: 0,
+          millisecond: 0,
+        },
+        { zone: APP_TIMEZONE },
+      )
+        .toUTC()
+        .toJSDate()
+
+      const ymd = cursor.toFormat('yyyy-MM-dd')
 
       instances.push({
         ...event,
@@ -109,7 +135,7 @@ export function generateRecurringInstances(event: any, startDate: Date, endDate:
       })
     }
 
-    cursor.setUTCDate(cursor.getUTCDate() + 1)
+    cursor = cursor.plus({ days: 1 })
   }
 
   return instances

@@ -1,13 +1,46 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
-import type { HomeMe } from '@/lib/home-dashboard'
 import {
-  getResendButtonLabel,
-  getSectionIcon,
+  AlertTriangle,
+  BarChart3,
+  Calendar,
+  Check,
+  FileText,
+  Info,
+  LayoutDashboard,
+  Loader2,
+  Mail,
+  PenLine,
+  Sparkles,
+  Users,
+  Wrench,
+} from 'lucide-react'
+import { PendingButtonContent } from '@/components/PendingButtonContent'
+import { api } from '@/lib/api'
+import type { HomeMe, HomeSectionIconKind } from '@/lib/home-dashboard'
+import {
+  getHomeSectionIconKind,
   getVisibleHomeSections,
   getWelcomeMessage,
 } from '@/lib/home-dashboard'
+
+function HomeSectionIcon({ kind }: { kind: HomeSectionIconKind }) {
+  const cls = 'h-5 w-5 text-emerald-600'
+  switch (kind) {
+    case 'users':
+      return <Users className={cls} aria-hidden />
+    case 'chart':
+      return <BarChart3 className={cls} aria-hidden />
+    case 'calendar':
+      return <Calendar className={cls} aria-hidden />
+    case 'file':
+      return <FileText className={cls} aria-hidden />
+    case 'dashboard':
+      return <LayoutDashboard className={cls} aria-hidden />
+    default:
+      return <Wrench className={cls} aria-hidden />
+  }
+}
 
 export default function Home() {
   const [me, setMe] = useState<HomeMe | null>(null)
@@ -47,7 +80,7 @@ export default function Home() {
         <div className="card border-l-4 border-l-yellow-400 bg-yellow-50">
           <div className="flex items-center gap-3">
             <div className="w-6 h-6 bg-yellow-400 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs">⚠</span>
+              <AlertTriangle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} aria-hidden />
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-yellow-800">Email no verificado</p>
@@ -56,9 +89,25 @@ export default function Home() {
             <button
               onClick={resend}
               disabled={resending || resent}
-              className="btn-warning text-sm disabled:opacity-60"
+              className="btn-warning text-sm disabled:opacity-60 inline-flex items-center justify-center gap-2"
             >
-              {getResendButtonLabel(resent, resending)}
+              {resent ? (
+                <>
+                  <Check className="h-4 w-4 shrink-0" aria-hidden />
+                  Enviado
+                </>
+              ) : (
+                <PendingButtonContent
+                  pending={resending}
+                  pendingText="Enviando…"
+                  idle={
+                    <>
+                      <Mail className="h-4 w-4 shrink-0" aria-hidden />
+                      Reenviar correo
+                    </>
+                  }
+                />
+              )}
             </button>
           </div>
         </div>
@@ -68,14 +117,15 @@ export default function Home() {
         <div className="card border-l-4 border-l-blue-400 bg-blue-50">
           <div className="flex items-center gap-3">
             <div className="w-6 h-6 bg-blue-400 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs">ℹ</span>
+              <Info className="h-3.5 w-3.5 text-white" strokeWidth={2.5} aria-hidden />
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-blue-800">Perfil incompleto</p>
               <p className="text-sm text-blue-700">Completa tu información personal para continuar.</p>
             </div>
-            <a href="/onboarding" className="btn-primary text-sm">
-              ✏️ Completar perfil
+            <a href="/onboarding" className="btn-primary text-sm inline-flex items-center justify-center gap-2">
+              <PenLine className="h-4 w-4 shrink-0" aria-hidden />
+              Completar perfil
             </a>
           </div>
         </div>
@@ -85,7 +135,7 @@ export default function Home() {
         <div className="card border-l-4 border-l-amber-400 bg-amber-50">
           <div className="flex items-center gap-3">
             <div className="w-6 h-6 bg-amber-400 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs">⏳</span>
+              <Loader2 className="h-3.5 w-3.5 text-white animate-spin" aria-hidden />
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-amber-800">Cuenta pendiente de aprobación</p>
@@ -113,7 +163,7 @@ export default function Home() {
       <section className="text-center py-8">
         <div className="inline-flex items-center gap-3 mb-4">
           <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
-            <span className="text-emerald-600 text-xl">👋</span>
+            <Sparkles className="h-7 w-7 text-emerald-600" aria-hidden />
           </div>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">¡Hola, {me.name || me.email}!</h1>
@@ -130,9 +180,7 @@ export default function Home() {
             <div className="card-header">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
-                  <span className="text-emerald-600 text-lg">
-                    {getSectionIcon(s.title)}
-                  </span>
+                  <HomeSectionIcon kind={getHomeSectionIconKind(s.title)} />
                 </div>
                 <h2 className="font-semibold text-lg text-gray-900">{s.title}</h2>
               </div>

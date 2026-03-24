@@ -1,5 +1,16 @@
 'use client'
 import { useState } from 'react'
+import {
+  BarChart3,
+  Bot,
+  Camera,
+  ClipboardList,
+  FolderOpen,
+  Lightbulb,
+  Rocket,
+  X,
+} from 'lucide-react'
+import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { api } from '@/lib/api'
 import RoleGuard from '@/components/RoleGuard'
 import {
@@ -43,7 +54,7 @@ export default function TrainDniPage() {
 
   async function trainModel() {
     if (images.length === 0) {
-      setError('❌ Por favor, selecciona al menos una imagen')
+      setError('Por favor, selecciona al menos una imagen')
       return
     }
 
@@ -71,7 +82,7 @@ export default function TrainDniPage() {
       setResults(response)
     } catch (err: any) {
       console.error('Training error:', err)
-      setError(`❌ Error durante el entrenamiento: ${err.message}`)
+      setError(`Error durante el entrenamiento: ${err.message}`)
     } finally {
       setTraining(false)
     }
@@ -82,8 +93,8 @@ export default function TrainDniPage() {
       <main className="mx-auto max-w-6xl p-6 space-y-8">
         <section className="text-center py-8">
           <div className="inline-flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
-              <span className="text-emerald-600 text-xl">🤖</span>
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+              <Bot className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Entrenar Modelo OCR</h1>
@@ -97,7 +108,10 @@ export default function TrainDniPage() {
 
         <section className="card">
           <div className="card-header">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">📁 Subir Imágenes de DNIs</h2>
+            <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold text-gray-900">
+              <FolderOpen className="h-6 w-6 shrink-0 text-emerald-600" aria-hidden />
+              Subir imágenes de DNIs
+            </h2>
 
             <div className="space-y-4">
               <div className="flex items-center gap-4">
@@ -112,9 +126,10 @@ export default function TrainDniPage() {
                 />
                 <label
                   htmlFor="image-upload"
-                  className={`btn-primary cursor-pointer ${training ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`btn-primary inline-flex cursor-pointer items-center gap-2 ${training ? 'cursor-not-allowed opacity-50' : ''}`}
                 >
-                  📷 Seleccionar Imágenes
+                  <Camera className="h-4 w-4 shrink-0" aria-hidden />
+                  Seleccionar imágenes
                 </label>
                 <span className="text-sm text-gray-500">Máximo 5MB por imagen</span>
               </div>
@@ -131,8 +146,9 @@ export default function TrainDniPage() {
                           onClick={() => removeImage(images.findIndex((candidate) => candidate === file))}
                           className="text-red-600 hover:text-red-800 text-sm"
                           disabled={training}
+                          aria-label={`Quitar ${file.name}`}
                         >
-                          ✕
+                          <X className="h-4 w-4" aria-hidden />
                         </button>
                       </div>
                     ))}
@@ -145,9 +161,18 @@ export default function TrainDniPage() {
                   type="button"
                   onClick={trainModel}
                   disabled={training}
-                  className="btn-success w-full disabled:opacity-60"
+                  className="btn-success inline-flex w-full items-center justify-center gap-2 disabled:opacity-60"
                 >
-                  {training ? '⏳ Entrenando...' : `🚀 Entrenar con ${images.length} imágenes`}
+                  <PendingButtonContent
+                    pending={training}
+                    pendingText="Entrenando…"
+                    idle={
+                      <>
+                        <Rocket className="h-4 w-4 shrink-0" aria-hidden />
+                        Entrenar con {images.length} imágenes
+                      </>
+                    }
+                  />
                 </button>
               )}
             </div>
@@ -163,7 +188,10 @@ export default function TrainDniPage() {
         {results && (
           <section className="card">
             <div className="card-header">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">📊 Resultados del Entrenamiento</h2>
+              <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold text-gray-900">
+                <BarChart3 className="h-6 w-6 shrink-0 text-emerald-600" aria-hidden />
+                Resultados del entrenamiento
+              </h2>
 
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -185,7 +213,10 @@ export default function TrainDniPage() {
 
                 {results.suggestions && results.suggestions.length > 0 && (
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3">💡 Sugerencias</h3>
+                    <h3 className="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-900">
+                      <Lightbulb className="h-5 w-5 shrink-0 text-amber-500" aria-hidden />
+                      Sugerencias
+                    </h3>
                     <div className="space-y-2">
                       {results.suggestions.map((suggestion) => (
                         <div
@@ -203,7 +234,10 @@ export default function TrainDniPage() {
                 )}
 
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">📋 Resultados Detallados</h3>
+                  <h3 className="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-900">
+                    <ClipboardList className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+                    Resultados detallados
+                  </h3>
                   <div className="space-y-3">
                     {results.results.map((result) => {
                       const status = getTrainingResultStatus(result)

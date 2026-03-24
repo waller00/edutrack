@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
+import { LogOut, User } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type NavLink = { href: string; label: string }
@@ -128,14 +129,20 @@ export default function UserNav() {
               </button>
               {open && (
                 <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden fade-in">
-                  <a href="/profile" className="block px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors">
-                    👤 Mi perfil
-                  </a>
-                  <button 
-                    onClick={logout} 
-                    className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors"
+                  <a
+                    href="/profile"
+                    className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
                   >
-                    🚪 Cerrar sesión
+                    <User className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                    Mi perfil
+                  </a>
+                  <button
+                    onClick={logout}
+                    type="button"
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors"
+                  >
+                    <LogOut className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                    Cerrar sesión
                   </button>
                 </div>
               )}

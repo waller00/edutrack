@@ -8,42 +8,26 @@ import {
   applyMyEventsDateFilter,
   expandRecurringEvent,
 } from '../events-query.js';
+import {
+  APP_TIMEZONE,
+  isYmdDateString,
+  jsWeekdayInUruguay,
+  parseEventTimeToUruguayHhMm,
+  parseStartDateToUruguayYmd,
+  uruguayWallToUtc,
+  uruguayYmdEndOfDayToUtc,
+} from '../app-timezone.js';
+import { DateTime } from 'luxon';
 
 const r = Router();
-
-function isYmdDateString(s: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s)
-}
-
-function parseUtcDateInput(s: string) {
-  // Acepta "YYYY-MM-DD" o ISO datetime.
-  if (isYmdDateString(s)) return new Date(`${s}T00:00:00.000Z`)
-  return new Date(s)
-}
-
-function parseUtcTimeInput(s: string) {
-  // Acepta "HH:MM" o "H:MM" (mismo criterio que el front) + ISO datetime.
-  const hhmm = /^([01]?\d|2[0-3]):([0-5]\d)$/
-  const m = s.trim().match(hhmm)
-  if (m) {
-    const hh = Number(m[1])
-    const mm = Number(m[2])
-    if (hh < 0 || hh > 23) return null
-    return { hh, mm }
-  }
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return null
-  return { hh: d.getUTCHours(), mm: d.getUTCMinutes() }
-}
 
 function toTimeMinutes(hh: number, mm: number) {
   return hh * 60 + mm
 }
 
-function parseRecurrenceEndToUtcInclusiveEndOfDay(s: string) {
+function parseRecurrenceEndInclusive(s: string) {
   if (isYmdDateString(s)) {
-    // Inclusive: fin del día UTC.
-    return new Date(`${s}T23:59:59.999Z`)
+    return uruguayYmdEndOfDayToUtc(s)
   }
   const d = new Date(s)
   return new Date(d.getTime())
@@ -77,9 +61,9 @@ const eventSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().optional()),
   type: z.enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA']),
-  // Soportamos "YYYY-MM-DD" o ISO datetime (Z).
+  // YYYY-MM-DD o ISO; el día civil se interpreta en America/Montevideo.
   startDate: z.string().min(1),
-  // Soportamos "HH:MM" o ISO datetime; lo normalizamos a UTC.
+  // HH:MM (hora Uruguay) o ISO; se normaliza a instante UTC.
   startTime: z.string().min(1),
   endTime: z.string().min(1),
   // El front puede mandar "" cuando el select está en "Sin asignar"; no es UUID válido.
@@ -140,12 +124,12 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
       return res.status(403).json({ message: 'No puedes asignar eventos a otros usuarios' });
     }
 
-    // Normalización + validación temporal (UTC).
-    const baseStart = parseUtcDateInput(eventData.startDate);
-    const tStart = parseUtcTimeInput(eventData.startTime);
-    const tEnd = parseUtcTimeInput(eventData.endTime);
-    if (!baseStart || Number.isNaN(baseStart.getTime()) || !tStart || !tEnd) {
-      return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM, en UTC)' });
+    // Normalización: fecha y hora civil en Uruguay → UTC en DB.
+    const ymd = parseStartDateToUruguayYmd(eventData.startDate);
+    const tStart = parseEventTimeToUruguayHhMm(eventData.startTime);
+    const tEnd = parseEventTimeToUruguayHhMm(eventData.endTime);
+    if (!ymd || !tStart || !tEnd) {
+      return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM, hora de Uruguay)' });
     }
 
     const startMinutes = toTimeMinutes(tStart.hh, tStart.mm);
@@ -154,12 +138,14 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
       return res.status(400).json({ message: 'Hora fin debe ser mayor que hora inicio' });
     }
 
-    const startDateUtc = new Date(
-      Date.UTC(baseStart.getUTCFullYear(), baseStart.getUTCMonth(), baseStart.getUTCDate(), tStart.hh, tStart.mm, 0, 0),
-    );
-    const endTimeUtc = new Date(
-      Date.UTC(baseStart.getUTCFullYear(), baseStart.getUTCMonth(), baseStart.getUTCDate(), tEnd.hh, tEnd.mm, 0, 0),
-    );
+    let startDateUtc: Date;
+    let endTimeUtc: Date;
+    try {
+      startDateUtc = uruguayWallToUtc(ymd, tStart.hh, tStart.mm);
+      endTimeUtc = uruguayWallToUtc(ymd, tEnd.hh, tEnd.mm);
+    } catch {
+      return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM, hora de Uruguay)' });
+    }
 
     // Validaciones para recurrencia.
     const isRecurring = Boolean(eventData.isRecurring);
@@ -174,13 +160,13 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
       // UX: si no seleccionan días pero el usuario definió una fecha base,
       // inferimos el día de la semana desde startDate para que el evento sea utilizable.
       // (Así evitamos “no deja” por validación demasiado estricta).
-      eventData.daysOfWeek = [new Date(startDateUtc).getUTCDay()];
+      eventData.daysOfWeek = [jsWeekdayInUruguay(startDateUtc)];
     }
     if (isRecurring && recurrenceType === 'WEEKLY' && eventData.daysOfWeek.length === 0) {
       return res.status(400).json({ message: 'Evento repetitivo semanal requiere al menos un día de la semana' });
     }
     if (isRecurring && eventData.recurrenceEnd) {
-      const recEnd = parseRecurrenceEndToUtcInclusiveEndOfDay(eventData.recurrenceEnd);
+      const recEnd = parseRecurrenceEndInclusive(eventData.recurrenceEnd);
       if (recEnd.getTime() < startDateUtc.getTime()) {
         return res.status(400).json({ message: 'recurrenceEnd debe ser >= startDate (base)' });
       }
@@ -199,7 +185,7 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         endTime: endTimeUtc,
         endDate: null,
         recurrenceType,
-        recurrenceEnd: eventData.recurrenceEnd ? parseRecurrenceEndToUtcInclusiveEndOfDay(eventData.recurrenceEnd) : null,
+        recurrenceEnd: eventData.recurrenceEnd ? parseRecurrenceEndInclusive(eventData.recurrenceEnd) : null,
         isRecurring,
         daysOfWeek: eventData.daysOfWeek ?? [],
       },
@@ -461,20 +447,32 @@ r.put('/:id', authGuard, async (req, res) => {
     const nextEndTimeInput = updateData.endTime ?? null;
 
     if (nextStartDateInput || nextStartTimeInput || nextEndTimeInput) {
-      const baseDateForCombine = nextStartDateInput
-        ? parseUtcDateInput(String(nextStartDateInput))
-        : new Date(existingEvent.startDate);
+      const baseYmd =
+        nextStartDateInput != null && String(nextStartDateInput) !== ''
+          ? parseStartDateToUruguayYmd(String(nextStartDateInput))
+          : DateTime.fromJSDate(new Date(existingEvent.startDate), { zone: 'utc' })
+              .setZone(APP_TIMEZONE)
+              .toFormat('yyyy-MM-dd');
+
+      const existingStartWall = DateTime.fromJSDate(
+        new Date(existingEvent.startTime ?? existingEvent.startDate),
+        { zone: 'utc' },
+      ).setZone(APP_TIMEZONE);
+      const existingEndWall = DateTime.fromJSDate(
+        new Date(existingEvent.endTime ?? existingEvent.startDate),
+        { zone: 'utc' },
+      ).setZone(APP_TIMEZONE);
 
       const startHHmm = nextStartTimeInput
-        ? parseUtcTimeInput(String(nextStartTimeInput))
-        : { hh: new Date(existingEvent.startTime ?? existingEvent.startDate).getUTCHours(), mm: new Date(existingEvent.startTime ?? existingEvent.startDate).getUTCMinutes() };
+        ? parseEventTimeToUruguayHhMm(String(nextStartTimeInput))
+        : { hh: existingStartWall.hour, mm: existingStartWall.minute };
 
       const endHHmm = nextEndTimeInput
-        ? parseUtcTimeInput(String(nextEndTimeInput))
-        : { hh: new Date(existingEvent.endTime ?? existingEvent.startDate).getUTCHours(), mm: new Date(existingEvent.endTime ?? existingEvent.startDate).getUTCMinutes() };
+        ? parseEventTimeToUruguayHhMm(String(nextEndTimeInput))
+        : { hh: existingEndWall.hour, mm: existingEndWall.minute };
 
-      if (!baseDateForCombine || Number.isNaN(baseDateForCombine.getTime()) || !startHHmm || !endHHmm) {
-        return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM)' });
+      if (!baseYmd || !startHHmm || !endHHmm) {
+        return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM, hora de Uruguay)' });
       }
 
       const startMinutes = toTimeMinutes(startHHmm.hh, startHHmm.mm);
@@ -483,12 +481,14 @@ r.put('/:id', authGuard, async (req, res) => {
         return res.status(400).json({ message: 'Hora fin debe ser mayor que hora inicio' });
       }
 
-      const startDateUtc = new Date(
-        Date.UTC(baseDateForCombine.getUTCFullYear(), baseDateForCombine.getUTCMonth(), baseDateForCombine.getUTCDate(), startHHmm.hh, startHHmm.mm, 0, 0),
-      )
-      const endTimeUtc = new Date(
-        Date.UTC(baseDateForCombine.getUTCFullYear(), baseDateForCombine.getUTCMonth(), baseDateForCombine.getUTCDate(), endHHmm.hh, endHHmm.mm, 0, 0),
-      )
+      let startDateUtc: Date;
+      let endTimeUtc: Date;
+      try {
+        startDateUtc = uruguayWallToUtc(baseYmd, startHHmm.hh, startHHmm.mm);
+        endTimeUtc = uruguayWallToUtc(baseYmd, endHHmm.hh, endHHmm.mm);
+      } catch {
+        return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM, hora de Uruguay)' });
+      }
 
       updateData.startDate = startDateUtc
       updateData.startTime = startDateUtc
@@ -498,7 +498,7 @@ r.put('/:id', authGuard, async (req, res) => {
 
     if (updateData.recurrenceEnd !== undefined) {
       updateData.recurrenceEnd = updateData.recurrenceEnd
-        ? parseRecurrenceEndToUtcInclusiveEndOfDay(String(updateData.recurrenceEnd))
+        ? parseRecurrenceEndInclusive(String(updateData.recurrenceEnd))
         : null
     }
 

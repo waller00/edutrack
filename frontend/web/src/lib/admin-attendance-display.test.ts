@@ -32,10 +32,10 @@ describe('admin-attendance-display', () => {
 
   it('hora planificada', () => {
     expect(
-      getAdminAttendancePlannedTimeLabel(
-        { type: 'CHECK_IN', event: { startTime: '2025-06-15T08:30:00.000Z' } },
-        'es-ES',
-      ),
+      getAdminAttendancePlannedTimeLabel({
+        type: 'CHECK_IN',
+        event: { startTime: '2025-06-15T08:30:00.000Z' },
+      }),
     ).toMatch(/\d/)
     expect(getAdminAttendancePlannedTimeLabel({ type: 'CHECK_IN' })).toBe('N/A')
   })
