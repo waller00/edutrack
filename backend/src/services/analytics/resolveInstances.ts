@@ -67,13 +67,13 @@ export async function resolveAttendanceAndJustification(params: {
   })
   const userById = new Map(userRows.map((u) => [u.id, u]))
 
-  // Licencias médicas aprobadas para justificación de ausencias.
+  // Licencias médicas activas para justificación de ausencias.
   // Criterio: solape por fecha en rango [minPlannedDate, maxPlannedDate].
   const minPlannedDate = instances[0].plannedDate
   const maxPlannedDate = instances[instances.length - 1].plannedDate
   const approvedLicenses = await prisma.medicalLeave.findMany({
     where: {
-      status: 'APPROVED',
+      status: 'ACTIVE' as any,
       userId: { in: userIds },
       startDate: { lte: new Date(`${maxPlannedDate}T23:59:59.999Z`) },
       endDate: { gte: new Date(`${minPlannedDate}T00:00:00.000Z`) },
@@ -185,4 +185,3 @@ export async function resolveAttendanceAndJustification(params: {
 
   return resolved
 }
-

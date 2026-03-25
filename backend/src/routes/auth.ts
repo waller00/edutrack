@@ -30,10 +30,12 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
   TEACHER: [
     { href: "/teacher/attendance", label: "Mis asistencias" },
     { href: "/teacher/events", label: "Mis eventos" },
+    { href: "/teacher/licenses", label: "Mis licencias" },
   ],
   STAFF: [
     { href: "/staff/attendance", label: "Mis asistencias" },
     { href: "/staff/events", label: "Mis eventos" },
+    { href: "/staff/licenses", label: "Mis licencias" },
   ],
 };
 

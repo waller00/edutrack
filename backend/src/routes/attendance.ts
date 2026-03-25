@@ -99,7 +99,7 @@ r.post('/register', authGuard, async (req, res) => {
     if (blockingLicense) {
       return res.status(403).json({
         message:
-          'No se puede registrar asistencia presencial en este evento: el horario está cubierto por una licencia médica aprobada. La inasistencia debe figurar como justificada (reconciliación automática).',
+          'No se puede registrar asistencia presencial en este evento: el horario está cubierto por una licencia activa. La inasistencia debe figurar como justificada (reconciliación automática).',
         code: 'ATTENDANCE_BLOCKED_BY_LICENSE',
         licenseId: blockingLicense.id,
       })
@@ -543,11 +543,11 @@ r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
         continue; // Ya existe asistencia, no marcar ausencia
       }
 
-      // Verificar si el usuario tiene una licencia médica aprobada en esta fecha
+      // Verificar si el usuario tiene una licencia médica activa en esta fecha
       const approvedLicense = await prisma.medicalLeave.findFirst({
         where: {
           userId: event.assignedUserId,
-          status: 'APPROVED',
+          status: 'ACTIVE' as any,
           startDate: { lte: eventDate },
           endDate: { gte: eventDate }
         }

@@ -17,7 +17,7 @@ type License = {
   id: string
   userId: string
   type: 'MEDICAL_LEAVE' | 'WORK_LEAVE' | 'OTHER'
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'ACTIVE' | 'INACTIVE'
   startDate: string
   endDate: string
   reason: string
@@ -67,8 +67,6 @@ export default function LicensesPage() {
     startDate: '',
     endDate: '',
     reason: '',
-    doctorName: '',
-    doctorPhone: '',
     notes: ''
   })
 
@@ -124,28 +122,11 @@ export default function LicensesPage() {
         startDate: '',
         endDate: '',
         reason: '',
-        doctorName: '',
-        doctorPhone: '',
         notes: ''
       })
       await loadLicenses()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al crear licencia'}`)
-    }
-  }
-
-  async function updateLicenseStatus(id: string, status: 'APPROVED' | 'REJECTED') {
-    try {
-      await api(`/medical-leaves/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status })
-      })
-      
-      setMessage(`✅ Licencia ${status === 'APPROVED' ? 'aprobada' : 'rechazada'} correctamente`)
-      setEditing(null)
-      await loadLicenses()
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al actualizar licencia'}`)
     }
   }
 
@@ -162,8 +143,7 @@ export default function LicensesPage() {
           reason: editing.reason,
           doctorName: editing.doctorName,
           doctorPhone: editing.doctorPhone,
-          notes: editing.notes,
-          status: editing.status
+          notes: editing.notes
         })
       })
       
@@ -178,10 +158,10 @@ export default function LicensesPage() {
   async function deleteLicense(id: string) {
     try {
       await api(`/medical-leaves/${id}`, { method: 'DELETE' })
-      setMessage('✅ Licencia eliminada correctamente')
+      setMessage('✅ Licencia desactivada correctamente')
       await loadLicenses()
     } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al eliminar licencia'}`)
+      setMessage(`❌ Error: ${error.message || 'Error al desactivar licencia'}`)
     }
   }
 
@@ -227,22 +207,6 @@ export default function LicensesPage() {
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
           <div className="flex gap-2">
-            {license.status === 'PENDING' && (
-              <>
-                <button
-                  onClick={() => updateLicenseStatus(license.id, 'APPROVED')}
-                  className="text-green-600 hover:text-green-900"
-                >
-                  Aprobar
-                </button>
-                <button
-                  onClick={() => updateLicenseStatus(license.id, 'REJECTED')}
-                  className="text-red-600 hover:text-red-900"
-                >
-                  Rechazar
-                </button>
-              </>
-            )}
             <button
               onClick={() => setEditing(license)}
               className="text-indigo-600 hover:text-indigo-900"
@@ -251,9 +215,10 @@ export default function LicensesPage() {
             </button>
             <button
               onClick={() => deleteLicense(license.id)}
-              className="text-red-600 hover:text-red-900"
+              disabled={license.status === 'INACTIVE'}
+              className="text-red-600 hover:text-red-900 disabled:text-gray-400"
             >
-              Eliminar
+              Desactivar
             </button>
           </div>
         </td>
@@ -346,9 +311,8 @@ export default function LicensesPage() {
                 className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               >
                 <option value="">Todos</option>
-                <option value="PENDING">Pendiente</option>
-                <option value="APPROVED">Aprobada</option>
-                <option value="REJECTED">Rechazada</option>
+                <option value="ACTIVE">Activa</option>
+                <option value="INACTIVE">Inactiva</option>
               </select>
             </div>
             
@@ -401,6 +365,7 @@ export default function LicensesPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
                   <select
+                    aria-label="Usuario de licencia"
                     value={newLicense.userId}
                     onChange={(e) => setNewLicense({ ...newLicense, userId: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -415,6 +380,7 @@ export default function LicensesPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Licencia</label>
                   <select
+                    aria-label="Tipo de licencia"
                     value={newLicense.type}
                     onChange={(e) => setNewLicense({ ...newLicense, type: e.target.value as any })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -429,6 +395,7 @@ export default function LicensesPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
                     <input
+                      aria-label="Fecha inicio"
                       type="date"
                       value={newLicense.startDate}
                       onChange={(e) => setNewLicense({ ...newLicense, startDate: e.target.value })}
@@ -439,6 +406,7 @@ export default function LicensesPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
                     <input
+                      aria-label="Fecha fin"
                       type="date"
                       value={newLicense.endDate}
                       onChange={(e) => setNewLicense({ ...newLicense, endDate: e.target.value })}
@@ -450,6 +418,7 @@ export default function LicensesPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
                   <textarea
+                    aria-label="Motivo"
                     value={newLicense.reason}
                     onChange={(e) => setNewLicense({ ...newLicense, reason: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -457,33 +426,10 @@ export default function LicensesPage() {
                   />
                 </div>
                 
-                {newLicense.type === 'MEDICAL_LEAVE' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Doctor</label>
-                      <input
-                        type="text"
-                        value={newLicense.doctorName}
-                        onChange={(e) => setNewLicense({ ...newLicense, doctorName: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono del Doctor</label>
-                      <input
-                        type="text"
-                        value={newLicense.doctorPhone}
-                        onChange={(e) => setNewLicense({ ...newLicense, doctorPhone: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      />
-                    </div>
-                  </>
-                )}
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
                   <textarea
+                    aria-label="Notas adicionales"
                     value={newLicense.notes}
                     onChange={(e) => setNewLicense({ ...newLicense, notes: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -502,8 +448,6 @@ export default function LicensesPage() {
                       startDate: '',
                       endDate: '',
                       reason: '',
-                      doctorName: '',
-                      doctorPhone: '',
                       notes: ''
                     })
                   }}
@@ -573,15 +517,7 @@ export default function LicensesPage() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-                  <select
-                    value={editing.status}
-                    onChange={(e) => setEditing({ ...editing, status: e.target.value as any })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  >
-                    <option value="PENDING">Pendiente</option>
-                    <option value="APPROVED">Aprobado</option>
-                    <option value="REJECTED">Rechazado</option>
-                  </select>
+                  <p className="text-sm text-gray-900">{getLicenseStatusLabel(editing.status)}</p>
                 </div>
                 
                 <div>

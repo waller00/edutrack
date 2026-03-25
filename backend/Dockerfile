@@ -35,5 +35,5 @@ USER node
 
 EXPOSE 4000
 
-# Script de inicio: Verifica la DB y arranca el servidor
-CMD ["sh", "-c", "npx prisma db push && node dist/server.js"]
+# Script de inicio: sincroniza esquema y arranca el servidor
+CMD ["sh", "-c", "npx prisma db push ${PRISMA_DB_PUSH_FLAGS:-} && node dist/server.js"]

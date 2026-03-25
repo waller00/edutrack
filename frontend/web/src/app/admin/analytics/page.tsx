@@ -251,7 +251,7 @@ export default function AdminAnalyticsPage() {
                 <div className="text-2xl font-bold text-indigo-700">{formatPct(dashboard.kpis.M8_HOURS_DELTA_pct)}</div>
               </div>
               <div className="p-4 bg-white border rounded-lg shadow-sm">
-                <div className="text-sm text-gray-600">Licencias PENDING críticas</div>
+                <div className="text-sm text-gray-600">Licencias inactivas</div>
                 <div className="text-2xl font-bold text-red-700">{dashboard.kpis.PC_count}</div>
               </div>
             </div>
@@ -274,4 +274,3 @@ export default function AdminAnalyticsPage() {
     </RoleGuard>
   )
 }
-

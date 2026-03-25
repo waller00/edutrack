@@ -33,10 +33,12 @@ const FALLBACK_NAV: Record<string, NavLink[]> = {
   TEACHER: [
     { href: '/teacher/attendance', label: 'Mis asistencias' },
     { href: '/teacher/events', label: 'Mis eventos' },
+    { href: '/teacher/licenses', label: 'Mis licencias' },
   ],
   STAFF: [
     { href: '/staff/attendance', label: 'Mis asistencias' },
     { href: '/staff/events', label: 'Mis eventos' },
+    { href: '/staff/licenses', label: 'Mis licencias' },
   ],
 }
 

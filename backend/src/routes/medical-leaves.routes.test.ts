@@ -12,7 +12,6 @@ const { prismaMock } = vi.hoisted(() => ({
       create: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
-      delete: vi.fn(),
     },
     user: { findUnique: vi.fn() },
     event: { findMany: vi.fn() },
@@ -76,14 +75,14 @@ describe("medical-leaves (prisma mock)", () => {
     prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     prismaMock.medicalLeave.count.mockResolvedValue(3);
     const res = await request(app())
-      .get("/medical-leaves/all?userId=u1&type=MEDICAL_LEAVE&status=APPROVED&startDate=2025-01-01T00:00:00.000Z&endDate=2025-01-31T00:00:00.000Z&page=2&pageSize=5")
+      .get("/medical-leaves/all?userId=u1&type=MEDICAL_LEAVE&status=ACTIVE&startDate=2025-01-01T00:00:00.000Z&endDate=2025-01-31T00:00:00.000Z&page=2&pageSize=5")
       .set(admin());
     expect(res.status).toBe(200);
     expect(res.body.pagination.totalPages).toBe(1);
     const where = prismaMock.medicalLeave.findMany.mock.calls[0][0].where;
     expect(where.userId).toBe("u1");
     expect(where.type).toBe("MEDICAL_LEAVE");
-    expect(where.status).toBe("APPROVED");
+    expect(where.status).toBe("ACTIVE");
     expect(where.startDate.gte).toBeInstanceOf(Date);
     expect(where.endDate.lte).toBeInstanceOf(Date);
   });
@@ -117,6 +116,7 @@ describe("medical-leaves (prisma mock)", () => {
     prismaMock.medicalLeave.create.mockResolvedValue({
       id: "L1",
       ...leaveBody,
+      status: "ACTIVE",
       user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
     });
     prismaMock.event.findMany.mockResolvedValue([]);
@@ -140,7 +140,7 @@ describe("medical-leaves (prisma mock)", () => {
   });
 
   it("PUT /medical-leaves/:id 400", async () => {
-    const res = await request(app()).put("/medical-leaves/l1").set(admin()).send({ status: "BAD" });
+    const res = await request(app()).put("/medical-leaves/l1").set(admin()).send({ startDate: "BAD" });
     expect(res.status).toBe(400);
   });
 
@@ -149,11 +149,11 @@ describe("medical-leaves (prisma mock)", () => {
     const res = await request(app())
       .put("/medical-leaves/l1")
       .set(admin())
-      .send({ status: "APPROVED" });
+      .send({ reason: "actualizada" });
     expect(res.status).toBe(404);
   });
 
-  it("PUT /medical-leaves/:id APPROVED dispara justificación", async () => {
+  it("PUT /medical-leaves/:id edita y dispara reconciliación", async () => {
     const lic = {
       id: "l1",
       userId: uid,
@@ -161,13 +161,13 @@ describe("medical-leaves (prisma mock)", () => {
       endDate: new Date("2025-01-05"),
       type: "MEDICAL_LEAVE",
       reason: "x",
+      status: "ACTIVE",
     };
-    prismaMock.medicalLeave.findUnique
-      .mockResolvedValueOnce(lic)
-      .mockResolvedValueOnce({ ...lic, status: "APPROVED" as const });
+    prismaMock.medicalLeave.findUnique.mockResolvedValue(lic);
     prismaMock.medicalLeave.update.mockResolvedValue({
       ...lic,
-      status: "APPROVED",
+      reason: "actualizada",
+      status: "ACTIVE",
       user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
     });
     prismaMock.event.findMany.mockResolvedValue([]);
@@ -175,13 +175,13 @@ describe("medical-leaves (prisma mock)", () => {
     const res = await request(app())
       .put("/medical-leaves/l1")
       .set(admin())
-      .send({ status: "APPROVED" });
+      .send({ reason: "actualizada" });
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe("APPROVED");
+    expect(res.body.status).toBe("ACTIVE");
     expect(res.body.reconciliation).toBeDefined();
   });
 
-  it("PUT /medical-leaves/:id con notas persiste aprobador cuando cambia estado", async () => {
+  it("PUT /medical-leaves/:id valida fechas", async () => {
     const lic = {
       id: "l1",
       userId: uid,
@@ -191,18 +191,11 @@ describe("medical-leaves (prisma mock)", () => {
       reason: "x",
     };
     prismaMock.medicalLeave.findUnique.mockResolvedValue(lic);
-    prismaMock.medicalLeave.update.mockResolvedValue({
-      ...lic,
-      status: "REJECTED",
-      notes: "Faltan datos",
-      user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
-    });
     const res = await request(app())
       .put("/medical-leaves/l1")
       .set(admin())
-      .send({ status: "REJECTED", notes: "Faltan datos" });
-    expect(res.status).toBe(200);
-    expect(prismaMock.medicalLeave.update).toHaveBeenCalled();
+      .send({ startDate: "2025-02-01T00:00:00.000Z", endDate: "2025-01-01T00:00:00.000Z" });
+    expect(res.status).toBe(400);
   });
 
   it("PUT /medical-leaves/:id 500 en error interno", async () => {
@@ -210,15 +203,16 @@ describe("medical-leaves (prisma mock)", () => {
     const res = await request(app())
       .put("/medical-leaves/l1")
       .set(admin())
-      .send({ status: "APPROVED" });
+      .send({ reason: "actualizada" });
     expect(res.status).toBe(500);
   });
 
-  it("DELETE /medical-leaves/:id", async () => {
+  it("DELETE /medical-leaves/:id desactiva", async () => {
     prismaMock.medicalLeave.findUnique.mockResolvedValue({ id: "l1" });
-    prismaMock.medicalLeave.delete.mockResolvedValue({});
+    prismaMock.medicalLeave.update.mockResolvedValue({});
     const res = await request(app()).delete("/medical-leaves/l1").set(admin());
     expect(res.status).toBe(200);
+    expect(prismaMock.medicalLeave.update).toHaveBeenCalled();
   });
 
   it("DELETE /medical-leaves/:id 404 si no existe", async () => {
@@ -227,9 +221,9 @@ describe("medical-leaves (prisma mock)", () => {
     expect(res.status).toBe(404);
   });
 
-  it("DELETE /medical-leaves/:id 500 si delete falla", async () => {
+  it("DELETE /medical-leaves/:id 500 si update falla", async () => {
     prismaMock.medicalLeave.findUnique.mockResolvedValue({ id: "l1" });
-    prismaMock.medicalLeave.delete.mockRejectedValueOnce(new Error("db"));
+    prismaMock.medicalLeave.update.mockRejectedValueOnce(new Error("db"));
     const res = await request(app()).delete("/medical-leaves/l1").set(admin());
     expect(res.status).toBe(500);
   });

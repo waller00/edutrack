@@ -13,11 +13,11 @@ vi.mock('@/components/DateRangeFields', () => ({
 vi.mock('@/lib/api', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 
-const pendingLicense = {
+const activeLicense = {
   id: 'lic1',
   userId: 'u1',
   type: 'MEDICAL_LEAVE' as const,
-  status: 'PENDING' as const,
+  status: 'ACTIVE' as const,
   startDate: '2025-01-01',
   endDate: '2025-01-03',
   reason: 'Reposo',
@@ -30,13 +30,12 @@ describe('LicensesPage', () => {
     mockedApi.mockReset()
   })
 
-  it('carga licencias y permite aprobar', async () => {
+  it('carga licencias sin acciones de aprobación', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (String(url).includes('medical-leaves/all')) return { data: [pendingLicense] }
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
       if (String(url).includes('admin/users')) {
         return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
       }
-      if (String(url).includes('medical-leaves/lic1') && init?.method === 'PUT') return {}
       return { data: [] }
     })
 
@@ -44,19 +43,8 @@ describe('LicensesPage', () => {
 
     expect(await screen.findByText('Gestión de Licencias')).toBeInTheDocument()
     expect(await screen.findByText('Reposo')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Aprobar' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Aprobar' }))
-
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(
-        '/medical-leaves/lic1',
-        expect.objectContaining({
-          method: 'PUT',
-          body: JSON.stringify({ status: 'APPROVED' }),
-        }),
-      ),
-    )
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Rechazar' })).not.toBeInTheDocument()
   })
 
   it('lista vacía', async () => {
@@ -71,35 +59,29 @@ describe('LicensesPage', () => {
     expect(await screen.findByText('No hay licencias registradas')).toBeInTheDocument()
   })
 
-  it('rechaza licencia pendiente', async () => {
+  it('desactiva licencia', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (String(url).includes('medical-leaves/all')) return { data: [pendingLicense] }
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
       if (String(url).includes('admin/users')) {
         return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
       }
-      if (String(url).includes('medical-leaves/lic1') && init?.method === 'PUT') return {}
+      if (String(url).endsWith('/medical-leaves/lic1') && init?.method === 'DELETE') return {}
       return { data: [] }
     })
 
     render(<LicensesPage />)
     await screen.findByText('Reposo')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rechazar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }))
 
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(
-        '/medical-leaves/lic1',
-        expect.objectContaining({
-          method: 'PUT',
-          body: JSON.stringify({ status: 'REJECTED' }),
-        }),
-      ),
+      expect(mockedApi).toHaveBeenCalledWith('/medical-leaves/lic1', expect.objectContaining({ method: 'DELETE' })),
     )
   })
 
   it('edita y guarda licencia', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (String(url).includes('medical-leaves/all')) return { data: [pendingLicense] }
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
       if (String(url).includes('admin/users')) {
         return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
       }
@@ -126,23 +108,31 @@ describe('LicensesPage', () => {
     })
   })
 
-  it('elimina licencia', async () => {
+  it('crea licencia', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (String(url).includes('medical-leaves/all')) return { data: [pendingLicense] }
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
       if (String(url).includes('admin/users')) {
         return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
       }
-      if (String(url).endsWith('/medical-leaves/lic1') && init?.method === 'DELETE') return {}
+      if (String(url) === '/medical-leaves' && init?.method === 'POST') return {}
       return { data: [] }
     })
 
     render(<LicensesPage />)
-    await screen.findByText('Reposo')
+    await screen.findByText('Gestión de Licencias')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Eliminar' }))
+    fireEvent.click(screen.getByRole('button', { name: /nueva licencia/i }))
+    fireEvent.change(screen.getByLabelText('Usuario de licencia'), { target: { value: 'u1' } })
+    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2025-01-01' } })
+    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '2025-01-03' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Reposo nuevo' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Crear Licencia' }))
 
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith('/medical-leaves/lic1', expect.objectContaining({ method: 'DELETE' })),
-    )
+    await waitFor(() => {
+      const post = mockedApi.mock.calls.find(
+        (c) => c[0] === '/medical-leaves' && (c[1] as RequestInit)?.method === 'POST',
+      )
+      expect(post).toBeDefined()
+    })
   })
 })

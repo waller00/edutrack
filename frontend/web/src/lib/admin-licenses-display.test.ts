@@ -17,7 +17,7 @@ describe('admin-licenses-display', () => {
     const q = buildMedicalLeavesQueryString({
       userId: 'u1',
       type: 'MEDICAL_LEAVE',
-      status: 'PENDING',
+      status: 'ACTIVE',
       startDate: '2025-01-01',
       endDate: '2025-12-31',
     })
@@ -33,8 +33,8 @@ describe('admin-licenses-display', () => {
 
   it('tipo y estado', () => {
     expect(getLicenseTypeLabel('MEDICAL_LEAVE')).toContain('Médica')
-    expect(getLicenseStatusLabel('APPROVED')).toBe('Aprobada')
-    expect(getLicenseStatusBadgeClass('PENDING')).toContain('yellow')
+    expect(getLicenseStatusLabel('ACTIVE')).toBe('Activa')
+    expect(getLicenseStatusBadgeClass('INACTIVE')).toContain('red')
     expect(getLicenseStatusBadgeClass('UNKNOWN')).toContain('gray')
   })
 })

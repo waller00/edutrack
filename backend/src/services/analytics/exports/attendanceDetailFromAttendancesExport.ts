@@ -87,7 +87,7 @@ function csvEscape(v: unknown) {
 }
 
 function toLicenseEstado(isJustified: boolean) {
-  return isJustified ? 'APPROVED' : ''
+  return isJustified ? 'ACTIVE' : ''
 }
 
 function isAbsenceStatus(status: AttendanceStatus) {
@@ -131,7 +131,7 @@ export async function buildAttendanceDetailRowsFromAttendances(params: {
   const approvedLicenses = await prisma.medicalLeave.findMany({
     where: {
       userId: { in: allUserIds },
-      status: 'APPROVED',
+      status: 'ACTIVE' as any,
       startDate: { lte: maxDate },
       endDate: { gte: minDate },
     },
@@ -438,4 +438,3 @@ export async function generateAttendanceDetailPdfFromAttendances(params: {
 
   return Buffer.concat(chunks)
 }
-

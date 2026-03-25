@@ -640,8 +640,9 @@ describe("auth routes (mocks)", () => {
     const res = await request(app()).get("/auth/me").set(authHeader());
     expect(res.status).toBe(200);
     expect(res.body.needsProfileCompletion).toBe(false);
-    expect(res.body.navLinks).toHaveLength(2);
+    expect(res.body.navLinks).toHaveLength(3);
     expect(res.body.navLinks[0].href).toBe("/staff/attendance");
+    expect(res.body.navLinks[2].href).toBe("/staff/licenses");
   });
 
   it("GET /auth/me 401 si el usuario autenticado ya no existe", async () => {
