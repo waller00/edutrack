@@ -1,5 +1,6 @@
 'use client'
 import DateRangeFields from '@/components/DateRangeFields'
+import AdminBulkDeleteControl from '@/components/AdminBulkDeleteControl'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
@@ -53,6 +54,7 @@ export default function LicensesPage() {
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<License | null>(null)
   const [message, setMessage] = useState('')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [filters, setFilters] = useState({
     userId: '',
     type: '',
@@ -162,6 +164,20 @@ export default function LicensesPage() {
       await loadLicenses()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al desactivar licencia'}`)
+    }
+  }
+
+  async function deleteAllLicenses() {
+    setBulkDeleting(true)
+    setMessage('')
+    try {
+      const response = await api<{ deletedCount: number }>('/medical-leaves/purge-all', { method: 'DELETE' })
+      setMessage(`✅ Se eliminaron ${response.deletedCount} licencias. No hay vuelta atrás.`)
+      await loadLicenses()
+    } catch (error: any) {
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar todas las licencias'}`)
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -333,6 +349,13 @@ export default function LicensesPage() {
             </button>
           </div>
         </div>
+
+        <AdminBulkDeleteControl
+          entityLabel="licencias"
+          warningText="Vas a eliminar todas las licencias del sistema. Se perderá el historial administrativo y la operación no se puede revertir."
+          busy={bulkDeleting}
+          onConfirm={deleteAllLicenses}
+        />
 
         {/* Tabla de licencias */}
         <div className="bg-white border rounded-lg shadow-sm">

@@ -352,6 +352,17 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 });
 
+// Eliminar todos los eventos (solo ADMIN)
+r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
+  try {
+    const deleted = await prisma.event.deleteMany({})
+    res.json({ ok: true, deletedCount: deleted.count, message: 'Todos los eventos fueron eliminados' })
+  } catch (error) {
+    console.error('Error eliminando todos los eventos:', error)
+    res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
 // Obtener evento por ID
 r.get('/:id', authGuard, async (req, res) => {
   try {

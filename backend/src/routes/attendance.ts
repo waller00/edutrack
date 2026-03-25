@@ -274,6 +274,17 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 });
 
+// Eliminar todas las asistencias (solo ADMIN)
+r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
+  try {
+    const deleted = await prisma.attendance.deleteMany({})
+    res.json({ ok: true, deletedCount: deleted.count, message: 'Todas las asistencias fueron eliminadas' })
+  } catch (error) {
+    console.error('Error eliminando todas las asistencias:', error)
+    res.status(500).json({ message: 'Error interno del servidor' })
+  }
+});
+
 // Eliminar asistencia (solo ADMIN)
 r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {

@@ -1,5 +1,6 @@
 'use client'
 import DateRangeFields from '@/components/DateRangeFields'
+import AdminBulkDeleteControl from '@/components/AdminBulkDeleteControl'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
@@ -203,6 +204,7 @@ export default function AdminEvents() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
 
@@ -399,6 +401,21 @@ export default function AdminEvents() {
     }
   }
 
+  async function deleteAllEvents() {
+    setBulkDeleting(true)
+    setMessage('')
+    try {
+      const response = await api<{ deletedCount: number }>('/events/purge-all', { method: 'DELETE' })
+      setMessage(`✅ Se eliminaron ${response.deletedCount} eventos. No hay vuelta atrás.`)
+      setPage(1)
+      await loadEvents()
+    } catch (error: any) {
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar todos los eventos'}`)
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
   return (
     <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-6">
@@ -511,6 +528,13 @@ export default function AdminEvents() {
             </div>
           </div>
         </div>
+
+        <AdminBulkDeleteControl
+          entityLabel="eventos"
+          warningText="Vas a eliminar todos los eventos del sistema, incluidos los históricos. Esta acción impacta en la planificación y no se puede deshacer."
+          busy={bulkDeleting}
+          onConfirm={deleteAllEvents}
+        />
 
         {/* Oculto si hay modal abierto: si no, el aviso se ve “detrás” del overlay y parece que no se actualizó nada */}
         {message && !creating && !editingEvent && (

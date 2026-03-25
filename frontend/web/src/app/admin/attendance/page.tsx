@@ -1,4 +1,5 @@
 'use client'
+import AdminBulkDeleteControl from '@/components/AdminBulkDeleteControl'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
@@ -185,6 +186,7 @@ export default function AdminAttendance() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -308,6 +310,21 @@ export default function AdminAttendance() {
       await loadAttendances()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al eliminar asistencia'}`)
+    }
+  }
+
+  async function deleteAllAttendances() {
+    setBulkDeleting(true)
+    setMessage('')
+    try {
+      const response = await api<{ deletedCount: number }>('/attendance/purge-all', { method: 'DELETE' })
+      setMessage(`✅ Se eliminaron ${response.deletedCount} asistencias. No hay vuelta atrás.`)
+      setPage(1)
+      await Promise.all([loadAttendances(), loadStats()])
+    } catch (error: any) {
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar todas las asistencias'}`)
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -711,6 +728,13 @@ export default function AdminAttendance() {
             </div>
           </div>
         </div>
+
+        <AdminBulkDeleteControl
+          entityLabel="asistencias"
+          warningText="Vas a eliminar todos los registros de asistencia del sistema. También perderás métricas, historial operativo y evidencia administrativa. No hay vuelta atrás."
+          busy={bulkDeleting}
+          onConfirm={deleteAllAttendances}
+        />
 
         {/* Métricas (KPIs) */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

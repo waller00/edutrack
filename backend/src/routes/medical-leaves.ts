@@ -247,6 +247,17 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 })
 
+// Eliminar todas las licencias médicas (solo admin)
+r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
+  try {
+    const deleted = await prisma.medicalLeave.deleteMany({})
+    res.json({ ok: true, deletedCount: deleted.count, message: 'Todas las licencias fueron eliminadas' })
+  } catch (error) {
+    console.error('Error eliminando todas las licencias médicas:', error)
+    res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
 // Desactivar licencia médica (solo admin)
 r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
