@@ -7,6 +7,7 @@ on:
     branches: [main, monitoreo]
 
 permissions:
+  actions: read
   contents: read
   security-events: write
 
@@ -30,7 +31,8 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload filesystem SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
 
@@ -55,7 +57,8 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload backend SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-backend.sarif
 
@@ -80,6 +83,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload frontend SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-frontend.sarif

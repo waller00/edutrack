@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -22,7 +25,7 @@ jobs:
             
             # 1. Si la carpeta no existe, la clonamos. Si existe, solo actualizamos el código.
             if [ ! -d "edutrack" ]; then
-              git clone https://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@github.com/joaquinwaller/edutrack.git
+              git clone https://github.com/joaquinwaller/edutrack.git
               cd edutrack
             else
               cd edutrack
