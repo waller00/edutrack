@@ -71,7 +71,7 @@ export default function LoginPage() {
                     <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                       <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
                     </div>
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Iniciar Sesión.</h1>
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Iniciar Sesión..</h1>
                     <p className="text-gray-600">Accede a tu cuenta para continuar</p>
                   </div>
           
