@@ -1,0 +1,17 @@
+node_modules
+.next
+coverage
+playwright-report
+test-results
+.env
+.env.*
+cookies.txt
+coverage-summary.txt
+tsconfig.tsbuildinfo
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.git
+.github

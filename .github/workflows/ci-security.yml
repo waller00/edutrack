@@ -1,4 +1,4 @@
-name: CI Security - Trivy
+name: Container Security - Trivy
 
 on:
   push:
@@ -16,6 +16,7 @@ concurrency:
 
 env:
   TRIVY_SEVERITY: HIGH,CRITICAL
+  TRIVY_TIMEOUT: 10m
 
 jobs:
   trivy-fs:
@@ -35,10 +36,27 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln,secret,misconfig
           format: sarif
           output: trivy-fs.sarif
           severity: ${{ env.TRIVY_SEVERITY }}
           ignore-unfixed: true
+          exit-code: 1
+          timeout: ${{ env.TRIVY_TIMEOUT }}
+          skip-dirs: |
+            .git
+            backend/node_modules
+            backend/dist
+            backend/coverage
+            frontend/web/node_modules
+            frontend/web/.next
+            frontend/web/coverage
+            coverage
+            playwright-report
+            test-results
+          skip-files: |
+            frontend/web/tsconfig.tsbuildinfo
+            frontend/web/coverage-summary.txt
 
       - name: Upload filesystem SARIF
         if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
@@ -109,10 +127,13 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ matrix.image }}:${{ github.sha }}
+          scanners: vuln,secret
           format: sarif
           output: trivy-${{ matrix.name }}.sarif
           severity: ${{ env.TRIVY_SEVERITY }}
           ignore-unfixed: true
+          exit-code: 1
+          timeout: ${{ env.TRIVY_TIMEOUT }}
 
       - name: Upload image SARIF
         if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)

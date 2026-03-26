@@ -4,6 +4,8 @@ Stack:
 - Backend: Node 20, Express, Prisma (Postgres), JWT + Cookies HttpOnly, Argon2id, Passport Google OAuth.
 - Frontend: Next.js (App Router, TS, Tailwind), pantalla de login y home protegida.
 - Cloud-ready: Dockerfiles, compose, variables por entorno, sin dependencias locales fuera de Postgres.
+- Seguridad de contenedores: Trivy en CI para filesystem e imagenes, con analisis de vulnerabilidades, secretos y misconfiguraciones.
+- Monitoreo de contenedores: Prometheus + Grafana + cAdvisor en un compose separado.
 
 ## Roles y Autenticación
 - Perfiles/Roles: ADMIN, DOCENTE, ESTUDIANTE, PADRE
@@ -30,6 +32,31 @@ docker compose -f docker-compose.cloud.yml up -d --build
 - Levantar servicios con `docker compose -f docker-compose.cloud.yml up -d --build`.
 - Definir `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL` y Google OAuth callback según dominio HTTPS.
 - Detrás de HTTPS habilitar `secure: true` en cookie (ver `src/routes/auth.ts`).
+
+- `auth` y `web` ahora incluyen `healthcheck`, `restart: unless-stopped`, `no-new-privileges` y `cap_drop: [ALL]`.
+
+## Monitoreo
+Levantar la app con monitoreo:
+```bash
+docker compose -f docker-compose.cloud.yml -f docker-compose.monitoring.yml up -d --build
+```
+
+Accesos:
+```bash
+Prometheus: http://localhost:9090
+Grafana: http://localhost:3001
+```
+
+Credenciales iniciales de Grafana:
+```bash
+admin / admin
+```
+
+Notas:
+- `cAdvisor` exporta metricas de contenedores para Prometheus.
+- Grafana queda provisionado con Prometheus como datasource por defecto.
+- En entornos expuestos a Internet, cambia `GRAFANA_ADMIN_PASSWORD`.
+- La stack de monitoreo esta pensada para un host Linux con Docker Engine.
 
 ## SonarQube
 Este repo quedó preparado para análisis estático con SonarQube sobre:
@@ -75,5 +102,6 @@ Notas:
 backend/      # auth-service
 frontend/web/ # Next.js
 docker-compose.cloud.yml  # levanta backend + frontend + postgres
+docker-compose.monitoring.yml  # monitoreo con Prometheus + Grafana + cAdvisor
 ```
 ## Último despliegue: 21 de marzo de 2026 - Prueba de CI/CD Exitosa.
