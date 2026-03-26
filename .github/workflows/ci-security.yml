@@ -41,13 +41,18 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload filesystem SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
 
+      - name: Explain skipped filesystem SARIF upload
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          echo "Skipping SARIF upload for forked pull request because GitHub restricts security-events: write in this context."
+
   trivy-image:
-    name: Trivy Image Scan (${{ matrix.name }})
+    name: "Trivy Image Scan (${{ matrix.name }})"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -110,7 +115,12 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload image SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-${{ matrix.name }}.sarif
+
+      - name: Explain skipped image SARIF upload
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          echo "Skipping SARIF upload for forked pull request because GitHub restricts security-events: write in this context."
