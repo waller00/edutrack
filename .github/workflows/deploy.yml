@@ -2,7 +2,7 @@ name: Deploy EduTrack to DigitalOcean
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop] # Ahora escucha en las dos ramas
 
 jobs:
   deploy:
@@ -11,28 +11,37 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set Deployment Environment
+        id: set-env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "host=${{ secrets.SSH_HOST }}" >> $GITHUB_OUTPUT
+            echo "branch=main" >> $GITHUB_OUTPUT
+          else
+            echo "host=${{ secrets.SSH_HOST_UAT }}" >> $GITHUB_OUTPUT
+            echo "branch=develop" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy to Server via SSH
         uses: appleboy/ssh-action@v0.1.10
         with:
-          host: ${{ secrets.SSH_HOST }}
+          host: ${{ steps.set-env.outputs.host }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /root
             
-            # 1. Si la carpeta no existe, la clonamos. Si existe, solo actualizamos el código.
             if [ ! -d "edutrack" ]; then
               git clone https://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@github.com/joaquinwaller/edutrack.git
               cd edutrack
             else
               cd edutrack
               git fetch --all
-              git reset --hard origin/main
+              git reset --hard origin/${{ steps.set-env.outputs.branch }}
             fi
             
-            # 2. Levantamos los contenedores (Docker va a usar el .env que ya esté en la carpeta)
             docker-compose -f docker-compose.cloud.yml down
             docker-compose -f docker-compose.cloud.yml up -d --build
 
-            echo "EduTrack actualizado sin borrar el .env"
+            echo "EduTrack actualizado en rama ${{ steps.set-env.outputs.branch }} sin borrar el .env"
             docker ps
