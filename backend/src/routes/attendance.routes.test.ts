@@ -16,6 +16,7 @@ const { prismaMock } = vi.hoisted(() => ({
       count: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     medicalLeave: { findFirst: vi.fn(), findMany: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
@@ -244,6 +245,29 @@ describe("attendance /register (prisma mock)", () => {
       .delete("/attendance/a1")
       .set("Authorization", `Bearer ${tok("ADMIN")}`);
     expect(res.status).toBe(500);
+  });
+
+  it("DELETE /attendance/purge-all elimina todos los registros filtrados", async () => {
+    prismaMock.attendance.findMany.mockResolvedValueOnce([{ id: "a1" }, { id: "a2" }]);
+    prismaMock.attendance.deleteMany.mockResolvedValueOnce({ count: 2 });
+
+    const res = await request(app())
+      .delete("/attendance/purge-all?role=STAFF&eventType=CLASE")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.attendance.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          event: { type: "CLASE" },
+          user: { role: "STAFF" },
+        }),
+        select: { id: true },
+      }),
+    );
+    expect(prismaMock.attendance.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["a1", "a2"] } },
+    });
   });
 
   it("GET /attendance/stats usa userId propio para teacher", async () => {
