@@ -2,7 +2,7 @@ name: Deploy EduTrack to DigitalOcean
 
 on:
   push:
-    branches: [main, develop] # Ahora escucha en las dos ramas
+    branches: [main, develop]
 
 jobs:
   deploy:
@@ -16,9 +16,11 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "host=${{ secrets.SSH_HOST }}" >> $GITHUB_OUTPUT
+            echo "key=${{ secrets.SSH_PRIVATE_KEY }}" >> $GITHUB_OUTPUT
             echo "branch=main" >> $GITHUB_OUTPUT
           else
-            echo "host=${{ secrets.SSH_HOST_UAT }}" >> $GITHUB_OUTPUT
+            echo "host=${{ secrets.SSH_HOST_TESTING }}" >> $GITHUB_OUTPUT
+            echo "key=${{ secrets.SSH_PRIVATE_KEY_TESTING }}" >> $GITHUB_OUTPUT
             echo "branch=develop" >> $GITHUB_OUTPUT
           fi
 
@@ -27,21 +29,16 @@ jobs:
         with:
           host: ${{ steps.set-env.outputs.host }}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ steps.set-env.outputs.key }}
           script: |
-            cd /root
+            cd /root/edutrack
+            git fetch --all
+            git reset --hard origin/${{ steps.set-env.outputs.branch }}
             
-            if [ ! -d "edutrack" ]; then
-              git clone https://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@github.com/joaquinwaller/edutrack.git
-              cd edutrack
-            else
-              cd edutrack
-              git fetch --all
-              git reset --hard origin/${{ steps.set-env.outputs.branch }}
-            fi
+            # Limpieza para asegurar que tome cambios de IP/Env
+            docker compose -f docker-compose.cloud.yml down
+            docker rmi edutrack-web edutrack-auth || true
+            docker compose -f docker-compose.cloud.yml up -d --build
             
-            docker-compose -f docker-compose.cloud.yml down
-            docker-compose -f docker-compose.cloud.yml up -d --build
-
-            echo "EduTrack actualizado en rama ${{ steps.set-env.outputs.branch }} sin borrar el .env"
+            echo "EduTrack actualizado en rama ${{ steps.set-env.outputs.branch }}"
             docker ps
