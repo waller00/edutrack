@@ -64,7 +64,7 @@ function collectOccurrencesForLicenseWindow(
 }
 
 /**
- * Tras crear o aprobar una licencia APPROVED: alinea asistencias de eventos del funcionario
+ * Tras crear o editar una licencia ACTIVE: alinea asistencias de eventos del funcionario
  * cuyo horario cae dentro de la vigencia.
  */
 export async function reconcileAttendancesForMedicalLeave(licenseId: string): Promise<{
@@ -74,7 +74,7 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
   skipped: number
 }> {
   const license = await prisma.medicalLeave.findUnique({ where: { id: licenseId } })
-  if (!license || license.status !== 'APPROVED') {
+  if (!license || String(license.status) !== 'ACTIVE') {
     return { justified: 0, created: 0, conflicts: 0, skipped: 0 }
   }
 
@@ -185,12 +185,12 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
   return { justified, created, conflicts, skipped: unchanged }
 }
 
-/** ¿Hay licencia aprobada que cubra el instante del evento (inicio)? */
+/** ¿Hay licencia activa que cubra el instante del evento (inicio)? */
 export async function findApprovedLicenseCoveringEventTime(userId: string, eventStart: Date, eventEnd: Date) {
   const leaves = await prisma.medicalLeave.findMany({
     where: {
       userId,
-      status: 'APPROVED',
+      status: 'ACTIVE' as any,
       startDate: { lte: eventEnd },
       endDate: { gte: eventStart },
     },

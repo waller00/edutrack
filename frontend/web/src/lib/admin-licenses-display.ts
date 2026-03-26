@@ -42,12 +42,10 @@ export function getLicenseTypeLabel(type: string): string {
 
 export function getLicenseStatusBadgeClass(status: string): string {
   switch (status) {
-    case 'APPROVED':
+    case 'ACTIVE':
       return 'bg-green-100 text-green-800'
-    case 'REJECTED':
+    case 'INACTIVE':
       return 'bg-red-100 text-red-800'
-    case 'PENDING':
-      return 'bg-yellow-100 text-yellow-800'
     default:
       return 'bg-gray-100 text-gray-800'
   }
@@ -55,9 +53,8 @@ export function getLicenseStatusBadgeClass(status: string): string {
 
 export function getLicenseStatusLabel(status: string): string {
   const labels: Record<string, string> = {
-    APPROVED: 'Aprobada',
-    REJECTED: 'Rechazada',
-    PENDING: 'Pendiente',
+    ACTIVE: 'Activa',
+    INACTIVE: 'Inactiva',
   }
   return labels[status] || status
 }

@@ -1,5 +1,6 @@
 'use client'
 import DateRangeFields from '@/components/DateRangeFields'
+import AdminBulkDeleteControl from '@/components/AdminBulkDeleteControl'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
@@ -17,7 +18,7 @@ type License = {
   id: string
   userId: string
   type: 'MEDICAL_LEAVE' | 'WORK_LEAVE' | 'OTHER'
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'ACTIVE' | 'INACTIVE'
   startDate: string
   endDate: string
   reason: string
@@ -53,6 +54,9 @@ export default function LicensesPage() {
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<License | null>(null)
   const [message, setMessage] = useState('')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [selectedLicenseIds, setSelectedLicenseIds] = useState<string[]>([])
+  const [deletingSelected, setDeletingSelected] = useState(false)
   const [filters, setFilters] = useState({
     userId: '',
     type: '',
@@ -67,8 +71,6 @@ export default function LicensesPage() {
     startDate: '',
     endDate: '',
     reason: '',
-    doctorName: '',
-    doctorPhone: '',
     notes: ''
   })
 
@@ -76,6 +78,10 @@ export default function LicensesPage() {
     loadLicenses()
     loadUsers()
   }, [])
+
+  useEffect(() => {
+    setSelectedLicenseIds([])
+  }, [licenses])
 
   async function loadLicenses() {
     setLoading(true)
@@ -124,28 +130,11 @@ export default function LicensesPage() {
         startDate: '',
         endDate: '',
         reason: '',
-        doctorName: '',
-        doctorPhone: '',
         notes: ''
       })
       await loadLicenses()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al crear licencia'}`)
-    }
-  }
-
-  async function updateLicenseStatus(id: string, status: 'APPROVED' | 'REJECTED') {
-    try {
-      await api(`/medical-leaves/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status })
-      })
-      
-      setMessage(`✅ Licencia ${status === 'APPROVED' ? 'aprobada' : 'rechazada'} correctamente`)
-      setEditing(null)
-      await loadLicenses()
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al actualizar licencia'}`)
     }
   }
 
@@ -162,8 +151,7 @@ export default function LicensesPage() {
           reason: editing.reason,
           doctorName: editing.doctorName,
           doctorPhone: editing.doctorPhone,
-          notes: editing.notes,
-          status: editing.status
+          notes: editing.notes
         })
       })
       
@@ -175,13 +163,46 @@ export default function LicensesPage() {
     }
   }
 
-  async function deleteLicense(id: string) {
+  async function deleteSelectedLicenses() {
+    if (selectedLicenseIds.length === 0) return
+    if (!confirm(`¿Estás seguro de eliminar ${selectedLicenseIds.length} licencias seleccionadas?`)) return
+
+    setDeletingSelected(true)
+    setMessage('')
     try {
-      await api(`/medical-leaves/${id}`, { method: 'DELETE' })
-      setMessage('✅ Licencia eliminada correctamente')
+      await Promise.all(selectedLicenseIds.map((id) => api(`/medical-leaves/${id}`, { method: 'DELETE' })))
+      setMessage(`✅ Se eliminaron ${selectedLicenseIds.length} licencias seleccionadas`)
+      setSelectedLicenseIds([])
       await loadLicenses()
     } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al eliminar licencia'}`)
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar licencias seleccionadas'}`)
+    } finally {
+      setDeletingSelected(false)
+    }
+  }
+
+  function toggleLicenseSelection(id: string) {
+    setSelectedLicenseIds((prev) =>
+      prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
+    )
+  }
+
+  function toggleAllLicensesSelection() {
+    const selectableIds = licenses.filter((license) => license.status !== 'INACTIVE').map((license) => license.id)
+    setSelectedLicenseIds((prev) => (prev.length === selectableIds.length ? [] : selectableIds))
+  }
+
+  async function deleteAllLicenses() {
+    setBulkDeleting(true)
+    setMessage('')
+    try {
+      const response = await api<{ deletedCount: number }>('/medical-leaves/purge-all', { method: 'DELETE' })
+      setMessage(`✅ Se eliminaron ${response.deletedCount} licencias. No hay vuelta atrás.`)
+      await loadLicenses()
+    } catch (error: any) {
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar todas las licencias'}`)
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -189,7 +210,7 @@ export default function LicensesPage() {
     if (loading) {
       return (
         <tr>
-          <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+          <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
             Cargando...
           </td>
         </tr>
@@ -199,7 +220,7 @@ export default function LicensesPage() {
     if (licenses.length === 0) {
       return (
         <tr>
-          <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+          <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
             No hay licencias registradas
           </td>
         </tr>
@@ -208,6 +229,15 @@ export default function LicensesPage() {
 
     return licenses.map(license => (
       <tr key={license.id}>
+        <td className="px-6 py-4 whitespace-nowrap text-sm">
+          <input
+            type="checkbox"
+            checked={selectedLicenseIds.includes(license.id)}
+            onChange={() => toggleLicenseSelection(license.id)}
+            disabled={license.status === 'INACTIVE'}
+            aria-label={`Seleccionar licencia de ${license.user.name}`}
+          />
+        </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
           {license.user.name}
         </td>
@@ -227,33 +257,11 @@ export default function LicensesPage() {
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
           <div className="flex gap-2">
-            {license.status === 'PENDING' && (
-              <>
-                <button
-                  onClick={() => updateLicenseStatus(license.id, 'APPROVED')}
-                  className="text-green-600 hover:text-green-900"
-                >
-                  Aprobar
-                </button>
-                <button
-                  onClick={() => updateLicenseStatus(license.id, 'REJECTED')}
-                  className="text-red-600 hover:text-red-900"
-                >
-                  Rechazar
-                </button>
-              </>
-            )}
             <button
               onClick={() => setEditing(license)}
               className="text-indigo-600 hover:text-indigo-900"
             >
               Editar
-            </button>
-            <button
-              onClick={() => deleteLicense(license.id)}
-              className="text-red-600 hover:text-red-900"
-            >
-              Eliminar
             </button>
           </div>
         </td>
@@ -346,9 +354,8 @@ export default function LicensesPage() {
                 className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               >
                 <option value="">Todos</option>
-                <option value="PENDING">Pendiente</option>
-                <option value="APPROVED">Aprobada</option>
-                <option value="REJECTED">Rechazada</option>
+                <option value="ACTIVE">Activa</option>
+                <option value="INACTIVE">Inactiva</option>
               </select>
             </div>
             
@@ -370,12 +377,48 @@ export default function LicensesPage() {
           </div>
         </div>
 
+        <AdminBulkDeleteControl
+          entityLabel="licencias"
+          warningText="Vas a eliminar todas las licencias del sistema. Se perderá el historial administrativo y la operación no se puede revertir."
+          busy={bulkDeleting}
+          onConfirm={deleteAllLicenses}
+        />
+
         {/* Tabla de licencias */}
         <div className="bg-white border rounded-lg shadow-sm">
+          <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-lg font-semibold">Licencias</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-gray-500">
+                {selectedLicenseIds.length === 0
+                  ? 'Selecciona licencias activas para eliminarlas'
+                  : `${selectedLicenseIds.length} seleccionadas`}
+              </span>
+              <button
+                type="button"
+                onClick={deleteSelectedLicenses}
+                disabled={selectedLicenseIds.length === 0 || deletingSelected}
+                className="inline-flex items-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionadas'}
+              </button>
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <input
+                      type="checkbox"
+                      checked={
+                        licenses.some((license) => license.status !== 'INACTIVE')
+                        && selectedLicenseIds.length === licenses.filter((license) => license.status !== 'INACTIVE').length
+                      }
+                      onChange={toggleAllLicensesSelection}
+                      aria-label="Seleccionar todas las licencias"
+                    />
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
@@ -401,6 +444,7 @@ export default function LicensesPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
                   <select
+                    aria-label="Usuario de licencia"
                     value={newLicense.userId}
                     onChange={(e) => setNewLicense({ ...newLicense, userId: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -415,6 +459,7 @@ export default function LicensesPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Licencia</label>
                   <select
+                    aria-label="Tipo de licencia"
                     value={newLicense.type}
                     onChange={(e) => setNewLicense({ ...newLicense, type: e.target.value as any })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -429,6 +474,7 @@ export default function LicensesPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
                     <input
+                      aria-label="Fecha inicio"
                       type="date"
                       value={newLicense.startDate}
                       onChange={(e) => setNewLicense({ ...newLicense, startDate: e.target.value })}
@@ -439,6 +485,7 @@ export default function LicensesPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
                     <input
+                      aria-label="Fecha fin"
                       type="date"
                       value={newLicense.endDate}
                       onChange={(e) => setNewLicense({ ...newLicense, endDate: e.target.value })}
@@ -450,6 +497,7 @@ export default function LicensesPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
                   <textarea
+                    aria-label="Motivo"
                     value={newLicense.reason}
                     onChange={(e) => setNewLicense({ ...newLicense, reason: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -457,33 +505,10 @@ export default function LicensesPage() {
                   />
                 </div>
                 
-                {newLicense.type === 'MEDICAL_LEAVE' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Doctor</label>
-                      <input
-                        type="text"
-                        value={newLicense.doctorName}
-                        onChange={(e) => setNewLicense({ ...newLicense, doctorName: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono del Doctor</label>
-                      <input
-                        type="text"
-                        value={newLicense.doctorPhone}
-                        onChange={(e) => setNewLicense({ ...newLicense, doctorPhone: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      />
-                    </div>
-                  </>
-                )}
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
                   <textarea
+                    aria-label="Notas adicionales"
                     value={newLicense.notes}
                     onChange={(e) => setNewLicense({ ...newLicense, notes: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
@@ -502,8 +527,6 @@ export default function LicensesPage() {
                       startDate: '',
                       endDate: '',
                       reason: '',
-                      doctorName: '',
-                      doctorPhone: '',
                       notes: ''
                     })
                   }}
@@ -573,15 +596,7 @@ export default function LicensesPage() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-                  <select
-                    value={editing.status}
-                    onChange={(e) => setEditing({ ...editing, status: e.target.value as any })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  >
-                    <option value="PENDING">Pendiente</option>
-                    <option value="APPROVED">Aprobado</option>
-                    <option value="REJECTED">Rechazado</option>
-                  </select>
+                  <p className="text-sm text-gray-900">{getLicenseStatusLabel(editing.status)}</p>
                 </div>
                 
                 <div>

@@ -123,7 +123,7 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.body.id).toBe("a1");
   });
 
-  it("POST /attendance/register 403 si licencia aprobada cubre el horario del evento", async () => {
+  it("POST /attendance/register 403 si licencia activa cubre el horario del evento", async () => {
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
@@ -136,7 +136,7 @@ describe("attendance /register (prisma mock)", () => {
       {
         id: "ml-1",
         userId: "user-1",
-        status: "APPROVED",
+        status: "ACTIVE",
         startDate: new Date("2025-05-30T00:00:00.000Z"),
         endDate: new Date("2025-06-15T23:59:59.999Z"),
       },

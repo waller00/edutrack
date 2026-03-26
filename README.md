@@ -20,13 +20,33 @@ Stack:
 ```bash
 # 1) Clonar y entrar al proyecto
 
-# 2) Levantar todo con Docker Compose
-docker compose -f docker-compose.cloud.yml up -d --build
+# 2) Crear variables para compose local
+cp .env.compose.example .env
+
+# 3) Levantar todo
+docker compose up -d --build
 ```
 
 ## Variables
-- Copiar `.env.example` a `.env` en backend, completar GOOGLE_*.
-- Copiar `.env.local.example` a `.env.local` en frontend.
+- Para correr con Docker Compose local, usar `.env.compose.example` en la raíz.
+- Si querés OAuth Google, SMTP o Turnstile, completar esas variables en el `.env` raíz antes de levantar.
+- Los archivos `backend/.env` y `frontend/web/.env.local` ya no son necesarios para el arranque con Compose.
+
+## Docker Compose local
+- Archivo principal: `docker-compose.yml`
+- Servicios: `pg`, `auth`, `web`
+- URLs locales:
+  - Frontend: `http://localhost:3000`
+  - Backend: `http://localhost:4000`
+- El backend ejecuta `prisma db push` al arrancar, así que crea/actualiza el esquema automáticamente contra Postgres.
+- En Compose local se usa `PRISMA_DB_PUSH_FLAGS=--accept-data-loss` para absorber cambios destructivos de esquema en bases de desarrollo ya creadas.
+
+Comandos útiles:
+```bash
+docker compose up -d --build
+docker compose logs -f auth web
+docker compose down
+```
 
 ## Producción / Cloud
 - Levantar servicios con `docker compose -f docker-compose.cloud.yml up -d --build`.
@@ -101,6 +121,7 @@ Notas:
 ```
 backend/      # auth-service
 frontend/web/ # Next.js
+docker-compose.yml        # compose local
 docker-compose.cloud.yml  # levanta backend + frontend + postgres
 docker-compose.monitoring.yml  # monitoreo con Prometheus + Grafana + cAdvisor
 ```

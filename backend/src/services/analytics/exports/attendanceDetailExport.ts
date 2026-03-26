@@ -40,7 +40,7 @@ function csvEscape(v: unknown) {
 }
 
 function toLicenseEstado(isJustifiedAbsence: boolean) {
-  return isJustifiedAbsence ? 'APPROVED' : ''
+  return isJustifiedAbsence ? 'ACTIVE' : ''
 }
 
 export function buildAttendanceDetailRows(resolvedInstances: ResolvedAttendanceByInstance[]) {
@@ -146,4 +146,3 @@ export function generateAttendanceDetailCsv(params: {
   const lines = rows.map((r) => COLUMNS.map((c) => csvEscape(r[c])).join(','))
   return `${header}\n${lines.join('\n')}\n`
 }
-
