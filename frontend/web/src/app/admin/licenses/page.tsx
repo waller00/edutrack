@@ -55,6 +55,8 @@ export default function LicensesPage() {
   const [editing, setEditing] = useState<License | null>(null)
   const [message, setMessage] = useState('')
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [selectedLicenseIds, setSelectedLicenseIds] = useState<string[]>([])
+  const [deletingSelected, setDeletingSelected] = useState(false)
   const [filters, setFilters] = useState({
     userId: '',
     type: '',
@@ -76,6 +78,10 @@ export default function LicensesPage() {
     loadLicenses()
     loadUsers()
   }, [])
+
+  useEffect(() => {
+    setSelectedLicenseIds([])
+  }, [licenses])
 
   async function loadLicenses() {
     setLoading(true)
@@ -157,14 +163,33 @@ export default function LicensesPage() {
     }
   }
 
-  async function deleteLicense(id: string) {
+  async function deleteSelectedLicenses() {
+    if (selectedLicenseIds.length === 0) return
+    if (!confirm(`¿Estás seguro de eliminar ${selectedLicenseIds.length} licencias seleccionadas?`)) return
+
+    setDeletingSelected(true)
+    setMessage('')
     try {
-      await api(`/medical-leaves/${id}`, { method: 'DELETE' })
-      setMessage('✅ Licencia desactivada correctamente')
+      await Promise.all(selectedLicenseIds.map((id) => api(`/medical-leaves/${id}`, { method: 'DELETE' })))
+      setMessage(`✅ Se eliminaron ${selectedLicenseIds.length} licencias seleccionadas`)
+      setSelectedLicenseIds([])
       await loadLicenses()
     } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al desactivar licencia'}`)
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar licencias seleccionadas'}`)
+    } finally {
+      setDeletingSelected(false)
     }
+  }
+
+  function toggleLicenseSelection(id: string) {
+    setSelectedLicenseIds((prev) =>
+      prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
+    )
+  }
+
+  function toggleAllLicensesSelection() {
+    const selectableIds = licenses.filter((license) => license.status !== 'INACTIVE').map((license) => license.id)
+    setSelectedLicenseIds((prev) => (prev.length === selectableIds.length ? [] : selectableIds))
   }
 
   async function deleteAllLicenses() {
@@ -185,7 +210,7 @@ export default function LicensesPage() {
     if (loading) {
       return (
         <tr>
-          <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+          <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
             Cargando...
           </td>
         </tr>
@@ -195,7 +220,7 @@ export default function LicensesPage() {
     if (licenses.length === 0) {
       return (
         <tr>
-          <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+          <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
             No hay licencias registradas
           </td>
         </tr>
@@ -204,6 +229,15 @@ export default function LicensesPage() {
 
     return licenses.map(license => (
       <tr key={license.id}>
+        <td className="px-6 py-4 whitespace-nowrap text-sm">
+          <input
+            type="checkbox"
+            checked={selectedLicenseIds.includes(license.id)}
+            onChange={() => toggleLicenseSelection(license.id)}
+            disabled={license.status === 'INACTIVE'}
+            aria-label={`Seleccionar licencia de ${license.user.name}`}
+          />
+        </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
           {license.user.name}
         </td>
@@ -228,13 +262,6 @@ export default function LicensesPage() {
               className="text-indigo-600 hover:text-indigo-900"
             >
               Editar
-            </button>
-            <button
-              onClick={() => deleteLicense(license.id)}
-              disabled={license.status === 'INACTIVE'}
-              className="text-red-600 hover:text-red-900 disabled:text-gray-400"
-            >
-              Desactivar
             </button>
           </div>
         </td>
@@ -359,10 +386,39 @@ export default function LicensesPage() {
 
         {/* Tabla de licencias */}
         <div className="bg-white border rounded-lg shadow-sm">
+          <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-lg font-semibold">Licencias</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-gray-500">
+                {selectedLicenseIds.length === 0
+                  ? 'Selecciona licencias activas para eliminarlas'
+                  : `${selectedLicenseIds.length} seleccionadas`}
+              </span>
+              <button
+                type="button"
+                onClick={deleteSelectedLicenses}
+                disabled={selectedLicenseIds.length === 0 || deletingSelected}
+                className="inline-flex items-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionadas'}
+              </button>
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <input
+                      type="checkbox"
+                      checked={
+                        licenses.some((license) => license.status !== 'INACTIVE')
+                        && selectedLicenseIds.length === licenses.filter((license) => license.status !== 'INACTIVE').length
+                      }
+                      onChange={toggleAllLicensesSelection}
+                      aria-label="Seleccionar todas las licencias"
+                    />
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
