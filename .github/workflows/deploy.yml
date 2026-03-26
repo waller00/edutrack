@@ -22,9 +22,15 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
           script: |
-            cd /root/edutrack
-            git fetch --all
-            git reset --hard origin/develop
+            cd /root
+            if [ ! -d "edutrack" ]; then
+              git clone https://github.com/joaquinwaller/edutrack.git
+              cd edutrack
+            else
+              cd edutrack
+              git fetch --all
+              git reset --hard origin/develop
+            fi
             docker compose -f docker-compose.cloud.yml down
             docker rmi edutrack-web edutrack-auth || true
             docker compose -f docker-compose.cloud.yml up -d --build
@@ -44,10 +50,16 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd /root/edutrack
-            git fetch --all
-            git reset --hard origin/main
+            cd /root
+            if [ ! -d "edutrack" ]; then
+              git clone https://github.com/joaquinwaller/edutrack.git
+              cd edutrack
+            else
+              cd edutrack
+              git fetch --all
+              git reset --hard origin/main
+            fi
             docker compose -f docker-compose.cloud.yml down
             docker rmi edutrack-web edutrack-auth || true
             docker compose -f docker-compose.cloud.yml up -d --build
-            echo "EduTrack actualizado en PRODUCCIÓN"
+            echo "EduTrack actualizado en PRODUCCION"
