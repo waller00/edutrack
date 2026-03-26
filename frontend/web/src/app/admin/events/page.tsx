@@ -1,9 +1,11 @@
 'use client'
 import DateRangeFields from '@/components/DateRangeFields'
+import AdminBulkDeleteControl from '@/components/AdminBulkDeleteControl'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Calendar } from 'lucide-react'
 import { api } from '@/lib/api'
 import {
   buildAdminEventsAllQueryString,
@@ -15,6 +17,12 @@ import {
   type AdminEventCreatorRole,
 } from '@/lib/admin-events-display'
 import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+import {
+  formatDateInUruguay,
+  formatTimeInUruguay,
+  formatClockHhMmInUruguayFromIso,
+  getTodayYmdInUruguay,
+} from '@/lib/datetime-uy'
 
 type Event = {
   id: string
@@ -111,16 +119,6 @@ function parseHhMm(value: string): { h: string; m: string } {
   return { h: match[1].padStart(2, '0'), m: match[2].padStart(2, '0') }
 }
 
-function eventTimeToHhMm(isoOrHhmm: string | undefined): string {
-  if (!isoOrHhmm) return '09:00'
-  if (isoOrHhmm.includes('T')) {
-    const part = isoOrHhmm.split('T')[1]
-    return part ? part.substring(0, 5) : '09:00'
-  }
-  const p = parseHhMm(isoOrHhmm)
-  return `${p.h}:${p.m}`
-}
-
 function AdminTime24Selects({
   label,
   value,
@@ -206,6 +204,7 @@ export default function AdminEvents() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
 
@@ -213,7 +212,7 @@ export default function AdminEvents() {
     title: '',
     description: '',
     type: 'JORNADA_LABORAL',
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: getTodayYmdInUruguay(),
     startTime: '09:00',
     endTime: '10:00',
     assignedUserId: '',
@@ -273,7 +272,7 @@ export default function AdminEvents() {
       title: '',
       description: '',
       type: 'JORNADA_LABORAL',
-      startDate: new Date().toISOString().split('T')[0],
+      startDate: getTodayYmdInUruguay(),
       startTime: '09:00',
       endTime: '10:00',
       assignedUserId: '',
@@ -402,13 +401,28 @@ export default function AdminEvents() {
     }
   }
 
+  async function deleteAllEvents() {
+    setBulkDeleting(true)
+    setMessage('')
+    try {
+      const response = await api<{ deletedCount: number }>('/events/purge-all', { method: 'DELETE' })
+      setMessage(`✅ Se eliminaron ${response.deletedCount} eventos. No hay vuelta atrás.`)
+      setPage(1)
+      await loadEvents()
+    } catch (error: any) {
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar todos los eventos'}`)
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
   return (
     <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-6">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <span className="text-emerald-600 text-xl">📅</span>
+              <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Gestión de Eventos</h1>
@@ -515,6 +529,13 @@ export default function AdminEvents() {
           </div>
         </div>
 
+        <AdminBulkDeleteControl
+          entityLabel="eventos"
+          warningText="Vas a eliminar todos los eventos del sistema, incluidos los históricos. Esta acción impacta en la planificación y no se puede deshacer."
+          busy={bulkDeleting}
+          onConfirm={deleteAllEvents}
+        />
+
         {/* Oculto si hay modal abierto: si no, el aviso se ve “detrás” del overlay y parece que no se actualizó nada */}
         {message && !creating && !editingEvent && (
           <div className={`p-3 rounded ${getAdminFlashMessageClass(message)}`}>
@@ -563,13 +584,10 @@ export default function AdminEvents() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <div>
-                          <div>{new Date(event.startDate).toLocaleDateString('es-ES')}</div>
+                          <div>{formatDateInUruguay(event.startDate)}</div>
                           {event.startTime && (
                             <div className="text-xs text-gray-500">
-                              {new Date(event.startTime).toLocaleTimeString('es-ES', { 
-                                hour: '2-digit', 
-                                minute: '2-digit' 
-                              })}
+                              {formatTimeInUruguay(event.startTime)}
                             </div>
                           )}
                         </div>
@@ -578,13 +596,10 @@ export default function AdminEvents() {
                         <div>
                           {event.endDate ? (
                             <>
-                              <div>{new Date(event.endDate).toLocaleDateString('es-ES')}</div>
+                              <div>{formatDateInUruguay(event.endDate)}</div>
                               {event.endTime && (
                                 <div className="text-xs text-gray-500">
-                                  {new Date(event.endTime).toLocaleTimeString('es-ES', { 
-                                    hour: '2-digit', 
-                                    minute: '2-digit' 
-                                  })}
+                                  {formatTimeInUruguay(event.endTime)}
                                 </div>
                               )}
                             </>
@@ -995,14 +1010,14 @@ export default function AdminEvents() {
                 <AdminTime24Selects
                   label="Hora inicio"
                   idPrefix="edit-event-start"
-                  value={eventTimeToHhMm(editingEvent.startTime)}
+                  value={formatClockHhMmInUruguayFromIso(editingEvent.startTime)}
                   onChange={(hhmm) => setEditingEvent({ ...editingEvent, startTime: hhmm })}
                 />
 
                 <AdminTime24Selects
                   label="Hora fin"
                   idPrefix="edit-event-end"
-                  value={eventTimeToHhMm(editingEvent.endTime)}
+                  value={formatClockHhMmInUruguayFromIso(editingEvent.endTime)}
                   onChange={(hhmm) => setEditingEvent({ ...editingEvent, endTime: hhmm })}
                 />
                 

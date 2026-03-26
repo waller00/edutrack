@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { api } from '@/lib/api'
+import { Info } from 'lucide-react'
 
 declare global {
 	interface Window { turnstile: any }
@@ -76,7 +78,7 @@ export default function ForgotPage() {
 							<div className="p-6 bg-blue-50 border border-blue-200 rounded-lg">
 								<div className="flex items-center gap-3">
 									<div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-										<span className="text-blue-600">ℹ️</span>
+										<Info className="h-4 w-4 text-blue-600" aria-hidden />
 									</div>
 									<div>
 										<p className="text-sm font-medium text-blue-800">Email enviado</p>
@@ -126,7 +128,7 @@ export default function ForgotPage() {
 								className="btn-primary w-full disabled:opacity-60"
 								disabled={loading}
 							>
-								{loading ? '⏳ Enviando…' : 'Enviar enlace'}
+								<PendingButtonContent pending={loading} pendingText="Enviando…" idle="Enviar enlace" />
 							</button>
 							
 							<div className="text-center">

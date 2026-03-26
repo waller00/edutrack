@@ -1,7 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { api } from '@/lib/api'
+import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -106,13 +108,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   required
                 />
-                <button
-                  type="button"
-                  onClick={() => setShow(!show)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  {show ? '🙈' : '👁️'}
-                </button>
+                <PasswordVisibilityToggle visible={show} onToggle={() => setShow(!show)} />
               </div>
             </div>
             
@@ -129,7 +125,7 @@ export default function LoginPage() {
               disabled={loading}
               type="submit"
             >
-              {loading ? '⏳ Ingresando…' : 'Entrar'}
+              <PendingButtonContent pending={loading} pendingText="Ingresando…" idle="Entrar" />
             </button>
           </form>
           
@@ -177,7 +173,7 @@ export default function LoginPage() {
           
           <div className="border-t pt-4">
             <p className="text-sm text-gray-500">
-              El alta quedó unificada: ya sea con email o Google, después tendrás que validar DNI y esperar aprobación administrativa.
+              Tras el registro, deberás validar tu DNI y esperar la aprobación administrativa.
             </p>
           </div>
         </div>

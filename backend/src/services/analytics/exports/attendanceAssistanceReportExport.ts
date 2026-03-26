@@ -233,7 +233,7 @@ async function buildAttendanceDetailReport(params: { filters: AttendanceDetailRe
   const approvedLicenses = await prisma.medicalLeave.findMany({
     where: {
       userId: { in: userIds },
-      status: 'APPROVED',
+      status: 'ACTIVE' as any,
       startDate: { lte: toDate },
       endDate: { gte: fromDate },
     },
@@ -805,4 +805,3 @@ export async function generateAttendanceAssistanceReportPdfFromAttendances(param
 
   return Buffer.concat(chunks)
 }
-

@@ -39,7 +39,7 @@ export async function generateMonthlySummaryPdf(params: {
     ['Ausentismo sobre plan (AOP)', fmtPct(kpis.M4_AOP_pct)],
     ['Cobertura real (CP)', fmtPct(kpis.M6_COVERAGE_CP_pct)],
     ['Delta horas vs plan (% del plan)', fmtPct(kpis.M8_HOURS_DELTA_pct)],
-    ['Licencias PENDING críticas', String(kpis.PC_count)],
+    ['Licencias inactivas', String(kpis.PC_count)],
   ]
 
   const startX = 40
@@ -87,4 +87,3 @@ export async function generateMonthlySummaryPdf(params: {
 
   return Buffer.concat(chunks)
 }
-

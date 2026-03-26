@@ -9,6 +9,7 @@ import {
   isValidLocalPhoneUY,
   normalizeLocalPhoneUY,
 } from '@/lib/uruguay-forms'
+import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
 import { isStrongPassword, getPasswordStrength, getStrengthBarClass } from '@/lib/password-strength'
 import {
   getOnboardingUsernameStatusDisplay,
@@ -344,9 +345,7 @@ export default function OnboardingPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
                     <div className="relative">
                       <input value={password} onChange={(e) => setPassword(e.target.value)} type={showPwd ? 'text' : 'password'} className="input-field pr-10" placeholder="Mín 8, Aa y 0-9" />
-                      <button type="button" onClick={() => setShowPwd((value) => !value)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600">
-                        {showPwd ? '🙈' : '👁️'}
-                      </button>
+                      <PasswordVisibilityToggle visible={showPwd} onToggle={() => setShowPwd((value) => !value)} />
                     </div>
                     <div className="h-2 bg-gray-200 rounded mt-2">
                       <div className={`${getStrengthBarClass(strength)} h-2 rounded transition-all duration-300`} style={{ width: `${strength}%` }} />
@@ -357,9 +356,11 @@ export default function OnboardingPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar contraseña</label>
                     <div className="relative">
                       <input value={confirm} onChange={(e) => setConfirm(e.target.value)} type={showConfirm ? 'text' : 'password'} className="input-field pr-10" />
-                      <button type="button" onClick={() => setShowConfirm((value) => !value)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600">
-                        {showConfirm ? '🙈' : '👁️'}
-                      </button>
+                      <PasswordVisibilityToggle
+                        visible={showConfirm}
+                        onToggle={() => setShowConfirm((value) => !value)}
+                        field="confirmación"
+                      />
                     </div>
                   </div>
                 </>

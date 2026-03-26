@@ -16,12 +16,13 @@ services:
   auth:
     build: ./backend
     # Este comando asegura que las tablas se creen antes de iniciar el servidor
-    command: sh -c "npx prisma db push && npm start"
+    command: sh -c "npx prisma db push ${PRISMA_DB_PUSH_FLAGS:-} && npm start"
     environment:
       PORT: 4000
       FRONTEND_URL: ${FRONTEND_URL:-https://165.22.34.95:3000}
       JWT_SECRET: ${JWT_SECRET}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
+      PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-https://165.22.34.95:4000/auth/google/callback}

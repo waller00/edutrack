@@ -98,6 +98,28 @@ describe('AdminEvents', () => {
     )
   })
 
+  it('elimina todos los eventos con confirmacion explicita', async () => {
+    mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('events/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [baseEvent] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url) === '/events/purge-all' && init?.method === 'DELETE') return { deletedCount: 1 }
+      return {}
+    })
+
+    render(<AdminEvents />)
+    await screen.findByText('Clase matutina')
+
+    fireEvent.click(screen.getByText('Eliminar todos los registros de eventos'))
+    fireEvent.change(screen.getByPlaceholderText('ELIMINAR'), { target: { value: 'ELIMINAR' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, eliminar todos los registros de eventos' }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/events/purge-all', expect.objectContaining({ method: 'DELETE' })),
+    )
+  })
+
   it('reactiva evento cancelado', async () => {
     const cancelled = { ...baseEvent, status: 'CANCELLED' as const }
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {

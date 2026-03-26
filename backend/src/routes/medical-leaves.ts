@@ -19,7 +19,12 @@ const medicalLeaveSchema = z.object({
 })
 
 const medicalLeaveUpdateSchema = z.object({
-  status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+  type: z.enum(['MEDICAL_LEAVE', 'WORK_LEAVE', 'OTHER']).optional(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+  reason: z.string().min(1).max(500).optional(),
+  doctorName: z.string().optional(),
+  doctorPhone: z.string().optional(),
   notes: z.string().optional()
 })
 
@@ -155,7 +160,9 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
         doctorName,
         doctorPhone,
         notes,
-        status: 'APPROVED' // Las licencias creadas por admin se aprueban automáticamente
+        status: 'ACTIVE' as any,
+        approvedBy: req.user?.id,
+        approvedAt: new Date()
       },
       include: {
         user: {
@@ -178,7 +185,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 })
 
-// Actualizar estado de licencia médica (solo admin)
+// Actualizar licencia médica (solo admin)
 r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
     const { id } = req.params
@@ -191,7 +198,7 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       })
     }
 
-    const { status, notes } = parsed.data
+    const { type, startDate, endDate, reason, doctorName, doctorPhone, notes } = parsed.data
 
     const license = await prisma.medicalLeave.findUnique({
       where: { id }
@@ -201,15 +208,23 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       return res.status(404).json({ message: 'Licencia médica no encontrada' })
     }
 
+    const nextStartDate = startDate ? new Date(startDate) : license.startDate
+    const nextEndDate = endDate ? new Date(endDate) : license.endDate
+
+    if (nextStartDate > nextEndDate) {
+      return res.status(400).json({ message: 'La fecha de inicio no puede ser posterior a la fecha de fin' })
+    }
+
     const updatedLicense = await prisma.medicalLeave.update({
       where: { id },
       data: {
-        ...(status && { status }),
-        ...(notes && { notes }),
-        ...(status && status !== 'PENDING' && {
-          approvedBy: req.user?.id,
-          approvedAt: new Date()
-        })
+        ...(type && { type }),
+        ...(startDate && { startDate: nextStartDate }),
+        ...(endDate && { endDate: nextEndDate }),
+        ...(reason && { reason }),
+        doctorName,
+        doctorPhone,
+        notes,
       },
       include: {
         user: {
@@ -223,19 +238,27 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       }
     })
 
-    let reconciliation: Awaited<ReturnType<typeof reconcileAttendancesForMedicalLeave>> | undefined
-    if (status === 'APPROVED') {
-      reconciliation = await reconcileAttendancesForMedicalLeave(id)
-    }
+    const reconciliation = await reconcileAttendancesForMedicalLeave(id)
 
-    res.json(reconciliation ? { ...updatedLicense, reconciliation } : updatedLicense)
+    res.json({ ...updatedLicense, reconciliation })
   } catch (error) {
     console.error('Error actualizando licencia médica:', error)
     res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
 
-// Eliminar licencia médica (solo admin)
+// Eliminar todas las licencias médicas (solo admin)
+r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
+  try {
+    const deleted = await prisma.medicalLeave.deleteMany({})
+    res.json({ ok: true, deletedCount: deleted.count, message: 'Todas las licencias fueron eliminadas' })
+  } catch (error) {
+    console.error('Error eliminando todas las licencias médicas:', error)
+    res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+// Desactivar licencia médica (solo admin)
 r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
     const { id } = req.params
@@ -248,13 +271,18 @@ r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       return res.status(404).json({ message: 'Licencia médica no encontrada' })
     }
 
-    await prisma.medicalLeave.delete({
-      where: { id }
+    await prisma.medicalLeave.update({
+      where: { id },
+      data: {
+        status: 'INACTIVE' as any,
+        deactivatedBy: req.user?.id,
+        deactivatedAt: new Date()
+      } as any
     })
 
-    res.json({ message: 'Licencia médica eliminada correctamente' })
+    res.json({ message: 'Licencia médica desactivada correctamente' })
   } catch (error) {
-    console.error('Error eliminando licencia médica:', error)
+    console.error('Error desactivando licencia médica:', error)
     res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

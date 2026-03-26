@@ -48,7 +48,7 @@ describe('LoginPage', () => {
     const passwordInput = screen.getByPlaceholderText('Ingresa tu contraseña')
     expect(passwordInput).toHaveAttribute('type', 'password')
 
-    fireEvent.click(screen.getByRole('button', { name: '👁️' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar contraseña' }))
     expect(passwordInput).toHaveAttribute('type', 'text')
   })
 

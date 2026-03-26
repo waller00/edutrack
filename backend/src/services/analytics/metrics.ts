@@ -95,20 +95,16 @@ export function computeSeriesByWeek(resolvedInstances: ResolvedAttendanceByInsta
 
 export async function computePCCount(params: { from: string; to: string }) {
   const { fromDate, toDate } = parseYmdToUtcRange(params.from, params.to)
-  const now = toDate
-  const threshold = new Date(now.getTime() - SLA_DAYS * 24 * 60 * 60 * 1000)
 
-  const pcCount = await prisma.medicalLeave.count({
+  const inactiveCount = await prisma.medicalLeave.count({
     where: {
-      status: 'PENDING',
-      // No expiran antes del periodo.
-      endDate: { gte: now },
-      createdAt: { lte: threshold },
+      status: 'INACTIVE',
+      endDate: { gte: fromDate },
       // Solapan el rango consultado.
       startDate: { lte: toDate },
     } as any,
   })
-  return pcCount
+  return inactiveCount
 }
 
 export async function computeDashboardKpis(params: {
@@ -121,4 +117,3 @@ export async function computeDashboardKpis(params: {
   const out: DashboardKpis = { ...kpis, PC_count }
   return out
 }
-

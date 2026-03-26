@@ -1,6 +1,5 @@
 import {
-  getResendButtonLabel,
-  getSectionIcon,
+  getHomeSectionIconKind,
   getVisibleHomeSections,
   getWelcomeMessage,
   HOME_SECTIONS_BY_ROLE,
@@ -33,23 +32,17 @@ describe('getWelcomeMessage', () => {
   })
 })
 
-describe('getSectionIcon', () => {
+describe('getHomeSectionIconKind', () => {
   it.each([
-    ['Gestión de usuarios', '👥'],
-    ['asistencias', '📊'],
-    ['eventos', '📅'],
-    ['licencias', '📄'],
-    ['Panel admin', '📈'],
-    ['Otro', '🔧'],
-  ])('%s → %s', (title, icon) => {
-    expect(getSectionIcon(title)).toBe(icon)
+    ['Gestión de usuarios', 'users'],
+    ['asistencias', 'chart'],
+    ['eventos', 'calendar'],
+    ['licencias', 'file'],
+    ['Panel admin', 'dashboard'],
+    ['Otro', 'default'],
+  ])('%s → %s', (title, kind) => {
+    expect(getHomeSectionIconKind(title)).toBe(kind)
   })
-})
-
-describe('getResendButtonLabel', () => {
-  it('resent', () => expect(getResendButtonLabel(true, false)).toContain('Enviado'))
-  it('resending', () => expect(getResendButtonLabel(false, true)).toContain('Enviando'))
-  it('default', () => expect(getResendButtonLabel(false, false)).toContain('Reenviar'))
 })
 
 describe('getVisibleHomeSections', () => {

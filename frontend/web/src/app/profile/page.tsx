@@ -1,7 +1,10 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import { FileText, Info, KeyRound, Lock, Save, User } from 'lucide-react'
+import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { api } from '@/lib/api'
 import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
+import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
 import {
   buildProfilePayload,
   canEditNationalId,
@@ -101,7 +104,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-            <span className="text-emerald-600 text-xl">👤</span>
+            <User className="h-7 w-7 text-emerald-600" aria-hidden />
           </div>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Mi Perfil</h1>
@@ -124,7 +127,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
         <div className="card-header">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-              <span className="text-emerald-600">📝</span>
+              <FileText className="h-4 w-4 text-emerald-600" aria-hidden />
             </div>
             <h2 className="text-lg font-semibold text-gray-900">Datos Personales</h2>
           </div>
@@ -177,12 +180,21 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
           />
         </div>
         <div className="flex justify-end pt-6 border-t border-gray-200">
-          <button 
-            onClick={saveProfile} 
-            disabled={saving} 
-            className="btn-primary disabled:opacity-60"
+          <button
+            onClick={saveProfile}
+            disabled={saving}
+            className="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            {saving ? '⏳ Guardando…' : '💾 Guardar cambios'}
+            <PendingButtonContent
+              pending={saving}
+              pendingText="Guardando…"
+              idle={
+                <>
+                  <Save className="h-4 w-4 shrink-0" aria-hidden />
+                  Guardar cambios
+                </>
+              }
+            />
           </button>
         </div>
       </section>
@@ -191,7 +203,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
         <div className="card-header">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-              <span className="text-emerald-600">🔒</span>
+              <Lock className="h-4 w-4 text-emerald-600" aria-hidden />
             </div>
             <h2 className="text-lg font-semibold text-gray-900">Seguridad</h2>
           </div>
@@ -208,13 +220,11 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                   className="input-field pr-10"
                   placeholder="Tu contraseña actual"
                 />
-                <button 
-                  type="button" 
-                  onClick={()=>setShowCur(s=>!s)} 
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  {showCur ? '🙈' : '👁️'}
-                </button>
+                <PasswordVisibilityToggle
+                  visible={showCur}
+                  onToggle={() => setShowCur((s) => !s)}
+                  field="contraseña actual"
+                />
               </div>
             </div>
             <div>
@@ -227,13 +237,11 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                   className="input-field pr-10"
                   placeholder="Mín 8, Aa y 0-9"
                 />
-                <button 
-                  type="button" 
-                  onClick={()=>setShowNew(s=>!s)} 
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  {showNew ? '🙈' : '👁️'}
-                </button>
+                <PasswordVisibilityToggle
+                  visible={showNew}
+                  onToggle={() => setShowNew((s) => !s)}
+                  field="nueva contraseña"
+                />
               </div>
             </div>
             <div>
@@ -246,22 +254,29 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                   className="input-field pr-10"
                   placeholder="Repite la nueva contraseña"
                 />
-                <button 
-                  type="button" 
-                  onClick={()=>setShowConf(s=>!s)} 
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                >
-                  {showConf ? '🙈' : '👁️'}
-                </button>
+                <PasswordVisibilityToggle
+                  visible={showConf}
+                  onToggle={() => setShowConf((s) => !s)}
+                  field="confirmación"
+                />
               </div>
             </div>
             <div className="md:col-span-3 flex justify-end pt-6 border-t border-gray-200">
-              <button 
-                onClick={changePassword} 
-                disabled={savingPass} 
-                className="btn-primary disabled:opacity-60"
+              <button
+                onClick={changePassword}
+                disabled={savingPass}
+                className="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60"
               >
-                {savingPass ? '⏳ Actualizando…' : '🔐 Actualizar contraseña'}
+                <PendingButtonContent
+                  pending={savingPass}
+                  pendingText="Actualizando…"
+                  idle={
+                    <>
+                      <KeyRound className="h-4 w-4 shrink-0" aria-hidden />
+                      Actualizar contraseña
+                    </>
+                  }
+                />
               </button>
             </div>
           </div>
@@ -269,7 +284,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
           <div className="p-6 bg-blue-50 border border-blue-200 rounded-lg">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                <span className="text-blue-600">ℹ️</span>
+                <Info className="h-4 w-4 text-blue-600" aria-hidden />
               </div>
               <div>
                 <p className="text-sm font-medium text-blue-800">Sin contraseña configurada</p>

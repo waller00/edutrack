@@ -2,6 +2,7 @@
 
 import RoleGuard from '@/components/RoleGuard'
 import { api } from '@/lib/api'
+import { BarChart3 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 type Role = 'ADMIN' | 'STAFF' | 'TEACHER'
@@ -168,7 +169,7 @@ export default function AdminAnalyticsPage() {
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <span className="text-emerald-600 text-xl">📊</span>
+              <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Analytics EduTrack</h1>
@@ -250,7 +251,7 @@ export default function AdminAnalyticsPage() {
                 <div className="text-2xl font-bold text-indigo-700">{formatPct(dashboard.kpis.M8_HOURS_DELTA_pct)}</div>
               </div>
               <div className="p-4 bg-white border rounded-lg shadow-sm">
-                <div className="text-sm text-gray-600">Licencias PENDING críticas</div>
+                <div className="text-sm text-gray-600">Licencias inactivas</div>
                 <div className="text-2xl font-bold text-red-700">{dashboard.kpis.PC_count}</div>
               </div>
             </div>
@@ -273,4 +274,3 @@ export default function AdminAnalyticsPage() {
     </RoleGuard>
   )
 }
-

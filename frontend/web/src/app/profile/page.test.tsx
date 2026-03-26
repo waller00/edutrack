@@ -205,8 +205,7 @@ describe('ProfilePage', () => {
     await screen.findByText('Seguridad')
     const cur = screen.getByPlaceholderText('Tu contraseña actual')
     expect(cur).toHaveAttribute('type', 'password')
-    const [firstEye] = screen.getAllByRole('button', { name: '👁️' })
-    fireEvent.click(firstEye)
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar contraseña actual' }))
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Tu contraseña actual')).toHaveAttribute('type', 'text')
     })

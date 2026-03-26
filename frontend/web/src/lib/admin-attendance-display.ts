@@ -1,3 +1,5 @@
+import { formatTimeInUruguay } from '@/lib/datetime-uy'
+
 export type AdminAttendanceType = 'CHECK_IN' | 'CHECK_OUT'
 
 export type AdminAttendanceStatus =
@@ -57,23 +59,14 @@ export type PlannedTimeSource = {
   event?: { startTime?: string; endTime?: string }
 }
 
-/** localeKey ej. 'es-ES' para tests estables con fecha fija */
-export function getAdminAttendancePlannedTimeLabel(
-  attendance: PlannedTimeSource,
-  localeKey = 'es-ES',
-): string {
+/** Hora planificada del evento en hora civil de Uruguay. */
+export function getAdminAttendancePlannedTimeLabel(attendance: PlannedTimeSource): string {
   if (!attendance.event) return 'N/A'
   if (attendance.type === 'CHECK_IN' && attendance.event.startTime) {
-    return new Date(attendance.event.startTime).toLocaleTimeString(localeKey, {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    return formatTimeInUruguay(attendance.event.startTime)
   }
   if (attendance.type === 'CHECK_OUT' && attendance.event.endTime) {
-    return new Date(attendance.event.endTime).toLocaleTimeString(localeKey, {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    return formatTimeInUruguay(attendance.event.endTime)
   }
   return 'N/A'
 }

@@ -165,4 +165,38 @@ describe('AdminAttendance', () => {
       expect(mockedApi).toHaveBeenCalledWith('/attendance/a1', expect.objectContaining({ method: 'DELETE' })),
     )
   })
+
+  it('elimina todas las asistencias con confirmacion explicita', async () => {
+    const rec = {
+      id: 'a1',
+      type: 'CHECK_IN' as const,
+      status: 'PRESENT' as const,
+      date: '2025-06-01',
+      time: '2025-06-01T08:00:00.000Z',
+      user: { id: 'u1', name: 'Pedro', email: 'p@b.com', role: 'STAFF' },
+      event: { id: 'e1', title: 'Turno mañana', type: 'JORNADA_LABORAL', startTime: '2025-06-01T08:30:00.000Z' },
+    }
+
+    mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('attendance/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [rec] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 1, presentCount: 1, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 100, lateRate: 0, absenceRate: 0 }
+      if (String(url) === '/attendance/purge-all' && init?.method === 'DELETE') return { deletedCount: 1 }
+      return {}
+    })
+
+    render(<AdminAttendance />)
+    await screen.findByText('Pedro')
+
+    fireEvent.click(screen.getByText('Eliminar todos los registros de asistencias'))
+    fireEvent.change(screen.getByPlaceholderText('ELIMINAR'), { target: { value: 'ELIMINAR' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, eliminar todos los registros de asistencias' }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/attendance/purge-all', expect.objectContaining({ method: 'DELETE' })),
+    )
+  })
 })

@@ -1,4 +1,5 @@
 'use client'
+import AdminBulkDeleteControl from '@/components/AdminBulkDeleteControl'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
@@ -14,6 +15,15 @@ import {
   getAdminAttendanceTypeStyle,
 } from '@/lib/admin-attendance-display'
 import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+import {
+  BarChart3,
+  Calendar,
+  Clock,
+  FileSpreadsheet,
+  FileText,
+  Search,
+  Trash2,
+} from 'lucide-react'
 
 type AttendanceRecord = {
   id: string
@@ -176,6 +186,7 @@ export default function AdminAttendance() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -302,6 +313,21 @@ export default function AdminAttendance() {
     }
   }
 
+  async function deleteAllAttendances() {
+    setBulkDeleting(true)
+    setMessage('')
+    try {
+      const response = await api<{ deletedCount: number }>('/attendance/purge-all', { method: 'DELETE' })
+      setMessage(`✅ Se eliminaron ${response.deletedCount} asistencias. No hay vuelta atrás.`)
+      setPage(1)
+      await Promise.all([loadAttendances(), loadStats()])
+    } catch (error: any) {
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar todas las asistencias'}`)
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
   async function exportReport(format: 'excel' | 'pdf') {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -417,7 +443,7 @@ export default function AdminAttendance() {
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <span className="text-emerald-600 text-xl">📊</span>
+              <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
               <h1 className="text-3xl font-bold text-gray-900">EduTrack</h1>
@@ -436,28 +462,31 @@ export default function AdminAttendance() {
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                  <span className="text-emerald-600">🔍</span>
+                  <Search className="h-4 w-4 text-emerald-600" aria-hidden />
                 </div>
                 <h2 className="text-lg font-semibold text-gray-900">Filtros de Búsqueda</h2>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => exportReport('excel')}
-                  className="btn-success text-sm"
+                  className="btn-success inline-flex items-center gap-1.5 text-sm"
                 >
-                  📊 Excel
+                  <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
+                  Excel
                 </button>
                 <button
                   onClick={() => exportReport('pdf')}
-                  className="btn-danger text-sm"
+                  className="btn-danger inline-flex items-center gap-1.5 text-sm"
                 >
-                  📄 PDF
+                  <FileText className="h-4 w-4 shrink-0" aria-hidden />
+                  PDF
                 </button>
                 <button
                   onClick={markAbsences}
-                  className="btn-warning text-sm"
+                  className="btn-warning inline-flex items-center gap-1.5 text-sm"
                 >
-                  ⏰ Marcar Ausencias
+                  <Clock className="h-4 w-4 shrink-0" aria-hidden />
+                  Marcar Ausencias
                 </button>
                 <button
                   onClick={() => {
@@ -478,9 +507,10 @@ export default function AdminAttendance() {
                     setIsEventDropdownOpen(false)
                     setUserEvents([])
                   }}
-                  className="btn-secondary text-sm"
+                  className="btn-secondary inline-flex items-center gap-1.5 text-sm"
                 >
-                  🗑️ Limpiar
+                  <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
+                  Limpiar
                 </button>
               </div>
             </div>
@@ -488,7 +518,10 @@ export default function AdminAttendance() {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">📅 Fecha inicio</label>
+              <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                Fecha inicio
+              </label>
               <input
                 type="date"
                 value={filters.startDate}
@@ -497,7 +530,10 @@ export default function AdminAttendance() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">📅 Fecha fin</label>
+              <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                Fecha fin
+              </label>
               <input
                 type="date"
                 value={filters.endDate}
@@ -692,6 +728,13 @@ export default function AdminAttendance() {
             </div>
           </div>
         </div>
+
+        <AdminBulkDeleteControl
+          entityLabel="asistencias"
+          warningText="Vas a eliminar todos los registros de asistencia del sistema. También perderás métricas, historial operativo y evidencia administrativa. No hay vuelta atrás."
+          busy={bulkDeleting}
+          onConfirm={deleteAllAttendances}
+        />
 
         {/* Métricas (KPIs) */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

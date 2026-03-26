@@ -9,6 +9,8 @@ import {
   getAssignedEventStatusColor,
   getDaysOfWeekLabel,
 } from '@/lib/assigned-event-display'
+import { Calendar } from 'lucide-react'
+import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/datetime-uy'
 
 export type AssignedEventRow = {
   id: string
@@ -108,7 +110,7 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <span className="text-emerald-600 text-xl">📅</span>
+              <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Mis Eventos</h1>
@@ -174,9 +176,9 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
                           <div>
                             <span className="font-medium text-gray-700">Fecha:</span>
                             <div className="text-gray-900">
-                              {new Date(event.startDate).toLocaleDateString('es-ES')}
+                              {formatDateInUruguay(event.startDate)}
                               {event.endDate && event.endDate !== event.startDate && (
-                                <span> - {new Date(event.endDate).toLocaleDateString('es-ES')}</span>
+                                <span> - {formatDateInUruguay(event.endDate)}</span>
                               )}
                             </div>
                           </div>
@@ -184,18 +186,12 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
                             <div>
                               <span className="font-medium text-gray-700">Horario:</span>
                               <div className="text-gray-900">
-                                {new Date(event.startTime).toLocaleTimeString('es-ES', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {formatTimeInUruguay(event.startTime)}
                                 {event.endTime && (
                                   <span>
                                     {' '}
                                     -{' '}
-                                    {new Date(event.endTime).toLocaleTimeString('es-ES', {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                    })}
+                                    {formatTimeInUruguay(event.endTime)}
                                   </span>
                                 )}
                               </div>
@@ -224,7 +220,7 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
                                   {event.recurrenceEnd && (
                                     <span>
                                       {' '}
-                                      hasta {new Date(event.recurrenceEnd).toLocaleDateString('es-ES')}
+                                      hasta {formatDateInUruguay(event.recurrenceEnd)}
                                     </span>
                                   )}
                                 </div>
