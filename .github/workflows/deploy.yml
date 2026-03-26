@@ -5,40 +5,46 @@ on:
     branches: [main, develop]
 
 jobs:
-  deploy:
+  deploy-testing:
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set Deployment Environment
-        id: set-env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "host=${{ secrets.SSH_HOST }}" >> $GITHUB_OUTPUT
-            echo "key=${{ secrets.SSH_PRIVATE_KEY }}" >> $GITHUB_OUTPUT
-            echo "branch=main" >> $GITHUB_OUTPUT
-          else
-            echo "host=${{ secrets.SSH_HOST_TESTING }}" >> $GITHUB_OUTPUT
-            echo "key=${{ secrets.SSH_PRIVATE_KEY_TESTING }}" >> $GITHUB_OUTPUT
-            echo "branch=develop" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Deploy to Server via SSH
+      - name: Deploy to Testing (Sauce)
         uses: appleboy/ssh-action@v0.1.10
         with:
-          host: ${{ steps.set-env.outputs.host }}
+          host: ${{ secrets.SSH_HOST_TESTING }}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ steps.set-env.outputs.key }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
           script: |
             cd /root/edutrack
             git fetch --all
-            git reset --hard origin/${{ steps.set-env.outputs.branch }}
-            
-            # Limpieza para asegurar que tome cambios de IP/Env
+            git reset --hard origin/develop
             docker compose -f docker-compose.cloud.yml down
             docker rmi edutrack-web edutrack-auth || true
             docker compose -f docker-compose.cloud.yml up -d --build
-            
-            echo "EduTrack actualizado en rama ${{ steps.set-env.outputs.branch }}"
-            docker ps
+            echo "EduTrack actualizado en TESTING"
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Production
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /root/edutrack
+            git fetch --all
+            git reset --hard origin/main
+            docker compose -f docker-compose.cloud.yml down
+            docker rmi edutrack-web edutrack-auth || true
+            docker compose -f docker-compose.cloud.yml up -d --build
+            echo "EduTrack actualizado en PRODUCCIÓN"
