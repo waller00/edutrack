@@ -32,3 +32,5 @@ test-results/
 *.tfstate.backup
 .terraform.lock.hcl
 *.exe
+data.sql
+data.sql.gz
