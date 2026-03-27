@@ -44,6 +44,47 @@ function applyDateRangeFilter(where: any, startDate?: unknown, endDate?: unknown
   }
 }
 
+function buildAdminAttendanceWhere(query: Record<string, unknown>) {
+  const { startDate, endDate, userId, eventId, eventType, type, status, role } = query
+  const where: any = {}
+
+  applyDateRangeFilter(where, startDate, endDate)
+
+  if (userId) {
+    where.userId = userId
+  }
+
+  if (eventId) {
+    where.eventId = eventId
+  }
+
+  if (eventType) {
+    where.event = {
+      type: eventType as any,
+    }
+    where.eventId = {
+      ...(where.eventId ? { equals: where.eventId } : {}),
+      not: null,
+    }
+  }
+
+  if (type) {
+    where.type = type
+  }
+
+  if (status) {
+    where.status = status
+  }
+
+  if (role) {
+    where.user = {
+      role: role as any,
+    }
+  }
+
+  return where
+}
+
 // Registrar asistencia (CHECK_IN o CHECK_OUT)
 r.post('/register', authGuard, async (req, res) => {
   try {
@@ -183,41 +224,9 @@ r.get('/my-attendances', authGuard, async (req, res) => {
 // Obtener todas las asistencias (solo ADMIN)
 r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
-    const { startDate, endDate, userId, eventType, type, status, role } = req.query;
     const page = Number(req.query.page) || 1;
     const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
-
-    const where: any = {};
-
-    applyDateRangeFilter(where, startDate, endDate)
-
-    if (userId) {
-      where.userId = userId;
-    }
-
-    if (eventType) {
-      where.event = {
-        type: eventType as any
-      };
-      // También asegurar que el evento existe
-      where.eventId = {
-        not: null
-      };
-    }
-
-    if (type) {
-      where.type = type;
-    }
-
-    if (status) {
-      where.status = status;
-    }
-
-    if (role) {
-      where.user = {
-        role: role as any,
-      };
-    }
+    const where = buildAdminAttendanceWhere(req.query as Record<string, unknown>)
 
     const [total, attendances] = await Promise.all([
       prisma.attendance.count({ where }),
@@ -277,8 +286,29 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
 // Eliminar todas las asistencias (solo ADMIN)
 r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
   try {
-    const deleted = await prisma.attendance.deleteMany({})
-    res.json({ ok: true, deletedCount: deleted.count, message: 'Todas las asistencias fueron eliminadas' })
+    const where = buildAdminAttendanceWhere(_req.query as Record<string, unknown>)
+    const matches = await prisma.attendance.findMany({
+      where,
+      select: { id: true },
+    })
+
+    if (matches.length === 0) {
+      return res.json({ ok: true, deletedCount: 0, message: 'No había asistencias para eliminar' })
+    }
+
+    const deleted = await prisma.attendance.deleteMany({
+      where: {
+        id: {
+          in: matches.map((attendance) => attendance.id),
+        },
+      },
+    })
+
+    res.json({
+      ok: true,
+      deletedCount: deleted.count,
+      message: 'Las asistencias seleccionadas fueron eliminadas',
+    })
   } catch (error) {
     console.error('Error eliminando todas las asistencias:', error)
     res.status(500).json({ message: 'Error interno del servidor' })

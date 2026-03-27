@@ -78,7 +78,7 @@ describe('AdminEvents', () => {
     )
   })
 
-  it('elimina evento tras confirmar', async () => {
+  it('elimina eventos seleccionados tras confirmar', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('events/all')) {
         return { total: 1, page: 1, pageSize: 20, data: [baseEvent] }
@@ -91,11 +91,31 @@ describe('AdminEvents', () => {
     render(<AdminEvents />)
     await screen.findByText('Clase matutina')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Eliminar' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar evento Clase matutina' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionados' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/events/e1', expect.objectContaining({ method: 'DELETE' })),
     )
+  })
+
+<<<<<<< HEAD
+  it('selecciona todos los eventos desde la cabecera', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('events/all')) {
+        return { total: 2, page: 1, pageSize: 20, data: [baseEvent, { ...baseEvent, id: 'e2', title: 'Clase tarde' }] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      return {}
+    })
+
+    render(<AdminEvents />)
+    await screen.findByText('Clase matutina')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todos los eventos' }))
+
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar evento Clase matutina' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar evento Clase tarde' })).toBeChecked()
   })
 
   it('elimina todos los eventos con confirmacion explicita', async () => {
@@ -120,6 +140,8 @@ describe('AdminEvents', () => {
     )
   })
 
+=======
+>>>>>>> 9243a75 (Actualizacion)
   it('reactiva evento cancelado', async () => {
     const cancelled = { ...baseEvent, status: 'CANCELLED' as const }
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {

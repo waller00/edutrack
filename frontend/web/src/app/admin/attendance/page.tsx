@@ -1,5 +1,4 @@
 'use client'
-import AdminBulkDeleteControl from '@/components/AdminBulkDeleteControl'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
@@ -71,8 +70,11 @@ type AttendanceTypeOption = AttendanceRecord['type']
 
 function renderAttendancesTable(
   attendances: AttendanceRecord[],
+  selectedAttendanceIds: string[],
+  onToggleSelectAll: () => void,
+  onToggleSelect: (id: string) => void,
   onEdit: (attendance: AttendanceRecord) => void,
-  onDelete: (id: string) => void
+  allSelected: boolean
 ) {
   if (attendances.length === 0) {
     return <div className="p-6 text-center text-gray-500">No hay registros de asistencia</div>
@@ -83,6 +85,14 @@ function renderAttendancesTable(
       <table className="w-full">
         <thead className="bg-gray-50">
           <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={onToggleSelectAll}
+                aria-label="Seleccionar todas las asistencias"
+              />
+            </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hora</th>
@@ -96,6 +106,14 @@ function renderAttendancesTable(
         <tbody className="divide-y divide-gray-200">
           {attendances.map((attendance) => (
             <tr key={attendance.id}>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <input
+                  type="checkbox"
+                  checked={selectedAttendanceIds.includes(attendance.id)}
+                  onChange={() => onToggleSelect(attendance.id)}
+                  aria-label={`Seleccionar asistencia de ${attendance.user.name}`}
+                />
+              </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 <div>
                   <div className="font-medium text-gray-900">{attendance.user.name}</div>
@@ -149,9 +167,6 @@ function renderAttendancesTable(
                   <button onClick={() => onEdit(attendance)} className="text-indigo-600 hover:text-indigo-900">
                     Editar
                   </button>
-                  <button onClick={() => onDelete(attendance.id)} className="text-red-600 hover:text-red-900">
-                    Eliminar
-                  </button>
                 </div>
               </td>
             </tr>
@@ -187,6 +202,12 @@ export default function AdminAttendance() {
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
   const [bulkDeleting, setBulkDeleting] = useState(false)
+<<<<<<< HEAD
+  const [selectedAttendanceIds, setSelectedAttendanceIds] = useState<string[]>([])
+  const [deletingSelected, setDeletingSelected] = useState(false)
+=======
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('')
+>>>>>>> 9243a75 (Actualizacion)
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -210,6 +231,10 @@ export default function AdminAttendance() {
     loadStats()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.startDate, filters.endDate, filters.userId, filters.eventType, filters.eventId, filters.type, filters.status, filters.role])
+
+  useEffect(() => {
+    setSelectedAttendanceIds([])
+  }, [attendances])
 
   async function loadAttendances() {
     setLoading(true)
@@ -301,28 +326,57 @@ export default function AdminAttendance() {
     }
   }
 
-  async function deleteAttendance(id: string) {
-    if (!confirm('¿Estás seguro de que quieres eliminar esta asistencia?')) return
-    
+  async function deleteSelectedAttendances() {
+    if (selectedAttendanceIds.length === 0) return
+    if (!confirm(`¿Estás seguro de eliminar ${selectedAttendanceIds.length} asistencias seleccionadas?`)) return
+
+    setDeletingSelected(true)
+    setMessage('')
     try {
-      await api(`/attendance/${id}`, { method: 'DELETE' })
-      setMessage('✅ Asistencia eliminada correctamente')
+      await Promise.all(selectedAttendanceIds.map((id) => api(`/attendance/${id}`, { method: 'DELETE' })))
+      setMessage(`✅ Se eliminaron ${selectedAttendanceIds.length} asistencias seleccionadas`)
+      setSelectedAttendanceIds([])
       await loadAttendances()
     } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al eliminar asistencia'}`)
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar asistencias seleccionadas'}`)
+    } finally {
+      setDeletingSelected(false)
     }
   }
 
+<<<<<<< HEAD
+  function toggleAttendanceSelection(id: string) {
+    setSelectedAttendanceIds((prev) =>
+      prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
+    )
+  }
+
+  function toggleAllAttendancesSelection() {
+    setSelectedAttendanceIds((prev) =>
+      prev.length === attendances.length ? [] : attendances.map((attendance) => attendance.id),
+    )
+  }
+
   async function deleteAllAttendances() {
+=======
+  async function deleteFilteredAttendances() {
+    if (bulkDeleteConfirm.trim() !== 'ELIMINAR') {
+      setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
+      return
+    }
+
+>>>>>>> 9243a75 (Actualizacion)
     setBulkDeleting(true)
     setMessage('')
     try {
-      const response = await api<{ deletedCount: number }>('/attendance/purge-all', { method: 'DELETE' })
-      setMessage(`✅ Se eliminaron ${response.deletedCount} asistencias. No hay vuelta atrás.`)
+      const params = buildAdminAttendanceAllQueryString(1, filters)
+      const response = await api<{ deletedCount: number }>(`/attendance/purge-all?${params}`, { method: 'DELETE' })
+      setMessage(`✅ Se eliminaron ${response.deletedCount} asistencias del conjunto filtrado.`)
+      setBulkDeleteConfirm('')
       setPage(1)
       await Promise.all([loadAttendances(), loadStats()])
     } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al eliminar todas las asistencias'}`)
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar las asistencias filtradas'}`)
     } finally {
       setBulkDeleting(false)
     }
@@ -729,13 +783,6 @@ export default function AdminAttendance() {
           </div>
         </div>
 
-        <AdminBulkDeleteControl
-          entityLabel="asistencias"
-          warningText="Vas a eliminar todos los registros de asistencia del sistema. También perderás métricas, historial operativo y evidencia administrativa. No hay vuelta atrás."
-          busy={bulkDeleting}
-          onConfirm={deleteAllAttendances}
-        />
-
         {/* Métricas (KPIs) */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="p-4 bg-white border rounded-lg shadow-sm">
@@ -831,15 +878,74 @@ export default function AdminAttendance() {
           </div>
         )}
 
+        <details className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <summary className="cursor-pointer list-none font-medium text-red-700">
+            Eliminar todos los registros filtrados
+          </summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-sm text-red-800">
+              Esta acción elimina todos los registros que coincidan con los filtros actuales, no solo los {attendances.length} visibles en esta página.
+            </p>
+            <p className="text-sm text-red-800">
+              Total objetivo actual: {total} registros.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label htmlFor="attendance-bulk-delete-confirm" className="text-sm font-medium text-red-900">
+                Escribe `ELIMINAR` para habilitar la acción final
+              </label>
+              <input
+                id="attendance-bulk-delete-confirm"
+                type="text"
+                value={bulkDeleteConfirm}
+                onChange={(e) => setBulkDeleteConfirm(e.target.value)}
+                placeholder="ELIMINAR"
+                className="rounded border border-red-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+              <button
+                type="button"
+                disabled={bulkDeleting || total === 0}
+                onClick={() => void deleteFilteredAttendances()}
+                className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+              >
+                {bulkDeleting ? 'Eliminando...' : 'Sí, eliminar todos los registros filtrados'}
+              </button>
+            </div>
+            <p className="text-xs text-red-700">La operación es destructiva y no se puede deshacer.</p>
+          </div>
+        </details>
+
         {/* Tabla de asistencias */}
         <div className="bg-white border rounded-lg shadow-sm">
-          <div className="p-6 border-b">
+          <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-gray-500">
+                {selectedAttendanceIds.length === 0
+                  ? 'Selecciona registros para eliminarlos'
+                  : `${selectedAttendanceIds.length} seleccionadas`}
+              </span>
+              <button
+                type="button"
+                onClick={deleteSelectedAttendances}
+                disabled={selectedAttendanceIds.length === 0 || deletingSelected}
+                className="inline-flex items-center gap-2 rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+                {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionadas'}
+              </button>
+            </div>
           </div>
           
           {loading
             ? <div className="p-6 text-center text-gray-500">Cargando...</div>
-            : renderAttendancesTable(attendances, setEditing, deleteAttendance)}
+            : renderAttendancesTable(
+              attendances,
+              selectedAttendanceIds,
+              toggleAllAttendancesSelection,
+              toggleAttendanceSelection,
+              setEditing,
+              attendances.length > 0 && selectedAttendanceIds.length === attendances.length,
+            )}
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>

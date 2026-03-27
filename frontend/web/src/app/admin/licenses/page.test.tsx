@@ -59,7 +59,7 @@ describe('LicensesPage', () => {
     expect(await screen.findByText('No hay licencias registradas')).toBeInTheDocument()
   })
 
-  it('desactiva licencia', async () => {
+  it('elimina licencias seleccionadas', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
       if (String(url).includes('admin/users')) {
@@ -72,11 +72,35 @@ describe('LicensesPage', () => {
     render(<LicensesPage />)
     await screen.findByText('Reposo')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }))
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/medical-leaves/lic1', expect.objectContaining({ method: 'DELETE' })),
     )
+  })
+
+<<<<<<< HEAD
+  it('selecciona todas las licencias activas desde la cabecera', async () => {
+    const inactiveLicense = { ...activeLicense, id: 'lic2', status: 'INACTIVE' as const, user: { ...activeLicense.user, name: 'Luis P' } }
+
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense, inactiveLicense] }
+      if (String(url).includes('admin/users')) {
+        return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
+      }
+      return { data: [] }
+    })
+
+    render(<LicensesPage />)
+    await screen.findByRole('checkbox', { name: 'Seleccionar licencia de Ana G' })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todas las licencias' }))
+
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).toBeDisabled()
   })
 
   it('elimina todas las licencias con confirmacion explicita', async () => {
@@ -101,6 +125,8 @@ describe('LicensesPage', () => {
     )
   })
 
+=======
+>>>>>>> 9243a75 (Actualizacion)
   it('edita y guarda licencia', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }

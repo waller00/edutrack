@@ -51,6 +51,24 @@ docker compose down
 - Definir `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL` y Google OAuth callback según dominio HTTPS.
 - Detrás de HTTPS habilitar `secure: true` en cookie (ver `src/routes/auth.ts`).
 
+## Mover datos local -> producción
+- `data.sql` queda ignorado por Git a propósito. No debe viajar en commits ni quedar en el historial.
+- Para exportar tu base local:
+```bash
+./scripts/export_data_sql.sh
+```
+- Eso genera `data.sql` en la raíz del proyecto.
+- Para copiarlo al servidor:
+```bash
+REMOTE_HOST=TU_IP ./scripts/push_data_sql_to_server.sh
+```
+- Para importarlo ya en el servidor:
+```bash
+cd /root/edutrack
+./scripts/import_data_sql_on_server.sh
+```
+- Después de importar, levantá o reiniciá backend/frontend según necesites.
+
 ## SonarQube
 Este repo quedó preparado para análisis estático con SonarQube sobre:
 - `backend/src`

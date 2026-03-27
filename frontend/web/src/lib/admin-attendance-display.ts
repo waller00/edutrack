@@ -80,6 +80,7 @@ export type AdminAttendanceListFilters = {
   startDate: string
   endDate: string
   userId: string
+  eventId: string
   eventType: string
   type: string
   status: string
@@ -94,6 +95,7 @@ export function buildAdminAttendanceAllQueryString(page: number, f: AdminAttenda
   if (f.startDate) params.set('startDate', f.startDate)
   if (f.endDate) params.set('endDate', f.endDate)
   if (f.userId) params.set('userId', f.userId)
+  if (f.eventId) params.set('eventId', f.eventId)
   if (f.eventType) params.set('eventType', f.eventType)
   if (f.type) params.set('type', f.type)
   if (f.status) params.set('status', f.status)

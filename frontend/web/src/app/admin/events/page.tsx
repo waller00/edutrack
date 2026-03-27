@@ -1,6 +1,5 @@
 'use client'
 import DateRangeFields from '@/components/DateRangeFields'
-import AdminBulkDeleteControl from '@/components/AdminBulkDeleteControl'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
@@ -204,7 +203,12 @@ export default function AdminEvents() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
+<<<<<<< HEAD
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
+  const [deletingSelected, setDeletingSelected] = useState(false)
+=======
+>>>>>>> 9243a75 (Actualizacion)
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
 
@@ -233,6 +237,10 @@ export default function AdminEvents() {
   useEffect(() => {
     setPortalReady(true)
   }, [])
+
+  useEffect(() => {
+    setSelectedEventIds([])
+  }, [events])
 
   async function loadEvents() {
     setLoading(true)
@@ -389,16 +397,33 @@ export default function AdminEvents() {
     }
   }
 
-  async function deleteEvent(id: string) {
-    if (!confirm('¿Estás seguro de que quieres eliminar este evento?')) return
-    
+  async function deleteSelectedEvents() {
+    if (selectedEventIds.length === 0) return
+    if (!confirm(`¿Estás seguro de eliminar ${selectedEventIds.length} eventos seleccionados?`)) return
+
+    setDeletingSelected(true)
+    setMessage('')
     try {
-      await api(`/events/${id}`, { method: 'DELETE' })
-      setMessage('✅ Evento eliminado correctamente')
+      await Promise.all(selectedEventIds.map((id) => api(`/events/${id}`, { method: 'DELETE' })))
+      setMessage(`✅ Se eliminaron ${selectedEventIds.length} eventos seleccionados`)
+      setSelectedEventIds([])
       await loadEvents()
     } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al eliminar evento'}`)
+      setMessage(`❌ Error: ${error.message || 'Error al eliminar eventos seleccionados'}`)
+    } finally {
+      setDeletingSelected(false)
     }
+  }
+
+<<<<<<< HEAD
+  function toggleEventSelection(id: string) {
+    setSelectedEventIds((prev) =>
+      prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
+    )
+  }
+
+  function toggleAllEventsSelection() {
+    setSelectedEventIds((prev) => (prev.length === events.length ? [] : events.map((event) => event.id)))
   }
 
   async function deleteAllEvents() {
@@ -416,6 +441,8 @@ export default function AdminEvents() {
     }
   }
 
+=======
+>>>>>>> 9243a75 (Actualizacion)
   return (
     <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-6">
@@ -529,13 +556,6 @@ export default function AdminEvents() {
           </div>
         </div>
 
-        <AdminBulkDeleteControl
-          entityLabel="eventos"
-          warningText="Vas a eliminar todos los eventos del sistema, incluidos los históricos. Esta acción impacta en la planificación y no se puede deshacer."
-          busy={bulkDeleting}
-          onConfirm={deleteAllEvents}
-        />
-
         {/* Oculto si hay modal abierto: si no, el aviso se ve “detrás” del overlay y parece que no se actualizó nada */}
         {message && !creating && !editingEvent && (
           <div className={`p-3 rounded ${getAdminFlashMessageClass(message)}`}>
@@ -545,8 +565,23 @@ export default function AdminEvents() {
 
         {/* Tabla de eventos */}
         <div className="bg-white border rounded-lg shadow-sm">
-          <div className="p-6 border-b">
+          <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-semibold">Eventos</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-gray-500">
+                {selectedEventIds.length === 0
+                  ? 'Selecciona eventos para eliminarlos'
+                  : `${selectedEventIds.length} seleccionados`}
+              </span>
+              <button
+                type="button"
+                onClick={deleteSelectedEvents}
+                disabled={selectedEventIds.length === 0 || deletingSelected}
+                className="inline-flex items-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionados'}
+              </button>
+            </div>
           </div>
           
           {loading ? (
@@ -556,6 +591,14 @@ export default function AdminEvents() {
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <input
+                        type="checkbox"
+                        checked={events.length > 0 && selectedEventIds.length === events.length}
+                        onChange={toggleAllEventsSelection}
+                        aria-label="Seleccionar todos los eventos"
+                      />
+                    </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Título</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Inicio</th>
@@ -569,6 +612,14 @@ export default function AdminEvents() {
                 <tbody className="divide-y divide-gray-200">
                   {events.map((event) => (
                     <tr key={event.id}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selectedEventIds.includes(event.id)}
+                          onChange={() => toggleEventSelection(event.id)}
+                          aria-label={`Seleccionar evento ${event.title}`}
+                        />
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <div>
                           <div className="font-medium text-gray-900">{event.title}</div>
@@ -649,12 +700,6 @@ export default function AdminEvents() {
                               Reactivar
                             </button>
                           )}
-                          <button
-                            onClick={() => deleteEvent(event.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Eliminar
-                          </button>
                         </div>
                       </td>
                     </tr>
