@@ -11,12 +11,15 @@ jobs:
   # --- NUEVO: EL CANDADO DE CALIDAD ---
   validate:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/web # <--- LE DECIMOS DÓNDE ESTÁ EL CÓDIGO
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: npm install
       - name: Check for errors (TypeScript & Conflicts)
-        run: npm run typecheck # Si esto falla, el despliegue se cancela acá
+        run: npm run typecheck
 
   deploy-testing:
     needs: validate # <--- ESTO ES LO QUE TE SALVA: Solo corre si validate dio OK
