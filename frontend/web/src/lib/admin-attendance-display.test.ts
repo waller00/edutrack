@@ -13,6 +13,7 @@ const f = {
   startDate: '2025-01-01',
   endDate: '',
   userId: 'u1',
+  eventId: '',
   eventType: '',
   type: 'CHECK_IN',
   status: 'PRESENT',
