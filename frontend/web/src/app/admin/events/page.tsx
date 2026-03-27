@@ -203,12 +203,9 @@ export default function AdminEvents() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
-<<<<<<< HEAD
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
-=======
->>>>>>> 9243a75 (Actualizacion)
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
 
@@ -415,7 +412,6 @@ export default function AdminEvents() {
     }
   }
 
-<<<<<<< HEAD
   function toggleEventSelection(id: string) {
     setSelectedEventIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
@@ -441,8 +437,6 @@ export default function AdminEvents() {
     }
   }
 
-=======
->>>>>>> 9243a75 (Actualizacion)
   return (
     <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-6">

@@ -167,7 +167,6 @@ describe('AdminAttendance', () => {
     )
   })
 
-<<<<<<< HEAD
   it('selecciona todas las asistencias desde la cabecera', async () => {
     const rec1 = {
       id: 'a1',
@@ -203,10 +202,7 @@ describe('AdminAttendance', () => {
     expect(screen.getByRole('checkbox', { name: 'Seleccionar asistencia de Ana' })).toBeChecked()
   })
 
-  it('elimina todas las asistencias con confirmacion explicita', async () => {
-=======
   it('elimina todos los registros filtrados, no solo la página actual', async () => {
->>>>>>> 9243a75 (Actualizacion)
     const rec = {
       id: 'a1',
       type: 'CHECK_IN' as const,

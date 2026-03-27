@@ -202,12 +202,9 @@ export default function AdminAttendance() {
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
   const [bulkDeleting, setBulkDeleting] = useState(false)
-<<<<<<< HEAD
   const [selectedAttendanceIds, setSelectedAttendanceIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
-=======
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('')
->>>>>>> 9243a75 (Actualizacion)
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -344,7 +341,6 @@ export default function AdminAttendance() {
     }
   }
 
-<<<<<<< HEAD
   function toggleAttendanceSelection(id: string) {
     setSelectedAttendanceIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
@@ -357,15 +353,12 @@ export default function AdminAttendance() {
     )
   }
 
-  async function deleteAllAttendances() {
-=======
   async function deleteFilteredAttendances() {
     if (bulkDeleteConfirm.trim() !== 'ELIMINAR') {
       setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
       return
     }
 
->>>>>>> 9243a75 (Actualizacion)
     setBulkDeleting(true)
     setMessage('')
     try {

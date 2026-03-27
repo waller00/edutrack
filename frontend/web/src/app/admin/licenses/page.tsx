@@ -53,12 +53,9 @@ export default function LicensesPage() {
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<License | null>(null)
   const [message, setMessage] = useState('')
-<<<<<<< HEAD
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [selectedLicenseIds, setSelectedLicenseIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
-=======
->>>>>>> 9243a75 (Actualizacion)
   const [filters, setFilters] = useState({
     userId: '',
     type: '',
@@ -183,7 +180,6 @@ export default function LicensesPage() {
     }
   }
 
-<<<<<<< HEAD
   function toggleLicenseSelection(id: string) {
     setSelectedLicenseIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
@@ -209,8 +205,6 @@ export default function LicensesPage() {
     }
   }
 
-=======
->>>>>>> 9243a75 (Actualizacion)
   function renderLicensesRows() {
     if (loading) {
       return (

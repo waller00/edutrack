@@ -81,7 +81,6 @@ describe('LicensesPage', () => {
     )
   })
 
-<<<<<<< HEAD
   it('selecciona todas las licencias activas desde la cabecera', async () => {
     const inactiveLicense = { ...activeLicense, id: 'lic2', status: 'INACTIVE' as const, user: { ...activeLicense.user, name: 'Luis P' } }
 
@@ -125,8 +124,6 @@ describe('LicensesPage', () => {
     )
   })
 
-=======
->>>>>>> 9243a75 (Actualizacion)
   it('edita y guarda licencia', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }

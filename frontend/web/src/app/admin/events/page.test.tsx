@@ -99,7 +99,6 @@ describe('AdminEvents', () => {
     )
   })
 
-<<<<<<< HEAD
   it('selecciona todos los eventos desde la cabecera', async () => {
     mockedApi.mockImplementation(async (url: string) => {
       if (String(url).includes('events/all')) {
@@ -140,8 +139,6 @@ describe('AdminEvents', () => {
     )
   })
 
-=======
->>>>>>> 9243a75 (Actualizacion)
   it('reactiva evento cancelado', async () => {
     const cancelled = { ...baseEvent, status: 'CANCELLED' as const }
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
