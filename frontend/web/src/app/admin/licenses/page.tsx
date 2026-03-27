@@ -56,6 +56,7 @@ export default function LicensesPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [selectedLicenseIds, setSelectedLicenseIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
+  const [purgeAllConfirm, setPurgeAllConfirm] = useState('')
   const [filters, setFilters] = useState({
     userId: '',
     type: '',
@@ -192,11 +193,16 @@ export default function LicensesPage() {
   }
 
   async function deleteAllLicenses() {
+    if (purgeAllConfirm.trim() !== 'ELIMINAR') {
+      setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
+      return
+    }
     setBulkDeleting(true)
     setMessage('')
     try {
       const response = await api<{ deletedCount: number }>('/medical-leaves/purge-all', { method: 'DELETE' })
       setMessage(`✅ Se eliminaron ${response.deletedCount} licencias. No hay vuelta atrás.`)
+      setPurgeAllConfirm('')
       await loadLicenses()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al eliminar todas las licencias'}`)
@@ -375,6 +381,38 @@ export default function LicensesPage() {
             </button>
           </div>
         </div>
+
+        <details className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <summary className="cursor-pointer list-none font-medium text-red-700">
+            Eliminar todos los registros de licencias
+          </summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-sm text-red-800">
+              Esta acción elimina todas las licencias del sistema. No hay vuelta atrás.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label htmlFor="licenses-purge-confirm" className="text-sm font-medium text-red-900">
+                Escribe `ELIMINAR` para habilitar la acción final
+              </label>
+              <input
+                id="licenses-purge-confirm"
+                type="text"
+                value={purgeAllConfirm}
+                onChange={(e) => setPurgeAllConfirm(e.target.value)}
+                placeholder="ELIMINAR"
+                className="rounded border border-red-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+              <button
+                type="button"
+                disabled={bulkDeleting || licenses.length === 0}
+                onClick={() => void deleteAllLicenses()}
+                className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+              >
+                {bulkDeleting ? 'Eliminando...' : 'Sí, eliminar todos los registros de licencias'}
+              </button>
+            </div>
+          </div>
+        </details>
 
         {/* Tabla de licencias */}
         <div className="bg-white border rounded-lg shadow-sm">
