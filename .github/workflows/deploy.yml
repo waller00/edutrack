@@ -44,9 +44,9 @@ jobs:
               git fetch --all
               git reset --hard origin/develop
             fi
-            docker compose -f docker-compose.cloud.yml down
+            docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml down
             docker rmi edutrack-web edutrack-auth || true
-            docker compose -f docker-compose.cloud.yml up -d --build
+            docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d --build
             echo "EduTrack actualizado en TESTING"
 
   deploy-production:
