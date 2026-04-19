@@ -35,6 +35,10 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
           script: |
+            set -e
+            compose() {
+              if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
+            }
             cd /root
             if [ ! -d "edutrack" ]; then
               git clone https://github.com/joaquinwaller/edutrack.git
@@ -44,9 +48,12 @@ jobs:
               git fetch --all
               git reset --hard origin/develop
             fi
-            docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml down
-            docker rmi edutrack-web edutrack-auth || true
-            docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d --build
+            CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
+            compose $CF down
+            docker rmi edutrack-web edutrack-auth 2>/dev/null || true
+            # NEXT_PUBLIC_* va en el build de Next: sin --no-cache web puede quedar imagen vieja sin Turnstile
+            compose $CF build --no-cache web
+            compose $CF up -d --build
             echo "EduTrack actualizado en TESTING"
 
   deploy-production:
@@ -63,6 +70,10 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e
+            compose() {
+              if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
+            }
             cd /root
             if [ ! -d "edutrack" ]; then
               git clone https://github.com/joaquinwaller/edutrack.git
@@ -72,7 +83,9 @@ jobs:
               git fetch --all
               git reset --hard origin/main
             fi
-            docker compose -f docker-compose.cloud.yml down
-            docker rmi edutrack-web edutrack-auth || true
-            docker compose -f docker-compose.cloud.yml up -d --build
+            CF="-f docker-compose.cloud.yml"
+            compose $CF down
+            docker rmi edutrack-web edutrack-auth 2>/dev/null || true
+            compose $CF build --no-cache web
+            compose $CF up -d --build
             echo "EduTrack actualizado en PRODUCCION"
