@@ -7,12 +7,21 @@ vi.mock('@/lib/api', () => ({
   api: vi.fn(),
 }))
 
+/** No usar `Window` aquí: el `declare global` de `page.tsx` tipa `turnstile.render` y `vi.fn()` falla en CI con `tsc --noEmit`. */
+function setTestTurnstile(stub: Record<string, unknown> | undefined) {
+  ;(window as unknown as { turnstile?: Record<string, unknown> }).turnstile = stub
+}
+
+function deleteTestTurnstile() {
+  delete (window as unknown as { turnstile?: Record<string, unknown> }).turnstile
+}
+
 describe('ForgotPage', () => {
   const originalSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
   beforeEach(() => {
     vi.mocked(api).mockReset()
-    delete (window as Window & { turnstile?: { render: ReturnType<typeof vi.fn> } }).turnstile
+    deleteTestTurnstile()
     document.body.innerHTML = ''
     delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
   })
@@ -38,9 +47,7 @@ describe('ForgotPage', () => {
 
   it('requires captcha when turnstile is enabled and no token was produced', async () => {
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'site-key'
-    ;(window as Window & { turnstile?: { render: ReturnType<typeof vi.fn> } }).turnstile = {
-      render: vi.fn(),
-    }
+    setTestTurnstile({ render: vi.fn() })
 
     render(<ForgotPage />)
 
@@ -57,11 +64,11 @@ describe('ForgotPage', () => {
       ;(options.callback as (token: string) => void)('captcha-token')
       return 'widget-mock'
     })
-    ;(window as Window & { turnstile?: NonNullable<Window['turnstile']> }).turnstile = {
-      render: renderTurnstile as NonNullable<Window['turnstile']>['render'],
+    setTestTurnstile({
+      render: renderTurnstile,
       remove: vi.fn(),
       reset: vi.fn(),
-    }
+    })
     vi.mocked(api).mockResolvedValueOnce({ ok: true })
 
     render(<ForgotPage />)
