@@ -6,7 +6,6 @@ export default function ResetPage() {
 	const [token, setToken] = useState('')
 	const [password, setPassword] = useState('')
 	const [confirm, setConfirm] = useState('')
-	const [done, setDone] = useState(false)
 	const [error, setError] = useState('')
 	const [loading, setLoading] = useState(false)
 
@@ -23,10 +22,15 @@ export default function ResetPage() {
 		if (password !== confirm) return setError('Las contraseñas no coinciden')
 		setLoading(true)
 		try {
-			await api('/auth/reset', { method: 'POST', body: JSON.stringify({ token, password }) })
-			setDone(true)
-		} catch {
-			setError('El enlace es inválido o expiró')
+			await api<{ id: string; email: string; name: string; role: string }>('/auth/reset', {
+				method: 'POST',
+				body: JSON.stringify({ token, password }),
+			})
+			window.location.href = '/'
+		} catch (e: unknown) {
+			const msg = String((e as Error)?.message || '')
+			if (msg.includes('desactivada')) setError('Tu cuenta está dada de baja. Contacta a un administrador.')
+			else setError('El enlace es inválido o expiró')
 		} finally {
 			setLoading(false)
 		}
@@ -38,13 +42,7 @@ export default function ResetPage() {
 				<div className="mx-auto mb-2 w-10 h-10 grid place-items-center rounded-full bg-blue-50 text-blue-600">🔒</div>
 				<h1 className="text-2xl font-bold mb-1 text-center">Restablecer contraseña</h1>
 				<p className="text-center text-sm text-slate-500 mb-4">Elige una nueva contraseña segura.</p>
-				{done ? (
-					<div className="space-y-3 text-sm text-center">
-						<p>Tu contraseña fue actualizada correctamente.</p>
-						<a className="text-blue-600 underline" href="/login">Ir al login</a>
-					</div>
-				) : (
-					<form onSubmit={onSubmit} className="space-y-3">
+				<form onSubmit={onSubmit} className="space-y-3">
 						<input type="hidden" value={token} readOnly />
 						<label className="block text-sm font-medium text-slate-700" htmlFor="password">Nueva contraseña</label>
 						<input
@@ -74,11 +72,10 @@ export default function ResetPage() {
 						>
 							{loading ? 'Actualizando…' : 'Actualizar contraseña'}
 						</button>
-						<div className="text-sm mt-2">
+						<div className="text-sm mt-2 text-center">
 							<a className="text-blue-600 hover:underline" href="/login">Volver al login</a>
 						</div>
 					</form>
-				)}
 			</div>
 		</main>
 	)

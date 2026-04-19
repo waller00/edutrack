@@ -452,7 +452,7 @@ r.post("/forgot", createIpRateLimit(15 * 60 * 1000, 5), async (req, res) => {
   return res.json({ ok: true });
 });
 
-// Reset password
+// Reset password (tras éxito: misma sesión que login — evita volver a escribir la clave)
 r.post("/reset", async (req, res) => {
   const parsed = z.object({ token: z.string().min(10), password: z.string().min(8).max(64) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
@@ -461,13 +461,34 @@ r.post("/reset", async (req, res) => {
   const pr = await prisma.passwordReset.findUnique({ where: { token } });
   if (!pr || pr.usedAt || pr.expiresAt < new Date()) return res.status(400).json({ message: "Token inválido" });
 
+  const user = await prisma.user.findUnique({
+    where: { id: pr.userId },
+    select: { id: true, email: true, name: true, role: true, isActive: true },
+  });
+  if (!user) return res.status(400).json({ message: "Token inválido" });
+  if (!user.isActive) return res.status(403).json({ message: "Cuenta desactivada" });
+
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
   await prisma.$transaction([
     prisma.user.update({ where: { id: pr.userId }, data: { passwordHash } }),
     prisma.passwordReset.update({ where: { token }, data: { usedAt: new Date() } }),
   ]);
 
-  return res.json({ ok: true });
+  await registerSuccessfulLogin(user.id);
+  const accessToken = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+  setAuthCookie(res, accessToken);
+  const rt = crypto.randomBytes(40).toString("hex");
+  await prisma.refreshToken.create({
+    data: {
+      tokenHash: hashToken(rt),
+      userId: user.id,
+      expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")),
+      userAgent: req.headers["user-agent"],
+      ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip,
+    },
+  });
+  setRefreshCookie(res, rt);
+  return res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
 });
 
 // Perfil con needsProfileCompletion

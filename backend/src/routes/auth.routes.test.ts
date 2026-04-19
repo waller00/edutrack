@@ -577,20 +577,51 @@ describe("auth routes (mocks)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("POST /auth/reset flujo feliz usa transacción", async () => {
+  it("POST /auth/reset flujo feliz usa transacción y abre sesión como login", async () => {
     prismaMock.passwordReset.findUnique.mockResolvedValue({
       token: "1234567890",
       userId: "u1",
       usedAt: null,
       expiresAt: new Date("2999-01-01T00:00:00.000Z"),
     });
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u@example.com",
+      name: "User",
+      role: "STAFF",
+      isActive: true,
+    });
     prismaMock.user.update.mockResolvedValue({});
     prismaMock.passwordReset.update.mockResolvedValue({});
+    prismaMock.refreshToken.create.mockResolvedValue({});
     const res = await request(app())
       .post("/auth/reset")
       .send({ token: "1234567890", password: "Abcd1234!" });
     expect(res.status).toBe(200);
     expect(prismaMock.$transaction).toHaveBeenCalled();
+    expect(res.body).toMatchObject({ id: "u1", email: "u@example.com", name: "User", role: "STAFF" });
+    expect(res.headers["set-cookie"]).toBeDefined();
+  });
+
+  it("POST /auth/reset 403 si la cuenta está desactivada", async () => {
+    prismaMock.passwordReset.findUnique.mockResolvedValue({
+      token: "1234567890",
+      userId: "u1",
+      usedAt: null,
+      expiresAt: new Date("2999-01-01T00:00:00.000Z"),
+    });
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u@example.com",
+      name: "User",
+      role: "STAFF",
+      isActive: false,
+    });
+    const res = await request(app())
+      .post("/auth/reset")
+      .send({ token: "1234567890", password: "Abcd1234!" });
+    expect(res.status).toBe(403);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
   it("GET /auth/me devuelve perfil seguro con flags calculados", async () => {
