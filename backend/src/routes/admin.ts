@@ -4,6 +4,7 @@ import { authGuard, requireRole } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
 import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
+import { validateNationalIdDocumentExpiresAtUpdate } from '../auth-profile-pure.js'
 
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
@@ -12,6 +13,7 @@ async function buildAdminUserUpdateData(id: string, payload: {
   role?: 'ADMIN'|'STAFF'|'TEACHER'
   username?: string
   nationalId?: string
+  nationalIdDocumentExpiresAt?: string
   firstName?: string
   lastName?: string
   isApproved?: boolean
@@ -31,6 +33,9 @@ async function buildAdminUserUpdateData(id: string, payload: {
   if (payload.nationalId) {
     if (!isValidUruguayanCI(payload.nationalId)) throw new Error('INVALID_CI')
     data.nationalId = onlyDigits(payload.nationalId)
+  }
+  if (payload.nationalIdDocumentExpiresAt !== undefined) {
+    data.nationalIdDocumentExpiresAt = validateNationalIdDocumentExpiresAtUpdate(payload.nationalIdDocumentExpiresAt) ?? null
   }
   if (typeof payload.isApproved === 'boolean') {
     data.isApproved = payload.isApproved
@@ -58,7 +63,7 @@ r.get('/users', async (req, res) => {
   ]
   const [total, data] = await Promise.all([
     prisma.user.count({ where }),
-    prisma.user.findMany({ where, skip: (page-1)*pageSize, take: pageSize, orderBy: { createdAt: 'desc' }, select: { id:true, email:true, username:true, role:true, firstName:true, lastName:true, emailVerifiedAt:true, createdAt:true, lockUntil:true, nationalId:true, isApproved:true, approvedAt:true, isActive:true } })
+    prisma.user.findMany({ where, skip: (page-1)*pageSize, take: pageSize, orderBy: { createdAt: 'desc' }, select: { id:true, email:true, username:true, role:true, firstName:true, lastName:true, emailVerifiedAt:true, createdAt:true, lockUntil:true, nationalId:true, nationalIdDocumentExpiresAt:true, isApproved:true, approvedAt:true, isActive:true } })
   ])
   res.json({ total, page, pageSize, data })
 })
@@ -81,6 +86,7 @@ r.put('/users/:id', async (req, res) => {
     role: z.enum(['ADMIN','STAFF','TEACHER']).optional(),
     username: z.string().min(3).max(30).optional(),
     nationalId: z.string().min(6).max(20).optional(),
+    nationalIdDocumentExpiresAt: z.string().min(8).max(40).nullable().optional(),
     firstName: z.string().min(1).max(80).optional(),
     lastName: z.string().min(1).max(80).optional(),
     isApproved: z.boolean().optional(),
@@ -93,6 +99,9 @@ r.put('/users/:id', async (req, res) => {
   } catch (error) {
     if (error instanceof Error && error.message === 'INVALID_CI') {
       return res.status(400).json({ message: 'Cédula inválida' })
+    }
+    if (error instanceof Error && error.message === 'INVALID_NATIONAL_ID_DOCUMENT_EXPIRES_AT') {
+      return res.status(400).json({ message: 'Vencimiento de documento inválido' })
     }
     throw error
   }

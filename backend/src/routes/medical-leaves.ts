@@ -3,8 +3,21 @@ import { z } from 'zod'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { prisma } from '../prisma.js'
 import { reconcileAttendancesForMedicalLeave } from '../services/medicalLeaveReconciliation.js'
+import {
+  isValidMedicalLeaveCertificateValue,
+  MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS,
+} from '../medical-leave-certificate.js'
 
 const r = Router()
+
+const optionalCertificateCreate = z
+  .string()
+  .max(MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS)
+  .optional()
+
+const optionalCertificateUpdate = z
+  .union([z.string().max(MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS), z.null()])
+  .optional()
 
 // Esquemas de validación
 const medicalLeaveSchema = z.object({
@@ -13,9 +26,11 @@ const medicalLeaveSchema = z.object({
   startDate: z.string().datetime(),
   endDate: z.string().datetime(),
   reason: z.string().min(1).max(500),
-  doctorName: z.string().optional(),
-  doctorPhone: z.string().optional(),
-  notes: z.string().optional()
+  /** Prisma devuelve null; el cliente puede reenviar null en JSON. */
+  doctorName: z.string().max(500).nullish(),
+  doctorPhone: z.string().max(80).nullish(),
+  notes: z.string().max(5000).nullish(),
+  certificate: optionalCertificateCreate,
 })
 
 const medicalLeaveUpdateSchema = z.object({
@@ -23,9 +38,10 @@ const medicalLeaveUpdateSchema = z.object({
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   reason: z.string().min(1).max(500).optional(),
-  doctorName: z.string().optional(),
-  doctorPhone: z.string().optional(),
-  notes: z.string().optional()
+  doctorName: z.string().max(500).nullish(),
+  doctorPhone: z.string().max(80).nullish(),
+  notes: z.string().max(5000).nullish(),
+  certificate: optionalCertificateUpdate,
 })
 
 // Obtener todas las licencias médicas (solo admin)
@@ -134,7 +150,13 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
       })
     }
 
-    const { userId, type, startDate, endDate, reason, doctorName, doctorPhone, notes } = parsed.data
+    const { userId, type, startDate, endDate, reason, doctorName, doctorPhone, notes, certificate } = parsed.data
+
+    if (certificate && !isValidMedicalLeaveCertificateValue(certificate)) {
+      return res.status(400).json({
+        message: 'Certificado inválido: debe ser una URL (https://…) o un archivo imagen/PDF en base64.',
+      })
+    }
 
     // Verificar que el usuario existe
     const user = await prisma.user.findUnique({
@@ -160,6 +182,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
         doctorName,
         doctorPhone,
         notes,
+        ...(certificate ? { certificate } : {}),
         status: 'ACTIVE' as any,
         approvedBy: req.user?.id,
         approvedAt: new Date()
@@ -198,7 +221,13 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       })
     }
 
-    const { type, startDate, endDate, reason, doctorName, doctorPhone, notes } = parsed.data
+    const { type, startDate, endDate, reason, doctorName, doctorPhone, notes, certificate } = parsed.data
+
+    if (certificate != null && certificate !== '' && !isValidMedicalLeaveCertificateValue(certificate)) {
+      return res.status(400).json({
+        message: 'Certificado inválido: debe ser una URL (https://…) o un archivo imagen/PDF en base64.',
+      })
+    }
 
     const license = await prisma.medicalLeave.findUnique({
       where: { id }
@@ -222,9 +251,12 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
         ...(startDate && { startDate: nextStartDate }),
         ...(endDate && { endDate: nextEndDate }),
         ...(reason && { reason }),
-        doctorName,
-        doctorPhone,
-        notes,
+        ...(doctorName !== undefined && { doctorName }),
+        ...(doctorPhone !== undefined && { doctorPhone }),
+        ...(notes !== undefined && { notes }),
+        ...(certificate !== undefined && {
+          certificate: certificate === '' || certificate === null ? null : certificate,
+        }),
       },
       include: {
         user: {
@@ -243,17 +275,6 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
     res.json({ ...updatedLicense, reconciliation })
   } catch (error) {
     console.error('Error actualizando licencia médica:', error)
-    res.status(500).json({ message: 'Error interno del servidor' })
-  }
-})
-
-// Eliminar todas las licencias médicas (solo admin)
-r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
-  try {
-    const deleted = await prisma.medicalLeave.deleteMany({})
-    res.json({ ok: true, deletedCount: deleted.count, message: 'Todas las licencias fueron eliminadas' })
-  } catch (error) {
-    console.error('Error eliminando todas las licencias médicas:', error)
     res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

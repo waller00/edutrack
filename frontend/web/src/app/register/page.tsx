@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
 import {
@@ -33,7 +33,13 @@ type DniValidation = {
 
 type ProcessDniResponse = {
   success: boolean
-  data: { firstName: string; lastName: string; nationalId: string; birthdate: string }
+  data: {
+    firstName: string
+    lastName: string
+    nationalId: string
+    birthdate: string
+    nationalIdDocumentExpiresAt?: string
+  }
   message: string
 }
 
@@ -44,7 +50,10 @@ type VerifyDniResponse = {
   verifiedFields?: number
   totalFields?: number
   verification?: RegisterVerificationResults['verification']
+  extractedData?: { nationalIdDocumentExpiresAt?: string }
 }
+
+const DNI_REVERIFY_DEBOUNCE_MS = 550
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('')
@@ -59,6 +68,7 @@ export default function RegisterPage() {
   const [lastName, setLastName] = useState('')
   const [phoneLocal, setPhoneLocal] = useState('')
   const [birthdate, setBirthdate] = useState('')
+  const [nationalIdDocumentExpiresAt, setNationalIdDocumentExpiresAt] = useState('')
   const [role, setRole] = useState<RegisterRole>('')
   const [error, setError] = useState('')
   const [ok, setOk] = useState(false)
@@ -70,6 +80,26 @@ export default function RegisterPage() {
   const [verificationResults, setVerificationResults] = useState<RegisterVerificationResults | null>(null)
   const [dniValidation, setDniValidation] = useState<DniValidation | null>(null)
   const [sessionGate, setSessionGate] = useState(true)
+
+  const dniFileRef = useRef<File | null>(null)
+  const verifySeqRef = useRef(0)
+  const identityFieldsRef = useRef({
+    firstName,
+    lastName,
+    nationalId,
+    birthdate,
+    nationalIdDocumentExpiresAt,
+  })
+  identityFieldsRef.current = {
+    firstName,
+    lastName,
+    nationalId,
+    birthdate,
+    nationalIdDocumentExpiresAt,
+  }
+  useEffect(() => {
+    dniFileRef.current = dniFile
+  }, [dniFile])
 
   useEffect(() => {
     let alive = true
@@ -125,7 +155,9 @@ export default function RegisterPage() {
         if (extractedLastName) setLastName(extractedLastName)
         if (extractedNationalId) handleNationalIdChange(extractedNationalId)
         if (extractedBirthdate) setBirthdate(extractedBirthdate)
-        
+        if (response.data.nationalIdDocumentExpiresAt)
+          setNationalIdDocumentExpiresAt(response.data.nationalIdDocumentExpiresAt)
+
         setError('✅ Datos extraídos correctamente del DNI')
       } else {
         setError('❌ No se pudieron extraer los datos del DNI. Por favor, completa los campos manualmente.')
@@ -139,45 +171,43 @@ export default function RegisterPage() {
     }
   }
 
-  async function handleDniUpload(event: React.ChangeEvent<HTMLInputElement>) { // NOSONAR preserve current verification flow
-    const file = event.target.files?.[0]
-    const validationError = validateRegisterDniUploadInput({ file, firstName, lastName, nationalId, birthdate })
-    if (validationError === 'missing-file') return
-    if (validationError) {
-      setError(validationError)
-      return
-    }
-    if (!file) return
-    
-    if (dniPreviewUrl) URL.revokeObjectURL(dniPreviewUrl)
-    setDniFile(file)
-    setDniPreviewUrl(URL.createObjectURL(file))
+  const runVerifyDniImage = useCallback(async (file: File) => {
+    const seq = ++verifySeqRef.current
+    const {
+      firstName: fn,
+      lastName: ln,
+      nationalId: ni,
+      birthdate: bd,
+      nationalIdDocumentExpiresAt: exp,
+    } = identityFieldsRef.current
+
     setProcessingDni(true)
     setError('')
-    setVerificationStep(1) // Start verification process
-    
+    setVerificationStep(1)
+    setVerificationResults(null)
+    setDniValidation(null)
+
     try {
-      console.log('Starting DNI verification with context...');
-      
-      // Compress image before sending
-      const compressedImage = await compressImage(file, 0.8, 1024);
-      
-      // Convert file to base64
+      console.log('Starting DNI verification with context...')
+
+      const compressedImage = await compressImage(file, 0.8, 1024)
       const base64 = await fileToDataUrl(compressedImage)
 
-      // Call verification API with context
       const response = await api<VerifyDniResponse>('/auth/verify-step-by-step', {
         method: 'POST',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           image: base64,
-          firstName: firstName,
-          lastName: lastName,
-          nationalId: nationalId,
-          birthdate: birthdate
+          firstName: fn,
+          lastName: ln,
+          nationalId: ni,
+          birthdate: bd,
+          nationalIdDocumentExpiresAt: exp,
         }),
       })
 
-      console.log('Verification Response:', response);
+      console.log('Verification Response:', response)
+
+      if (seq !== verifySeqRef.current) return
 
       if (response.success && response.verification && typeof response.verifiedFields === 'number' && typeof response.totalFields === 'number') {
         setVerificationResults({
@@ -185,16 +215,17 @@ export default function RegisterPage() {
           verifiedFields: response.verifiedFields,
           totalFields: response.totalFields,
         })
-        setVerificationStep(5) // Complete
+        if (response.extractedData?.nationalIdDocumentExpiresAt) {
+          setNationalIdDocumentExpiresAt((prev) => prev || response.extractedData!.nationalIdDocumentExpiresAt!)
+        }
+        setVerificationStep(5)
         setError('')
       } else {
         if (response.validation) {
-          // DNI validation failed
           setError(`❌ ${response.message}`)
           setDniValidation(response.validation)
           setVerificationStep(0)
-          // Show validation details
-          console.log('DNI Validation Failed:', response.validation);
+          console.log('DNI Validation Failed:', response.validation)
         } else {
           setError(response.message || 'Error al verificar el DNI.')
           setVerificationStep(0)
@@ -202,11 +233,10 @@ export default function RegisterPage() {
       }
     } catch (err: any) {
       console.error('Error during DNI verification:', err)
-      
-      // Handle different types of errors
+      if (seq !== verifySeqRef.current) return
+
       if (err.status === 400) {
-        // DNI validation failed
-        const errorData = err.data;
+        const errorData = err.data
         if (errorData && errorData.validation) {
           setError(`❌ ${errorData.message || 'La imagen no parece ser un DNI uruguayo válido'}`)
           setDniValidation(errorData.validation)
@@ -218,8 +248,31 @@ export default function RegisterPage() {
       }
       setVerificationStep(0)
     } finally {
-      setProcessingDni(false)
+      if (seq === verifySeqRef.current) setProcessingDni(false)
     }
+  }, [])
+
+  async function handleDniUpload(event: React.ChangeEvent<HTMLInputElement>) { // NOSONAR preserve current verification flow
+    const file = event.target.files?.[0]
+    const validationError = validateRegisterDniUploadInput({
+      file,
+      firstName,
+      lastName,
+      nationalId,
+      birthdate,
+      nationalIdDocumentExpiresAt,
+    })
+    if (validationError === 'missing-file') return
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+    if (!file) return
+
+    if (dniPreviewUrl) URL.revokeObjectURL(dniPreviewUrl)
+    setDniFile(file)
+    setDniPreviewUrl(URL.createObjectURL(file))
+    await runVerifyDniImage(file)
   }
 
   // Generate username automatically from firstName and lastName
@@ -285,7 +338,7 @@ export default function RegisterPage() {
   // check username availability with debounce
   useEffect(() => {
     if (!username) { setUsernameStatus('idle'); return }
-    const valid = /^[a-zA-Z0-9_.-]{3,30}$/.test(username)
+    const valid = /^[-a-zA-Z0-9_.]{3,30}$/.test(username)
     if (!valid) { setUsernameStatus('invalid'); return }
     setUsernameStatus('checking')
     const t = setTimeout(async () => {
@@ -299,10 +352,24 @@ export default function RegisterPage() {
   }, [username])
 
   useEffect(() => {
-    if (!verificationResults) return
-    setVerificationResults(null)
-    setDniValidation(null)
-  }, [firstName, lastName, nationalId, birthdate])
+    if (!dniFileRef.current) return
+    const fields = identityFieldsRef.current
+    const validationError = validateRegisterDniUploadInput({
+      file: dniFileRef.current,
+      ...fields,
+    })
+    if (validationError && validationError !== 'missing-file') {
+      setVerificationResults(null)
+      setDniValidation(null)
+      return
+    }
+    const id = window.setTimeout(() => {
+      const file = dniFileRef.current
+      if (!file) return
+      void runVerifyDniImage(file)
+    }, DNI_REVERIFY_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [firstName, lastName, nationalId, birthdate, nationalIdDocumentExpiresAt, runVerifyDniImage])
 
   function verificationHasIssues() {
     if (!verificationResults?.verification) return true
@@ -324,6 +391,7 @@ export default function RegisterPage() {
       role,
       phoneLocal,
       birthdate,
+      nationalIdDocumentExpiresAt,
       dniFile,
       verificationResults,
     })
@@ -350,13 +418,19 @@ export default function RegisterPage() {
         lastName,
         phone: phoneLocal ? `+598${normalizeLocalPhoneUY(phoneLocal)}` : undefined,
         birthdate: new Date(birthdate).toISOString(),
+        nationalIdDocumentExpiresAt: new Date(nationalIdDocumentExpiresAt).toISOString(),
         role,
       }
       await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
       setOk(true)
-    } catch (e: any) {
-      if (String(e?.message || '').includes('409')) {
-        setError('Datos duplicados (email, usuario o cédula). Verifica e intenta nuevamente.')
+    } catch (e: unknown) {
+      const err = e as { status?: number; message?: string; data?: { message?: string } }
+      const apiMsg = (typeof err.data?.message === 'string' && err.data.message) || err.message || ''
+      const isBareStatus = /^API \d{3}$/i.test(apiMsg.trim())
+      if (!isBareStatus && apiMsg) {
+        setError(apiMsg)
+      } else if (err.status === 409) {
+        setError('Ese email, usuario o cédula ya está registrado.')
       } else {
         setError('No se pudo registrar. Intenta nuevamente.')
       }
@@ -446,7 +520,7 @@ export default function RegisterPage() {
                   required 
                   className="input-field"
                   placeholder="nombre.apellido"
-                  pattern="^[a-zA-Z0-9_.-]{3,30}$"
+                  pattern="^[-a-zA-Z0-9_.]{3,30}$"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Se genera automáticamente, pero puedes editarlo (3-30 caracteres, letras, números, punto, guion)
@@ -530,6 +604,21 @@ export default function RegisterPage() {
                 onBirthdateChange={setBirthdate}
                 birthdateRequired
               />
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Vencimiento del DNI</label>
+                <input
+                  value={nationalIdDocumentExpiresAt}
+                  onChange={(e) => setNationalIdDocumentExpiresAt(e.target.value)}
+                  type="date"
+                  min="1950-01-01"
+                  max="2100-12-31"
+                  className="input-field"
+                  required
+                  aria-label="Vencimiento del DNI"
+                />
+              
+              </div>
               
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Perfil</label>

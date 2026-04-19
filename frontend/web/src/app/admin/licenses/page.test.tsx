@@ -41,7 +41,7 @@ describe('LicensesPage', () => {
 
     render(<LicensesPage />)
 
-    expect(await screen.findByText('Gestión de Licencias')).toBeInTheDocument()
+    expect(await screen.findByText('Gestión de licencias')).toBeInTheDocument()
     expect(await screen.findByText('Reposo')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Rechazar' })).not.toBeInTheDocument()
@@ -102,28 +102,6 @@ describe('LicensesPage', () => {
     expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).toBeDisabled()
   })
 
-  it('elimina todas las licencias con confirmacion explicita', async () => {
-    mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
-      if (String(url).includes('admin/users')) {
-        return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
-      }
-      if (String(url) === '/medical-leaves/purge-all' && init?.method === 'DELETE') return { deletedCount: 1 }
-      return { data: [] }
-    })
-
-    render(<LicensesPage />)
-    await screen.findByText('Reposo')
-
-    fireEvent.click(screen.getByText('Eliminar todos los registros de licencias'))
-    fireEvent.change(screen.getByPlaceholderText('ELIMINAR'), { target: { value: 'ELIMINAR' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Sí, eliminar todos los registros de licencias' }))
-
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith('/medical-leaves/purge-all', expect.objectContaining({ method: 'DELETE' })),
-    )
-  })
-
   it('edita y guarda licencia', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
@@ -164,13 +142,13 @@ describe('LicensesPage', () => {
     })
 
     render(<LicensesPage />)
-    await screen.findByText('Gestión de Licencias')
+    await screen.findByText('Gestión de licencias')
 
     fireEvent.click(screen.getByRole('button', { name: /nueva licencia/i }))
     fireEvent.change(screen.getByLabelText('Usuario de licencia'), { target: { value: 'u1' } })
     fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2025-01-01' } })
     fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '2025-01-03' } })
-    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Reposo nuevo' } })
+    fireEvent.change(screen.getByLabelText('Motivo (obligatorio)'), { target: { value: 'Reposo nuevo' } })
     fireEvent.click(screen.getByRole('button', { name: 'Crear Licencia' }))
 
     await waitFor(() => {

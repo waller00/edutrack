@@ -70,8 +70,9 @@ describe('normLocalPhoneUY / isValidLocalPhone', () => {
     expect(isValidLocalPhone('099123456')).toBe(true)
   })
 
-  it('8 dígitos sin 0', () => {
-    expect(isValidLocalPhone('99123456')).toBe(true)
+  it('exige prefijo 09 en el valor ingresado', () => {
+    expect(isValidLocalPhone('99123456')).toBe(false)
+    expect(isValidLocalPhone('099123456')).toBe(true)
   })
 
   it('inválido si no son 8', () => {
@@ -114,6 +115,7 @@ describe('buildProfilePayload', () => {
       lastName: 'b',
       phoneLocal: '',
       birthdate: '',
+      nationalIdDocumentExpiresAt: '',
       nationalId: '1.234.567-8',
       isAdmin: false,
     })
@@ -128,12 +130,14 @@ describe('buildProfilePayload', () => {
       lastName: 'B',
       phoneLocal: '099123456',
       birthdate: '2000-01-15',
+      nationalIdDocumentExpiresAt: '2032-03-10',
       nationalId: 'x',
       isAdmin: true,
     })
     expect(p.phone).toBe('+59899123456')
     expect(String(p.birthdate)).toMatch(/2000-01/)
     expect(p.nationalId).toBe('x')
+    expect(String(p.nationalIdDocumentExpiresAt)).toMatch(/2032-03/)
   })
 })
 
@@ -165,8 +169,8 @@ describe('validateProfileForm', () => {
     expect(validateProfileForm({ ...base, firstName: '  ' })).toBe('Nombre y apellido obligatorios')
   })
 
-  it('teléfono inválido si hay valor', () => {
-    expect(validateProfileForm({ ...base, phoneLocal: '12' })).toBe('Teléfono inválido')
+  it('celular inválido si hay valor', () => {
+    expect(validateProfileForm({ ...base, phoneLocal: '12' })).toContain('Celular')
   })
 
   it('ok', () => {
@@ -176,7 +180,7 @@ describe('validateProfileForm', () => {
         ...base,
         canEditCi: true,
         nationalId: `1.111.111-${d}`,
-        phoneLocal: '99123456',
+        phoneLocal: '099123456',
       }),
     ).toBeNull()
   })
