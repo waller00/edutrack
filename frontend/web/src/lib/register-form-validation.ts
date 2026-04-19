@@ -163,8 +163,13 @@ export function validateRegisterForm(params: {
   if (params.password !== params.confirm) return 'Las contraseñas no coinciden'
   const identityError = getRegisterIdentityValidationError(params)
   if (identityError) return identityError
-  if (params.phoneLocal && !isValidLocalPhoneUY(params.phoneLocal)) {
-    return 'Celular inválido. Ingresá 9 dígitos empezando con 09 (ej. 094481122), sin el +598.'
+  if (params.phoneLocal) {
+    if (isValidUruguayanCI(params.phoneLocal)) {
+      return 'No podés usar la cédula como celular. Ingresá 9 dígitos empezando con 09 (ej. 094481122), sin el +598.'
+    }
+    if (!isValidLocalPhoneUY(params.phoneLocal)) {
+      return 'Celular inválido. Ingresá 9 dígitos empezando con 09 (ej. 094481122), sin el +598.'
+    }
   }
   const birthdateError = getRegisterBirthdateValidationError(params.birthdate)
   if (birthdateError) return birthdateError
