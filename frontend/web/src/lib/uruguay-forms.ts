@@ -1,5 +1,8 @@
 /** Formato y validación CI / teléfono UY (register, onboarding, etc.) */
 
+/** 8 dígitos nacionales de celular UY (equivalente a prefijo 09 sin el 0 inicial duplicado). */
+const UY_MOBILE_NATIONAL_RE = /^9\d{7}$/
+
 export function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -36,6 +39,21 @@ export function normalizeLocalPhoneUY(local: string) {
   return digits.startsWith("0") ? digits.slice(1) : digits;
 }
 
+/** Convierte +5989XXXXXXX guardado en BD al valor del input local (09XXXXXXXX). */
+export function formatLocalMobileInputFromE164(phone: string | null | undefined): string {
+  if (!phone?.trim()) return "";
+  const d = onlyDigits(phone);
+  const rest = d.startsWith("598") ? d.slice(3) : d;
+  const core = rest.startsWith("0") ? rest.slice(1) : rest;
+  if (UY_MOBILE_NATIONAL_RE.test(core)) return `0${core}`;
+  return "";
+}
+
 export function isValidLocalPhoneUY(local: string) {
-  return /^\d{8}$/.test(normalizeLocalPhoneUY(local));
+  const d = onlyDigits(local);
+  if (!d.startsWith("09") || d.length !== 9) return false;
+  const n = normalizeLocalPhoneUY(local);
+  if (!UY_MOBILE_NATIONAL_RE.test(n)) return false;
+  if (isValidUruguayanCI(n)) return false;
+  return true;
 }

@@ -2,6 +2,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import Tesseract from 'tesseract.js';
 import sharp from 'sharp';
+import { extractNationalIdDocumentExpiresAtFromText } from '../dni-document-expiry.js';
+import {
+  evaluateBirthdatePlausibilityForOcrBypass,
+  isPlausiblePersonNamePart,
+  surnameTokensMatchForVerification,
+} from '../dni-verify-plausibility.js';
 
 const r = Router();
 
@@ -291,7 +297,7 @@ async function processDniIntelligently(base64Image: string): Promise<{text: stri
         text: '',
         confidence: 0,
         strategy: strategy.name,
-        extractedData: { firstName: '', lastName: '', nationalId: '', birthdate: '' }
+        extractedData: { firstName: '', lastName: '', nationalId: '', birthdate: '', nationalIdDocumentExpiresAt: '' }
       });
     }
   }
@@ -400,7 +406,8 @@ function extractDniData(text: string) { // NOSONAR legacy OCR extractor
     firstName: '',
     lastName: '',
     nationalId: '',
-    birthdate: ''
+    birthdate: '',
+    nationalIdDocumentExpiresAt: '',
   };
 
   try {
@@ -804,6 +811,8 @@ function extractDniData(text: string) { // NOSONAR legacy OCR extractor
       }
     }
 
+    result.nationalIdDocumentExpiresAt = extractNationalIdDocumentExpiresAtFromText(cleanText);
+
     console.log('Extracted data:', result);
 
   } catch (error) {
@@ -1048,7 +1057,8 @@ r.post('/process-dni', async (req, res) => {
         firstName: extractedData.firstName || 'NOMBRE',
         lastName: extractedData.lastName || 'APELLIDO', 
         nationalId: extractedData.nationalId || '1.234.567-8',
-        birthdate: extractedData.birthdate || '1990-01-01'
+        birthdate: extractedData.birthdate || '1990-01-01',
+        nationalIdDocumentExpiresAt: extractedData.nationalIdDocumentExpiresAt || '',
       };
       
       return res.status(200).json({
@@ -1230,7 +1240,7 @@ r.post('/test-all-strategies', async (req, res) => {
           strategy: strategy.name,
           text: '',
           confidence: 0,
-          extractedData: { firstName: '', lastName: '', nationalId: '', birthdate: '' },
+          extractedData: { firstName: '', lastName: '', nationalId: '', birthdate: '', nationalIdDocumentExpiresAt: '' },
           score: 0,
           processingTime: 0,
           textLength: 0,
@@ -1812,10 +1822,10 @@ function validateNameOrder(data: any) {
 // Step-by-step verification endpoint
 r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current verification semantics
   try {
-    const { image, firstName, lastName, nationalId, birthdate } = req.body;
+    const { image, firstName, lastName, nationalId, birthdate, nationalIdDocumentExpiresAt } = req.body;
     
     console.log('🔍 Starting step-by-step verification...');
-    console.log('Manual data:', { firstName, lastName, nationalId, birthdate });
+    console.log('Manual data:', { firstName, lastName, nationalId, birthdate, nationalIdDocumentExpiresAt });
     
     // Use the best strategy from intelligent processing
     const { text, confidence, strategy } = await processDniIntelligently(image);
@@ -1867,6 +1877,13 @@ r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current
         verified: false,
         confidence: 0,
         message: ''
+      },
+      nationalIdDocumentExpiresAt: {
+        provided: nationalIdDocumentExpiresAt || '',
+        extracted: extractedData.nationalIdDocumentExpiresAt,
+        verified: false,
+        confidence: 0,
+        message: ''
       }
     };
     
@@ -1878,9 +1895,12 @@ r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current
         verification.firstName.confidence = firstNameMatch ? 100 : 0;
         verification.firstName.message = firstNameMatch ? '✓ Nombre verificado correctamente' : `✗ Nombre no coincide. DNI muestra: ${extractedData.firstName}`;
       } else {
-        verification.firstName.verified = false;
-        verification.firstName.confidence = 0;
-        verification.firstName.message = '⚠️ No se pudo extraer el nombre del DNI';
+        const ok = isPlausiblePersonNamePart(firstName);
+        verification.firstName.verified = ok;
+        verification.firstName.confidence = ok ? 70 : 0;
+        verification.firstName.message = ok
+          ? '✓ Nombre aceptado: el OCR no lo leyó en la imagen; confirmá que coincida con tu DNI o subí una foto más clara.'
+          : '✗ Nombre inválido o incompleto';
       }
     }
     
@@ -1890,9 +1910,9 @@ r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current
         const providedSurnames = lastName.toUpperCase().trim().split(/\s+/);
         const extractedSurnames = extractedData.lastName.toUpperCase().trim().split(/\s+/);
         
-        // Check if all provided surnames are present in extracted surnames
-        const allSurnamesMatch = providedSurnames.every(surname => 
-          extractedSurnames.some(extracted => extracted.includes(surname) || surname.includes(extracted))
+        // Cada token del usuario debe alinearse con un token del OCR (sin aceptar letras sueltas: "P" ≠ "PEIRAN")
+        const allSurnamesMatch = providedSurnames.every((surname) =>
+          extractedSurnames.some((extracted) => surnameTokensMatchForVerification(surname, extracted)),
         );
         
         // Check if user provided fewer surnames than DNI shows
@@ -1912,9 +1932,12 @@ r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current
           verification.lastName.message = `✗ Apellidos no coinciden. DNI muestra: ${extractedData.lastName}`;
         }
       } else {
-        verification.lastName.verified = false;
-        verification.lastName.confidence = 0;
-        verification.lastName.message = '⚠️ No se pudo extraer los apellidos del DNI';
+        const ok = isPlausiblePersonNamePart(lastName);
+        verification.lastName.verified = ok;
+        verification.lastName.confidence = ok ? 70 : 0;
+        verification.lastName.message = ok
+          ? '✓ Apellidos aceptados: el OCR no los leyó en la imagen; confirmá que coincidan con tu DNI o subí una foto más clara.'
+          : '✗ Apellidos inválidos o incompletos';
       }
     }
     
@@ -1931,7 +1954,8 @@ r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current
       } else {
         verification.nationalId.verified = false;
         verification.nationalId.confidence = 0;
-        verification.nationalId.message = '⚠️ No se pudo extraer la cédula del DNI';
+        verification.nationalId.message =
+          '⚠️ No se pudo leer la cédula en la imagen. Subí otra foto más nítida (sin reflejos, documento completo). No podemos validar el número sin lectura del OCR.';
       }
     }
     
@@ -1946,9 +1970,35 @@ r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current
         verification.birthdate.confidence = dateMatch ? 100 : 0;
         verification.birthdate.message = dateMatch ? '✓ Fecha de nacimiento verificada correctamente' : `✗ Fecha no coincide. DNI muestra: ${extractedData.birthdate}`;
       } else {
-        verification.birthdate.verified = false;
-        verification.birthdate.confidence = 0;
-        verification.birthdate.message = '⚠️ No se pudo extraer la fecha de nacimiento del DNI';
+        const pl = evaluateBirthdatePlausibilityForOcrBypass(birthdate);
+        verification.birthdate.verified = pl.ok;
+        verification.birthdate.confidence = pl.ok ? 70 : 0;
+        verification.birthdate.message = pl.ok
+          ? '✓ Fecha de nacimiento aceptada: el OCR no la leyó en la imagen; confirmá que coincida con tu DNI o subí una foto más clara.'
+          : pl.failMessage;
+      }
+    }
+    
+    if (nationalIdDocumentExpiresAt) {
+      if (extractedData.nationalIdDocumentExpiresAt) {
+        const providedExp = new Date(nationalIdDocumentExpiresAt);
+        const extractedExp = new Date(extractedData.nationalIdDocumentExpiresAt);
+        const expMatch = providedExp.getTime() === extractedExp.getTime();
+        verification.nationalIdDocumentExpiresAt.verified = expMatch;
+        verification.nationalIdDocumentExpiresAt.confidence = expMatch ? 100 : 0;
+        verification.nationalIdDocumentExpiresAt.message = expMatch
+          ? '✓ Vencimiento del documento verificado correctamente'
+          : `✗ Vencimiento no coincide. DNI muestra: ${extractedData.nationalIdDocumentExpiresAt}`;
+      } else {
+        // El OCR a menudo no lee el vencimiento (foto, reflejo, plantilla nueva). Si la fecha ingresada es válida,
+        // se acepta y se deja constancia (sin ⚠️: el front bloquea el alta si el mensaje lleva ese prefijo).
+        const providedExp = new Date(nationalIdDocumentExpiresAt);
+        const okProvided = !Number.isNaN(providedExp.getTime());
+        verification.nationalIdDocumentExpiresAt.verified = okProvided;
+        verification.nationalIdDocumentExpiresAt.confidence = okProvided ? 70 : 0;
+        verification.nationalIdDocumentExpiresAt.message = okProvided
+          ? '✓ Vencimiento aceptado: el OCR no leyó esa fecha en la imagen; confirmá que coincida con tu DNI físico.'
+          : '✗ Fecha de vencimiento inválida';
       }
     }
     
@@ -1984,7 +2034,8 @@ function extractDniDataWithContext(text: string, context: { firstName: string, l
     firstName: '',
     lastName: '',
     nationalId: '',
-    birthdate: ''
+    birthdate: '',
+    nationalIdDocumentExpiresAt: '',
   };
 
   try {
@@ -2139,6 +2190,8 @@ function extractDniDataWithContext(text: string, context: { firstName: string, l
         }
       }
     }
+
+    result.nationalIdDocumentExpiresAt = extractNationalIdDocumentExpiresAtFromText(cleanText);
 
   } catch (error) {
     console.error('Error in context-aware extraction:', error);

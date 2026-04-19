@@ -14,6 +14,7 @@ import {
   validateRoleUpdate,
   validatePhoneUpdate,
   validateBirthdateUpdate,
+  validateNationalIdDocumentExpiresAtUpdate,
   mapProfileUpdateError,
 } from "../auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
@@ -49,6 +50,7 @@ const registerSchema = z.object({
   lastName: z.string().min(1).max(80),
   phone: z.string().min(7).max(20).optional(),
   birthdate: z.string().datetime().optional(),
+  nationalIdDocumentExpiresAt: z.string().min(8).max(40).optional(),
   role: z.enum(["ADMIN","STAFF","TEACHER"]).optional(),
 });
 
@@ -150,6 +152,7 @@ async function validateAndBuildProfileUpdate(data: {
   lastName?: string
   phone?: string
   birthdate?: string
+  nationalIdDocumentExpiresAt?: string
   role?: "ADMIN" | "STAFF" | "TEACHER"
 }) {
   const update: any = {};
@@ -167,6 +170,7 @@ async function validateAndBuildProfileUpdate(data: {
 
   update.phone = validatePhoneUpdate(data.phone);
   update.birthdate = validateBirthdateUpdate(data.birthdate);
+  update.nationalIdDocumentExpiresAt = validateNationalIdDocumentExpiresAtUpdate(data.nationalIdDocumentExpiresAt);
 
   return update;
 }
@@ -219,7 +223,7 @@ r.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
 
-  const { email, password, username, nationalId, firstName, lastName, phone, birthdate, role } = parsed.data;
+  const { email, password, username, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role } = parsed.data;
 
   const [byEmail, byUsername, byNational] = await Promise.all([
     prisma.user.findUnique({ where: { email } }),
@@ -231,6 +235,23 @@ r.post("/register", async (req, res) => {
   if (byNational) return res.status(409).json({ message: "Cédula/Documento ya registrado" });
   if (nationalId && !isValidUruguayanCI(nationalId)) return res.status(400).json({ message: "Cédula inválida" });
 
+  if (phone != null && String(phone).trim() !== "") {
+    const normalizedPhone = normalizePhoneUY(phone);
+    if (!normalizedPhone) {
+      return res.status(400).json({
+        message:
+          "Celular inválido. Debe ser uruguayo: 9 dígitos empezando con 09 (sin cédula en este campo).",
+      });
+    }
+  }
+
+  let nationalIdDocumentExpiresAtDate: Date | undefined;
+  try {
+    nationalIdDocumentExpiresAtDate = validateNationalIdDocumentExpiresAtUpdate(nationalIdDocumentExpiresAt);
+  } catch {
+    return res.status(400).json({ message: "Vencimiento de documento inválido" });
+  }
+
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
   const user = await prisma.user.create({
     data: {
@@ -241,8 +262,9 @@ r.post("/register", async (req, res) => {
       firstName,
       lastName,
       name: `${firstName} ${lastName}`,
-      phone: normalizePhoneUY(phone),
+      phone: normalizePhoneUY(phone) ?? null,
       birthdate: birthdate ? new Date(birthdate) : null,
+      nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAtDate ?? null,
       role: role || "STAFF",
       isApproved: false,
       approvedAt: null,
@@ -316,11 +338,12 @@ r.put("/profile", authGuard, async (req, res) => {
     lastName: z.string().min(1).max(80).optional(),
     phone: z.string().min(7).max(20).optional(),
     birthdate: z.string().min(8).max(32).optional(),
+    nationalIdDocumentExpiresAt: z.string().min(8).max(40).optional(),
     role: z.enum(["ADMIN","STAFF","TEACHER"]).optional(),
   });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
-  const { username, nationalId, firstName, lastName, phone, birthdate, role } = parsed.data;
+  const { username, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role } = parsed.data;
   let data: any;
   try {
     data = await validateAndBuildProfileUpdate({
@@ -332,6 +355,7 @@ r.put("/profile", authGuard, async (req, res) => {
       lastName,
       phone,
       birthdate,
+      nationalIdDocumentExpiresAt,
       role,
     });
   } catch (error) {
@@ -510,7 +534,7 @@ r.post("/reset", async (req, res) => {
 // Perfil con needsProfileCompletion
 r.get("/me", authGuard, async (req, res) => {
   const u = (req as any).user;
-  const db = await prisma.user.findUnique({ where: { id: u.sub }, select: { id:true, email:true, name:true, role:true, emailVerifiedAt:true, username:true, nationalId:true, firstName:true, lastName:true, phone:true, birthdate:true, passwordHash:true, isApproved:true, approvedAt:true, isActive:true }});
+  const db = await prisma.user.findUnique({ where: { id: u.sub }, select: { id:true, email:true, name:true, role:true, emailVerifiedAt:true, username:true, nationalId:true, nationalIdDocumentExpiresAt:true, firstName:true, lastName:true, phone:true, birthdate:true, passwordHash:true, isApproved:true, approvedAt:true, isActive:true }});
   if (!db) return res.status(401).json({ message: "No autorizado" });
   const needsProfileCompletion = !db.firstName || !db.lastName || !db.nationalId || !db.birthdate || !db.username;
   const hasPassword = !!db.passwordHash;

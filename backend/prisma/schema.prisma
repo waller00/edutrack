@@ -18,6 +18,8 @@ model User {
   email        String   @unique
   username     String?  @unique
   nationalId   String?  @unique
+  /// Vencimiento de la cédula de identidad (según DNI / OCR).
+  nationalIdDocumentExpiresAt DateTime?
   firstName    String?
   lastName     String?
   name         String?

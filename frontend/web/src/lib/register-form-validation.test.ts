@@ -1,5 +1,6 @@
 import {
   getRegisterBirthdateValidationError,
+  getRegisterNationalIdDocumentExpiresAtValidationError,
   getRegisterDniProcessingErrorMessage,
   getRegisterIdentityValidationError,
   getRegisterVerificationFieldLabel,
@@ -26,10 +27,11 @@ const baseForm = {
   role: 'TEACHER' as const,
   phoneLocal: '',
   birthdate: '1990-01-15',
+  nationalIdDocumentExpiresAt: '2030-06-01',
   dniFile: new File(['x'], 'a.png', { type: 'image/png' }),
   verificationResults: {
-    verifiedFields: 4,
-    totalFields: 4,
+    verifiedFields: 5,
+    totalFields: 5,
     verification: { a: { provided: '', message: '✓' } },
   } satisfies RegisterVerificationResults,
 }
@@ -61,6 +63,7 @@ describe('icons y clases verificación', () => {
   })
   it('labels', () => {
     expect(getRegisterVerificationFieldLabel('lastName')).toBe('Apellidos')
+    expect(getRegisterVerificationFieldLabel('nationalIdDocumentExpiresAt')).toBe('Vencimiento del DNI')
   })
   it('warning message', () => {
     expect(isWarningRegisterVerificationMessage({ provided: '', message: '⚠️ Faltan apellidos' })).toBe(true)
@@ -88,16 +91,29 @@ describe('validateRegisterDniUploadInput', () => {
   Object.defineProperty(img, 'size', { value: 1000 })
 
   it('missing file', () => {
-    expect(validateRegisterDniUploadInput({ firstName: 'a', lastName: 'b', nationalId: '1', birthdate: '2000-01-01' })).toBe(
-      'missing-file',
-    )
+    expect(
+      validateRegisterDniUploadInput({
+        firstName: 'a',
+        lastName: 'b',
+        nationalId: '1',
+        birthdate: '2000-01-01',
+        nationalIdDocumentExpiresAt: '2030-01-01',
+      }),
+    ).toBe('missing-file')
   })
   it('no imagen', () => {
     const t = new File(['x'], 'a.txt', { type: 'text/plain' })
     Object.defineProperty(t, 'size', { value: 10 })
-    expect(validateRegisterDniUploadInput({ file: t, firstName: 'a', lastName: 'b', nationalId: '1', birthdate: '2000-01-01' })).toContain(
-      'imagen',
-    )
+    expect(
+      validateRegisterDniUploadInput({
+        file: t,
+        firstName: 'a',
+        lastName: 'b',
+        nationalId: '1',
+        birthdate: '2000-01-01',
+        nationalIdDocumentExpiresAt: '2030-01-01',
+      }),
+    ).toContain('imagen')
   })
   it('ok', () => {
     expect(
@@ -107,6 +123,7 @@ describe('validateRegisterDniUploadInput', () => {
         lastName: 'b',
         nationalId: validCi,
         birthdate: '2000-01-01',
+        nationalIdDocumentExpiresAt: '2030-01-01',
       }),
     ).toBeNull()
   })
@@ -143,6 +160,16 @@ describe('getRegisterIdentityValidationError', () => {
   })
 })
 
+describe('getRegisterNationalIdDocumentExpiresAtValidationError', () => {
+  it('vacío e inválido', () => {
+    expect(getRegisterNationalIdDocumentExpiresAtValidationError('')).toContain('vencimiento')
+    expect(getRegisterNationalIdDocumentExpiresAtValidationError('2145-01-01')).toContain('rango')
+  })
+  it('válido', () => {
+    expect(getRegisterNationalIdDocumentExpiresAtValidationError('2030-01-15')).toBeNull()
+  })
+})
+
 describe('validateRegisterForm', () => {
   it('formulario completo válido', () => {
     expect(validateRegisterForm(baseForm)).toBeNull()
@@ -155,7 +182,13 @@ describe('validateRegisterForm', () => {
   it('sin DNI verificado', () => {
     expect(validateRegisterForm({ ...baseForm, verificationResults: null })).toContain('verificar')
   })
-  it('teléfono', () => {
-    expect(validateRegisterForm({ ...baseForm, phoneLocal: '12' })).toContain('Teléfono')
+  it('celular', () => {
+    expect(validateRegisterForm({ ...baseForm, phoneLocal: '12' })).toContain('Celular')
+  })
+  it('teléfono no puede ser una cédula válida', () => {
+    expect(validateRegisterForm({ ...baseForm, phoneLocal: '41234563' })).toContain('cédula')
+  })
+  it('sin vencimiento DNI', () => {
+    expect(validateRegisterForm({ ...baseForm, nationalIdDocumentExpiresAt: '' })).toContain('vencimiento')
   })
 })

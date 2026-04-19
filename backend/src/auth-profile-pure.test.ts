@@ -6,6 +6,7 @@ import {
   validateRoleUpdate,
   validatePhoneUpdate,
   validateBirthdateUpdate,
+  validateNationalIdDocumentExpiresAtUpdate,
   mapProfileUpdateError,
 } from "./auth-profile-pure.js";
 
@@ -21,6 +22,16 @@ describe("auth-profile-pure", () => {
 
   it("normalizePhoneUY recorta prefijo 598 y cero local", () => {
     expect(normalizePhoneUY("598099123456")).toBe("+59899123456");
+  });
+
+  it("normalizePhoneUY rechaza dígitos que son cédula válida", () => {
+    expect(normalizePhoneUY("41234563")).toBeUndefined();
+    expect(normalizePhoneUY("59841234563")).toBeUndefined();
+  });
+
+  it("normalizePhoneUY rechaza línea fija (debe ser celular 9…)", () => {
+    expect(normalizePhoneUY("021234567")).toBeUndefined();
+    expect(normalizePhoneUY("+59821234567")).toBeUndefined();
   });
 
   it("buildProfileName", () => {
@@ -69,6 +80,22 @@ describe("auth-profile-pure", () => {
     expect(validateBirthdateUpdate("15/03/1990")).toBeInstanceOf(Date);
   });
 
+  it("validateNationalIdDocumentExpiresAtUpdate vacío → undefined", () => {
+    expect(validateNationalIdDocumentExpiresAtUpdate(undefined)).toBeUndefined();
+    expect(validateNationalIdDocumentExpiresAtUpdate("")).toBeUndefined();
+  });
+
+  it("validateNationalIdDocumentExpiresAtUpdate acepta futuro", () => {
+    const d = validateNationalIdDocumentExpiresAtUpdate("2035-06-10");
+    expect(d).toBeInstanceOf(Date);
+  });
+
+  it("validateNationalIdDocumentExpiresAtUpdate año fuera de rango falla", () => {
+    expect(() => validateNationalIdDocumentExpiresAtUpdate("2140-01-01")).toThrow(
+      "INVALID_NATIONAL_ID_DOCUMENT_EXPIRES_AT",
+    );
+  });
+
   it("mapProfileUpdateError todas las ramas", () => {
     const res = () => ({
       status: (n: number) => ({
@@ -80,6 +107,7 @@ describe("auth-profile-pure", () => {
     expect(mapProfileUpdateError(new Error("INVALID_CI"), res() as any).code).toBe(400);
     expect(mapProfileUpdateError(new Error("INVALID_PHONE"), res() as any).code).toBe(400);
     expect(mapProfileUpdateError(new Error("INVALID_BIRTHDATE"), res() as any).code).toBe(400);
+    expect(mapProfileUpdateError(new Error("INVALID_NATIONAL_ID_DOCUMENT_EXPIRES_AT"), res() as any).code).toBe(400);
     expect(mapProfileUpdateError(new Error("FORBIDDEN"), res() as any).code).toBe(403);
     expect(() => mapProfileUpdateError(new Error("OTHER"), res() as any)).toThrow("OTHER");
   });

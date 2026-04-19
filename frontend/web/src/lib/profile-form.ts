@@ -1,3 +1,5 @@
+import { isValidLocalPhoneUY, normalizeLocalPhoneUY } from '@/lib/uruguay-forms'
+
 export function onlyDigits(v: string): string {
   return v.replace(/\D/g, '')
 }
@@ -24,14 +26,13 @@ export function validCI(input: string): boolean {
   return computeCI(b) === parseInt(d.slice(-1), 10)
 }
 
+/** @deprecated usar normalizeLocalPhoneUY de uruguay-forms */
 export function normLocalPhoneUY(local: string): string {
-  const d = onlyDigits(local)
-  if (!d) return ''
-  return d.startsWith('0') ? d.slice(1) : d
+  return normalizeLocalPhoneUY(local)
 }
 
 export function isValidLocalPhone(local: string): boolean {
-  return /^\d{8}$/.test(normLocalPhoneUY(local))
+  return isValidLocalPhoneUY(local)
 }
 
 export function canEditNationalId(role?: string): boolean {
@@ -60,6 +61,7 @@ export function buildProfilePayload(params: {
   lastName: string
   phoneLocal: string
   birthdate: string
+  nationalIdDocumentExpiresAt: string
   nationalId: string
   isAdmin: boolean
 }): Record<string, unknown> {
@@ -67,8 +69,11 @@ export function buildProfilePayload(params: {
     username: params.username,
     firstName: params.firstName,
     lastName: params.lastName,
-    phone: params.phoneLocal ? `+598${normLocalPhoneUY(params.phoneLocal)}` : undefined,
+    phone: params.phoneLocal ? `+598${normalizeLocalPhoneUY(params.phoneLocal)}` : undefined,
     birthdate: params.birthdate ? new Date(params.birthdate).toISOString() : undefined,
+    nationalIdDocumentExpiresAt: params.nationalIdDocumentExpiresAt
+      ? new Date(params.nationalIdDocumentExpiresAt).toISOString()
+      : undefined,
   }
   if (params.isAdmin) {
     payload.nationalId = params.nationalId
@@ -84,9 +89,11 @@ export function validateProfileForm(params: {
   phoneLocal: string
   canEditCi: boolean
 }): string | null {
-  if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(params.username)) return 'Usuario inválido'
+  if (!/^[-a-zA-Z0-9_.]{3,30}$/.test(params.username)) return 'Usuario inválido'
   if (params.canEditCi && !validCI(params.nationalId)) return 'Cédula inválida'
   if (!params.firstName.trim() || !params.lastName.trim()) return 'Nombre y apellido obligatorios'
-  if (params.phoneLocal && !isValidLocalPhone(params.phoneLocal)) return 'Teléfono inválido'
+  if (params.phoneLocal && !isValidLocalPhoneUY(params.phoneLocal)) {
+    return 'Celular inválido. Ingresá 9 dígitos empezando con 09.'
+  }
   return null
 }
