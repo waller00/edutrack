@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ForgotPage from './page'
 import { api } from '@/lib/api'
@@ -59,6 +59,12 @@ describe('ForgotPage', () => {
   })
 
   it('renders the captcha widget and sends its token to the api', async () => {
+    // En CI (jsdom) los rAF suelen diferirse: el click corre antes de renderWidget → sin token de captcha.
+    const realRaf = globalThis.requestAnimationFrame
+    globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      cb(0)
+      return 0
+    }
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'site-key'
     const renderTurnstile = vi.fn((_element: HTMLElement, options: Record<string, unknown>) => {
       ;(options.callback as (token: string) => void)('captcha-token')
@@ -71,20 +77,30 @@ describe('ForgotPage', () => {
     })
     vi.mocked(api).mockResolvedValueOnce({ ok: true })
 
-    render(<ForgotPage />)
-    ;(window as Window & { onloadTurnstileForgot?: () => void }).onloadTurnstileForgot?.()
-
-    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'user@example.com' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar enlace' }))
-
-    await waitFor(() =>
-      expect(api).toHaveBeenCalledWith('/auth/forgot', {
-        method: 'POST',
-        body: JSON.stringify({ email: 'user@example.com', captchaToken: 'captcha-token' }),
+    try {
+      render(<ForgotPage />)
+      await act(async () => {
+        ;(window as unknown as { onloadTurnstileForgot?: () => void }).onloadTurnstileForgot?.()
       })
-    )
-    expect(renderTurnstile).toHaveBeenCalled()
-    expect(screen.getByText('Email enviado')).toBeInTheDocument()
+      // Asegurar que setCaptchaToken (callback de Turnstile) quede aplicado antes del submit.
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'user@example.com' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Enviar enlace' }))
+
+      await waitFor(() =>
+        expect(api).toHaveBeenCalledWith('/auth/forgot', {
+          method: 'POST',
+          body: JSON.stringify({ email: 'user@example.com', captchaToken: 'captcha-token' }),
+        })
+      )
+      expect(renderTurnstile).toHaveBeenCalled()
+      expect(screen.getByText('Email enviado')).toBeInTheDocument()
+    } finally {
+      globalThis.requestAnimationFrame = realRaf
+    }
   })
 
   it('maps backend errors to user-facing messages', async () => {
