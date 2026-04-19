@@ -410,7 +410,7 @@ describe("auth routes (mocks)", () => {
     const res = await request(app())
       .put("/auth/password/change")
       .set(authHeader())
-      .send({ currentPassword: "Abcd1234!", newPassword: "soloMinus1" });
+      .send({ currentPassword: "Abcd1234!", newPassword: "solominus1" });
     expect(res.status).toBe(400);
     expect(String(res.body.message)).toMatch(/mayúscula/i);
   });
@@ -579,7 +579,7 @@ describe("auth routes (mocks)", () => {
   it("POST /auth/reset 400 si la contraseña no cumple política fuerte", async () => {
     const res = await request(app())
       .post("/auth/reset")
-      .send({ token: "12345678901234567890123456789012", password: "soloMinus1" });
+      .send({ token: "12345678901234567890123456789012", password: "solominus1" });
     expect(res.status).toBe(400);
     expect(String(res.body.message)).toMatch(/mayúscula|contraseña/i);
   });

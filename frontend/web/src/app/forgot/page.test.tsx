@@ -53,12 +53,12 @@ describe('ForgotPage', () => {
 
   it('renders the captcha widget and sends its token to the api', async () => {
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'site-key'
-    const renderTurnstile = vi.fn((_element, options: { callback: (token: string) => void }) => {
-      options.callback('captcha-token')
+    const renderTurnstile = vi.fn((_element: HTMLElement, options: Record<string, unknown>) => {
+      ;(options.callback as (token: string) => void)('captcha-token')
       return 'widget-mock'
     })
-    ;(window as Window & { turnstile?: { render: typeof renderTurnstile; remove?: () => void; reset?: () => void } }).turnstile = {
-      render: renderTurnstile,
+    ;(window as Window & { turnstile?: NonNullable<Window['turnstile']> }).turnstile = {
+      render: renderTurnstile as NonNullable<Window['turnstile']>['render'],
       remove: vi.fn(),
       reset: vi.fn(),
     }
