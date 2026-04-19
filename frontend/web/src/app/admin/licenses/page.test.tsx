@@ -148,7 +148,7 @@ describe('LicensesPage', () => {
     fireEvent.change(screen.getByLabelText('Usuario de licencia'), { target: { value: 'u1' } })
     fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2025-01-01' } })
     fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '2025-01-03' } })
-    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Reposo nuevo' } })
+    fireEvent.change(screen.getByLabelText('Motivo (obligatorio)'), { target: { value: 'Reposo nuevo' } })
     fireEvent.click(screen.getByRole('button', { name: 'Crear Licencia' }))
 
     await waitFor(() => {
