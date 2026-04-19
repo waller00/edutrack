@@ -80,13 +80,14 @@ describe('RegisterPage', () => {
       if (String(url).includes('verify-step-by-step')) {
         return {
           success: true,
-          verifiedFields: 4,
-          totalFields: 4,
+          verifiedFields: 5,
+          totalFields: 5,
           verification: {
             firstName: { message: '✓ OK' },
             lastName: { message: '✓ OK' },
             nationalId: { message: '✓ OK' },
             birthdate: { message: '✓ OK' },
+            nationalIdDocumentExpiresAt: { message: '✓ OK' },
           },
         }
       }
@@ -107,6 +108,7 @@ describe('RegisterPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Tus apellidos'), { target: { value: 'García' } })
     fireEvent.change(screen.getByPlaceholderText('X.XXX.XXX-X'), { target: { value: '41234563' } })
     fireEvent.change(screen.getByTestId('birthdate-input'), { target: { value: '1990-06-15' } })
+    fireEvent.change(screen.getByLabelText(/Vencimiento del DNI/i), { target: { value: '2030-06-01' } })
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'STAFF' } })
 
     await waitFor(() =>
@@ -133,25 +135,29 @@ describe('RegisterPage', () => {
     expect(mockedApi.mock.calls.some((c) => String(c[0]).includes('/auth/register'))).toBe(true)
   })
 
-  it('409 en registro muestra mensaje duplicados', async () => {
+  it('409 en registro muestra mensaje del backend', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('/auth/me')) throw new Error('401')
       if (String(url).includes('check-username')) return { available: true, valid: true }
       if (String(url).includes('verify-step-by-step')) {
         return {
           success: true,
-          verifiedFields: 4,
-          totalFields: 4,
+          verifiedFields: 5,
+          totalFields: 5,
           verification: {
             firstName: { message: '✓' },
             lastName: { message: '✓' },
             nationalId: { message: '✓' },
             birthdate: { message: '✓' },
+            nationalIdDocumentExpiresAt: { message: '✓' },
           },
         }
       }
       if (String(url).includes('/auth/register')) {
-        throw Object.assign(new Error('409 conflict'), { message: '409' })
+        throw Object.assign(new Error('Email ya registrado'), {
+          status: 409,
+          data: { message: 'Email ya registrado' },
+        })
       }
       return {}
     })
@@ -165,6 +171,7 @@ describe('RegisterPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Tus apellidos'), { target: { value: 'López' } })
     fireEvent.change(screen.getByPlaceholderText('X.XXX.XXX-X'), { target: { value: '41234563' } })
     fireEvent.change(screen.getByTestId('birthdate-input'), { target: { value: '1992-01-01' } })
+    fireEvent.change(screen.getByLabelText(/Vencimiento del DNI/i), { target: { value: '2031-01-01' } })
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'TEACHER' } })
 
     await waitFor(() =>
@@ -180,6 +187,6 @@ describe('RegisterPage', () => {
     await new Promise((r) => setTimeout(r, 500))
     fireEvent.click(screen.getByRole('button', { name: /Crear cuenta/i }))
 
-    expect(await screen.findByText(/duplicados/i)).toBeInTheDocument()
+    expect(await screen.findByText('Email ya registrado')).toBeInTheDocument()
   })
 })

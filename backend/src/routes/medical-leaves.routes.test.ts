@@ -127,6 +127,44 @@ describe("medical-leaves (prisma mock)", () => {
     expect(res.body.reconciliation).toBeDefined();
   });
 
+  it("POST /medical-leaves 400 certificado inválido", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: uid });
+    const res = await request(app())
+      .post("/medical-leaves")
+      .set(admin())
+      .send({
+        ...leaveBody,
+        certificate: "data:text/plain;base64,Zm9v",
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /medical-leaves 201 con certificado URL", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: uid });
+    prismaMock.medicalLeave.create.mockResolvedValue({
+      id: "L2",
+      ...leaveBody,
+      certificate: "https://example.com/cert.pdf",
+      status: "ACTIVE",
+      user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
+    });
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.attendance.updateMany.mockResolvedValue({ count: 0 });
+    const res = await request(app())
+      .post("/medical-leaves")
+      .set(admin())
+      .send({
+        ...leaveBody,
+        certificate: "https://example.com/cert.pdf",
+      });
+    expect(res.status).toBe(201);
+    expect(prismaMock.medicalLeave.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ certificate: "https://example.com/cert.pdf" }),
+      }),
+    );
+  });
+
   it("POST /medical-leaves 500 si prisma falla", async () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: uid });
     prismaMock.medicalLeave.create.mockRejectedValueOnce(new Error("db"));
@@ -179,6 +217,44 @@ describe("medical-leaves (prisma mock)", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ACTIVE");
     expect(res.body.reconciliation).toBeDefined();
+  });
+
+  it("PUT /medical-leaves/:id acepta campos opcionales en null (como desde Prisma/UI)", async () => {
+    const lic = {
+      id: "l1",
+      userId: uid,
+      startDate: new Date("2025-01-01"),
+      endDate: new Date("2025-01-05"),
+      type: "MEDICAL_LEAVE",
+      reason: "motivo",
+      notes: null,
+      doctorName: null,
+      doctorPhone: null,
+      status: "ACTIVE",
+    };
+    prismaMock.medicalLeave.findUnique.mockResolvedValue(lic);
+    prismaMock.medicalLeave.update.mockResolvedValue({
+      ...lic,
+      reason: "solo motivo",
+      user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
+    });
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.attendance.updateMany.mockResolvedValue({ count: 0 });
+    const res = await request(app())
+      .put("/medical-leaves/l1")
+      .set(admin())
+      .send({
+        type: "MEDICAL_LEAVE",
+        startDate: "2025-01-01T12:00:00.000Z",
+        endDate: "2025-01-05T12:00:00.000Z",
+        reason: "solo motivo",
+        notes: null,
+        doctorName: null,
+        doctorPhone: null,
+        certificate: null,
+      });
+    expect(res.status).toBe(200);
+    expect(prismaMock.medicalLeave.update).toHaveBeenCalled();
   });
 
   it("PUT /medical-leaves/:id valida fechas", async () => {

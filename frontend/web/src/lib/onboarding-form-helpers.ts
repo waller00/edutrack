@@ -26,8 +26,12 @@ export function getOnboardingVerificationFieldLabel(field: string): string {
       return 'Apellido'
     case 'nationalId':
       return 'Cédula'
-    default:
+    case 'birthdate':
       return 'Fecha de nacimiento'
+    case 'nationalIdDocumentExpiresAt':
+      return 'Vencimiento del DNI'
+    default:
+      return field
   }
 }
 

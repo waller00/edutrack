@@ -288,6 +288,21 @@ describe("auth routes (mocks)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("POST /auth/register 400 teléfono con cédula válida", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const res = await request(app())
+      .post("/auth/register")
+      .send({
+        email: "free2@d.com",
+        password: "Abcd1234!",
+        firstName: "A",
+        lastName: "B",
+        phone: "+59841234563",
+      });
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/Teléfono|cédula/i);
+  });
+
   it("POST /auth/verify/resend devuelve ok si el usuario no existe", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     const res = await request(app()).post("/auth/verify/resend").set(authHeader());

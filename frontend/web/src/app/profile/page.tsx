@@ -4,6 +4,7 @@ import { FileText, Info, KeyRound, Lock, Save, User } from 'lucide-react'
 import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { api } from '@/lib/api'
 import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
+import { formatLocalMobileInputFromE164 } from '@/lib/uruguay-forms'
 import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
 import {
   buildProfilePayload,
@@ -24,6 +25,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
   const [lastName,setLastName]=useState('')
   const [phoneLocal,setPhoneLocal]=useState('')
   const [birthdate,setBirthdate]=useState('')
+  const [nationalIdDocumentExpiresAt,setNationalIdDocumentExpiresAt]=useState('')
   const [saving,setSaving]=useState(false)
   const [msg,setMsg]=useState('')
 
@@ -46,8 +48,11 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
       setNationalId(u.nationalId||'')
       setFirstName(u.firstName||'')
       setLastName(u.lastName||'')
-      setPhoneLocal(u.phone?u.phone.replace('+598','').replace(/^0/,''): '')
+      setPhoneLocal(formatLocalMobileInputFromE164(u.phone))
       setBirthdate(u.birthdate? String(u.birthdate).slice(0,10): '')
+      setNationalIdDocumentExpiresAt(
+        u.nationalIdDocumentExpiresAt ? String(u.nationalIdDocumentExpiresAt).slice(0, 10) : '',
+      )
       setHasPassword(!!u.hasPassword)
     }).catch(()=> window.location.href='/login')
   },[])
@@ -71,6 +76,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
         lastName,
         phoneLocal,
         birthdate,
+        nationalIdDocumentExpiresAt,
         nationalId,
         isAdmin: canEditNationalId(me?.role),
       })
@@ -179,6 +185,19 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
             onPhoneChange={setPhoneLocal}
             onBirthdateChange={setBirthdate}
           />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Vencimiento del DNI</label>
+            <input
+              value={nationalIdDocumentExpiresAt}
+              onChange={(e) => setNationalIdDocumentExpiresAt(e.target.value)}
+              type="date"
+              min="1950-01-01"
+              max="2100-12-31"
+              className="input-field"
+              aria-label="Vencimiento del DNI"
+            />
+            <p className="text-xs text-gray-500 mt-1">Opcional si aún no consta en el sistema.</p>
+          </div>
         </div>
         <div className="flex justify-end pt-6 border-t border-gray-200">
           <button
