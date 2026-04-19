@@ -94,9 +94,13 @@ export default function ForgotPage() {
 									</a>
 								</div>
 							)}
-							<a href="/login" className="btn-primary w-full text-center justify-center">
-								Volver al login
-							</a>
+							<p className="text-center text-sm text-gray-500">
+								Revisá tu correo. Podés cerrar esta pestaña o{' '}
+								<a href="/login" className="text-emerald-600 font-medium hover:underline">
+									ir al inicio de sesión
+								</a>{' '}
+								cuando quieras.
+							</p>
 						</div>
 					) : (
 						<form onSubmit={onSubmit} className="space-y-6">
