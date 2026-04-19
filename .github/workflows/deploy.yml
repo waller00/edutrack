@@ -34,6 +34,7 @@ jobs:
           host: ${{ secrets.SSH_HOST_TESTING }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
+          command_timeout: 40m
           script: |
             set -e
             compose() {
@@ -53,7 +54,8 @@ jobs:
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
             # NEXT_PUBLIC_* va en el build de Next: sin --no-cache web puede quedar imagen vieja sin Turnstile
             compose $CF build --no-cache web
-            compose $CF up -d --build
+            compose $CF build auth
+            compose $CF up -d --no-build
             echo "EduTrack actualizado en TESTING"
 
   deploy-production:
@@ -69,6 +71,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 40m
           script: |
             set -e
             compose() {
@@ -87,5 +90,6 @@ jobs:
             compose $CF down
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
             compose $CF build --no-cache web
-            compose $CF up -d --build
+            compose $CF build auth
+            compose $CF up -d --no-build
             echo "EduTrack actualizado en PRODUCCION"
