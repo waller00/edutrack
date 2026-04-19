@@ -38,9 +38,7 @@ export function canEditNationalId(role?: string): boolean {
   return role === 'ADMIN'
 }
 
-export function isStrongPassword(password: string): boolean {
-  return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password)
-}
+export { isStrongPassword, STRONG_PASSWORD_MESSAGE } from '@/lib/password-strength'
 
 export function getProfileErrorMessage(error: unknown): string {
   const message = String((error as { message?: string })?.message || '')
@@ -52,6 +50,7 @@ export function getProfileErrorMessage(error: unknown): string {
 export function getPasswordErrorMessage(error: unknown): string {
   const message = String((error as { message?: string })?.message || '')
   if (message.includes('401')) return 'Contraseña actual incorrecta'
+  if (message.includes('mayúscula') && message.includes('minúscula')) return message
   return 'No se pudo actualizar la contraseña'
 }
 

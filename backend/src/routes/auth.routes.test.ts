@@ -366,6 +366,16 @@ describe("auth routes (mocks)", () => {
     expect(res.body.ok).toBe(true);
   });
 
+  it("PUT /auth/password 400 si la contraseña no cumple política fuerte", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ passwordHash: null });
+    const res = await request(app())
+      .put("/auth/password")
+      .set(authHeader())
+      .send({ password: "noupper1" });
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/mayúscula/i);
+  });
+
   it("PUT /auth/password 409 si ya tiene contraseña", async () => {
     prismaMock.user.findUnique.mockResolvedValue({ passwordHash: "$argon2id$existing" });
     const res = await request(app())
@@ -393,6 +403,16 @@ describe("auth routes (mocks)", () => {
       .set(authHeader())
       .send({ currentPassword: "Abcd1234!", newPassword: "Xyz98765!" });
     expect(res.status).toBe(409);
+  });
+
+  it("PUT /auth/password/change 400 si la nueva no cumple política fuerte", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ passwordHash: "$argon2id$existing" });
+    const res = await request(app())
+      .put("/auth/password/change")
+      .set(authHeader())
+      .send({ currentPassword: "Abcd1234!", newPassword: "soloMinus1" });
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/mayúscula/i);
   });
 
   it("PUT /auth/password/change 401 si la actual no coincide", async () => {
@@ -554,6 +574,14 @@ describe("auth routes (mocks)", () => {
     expect(res.body.ok).toBe(true);
     expect(prismaMock.passwordReset.create).toHaveBeenCalled();
     expect(sendMailMock).toHaveBeenCalled();
+  });
+
+  it("POST /auth/reset 400 si la contraseña no cumple política fuerte", async () => {
+    const res = await request(app())
+      .post("/auth/reset")
+      .send({ token: "12345678901234567890123456789012", password: "soloMinus1" });
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/mayúscula|contraseña/i);
   });
 
   it("POST /auth/reset 400 si el token es inválido", async () => {

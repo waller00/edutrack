@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ResetPage from './page'
 import { api } from '@/lib/api'
+import { STRONG_PASSWORD_MESSAGE } from '@/lib/password-strength'
 
 vi.mock('@/lib/api', () => ({
   api: vi.fn(),
@@ -18,22 +19,22 @@ describe('ResetPage', () => {
     vi.unstubAllGlobals()
   })
 
-  it('validates password length', async () => {
+  it('valida política de contraseña fuerte', async () => {
     render(<ResetPage />)
 
     fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'short' } })
     fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: 'short' } })
     fireEvent.click(screen.getByRole('button', { name: 'Actualizar contraseña' }))
 
-    expect(await screen.findByText('La contraseña debe tener al menos 8 caracteres')).toBeInTheDocument()
+    expect(await screen.findByText(STRONG_PASSWORD_MESSAGE)).toBeInTheDocument()
     expect(api).not.toHaveBeenCalled()
   })
 
   it('validates password confirmation', async () => {
     render(<ResetPage />)
 
-    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: '12345678' } })
-    fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: '87654321' } })
+    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'Abcd1234!' } })
+    fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: 'Abcd5678!' } })
     fireEvent.click(screen.getByRole('button', { name: 'Actualizar contraseña' }))
 
     expect(await screen.findByText('Las contraseñas no coinciden')).toBeInTheDocument()
@@ -74,14 +75,14 @@ describe('ResetPage', () => {
 
     render(<ResetPage />)
 
-    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: '12345678' } })
-    fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: '12345678' } })
+    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'Abcd1234!' } })
+    fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: 'Abcd1234!' } })
     fireEvent.click(screen.getByRole('button', { name: 'Actualizar contraseña' }))
 
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith('/auth/reset', {
         method: 'POST',
-        body: JSON.stringify({ token: 'abc123', password: '12345678' }),
+        body: JSON.stringify({ token: 'abc123', password: 'Abcd1234!' }),
       })
     )
     await waitFor(() => expect(hrefTarget).toBe('/'))
@@ -92,8 +93,8 @@ describe('ResetPage', () => {
 
     render(<ResetPage />)
 
-    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: '12345678' } })
-    fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: '12345678' } })
+    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'Abcd1234!' } })
+    fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: 'Abcd1234!' } })
     fireEvent.click(screen.getByRole('button', { name: 'Actualizar contraseña' }))
 
     expect(await screen.findByText('El enlace es inválido o expiró')).toBeInTheDocument()

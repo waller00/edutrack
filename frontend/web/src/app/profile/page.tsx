@@ -12,6 +12,7 @@ import {
   getPasswordErrorMessage,
   getProfileErrorMessage,
   isStrongPassword,
+  STRONG_PASSWORD_MESSAGE,
   validateProfileForm,
 } from '@/lib/profile-form'
 
@@ -84,7 +85,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
     if(!hasPassword) return
     setMsg('')
     if(newPassword!==confirm) return setMsg('Las contraseñas no coinciden')
-    if(!isStrongPassword(newPassword)) return setMsg('Contraseña débil')
+    if(!isStrongPassword(newPassword)) return setMsg(STRONG_PASSWORD_MESSAGE)
     setSavingPass(true)
     try{
       await api('/auth/password/change',{ method:'PUT', body: JSON.stringify({ currentPassword, newPassword }) })

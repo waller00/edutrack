@@ -1,7 +1,6 @@
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-  console.log('API URL:', apiUrl, 'Path:', path)
-  
+
   const doFetch = async () =>
     fetch(`${apiUrl}${path}`, {
       credentials: "include",
@@ -11,8 +10,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     })
 
   let res = await doFetch()
-  console.log('API Response status:', res.status)
-  
+
   if (res.status === 401) {
     // intentar refresh una vez
     const r = await fetch(`${apiUrl}/auth/refresh`, {

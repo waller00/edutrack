@@ -1,5 +1,5 @@
 import { isValidUruguayanCI, isValidLocalPhoneUY } from '@/lib/uruguay-forms'
-import { isStrongPassword } from '@/lib/password-strength'
+import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from '@/lib/password-strength'
 
 export type RegisterRole = 'STAFF' | 'TEACHER' | ''
 export type RegisterUsernameStatus = 'idle' | 'checking' | 'ok' | 'taken' | 'invalid'
@@ -143,7 +143,7 @@ export function validateRegisterForm(params: {
 }): string | null {
   if (!isValidRegisterEmail(params.email)) return 'Email inválido'
   if (!isStrongPassword(params.password)) {
-    return 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número'
+    return STRONG_PASSWORD_MESSAGE
   }
   if (params.password !== params.confirm) return 'Las contraseñas no coinciden'
   const identityError = getRegisterIdentityValidationError(params)

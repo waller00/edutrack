@@ -5,7 +5,13 @@ import { api } from '@/lib/api'
 import { Info } from 'lucide-react'
 
 declare global {
-	interface Window { turnstile: any }
+	interface Window {
+		turnstile?: {
+			render: (container: HTMLElement, options: Record<string, unknown>) => string
+			reset?: (widgetId: string) => void
+			remove?: (widgetId: string) => void
+		}
+	}
 }
 
 export default function ForgotPage() {
@@ -15,26 +21,86 @@ export default function ForgotPage() {
 	const [loading, setLoading] = useState(false)
 	const [captchaToken, setCaptchaToken] = useState('')
 	const widgetRef = useRef<HTMLDivElement>(null)
+	const widgetIdRef = useRef<string | null>(null)
 
 	const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
+	function resetTurnstileWidget() {
+		const id = widgetIdRef.current
+		if (id && window.turnstile?.reset) {
+			try {
+				window.turnstile.reset(id)
+			} catch {
+				/* ignore */
+			}
+		}
+		setCaptchaToken('')
+	}
+
 	useEffect(() => {
 		if (!siteKey) return
-		const scriptId = 'turnstile-script'
-		if (document.getElementById(scriptId)) return render()
-		const s = document.createElement('script')
-		s.id = scriptId
-		s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstile'
-		;(window as any).onloadTurnstile = render
-		document.body.appendChild(s)
-		function render() {
-			if (!widgetRef.current) return
-			window.turnstile?.render(widgetRef.current, {
+
+		function renderWidget(): boolean {
+			const el = widgetRef.current
+			if (!el || !window.turnstile?.render) return false
+			try {
+				if (widgetIdRef.current && window.turnstile.remove) {
+					window.turnstile.remove(widgetIdRef.current)
+				}
+			} catch {
+				/* ignore */
+			}
+			widgetIdRef.current = null
+			widgetIdRef.current = window.turnstile.render(el, {
 				sitekey: siteKey,
 				callback: (token: string) => setCaptchaToken(token),
 				'error-callback': () => setCaptchaToken(''),
+				'expired-callback': () => setCaptchaToken(''),
 				theme: 'light',
 			})
+			return true
+		}
+
+		const scriptId = 'turnstile-script'
+		const scheduleRender = () => {
+			requestAnimationFrame(() => {
+				if (!renderWidget()) {
+					requestAnimationFrame(() => {
+						renderWidget()
+					})
+				}
+			})
+		}
+
+		if (document.getElementById(scriptId)) {
+			scheduleRender()
+			return () => {
+				if (widgetIdRef.current && window.turnstile?.remove) {
+					try {
+						window.turnstile.remove(widgetIdRef.current)
+					} catch {
+						/* ignore */
+					}
+					widgetIdRef.current = null
+				}
+			}
+		}
+
+		const s = document.createElement('script')
+		s.id = scriptId
+		s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileForgot'
+		;(window as unknown as { onloadTurnstileForgot?: () => void }).onloadTurnstileForgot = () => scheduleRender()
+		document.body.appendChild(s)
+
+		return () => {
+			if (widgetIdRef.current && window.turnstile?.remove) {
+				try {
+					window.turnstile.remove(widgetIdRef.current)
+				} catch {
+					/* ignore */
+				}
+				widgetIdRef.current = null
+			}
 		}
 	}, [siteKey])
 
@@ -52,10 +118,12 @@ export default function ForgotPage() {
 				body: JSON.stringify({ email, captchaToken: captchaToken || undefined }),
 			})
 			setSent(res.resetUrl || 'ok')
-		} catch (e:any) {
-			const msg = String(e?.message||'')
+			if (siteKey) resetTurnstileWidget()
+		} catch (e: unknown) {
+			const msg = String((e as Error)?.message || '')
 			if (msg.includes('400')) setError('Captcha inválido. Intenta nuevamente.')
 			else setError('No se pudo enviar el email. Intenta nuevamente.')
+			if (siteKey) resetTurnstileWidget()
 		} finally {
 			setLoading(false)
 		}
@@ -72,7 +140,7 @@ export default function ForgotPage() {
 						<h1 className="text-3xl font-bold text-gray-900 mb-2">Recuperar Contraseña</h1>
 						<p className="text-gray-600">Ingresa tu email para recibir un enlace de restablecimiento</p>
 					</div>
-					
+
 					{sent ? (
 						<div className="space-y-6">
 							<div className="p-6 bg-blue-50 border border-blue-200 rounded-lg">
@@ -118,15 +186,20 @@ export default function ForgotPage() {
 									onChange={e => setEmail(e.target.value)}
 								/>
 							</div>
-							
-							{siteKey && <div ref={widgetRef} className="flex justify-center" />}
-							
+
+							{siteKey ? (
+								<div className="space-y-2">
+									<p className="text-sm text-gray-600 text-center">Verificación de seguridad</p>
+									<div ref={widgetRef} className="flex justify-center min-h-[65px]" />
+								</div>
+							) : null}
+
 							{error && (
 								<div className="p-4 bg-red-50 border border-red-200 rounded-lg">
 									<p className="text-red-600 text-sm">{error}</p>
 								</div>
 							)}
-							
+
 							<button
 								type="submit"
 								className="btn-primary w-full disabled:opacity-60"
@@ -134,7 +207,7 @@ export default function ForgotPage() {
 							>
 								<PendingButtonContent pending={loading} pendingText="Enviando…" idle="Enviar enlace" />
 							</button>
-							
+
 							<div className="text-center">
 								<a className="text-emerald-600 hover:text-emerald-700 font-medium" href="/login">
 									Volver al login
@@ -146,4 +219,4 @@ export default function ForgotPage() {
 			</div>
 		</main>
 	)
-} 
+}
