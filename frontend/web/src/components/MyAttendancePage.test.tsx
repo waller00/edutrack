@@ -23,6 +23,7 @@ function mockLocation() {
 
 describe('MyAttendancePage', () => {
   beforeEach(() => {
+    mockedApi.mockReset()
     mockLocation()
   })
 
@@ -57,7 +58,8 @@ describe('MyAttendancePage', () => {
 
     render(<MyAttendancePage role="STAFF" />)
 
-    expect(await screen.findByText('No hay registros de asistencia')).toBeInTheDocument()
+    await screen.findByRole('heading', { name: 'Mis Asistencias' })
+    expect(screen.getByText('No hay registros de asistencia')).toBeInTheDocument()
   })
 
   it('reloads with updated query params when filters change', async () => {
