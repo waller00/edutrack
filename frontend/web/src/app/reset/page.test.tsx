@@ -48,7 +48,6 @@ describe('ResetPage', () => {
       hash: '',
       host: 'localhost',
       hostname: 'localhost',
-      href: '',
       origin: 'http://localhost:3000',
       pathname: '/reset',
       port: '3000',

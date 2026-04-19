@@ -39,7 +39,7 @@ export default function ResetPage() {
 	}
 
 	return (
-		<main className="min-h-screen grid place-items-center bg-gradient-to-b from-slate-100 to-slate-2 00">
+		<main className="min-h-screen grid place-items-center bg-gradient-to-b from-slate-100 to-slate-200">
 			<div className="w-full max-w-sm bg-white border border-gray-300 rounded-2xl p-6 shadow-md hover:shadow-lg transition">
 				<div className="mx-auto mb-2 w-10 h-10 grid place-items-center rounded-full bg-blue-50 text-blue-600">🔒</div>
 				<h1 className="text-2xl font-bold mb-1 text-center">Restablecer contraseña</h1>
