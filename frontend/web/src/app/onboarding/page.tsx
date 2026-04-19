@@ -1,9 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { compressImage, fileToDataUrl } from '@/lib/image-upload'
 import {
-  onlyDigits,
+  formatLocalMobileInputFromE164,
   formatUruguayanCI,
   isValidUruguayanCI,
   isValidLocalPhoneUY,
@@ -23,6 +23,7 @@ import {
   resolveOnboardingUsernameStatus,
   type OnboardingUsernameStatus,
 } from '@/lib/onboarding-form-helpers'
+import { getRegisterNationalIdDocumentExpiresAtValidationError } from '@/lib/register-form-validation'
 
 type VerificationEntry = {
   provided: string
@@ -40,7 +41,10 @@ type VerifyDniResponse = {
   verification?: Record<string, VerificationEntry>
   validation?: DniValidation | null
   message?: string
+  extractedData?: { nationalIdDocumentExpiresAt?: string }
 }
+
+const DNI_REVERIFY_DEBOUNCE_MS = 550
 
 type Me = {
   email: string
@@ -49,6 +53,7 @@ type Me = {
   lastName?: string
   nationalId?: string
   birthdate?: string
+  nationalIdDocumentExpiresAt?: string
   phone?: string
   role: 'ADMIN' | 'STAFF' | 'TEACHER'
   hasPassword: boolean
@@ -63,6 +68,7 @@ export default function OnboardingPage() {
   const [lastName, setLastName] = useState('')
   const [phoneLocal, setPhoneLocal] = useState('')
   const [birthdate, setBirthdate] = useState('')
+  const [nationalIdDocumentExpiresAt, setNationalIdDocumentExpiresAt] = useState('')
   const [role, setRole] = useState<'STAFF' | 'TEACHER'>('STAFF')
   const [hasPassword, setHasPassword] = useState(true)
   const [password, setPassword] = useState('')
@@ -78,6 +84,26 @@ export default function OnboardingPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const dniFileRef = useRef<File | null>(null)
+  const verifySeqRef = useRef(0)
+  const identityFieldsRef = useRef({
+    firstName,
+    lastName,
+    nationalId,
+    birthdate,
+    nationalIdDocumentExpiresAt,
+  })
+  identityFieldsRef.current = {
+    firstName,
+    lastName,
+    nationalId,
+    birthdate,
+    nationalIdDocumentExpiresAt,
+  }
+  useEffect(() => {
+    dniFileRef.current = dniFile
+  }, [dniFile])
+
   useEffect(() => {
     api<Me & { needsProfileCompletion: boolean }>('/auth/me')
       .then((data) => {
@@ -88,9 +114,13 @@ export default function OnboardingPage() {
         setLastName(data.lastName || '')
         setNationalId(data.nationalId ? formatUruguayanCI(data.nationalId) : '')
         setBirthdate(data.birthdate ? new Date(data.birthdate).toISOString().split('T')[0] : '')
+        setNationalIdDocumentExpiresAt(
+          data.nationalIdDocumentExpiresAt
+            ? new Date(data.nationalIdDocumentExpiresAt).toISOString().split('T')[0]
+            : '',
+        )
         setRole(data.role === 'TEACHER' ? 'TEACHER' : 'STAFF')
-        const normalizedPhone = onlyDigits(data.phone || '').replace(/^598/, '')
-        setPhoneLocal(normalizedPhone)
+        setPhoneLocal(formatLocalMobileInputFromE164(data.phone))
       })
       .catch(() => {
         window.location.href = '/login'
@@ -107,7 +137,7 @@ export default function OnboardingPage() {
       setUsernameStatus('idle')
       return
     }
-    const valid = /^[a-zA-Z0-9_.-]{3,30}$/.test(username)
+    const valid = /^[-a-zA-Z0-9_.]{3,30}$/.test(username)
     if (!valid) {
       setUsernameStatus('invalid')
       return
@@ -124,12 +154,6 @@ export default function OnboardingPage() {
     }, 400)
     return () => clearTimeout(t)
   }, [username])
-
-  useEffect(() => {
-    if (!verificationResults) return
-    setVerificationResults(null)
-    setDniValidation(null)
-  }, [firstName, lastName, nationalId, birthdate])
 
   useEffect(() => () => {
     if (dniPreviewUrl) URL.revokeObjectURL(dniPreviewUrl)
@@ -174,21 +198,16 @@ export default function OnboardingPage() {
     )
   }
 
-  async function handleDniUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      setError('Selecciona una imagen válida del DNI.')
-      return
-    }
-    if (!firstName || !lastName || !nationalId || !birthdate) {
-      setError('Completa nombre, apellido, cédula y fecha antes de verificar con el DNI.')
-      return
-    }
+  const runVerifyDniImage = useCallback(async (file: File) => {
+    const seq = ++verifySeqRef.current
+    const {
+      firstName: fn,
+      lastName: ln,
+      nationalId: ni,
+      birthdate: bd,
+      nationalIdDocumentExpiresAt: exp,
+    } = identityFieldsRef.current
 
-    if (dniPreviewUrl) URL.revokeObjectURL(dniPreviewUrl)
-    setDniFile(file)
-    setDniPreviewUrl(URL.createObjectURL(file))
     setProcessingDni(true)
     setVerificationResults(null)
     setDniValidation(null)
@@ -203,15 +222,21 @@ export default function OnboardingPage() {
         method: 'POST',
         body: JSON.stringify({
           image: base64,
-          firstName,
-          lastName,
-          nationalId,
-          birthdate,
+          firstName: fn,
+          lastName: ln,
+          nationalId: ni,
+          birthdate: bd,
+          nationalIdDocumentExpiresAt: exp,
         }),
       })
 
+      if (seq !== verifySeqRef.current) return
+
       if (response.success && response.verification) {
         setVerificationResults({ verification: response.verification })
+        if (response.extractedData?.nationalIdDocumentExpiresAt) {
+          setNationalIdDocumentExpiresAt((prev) => prev || response.extractedData!.nationalIdDocumentExpiresAt!)
+        }
         setVerificationStep(5)
       } else {
         setDniValidation(response.validation || null)
@@ -219,21 +244,66 @@ export default function OnboardingPage() {
         setError(response.message || 'No se pudo verificar el DNI.')
       }
     } catch (err: any) {
+      if (seq !== verifySeqRef.current) return
       setDniValidation(err?.data?.validation || null)
       setVerificationStep(0)
       setError(err?.message || 'No se pudo verificar el DNI.')
     } finally {
-      setProcessingDni(false)
+      if (seq === verifySeqRef.current) setProcessingDni(false)
     }
+  }, [])
+
+  async function handleDniUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('Selecciona una imagen válida del DNI.')
+      return
+    }
+    if (!firstName || !lastName || !nationalId || !birthdate || !nationalIdDocumentExpiresAt) {
+      setError('Completa nombre, apellido, cédula, fecha de nacimiento y vencimiento del DNI antes de verificar.')
+      return
+    }
+
+    if (dniPreviewUrl) URL.revokeObjectURL(dniPreviewUrl)
+    setDniFile(file)
+    setDniPreviewUrl(URL.createObjectURL(file))
+    await runVerifyDniImage(file)
   }
 
+  useEffect(() => {
+    if (!dniFileRef.current) return
+    const fields = identityFieldsRef.current
+    const f = dniFileRef.current
+    if (!f.type.startsWith('image/')) {
+      setVerificationResults(null)
+      setDniValidation(null)
+      return
+    }
+    if (!fields.firstName || !fields.lastName || !fields.nationalId || !fields.birthdate || !fields.nationalIdDocumentExpiresAt) {
+      setVerificationResults(null)
+      setDniValidation(null)
+      return
+    }
+    const id = window.setTimeout(() => {
+      const file = dniFileRef.current
+      if (!file) return
+      void runVerifyDniImage(file)
+    }, DNI_REVERIFY_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [firstName, lastName, nationalId, birthdate, nationalIdDocumentExpiresAt, runVerifyDniImage])
+
   function validate() {
-    if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(username)) return 'Usuario inválido.'
+    if (!/^[-a-zA-Z0-9_.]{3,30}$/.test(username)) return 'Usuario inválido.'
     if (usernameStatus === 'taken') return 'Ese nombre de usuario ya existe.'
     if (!isValidUruguayanCI(nationalId)) return 'La cédula no es válida.'
     if (!firstName.trim() || !lastName.trim()) return 'Nombre y apellido son obligatorios.'
     if (!birthdate) return 'La fecha de nacimiento es obligatoria.'
-    if (phoneLocal && !isValidLocalPhoneUY(phoneLocal)) return 'Teléfono inválido.'
+    const expErr = getRegisterNationalIdDocumentExpiresAtValidationError(nationalIdDocumentExpiresAt)
+    if (expErr) return expErr
+    if (phoneLocal && !isValidLocalPhoneUY(phoneLocal)) {
+      return 'Celular inválido. Ingresá 9 dígitos empezando con 09.'
+    }
     if (!dniFile || !verificationResults || verificationHasIssues()) return 'Debes verificar tu DNI antes de continuar.'
     if (!hasPassword) {
       if (!isStrongPassword(password)) return STRONG_PASSWORD_MESSAGE
@@ -262,6 +332,7 @@ export default function OnboardingPage() {
           lastName,
           phone: phoneLocal ? `+598${normalizeLocalPhoneUY(phoneLocal)}` : undefined,
           birthdate: new Date(birthdate).toISOString(),
+          nationalIdDocumentExpiresAt: new Date(nationalIdDocumentExpiresAt).toISOString(),
           role,
         }),
       })
@@ -329,11 +400,36 @@ export default function OnboardingPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Vencimiento del DNI</label>
+                <input
+                  value={nationalIdDocumentExpiresAt}
+                  onChange={(e) => setNationalIdDocumentExpiresAt(e.target.value)}
+                  type="date"
+                  min="1950-01-01"
+                  max="2100-12-31"
+                  className="input-field"
+                  aria-label="Vencimiento del DNI"
+                />
+                <p className="text-xs text-gray-500 mt-1">Como figura en el documento (Vencimiento / Validade).</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Celular (Uruguay)</label>
                 <div className="flex gap-2 items-center">
                   <span className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 select-none text-sm font-medium">+598</span>
-                  <input value={phoneLocal} onChange={(e) => setPhoneLocal(e.target.value)} className="input-field flex-1" placeholder="094481122" />
+                  <input
+                    value={phoneLocal}
+                    onChange={(e) => setPhoneLocal(e.target.value)}
+                    className="input-field flex-1"
+                    placeholder="094481122"
+                    inputMode="numeric"
+                    autoComplete="tel-national"
+                    aria-describedby="onboarding-phone-hint"
+                  />
                 </div>
+                <p id="onboarding-phone-hint" className="mt-1 text-xs text-gray-500">
+                  Solo celular: 9 dígitos comenzando con 09 (no incluyas +598).
+                </p>
               </div>
 
               <div>
@@ -374,7 +470,7 @@ export default function OnboardingPage() {
 
             <div className="pt-6 border-t border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900 mb-2">Verificación de identidad</h2>
-              <p className="text-sm text-gray-600 mb-4">Subí una foto clara del DNI. Se comparan nombre, apellido, cédula y fecha. Si algo viene mal desde Google, podés corregirlo antes de verificar.</p>
+              <p className="text-sm text-gray-600 mb-4">Subí una foto clara del DNI. Se comparan nombre, apellido, cédula, fecha de nacimiento y vencimiento del documento. Si algo viene mal desde Google, podés corregirlo antes de verificar.</p>
 
               <input
                 type="file"

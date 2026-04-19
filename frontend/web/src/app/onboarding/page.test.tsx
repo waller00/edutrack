@@ -87,6 +87,7 @@ describe('OnboardingPage', () => {
             lastName: { provided: 'García', message: '✓ Coincide' },
             nationalId: { provided: '4.123.456-3', message: '✓ Coincide' },
             birthdate: { provided: '1995-03-15', message: '✓ Coincide' },
+            nationalIdDocumentExpiresAt: { provided: '2030-01-01', message: '✓ Coincide' },
           },
         }
       }
@@ -96,6 +97,8 @@ describe('OnboardingPage', () => {
 
     render(<OnboardingPage />)
     await screen.findByText('Completa tu registro')
+
+    fireEvent.change(screen.getByLabelText(/Vencimiento del DNI/i), { target: { value: '2030-01-01' } })
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(fileInput, {
@@ -139,6 +142,7 @@ describe('OnboardingPage', () => {
             lastName: { provided: 'G', message: '✓ OK' },
             nationalId: { provided: 'x', message: '✓ OK' },
             birthdate: { provided: 'x', message: '✓ OK' },
+            nationalIdDocumentExpiresAt: { provided: '2030-01-01', message: '✓ OK' },
           },
         }
       }
@@ -150,6 +154,7 @@ describe('OnboardingPage', () => {
 
     render(<OnboardingPage />)
     await screen.findByText('Completa tu registro')
+    fireEvent.change(screen.getByLabelText(/Vencimiento del DNI/i), { target: { value: '2030-01-01' } })
     fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
       target: { files: [new File(['x'], 'd.png', { type: 'image/png' })] },
     })

@@ -1,5 +1,6 @@
 'use client'
 import DateRangeFields from '@/components/DateRangeFields'
+import MedicalLeaveCertificateLink from '@/components/MedicalLeaveCertificateLink'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
@@ -11,6 +12,12 @@ import {
   getLicenseStatusLabel,
   getLicenseTypeLabel,
 } from '@/lib/admin-licenses-display'
+import {
+  medicalLeaveCertificateAcceptAttr,
+  readMedicalLeaveCertificateFile,
+  certificateHasValue,
+} from '@/lib/medical-leave-certificate-client'
+import { formatValidationErrorFromApi } from '@/lib/api-validation-message'
 import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
 
 type License = {
@@ -46,17 +53,24 @@ type User = {
   username?: string
 }
 
+function datePartsToIsoUtcNoon(dateYmd: string): string {
+  if (!dateYmd) return ''
+  const day = dateYmd.includes('T') ? dateYmd.slice(0, 10) : dateYmd
+  return new Date(`${day}T12:00:00.000Z`).toISOString()
+}
+
 export default function LicensesPage() {
   const [licenses, setLicenses] = useState<License[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<License | null>(null)
+  /** Errores de validación/API solo dentro del modal de alta (no detrás del overlay). */
+  const [createModalError, setCreateModalError] = useState('')
+  const [editModalError, setEditModalError] = useState('')
   const [message, setMessage] = useState('')
-  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [selectedLicenseIds, setSelectedLicenseIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
-  const [purgeAllConfirm, setPurgeAllConfirm] = useState('')
   const [filters, setFilters] = useState({
     userId: '',
     type: '',
@@ -67,12 +81,17 @@ export default function LicensesPage() {
 
   const [newLicense, setNewLicense] = useState({
     userId: '',
-    type: 'MEDICAL_LEAVE',
+    type: 'MEDICAL_LEAVE' as License['type'],
     startDate: '',
     endDate: '',
     reason: '',
-    notes: ''
+    notes: '',
+    doctorName: '',
+    doctorPhone: '',
+    certificate: '' as string,
+    certificateFileLabel: '' as string,
   })
+  const [newCertificateUrl, setNewCertificateUrl] = useState('')
 
   useEffect(() => {
     loadLicenses()
@@ -116,50 +135,98 @@ export default function LicensesPage() {
   }
 
   async function createLicense() {
+    setCreateModalError('')
+    if (!newLicense.userId.trim()) {
+      setCreateModalError('❌ Usuario: elegí a quién corresponde la licencia.')
+      return
+    }
+    if (!newLicense.startDate || !newLicense.endDate) {
+      setCreateModalError('❌ Fechas: completá la fecha de inicio y la de fin.')
+      return
+    }
+    if (!newLicense.reason.trim()) {
+      setCreateModalError('❌ Motivo: no puede estar vacío.')
+      return
+    }
+
     try {
+      const cert =
+        newLicense.certificate.trim() ||
+        newCertificateUrl.trim() ||
+        undefined
       await api('/medical-leaves', {
         method: 'POST',
-        body: JSON.stringify(newLicense)
+        body: JSON.stringify({
+          userId: newLicense.userId,
+          type: newLicense.type,
+          startDate: datePartsToIsoUtcNoon(newLicense.startDate),
+          endDate: datePartsToIsoUtcNoon(newLicense.endDate),
+          reason: newLicense.reason,
+          notes: newLicense.notes.trim() || undefined,
+          doctorName:
+            newLicense.type === 'MEDICAL_LEAVE' && newLicense.doctorName.trim()
+              ? newLicense.doctorName.trim()
+              : undefined,
+          doctorPhone:
+            newLicense.type === 'MEDICAL_LEAVE' && newLicense.doctorPhone.trim()
+              ? newLicense.doctorPhone.trim()
+              : undefined,
+          certificate: cert,
+        }),
       })
-      
+
+      setCreateModalError('')
       setMessage('✅ Licencia creada correctamente')
       setCreating(false)
+      setNewCertificateUrl('')
       setNewLicense({
         userId: '',
         type: 'MEDICAL_LEAVE',
         startDate: '',
         endDate: '',
         reason: '',
-        notes: ''
+        notes: '',
+        doctorName: '',
+        doctorPhone: '',
+        certificate: '',
+        certificateFileLabel: '',
       })
       await loadLicenses()
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al crear licencia'}`)
+    } catch (error: unknown) {
+      setCreateModalError(formatValidationErrorFromApi(error) || '❌ Error al crear licencia')
     }
   }
 
   async function updateLicense() {
     if (!editing) return
-    
+
+    setEditModalError('')
+    if (!editing.reason?.trim()) {
+      setEditModalError('❌ Motivo: no puede estar vacío.')
+      return
+    }
+
     try {
       await api(`/medical-leaves/${editing.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           type: editing.type,
-          startDate: editing.startDate,
-          endDate: editing.endDate,
+          startDate: datePartsToIsoUtcNoon(editing.startDate.split('T')[0] || editing.startDate),
+          endDate: datePartsToIsoUtcNoon(editing.endDate.split('T')[0] || editing.endDate),
           reason: editing.reason,
           doctorName: editing.doctorName,
           doctorPhone: editing.doctorPhone,
-          notes: editing.notes
-        })
+          notes: editing.notes,
+          certificate: editing.certificate?.trim() ? editing.certificate.trim() : null,
+        }),
       })
       
+      setEditModalError('')
       setMessage('✅ Licencia actualizada correctamente')
       setEditing(null)
       await loadLicenses()
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al actualizar licencia'}`)
+    } catch (error: unknown) {
+      setEditModalError(formatValidationErrorFromApi(error) || '❌ Error al actualizar licencia')
     }
   }
 
@@ -192,30 +259,11 @@ export default function LicensesPage() {
     setSelectedLicenseIds((prev) => (prev.length === selectableIds.length ? [] : selectableIds))
   }
 
-  async function deleteAllLicenses() {
-    if (purgeAllConfirm.trim() !== 'ELIMINAR') {
-      setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
-      return
-    }
-    setBulkDeleting(true)
-    setMessage('')
-    try {
-      const response = await api<{ deletedCount: number }>('/medical-leaves/purge-all', { method: 'DELETE' })
-      setMessage(`✅ Se eliminaron ${response.deletedCount} licencias. No hay vuelta atrás.`)
-      setPurgeAllConfirm('')
-      await loadLicenses()
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al eliminar todas las licencias'}`)
-    } finally {
-      setBulkDeleting(false)
-    }
-  }
-
   function renderLicensesRows() {
     if (loading) {
       return (
         <tr>
-          <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
+          <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
             Cargando...
           </td>
         </tr>
@@ -225,7 +273,7 @@ export default function LicensesPage() {
     if (licenses.length === 0) {
       return (
         <tr>
-          <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
+          <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
             No hay licencias registradas
           </td>
         </tr>
@@ -261,9 +309,21 @@ export default function LicensesPage() {
           {license.reason}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
+          <MedicalLeaveCertificateLink
+            certificate={license.certificate}
+            linkClassName="text-indigo-600 hover:text-indigo-800 font-medium"
+          />
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm">
           <div className="flex gap-2">
             <button
-              onClick={() => setEditing(license)}
+              onClick={() => {
+                setEditModalError('')
+                setEditing({
+                  ...license,
+                  certificate: license.certificate ?? '',
+                })
+              }}
               className="text-indigo-600 hover:text-indigo-900"
             >
               Editar
@@ -284,20 +344,30 @@ export default function LicensesPage() {
               <span className="text-emerald-600 text-xl">📄</span>
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Gestión de Licencias</h1>
-              <p className="text-gray-600">Control de licencias médicas y laborales</p>
+              <h1 className="text-3xl font-bold text-gray-900">Gestión de licencias</h1>
+              <p className="text-gray-600 max-w-2xl">
+                Registro centralizado por la dirección o administración. El personal solo consulta sus licencias en
+                su panel. Las licencias activas se reflejan en la justificación de inasistencias cuando corresponde.
+              </p>
             </div>
           </div>
           <button
-            onClick={() => setCreating(true)}
+            type="button"
+            onClick={() => {
+              setCreateModalError('')
+              setCreating(true)
+            }}
             className="btn-primary"
           >
             ➕ Nueva Licencia
           </button>
         </div>
 
-        {message && (
-          <div className={`p-4 border rounded ${getAdminFlashMessageClass(message)}`}>
+        {message && !creating && !editing && (
+          <div
+            className={`whitespace-pre-line p-4 border rounded ${getAdminFlashMessageClass(message)}`}
+            role="alert"
+          >
             {message}
           </div>
         )}
@@ -382,38 +452,6 @@ export default function LicensesPage() {
           </div>
         </div>
 
-        <details className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <summary className="cursor-pointer list-none font-medium text-red-700">
-            Eliminar todos los registros de licencias
-          </summary>
-          <div className="mt-3 space-y-3">
-            <p className="text-sm text-red-800">
-              Esta acción elimina todas las licencias del sistema. No hay vuelta atrás.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <label htmlFor="licenses-purge-confirm" className="text-sm font-medium text-red-900">
-                Escribe `ELIMINAR` para habilitar la acción final
-              </label>
-              <input
-                id="licenses-purge-confirm"
-                type="text"
-                value={purgeAllConfirm}
-                onChange={(e) => setPurgeAllConfirm(e.target.value)}
-                placeholder="ELIMINAR"
-                className="rounded border border-red-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
-              />
-              <button
-                type="button"
-                disabled={bulkDeleting || licenses.length === 0}
-                onClick={() => void deleteAllLicenses()}
-                className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
-              >
-                {bulkDeleting ? 'Eliminando...' : 'Sí, eliminar todos los registros de licencias'}
-              </button>
-            </div>
-          </div>
-        </details>
-
         {/* Tabla de licencias */}
         <div className="bg-white border rounded-lg shadow-sm">
           <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -454,6 +492,7 @@ export default function LicensesPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Certificado</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                 </tr>
               </thead>
@@ -467,8 +506,17 @@ export default function LicensesPage() {
         {/* Modal para crear licencia */}
         {creating && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
               <h3 className="text-lg font-semibold mb-4">Nueva Licencia</h3>
+
+              {createModalError ? (
+                <div
+                  className={`mb-4 whitespace-pre-line rounded border p-3 text-sm ${getAdminFlashMessageClass(createModalError)}`}
+                  role="alert"
+                >
+                  {createModalError}
+                </div>
+              ) : null}
               
               <div className="space-y-4">
                 <div>
@@ -491,7 +539,22 @@ export default function LicensesPage() {
                   <select
                     aria-label="Tipo de licencia"
                     value={newLicense.type}
-                    onChange={(e) => setNewLicense({ ...newLicense, type: e.target.value as any })}
+                    onChange={(e) => {
+                      const type = e.target.value as License['type']
+                      setNewLicense({
+                        ...newLicense,
+                        type,
+                        ...(type !== 'MEDICAL_LEAVE'
+                          ? {
+                              doctorName: '',
+                              doctorPhone: '',
+                              certificate: '',
+                              certificateFileLabel: '',
+                            }
+                          : {}),
+                      })
+                      if (type !== 'MEDICAL_LEAVE') setNewCertificateUrl('')
+                    }}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
                     <option value="MEDICAL_LEAVE">Licencia Médica</option>
@@ -500,6 +563,31 @@ export default function LicensesPage() {
                   </select>
                 </div>
                 
+                {newLicense.type === 'MEDICAL_LEAVE' && (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Profesional (opcional)</label>
+                      <input
+                        type="text"
+                        value={newLicense.doctorName}
+                        onChange={(e) => setNewLicense({ ...newLicense, doctorName: e.target.value })}
+                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        placeholder="Nombre del médico o matrícula"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Contacto profesional (opcional)</label>
+                      <input
+                        type="text"
+                        value={newLicense.doctorPhone}
+                        onChange={(e) => setNewLicense({ ...newLicense, doctorPhone: e.target.value })}
+                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        placeholder="Teléfono o consultorio"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
@@ -525,15 +613,61 @@ export default function LicensesPage() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Motivo (obligatorio)</label>
                   <textarea
-                    aria-label="Motivo"
+                    aria-label="Motivo (obligatorio)"
                     value={newLicense.reason}
                     onChange={(e) => setNewLicense({ ...newLicense, reason: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                     rows={3}
                   />
                 </div>
+
+                {newLicense.type === 'MEDICAL_LEAVE' && (
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-800">Certificado médico (opcional)</label>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        Podés pegar un enlace público (Drive, etc.) o adjuntar imagen o PDF (máx. 2,5 MB). Si cargás
+                        archivo, tiene prioridad sobre el enlace.
+                      </p>
+                    </div>
+                    <input
+                      type="url"
+                      value={newCertificateUrl}
+                      onChange={(e) => setNewCertificateUrl(e.target.value)}
+                      placeholder="https://…"
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                    <div>
+                      <input
+                        type="file"
+                        accept={medicalLeaveCertificateAcceptAttr()}
+                        className="block w-full text-sm text-gray-600 file:mr-3 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-50"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          const r = await readMedicalLeaveCertificateFile(file)
+                          if (!r.ok) {
+                            setCreateModalError(`❌ ${r.error}`)
+                            e.target.value = ''
+                            return
+                          }
+                          setNewLicense((prev) => ({
+                            ...prev,
+                            certificate: r.dataUrl,
+                            certificateFileLabel: file.name,
+                          }))
+                          setNewCertificateUrl('')
+                          setCreateModalError('')
+                        }}
+                      />
+                      {newLicense.certificateFileLabel ? (
+                        <p className="text-xs text-gray-600 mt-1">Archivo: {newLicense.certificateFileLabel}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
@@ -549,15 +683,22 @@ export default function LicensesPage() {
               
               <div className="flex justify-end gap-2 mt-6">
                 <button
+                  type="button"
                   onClick={() => {
+                    setCreateModalError('')
                     setCreating(false)
+                    setNewCertificateUrl('')
                     setNewLicense({
                       userId: '',
                       type: 'MEDICAL_LEAVE',
                       startDate: '',
                       endDate: '',
                       reason: '',
-                      notes: ''
+                      notes: '',
+                      doctorName: '',
+                      doctorPhone: '',
+                      certificate: '',
+                      certificateFileLabel: '',
                     })
                   }}
                   className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
@@ -565,7 +706,8 @@ export default function LicensesPage() {
                   Cancelar
                 </button>
                 <button
-                  onClick={createLicense}
+                  type="button"
+                  onClick={() => void createLicense()}
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
                   Crear Licencia
@@ -642,23 +784,71 @@ export default function LicensesPage() {
                 {editing.type === 'MEDICAL_LEAVE' && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Doctor</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Profesional (opcional)</label>
                       <input
                         type="text"
                         value={editing.doctorName || ''}
                         onChange={(e) => setEditing({ ...editing, doctorName: e.target.value })}
                         className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        placeholder="Nombre o matrícula"
                       />
                     </div>
                     
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono del Doctor</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Contacto del profesional (opcional)</label>
                       <input
                         type="text"
                         value={editing.doctorPhone || ''}
                         onChange={(e) => setEditing({ ...editing, doctorPhone: e.target.value })}
                         className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        placeholder="Teléfono o consultorio"
                       />
+                    </div>
+
+                    <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
+                      <label className="block text-sm font-medium text-gray-800">Certificado médico (opcional)</label>
+                      <p className="text-xs text-gray-600">
+                        Enlace público (https) o archivo PNG, JPG, WEBP o PDF (máx. 2,5 MB).
+                      </p>
+                      {!editing.certificate?.startsWith('data:') && (
+                        <input
+                          type="url"
+                          value={editing.certificate?.startsWith('http') ? editing.certificate : ''}
+                          onChange={(e) => setEditing({ ...editing, certificate: e.target.value })}
+                          placeholder="https://…"
+                          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                      )}
+                      {editing.certificate?.startsWith('data:') && (
+                        <p className="text-sm text-gray-700">Certificado digital adjunto (imagen o PDF).</p>
+                      )}
+                      <input
+                        type="file"
+                        accept={medicalLeaveCertificateAcceptAttr()}
+                        className="block w-full text-sm text-gray-600 file:mr-3 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-50"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          const r = await readMedicalLeaveCertificateFile(file)
+                          if (!r.ok) {
+                            setMessage(`❌ ${r.error}`)
+                            e.target.value = ''
+                            return
+                          }
+                          setEditing((prev) => (prev ? { ...prev, certificate: r.dataUrl } : prev))
+                          setMessage('')
+                          e.target.value = ''
+                        }}
+                      />
+                      {certificateHasValue(editing.certificate) && (
+                        <button
+                          type="button"
+                          className="text-sm font-medium text-red-700 hover:text-red-900"
+                          onClick={() => setEditing({ ...editing, certificate: '' })}
+                        >
+                          Quitar certificado
+                        </button>
+                      )}
                     </div>
                   </>
                 )}
@@ -690,13 +880,18 @@ export default function LicensesPage() {
               
               <div className="flex justify-end gap-2 mt-6">
                 <button
-                  onClick={() => setEditing(null)}
+                  type="button"
+                  onClick={() => {
+                    setEditModalError('')
+                    setEditing(null)
+                  }}
                   className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
                 >
                   Cancelar
                 </button>
                 <button
-                  onClick={updateLicense}
+                  type="button"
+                  onClick={() => void updateLicense()}
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
                   Guardar Cambios

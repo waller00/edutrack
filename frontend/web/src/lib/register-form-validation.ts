@@ -55,6 +55,10 @@ export function getRegisterVerificationFieldLabel(field: string): string {
       return 'Apellidos'
     case 'nationalId':
       return 'Cédula'
+    case 'birthdate':
+      return 'Fecha de Nacimiento'
+    case 'nationalIdDocumentExpiresAt':
+      return 'Vencimiento del DNI'
     default:
       return 'Fecha de Nacimiento'
   }
@@ -82,11 +86,12 @@ export function validateRegisterDniUploadInput(params: {
   lastName: string
   nationalId: string
   birthdate: string
+  nationalIdDocumentExpiresAt: string
 }): string | null {
   if (!params.file) return 'missing-file'
   if (!params.file.type.startsWith('image/')) return '❌ Por favor, selecciona una imagen válida'
   if (params.file.size > 5 * 1024 * 1024) return '❌ La imagen es demasiado grande. Máximo 5MB'
-  if (!params.firstName || !params.lastName || !params.nationalId || !params.birthdate) {
+  if (!params.firstName || !params.lastName || !params.nationalId || !params.birthdate || !params.nationalIdDocumentExpiresAt) {
     return '❌ Por favor, completa todos los campos manualmente antes de verificar con el DNI'
   }
   return null
@@ -106,6 +111,15 @@ export function getRegisterBirthdateValidationError(birthdate: string): string |
   return null
 }
 
+export function getRegisterNationalIdDocumentExpiresAtValidationError(nationalIdDocumentExpiresAt: string): string | null {
+  if (!nationalIdDocumentExpiresAt) return 'Indicá el vencimiento del DNI'
+  const d = new Date(nationalIdDocumentExpiresAt)
+  if (Number.isNaN(d.getTime())) return 'Fecha de vencimiento inválida'
+  const y = d.getFullYear()
+  if (y < 1950 || y > 2100) return 'Fecha de vencimiento fuera de rango'
+  return null
+}
+
 export function getRegisterIdentityValidationError(params: {
   username: string
   usernameStatus: RegisterUsernameStatus
@@ -114,7 +128,7 @@ export function getRegisterIdentityValidationError(params: {
   lastName: string
   role: RegisterRole
 }): string | null {
-  if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(params.username)) {
+  if (!/^[-a-zA-Z0-9_.]{3,30}$/.test(params.username)) {
     return 'Usuario inválido (3-30, letras, números, punto, guion)'
   }
   if (params.usernameStatus === 'taken') return 'Nombre de usuario no disponible'
@@ -138,6 +152,7 @@ export function validateRegisterForm(params: {
   role: RegisterRole
   phoneLocal: string
   birthdate: string
+  nationalIdDocumentExpiresAt: string
   dniFile: File | null
   verificationResults: RegisterVerificationResults | null
 }): string | null {
@@ -149,10 +164,12 @@ export function validateRegisterForm(params: {
   const identityError = getRegisterIdentityValidationError(params)
   if (identityError) return identityError
   if (params.phoneLocal && !isValidLocalPhoneUY(params.phoneLocal)) {
-    return 'Teléfono inválido (ingresa 8 dígitos o 09XXXXXXXX)'
+    return 'Celular inválido. Ingresá 9 dígitos empezando con 09 (ej. 094481122), sin el +598.'
   }
   const birthdateError = getRegisterBirthdateValidationError(params.birthdate)
   if (birthdateError) return birthdateError
+  const expiresError = getRegisterNationalIdDocumentExpiresAtValidationError(params.nationalIdDocumentExpiresAt)
+  if (expiresError) return expiresError
   if (!params.dniFile || !params.verificationResults) return 'Debes verificar tu DNI antes de crear la cuenta'
   return null
 }

@@ -1,5 +1,6 @@
 import {
   onlyDigits,
+  formatLocalMobileInputFromE164,
   formatUruguayanCI,
   isValidUruguayanCI,
   normalizeLocalPhoneUY,
@@ -32,9 +33,21 @@ describe('uruguay-forms', () => {
     expect(normalizeLocalPhoneUY('94481122')).toBe('94481122')
   })
 
-  it('validates normalized local phones only when they have 8 digits', () => {
+  it('solo acepta celular 09… (9 dígitos)', () => {
     expect(isValidLocalPhoneUY('094481122')).toBe(true)
-    expect(isValidLocalPhoneUY('94481122')).toBe(true)
+    expect(isValidLocalPhoneUY('94481122')).toBe(false)
+    expect(isValidLocalPhoneUY('02471122')).toBe(false)
     expect(isValidLocalPhoneUY('12345')).toBe(false)
+  })
+
+  it('formatLocalMobileInputFromE164 arma 09… desde +598', () => {
+    expect(formatLocalMobileInputFromE164('+59899123456')).toBe('099123456')
+    expect(formatLocalMobileInputFromE164('')).toBe('')
+  })
+
+  it('rechaza 8 dígitos que son una cédula válida (no es teléfono)', () => {
+    expect(isValidUruguayanCI('4.123.456-3')).toBe(true)
+    expect(isValidLocalPhoneUY('41234563')).toBe(false)
+    expect(isValidLocalPhoneUY('4.123.456-3')).toBe(false)
   })
 })
