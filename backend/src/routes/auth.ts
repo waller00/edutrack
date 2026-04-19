@@ -16,6 +16,7 @@ import {
   validateBirthdateUpdate,
   mapProfileUpdateError,
 } from "../auth-profile-pure.js";
+import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
 
 const r = Router();
 
@@ -41,7 +42,7 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
 
 const registerSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8).max(64),
+  password: strongPasswordSchema,
   username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_.-]+$/).optional(),
   nationalId: z.string().min(6).max(20).optional(),
   firstName: z.string().min(1).max(80),
@@ -93,6 +94,19 @@ function setRefreshCookie(res: any, token: string) {
     maxAge: ttlMs,
     path: "/auth",
   });
+}
+
+/** Mismas opciones que al setear; si no, el navegador puede dejar la cookie activa. */
+function clearAuthCookies(res: any) {
+  const cfg = resolveCookieConfig();
+  const base = {
+    httpOnly: true,
+    secure: cfg.secure,
+    sameSite: cfg.sameSite as "lax" | "strict" | "none",
+    ...(cfg.domain ? { domain: cfg.domain } : {}),
+  };
+  res.clearCookie("access_token", { ...base, path: "/" });
+  res.clearCookie("refresh_token", { ...base, path: "/auth" });
 }
 function parseDurationMs(input: string) {
   const m = input.match(/^(\d+)([smhd])$/);
@@ -203,7 +217,7 @@ r.get('/check-username', async (req, res) => {
 // Registro
 r.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
 
   const { email, password, username, nationalId, firstName, lastName, phone, birthdate, role } = parsed.data;
 
@@ -332,8 +346,8 @@ r.put("/profile", authGuard, async (req, res) => {
 // Establecer contraseña si aún no tiene
 r.put("/password", authGuard, async (req, res) => {
   const u = (req as any).user;
-  const parsed = z.object({ password: z.string().min(8).max(64) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
+  const parsed = z.object({ password: strongPasswordSchema }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
   const me = await prisma.user.findUnique({ where: { id: u.sub }, select: { passwordHash: true } });
   if (!me) return res.status(401).json({ message: "No autorizado" });
   if (me.passwordHash) return res.status(409).json({ message: "La cuenta ya tiene contraseña" });
@@ -345,8 +359,10 @@ r.put("/password", authGuard, async (req, res) => {
 // Cambiar contraseña con contraseña actual
 r.put("/password/change", authGuard, async (req, res) => {
   const u = (req as any).user;
-  const parsed = z.object({ currentPassword: z.string().min(8).max(64), newPassword: z.string().min(8).max(64) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
+  const parsed = z
+    .object({ currentPassword: z.string().min(8).max(64), newPassword: strongPasswordSchema })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
   const me = await prisma.user.findUnique({ where: { id: u.sub }, select: { passwordHash: true } });
   if (!me || !me.passwordHash) return res.status(409).json({ message: "No hay contraseña definida" });
   const ok = await argon2.verify(me.passwordHash, parsed.data.currentPassword);
@@ -454,8 +470,8 @@ r.post("/forgot", createIpRateLimit(15 * 60 * 1000, 5), async (req, res) => {
 
 // Reset password (tras éxito: misma sesión que login — evita volver a escribir la clave)
 r.post("/reset", async (req, res) => {
-  const parsed = z.object({ token: z.string().min(10), password: z.string().min(8).max(64) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
+  const parsed = z.object({ token: z.string().min(10), password: strongPasswordSchema }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
   const { token, password } = parsed.data;
 
   const pr = await prisma.passwordReset.findUnique({ where: { token } });
@@ -515,8 +531,7 @@ r.post("/logout", async (req, res) => {
       await prisma.refreshToken.updateMany({ where: { tokenHash: hashed, revokedAt: null }, data: { revokedAt: new Date() } });
     } catch {}
   }
-  res.clearCookie("access_token");
-  res.clearCookie("refresh_token", { path: "/auth" });
+  clearAuthCookies(res);
   res.json({ ok: true });
 });
 
@@ -528,8 +543,7 @@ r.get(
   async (req, res) => {
     const user = (req as any).user;
     if (!user.isActive) {
-      res.clearCookie("access_token");
-      res.clearCookie("refresh_token", { path: "/auth" });
+      clearAuthCookies(res);
       return res.redirect(process.env.FRONTEND_URL! + "/login?error=inactive");
     }
     if (!user.emailVerifiedAt) {

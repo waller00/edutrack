@@ -55,14 +55,17 @@ describe('ForgotPage', () => {
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'site-key'
     const renderTurnstile = vi.fn((_element, options: { callback: (token: string) => void }) => {
       options.callback('captcha-token')
+      return 'widget-mock'
     })
-    ;(window as Window & { turnstile?: { render: typeof renderTurnstile } }).turnstile = {
+    ;(window as Window & { turnstile?: { render: typeof renderTurnstile; remove?: () => void; reset?: () => void } }).turnstile = {
       render: renderTurnstile,
+      remove: vi.fn(),
+      reset: vi.fn(),
     }
     vi.mocked(api).mockResolvedValueOnce({ ok: true })
 
     render(<ForgotPage />)
-    ;(window as Window & { onloadTurnstile?: () => void }).onloadTurnstile?.()
+    ;(window as Window & { onloadTurnstileForgot?: () => void }).onloadTurnstileForgot?.()
 
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'user@example.com' } })
     fireEvent.click(screen.getByRole('button', { name: 'Enviar enlace' }))

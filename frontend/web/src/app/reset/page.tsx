@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from '@/lib/password-strength'
 
 export default function ResetPage() {
 	const [token, setToken] = useState('')
@@ -18,7 +19,7 @@ export default function ResetPage() {
 	async function onSubmit(e: React.FormEvent) {
 		e.preventDefault()
 		setError('')
-		if (password.length < 8) return setError('La contraseña debe tener al menos 8 caracteres')
+		if (!isStrongPassword(password)) return setError(STRONG_PASSWORD_MESSAGE)
 		if (password !== confirm) return setError('Las contraseñas no coinciden')
 		setLoading(true)
 		try {
@@ -30,6 +31,7 @@ export default function ResetPage() {
 		} catch (e: unknown) {
 			const msg = String((e as Error)?.message || '')
 			if (msg.includes('desactivada')) setError('Tu cuenta está dada de baja. Contacta a un administrador.')
+			else if (msg.includes('mayúscula') && msg.includes('minúscula')) setError(msg)
 			else setError('El enlace es inválido o expiró')
 		} finally {
 			setLoading(false)

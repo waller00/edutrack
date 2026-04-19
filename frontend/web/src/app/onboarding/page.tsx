@@ -10,7 +10,12 @@ import {
   normalizeLocalPhoneUY,
 } from '@/lib/uruguay-forms'
 import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
-import { isStrongPassword, getPasswordStrength, getStrengthBarClass } from '@/lib/password-strength'
+import {
+  isStrongPassword,
+  STRONG_PASSWORD_MESSAGE,
+  getPasswordStrength,
+  getStrengthBarClass,
+} from '@/lib/password-strength'
 import {
   getOnboardingUsernameStatusDisplay,
   getOnboardingVerificationFieldLabel,
@@ -231,7 +236,7 @@ export default function OnboardingPage() {
     if (phoneLocal && !isValidLocalPhoneUY(phoneLocal)) return 'Teléfono inválido.'
     if (!dniFile || !verificationResults || verificationHasIssues()) return 'Debes verificar tu DNI antes de continuar.'
     if (!hasPassword) {
-      if (!isStrongPassword(password)) return 'La contraseña debe tener 8 caracteres, mayúscula, minúscula y número.'
+      if (!isStrongPassword(password)) return STRONG_PASSWORD_MESSAGE
       if (password !== confirm) return 'Las contraseñas no coinciden.'
     }
     return null

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProfilePage from './page'
 import { api } from '@/lib/api'
+import { STRONG_PASSWORD_MESSAGE } from '@/lib/password-strength'
 
 vi.mock('@/lib/api', () => ({
   api: vi.fn(),
@@ -155,7 +156,7 @@ describe('ProfilePage', () => {
     fireEvent.change(screen.getByPlaceholderText('Repite la nueva contraseña'), { target: { value: 'alllower1' } })
     fireEvent.click(screen.getByRole('button', { name: /actualizar contraseña/i }))
 
-    await waitFor(() => expect(screen.getByText('Contraseña débil')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(STRONG_PASSWORD_MESSAGE)).toBeInTheDocument())
   })
 
   it('actualiza contraseña con éxito', async () => {

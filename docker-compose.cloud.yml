@@ -21,6 +21,8 @@ services:
       PORT: 4000
       FRONTEND_URL: ${FRONTEND_URL:-https://165.22.34.95:3000}
       JWT_SECRET: ${JWT_SECRET}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-2h}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-7d}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
       # Correo (recuperación de contraseña, verificación): definir en .env del servidor
@@ -50,8 +52,10 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://165.22.34.95:4000}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://165.22.34.95:4000}
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     ports:
       - "3000:3000"
     depends_on:
