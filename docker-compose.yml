@@ -41,6 +41,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      SENDGRID_HTTP_API: ${SENDGRID_HTTP_API:-}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
     ports:
       - "4000:4000"

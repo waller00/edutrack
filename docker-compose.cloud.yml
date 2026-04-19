@@ -29,6 +29,8 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      # SendGrid: en muchos Droplets el SMTP 587 está bloqueado; con host smtp.sendgrid.net + user apikey el backend usa la API HTTPS (443).
+      SENDGRID_HTTP_API: ${SENDGRID_HTTP_API:-}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
