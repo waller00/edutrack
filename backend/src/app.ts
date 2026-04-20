@@ -15,6 +15,8 @@ import reportsRoutes from "./routes/reports.js";
 import dniProcessorRoutes from "./routes/dni-processor.js";
 import analyticsRoutes from "./routes/analytics.js";
 import exportsRoutes from "./routes/exports.js";
+import webPushRoutes from "./routes/web-push.js";
+import inAppNotificationRoutes from "./routes/in-app-notifications.js";
 
 const app = express();
 
@@ -86,6 +88,8 @@ app.use("/reports", reportsRoutes);
 app.use("/auth", dniProcessorRoutes);
 app.use("/analytics", analyticsRoutes);
 app.use("/exports", exportsRoutes);
+app.use("/notifications/web-push", webPushRoutes);
+app.use("/notifications/in-app", inAppNotificationRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 

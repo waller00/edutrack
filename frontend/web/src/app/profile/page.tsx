@@ -4,6 +4,7 @@ import { FileText, Info, KeyRound, Lock, Save, User } from 'lucide-react'
 import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { api } from '@/lib/api'
 import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
+import WebPushSection from '@/components/WebPushSection'
 import { formatLocalMobileInputFromE164 } from '@/lib/uruguay-forms'
 import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
 import {
@@ -314,6 +315,8 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
           </div>
         )}
       </section>
+
+      <WebPushSection />
     </main>
   )
 } 

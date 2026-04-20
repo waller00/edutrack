@@ -28,16 +28,19 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
     { href: "/admin/attendance", label: "Asistencias" },
     { href: "/admin/events", label: "Eventos" },
     { href: "/admin/licenses", label: "Licencias" },
+    { href: "/notifications", label: "Avisos" },
   ],
   TEACHER: [
     { href: "/teacher/attendance", label: "Mis asistencias" },
     { href: "/teacher/events", label: "Mis eventos" },
     { href: "/teacher/licenses", label: "Mis licencias" },
+    { href: "/notifications", label: "Avisos" },
   ],
   STAFF: [
     { href: "/staff/attendance", label: "Mis asistencias" },
     { href: "/staff/events", label: "Mis eventos" },
     { href: "/staff/licenses", label: "Mis licencias" },
+    { href: "/notifications", label: "Avisos" },
   ],
 };
 

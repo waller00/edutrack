@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { LogOut, User } from 'lucide-react'
+import { Bell, LogOut, User } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type NavLink = { href: string; label: string }
@@ -29,16 +29,19 @@ const FALLBACK_NAV: Record<string, NavLink[]> = {
     { href: '/admin/events', label: 'Eventos' },
     { href: '/admin/licenses', label: 'Licencias' },
     { href: '/admin/analytics', label: 'Analytics' },
+    { href: '/notifications', label: 'Avisos' },
   ],
   TEACHER: [
     { href: '/teacher/attendance', label: 'Mis asistencias' },
     { href: '/teacher/events', label: 'Mis eventos' },
     { href: '/teacher/licenses', label: 'Mis licencias' },
+    { href: '/notifications', label: 'Avisos' },
   ],
   STAFF: [
     { href: '/staff/attendance', label: 'Mis asistencias' },
     { href: '/staff/events', label: 'Mis eventos' },
     { href: '/staff/licenses', label: 'Mis licencias' },
+    { href: '/notifications', label: 'Avisos' },
   ],
 }
 
@@ -51,6 +54,7 @@ function navItemsForMe(me: MeUser | null): NavLink[] {
 export default function UserNav() {
   const [me, setMe] = useState<MeUser | null>(null)
   const [open, setOpen] = useState(false)
+  const [unreadInApp, setUnreadInApp] = useState(0)
   const pathname = usePathname()
 
   async function loadMe() {
@@ -65,6 +69,25 @@ export default function UserNav() {
   useEffect(() => {
     void loadMe()
   }, [pathname])
+
+  useEffect(() => {
+    if (!me || !canAccessModules(me)) {
+      setUnreadInApp(0)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await api<{ count: number }>('/notifications/in-app/unread-count')
+        if (!cancelled) setUnreadInApp(r.count)
+      } catch {
+        if (!cancelled) setUnreadInApp(0)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [me, pathname])
 
   async function logout() {
     try { await api('/auth/logout', { method: 'POST' }) } catch {}
@@ -110,6 +133,21 @@ export default function UserNav() {
           </nav>
         )}
         <div className="flex items-center gap-4">
+          {me && canAccessModules(me) && (
+            <a
+              href="/notifications"
+              className="relative rounded-lg p-2 text-gray-600 transition-colors hover:bg-emerald-50 hover:text-emerald-600"
+              title="Avisos"
+              aria-label="Avisos"
+            >
+              <Bell className="h-5 w-5" aria-hidden />
+              {unreadInApp > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold text-white">
+                  {unreadInApp > 99 ? '99+' : unreadInApp}
+                </span>
+              )}
+            </a>
+          )}
           {me ? (
             <div className="relative">
               <button 

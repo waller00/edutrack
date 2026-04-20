@@ -42,6 +42,10 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
       SENDGRID_HTTP_API: ${SENDGRID_HTTP_API:-}
+      # Web Push (opcional): generar con `npx web-push generate-vapid-keys`
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
     ports:
       - "4000:4000"
