@@ -77,9 +77,10 @@ export async function subscribeCurrentDeviceToWebPush(): Promise<{ ok: true } | 
     await reg.update()
     const ready = await navigator.serviceWorker.ready
 
+    const applicationServerKey = urlBase64ToUint8Array(publicKey) as BufferSource
     const sub = await ready.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
+      applicationServerKey,
     })
 
     const subscriptionJson = sub.toJSON()
