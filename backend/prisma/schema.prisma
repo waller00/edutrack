@@ -13,6 +13,12 @@ enum Role {
   TEACHER
 }
 
+enum InAppNotificationType {
+  LICENSE_CREATED
+  LICENSE_UPDATED
+  EVENT_ASSIGNED
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -38,6 +44,8 @@ model User {
   events             Event[]
   assignedEvents     Event[]       @relation("EventAssignment")
   medicalLeaves      MedicalLeave[]
+  webPushSubscriptions WebPushSubscription[]
+  inAppNotifications InAppNotification[]
   // security
   emailVerifiedAt     DateTime?
   failedLoginAttempts Int       @default(0)
@@ -67,6 +75,37 @@ model EmailVerification {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// Avisos dentro de la app (persisten aunque el push se pierda).
+model InAppNotification {
+  id        String                 @id @default(uuid())
+  userId    String
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      InAppNotificationType
+  title     String
+  body      String
+  actionUrl String?
+  readAt    DateTime?
+  createdAt DateTime               @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+/// Suscripciones Web Push (navegador); una por endpoint (dispositivo).
+model WebPushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }

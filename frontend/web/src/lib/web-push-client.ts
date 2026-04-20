@@ -1,0 +1,120 @@
+import { api } from '@/lib/api'
+
+const SW_PATH = '/sw.js'
+
+export function isWebPushSupported(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    'Notification' in window
+  )
+}
+
+/** Convierte la clave pública VAPID (base64 URL) al formato que pide `applicationServerKey`. */
+export function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+  return outputArray
+}
+
+export async function getWebPushServerStatus(): Promise<{
+  configured: boolean
+  subscriptionCount: number
+}> {
+  return api('/notifications/web-push/status')
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Reintenta por si la cookie de sesión aún no aplica en el primer request tras el login. */
+export async function getWebPushServerStatusWithRetry(
+  maxAttempts = 4,
+  pauseMs = 350,
+): Promise<{ configured: boolean; subscriptionCount: number }> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await getWebPushServerStatus()
+    } catch (e) {
+      lastError = e
+      if (attempt < maxAttempts - 1) {
+        await delay(pauseMs)
+        continue
+      }
+    }
+  }
+  throw lastError
+}
+
+export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (!('Notification' in window)) return 'denied'
+  if (Notification.permission === 'granted') return 'granted'
+  if (Notification.permission === 'denied') return 'denied'
+  return Notification.requestPermission()
+}
+
+/**
+ * Registra el service worker, crea la suscripción push y la guarda en el backend.
+ */
+export async function subscribeCurrentDeviceToWebPush(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const perm = await requestNotificationPermission()
+    if (perm !== 'granted') {
+      return { ok: false, error: 'Tenés que permitir notificaciones en el navegador para activarlas.' }
+    }
+
+    const { publicKey } = await api<{ publicKey: string }>('/notifications/web-push/vapid-public-key')
+
+    const reg = await navigator.serviceWorker.register(SW_PATH, { scope: '/' })
+    await reg.update()
+    const ready = await navigator.serviceWorker.ready
+
+    const sub = await ready.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    })
+
+    const subscriptionJson = sub.toJSON()
+    if (!subscriptionJson.endpoint || !subscriptionJson.keys?.p256dh || !subscriptionJson.keys?.auth) {
+      return { ok: false, error: 'No se pudo obtener la suscripción del navegador.' }
+    }
+
+    await api('/notifications/web-push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({
+        subscription: subscriptionJson,
+        userAgent: navigator.userAgent.slice(0, 500),
+      }),
+    })
+
+    return { ok: true }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Error al activar notificaciones.'
+    return { ok: false, error: msg }
+  }
+}
+
+/** Quita la suscripción en este navegador y todas las entradas del usuario en el servidor. */
+export async function unsubscribeAllWebPushForUser(): Promise<void> {
+  const reg = await navigator.serviceWorker.getRegistration()
+  if (reg) {
+    const sub = await reg.pushManager.getSubscription()
+    if (sub) await sub.unsubscribe()
+  }
+  await api('/notifications/web-push/subscribe', {
+    method: 'DELETE',
+    body: JSON.stringify({}),
+  })
+}
+
+export async function sendWebPushTest(): Promise<{ sent: number; failed: number }> {
+  return api('/notifications/web-push/test', { method: 'POST', body: JSON.stringify({}) })
+}

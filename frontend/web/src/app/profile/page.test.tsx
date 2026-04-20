@@ -8,6 +8,10 @@ vi.mock('@/lib/api', () => ({
   api: vi.fn(),
 }))
 
+vi.mock('@/components/WebPushSection', () => ({
+  default: () => null,
+}))
+
 vi.mock('@/components/PhoneBirthdateFields', () => ({
   default({
     phoneLocal,

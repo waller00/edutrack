@@ -7,8 +7,19 @@ import {
   isValidMedicalLeaveCertificateValue,
   MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS,
 } from '../medical-leave-certificate.js'
+import { sendWebPushPayloadToUser } from '../services/webPush.js'
+
+function licenseUpdatePreview(reason: string): string {
+  return reason.length > 120 ? `${reason.slice(0, 120)}…` : reason
+}
 
 const r = Router()
+
+function myLicensesPathForRole(role: string | undefined): string {
+  if (role === 'TEACHER') return '/teacher/licenses'
+  if (role === 'STAFF') return '/staff/licenses'
+  return '/'
+}
 
 const optionalCertificateCreate = z
   .string()
@@ -201,6 +212,25 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
 
     const reconciliation = await reconcileAttendancesForMedicalLeave(license.id)
 
+    const preview = licenseUpdatePreview(reason)
+    void sendWebPushPayloadToUser(userId, {
+      title: 'Edutrack — Licencia registrada',
+      body: `La institución registró una licencia: ${preview}`,
+      url: myLicensesPathForRole(license.user?.role),
+    }).catch((err) => console.error('Web push (licencia creada):', err))
+
+    void prisma.inAppNotification
+      .create({
+        data: {
+          userId,
+          type: 'LICENSE_CREATED',
+          title: 'Licencia registrada',
+          body: `La institución registró una licencia: ${preview}`,
+          actionUrl: myLicensesPathForRole(license.user?.role),
+        },
+      })
+      .catch((err) => console.error('Aviso en app (licencia creada):', err))
+
     res.status(201).json({ ...license, reconciliation })
   } catch (error) {
     console.error('Error creando licencia médica:', error)
@@ -271,6 +301,26 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
     })
 
     const reconciliation = await reconcileAttendancesForMedicalLeave(id)
+
+    const ownerId = updatedLicense.userId
+    const preview = licenseUpdatePreview(updatedLicense.reason)
+    void sendWebPushPayloadToUser(ownerId, {
+      title: 'Edutrack — Licencia actualizada',
+      body: `La institución actualizó una licencia: ${preview}`,
+      url: myLicensesPathForRole(updatedLicense.user?.role),
+    }).catch((err) => console.error('Web push (licencia actualizada):', err))
+
+    void prisma.inAppNotification
+      .create({
+        data: {
+          userId: ownerId,
+          type: 'LICENSE_UPDATED',
+          title: 'Licencia actualizada',
+          body: `La institución actualizó una licencia: ${preview}`,
+          actionUrl: myLicensesPathForRole(updatedLicense.user?.role),
+        },
+      })
+      .catch((err) => console.error('Aviso en app (licencia actualizada):', err))
 
     res.json({ ...updatedLicense, reconciliation })
   } catch (error) {

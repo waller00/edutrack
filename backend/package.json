@@ -12,7 +12,8 @@
     "test:coverage": "vitest run --coverage",
     "start": "node dist/server.js",
     "prisma:studio": "prisma studio",
-    "seed": "node prisma/seed.js"
+    "seed": "node prisma/seed.js",
+    "vapid:keys": "node --input-type=module -e \"import w from 'web-push'; const k=w.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY='+k.publicKey); console.log('VAPID_PRIVATE_KEY='+k.privateKey); console.log('VAPID_SUBJECT=mailto:cambiar@tu-dominio.com');\""
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -39,6 +40,7 @@
     "pdfkit": "^0.17.2",
     "sharp": "^0.34.4",
     "tesseract.js": "^6.0.1",
+    "web-push": "^3.6.7",
     "zod": "^3.23.8"
   },
   "devDependencies": {

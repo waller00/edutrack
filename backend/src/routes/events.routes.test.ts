@@ -6,6 +6,7 @@ import { signAccessToken } from "../jwt.js";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
+    inAppNotification: { create: vi.fn().mockResolvedValue({ id: "n1" }) },
     event: {
       create: vi.fn(),
       findMany: vi.fn(),
@@ -66,6 +67,7 @@ describe("events routes (prisma mock)", () => {
       id: "ev1",
       title: "X",
       userId: "adm",
+      assignedUserId: null,
       user: {},
       assignedUser: null,
     });
@@ -76,6 +78,34 @@ describe("events routes (prisma mock)", () => {
       .send(minimalEvent);
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("ev1");
+    expect(prismaMock.inAppNotification.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /events ADMIN asigna a otro usuario y crea aviso en app", async () => {
+    const teacherId = "00000000-0000-4000-8000-000000000002";
+    prismaMock.event.create.mockResolvedValue({
+      id: "ev2",
+      title: "Reunión pedagógica",
+      userId: "adm",
+      assignedUserId: teacherId,
+      user: { id: "adm", role: "ADMIN" },
+      assignedUser: { id: teacherId, name: "Doc", email: "t@t.com", role: "TEACHER" },
+    });
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, title: "Reunión pedagógica", assignedUserId: teacherId });
+    expect(res.status).toBe(200);
+    expect(prismaMock.inAppNotification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: teacherId,
+          type: "EVENT_ASSIGNED",
+          actionUrl: "/teacher/events",
+        }),
+      }),
+    );
   });
 
   it("POST /events 500 si create falla", async () => {
