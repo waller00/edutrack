@@ -2,13 +2,30 @@ import { api } from '@/lib/api'
 
 const SW_PATH = '/sw.js'
 
+/** Motivo por el que no hay push web (útil para mensajes en UI; no es solo “navegador viejo”). */
+export type WebPushSupportCode =
+  | 'supported'
+  | 'pending'
+  | 'insecure-context'
+  | 'no-service-worker'
+  | 'no-notification'
+  | 'no-push-manager'
+
+/**
+ * Push web y service workers exigen contexto seguro (HTTPS), salvo localhost.
+ * Si entrás por http://IP:3000 en testing, el navegador oculta PushManager: no es el .env.
+ */
+export function getWebPushSupportState(): { code: WebPushSupportCode } {
+  if (typeof window === 'undefined') return { code: 'pending' }
+  if (!window.isSecureContext) return { code: 'insecure-context' }
+  if (!('serviceWorker' in navigator)) return { code: 'no-service-worker' }
+  if (!('Notification' in window)) return { code: 'no-notification' }
+  if (!('PushManager' in window)) return { code: 'no-push-manager' }
+  return { code: 'supported' }
+}
+
 export function isWebPushSupported(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    'serviceWorker' in navigator &&
-    'PushManager' in window &&
-    'Notification' in window
-  )
+  return getWebPushSupportState().code === 'supported'
 }
 
 /** Convierte la clave pública VAPID (base64 URL) al formato que pide `applicationServerKey`. */

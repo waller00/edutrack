@@ -5,14 +5,30 @@ import { useCallback, useEffect, useState } from 'react'
 import { PendingButtonContent } from '@/components/PendingButtonContent'
 import {
   getWebPushServerStatusWithRetry,
-  isWebPushSupported,
+  getWebPushSupportState,
   sendWebPushTest,
   subscribeCurrentDeviceToWebPush,
   unsubscribeAllWebPushForUser,
+  type WebPushSupportCode,
 } from '@/lib/web-push-client'
 
+function unsupportedExplanation(code: WebPushSupportCode): string {
+  switch (code) {
+    case 'insecure-context':
+      return 'Las notificaciones push requieren HTTPS (contexto seguro). Si entrás por http:// a la IP del servidor, el navegador no habilita push ni service worker: usá el dominio con SSL (por ejemplo detrás de Cloudflare) o https:// en el puerto público. En tu PC, http://localhost sí cuenta como seguro.'
+    case 'no-service-worker':
+      return 'Este navegador no ofrece service workers, o están bloqueados (extensiones, políticas del dispositivo). Probá Chrome o Edge actualizado, o otra ventana sin modo restringido.'
+    case 'no-notification':
+      return 'Este entorno no expone la API de notificaciones del sistema.'
+    case 'no-push-manager':
+      return 'Este navegador no soporta la API Push web (o está en modo privado / WebView donde no está disponible). En iPhone/iPad hace falta iOS 16.4+ y Safari; en desktop usá Chrome, Edge o Firefox recientes.'
+    default:
+      return 'Tu navegador no admite notificaciones push web en estas condiciones.'
+  }
+}
+
 export default function WebPushSection() {
-  const [supported, setSupported] = useState(false)
+  const [supportCode, setSupportCode] = useState<WebPushSupportCode>('pending')
   const [configured, setConfigured] = useState(false)
   const [subscriptionCount, setSubscriptionCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -38,7 +54,7 @@ export default function WebPushSection() {
   }, [])
 
   useEffect(() => {
-    setSupported(isWebPushSupported())
+    setSupportCode(getWebPushSupportState().code)
     void refresh()
   }, [refresh])
 
@@ -90,7 +106,7 @@ export default function WebPushSection() {
     }
   }
 
-  if (!supported) {
+  if (supportCode === 'pending') {
     return (
       <section className="card">
         <div className="card-header">
@@ -101,9 +117,23 @@ export default function WebPushSection() {
             <h2 className="text-lg font-semibold text-gray-900">Notificaciones en el navegador</h2>
           </div>
         </div>
-        <p className="text-sm text-gray-600">
-          Tu navegador no admite notificaciones push web, o estás en modo privado sin service worker.
-        </p>
+        <p className="text-sm text-gray-500">Comprobando compatibilidad…</p>
+      </section>
+    )
+  }
+
+  if (supportCode !== 'supported') {
+    return (
+      <section className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Bell className="h-4 w-4 text-gray-500" aria-hidden />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">Notificaciones en el navegador</h2>
+          </div>
+        </div>
+        <p className="text-sm text-gray-600">{unsupportedExplanation(supportCode)}</p>
       </section>
     )
   }
