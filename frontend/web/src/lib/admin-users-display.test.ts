@@ -54,9 +54,16 @@ describe('buildAdminUserEditChanges', () => {
 })
 
 describe('getAdminUserSaveErrorMessage', () => {
-  it('409 400 default', () => {
-    expect(getAdminUserSaveErrorMessage({ message: '409' })).toContain('registrados')
-    expect(getAdminUserSaveErrorMessage({ message: '400 bad' })).toContain('inválidos')
+  it('prioriza mensaje del API y mapea códigos', () => {
+    expect(
+      getAdminUserSaveErrorMessage({
+        status: 409,
+        message: 'Esa cédula ya está asignada a otro usuario.',
+        data: { message: 'Esa cédula ya está asignada a otro usuario.' },
+      }),
+    ).toContain('cédula ya está asignada')
+    expect(getAdminUserSaveErrorMessage({ status: 409, message: 'API 409' })).toContain('registrados')
+    expect(getAdminUserSaveErrorMessage({ status: 400, message: 'API 400' })).toContain('inválidos')
     expect(getAdminUserSaveErrorMessage({ message: '500' })).toContain('No se pudo')
   })
 })

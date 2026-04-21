@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../prisma.js'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { z } from 'zod'
@@ -45,6 +46,22 @@ async function buildAdminUserUpdateData(id: string, payload: {
     data.isActive = payload.isActive
   }
   return data
+}
+
+function messageForUniqueViolation(err: Prisma.PrismaClientKnownRequestError): string {
+  const raw = err.meta?.target as string | string[] | undefined
+  const parts = Array.isArray(raw) ? raw.map(String) : raw != null ? [String(raw)] : []
+  const joined = parts.join(' ')
+  if (joined.includes('nationalId')) {
+    return 'Esa cédula ya está asignada a otro usuario. Quitá la cédula del otro usuario primero o usá una cédula distinta.'
+  }
+  if (joined.includes('username')) {
+    return 'Ese nombre de usuario ya está en uso por otro usuario.'
+  }
+  if (joined.includes('email')) {
+    return 'Ese email ya está registrado en otro usuario.'
+  }
+  return 'Ese dato ya existe en otro usuario (restricción única en la base).'
 }
 
 // Listar usuarios (paginado + filtro + búsqueda)
@@ -105,7 +122,37 @@ r.put('/users/:id', async (req, res) => {
     }
     throw error
   }
-  await prisma.user.update({ where: { id }, data })
+
+  if (data.nationalId && typeof data.nationalId === 'string') {
+    const other = await prisma.user.findFirst({
+      where: { nationalId: data.nationalId, NOT: { id } },
+      select: { id: true },
+    })
+    if (other) {
+      return res.status(409).json({
+        message:
+          'Esa cédula ya está asignada a otro usuario. ',
+      })
+    }
+  }
+  if (data.username && typeof data.username === 'string') {
+    const other = await prisma.user.findFirst({
+      where: { username: data.username, NOT: { id } },
+      select: { id: true },
+    })
+    if (other) {
+      return res.status(409).json({ message: 'Ese nombre de usuario ya está en uso por otro usuario.' })
+    }
+  }
+
+  try {
+    await prisma.user.update({ where: { id }, data })
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return res.status(409).json({ message: messageForUniqueViolation(error) })
+    }
+    throw error
+  }
   res.json({ ok: true })
 })
 
