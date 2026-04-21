@@ -46,10 +46,15 @@ export function getAdminUserSaveErrorMessage(error: unknown): string {
   if (fromBody) return fromBody
 
   const m = String(err.message || '').trim()
-  if (m && !m.startsWith('API ')) return m
+  const bareHttpCode = /^\d{3}$/.test(m)
+  const mentions409 = err.status === 409 || /\b409\b/.test(m)
+  const mentions400 = err.status === 400 || /\b400\b/.test(m)
 
-  if (err.status === 409 || m.includes('409')) return 'Usuario o cédula ya registrados'
-  if (err.status === 400 || m.includes('400')) return 'Datos inválidos (verifica cédula)'
+  if (mentions409) return 'Usuario o cédula ya registrados'
+  if (mentions400) return 'Datos inválidos (verifica cédula)'
+
+  if (m && !m.startsWith('API ') && !bareHttpCode) return m
+
   return 'No se pudo guardar'
 }
 
