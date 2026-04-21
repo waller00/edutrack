@@ -41,9 +41,15 @@ export function buildAdminUserEditChanges(original: AdminUserRow | null, edited:
 }
 
 export function getAdminUserSaveErrorMessage(error: unknown): string {
-  const message = String((error as { message?: string })?.message || '')
-  if (message.includes('409')) return 'Usuario o cédula ya registrados'
-  if (message.includes('400')) return 'Datos inválidos (verifica cédula)'
+  const err = error as { message?: string; status?: number; data?: { message?: string } }
+  const fromBody = err.data?.message != null ? String(err.data.message).trim() : ''
+  if (fromBody) return fromBody
+
+  const m = String(err.message || '').trim()
+  if (m && !m.startsWith('API ')) return m
+
+  if (err.status === 409 || m.includes('409')) return 'Usuario o cédula ya registrados'
+  if (err.status === 400 || m.includes('400')) return 'Datos inválidos (verifica cédula)'
   return 'No se pudo guardar'
 }
 

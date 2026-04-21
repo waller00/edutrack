@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
+import { Prisma } from "@prisma/client";
 import { signAccessToken } from "../jwt.js";
 import { computeCICheckDigit } from "../uruguay-ci.js";
 
@@ -11,6 +12,7 @@ const { prismaMock } = vi.hoisted(() => ({
       count: vi.fn(),
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
@@ -37,6 +39,7 @@ const adminHdr = () => ({
 describe("admin routes (prisma mock)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.user.findFirst.mockResolvedValue(null);
   });
 
   it("GET /admin/users paginado", async () => {
@@ -113,6 +116,39 @@ describe("admin routes (prisma mock)", () => {
       .send({ firstName: "Ana", lastName: "López" });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
+  });
+
+  it("PUT /admin/users/:id 409 cédula ya usada por otro", async () => {
+    const d = computeCICheckDigit("3045865");
+    const nationalId = `3.045.865-${d}`;
+    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
+    prismaMock.user.findFirst.mockResolvedValueOnce({ id: "other-user" });
+    const res = await request(app())
+      .put("/admin/users/u1")
+      .set(adminHdr())
+      .send({ nationalId });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/cédula ya está asignada/i);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
+  it("PUT /admin/users/:id 409 por violación única Prisma (P2002)", async () => {
+    const d = computeCICheckDigit("3045865");
+    const nationalId = `3.045.865-${d}`;
+    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    const err = new Prisma.PrismaClientKnownRequestError("Unique", {
+      code: "P2002",
+      clientVersion: "0.0.0",
+      meta: { target: ["nationalId"] },
+    });
+    prismaMock.user.update.mockRejectedValueOnce(err);
+    const res = await request(app())
+      .put("/admin/users/u1")
+      .set(adminHdr())
+      .send({ nationalId });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/cédula ya está asignada/i);
   });
 
   it("PUT /admin/users/:id normaliza cédula válida", async () => {
