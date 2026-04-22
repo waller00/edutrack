@@ -52,12 +52,12 @@ describe('AdminUsersPage', () => {
     await waitFor(() => expect(mockedApi).toHaveBeenCalled())
 
     fireEvent.change(screen.getByPlaceholderText(/Buscar/), { target: { value: 'ana' } })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ADMIN' } })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'STAFF' } })
     fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
 
     await waitFor(() => {
       expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('q=ana'))
-      expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('role=ADMIN'))
+      expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('role=STAFF'))
     })
   })
 

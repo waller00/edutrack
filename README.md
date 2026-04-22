@@ -69,6 +69,10 @@ cd /root/edutrack
 ```
 - Después de importar, levantá o reiniciá backend/frontend según necesites.
 
+### Copia de prod a testing (dump `.dump` + Docker)
+
+Si en el Droplet ves `KeyError: 'ContainerConfig'` con `docker-compose` o `No such service: authcd`, leé **[docs/TESTING_DB_RESTORE.md](docs/TESTING_DB_RESTORE.md)**. Resumen: instalá `docker-compose-plugin`, no uses `docker-compose` (guión); en el servidor `./scripts/restore_pg_custom_dump_cloud.sh /ruta/al.dump` o `./scripts/dc-cloud.sh up -d` en lugar de `docker-compose -f docker-compose.cloud.yml …`.
+
 ## SonarQube
 Este repo quedó preparado para análisis estático con SonarQube sobre:
 - `backend/src`

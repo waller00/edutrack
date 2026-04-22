@@ -25,7 +25,7 @@ export default function AdminUsersPage() {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [q, setQ] = useState('')
-  const [role, setRole] = useState<'ALL' | 'ADMIN' | 'STAFF' | 'TEACHER'>('ALL')
+  const [role, setRole] = useState<'ALL' | 'STAFF' | 'TEACHER'>('ALL')
 
   async function load() {
     const qs = buildAdminUsersQueryParams(q, role)
@@ -81,33 +81,50 @@ export default function AdminUsersPage() {
   async function toggleLock(u: AdminUserRow) {
     const lock = !u.lockUntil
     if (!confirm(lock ? '¿Bloquear usuario 15 minutos?' : '¿Desbloquear usuario?')) return
-    await api(`/admin/users/${u.id}/lock?lock=${lock}`, { method: 'PUT' })
-    await load()
+    try {
+      await api(`/admin/users/${u.id}/lock?lock=${lock}`, { method: 'PUT' })
+      await load()
+    } catch (e: unknown) {
+      alert(getAdminUserSaveErrorMessage(e))
+    }
   }
 
   async function resetPassword(u: AdminUserRow) {
     if (!confirm(`Generar token de reset para ${u.email}?`)) return
-    const r = await api<{ token: string; expiresAt: string }>(`/admin/users/${u.id}/password/reset`, {
-      method: 'POST',
-    })
-    alert(`Token de reset (dev): ${r.token}\nVence: ${new Date(r.expiresAt).toLocaleString()}`)
+    try {
+      const r = await api<{ token: string; expiresAt: string }>(`/admin/users/${u.id}/password/reset`, {
+        method: 'POST',
+      })
+      alert(`Token de reset (dev): ${r.token}\nVence: ${new Date(r.expiresAt).toLocaleString()}`)
+    } catch (e: unknown) {
+      alert(getAdminUserSaveErrorMessage(e))
+    }
   }
 
   async function toggleApproval(u: AdminUserRow) {
     const next = !u.isApproved
     if (!confirm(next ? '¿Aprobar usuario?' : '¿Marcar usuario como pendiente?')) return
-    await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isApproved: next }) })
-    await load()
+    try {
+      await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isApproved: next }) })
+      await load()
+    } catch (e: unknown) {
+      alert(getAdminUserSaveErrorMessage(e))
+    }
   }
 
   async function toggleActive(u: AdminUserRow) {
     const next = !u.isActive
     if (!confirm(next ? '¿Dar de alta al usuario?' : '¿Dar de baja al usuario?')) return
-    await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isActive: next }) })
-    await load()
+    try {
+      await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isActive: next }) })
+      await load()
+    } catch (e: unknown) {
+      alert(getAdminUserSaveErrorMessage(e))
+    }
   }
 
   function renderUserRow(u: AdminUserRow) {
+    if (u.role === 'ADMIN') return null
     return (
       <tr key={u.id} className="border-t hover:bg-slate-50">
         <td className="px-3 py-2">{u.email}</td>
@@ -219,11 +236,10 @@ export default function AdminUsersPage() {
           />
           <select
             value={role}
-            onChange={(e) => setRole(e.target.value as 'ALL' | 'ADMIN' | 'STAFF' | 'TEACHER')}
+            onChange={(e) => setRole(e.target.value as 'ALL' | 'STAFF' | 'TEACHER')}
             className="border border-gray-300 rounded px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
           >
             <option value="ALL">Todos</option>
-            <option value="ADMIN">ADMIN</option>
             <option value="STAFF">STAFF</option>
             <option value="TEACHER">TEACHER</option>
           </select>
@@ -290,15 +306,20 @@ export default function AdminUsersPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium">Rol</label>
-                  <select
-                    value={edit.role}
-                    onChange={(e) => setEdit({ ...edit, role: e.target.value as AdminUserRow['role'] })}
-                    className="w-full border rounded px-3 py-2 bg-blue-50"
-                  >
-                    <option value="ADMIN">ADMIN</option>
-                    <option value="STAFF">STAFF</option>
-                    <option value="TEACHER">TEACHER</option>
-                  </select>
+                  {edit.role === 'ADMIN' ? (
+                    <input value="ADMIN" disabled className="w-full border rounded px-3 py-2 bg-gray-100" />
+                  ) : (
+                    <select
+                      value={edit.role}
+                      onChange={(e) =>
+                        setEdit({ ...edit, role: e.target.value as Exclude<AdminUserRow['role'], 'ADMIN'> })
+                      }
+                      className="w-full border rounded px-3 py-2 bg-blue-50"
+                    >
+                      <option value="STAFF">STAFF</option>
+                      <option value="TEACHER">TEACHER</option>
+                    </select>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium">Cédula</label>
