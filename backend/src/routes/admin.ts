@@ -70,14 +70,19 @@ r.get('/users', async (req, res) => {
   const pageSize = Math.min(Number((req.query.pageSize as string) || 20), 100)
   const role = (req.query.role as string) || undefined
   const q = (req.query.q as string) || ''
-  const where: any = {}
-  if (role) where.role = role
-  if (q) where.OR = [
-    { email: { contains: q, mode: 'insensitive' } },
-    { username: { contains: q, mode: 'insensitive' } },
-    { firstName: { contains: q, mode: 'insensitive' } },
-    { lastName: { contains: q, mode: 'insensitive' } },
-  ]
+  const and: Prisma.UserWhereInput[] = [{ NOT: { role: 'ADMIN' } }]
+  if (role === 'STAFF' || role === 'TEACHER') and.push({ role })
+  if (q) {
+    and.push({
+      OR: [
+        { email: { contains: q, mode: 'insensitive' } },
+        { username: { contains: q, mode: 'insensitive' } },
+        { firstName: { contains: q, mode: 'insensitive' } },
+        { lastName: { contains: q, mode: 'insensitive' } },
+      ],
+    })
+  }
+  const where: Prisma.UserWhereInput = { AND: and }
   const [total, data] = await Promise.all([
     prisma.user.count({ where }),
     prisma.user.findMany({ where, skip: (page-1)*pageSize, take: pageSize, orderBy: { createdAt: 'desc' }, select: { id:true, email:true, username:true, role:true, firstName:true, lastName:true, emailVerifiedAt:true, createdAt:true, lockUntil:true, nationalId:true, nationalIdDocumentExpiresAt:true, isApproved:true, approvedAt:true, isActive:true } })
@@ -87,7 +92,7 @@ r.get('/users', async (req, res) => {
 
 // Crear usuario
 r.post('/users', async (req, res) => {
-  const parsed = z.object({ email: z.string().email(), role: z.enum(['ADMIN','STAFF','TEACHER']), username: z.string().min(3).max(30).optional() }).safeParse(req.body)
+  const parsed = z.object({ email: z.string().email(), role: z.enum(['STAFF','TEACHER']), username: z.string().min(3).max(30).optional() }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
   const { email, role, username } = parsed.data
   const exist = await prisma.user.findUnique({ where: { email } })
@@ -110,6 +115,26 @@ r.put('/users/:id', async (req, res) => {
     isActive: z.boolean().optional(),
   }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, role: true, firstName: true, lastName: true },
+  })
+  if (!target) return res.status(404).json({ message: 'Usuario no encontrado' })
+  const p = parsed.data
+  if (target.role === 'ADMIN') {
+    if (p.isActive === false) {
+      return res.status(403).json({ message: 'No se puede dar de baja al usuario administrador.' })
+    }
+    if (p.role && p.role !== 'ADMIN') {
+      return res.status(403).json({ message: 'No se puede cambiar el rol del administrador.' })
+    }
+    if (p.isApproved === false) {
+      return res.status(403).json({ message: 'No se puede marcar como pendiente al usuario administrador.' })
+    }
+  }
+  if (p.role === 'ADMIN' && target.role !== 'ADMIN') {
+    return res.status(403).json({ message: 'No se puede promover a administrador desde esta pantalla.' })
+  }
   let data: any
   try {
     data = await buildAdminUserUpdateData(id, parsed.data)
@@ -131,7 +156,7 @@ r.put('/users/:id', async (req, res) => {
     if (other) {
       return res.status(409).json({
         message:
-          'Esa cédula ya está asignada a otro usuario. ',
+          'Esa cédula ya está asignada a otro usuario. Quitá la cédula del otro usuario primero o usá una cédula distinta.',
       })
     }
   }
@@ -160,6 +185,11 @@ r.put('/users/:id', async (req, res) => {
 r.put('/users/:id/lock', async (req, res) => {
   const id = req.params.id
   const lock = req.query.lock === 'true'
+  const u = await prisma.user.findUnique({ where: { id }, select: { role: true } })
+  if (!u) return res.status(404).json({ message: 'Usuario no encontrado' })
+  if (u.role === 'ADMIN' && lock) {
+    return res.status(403).json({ message: 'No se puede bloquear al usuario administrador.' })
+  }
   await prisma.user.update({ where: { id }, data: { lockUntil: lock ? new Date(Date.now()+15*60*1000) : null, failedLoginAttempts: 0 } })
   res.json({ ok: true })
 })
@@ -167,6 +197,11 @@ r.put('/users/:id/lock', async (req, res) => {
 // Reset password: genera token de reset y lo retorna (para ahora; en prod enviar email)
 r.post('/users/:id/password/reset', async (req, res) => {
   const id = req.params.id
+  const u = await prisma.user.findUnique({ where: { id }, select: { role: true } })
+  if (!u) return res.status(404).json({ message: 'Usuario no encontrado' })
+  if (u.role === 'ADMIN') {
+    return res.status(403).json({ message: 'No se puede resetear la contraseña del administrador desde esta pantalla.' })
+  }
   const token = randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now()+15*60*1000)
   await prisma.passwordReset.create({ data: { token, userId: id, expiresAt } })

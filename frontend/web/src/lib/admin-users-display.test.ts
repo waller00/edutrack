@@ -25,7 +25,7 @@ describe('buildAdminUsersQueryParams', () => {
   it('base y filtro rol', () => {
     expect(buildAdminUsersQueryParams('', 'ALL')).toContain('page=1')
     expect(buildAdminUsersQueryParams('ana', 'TEACHER')).toContain('q=ana')
-    expect(buildAdminUsersQueryParams('', 'ADMIN')).toContain('role=ADMIN')
+    expect(buildAdminUsersQueryParams('', 'STAFF')).toContain('role=STAFF')
   })
 })
 
@@ -64,6 +64,7 @@ describe('getAdminUserSaveErrorMessage', () => {
     ).toContain('cédula ya está asignada')
     expect(getAdminUserSaveErrorMessage({ status: 409, message: 'API 409' })).toContain('registrados')
     expect(getAdminUserSaveErrorMessage({ status: 400, message: 'API 400' })).toContain('inválidos')
+    expect(getAdminUserSaveErrorMessage({ status: 403, message: 'API 403' })).toContain('permiso')
     expect(getAdminUserSaveErrorMessage({ message: '500' })).toContain('No se pudo')
   })
 })

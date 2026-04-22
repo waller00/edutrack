@@ -40,6 +40,12 @@ describe("admin routes (prisma mock)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.user.findFirst.mockResolvedValue(null);
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      role: "TEACHER",
+      firstName: "A",
+      lastName: "B",
+    });
   });
 
   it("GET /admin/users paginado", async () => {
@@ -59,7 +65,12 @@ describe("admin routes (prisma mock)", () => {
     await request(app()).get("/admin/users?q=juan").set(adminHdr());
     expect(prismaMock.user.findMany).toHaveBeenCalled();
     const arg = prismaMock.user.findMany.mock.calls[0][0];
-    expect(arg.where.OR).toBeDefined();
+    expect(arg.where.AND).toEqual(
+      expect.arrayContaining([
+        { NOT: { role: "ADMIN" } },
+        expect.objectContaining({ OR: expect.any(Array) }),
+      ]),
+    );
   });
 
   it("GET /admin/users capea pageSize y filtra por role", async () => {
@@ -69,7 +80,9 @@ describe("admin routes (prisma mock)", () => {
     expect(res.status).toBe(200);
     const arg = prismaMock.user.findMany.mock.calls[0][0];
     expect(arg.take).toBe(100);
-    expect(arg.where.role).toBe("STAFF");
+    expect(arg.where.AND).toEqual(
+      expect.arrayContaining([{ NOT: { role: "ADMIN" } }, { role: "STAFF" }]),
+    );
   });
 
   it("POST /admin/users 400 body inválido", async () => {
@@ -86,6 +99,14 @@ describe("admin routes (prisma mock)", () => {
     expect(res.status).toBe(409);
   });
 
+  it("POST /admin/users 400 si role es ADMIN", async () => {
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "a@a.com", role: "ADMIN" });
+    expect(res.status).toBe(400);
+  });
+
   it("POST /admin/users 201 crea", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     prismaMock.user.create.mockResolvedValue({ id: "new-id" });
@@ -97,8 +118,32 @@ describe("admin routes (prisma mock)", () => {
     expect(res.body.id).toBe("new-id");
   });
 
+  it("PUT /admin/users/:id 404 si no existe", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const res = await request(app()).put("/admin/users/missing").set(adminHdr()).send({ firstName: "X" });
+    expect(res.status).toBe(404);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
+  it("PUT /admin/users/:id 403 no dar de baja a administrador", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "adm",
+      role: "ADMIN",
+      firstName: "A",
+      lastName: "B",
+    });
+    const res = await request(app()).put("/admin/users/adm").set(adminHdr()).send({ isActive: false });
+    expect(res.status).toBe(403);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
+  it("PUT /admin/users/:id 403 no promover a ADMIN", async () => {
+    const res = await request(app()).put("/admin/users/u1").set(adminHdr()).send({ role: "ADMIN" });
+    expect(res.status).toBe(403);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
   it("PUT /admin/users/:id 400 cédula inválida", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
     const res = await request(app())
       .put("/admin/users/u1")
       .set(adminHdr())
@@ -108,7 +153,6 @@ describe("admin routes (prisma mock)", () => {
   });
 
   it("PUT /admin/users/:id ok actualiza nombre", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
     prismaMock.user.update.mockResolvedValue({});
     const res = await request(app())
       .put("/admin/users/u1")
@@ -121,7 +165,6 @@ describe("admin routes (prisma mock)", () => {
   it("PUT /admin/users/:id 409 cédula ya usada por otro", async () => {
     const d = computeCICheckDigit("3045865");
     const nationalId = `3.045.865-${d}`;
-    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
     prismaMock.user.findFirst.mockResolvedValueOnce({ id: "other-user" });
     const res = await request(app())
       .put("/admin/users/u1")
@@ -135,7 +178,6 @@ describe("admin routes (prisma mock)", () => {
   it("PUT /admin/users/:id 409 por violación única Prisma (P2002)", async () => {
     const d = computeCICheckDigit("3045865");
     const nationalId = `3.045.865-${d}`;
-    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
     prismaMock.user.findFirst.mockResolvedValue(null);
     const err = new Prisma.PrismaClientKnownRequestError("Unique", {
       code: "P2002",
@@ -154,7 +196,6 @@ describe("admin routes (prisma mock)", () => {
   it("PUT /admin/users/:id normaliza cédula válida", async () => {
     const d = computeCICheckDigit("3045865");
     const nationalId = `3.045.865-${d}`;
-    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
     prismaMock.user.update.mockResolvedValue({});
     const res = await request(app())
       .put("/admin/users/u1")
@@ -169,7 +210,6 @@ describe("admin routes (prisma mock)", () => {
   });
 
   it("PUT /admin/users/:id actualiza aprobación e inactividad", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ firstName: "A", lastName: "B" });
     prismaMock.user.update.mockResolvedValue({});
     const res = await request(app())
       .put("/admin/users/u1")
@@ -188,6 +228,14 @@ describe("admin routes (prisma mock)", () => {
     prismaMock.user.update.mockResolvedValue({});
     const res = await request(app()).put("/admin/users/u1/lock?lock=true").set(adminHdr());
     expect(res.status).toBe(200);
+    expect(prismaMock.user.findUnique).toHaveBeenCalled();
+  });
+
+  it("PUT /admin/users/:id/lock 403 no bloquear administrador", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ role: "ADMIN" });
+    const res = await request(app()).put("/admin/users/adm/lock?lock=true").set(adminHdr());
+    expect(res.status).toBe(403);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
   });
 
   it("PUT /admin/users/:id/lock permite desbloquear", async () => {
@@ -207,6 +255,13 @@ describe("admin routes (prisma mock)", () => {
     expect(res.status).toBe(200);
     expect(res.body.token).toBeDefined();
     expect(res.body.expiresAt).toBeDefined();
+  });
+
+  it("POST /admin/users/:id/password/reset 403 para administrador", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ role: "ADMIN" });
+    const res = await request(app()).post("/admin/users/adm/password/reset").set(adminHdr());
+    expect(res.status).toBe(403);
+    expect(prismaMock.passwordReset.create).not.toHaveBeenCalled();
   });
 
   it("403 sin rol ADMIN", async () => {

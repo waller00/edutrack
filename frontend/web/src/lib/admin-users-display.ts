@@ -15,7 +15,7 @@ export type AdminUserRow = {
 
 export function buildAdminUsersQueryParams(
   q: string,
-  role: 'ALL' | 'ADMIN' | 'STAFF' | 'TEACHER',
+  role: 'ALL' | 'STAFF' | 'TEACHER',
 ): string {
   const params = new URLSearchParams({ page: '1', pageSize: '20' })
   if (q) params.set('q', q)
@@ -49,9 +49,11 @@ export function getAdminUserSaveErrorMessage(error: unknown): string {
   const bareHttpCode = /^\d{3}$/.test(m)
   const mentions409 = err.status === 409 || /\b409\b/.test(m)
   const mentions400 = err.status === 400 || /\b400\b/.test(m)
+  const mentions403 = err.status === 403 || /\b403\b/.test(m)
 
   if (mentions409) return 'Usuario o cédula ya registrados'
   if (mentions400) return 'Datos inválidos (verifica cédula)'
+  if (mentions403) return 'No tenés permiso para esta acción'
 
   if (m && !m.startsWith('API ') && !bareHttpCode) return m
 
