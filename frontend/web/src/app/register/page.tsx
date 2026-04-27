@@ -80,6 +80,11 @@ export default function RegisterPage() {
   const [verificationResults, setVerificationResults] = useState<RegisterVerificationResults | null>(null)
   const [dniValidation, setDniValidation] = useState<DniValidation | null>(null)
   const [sessionGate, setSessionGate] = useState(true)
+  const [livenessCheckEnabled, setLivenessCheckEnabled] = useState(false)
+  const [livenessToken, setLivenessToken] = useState<string | null>(null)
+  const [livenessApproved, setLivenessApproved] = useState(false)
+  const [livenessStarting, setLivenessStarting] = useState(false)
+  const [livenessPollError, setLivenessPollError] = useState('')
 
   const dniFileRef = useRef<File | null>(null)
   const verifySeqRef = useRef(0)
@@ -114,6 +119,90 @@ export default function RegisterPage() {
       alive = false
     }
   }, [])
+
+  useEffect(() => {
+    let alive = true
+    api<{ livenessCheckEnabled?: boolean }>('/auth/registration-options')
+      .then((o) => {
+        if (alive) setLivenessCheckEnabled(!!o?.livenessCheckEnabled)
+      })
+      .catch(() => {
+        if (alive) setLivenessCheckEnabled(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const pollLiveness = useCallback(async (token: string) => {
+    try {
+      const r = await api<{ status?: string; approved?: boolean; consumed?: boolean; expired?: boolean }>(
+        `/auth/liveness/status?token=${encodeURIComponent(token)}`,
+      )
+      if (r.approved) {
+        setLivenessApproved(true)
+        setLivenessPollError('')
+        return true
+      }
+      if (r.expired || (r as { status?: string }).status === 'DECLINED' || (r as { status?: string }).status === 'ABANDONED') {
+        setLivenessPollError('La prueba de vida no se completó. Iniciá de nuevo.')
+        setLivenessToken(null)
+        setLivenessApproved(false)
+        try {
+          window.sessionStorage.removeItem('edutrack_liveness_token')
+        } catch { /* no sessionStorage (SSR) */ }
+        return true
+      }
+    } catch {
+      /* sigue haciendo poll */
+    }
+    return false
+  }, [])
+
+  useEffect(() => {
+    if (!livenessToken || livenessApproved) return
+    const t = window.setInterval(() => {
+      void pollLiveness(livenessToken)
+    }, 2500)
+    return () => window.clearInterval(t)
+  }, [livenessToken, livenessApproved, pollLiveness])
+
+  const lastEmailForLivenessRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!livenessCheckEnabled) {
+      lastEmailForLivenessRef.current = email
+      return
+    }
+    const prev = lastEmailForLivenessRef.current
+    if (prev != null && prev !== email && (livenessToken != null || livenessApproved)) {
+      setLivenessToken(null)
+      setLivenessApproved(false)
+      setLivenessPollError('Cambiaste el email: volvé a hacer la prueba de vida con el nuevo correo.')
+      try {
+        window.sessionStorage.removeItem('edutrack_liveness_token')
+      } catch { /* */ }
+    }
+    lastEmailForLivenessRef.current = email
+  }, [email, livenessCheckEnabled, livenessToken, livenessApproved])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const run = () => {
+      const p = new URLSearchParams(window.location.search)
+      if (p.get('liveness') !== '1') return
+      let tok: string | null = null
+      try {
+        tok = window.sessionStorage.getItem('edutrack_liveness_token')
+      } catch { /* */ }
+      if (tok) {
+        setLivenessToken(tok)
+        void pollLiveness(tok)
+      }
+    }
+    run()
+    window.addEventListener('focus', run)
+    return () => window.removeEventListener('focus', run)
+  }, [pollLiveness])
 
   // Función para manejar el cambio de cédula con formato automático
   function handleNationalIdChange(value: string) {
@@ -394,13 +483,45 @@ export default function RegisterPage() {
       nationalIdDocumentExpiresAt,
       dniFile,
       verificationResults,
+      livenessCheckEnabled,
+      livenessApproved,
     })
     if (baseValidation) return baseValidation
     if (verificationHasIssues()) return 'Debes verificar tu DNI antes de crear la cuenta'
     return null
   }
 
+  const startDiditLiveness = useCallback(async () => {
+    if (!email.trim()) {
+      setLivenessPollError('Completá tu email arriba antes de iniciar la prueba de vida.')
+      return
+    }
+    setLivenessStarting(true)
+    setLivenessPollError('')
+    try {
+      const res = await api<{ livenessToken: string; verificationUrl: string }>('/auth/didit/liveness-session', {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim() }),
+      })
+      setLivenessToken(res.livenessToken)
+      setLivenessApproved(false)
+      try {
+        window.sessionStorage.setItem('edutrack_liveness_token', res.livenessToken)
+      } catch { /* */ }
+      window.open(res.verificationUrl, '_blank', 'noopener,noreferrer')
+    } catch (e: unknown) {
+      const err = e as { data?: { message?: string }; message?: string }
+      const msg = (typeof err.data?.message === 'string' && err.data.message) || err.message || 'No se pudo iniciar la verificación.'
+      setLivenessPollError(String(msg))
+    } finally {
+      setLivenessStarting(false)
+    }
+  }, [email])
+
   const strength = getPasswordStrength(password)
+
+  const dniBlockOk = Boolean(verificationResults && !verificationHasIssues())
+  const showLiveness = livenessCheckEnabled && dniBlockOk
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -409,7 +530,7 @@ export default function RegisterPage() {
     if (v) { setError(v); return }
     setLoading(true)
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         email,
         password,
         username,
@@ -420,6 +541,9 @@ export default function RegisterPage() {
         birthdate: new Date(birthdate).toISOString(),
         nationalIdDocumentExpiresAt: new Date(nationalIdDocumentExpiresAt).toISOString(),
         role,
+      }
+      if (livenessCheckEnabled && livenessToken) {
+        payload.livenessToken = livenessToken
       }
       await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
       setOk(true)
@@ -769,6 +893,53 @@ export default function RegisterPage() {
               )}
             </div>
 
+            {showLiveness && (
+              <div className="mt-8 pt-6 border-t border-amber-200">
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Prueba de vida (Didit)</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  El administrador requiere una verificación biométrica. Se abre Didit en otra pestaña; cuando termines, volvé acá. La comprobación se actualiza sola, o usá &quot;Ya terminé&quot;.
+                </p>
+                {livenessApproved ? (
+                  <p className="text-sm font-medium text-green-700">Prueba de vida aprobada. Podés crear la cuenta.</p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void startDiditLiveness()
+                        }}
+                        disabled={livenessStarting}
+                        className="btn-primary"
+                      >
+                        <PendingButtonContent
+                          pending={livenessStarting}
+                          pendingText="Iniciando…"
+                          idle="Iniciar prueba de vida (Didit)"
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (livenessToken) void pollLiveness(livenessToken)
+                        }}
+                        className="btn-secondary text-sm"
+                        disabled={!livenessToken}
+                      >
+                        Ya terminé: comprobar
+                      </button>
+                    </div>
+                    {livenessToken && !livenessApproved && (
+                      <p className="text-xs text-amber-800">
+                        Esperando confirmación de Didit (la página consulta en segundo plano)…
+                      </p>
+                    )}
+                  </div>
+                )}
+                {livenessPollError && <p className="text-sm text-red-600 mt-2">{livenessPollError}</p>}
+              </div>
+            )}
+
             {/* DNI Validation Details */}
             {dniValidation && (
               <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
@@ -808,7 +979,7 @@ export default function RegisterPage() {
             
             <div className="flex gap-4 pt-6 border-t border-gray-200">
               <button
-                disabled={loading || verificationHasIssues()}
+                disabled={loading || verificationHasIssues() || (livenessCheckEnabled && !livenessApproved)}
                 className="btn-primary flex-1 disabled:opacity-60"
               >
                 <PendingButtonContent pending={loading} pendingText="Creando…" idle="Crear cuenta" />

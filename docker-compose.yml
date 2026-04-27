@@ -47,6 +47,10 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+      # Didit (prueba de vida en registro): https://docs.didit.me/
+      DIDIT_API_KEY: ${DIDIT_API_KEY:-}
+      DIDIT_WORKFLOW_ID: ${DIDIT_WORKFLOW_ID:-}
+      DIDIT_WEBHOOK_SECRET: ${DIDIT_WEBHOOK_SECRET:-}
     ports:
       - "4000:4000"
     depends_on:

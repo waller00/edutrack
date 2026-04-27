@@ -18,6 +18,7 @@ import {
   mapProfileUpdateError,
 } from "../auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
+import { getOrCreateSystemSettings, isDiditConfigured } from "../system-settings.js";
 
 const r = Router();
 
@@ -28,6 +29,7 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
     { href: "/admin/attendance", label: "Asistencias" },
     { href: "/admin/events", label: "Eventos" },
     { href: "/admin/licenses", label: "Licencias" },
+    { href: "/admin/settings", label: "Seguridad" },
     { href: "/notifications", label: "Avisos" },
   ],
   TEACHER: [
@@ -55,6 +57,7 @@ const registerSchema = z.object({
   birthdate: z.string().datetime().optional(),
   nationalIdDocumentExpiresAt: z.string().min(8).max(40).optional(),
   role: z.enum(["ADMIN","STAFF","TEACHER"]).optional(),
+  livenessToken: z.string().uuid().optional(),
 });
 
 const loginSchema = z.object({ identifier: z.string().min(3).max(100), password: z.string().min(8).max(64) });
@@ -213,6 +216,12 @@ function createIpRateLimit(windowMs: number, max: number) {
 }
 
 // Check username availability
+r.get("/registration-options", async (_req, res) => {
+  const s = await getOrCreateSystemSettings();
+  const effective = s.livenessCheckEnabled && isDiditConfigured();
+  return res.json({ livenessCheckEnabled: effective });
+});
+
 r.get('/check-username', async (req, res) => {
   const u = String(req.query.u || '').trim()
   const valid = /^[a-zA-Z0-9_.-]{3,30}$/.test(u)
@@ -226,13 +235,31 @@ r.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
 
-  const { email, password, username, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role } = parsed.data;
+  const { email, password, username, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role, livenessToken } = parsed.data;
 
-  const [byEmail, byUsername, byNational] = await Promise.all([
+  const [settings, byEmail, byUsername, byNational] = await Promise.all([
+    getOrCreateSystemSettings(),
     prisma.user.findUnique({ where: { email } }),
     username ? prisma.user.findUnique({ where: { username } }) : Promise.resolve(null),
     nationalId ? prisma.user.findUnique({ where: { nationalId: onlyDigits(nationalId) } }) : Promise.resolve(null),
   ]);
+  const livenessRequired = settings.livenessCheckEnabled && isDiditConfigured();
+  if (livenessRequired) {
+    if (!livenessToken) {
+      return res.status(400).json({ message: "Falta completar la prueba de vida (Didit)." });
+    }
+    const ls = await prisma.livenessSession.findUnique({ where: { id: livenessToken } });
+    if (!ls || ls.status !== "APPROVED" || ls.consumedAt) {
+      return res.status(400).json({ message: "Prueba de vida no válida o no aprobada. Iniciá el proceso otra vez." });
+    }
+    if (ls.expiresAt < new Date()) {
+      return res.status(400).json({ message: "La prueba de vida venció. Iniciá una nueva sesión." });
+    }
+    if (ls.email && ls.email.toLowerCase() !== email.trim().toLowerCase()) {
+      return res.status(400).json({ message: "El email de registro no coincide con el de la prueba de vida." });
+    }
+  }
+
   if (byEmail) return res.status(409).json({ message: "Email ya registrado" });
   if (byUsername) return res.status(409).json({ message: "Nombre de usuario ya en uso" });
   if (byNational) return res.status(409).json({ message: "Cédula/Documento ya registrado" });
@@ -256,23 +283,34 @@ r.post("/register", async (req, res) => {
   }
 
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-  const user = await prisma.user.create({
-    data: {
-      email,
-      passwordHash,
-      username,
-      nationalId: nationalId ? onlyDigits(nationalId) : null,
-      firstName,
-      lastName,
-      name: `${firstName} ${lastName}`,
-      phone: normalizePhoneUY(phone) ?? null,
-      birthdate: birthdate ? new Date(birthdate) : null,
-      nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAtDate ?? null,
-      role: role || "STAFF",
-      isApproved: false,
-      approvedAt: null,
-      isActive: true,
-    },
+  const nowLv = livenessRequired && livenessToken ? new Date() : null;
+  const user = await prisma.$transaction(async (tx) => {
+    const u = await tx.user.create({
+      data: {
+        email,
+        passwordHash,
+        username,
+        nationalId: nationalId ? onlyDigits(nationalId) : null,
+        firstName,
+        lastName,
+        name: `${firstName} ${lastName}`,
+        phone: normalizePhoneUY(phone) ?? null,
+        birthdate: birthdate ? new Date(birthdate) : null,
+        nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAtDate ?? null,
+        role: role || "STAFF",
+        isApproved: false,
+        approvedAt: null,
+        isActive: true,
+        livenessVerifiedAt: nowLv,
+      },
+    });
+    if (livenessRequired && livenessToken) {
+      await tx.livenessSession.update({
+        where: { id: livenessToken },
+        data: { consumedAt: new Date() },
+      });
+    }
+    return u;
   });
 
   // email verification

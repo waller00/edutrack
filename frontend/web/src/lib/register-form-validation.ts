@@ -155,6 +155,9 @@ export function validateRegisterForm(params: {
   nationalIdDocumentExpiresAt: string
   dniFile: File | null
   verificationResults: RegisterVerificationResults | null
+  /** Registro: si el admin exigió prueba de vida (Didit), el usuario debe aprobarla. */
+  livenessCheckEnabled?: boolean
+  livenessApproved?: boolean
 }): string | null {
   if (!isValidRegisterEmail(params.email)) return 'Email inválido'
   if (!isStrongPassword(params.password)) {
@@ -176,5 +179,10 @@ export function validateRegisterForm(params: {
   const expiresError = getRegisterNationalIdDocumentExpiresAtValidationError(params.nationalIdDocumentExpiresAt)
   if (expiresError) return expiresError
   if (!params.dniFile || !params.verificationResults) return 'Debes verificar tu DNI antes de crear la cuenta'
+  if (params.livenessCheckEnabled) {
+    if (!params.livenessApproved) {
+      return 'Debes completar la prueba de vida (Didit) antes de crear la cuenta'
+    }
+  }
   return null
 }
