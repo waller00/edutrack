@@ -25,6 +25,7 @@ function canAccessModules(me: MeUser) {
 const FALLBACK_NAV: Record<string, NavLink[]> = {
   ADMIN: [
     { href: '/admin/users', label: 'Usuarios' },
+    { href: '/admin/profiles', label: 'Perfiles' },
     { href: '/admin/attendance', label: 'Asistencias' },
     { href: '/admin/events', label: 'Eventos' },
     { href: '/admin/licenses', label: 'Licencias' },

@@ -11,6 +11,7 @@ import {
   Loader2,
   Mail,
   PenLine,
+  ShieldCheck,
   Sparkles,
   Users,
   Wrench,
@@ -29,6 +30,8 @@ function HomeSectionIcon({ kind }: { kind: HomeSectionIconKind }) {
   switch (kind) {
     case 'users':
       return <Users className={cls} aria-hidden />
+    case 'profiles':
+      return <ShieldCheck className={cls} aria-hidden />
     case 'chart':
       return <BarChart3 className={cls} aria-hidden />
     case 'calendar':

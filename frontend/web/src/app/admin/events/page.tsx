@@ -592,6 +592,7 @@ export default function AdminEvents() {
                 {bulkDeleting ? 'Eliminando...' : 'Sí, eliminar todos los registros de eventos'}
               </button>
             </div>
+            <p className="text-xs text-red-700">La operación es destructiva y no se puede deshacer.</p>
           </div>
         </details>
 
