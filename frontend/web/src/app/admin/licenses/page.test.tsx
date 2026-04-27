@@ -102,8 +102,6 @@ describe('LicensesPage', () => {
     expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).toBeDisabled()
   })
 
-<<<<<<< HEAD
-=======
   it('elimina todas las licencias con confirmacion explicita', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
@@ -126,7 +124,6 @@ describe('LicensesPage', () => {
     )
   })
 
->>>>>>> 277582e (profiles)
   it('edita y guarda licencia', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }

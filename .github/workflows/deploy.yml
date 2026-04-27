@@ -103,7 +103,6 @@ jobs:
               git fetch --all
               git reset --hard origin/main
             fi
-<<<<<<< HEAD
             CF="-f docker-compose.cloud.yml"
             compose $CF down
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
@@ -183,9 +182,3 @@ jobs:
             compose $CF build auth
             compose $CF up -d --no-build
             echo "EduTrack producción actualizado manualmente a $TARGET_REF"
-=======
-            docker compose -f docker-compose.cloud.yml down
-            docker rmi edutrack-web edutrack-auth || true
-            docker compose -f docker-compose.cloud.yml up -d --build
-            echo "EduTrack actualizado en PRODUCCION"
->>>>>>> 277582e (profiles)
