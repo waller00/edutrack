@@ -23,34 +23,44 @@ const DEFAULT_PROFILE_PERMISSIONS = {
     permission('users.read', 'Usuarios', 'read', 'Ver usuarios', true, 'all'),
     permission('users.create', 'Usuarios', 'create', 'Crear usuarios', true, 'all'),
     permission('users.update', 'Usuarios', 'update', 'Editar usuarios', true, 'all'),
+    permission('users.security', 'Usuarios', 'security', 'Bloquear usuarios y resetear contraseñas', true, 'all'),
     permission('attendance.read', 'Asistencias', 'read', 'Ver asistencias', true, 'all'),
-    permission('attendance.update', 'Asistencias', 'update', 'Gestionar asistencias', true, 'all'),
+    permission('attendance.update', 'Asistencias', 'update', 'Editar asistencias', true, 'all'),
+    permission('attendance.delete', 'Asistencias', 'delete', 'Eliminar asistencias', true, 'all'),
+    permission('attendance.biometric', 'Asistencias', 'biometric', 'Registrar asistencia biométrica', true, 'all'),
     permission('events.read', 'Eventos', 'read', 'Ver eventos', true, 'all'),
     permission('events.create', 'Eventos', 'create', 'Crear eventos', true, 'all'),
     permission('events.update', 'Eventos', 'update', 'Editar eventos', true, 'all'),
+    permission('events.cancel', 'Eventos', 'cancel', 'Cancelar eventos', true, 'all'),
     permission('events.delete', 'Eventos', 'delete', 'Eliminar eventos', true, 'all'),
     permission('licenses.read', 'Licencias', 'read', 'Ver licencias', true, 'all'),
-    permission('licenses.approve', 'Licencias', 'approve', 'Aprobar licencias', true, 'all'),
+    permission('licenses.create', 'Licencias', 'create', 'Crear licencias', true, 'all'),
+    permission('licenses.update', 'Licencias', 'update', 'Editar licencias', true, 'all'),
+    permission('licenses.delete', 'Licencias', 'delete', 'Desactivar licencias', true, 'all'),
     permission('analytics.read', 'Analytics', 'read', 'Ver analytics', true, 'all'),
+    permission('reports.read', 'Reportes', 'read', 'Ver reportes', true, 'all'),
+    permission('exports.create', 'Exportaciones', 'create', 'Crear exportaciones', true, 'all'),
     permission('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
   ],
   TEACHER: [
     permission('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
-    permission('attendance.create', 'Asistencias', 'create', 'Registrar mi asistencia', true, 'own'),
     permission('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
-    permission('events.create', 'Eventos', 'create', 'Crear mis eventos', true, 'own'),
-    permission('events.update', 'Eventos', 'update', 'Editar mis eventos', true, 'own'),
     permission('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
-    permission('licenses.create', 'Licencias', 'create', 'Crear mis licencias', true, 'own'),
+    permission('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
   ],
   STAFF: [
     permission('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
-    permission('attendance.create', 'Asistencias', 'create', 'Registrar mi asistencia', true, 'own'),
     permission('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
     permission('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
-    permission('licenses.create', 'Licencias', 'create', 'Crear mis licencias', true, 'own'),
+    permission('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
   ],
 } as const
+
+const REMOVED_PROFILE_PERMISSION_IDS: Record<ProfileRole, Set<string>> = {
+  ADMIN: new Set(['licenses.approve']),
+  TEACHER: new Set(['attendance.create', 'events.create', 'events.update', 'licenses.create']),
+  STAFF: new Set(['attendance.create', 'licenses.create']),
+}
 
 type ProfileRole = keyof typeof DEFAULT_PROFILE_PERMISSIONS
 type ProfilePermission = {
@@ -82,6 +92,26 @@ function cloneDefaultProfilePermissions(): ProfilePermissionsStore {
   }
 }
 
+function systemPermissionIds(role: ProfileRole): Set<string> {
+  return new Set(DEFAULT_PROFILE_PERMISSIONS[role].map((p) => p.id))
+}
+
+function normalizeRolePermissions(role: ProfileRole, stored: unknown): ProfilePermission[] {
+  const defaults = cloneDefaultProfilePermissions()[role]
+  if (!Array.isArray(stored)) return defaults
+
+  const defaultIds = systemPermissionIds(role)
+  const removedIds = REMOVED_PROFILE_PERMISSION_IDS[role]
+  const allowedStored = stored.filter((p): p is ProfilePermission => {
+    if (!p || typeof p !== 'object') return false
+    const id = (p as { id?: unknown }).id
+    if (typeof id !== 'string') return false
+    return !removedIds.has(id) && !defaultIds.has(id)
+  })
+
+  return [...defaults, ...allowedStored]
+}
+
 function getProfilePermissionsPath() {
   return process.env.PROFILE_PERMISSIONS_FILE || path.join(process.cwd(), 'data', 'profile-permissions.json')
 }
@@ -104,9 +134,9 @@ async function readProfilePermissions(): Promise<ProfilePermissionsStore> {
     const raw = await readFile(getProfilePermissionsPath(), 'utf8')
     const parsed = JSON.parse(raw) as Partial<ProfilePermissionsStore>
     return {
-      ADMIN: Array.isArray(parsed.ADMIN) ? parsed.ADMIN : defaults.ADMIN,
-      TEACHER: Array.isArray(parsed.TEACHER) ? parsed.TEACHER : defaults.TEACHER,
-      STAFF: Array.isArray(parsed.STAFF) ? parsed.STAFF : defaults.STAFF,
+      ADMIN: normalizeRolePermissions('ADMIN', parsed.ADMIN),
+      TEACHER: normalizeRolePermissions('TEACHER', parsed.TEACHER),
+      STAFF: normalizeRolePermissions('STAFF', parsed.STAFF),
     }
   } catch {
     return defaults
@@ -124,7 +154,10 @@ function profilePermissionsResponse(store: ProfilePermissionsStore) {
     roles: (Object.keys(ROLE_LABELS) as ProfileRole[]).map((role) => ({
       role,
       label: ROLE_LABELS[role],
-      permissions: store[role],
+      permissions: store[role].map((permission) => ({
+        ...permission,
+        source: systemPermissionIds(role).has(permission.id) ? 'system' : 'custom',
+      })),
     })),
   }
 }

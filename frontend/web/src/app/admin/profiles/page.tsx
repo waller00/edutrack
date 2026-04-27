@@ -1,18 +1,22 @@
 'use client'
+import Image from 'next/image'
 import RoleGuard from '@/components/RoleGuard'
 import { api } from '@/lib/api'
 import {
+  CheckCircle2,
   ChevronDown,
+  LockKeyhole,
   Plus,
-  Save,
   ShieldCheck,
   SlidersHorizontal,
   UserCog,
+  X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 type ProfileRole = 'ADMIN' | 'TEACHER' | 'STAFF'
 type PermissionScope = 'own' | 'all'
+type PermissionSource = 'system' | 'custom'
 
 type ProfilePermission = {
   id: string
@@ -21,6 +25,7 @@ type ProfilePermission = {
   label: string
   enabled: boolean
   scope: PermissionScope
+  source?: PermissionSource
 }
 
 type Profile = {
@@ -40,17 +45,26 @@ type NewPermissionForm = {
   scope: PermissionScope
 }
 
+const MODULE_OPTIONS = ['Asistencias', 'Eventos', 'Licencias', 'Usuarios', 'Reportes', 'Analytics', 'Notificaciones']
+const ACTION_OPTIONS = [
+  { value: 'read', label: 'read - Ver' },
+  { value: 'create', label: 'create - Crear' },
+  { value: 'update', label: 'update - Editar' },
+  { value: 'delete', label: 'delete - Eliminar' },
+  { value: 'manage', label: 'manage - Gestionar' },
+]
+
 const EMPTY_FORM: NewPermissionForm = {
-  module: '',
-  action: '',
+  module: 'Reportes',
+  action: 'read',
   label: '',
   scope: 'own',
 }
 
 const ROLE_DESCRIPTIONS: Record<ProfileRole, string> = {
-  ADMIN: 'Acceso administrativo sobre usuarios, módulos operativos y perfiles.',
-  TEACHER: 'Perfil Tutor con permisos orientados a sus propios eventos, asistencias y licencias.',
-  STAFF: 'Perfil Staff con acceso a su información operativa personal.',
+  ADMIN: 'Puede administrar usuarios y módulos operativos completos.',
+  TEACHER: 'Tutor: ve sus asistencias, eventos asignados y licencias registradas por la institución.',
+  STAFF: 'Staff: ve sus asistencias, eventos asignados y licencias registradas por la institución.',
 }
 
 function groupPermissions(permissions: ProfilePermission[]) {
@@ -65,18 +79,29 @@ function scopeLabel(scope: PermissionScope) {
   return scope === 'all' ? 'Todos' : 'Propios'
 }
 
+function sourceLabel(source?: PermissionSource) {
+  return source === 'custom' ? 'Documentado' : 'Actual del sistema'
+}
+
+function sourceClass(source?: PermissionSource) {
+  return source === 'custom'
+    ? 'bg-blue-50 text-blue-700 border-blue-100'
+    : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+}
+
 export default function AdminProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [openRoles, setOpenRoles] = useState<Record<ProfileRole, boolean>>({
     ADMIN: true,
     TEACHER: true,
-    STAFF: false,
+    STAFF: true,
   })
   const [forms, setForms] = useState<Record<ProfileRole, NewPermissionForm>>({
     ADMIN: { ...EMPTY_FORM, scope: 'all' },
     TEACHER: { ...EMPTY_FORM },
     STAFF: { ...EMPTY_FORM },
   })
+  const [createOpenRole, setCreateOpenRole] = useState<ProfileRole | ''>('')
   const [loading, setLoading] = useState(true)
   const [savingKey, setSavingKey] = useState('')
   const [creatingRole, setCreatingRole] = useState<ProfileRole | ''>('')
@@ -101,11 +126,11 @@ export default function AdminProfilesPage() {
 
   const totals = useMemo(() => {
     const total = profiles.reduce((sum, profile) => sum + profile.permissions.length, 0)
-    const enabled = profiles.reduce(
-      (sum, profile) => sum + profile.permissions.filter((permission) => permission.enabled).length,
+    const system = profiles.reduce(
+      (sum, profile) => sum + profile.permissions.filter((permission) => permission.source !== 'custom').length,
       0,
     )
-    return { total, enabled }
+    return { total, system }
   }, [profiles])
 
   function replaceProfiles(data: ProfilesResponse) {
@@ -113,6 +138,7 @@ export default function AdminProfilesPage() {
   }
 
   async function updatePermission(role: ProfileRole, permission: ProfilePermission, patch: Partial<ProfilePermission>) {
+    if (permission.source !== 'custom') return
     const key = `${role}:${permission.id}`
     setSavingKey(key)
     setMessage('')
@@ -122,7 +148,7 @@ export default function AdminProfilesPage() {
         body: JSON.stringify(patch),
       })
       replaceProfiles(data)
-      setMessage('Permiso actualizado. No se cambiaron los accesos reales del sistema.')
+      setMessage('Permiso documentado actualizado. No se cambiaron los accesos reales del sistema.')
     } catch (error: any) {
       setMessage(error?.message || 'No se pudo actualizar el permiso')
     } finally {
@@ -132,6 +158,10 @@ export default function AdminProfilesPage() {
 
   async function createPermission(role: ProfileRole) {
     const form = forms[role]
+    if (!form.label.trim()) {
+      setMessage('Completá el nombre visible del permiso.')
+      return
+    }
     setCreatingRole(role)
     setMessage('')
     try {
@@ -141,7 +171,8 @@ export default function AdminProfilesPage() {
       })
       replaceProfiles(data)
       setForms((current) => ({ ...current, [role]: { ...EMPTY_FORM, scope: role === 'ADMIN' ? 'all' : 'own' } }))
-      setMessage('Permiso creado en la matriz de perfiles.')
+      setCreateOpenRole('')
+      setMessage('Permiso documentado agregado a la matriz.')
     } catch (error: any) {
       setMessage(error?.message || 'No se pudo crear el permiso')
     } finally {
@@ -161,8 +192,8 @@ export default function AdminProfilesPage() {
               <div>
                 <h1 className="text-2xl font-bold text-gray-950">Gestión de perfiles</h1>
                 <p className="max-w-2xl text-sm text-gray-600">
-                  Administración de roles y permisos por módulo. Esta matriz es editable y no modifica los permisos
-                  reales que ya usa la aplicación.
+                  Vista administrativa de los permisos actuales por rol. Los permisos del sistema aparecen bloqueados;
+                  los nuevos permisos quedan como documentación y no cambian accesos reales.
                 </p>
               </div>
               <div className="flex flex-wrap gap-3 text-sm">
@@ -170,14 +201,17 @@ export default function AdminProfilesPage() {
                   {profiles.length || 3} roles
                 </span>
                 <span className="rounded-full bg-blue-50 px-3 py-1 font-medium text-blue-700">
-                  {totals.enabled}/{totals.total} permisos activos
+                  {totals.system}/{totals.total} actuales del sistema
                 </span>
               </div>
             </div>
-            <img
+            <Image
               src="/profile-management.svg"
               alt="Perfiles y permisos organizados por módulo"
+              width={320}
+              height={220}
               className="mx-auto h-56 w-full max-w-sm object-contain"
+              priority
             />
           </div>
         </section>
@@ -189,12 +223,12 @@ export default function AdminProfilesPage() {
         )}
 
         {loading ? (
-          <div className="rounded-xl border bg-white p-8 text-center text-gray-500">Cargando perfiles…</div>
+          <div className="rounded-xl border bg-white p-8 text-center text-gray-500">Cargando perfiles...</div>
         ) : (
           <section className="space-y-4">
             {profiles.map((profile) => {
               const grouped = groupPermissions(profile.permissions)
-              const enabledCount = profile.permissions.filter((permission) => permission.enabled).length
+              const systemCount = profile.permissions.filter((permission) => permission.source !== 'custom').length
               const form = forms[profile.role]
               return (
                 <article key={profile.role} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -214,7 +248,7 @@ export default function AdminProfilesPage() {
                     </span>
                     <span className="flex shrink-0 items-center gap-3">
                       <span className="hidden rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 sm:inline">
-                        {enabledCount}/{profile.permissions.length} activos
+                        {systemCount} actuales
                       </span>
                       <ChevronDown
                         className={`h-5 w-5 text-gray-500 transition-transform ${openRoles[profile.role] ? 'rotate-180' : ''}`}
@@ -225,129 +259,168 @@ export default function AdminProfilesPage() {
 
                   {openRoles[profile.role] && (
                     <div className="border-t border-gray-100 p-5">
-                      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-                        <div className="space-y-4">
-                          {Object.entries(grouped).map(([module, permissions]) => (
-                            <section key={module} className="rounded-lg border border-gray-200">
-                              <div className="flex items-center gap-2 border-b border-gray-100 bg-slate-50 px-4 py-3">
-                                <SlidersHorizontal className="h-4 w-4 text-slate-600" aria-hidden />
-                                <h2 className="font-semibold text-gray-900">{module}</h2>
-                              </div>
-                              <div className="divide-y divide-gray-100">
-                                {permissions.map((permission) => (
-                                  <div
-                                    key={permission.id}
-                                    className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_120px_120px]"
-                                  >
-                                    <label className="flex min-w-0 items-start gap-3">
-                                      <input
-                                        type="checkbox"
-                                        checked={permission.enabled}
-                                        onChange={(e) =>
-                                          updatePermission(profile.role, permission, { enabled: e.target.checked })
-                                        }
-                                        className="mt-1 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                                      />
-                                      <span className="min-w-0">
-                                        <span className="block font-medium text-gray-900">{permission.label}</span>
-                                        <span className="block text-xs uppercase tracking-wide text-gray-500">
-                                          {permission.action}
-                                        </span>
-                                      </span>
-                                    </label>
-                                    <select
-                                      value={permission.scope}
-                                      onChange={(e) =>
-                                        updatePermission(profile.role, permission, {
-                                          scope: e.target.value as PermissionScope,
-                                        })
-                                      }
-                                      className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                      aria-label={`Alcance de ${permission.label}`}
-                                    >
-                                      <option value="own">{scopeLabel('own')}</option>
-                                      <option value="all">{scopeLabel('all')}</option>
-                                    </select>
-                                    <button
-                                      type="button"
-                                      onClick={() => updatePermission(profile.role, permission, {})}
-                                      disabled={savingKey === `${profile.role}:${permission.id}`}
-                                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                                    >
-                                      <Save className="h-4 w-4" aria-hidden />
-                                      {savingKey === `${profile.role}:${permission.id}` ? 'Guardando' : 'Guardar'}
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </section>
-                          ))}
-                        </div>
+                      <div className="mb-4 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setCreateOpenRole((current) => (current === profile.role ? '' : profile.role))}
+                          className="btn-secondary inline-flex items-center gap-2"
+                        >
+                          {createOpenRole === profile.role ? <X className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+                          {createOpenRole === profile.role ? 'Cerrar' : 'Agregar permiso documentado'}
+                        </button>
+                      </div>
 
-                        <aside className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
-                          <div className="mb-4 flex items-center gap-2">
-                            <Plus className="h-5 w-5 text-emerald-700" aria-hidden />
-                            <h2 className="font-semibold text-emerald-950">Nuevo permiso</h2>
-                          </div>
-                          <div className="space-y-3">
-                            <input
-                              value={form.module}
-                              onChange={(e) =>
-                                setForms((current) => ({
-                                  ...current,
-                                  [profile.role]: { ...current[profile.role], module: e.target.value },
-                                }))
-                              }
-                              placeholder="Módulo, por ejemplo Reportes"
-                              className="input-field bg-white"
-                            />
-                            <input
-                              value={form.action}
-                              onChange={(e) =>
-                                setForms((current) => ({
-                                  ...current,
-                                  [profile.role]: { ...current[profile.role], action: e.target.value },
-                                }))
-                              }
-                              placeholder="Acción, por ejemplo read"
-                              className="input-field bg-white"
-                            />
-                            <input
-                              value={form.label}
-                              onChange={(e) =>
-                                setForms((current) => ({
-                                  ...current,
-                                  [profile.role]: { ...current[profile.role], label: e.target.value },
-                                }))
-                              }
-                              placeholder="Nombre visible"
-                              className="input-field bg-white"
-                            />
-                            <select
-                              value={form.scope}
-                              onChange={(e) =>
-                                setForms((current) => ({
-                                  ...current,
-                                  [profile.role]: { ...current[profile.role], scope: e.target.value as PermissionScope },
-                                }))
-                              }
-                              className="select-field bg-white"
-                              aria-label={`Alcance para nuevo permiso de ${profile.label}`}
-                            >
-                              <option value="own">Propios</option>
-                              <option value="all">Todos</option>
-                            </select>
+                      {createOpenRole === profile.role && (
+                        <div className="mb-5 rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                          <h2 className="mb-3 font-semibold text-emerald-950">Agregar permiso documentado para {profile.label}</h2>
+                          <div className="grid gap-3 md:grid-cols-[1fr_1fr_2fr_1fr_auto] md:items-end">
+                            <label className="block text-sm font-medium text-gray-700">
+                              Módulo
+                              <select
+                                value={form.module}
+                                onChange={(e) =>
+                                  setForms((current) => ({
+                                    ...current,
+                                    [profile.role]: { ...current[profile.role], module: e.target.value },
+                                  }))
+                                }
+                                className="select-field mt-1 bg-white"
+                              >
+                                {MODULE_OPTIONS.map((module) => (
+                                  <option key={module} value={module}>{module}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Acción
+                              <select
+                                value={form.action}
+                                onChange={(e) =>
+                                  setForms((current) => ({
+                                    ...current,
+                                    [profile.role]: { ...current[profile.role], action: e.target.value },
+                                  }))
+                                }
+                                className="select-field mt-1 bg-white"
+                              >
+                                {ACTION_OPTIONS.map((action) => (
+                                  <option key={action.value} value={action.value}>{action.label}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Nombre visible
+                              <input
+                                value={form.label}
+                                onChange={(e) =>
+                                  setForms((current) => ({
+                                    ...current,
+                                    [profile.role]: { ...current[profile.role], label: e.target.value },
+                                  }))
+                                }
+                                placeholder="Ej: Ver reportes mensuales"
+                                className="input-field mt-1 bg-white"
+                              />
+                            </label>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Alcance
+                              <select
+                                value={form.scope}
+                                onChange={(e) =>
+                                  setForms((current) => ({
+                                    ...current,
+                                    [profile.role]: { ...current[profile.role], scope: e.target.value as PermissionScope },
+                                  }))
+                                }
+                                className="select-field mt-1 bg-white"
+                              >
+                                <option value="own">Propios</option>
+                                <option value="all">Todos</option>
+                              </select>
+                            </label>
                             <button
                               type="button"
                               onClick={() => createPermission(profile.role)}
                               disabled={creatingRole === profile.role}
-                              className="btn-primary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60"
+                              className="btn-primary inline-flex h-10 items-center justify-center gap-2 disabled:opacity-60"
                             >
                               <Plus className="h-4 w-4" aria-hidden />
-                              {creatingRole === profile.role ? 'Creando…' : 'Crear permiso'}
+                              {creatingRole === profile.role ? 'Agregando...' : 'Agregar'}
                             </button>
                           </div>
-                        </aside>
+                        </div>
+                      )}
+
+                      <div className="space-y-4">
+                        {Object.entries(grouped).map(([module, permissions]) => (
+                          <section key={module} className="rounded-lg border border-gray-200">
+                            <div className="flex items-center gap-2 border-b border-gray-100 bg-slate-50 px-4 py-3">
+                              <SlidersHorizontal className="h-4 w-4 text-slate-600" aria-hidden />
+                              <h2 className="font-semibold text-gray-900">{module}</h2>
+                            </div>
+                            <div className="divide-y divide-gray-100">
+                              {permissions.map((permission) => {
+                                const isCustom = permission.source === 'custom'
+                                return (
+                                  <div
+                                    key={permission.id}
+                                    className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_120px_120px_150px]"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        {permission.enabled ? (
+                                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                                        ) : (
+                                          <X className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+                                        )}
+                                        <span className="font-medium text-gray-900">{permission.label}</span>
+                                      </div>
+                                      <span className="ml-6 block text-xs uppercase tracking-wide text-gray-500">{permission.action}</span>
+                                    </div>
+                                    <span className="inline-flex h-8 items-center rounded-full bg-slate-100 px-3 text-sm font-medium text-slate-700">
+                                      {scopeLabel(permission.scope)}
+                                    </span>
+                                    <span className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-semibold ${sourceClass(permission.source)}`}>
+                                      {isCustom ? null : <LockKeyhole className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                                      {sourceLabel(permission.source)}
+                                    </span>
+                                    {isCustom ? (
+                                      <div className="flex items-center gap-2">
+                                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                                          <input
+                                            type="checkbox"
+                                            checked={permission.enabled}
+                                            onChange={(e) =>
+                                              updatePermission(profile.role, permission, { enabled: e.target.checked })
+                                            }
+                                            className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                          />
+                                          Activo
+                                        </label>
+                                        <select
+                                          value={permission.scope}
+                                          onChange={(e) =>
+                                            updatePermission(profile.role, permission, {
+                                              scope: e.target.value as PermissionScope,
+                                            })
+                                          }
+                                          disabled={savingKey === `${profile.role}:${permission.id}`}
+                                          className="h-8 rounded-lg border border-gray-200 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                          aria-label={`Alcance de ${permission.label}`}
+                                        >
+                                          <option value="own">Propios</option>
+                                          <option value="all">Todos</option>
+                                        </select>
+                                      </div>
+                                    ) : (
+                                      <span className="text-sm text-gray-500">Bloqueado</span>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </section>
+                        ))}
                       </div>
                     </div>
                   )}

@@ -100,6 +100,28 @@ describe("admin routes (prisma mock)", () => {
         expect.objectContaining({ role: "ADMIN", label: "Administrador" }),
       ]),
     );
+    const teacher = res.body.roles.find((role: any) => role.role === "TEACHER");
+    const staff = res.body.roles.find((role: any) => role.role === "STAFF");
+    expect(teacher.permissions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "attendance.read", source: "system" }),
+        expect.objectContaining({ id: "events.read", source: "system" }),
+        expect.objectContaining({ id: "licenses.read", source: "system" }),
+      ]),
+    );
+    expect(teacher.permissions).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "events.create" }),
+        expect.objectContaining({ id: "events.update" }),
+        expect.objectContaining({ id: "licenses.create" }),
+      ]),
+    );
+    expect(staff.permissions).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "attendance.create" }),
+        expect.objectContaining({ id: "licenses.create" }),
+      ]),
+    );
   });
 
   it("PUT /admin/profiles/:role/permissions/:id actualiza la matriz sin tocar usuarios", async () => {
