@@ -24,6 +24,16 @@ const response = {
           label: 'Ver mis asistencias',
           enabled: true,
           scope: 'own',
+          source: 'system',
+        },
+        {
+          id: 'reportes.read',
+          module: 'Reportes',
+          action: 'read',
+          label: 'Ver reportes internos',
+          enabled: true,
+          scope: 'own',
+          source: 'custom',
         },
       ],
     },
@@ -54,36 +64,34 @@ describe('AdminProfilesPage', () => {
     expect(screen.getByText('Tutor')).toBeInTheDocument()
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
     expect(screen.getByText('Ver mis asistencias')).toBeInTheDocument()
+    expect(screen.getAllByText('Actual del sistema')[0]).toBeInTheDocument()
   })
 
-  it('actualiza un permiso sin cambiar permisos reales', async () => {
+  it('actualiza un permiso documentado sin cambiar permisos reales', async () => {
     mockedApi.mockResolvedValueOnce(response).mockResolvedValueOnce(response)
 
     render(<AdminProfilesPage />)
-    const checkbox = await screen.findByRole('checkbox')
+    const checkbox = await screen.findByRole('checkbox', { name: /Activo/i })
     fireEvent.click(checkbox)
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(
-        '/admin/profiles/TEACHER/permissions/attendance.read',
+        '/admin/profiles/TEACHER/permissions/reportes.read',
         expect.objectContaining({ method: 'PUT' }),
       ),
     )
     expect(await screen.findByText(/No se cambiaron los accesos reales/)).toBeInTheDocument()
   })
 
-  it('crea un permiso nuevo para Tutor', async () => {
+  it('agrega un permiso documentado para Tutor con formulario guiado', async () => {
     mockedApi.mockResolvedValueOnce(response).mockResolvedValueOnce(response)
 
     render(<AdminProfilesPage />)
     await screen.findByText('Tutor')
 
-    fireEvent.change(screen.getAllByPlaceholderText('Módulo, por ejemplo Reportes')[0], {
-      target: { value: 'Reportes' },
-    })
-    fireEvent.change(screen.getAllByPlaceholderText('Acción, por ejemplo read')[0], { target: { value: 'read' } })
-    fireEvent.change(screen.getAllByPlaceholderText('Nombre visible')[0], { target: { value: 'Ver reportes' } })
-    fireEvent.click(screen.getAllByRole('button', { name: /Crear permiso/ })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: /Agregar permiso documentado/ })[0])
+    fireEvent.change(screen.getByPlaceholderText('Ej: Ver reportes mensuales'), { target: { value: 'Ver reportes' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Agregar$/ }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(
