@@ -4,11 +4,130 @@ import { prisma } from '../prisma.js'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
+import { mkdir, readFile, writeFile } from 'fs/promises'
+import path from 'path'
 import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
 import { validateNationalIdDocumentExpiresAtUpdate } from '../auth-profile-pure.js'
 
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
+
+const ROLE_LABELS = {
+  ADMIN: 'Administrador',
+  TEACHER: 'Tutor',
+  STAFF: 'Staff',
+} as const
+
+const DEFAULT_PROFILE_PERMISSIONS = {
+  ADMIN: [
+    permission('users.read', 'Usuarios', 'read', 'Ver usuarios', true, 'all'),
+    permission('users.create', 'Usuarios', 'create', 'Crear usuarios', true, 'all'),
+    permission('users.update', 'Usuarios', 'update', 'Editar usuarios', true, 'all'),
+    permission('attendance.read', 'Asistencias', 'read', 'Ver asistencias', true, 'all'),
+    permission('attendance.update', 'Asistencias', 'update', 'Gestionar asistencias', true, 'all'),
+    permission('events.read', 'Eventos', 'read', 'Ver eventos', true, 'all'),
+    permission('events.create', 'Eventos', 'create', 'Crear eventos', true, 'all'),
+    permission('events.update', 'Eventos', 'update', 'Editar eventos', true, 'all'),
+    permission('events.delete', 'Eventos', 'delete', 'Eliminar eventos', true, 'all'),
+    permission('licenses.read', 'Licencias', 'read', 'Ver licencias', true, 'all'),
+    permission('licenses.approve', 'Licencias', 'approve', 'Aprobar licencias', true, 'all'),
+    permission('analytics.read', 'Analytics', 'read', 'Ver analytics', true, 'all'),
+    permission('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
+  ],
+  TEACHER: [
+    permission('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
+    permission('attendance.create', 'Asistencias', 'create', 'Registrar mi asistencia', true, 'own'),
+    permission('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
+    permission('events.create', 'Eventos', 'create', 'Crear mis eventos', true, 'own'),
+    permission('events.update', 'Eventos', 'update', 'Editar mis eventos', true, 'own'),
+    permission('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
+    permission('licenses.create', 'Licencias', 'create', 'Crear mis licencias', true, 'own'),
+  ],
+  STAFF: [
+    permission('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
+    permission('attendance.create', 'Asistencias', 'create', 'Registrar mi asistencia', true, 'own'),
+    permission('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
+    permission('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
+    permission('licenses.create', 'Licencias', 'create', 'Crear mis licencias', true, 'own'),
+  ],
+} as const
+
+type ProfileRole = keyof typeof DEFAULT_PROFILE_PERMISSIONS
+type ProfilePermission = {
+  id: string
+  module: string
+  action: string
+  label: string
+  enabled: boolean
+  scope: 'own' | 'all'
+}
+type ProfilePermissionsStore = Record<ProfileRole, ProfilePermission[]>
+
+function permission(
+  id: string,
+  module: string,
+  action: string,
+  label: string,
+  enabled: boolean,
+  scope: 'own' | 'all',
+): ProfilePermission {
+  return { id, module, action, label, enabled, scope }
+}
+
+function cloneDefaultProfilePermissions(): ProfilePermissionsStore {
+  return {
+    ADMIN: DEFAULT_PROFILE_PERMISSIONS.ADMIN.map((p) => ({ ...p })),
+    TEACHER: DEFAULT_PROFILE_PERMISSIONS.TEACHER.map((p) => ({ ...p })),
+    STAFF: DEFAULT_PROFILE_PERMISSIONS.STAFF.map((p) => ({ ...p })),
+  }
+}
+
+function getProfilePermissionsPath() {
+  return process.env.PROFILE_PERMISSIONS_FILE || path.join(process.cwd(), 'data', 'profile-permissions.json')
+}
+
+function normalizePermissionId(module: string, action: string) {
+  const clean = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+  return `${clean(module)}.${clean(action)}`
+}
+
+async function readProfilePermissions(): Promise<ProfilePermissionsStore> {
+  const defaults = cloneDefaultProfilePermissions()
+  try {
+    const raw = await readFile(getProfilePermissionsPath(), 'utf8')
+    const parsed = JSON.parse(raw) as Partial<ProfilePermissionsStore>
+    return {
+      ADMIN: Array.isArray(parsed.ADMIN) ? parsed.ADMIN : defaults.ADMIN,
+      TEACHER: Array.isArray(parsed.TEACHER) ? parsed.TEACHER : defaults.TEACHER,
+      STAFF: Array.isArray(parsed.STAFF) ? parsed.STAFF : defaults.STAFF,
+    }
+  } catch {
+    return defaults
+  }
+}
+
+async function writeProfilePermissions(store: ProfilePermissionsStore) {
+  const target = getProfilePermissionsPath()
+  await mkdir(path.dirname(target), { recursive: true })
+  await writeFile(target, `${JSON.stringify(store, null, 2)}\n`, 'utf8')
+}
+
+function profilePermissionsResponse(store: ProfilePermissionsStore) {
+  return {
+    roles: (Object.keys(ROLE_LABELS) as ProfileRole[]).map((role) => ({
+      role,
+      label: ROLE_LABELS[role],
+      permissions: store[role],
+    })),
+  }
+}
 
 async function buildAdminUserUpdateData(id: string, payload: {
   role?: 'ADMIN'|'STAFF'|'TEACHER'
@@ -88,6 +207,61 @@ r.get('/users', async (req, res) => {
     prisma.user.findMany({ where, skip: (page-1)*pageSize, take: pageSize, orderBy: { createdAt: 'desc' }, select: { id:true, email:true, username:true, role:true, firstName:true, lastName:true, emailVerifiedAt:true, createdAt:true, lockUntil:true, nationalId:true, nationalIdDocumentExpiresAt:true, isApproved:true, approvedAt:true, isActive:true } })
   ])
   res.json({ total, page, pageSize, data })
+})
+
+// Gestión administrativa de perfiles.
+// Esta matriz es editable para documentación/configuración, pero no altera los guards por rol existentes.
+r.get('/profiles', async (_req, res) => {
+  const store = await readProfilePermissions()
+  res.json(profilePermissionsResponse(store))
+})
+
+r.put('/profiles/:role/permissions/:permissionId', async (req, res) => {
+  const role = req.params.role as ProfileRole
+  if (!ROLE_LABELS[role]) return res.status(404).json({ message: 'Rol no encontrado' })
+  const parsed = z.object({
+    enabled: z.boolean().optional(),
+    scope: z.enum(['own', 'all']).optional(),
+    label: z.string().min(2).max(80).optional(),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+
+  const store = await readProfilePermissions()
+  const index = store[role].findIndex((p) => p.id === req.params.permissionId)
+  if (index < 0) return res.status(404).json({ message: 'Permiso no encontrado' })
+
+  store[role][index] = { ...store[role][index], ...parsed.data }
+  await writeProfilePermissions(store)
+  res.json(profilePermissionsResponse(store))
+})
+
+r.post('/profiles/:role/permissions', async (req, res) => {
+  const role = req.params.role as ProfileRole
+  if (!ROLE_LABELS[role]) return res.status(404).json({ message: 'Rol no encontrado' })
+  const parsed = z.object({
+    module: z.string().min(2).max(50),
+    action: z.string().min(2).max(30),
+    label: z.string().min(2).max(80),
+    enabled: z.boolean().default(true),
+    scope: z.enum(['own', 'all']).default('own'),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+
+  const store = await readProfilePermissions()
+  const id = normalizePermissionId(parsed.data.module, parsed.data.action)
+  if (store[role].some((p) => p.id === id)) {
+    return res.status(409).json({ message: 'Ese permiso ya existe para el rol' })
+  }
+  store[role].push({
+    id,
+    module: parsed.data.module,
+    action: parsed.data.action,
+    label: parsed.data.label,
+    enabled: parsed.data.enabled,
+    scope: parsed.data.scope,
+  })
+  await writeProfilePermissions(store)
+  res.status(201).json(profilePermissionsResponse(store))
 })
 
 // Crear usuario

@@ -25,6 +25,7 @@ const r = Router();
 const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
   ADMIN: [
     { href: "/admin/users", label: "Usuarios" },
+    { href: "/admin/profiles", label: "Perfiles" },
     { href: "/admin/attendance", label: "Asistencias" },
     { href: "/admin/events", label: "Eventos" },
     { href: "/admin/licenses", label: "Licencias" },
