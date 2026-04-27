@@ -102,6 +102,28 @@ describe('LicensesPage', () => {
     expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).toBeDisabled()
   })
 
+  it('elimina todas las licencias con confirmacion explicita', async () => {
+    mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
+      if (String(url).includes('admin/users')) {
+        return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
+      }
+      if (String(url) === '/medical-leaves/purge-all' && init?.method === 'DELETE') return { deletedCount: 1 }
+      return { data: [] }
+    })
+
+    render(<LicensesPage />)
+    await screen.findByText('Reposo')
+
+    fireEvent.click(screen.getByText('Eliminar todos los registros de licencias'))
+    fireEvent.change(screen.getByPlaceholderText('ELIMINAR'), { target: { value: 'ELIMINAR' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, eliminar todos los registros de licencias' }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/medical-leaves/purge-all', expect.objectContaining({ method: 'DELETE' })),
+    )
+  })
+
   it('edita y guarda licencia', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
