@@ -185,6 +185,7 @@ describe("admin routes (prisma mock)", () => {
       });
     });
 
+<<<<<<< HEAD
     it("GET /admin/profiles devuelve perfiles por rol", async () => {
       const res = await request(app()).get("/admin/profiles").set(adminHdr());
       expect(res.status).toBe(200);
@@ -280,6 +281,31 @@ describe("admin routes (prisma mock)", () => {
         expect.arrayContaining([expect.objectContaining({ id: "reportes.read", label: "Ver mis reportes" })]),
       );
     });
+=======
+  it("PUT /admin/profiles/:role/permissions/:id no modifica permisos reales ni usuarios", async () => {
+    const res = await request(app())
+      .put("/admin/profiles/TEACHER/permissions/attendance.read")
+      .set(adminHdr())
+      .send({ enabled: false, scope: "own" });
+    expect(res.status).toBe(200);
+    const teacher = res.body.roles.find((role: any) => role.role === "TEACHER");
+    const permission = teacher.permissions.find((p: any) => p.id === "attendance.read");
+    expect(permission.enabled).toBe(true);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
+  it("POST /admin/profiles/:role/permissions responde sin tocar usuarios", async () => {
+    const res = await request(app())
+      .post("/admin/profiles/TEACHER/permissions")
+      .set(adminHdr())
+      .send({ module: "Reportes", action: "read", label: "Ver mis reportes", scope: "own" });
+    expect(res.status).toBe(201);
+    const teacher = res.body.roles.find((role: any) => role.role === "TEACHER");
+    expect(teacher.permissions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "reportes.read", label: "Ver mis reportes" })]),
+    );
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+>>>>>>> 4ff420d (Make profile permissions read-only safe)
   });
 
   it("POST /admin/users 409 email existente", async () => {

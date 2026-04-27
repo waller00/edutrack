@@ -103,7 +103,6 @@ export default function AdminProfilesPage() {
   })
   const [createOpenRole, setCreateOpenRole] = useState<ProfileRole | ''>('')
   const [loading, setLoading] = useState(true)
-  const [savingKey, setSavingKey] = useState('')
   const [creatingRole, setCreatingRole] = useState<ProfileRole | ''>('')
   const [message, setMessage] = useState('')
 
@@ -133,30 +132,36 @@ export default function AdminProfilesPage() {
     return { total, system }
   }, [profiles])
 
-  function replaceProfiles(data: ProfilesResponse) {
-    setProfiles(data.roles)
+  function normalizePermissionId(module: string, action: string) {
+    const clean = (value: string) =>
+      value
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+    return `${clean(module)}.${clean(action)}`
   }
 
-  async function updatePermission(role: ProfileRole, permission: ProfilePermission, patch: Partial<ProfilePermission>) {
+  function updatePermission(role: ProfileRole, permission: ProfilePermission, patch: Partial<ProfilePermission>) {
     if (permission.source !== 'custom') return
-    const key = `${role}:${permission.id}`
-    setSavingKey(key)
-    setMessage('')
-    try {
-      const data = await api<ProfilesResponse>(`/admin/profiles/${role}/permissions/${permission.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(patch),
-      })
-      replaceProfiles(data)
-      setMessage('Permiso documentado actualizado. No se cambiaron los accesos reales del sistema.')
-    } catch (error: any) {
-      setMessage(error?.message || 'No se pudo actualizar el permiso')
-    } finally {
-      setSavingKey('')
-    }
+    setProfiles((current) =>
+      current.map((profile) =>
+        profile.role === role
+          ? {
+              ...profile,
+              permissions: profile.permissions.map((item) =>
+                item.id === permission.id ? { ...item, ...patch } : item,
+              ),
+            }
+          : profile,
+      ),
+    )
+    setMessage('Permiso documentado actualizado solo en esta pantalla. No se tocó base de datos ni permisos reales.')
   }
 
-  async function createPermission(role: ProfileRole) {
+  function createPermission(role: ProfileRole) {
     const form = forms[role]
     if (!form.label.trim()) {
       setMessage('Completá el nombre visible del permiso.')
@@ -164,20 +169,34 @@ export default function AdminProfilesPage() {
     }
     setCreatingRole(role)
     setMessage('')
-    try {
-      const data = await api<ProfilesResponse>(`/admin/profiles/${role}/permissions`, {
-        method: 'POST',
-        body: JSON.stringify({ ...form, enabled: true }),
-      })
-      replaceProfiles(data)
-      setForms((current) => ({ ...current, [role]: { ...EMPTY_FORM, scope: role === 'ADMIN' ? 'all' : 'own' } }))
-      setCreateOpenRole('')
-      setMessage('Permiso documentado agregado a la matriz.')
-    } catch (error: any) {
-      setMessage(error?.message || 'No se pudo crear el permiso')
-    } finally {
-      setCreatingRole('')
-    }
+    const baseId = normalizePermissionId(form.module, form.action)
+    setProfiles((current) =>
+      current.map((profile) => {
+        if (profile.role !== role) return profile
+        const id = profile.permissions.some((permission) => permission.id === baseId)
+          ? `${baseId}.documentado-${Date.now()}`
+          : baseId
+        return {
+          ...profile,
+          permissions: [
+            ...profile.permissions,
+            {
+              id,
+              module: form.module,
+              action: form.action,
+              label: form.label.trim(),
+              enabled: true,
+              scope: form.scope,
+              source: 'custom',
+            },
+          ],
+        }
+      }),
+    )
+    setForms((current) => ({ ...current, [role]: { ...EMPTY_FORM, scope: role === 'ADMIN' ? 'all' : 'own' } }))
+    setCreateOpenRole('')
+    setCreatingRole('')
+    setMessage('Permiso documentado agregado solo en esta pantalla. No se tocó base de datos ni permisos reales.')
   }
 
   return (
@@ -404,7 +423,6 @@ export default function AdminProfilesPage() {
                                               scope: e.target.value as PermissionScope,
                                             })
                                           }
-                                          disabled={savingKey === `${profile.role}:${permission.id}`}
                                           className="h-8 rounded-lg border border-gray-200 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                           aria-label={`Alcance de ${permission.label}`}
                                         >
