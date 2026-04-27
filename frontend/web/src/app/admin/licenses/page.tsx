@@ -69,15 +69,10 @@ export default function LicensesPage() {
   const [createModalError, setCreateModalError] = useState('')
   const [editModalError, setEditModalError] = useState('')
   const [message, setMessage] = useState('')
-<<<<<<< HEAD
-  const [selectedLicenseIds, setSelectedLicenseIds] = useState<string[]>([])
-  const [deletingSelected, setDeletingSelected] = useState(false)
-=======
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [selectedLicenseIds, setSelectedLicenseIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('')
->>>>>>> 277582e (profiles)
   const [filters, setFilters] = useState({
     userId: '',
     type: '',
@@ -266,8 +261,6 @@ export default function LicensesPage() {
     setSelectedLicenseIds((prev) => (prev.length === selectableIds.length ? [] : selectableIds))
   }
 
-<<<<<<< HEAD
-=======
   async function deleteAllLicenses() {
     if (bulkDeleteConfirm.trim() !== 'ELIMINAR') {
       setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
@@ -287,7 +280,6 @@ export default function LicensesPage() {
     }
   }
 
->>>>>>> 277582e (profiles)
   function renderLicensesRows() {
     if (loading) {
       return (

@@ -39,7 +39,6 @@ const adminHdr = () => ({
 describe("admin routes (prisma mock)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-<<<<<<< HEAD
     prismaMock.user.findFirst.mockResolvedValue(null);
     prismaMock.user.findUnique.mockResolvedValue({
       id: "u1",
@@ -47,9 +46,7 @@ describe("admin routes (prisma mock)", () => {
       firstName: "A",
       lastName: "B",
     });
-=======
     process.env.PROFILE_PERMISSIONS_FILE = `/tmp/profile-permissions-${process.pid}-${Math.random()}.json`;
->>>>>>> 277582e (profiles)
   });
 
   it("GET /admin/users paginado", async () => {
