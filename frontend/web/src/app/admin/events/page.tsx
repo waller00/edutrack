@@ -206,7 +206,11 @@ export default function AdminEvents() {
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
+<<<<<<< HEAD
   const [purgeAllConfirm, setPurgeAllConfirm] = useState('')
+=======
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('')
+>>>>>>> 277582e (profiles)
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
 
@@ -424,10 +428,18 @@ export default function AdminEvents() {
   }
 
   async function deleteAllEvents() {
+<<<<<<< HEAD
     if (purgeAllConfirm.trim() !== 'ELIMINAR') {
       setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
       return
     }
+=======
+    if (bulkDeleteConfirm.trim() !== 'ELIMINAR') {
+      setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
+      return
+    }
+
+>>>>>>> 277582e (profiles)
     setBulkDeleting(true)
     setMessage('')
     try {
@@ -569,6 +581,7 @@ export default function AdminEvents() {
           </summary>
           <div className="mt-3 space-y-3">
             <p className="text-sm text-red-800">
+<<<<<<< HEAD
               Esta acción elimina todos los eventos del sistema. No hay vuelta atrás.
             </p>
             <div className="flex flex-wrap items-center gap-3">
@@ -580,6 +593,19 @@ export default function AdminEvents() {
                 type="text"
                 value={purgeAllConfirm}
                 onChange={(e) => setPurgeAllConfirm(e.target.value)}
+=======
+              Esta acción elimina todos los eventos registrados.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label htmlFor="events-bulk-delete-confirm" className="text-sm font-medium text-red-900">
+                Escribe `ELIMINAR` para habilitar la acción final
+              </label>
+              <input
+                id="events-bulk-delete-confirm"
+                type="text"
+                value={bulkDeleteConfirm}
+                onChange={(e) => setBulkDeleteConfirm(e.target.value)}
+>>>>>>> 277582e (profiles)
                 placeholder="ELIMINAR"
                 className="rounded border border-red-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
               />
@@ -592,6 +618,10 @@ export default function AdminEvents() {
                 {bulkDeleting ? 'Eliminando...' : 'Sí, eliminar todos los registros de eventos'}
               </button>
             </div>
+<<<<<<< HEAD
+=======
+            <p className="text-xs text-red-700">La operación es destructiva y no se puede deshacer.</p>
+>>>>>>> 277582e (profiles)
           </div>
         </details>
 
