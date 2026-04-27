@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminProfilesPage from './page'
 import { api } from '@/lib/api'
@@ -74,13 +74,8 @@ describe('AdminProfilesPage', () => {
     const checkbox = await screen.findByRole('checkbox', { name: /Activo/i })
     fireEvent.click(checkbox)
 
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(
-        '/admin/profiles/TEACHER/permissions/reportes.read',
-        expect.objectContaining({ method: 'PUT' }),
-      ),
-    )
-    expect(await screen.findByText(/No se cambiaron los accesos reales/)).toBeInTheDocument()
+    expect(await screen.findByText(/No se tocó base de datos/)).toBeInTheDocument()
+    expect(mockedApi).toHaveBeenCalledTimes(1)
   })
 
   it('agrega un permiso documentado para Tutor con formulario guiado', async () => {
@@ -93,11 +88,8 @@ describe('AdminProfilesPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Ej: Ver reportes mensuales'), { target: { value: 'Ver reportes' } })
     fireEvent.click(screen.getByRole('button', { name: /^Agregar$/ }))
 
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(
-        '/admin/profiles/TEACHER/permissions',
-        expect.objectContaining({ method: 'POST' }),
-      ),
-    )
+    expect(await screen.findByText('Ver reportes')).toBeInTheDocument()
+    expect(await screen.findByText(/No se tocó base de datos/)).toBeInTheDocument()
+    expect(mockedApi).toHaveBeenCalledTimes(1)
   })
 })
