@@ -29,6 +29,7 @@ export type HomeSectionIconKind =
 
 export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
   if (title.includes('usuarios')) return 'users'
+  if (title.includes('Seguridad')) return 'dashboard'
   if (title.includes('asistencias')) return 'chart'
   if (title.includes('eventos')) return 'calendar'
   if (title.includes('licencias')) return 'file'
@@ -39,6 +40,7 @@ export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
 export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {
   ADMIN: [
     { title: 'Gestión de usuarios', desc: 'Altas, roles y permisos.', cta: 'Administrar usuarios', href: '/admin/users' },
+    { title: 'Seguridad', desc: 'Prueba de vida (Didit) en el registro.', cta: 'Configuración', href: '/admin/settings' },
     { title: 'Gestión de asistencias', desc: 'Registro y control de asistencias del personal.', cta: 'Gestionar asistencias', href: '/admin/attendance' },
     { title: 'Gestión de eventos', desc: 'Crear y administrar turnos y eventos.', cta: 'Gestionar eventos', href: '/admin/events' },
     { title: 'Gestión de licencias', desc: 'Administra licencias médicas y laborales.', cta: 'Gestionar licencias', href: '/admin/licenses' },

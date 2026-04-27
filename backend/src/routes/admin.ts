@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { randomBytes } from 'crypto'
 import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
 import { validateNationalIdDocumentExpiresAtUpdate } from '../auth-profile-pure.js'
+import { getOrCreateSystemSettings, isDiditConfigured } from '../system-settings.js'
 
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
@@ -206,6 +207,37 @@ r.post('/users/:id/password/reset', async (req, res) => {
   const expiresAt = new Date(Date.now()+15*60*1000)
   await prisma.passwordReset.create({ data: { token, userId: id, expiresAt } })
   res.json({ token, expiresAt })
+})
+
+// Requisito de prueba de vida (Didit) en el registro
+r.get('/system-settings', async (_req, res) => {
+  const s = await getOrCreateSystemSettings()
+  return res.json({
+    livenessCheckEnabled: s.livenessCheckEnabled,
+    diditConfigured: isDiditConfigured(),
+  })
+})
+
+r.put('/system-settings', async (req, res) => {
+  const parsed = z
+    .object({ livenessCheckEnabled: z.boolean() })
+    .safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+  if (parsed.data.livenessCheckEnabled && !isDiditConfigured()) {
+    return res.status(400).json({
+      message:
+        'Configurá DIDIT_API_KEY y DIDIT_WORKFLOW_ID en el servidor antes de exigir prueba de vida.',
+    })
+  }
+  const s = await prisma.systemSettings.upsert({
+    where: { id: 'default' },
+    create: { id: 'default', livenessCheckEnabled: parsed.data.livenessCheckEnabled },
+    update: { livenessCheckEnabled: parsed.data.livenessCheckEnabled },
+  })
+  return res.json({
+    livenessCheckEnabled: s.livenessCheckEnabled,
+    diditConfigured: isDiditConfigured(),
+  })
 })
 
 export default r 

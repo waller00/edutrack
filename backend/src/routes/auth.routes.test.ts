@@ -12,6 +12,12 @@ const { prismaMock, sendMailMock } = vi.hoisted(() => ({
       update: vi.fn(),
       findFirst: vi.fn(),
     },
+    systemSettings: {
+      upsert: vi.fn(),
+    },
+    livenessSession: {
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn(),
     emailVerification: {
       findUnique: vi.fn(),
@@ -73,7 +79,19 @@ describe("auth routes (mocks)", () => {
     prismaMock.user.findFirst.mockReset();
     prismaMock.user.findUnique.mockReset();
     prismaMock.user.update.mockReset();
-    prismaMock.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
+    prismaMock.systemSettings.upsert.mockResolvedValue({ livenessCheckEnabled: false });
+    prismaMock.livenessSession.findUnique.mockReset();
+    prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
+      if (typeof arg === "function") {
+        return (arg as (tx: { user: typeof prismaMock.user; livenessSession: { update: ReturnType<typeof vi.fn> } }) => Promise<unknown>)(
+          {
+            user: prismaMock.user,
+            livenessSession: { update: vi.fn().mockResolvedValue({}) },
+          },
+        );
+      }
+      return Promise.all(arg as Promise<unknown>[]);
+    });
     process.env.FRONTEND_URL = "http://frontend.local";
     delete process.env.TURNSTILE_SECRET;
     vi.unstubAllGlobals();

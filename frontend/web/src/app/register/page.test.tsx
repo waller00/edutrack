@@ -58,7 +58,9 @@ describe('RegisterPage', () => {
   })
 
   it('muestra formulario si no hay sesión', async () => {
-    mockedApi.mockRejectedValueOnce(new Error('401'))
+    mockedApi
+      .mockImplementationOnce(() => Promise.reject(new Error('401')))
+      .mockResolvedValue({ livenessCheckEnabled: false })
 
     render(<RegisterPage />)
 
@@ -66,7 +68,9 @@ describe('RegisterPage', () => {
   })
 
   it('muestra error de validación al enviar vacío', async () => {
-    mockedApi.mockRejectedValueOnce(new Error('401'))
+    mockedApi
+      .mockImplementationOnce(() => Promise.reject(new Error('401')))
+      .mockResolvedValue({ livenessCheckEnabled: false })
     render(<RegisterPage />)
     await screen.findByText('Crear Cuenta')
     fireEvent.submit(document.querySelector('form') as HTMLFormElement)
@@ -76,6 +80,7 @@ describe('RegisterPage', () => {
   it('registro exitoso tras verificar DNI', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('/auth/me')) throw new Error('401')
+      if (String(url).includes('registration-options')) return { livenessCheckEnabled: false }
       if (String(url).includes('check-username')) return { available: true, valid: true }
       if (String(url).includes('verify-step-by-step')) {
         return {
@@ -138,6 +143,7 @@ describe('RegisterPage', () => {
   it('409 en registro muestra mensaje del backend', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('/auth/me')) throw new Error('401')
+      if (String(url).includes('registration-options')) return { livenessCheckEnabled: false }
       if (String(url).includes('check-username')) return { available: true, valid: true }
       if (String(url).includes('verify-step-by-step')) {
         return {

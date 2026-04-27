@@ -191,4 +191,10 @@ describe('validateRegisterForm', () => {
   it('sin vencimiento DNI', () => {
     expect(validateRegisterForm({ ...baseForm, nationalIdDocumentExpiresAt: '' })).toContain('vencimiento')
   })
+  it('liveness exigida', () => {
+    expect(
+      validateRegisterForm({ ...baseForm, livenessCheckEnabled: true, livenessApproved: false }),
+    ).toContain('prueba de vida')
+    expect(validateRegisterForm({ ...baseForm, livenessCheckEnabled: true, livenessApproved: true })).toBeNull()
+  })
 })

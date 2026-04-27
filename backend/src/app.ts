@@ -1,5 +1,7 @@
 import "dotenv/config";
 import express from "express";
+import diditWebhookHandler from "./routes/didit-webhook.js";
+import diditLivenessRoutes from "./routes/didit-liveness.js";
 import cors from "cors";
 import type { CorsOptions } from "cors";
 import helmet from "helmet";
@@ -74,12 +76,19 @@ app.use(
   }),
 );
 app.use(morgan("dev"));
+// Webhook Didit: cuerpo raw para validar HMAC
+app.post(
+  "/webhooks/didit",
+  express.raw({ type: "application/json", limit: "2mb" }),
+  diditWebhookHandler,
+);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
 
 app.use(passport.initialize());
 app.use("/auth", authRoutes);
+app.use("/auth", diditLivenessRoutes);
 app.use("/admin", adminRoutes);
 app.use("/attendance", attendanceRoutes);
 app.use("/events", eventsRoutes);

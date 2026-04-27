@@ -53,6 +53,8 @@ model User {
   isApproved          Boolean   @default(true)
   approvedAt          DateTime?
   isActive            Boolean   @default(true)
+  /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
+  livenessVerifiedAt  DateTime?
 }
 
 model PasswordReset {
@@ -93,6 +95,36 @@ model InAppNotification {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+/// Configuración global (fila única `default`).
+model SystemSettings {
+  id                    String   @id @default("default")
+  livenessCheckEnabled  Boolean  @default(false)
+  updatedAt             DateTime @updatedAt
+}
+
+enum LivenessSessionStatus {
+  PENDING
+  IN_PROGRESS
+  APPROVED
+  DECLINED
+  EXPIRED
+  ABANDONED
+  ERROR
+}
+
+/// Sesión de prueba de vida Didit (pre-registro). `id` se envía como `vendor_data`.
+model LivenessSession {
+  id              String                 @id @default(uuid())
+  diditSessionId  String?                @unique
+  status          LivenessSessionStatus  @default(PENDING)
+  diditStatusRaw  String?
+  createdAt       DateTime               @default(now())
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  /// Email vinculado (si al crear la sesión se envió); debe coincidir con el registro.
+  email           String?
 }
 
 /// Suscripciones Web Push (navegador); una por endpoint (dispositivo).
