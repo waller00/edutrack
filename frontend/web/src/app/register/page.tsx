@@ -329,10 +329,11 @@ export default function RegisterPage() {
         Boolean(p.get('session_id')) ||
         Boolean(p.get('vendor_data'))
       const hasDiditQuery = p.get('liveness') === '1' || fromDiditUrl
-      let tok =
-        (p.get('verificationSessionId') || p.get('session_id') || p.get('vendor_data') || '').trim() || ''
-      tok = tok || null
+      const fromParams = (
+        (p.get('verificationSessionId') || p.get('session_id') || p.get('vendor_data') || '') as string
+      ).trim()
       /** Tras Didit, la redirect trae `verificationSessionId` actual; debe ganar ante un token viejo en sessionStorage. */
+      let tok: string | null = fromParams.length > 0 ? fromParams : null
       if (!tok) {
         try {
           tok = window.sessionStorage.getItem('edutrack_liveness_token')
