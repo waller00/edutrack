@@ -1822,10 +1822,10 @@ function validateNameOrder(data: any) {
 // Step-by-step verification endpoint
 r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current verification semantics
   try {
-    const { image, firstName, lastName, nationalId, birthdate, nationalIdDocumentExpiresAt } = req.body;
-    
+    const { image, firstName, lastName, nationalId, birthdate } = req.body;
+
     console.log('🔍 Starting step-by-step verification...');
-    console.log('Manual data:', { firstName, lastName, nationalId, birthdate, nationalIdDocumentExpiresAt });
+    console.log('Manual data:', { firstName, lastName, nationalId, birthdate });
     
     // Use the best strategy from intelligent processing
     const { text, confidence, strategy } = await processDniIntelligently(image);
@@ -1879,7 +1879,7 @@ r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current
         message: ''
       },
       nationalIdDocumentExpiresAt: {
-        provided: nationalIdDocumentExpiresAt || '',
+        provided: '(OCR)',
         extracted: extractedData.nationalIdDocumentExpiresAt,
         verified: false,
         confidence: 0,
@@ -1979,32 +1979,29 @@ r.post('/verify-step-by-step', async (req, res) => { // NOSONAR preserve current
       }
     }
     
-    if (nationalIdDocumentExpiresAt) {
-      if (extractedData.nationalIdDocumentExpiresAt) {
-        const providedExp = new Date(nationalIdDocumentExpiresAt);
-        const extractedExp = new Date(extractedData.nationalIdDocumentExpiresAt);
-        const expMatch = providedExp.getTime() === extractedExp.getTime();
-        verification.nationalIdDocumentExpiresAt.verified = expMatch;
-        verification.nationalIdDocumentExpiresAt.confidence = expMatch ? 100 : 0;
-        verification.nationalIdDocumentExpiresAt.message = expMatch
-          ? '✓ Vencimiento del documento verificado correctamente'
-          : `✗ Vencimiento no coincide. DNI muestra: ${extractedData.nationalIdDocumentExpiresAt}`;
+    {
+      const iso = extractedData.nationalIdDocumentExpiresAt?.trim()
+      if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso.slice(0, 10))) {
+        const extractedExp = new Date(iso.slice(0, 10) + 'T12:00:00')
+        const now = new Date()
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        const expired = extractedExp.getTime() < today.getTime()
+        verification.nationalIdDocumentExpiresAt.verified = !expired
+        verification.nationalIdDocumentExpiresAt.confidence = expired ? 0 : 100
+        verification.nationalIdDocumentExpiresAt.message = expired
+          ? `✗ Documento vencido (vencimiento ${iso.slice(0, 10)} según OCR). No podés crear la cuenta hasta renovar la cédula.`
+          : `✓ Documento vigente: vencimiento ${iso.slice(0, 10)} (según OCR).`
       } else {
-        // El OCR a menudo no lee el vencimiento (foto, reflejo, plantilla nueva). Si la fecha ingresada es válida,
-        // se acepta y se deja constancia (sin ⚠️: el front bloquea el alta si el mensaje lleva ese prefijo).
-        const providedExp = new Date(nationalIdDocumentExpiresAt);
-        const okProvided = !Number.isNaN(providedExp.getTime());
-        verification.nationalIdDocumentExpiresAt.verified = okProvided;
-        verification.nationalIdDocumentExpiresAt.confidence = okProvided ? 70 : 0;
-        verification.nationalIdDocumentExpiresAt.message = okProvided
-          ? '✓ Vencimiento aceptado: el OCR no leyó esa fecha en la imagen; confirmá que coincida con tu DNI físico.'
-          : '✗ Fecha de vencimiento inválida';
+        verification.nationalIdDocumentExpiresAt.verified = false
+        verification.nationalIdDocumentExpiresAt.confidence = 0
+        verification.nationalIdDocumentExpiresAt.message =
+          '⚠️ No se pudo leer el vencimiento en la imagen. Subí una foto más nítida donde se vea la fecha de vencimiento.'
       }
     }
     
-    // Calculate overall verification score
-    const verifiedFields = Object.values(verification).filter(field => field.verified).length;
-    const totalFields = Object.values(verification).filter(field => field.provided).length; // Count all fields provided by user
+    // Calculate overall verification score (cinco campos fijos; el vencimiento no se compara con entrada manual).
+    const verifiedFields = Object.values(verification).filter((field) => field.verified).length
+    const totalFields = Object.keys(verification).length
     const overallScore = totalFields > 0 ? (verifiedFields / totalFields) * 100 : 0;
     
     res.json({

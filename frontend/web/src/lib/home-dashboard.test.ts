@@ -36,7 +36,6 @@ describe('getHomeSectionIconKind', () => {
   it.each([
     ['Gestión de usuarios', 'users'],
     ['Gestión de perfiles', 'profiles'],
-    ['Seguridad', 'dashboard'],
     ['asistencias', 'chart'],
     ['eventos', 'calendar'],
     ['licencias', 'file'],

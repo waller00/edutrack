@@ -1,4 +1,6 @@
 import "dotenv/config";
+/** En Windows, `fetch`/undici a veces eligiendo IPv6 mal enrutado; priorizamos IPv4 (misma API que curl). */
+import dns from "node:dns";
 import express from "express";
 import diditWebhookHandler from "./routes/didit-webhook.js";
 import diditLivenessRoutes from "./routes/didit-liveness.js";
@@ -19,6 +21,8 @@ import analyticsRoutes from "./routes/analytics.js";
 import exportsRoutes from "./routes/exports.js";
 import webPushRoutes from "./routes/web-push.js";
 import inAppNotificationRoutes from "./routes/in-app-notifications.js";
+
+dns.setDefaultResultOrder("ipv4first");
 
 const app = express();
 

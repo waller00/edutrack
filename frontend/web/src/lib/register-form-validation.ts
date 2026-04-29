@@ -1,6 +1,10 @@
 import { isValidUruguayanCI, isValidLocalPhoneUY } from '@/lib/uruguay-forms'
 import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from '@/lib/password-strength'
 
+/** Letras, números, punto, guion. El guion al final evita regex inválida en `pattern` HTML (p. ej. flag `v`). */
+export const REGISTER_USERNAME_PATTERN = '^[a-zA-Z0-9._-]{3,30}$'
+export const REGISTER_USERNAME_REGEX = /^[a-zA-Z0-9._-]{3,30}$/
+
 export type RegisterRole = 'STAFF' | 'TEACHER' | ''
 export type RegisterUsernameStatus = 'idle' | 'checking' | 'ok' | 'taken' | 'invalid'
 
@@ -65,7 +69,14 @@ export function getRegisterVerificationFieldLabel(field: string): string {
 }
 
 export function isWarningRegisterVerificationMessage(field: RegisterVerificationEntry): boolean {
-  return field.message.includes('⚠️ Faltan apellidos') || field.message.includes('⚠️ No se pudo extraer')
+  return (
+    field.message.includes('⚠️ Faltan apellidos') ||
+    field.message.includes('⚠️ No se pudo extraer') ||
+    field.message.includes('⚠️ No encontramos esa fecha') ||
+    field.message.includes('⚠️ Vencimiento:') ||
+    field.message.includes('⚠️ No pudimos determinar la fecha de vencimiento') ||
+    field.message.includes('⚠️ No se pudo leer el vencimiento')
+  )
 }
 
 export function resolveRegisterUsernameStatus(valid: boolean, available: boolean): RegisterUsernameStatus {
@@ -86,13 +97,24 @@ export function validateRegisterDniUploadInput(params: {
   lastName: string
   nationalId: string
   birthdate: string
-  nationalIdDocumentExpiresAt: string
 }): string | null {
   if (!params.file) return 'missing-file'
   if (!params.file.type.startsWith('image/')) return '❌ Por favor, selecciona una imagen válida'
   if (params.file.size > 5 * 1024 * 1024) return '❌ La imagen es demasiado grande. Máximo 5MB'
-  if (!params.firstName || !params.lastName || !params.nationalId || !params.birthdate || !params.nationalIdDocumentExpiresAt) {
-    return '❌ Por favor, completa todos los campos manualmente antes de verificar con el DNI'
+  const m = validateRegisterIdentityBeforeVerification(params)
+  if (m) return m
+  return null
+}
+
+/** Para Didit/OCR (sin archivo): mismo requisito de campos declarados antes de verificar. */
+export function validateRegisterIdentityBeforeVerification(params: {
+  firstName: string
+  lastName: string
+  nationalId: string
+  birthdate: string
+}): string | null {
+  if (!params.firstName || !params.lastName || !params.nationalId || !params.birthdate) {
+    return 'Completá nombres, apellidos, cédula y fecha de nacimiento antes de verificar.'
   }
   return null
 }
@@ -120,6 +142,22 @@ export function getRegisterNationalIdDocumentExpiresAtValidationError(nationalId
   return null
 }
 
+/** Vencimiento solo por verificación Didit/OCR (no hay campo en el formulario). */
+export function getRegisterDocumentExpiryCapturedError(nationalIdDocumentExpiresAt: string): string | null {
+  const t = nationalIdDocumentExpiresAt?.trim()
+  if (!t) {
+    return 'El vencimiento del DNI debe confirmarse con la verificación de identidad (Didit o foto del documento).'
+  }
+  const d = new Date(t.slice(0, 10) + 'T12:00:00')
+  if (Number.isNaN(d.getTime())) return 'Fecha de vencimiento inválida tras la verificación.'
+  const today = new Date()
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  if (d.getTime() < startToday.getTime()) {
+    return 'El documento aparece vencido; no podés crear la cuenta hasta renovar la cédula.'
+  }
+  return null
+}
+
 export function getRegisterIdentityValidationError(params: {
   username: string
   usernameStatus: RegisterUsernameStatus
@@ -128,7 +166,7 @@ export function getRegisterIdentityValidationError(params: {
   lastName: string
   role: RegisterRole
 }): string | null {
-  if (!/^[-a-zA-Z0-9_.]{3,30}$/.test(params.username)) {
+  if (!REGISTER_USERNAME_REGEX.test(params.username)) {
     return 'Usuario inválido (3-30, letras, números, punto, guion)'
   }
   if (params.usernameStatus === 'taken') return 'Nombre de usuario no disponible'
@@ -153,9 +191,10 @@ export function validateRegisterForm(params: {
   phoneLocal: string
   birthdate: string
   nationalIdDocumentExpiresAt: string
-  dniFile: File | null
   verificationResults: RegisterVerificationResults | null
-  /** Registro: si el admin exigió prueba de vida (Didit), el usuario debe aprobarla. */
+  /** Siempre Didit cuando el servidor expone esta opción. */
+  identityVerificationMethod?: 'didit' | 'dni-photo' | null
+  /** `true` si el servidor tiene Didit configurado (entonces solo verificación electrónica). */
   livenessCheckEnabled?: boolean
   livenessApproved?: boolean
 }): string | null {
@@ -176,13 +215,17 @@ export function validateRegisterForm(params: {
   }
   const birthdateError = getRegisterBirthdateValidationError(params.birthdate)
   if (birthdateError) return birthdateError
-  const expiresError = getRegisterNationalIdDocumentExpiresAtValidationError(params.nationalIdDocumentExpiresAt)
-  if (expiresError) return expiresError
-  if (!params.dniFile || !params.verificationResults) return 'Debes verificar tu DNI antes de crear la cuenta'
-  if (params.livenessCheckEnabled) {
-    if (!params.livenessApproved) {
-      return 'Debes completar la prueba de vida (Didit) antes de crear la cuenta'
-    }
+  if (!params.livenessCheckEnabled) {
+    return 'Por ahora el registro completo no está disponible sin verificación en línea. Escribinos si necesitás ayuda.'
+  }
+  if (!params.verificationResults) return 'Debés confirmar tu identidad antes de crear la cuenta.'
+  const expiryCap = getRegisterDocumentExpiryCapturedError(params.nationalIdDocumentExpiresAt)
+  if (expiryCap) return expiryCap
+  if (params.identityVerificationMethod !== 'didit') {
+    return 'Debés confirmar tu identidad con el proceso indicado antes de crear la cuenta.'
+  }
+  if (!params.livenessApproved) {
+    return 'Debés completar la verificación antes de crear la cuenta.'
   }
   return null
 }

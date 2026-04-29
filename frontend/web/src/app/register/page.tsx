@@ -1,59 +1,45 @@
 'use client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
 import {
   onlyDigits,
   formatUruguayanCI,
   normalizeLocalPhoneUY,
+  isValidUruguayanCI,
 } from '@/lib/uruguay-forms'
 import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
-import { Lightbulb } from 'lucide-react'
 import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { getPasswordStrength, getStrengthBarClass } from '@/lib/password-strength'
-import { compressImage, fileToDataUrl } from '@/lib/image-upload'
 import {
-  getRegisterDniProcessingErrorMessage,
   getRegisterVerificationFieldLabel,
   getRegisterVerificationMessageClass,
   getRegisterVerificationMessageIcon,
   isWarningRegisterVerificationMessage,
   resolveRegisterUsernameStatus,
-  validateRegisterDniUploadInput,
+  validateRegisterIdentityBeforeVerification,
   validateRegisterForm,
+  REGISTER_USERNAME_REGEX,
   type RegisterRole,
   type RegisterUsernameStatus,
   type RegisterVerificationResults,
 } from '@/lib/register-form-validation'
+import {
+  clearRegisterDraft,
+  loadRegisterDraft,
+  saveRegisterDraft,
+  type RegisterDraftSnapshot,
+} from '@/lib/register-draft'
 
-type DniValidation = {
-  confidence: number
-  reasons: string[]
-}
-
-type ProcessDniResponse = {
-  success: boolean
-  data: {
-    firstName: string
-    lastName: string
-    nationalId: string
-    birthdate: string
-    nationalIdDocumentExpiresAt?: string
-  }
-  message: string
-}
-
-type VerifyDniResponse = {
-  success: boolean
+type DiditFieldVerifyApiResponse = {
+  success?: boolean
   message?: string
-  validation?: DniValidation
   verifiedFields?: number
   totalFields?: number
   verification?: RegisterVerificationResults['verification']
-  extractedData?: { nationalIdDocumentExpiresAt?: string }
 }
 
-const DNI_REVERIFY_DEBOUNCE_MS = 550
+type IdentityVerificationMethod = 'didit' | null
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('')
@@ -73,38 +59,82 @@ export default function RegisterPage() {
   const [error, setError] = useState('')
   const [ok, setOk] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [dniFile, setDniFile] = useState<File | null>(null)
-  const [dniPreviewUrl, setDniPreviewUrl] = useState('')
-  const [processingDni, setProcessingDni] = useState(false)
-  const [verificationStep, setVerificationStep] = useState(0) // 0: not started, 1: names, 2: surnames, 3: id, 4: birthdate, 5: complete
   const [verificationResults, setVerificationResults] = useState<RegisterVerificationResults | null>(null)
-  const [dniValidation, setDniValidation] = useState<DniValidation | null>(null)
   const [sessionGate, setSessionGate] = useState(true)
   const [livenessCheckEnabled, setLivenessCheckEnabled] = useState(false)
   const [livenessToken, setLivenessToken] = useState<string | null>(null)
   const [livenessApproved, setLivenessApproved] = useState(false)
   const [livenessStarting, setLivenessStarting] = useState(false)
   const [livenessPollError, setLivenessPollError] = useState('')
+  const [identityVerificationMethod, setIdentityVerificationMethod] =
+    useState<IdentityVerificationMethod>(null)
+  const [processingDiditFields, setProcessingDiditFields] = useState(false)
 
-  const dniFileRef = useRef<File | null>(null)
-  const verifySeqRef = useRef(0)
+  const registerDraftRestoredRef = useRef(false)
+  /** Último email con el que contamos para la regla “no cambiar correo tras Didit” (evita falso positivo al hidratar borrador). */
+  const lastEmailForLivenessRef = useRef<string | null>(null)
+  const diditVerifySeqRef = useRef(0)
+  const livenessTokenRef = useRef<string | null>(null)
   const identityFieldsRef = useRef({
+    email,
     firstName,
     lastName,
     nationalId,
     birthdate,
-    nationalIdDocumentExpiresAt,
   })
   identityFieldsRef.current = {
+    email,
     firstName,
     lastName,
     nationalId,
     birthdate,
-    nationalIdDocumentExpiresAt,
   }
   useEffect(() => {
-    dniFileRef.current = dniFile
-  }, [dniFile])
+    livenessTokenRef.current = livenessToken
+  }, [livenessToken])
+  /**
+   * Didit abre el callback en HTTPS (ngrok). Si seguís el registro en localhost, sin este salto
+   * quedás en otro origen (form vacío, sin DNI). Requiere NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL.
+   * Funciona aunque DIDIT_CALLBACK_URL apunte a …/register (no solo a …/register/didit-return).
+   */
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return
+    const base = (process.env.NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL || '').trim().replace(/\/$/, '')
+    if (!base) return
+    let targetOrigin: string
+    try {
+      targetOrigin = new URL(base).origin
+    } catch {
+      return
+    }
+    if (window.location.origin === targetOrigin) return
+
+    const p = new URLSearchParams(window.location.search)
+    const sid = p.get('verificationSessionId') || p.get('session_id') || p.get('vendor_data')
+    const approved = (p.get('status') || '').toLowerCase() === 'approved'
+    if (!sid && !approved) return
+
+    window.location.replace(`${base}/register${window.location.search}`)
+  }, [])
+
+  useEffect(() => {
+    if (sessionGate || registerDraftRestoredRef.current) return
+    const d = loadRegisterDraft()
+    if (!d) return
+    registerDraftRestoredRef.current = true
+    setEmail(d.email)
+    lastEmailForLivenessRef.current = d.email
+    setUsername(d.username)
+    setNationalId(d.nationalId)
+    setFirstName(d.firstName)
+    setLastName(d.lastName)
+    setPhoneLocal(d.phoneLocal)
+    setBirthdate(d.birthdate)
+    setNationalIdDocumentExpiresAt(d.nationalIdDocumentExpiresAt)
+    setRole(d.role)
+    if (d.verificationResults) setVerificationResults(d.verificationResults)
+    if (d.identityVerificationMethod === 'didit') setIdentityVerificationMethod('didit')
+  }, [sessionGate])
 
   useEffect(() => {
     let alive = true
@@ -159,6 +189,94 @@ export default function RegisterPage() {
     return false
   }, [])
 
+  const runDiditFieldVerify = useCallback(async () => {
+    const token = livenessTokenRef.current
+    if (!token) return
+    const seq = ++diditVerifySeqRef.current
+    setProcessingDiditFields(true)
+    setError('')
+    try {
+      const f = identityFieldsRef.current
+      const response = await api<DiditFieldVerifyApiResponse>('/auth/didit/register-field-verify', {
+        method: 'POST',
+        body: JSON.stringify({
+          livenessToken: token,
+          email: f.email.trim() ? f.email.trim() : undefined,
+          firstName: f.firstName,
+          lastName: f.lastName,
+          nationalId: f.nationalId,
+          birthdate: f.birthdate,
+        }),
+      })
+      if (seq !== diditVerifySeqRef.current) return
+
+      const okFields =
+        response.success &&
+        response.verification &&
+        typeof response.verifiedFields === 'number' &&
+        typeof response.totalFields === 'number'
+      if (okFields && response.verification) {
+        setVerificationResults({
+          verification: response.verification,
+          verifiedFields: response.verifiedFields ?? 0,
+          totalFields: response.totalFields ?? 0,
+        })
+        const exRaw = response.verification?.nationalIdDocumentExpiresAt?.extracted
+        if (typeof exRaw === 'string' && /\d{4}-\d{2}-\d{2}/.test(exRaw)) {
+          setNationalIdDocumentExpiresAt(exRaw.trim().slice(0, 10))
+        }
+        setIdentityVerificationMethod('didit')
+        setError('')
+      } else {
+        const msg =
+          typeof response.message === 'string'
+            ? response.message
+            : 'No se pudieron contrastar los datos con la verificación biométrica.'
+        setError(msg)
+      }
+    } catch (err: unknown) {
+      if (seq !== diditVerifySeqRef.current) return
+      const e = err as { message?: string; data?: { message?: string } }
+      const msg =
+        (typeof e.data?.message === 'string' && e.data.message) ||
+        e.message ||
+        'No se pudieron contrastar los datos con Didit.'
+      setError(msg)
+    } finally {
+      if (seq === diditVerifySeqRef.current) setProcessingDiditFields(false)
+    }
+  }, [])
+
+  /**
+   * Tras el redirect de Didit, el primer intento puede dispararse antes de hidratar el borrador (`sessionGate`),
+   * enviando nombres vacíos → 400 "Nombre requerido". No debe repetirse solo con `identityVerificationMethod === 'didit'`,
+   * porque ese flag solo se setea si el primer verify fue exitoso. Esperamos datos de identidad y debounce igual que al editar campos.
+   */
+  useEffect(() => {
+    if (!livenessCheckEnabled || !livenessApproved || !livenessToken) return
+    const idErr = validateRegisterIdentityBeforeVerification({
+      firstName,
+      lastName,
+      nationalId,
+      birthdate,
+    })
+    if (idErr) return
+    const tid = window.setTimeout(() => {
+      void runDiditFieldVerify()
+    }, 550)
+    return () => clearTimeout(tid)
+  }, [
+    firstName,
+    lastName,
+    nationalId,
+    birthdate,
+    email,
+    livenessCheckEnabled,
+    livenessApproved,
+    livenessToken,
+    runDiditFieldVerify,
+  ])
+
   useEffect(() => {
     if (!livenessToken || livenessApproved) return
     const t = window.setInterval(() => {
@@ -167,14 +285,16 @@ export default function RegisterPage() {
     return () => window.clearInterval(t)
   }, [livenessToken, livenessApproved, pollLiveness])
 
-  const lastEmailForLivenessRef = useRef<string | null>(null)
   useEffect(() => {
     if (!livenessCheckEnabled) {
       lastEmailForLivenessRef.current = email
       return
     }
     const prev = lastEmailForLivenessRef.current
-    if (prev != null && prev !== email && (livenessToken != null || livenessApproved)) {
+    /** Vacío cuenta como “sin email fijo aún”: al hidratar desde borrador '' → mismo correo de Didit no es un cambio. */
+    const hadCommittedEmail =
+      prev !== null && prev !== ''
+    if (hadCommittedEmail && prev !== email && (livenessToken != null || livenessApproved)) {
       setLivenessToken(null)
       setLivenessApproved(false)
       setLivenessPollError('Cambiaste el email: volvé a hacer la prueba de vida con el nuevo correo.')
@@ -189,13 +309,32 @@ export default function RegisterPage() {
     if (typeof window === 'undefined') return
     const run = () => {
       const p = new URLSearchParams(window.location.search)
-      if (p.get('liveness') !== '1') return
-      let tok: string | null = null
-      try {
-        tok = window.sessionStorage.getItem('edutrack_liveness_token')
-      } catch { /* */ }
+      const fromDiditUrl =
+        Boolean(p.get('verificationSessionId')) ||
+        Boolean(p.get('session_id')) ||
+        Boolean(p.get('vendor_data'))
+      if (p.get('liveness') !== '1' && !fromDiditUrl) return
+      const fromVerificationUrl =
+        p.get('verificationSessionId')?.trim() ||
+        p.get('session_id')?.trim() ||
+        p.get('vendor_data')?.trim() ||
+        ''
+      /** Tras Didit, la redirect trae `verificationSessionId` actual; debe ganar ante un token viejo en sessionStorage. */
+      let tok: string | null = fromVerificationUrl || null
+      if (!tok) {
+        try {
+          tok = window.sessionStorage.getItem('edutrack_liveness_token')
+        } catch { /* */ }
+      }
       if (tok) {
         setLivenessToken(tok)
+        try {
+          window.sessionStorage.setItem('edutrack_liveness_token', tok)
+        } catch { /* */ }
+        if ((p.get('status') || '').toLowerCase() === 'approved') {
+          setLivenessApproved(true)
+          setLivenessPollError('')
+        }
         void pollLiveness(tok)
       }
     }
@@ -208,160 +347,6 @@ export default function RegisterPage() {
   function handleNationalIdChange(value: string) {
     const formatted = formatUruguayanCI(value)
     setNationalId(formatted)
-  }
-
-  async function processDniImage(file: File) {
-    setProcessingDni(true)
-    setError('')
-    
-    try {
-      console.log('Starting DNI processing for file:', file.name, file.size);
-      
-      // Compress image before sending
-      const compressedImage = await compressImage(file, 0.8, 1024); // 80% quality, max 1024px width
-      console.log('Compressed image size:', compressedImage.size);
-      
-      // Convert file to base64
-      const base64 = await fileToDataUrl(compressedImage)
-
-      console.log('Base64 length:', base64.length);
-
-      // Call OCR API (we'll implement this endpoint)
-      const response = await api<ProcessDniResponse>('/auth/process-dni', {
-        method: 'POST',
-        body: JSON.stringify({ image: base64 })
-      })
-
-      console.log('DNI processing response:', response);
-
-      if (response.success) {
-        const { firstName: extractedFirstName, lastName: extractedLastName, nationalId: extractedNationalId, birthdate: extractedBirthdate } = response.data
-        
-        console.log('Extracted data:', { extractedFirstName, extractedLastName, extractedNationalId, extractedBirthdate });
-        
-        // Fill the form fields
-        if (extractedFirstName) setFirstName(extractedFirstName)
-        if (extractedLastName) setLastName(extractedLastName)
-        if (extractedNationalId) handleNationalIdChange(extractedNationalId)
-        if (extractedBirthdate) setBirthdate(extractedBirthdate)
-        if (response.data.nationalIdDocumentExpiresAt)
-          setNationalIdDocumentExpiresAt(response.data.nationalIdDocumentExpiresAt)
-
-        setError('✅ Datos extraídos correctamente del DNI')
-      } else {
-        setError('❌ No se pudieron extraer los datos del DNI. Por favor, completa los campos manualmente.')
-      }
-    } catch (error: any) {
-      console.error('Error processing DNI:', error)
-      console.error('Error details:', error.message, error.stack)
-      setError(getRegisterDniProcessingErrorMessage(error))
-    } finally {
-      setProcessingDni(false)
-    }
-  }
-
-  const runVerifyDniImage = useCallback(async (file: File) => {
-    const seq = ++verifySeqRef.current
-    const {
-      firstName: fn,
-      lastName: ln,
-      nationalId: ni,
-      birthdate: bd,
-      nationalIdDocumentExpiresAt: exp,
-    } = identityFieldsRef.current
-
-    setProcessingDni(true)
-    setError('')
-    setVerificationStep(1)
-    setVerificationResults(null)
-    setDniValidation(null)
-
-    try {
-      console.log('Starting DNI verification with context...')
-
-      const compressedImage = await compressImage(file, 0.8, 1024)
-      const base64 = await fileToDataUrl(compressedImage)
-
-      const response = await api<VerifyDniResponse>('/auth/verify-step-by-step', {
-        method: 'POST',
-        body: JSON.stringify({
-          image: base64,
-          firstName: fn,
-          lastName: ln,
-          nationalId: ni,
-          birthdate: bd,
-          nationalIdDocumentExpiresAt: exp,
-        }),
-      })
-
-      console.log('Verification Response:', response)
-
-      if (seq !== verifySeqRef.current) return
-
-      if (response.success && response.verification && typeof response.verifiedFields === 'number' && typeof response.totalFields === 'number') {
-        setVerificationResults({
-          verification: response.verification,
-          verifiedFields: response.verifiedFields,
-          totalFields: response.totalFields,
-        })
-        if (response.extractedData?.nationalIdDocumentExpiresAt) {
-          setNationalIdDocumentExpiresAt((prev) => prev || response.extractedData!.nationalIdDocumentExpiresAt!)
-        }
-        setVerificationStep(5)
-        setError('')
-      } else {
-        if (response.validation) {
-          setError(`❌ ${response.message}`)
-          setDniValidation(response.validation)
-          setVerificationStep(0)
-          console.log('DNI Validation Failed:', response.validation)
-        } else {
-          setError(response.message || 'Error al verificar el DNI.')
-          setVerificationStep(0)
-        }
-      }
-    } catch (err: any) {
-      console.error('Error during DNI verification:', err)
-      if (seq !== verifySeqRef.current) return
-
-      if (err.status === 400) {
-        const errorData = err.data
-        if (errorData && errorData.validation) {
-          setError(`❌ ${errorData.message || 'La imagen no parece ser un DNI uruguayo válido'}`)
-          setDniValidation(errorData.validation)
-        } else {
-          setError(`❌ ${err.message || 'La imagen no parece ser un DNI uruguayo válido'}`)
-        }
-      } else {
-        setError(err.message || 'Error al verificar el DNI.')
-      }
-      setVerificationStep(0)
-    } finally {
-      if (seq === verifySeqRef.current) setProcessingDni(false)
-    }
-  }, [])
-
-  async function handleDniUpload(event: React.ChangeEvent<HTMLInputElement>) { // NOSONAR preserve current verification flow
-    const file = event.target.files?.[0]
-    const validationError = validateRegisterDniUploadInput({
-      file,
-      firstName,
-      lastName,
-      nationalId,
-      birthdate,
-      nationalIdDocumentExpiresAt,
-    })
-    if (validationError === 'missing-file') return
-    if (validationError) {
-      setError(validationError)
-      return
-    }
-    if (!file) return
-
-    if (dniPreviewUrl) URL.revokeObjectURL(dniPreviewUrl)
-    setDniFile(file)
-    setDniPreviewUrl(URL.createObjectURL(file))
-    await runVerifyDniImage(file)
   }
 
   // Generate username automatically from firstName and lastName
@@ -427,7 +412,7 @@ export default function RegisterPage() {
   // check username availability with debounce
   useEffect(() => {
     if (!username) { setUsernameStatus('idle'); return }
-    const valid = /^[-a-zA-Z0-9_.]{3,30}$/.test(username)
+    const valid = REGISTER_USERNAME_REGEX.test(username)
     if (!valid) { setUsernameStatus('invalid'); return }
     setUsernameStatus('checking')
     const t = setTimeout(async () => {
@@ -439,26 +424,6 @@ export default function RegisterPage() {
     }, 400)
     return () => clearTimeout(t)
   }, [username])
-
-  useEffect(() => {
-    if (!dniFileRef.current) return
-    const fields = identityFieldsRef.current
-    const validationError = validateRegisterDniUploadInput({
-      file: dniFileRef.current,
-      ...fields,
-    })
-    if (validationError && validationError !== 'missing-file') {
-      setVerificationResults(null)
-      setDniValidation(null)
-      return
-    }
-    const id = window.setTimeout(() => {
-      const file = dniFileRef.current
-      if (!file) return
-      void runVerifyDniImage(file)
-    }, DNI_REVERIFY_DEBOUNCE_MS)
-    return () => window.clearTimeout(id)
-  }, [firstName, lastName, nationalId, birthdate, nationalIdDocumentExpiresAt, runVerifyDniImage])
 
   function verificationHasIssues() {
     if (!verificationResults?.verification) return true
@@ -481,8 +446,8 @@ export default function RegisterPage() {
       phoneLocal,
       birthdate,
       nationalIdDocumentExpiresAt,
-      dniFile,
       verificationResults,
+      identityVerificationMethod: identityVerificationMethod ?? undefined,
       livenessCheckEnabled,
       livenessApproved,
     })
@@ -494,6 +459,20 @@ export default function RegisterPage() {
   const startDiditLiveness = useCallback(async () => {
     if (!email.trim()) {
       setLivenessPollError('Completá tu email arriba antes de iniciar la prueba de vida.')
+      return
+    }
+    const idErr = validateRegisterIdentityBeforeVerification({
+      firstName,
+      lastName,
+      nationalId,
+      birthdate,
+    })
+    if (idErr) {
+      setLivenessPollError(idErr)
+      return
+    }
+    if (!isValidUruguayanCI(nationalId)) {
+      setLivenessPollError('La cédula no es válida. Corregila antes de verificar.')
       return
     }
     setLivenessStarting(true)
@@ -508,20 +487,52 @@ export default function RegisterPage() {
       try {
         window.sessionStorage.setItem('edutrack_liveness_token', res.livenessToken)
       } catch { /* */ }
-      window.open(res.verificationUrl, '_blank', 'noopener,noreferrer')
+
+      const draft: RegisterDraftSnapshot = {
+        v: 1,
+        email: email.trim(),
+        username,
+        nationalId,
+        firstName,
+        lastName,
+        phoneLocal,
+        birthdate,
+        nationalIdDocumentExpiresAt,
+        role,
+        verificationStep: 0,
+        verificationResults,
+        dniValidation: null,
+        dniFileName: '',
+        dniImageDataUrl: null,
+        identityVerificationMethod,
+      }
+      saveRegisterDraft(draft)
+      window.location.assign(res.verificationUrl)
     } catch (e: unknown) {
-      const err = e as { data?: { message?: string }; message?: string }
-      const msg = (typeof err.data?.message === 'string' && err.data.message) || err.message || 'No se pudo iniciar la verificación.'
-      setLivenessPollError(String(msg))
+      const err = e as { data?: { message?: string; details?: string }; message?: string }
+      const base =
+        (typeof err.data?.message === 'string' && err.data.message) || err.message || 'No se pudo iniciar la verificación.'
+      const detail = typeof err.data?.details === 'string' && err.data.details ? ` (${err.data.details})` : ''
+      setLivenessPollError(String(base) + detail)
     } finally {
       setLivenessStarting(false)
     }
-  }, [email])
+  }, [
+    email,
+    username,
+    nationalId,
+    firstName,
+    lastName,
+    birthdate,
+    nationalIdDocumentExpiresAt,
+    phoneLocal,
+    role,
+    verificationResults,
+    identityVerificationMethod,
+  ])
 
   const strength = getPasswordStrength(password)
-
-  const dniBlockOk = Boolean(verificationResults && !verificationHasIssues())
-  const showLiveness = livenessCheckEnabled && dniBlockOk
+  const identityVerifyBusy = processingDiditFields
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -539,7 +550,9 @@ export default function RegisterPage() {
         lastName,
         phone: phoneLocal ? `+598${normalizeLocalPhoneUY(phoneLocal)}` : undefined,
         birthdate: new Date(birthdate).toISOString(),
-        nationalIdDocumentExpiresAt: new Date(nationalIdDocumentExpiresAt).toISOString(),
+        nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAt.trim()
+          ? new Date(nationalIdDocumentExpiresAt).toISOString()
+          : undefined,
         role,
       }
       if (livenessCheckEnabled && livenessToken) {
@@ -547,16 +560,39 @@ export default function RegisterPage() {
       }
       await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
       setOk(true)
+      clearRegisterDraft()
     } catch (e: unknown) {
       const err = e as { status?: number; message?: string; data?: { message?: string } }
       const apiMsg = (typeof err.data?.message === 'string' && err.data.message) || err.message || ''
-      const isBareStatus = /^API \d{3}$/i.test(apiMsg.trim())
-      if (!isBareStatus && apiMsg) {
-        setError(apiMsg)
-      } else if (err.status === 409) {
-        setError('Ese email, usuario o cédula ya está registrado.')
+      const isLivenessRejection =
+        err.status === 400 &&
+        typeof apiMsg === 'string' &&
+        /prueba de vida|didit|no aprobada|no válida/i.test(apiMsg)
+      if (isLivenessRejection) {
+        setLivenessApproved(false)
+        setLivenessPollError(apiMsg)
+        setLivenessToken(null)
+        try {
+          window.sessionStorage.removeItem('edutrack_liveness_token')
+        } catch { /* */ }
+        setError('')
+        try {
+          const u = new URL(window.location.href)
+          ;['status', 'verificationSessionId', 'session_id', 'vendor_data', 'liveness'].forEach((k) =>
+            u.searchParams.delete(k),
+          )
+          const q = u.searchParams.toString()
+          window.history.replaceState(null, '', `${u.pathname}${q ? `?${q}` : ''}`)
+        } catch { /* */ }
       } else {
-        setError('No se pudo registrar. Intenta nuevamente.')
+        const isBareStatus = /^API \d{3}$/i.test(apiMsg.trim())
+        if (!isBareStatus && apiMsg) {
+          setError(apiMsg)
+        } else if (err.status === 409) {
+          setError('Ese email, usuario o cédula ya está registrado.')
+        } else {
+          setError('No se pudo registrar. Intenta nuevamente.')
+        }
       }
     } finally {
       setLoading(false)
@@ -644,7 +680,6 @@ export default function RegisterPage() {
                   required 
                   className="input-field"
                   placeholder="nombre.apellido"
-                  pattern="^[-a-zA-Z0-9_.]{3,30}$"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Se genera automáticamente, pero puedes editarlo (3-30 caracteres, letras, números, punto, guion)
@@ -729,21 +764,6 @@ export default function RegisterPage() {
                 birthdateRequired
               />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Vencimiento del DNI</label>
-                <input
-                  value={nationalIdDocumentExpiresAt}
-                  onChange={(e) => setNationalIdDocumentExpiresAt(e.target.value)}
-                  type="date"
-                  min="1950-01-01"
-                  max="2100-12-31"
-                  className="input-field"
-                  required
-                  aria-label="Vencimiento del DNI"
-                />
-              
-              </div>
-              
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Perfil</label>
                 <select 
@@ -759,91 +779,116 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* DNI Verification Section */}
+            {/* Verificación identidad */}
             <div className="mt-8 pt-6 border-t border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">📷 Verificación con DNI</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Sube una foto clara de tu DNI para verificar que los datos ingresados coincidan
-              </p>
-              
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleDniUpload}
-                className="block w-full text-sm text-gray-500
-                  file:mr-4 file:py-2 file:px-4
-                  file:rounded-full file:border-0
-                  file:text-sm file:font-semibold
-                  file:bg-green-50 file:text-green-700
-                  hover:file:bg-green-100"
-                disabled={processingDni}
-              />
-              
-              {dniFile && (
-                <div className="mt-2 space-y-3">
-                  <p className="text-sm text-gray-600">
-                    Archivo seleccionado: <span className="font-medium">{dniFile.name}</span>
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                📷 Verificación de identidad
+              </h3>
+
+              {!livenessCheckEnabled ? (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  El alta con verificación online no está disponible en este entorno por ahora. Si creés que es un error,
+                  comunicate con soporte de la institución.
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Tocá <strong>Verificar identidad</strong> y seguí los pasos en pantalla para mostrar tu cédula y
+                    completar la comprobación. Los datos tienen que coincidir con lo que completaste más arriba.
                   </p>
-                  {dniPreviewUrl && (
-                    <div className="rounded-xl border border-gray-200 bg-white p-3">
-                      <img
-                        src={dniPreviewUrl}
-                        alt="Vista previa del DNI"
-                        className="max-h-72 w-full rounded-lg object-contain"
-                      />
+                  {!livenessApproved ? (
+                    <div className="space-y-2 mb-4">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void startDiditLiveness()
+                          }}
+                          disabled={
+                            livenessStarting ||
+                            identityVerifyBusy ||
+                            !email.trim() ||
+                            validateRegisterIdentityBeforeVerification({
+                              firstName,
+                              lastName,
+                              nationalId,
+                              birthdate,
+                            }) != null ||
+                            !isValidUruguayanCI(nationalId)
+                          }
+                          className="btn-primary"
+                        >
+                          <PendingButtonContent
+                            pending={livenessStarting}
+                            pendingText="Iniciando…"
+                            idle="Verificar identidad"
+                          />
+                        </button>
+                      </div>
+                      {livenessToken && (
+                        <p className="text-xs text-amber-800">
+                          Esta página espera tu confirmación; si ya terminaste, cerrá cualquier pantalla pendiente del
+                          verificador o seguí hasta el resultado.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mb-4 space-y-2">
+                      <p className="text-sm font-medium text-green-700">
+                        Identidad validada correctamente.
+                        {processingDiditFields && (
+                          <span className="block text-xs font-normal text-gray-600 mt-1">
+                            Comprobando que coincidan tus datos declarados…
+                          </span>
+                        )}
+                      </p>
                     </div>
                   )}
-                </div>
+                  {livenessPollError && <p className="text-sm text-red-600 mt-2">{livenessPollError}</p>}
+                </>
               )}
               
-              {/* Verification Progress */}
-              {processingDni && (
+              {identityVerifyBusy && (
                 <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-center space-x-3">
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                     <div>
-                      <p className="text-blue-800 font-medium">Verificando datos con DNI...</p>
-                      <div className="text-sm text-blue-600 mt-1">
-                        {verificationStep === 1 && "🔍 Verificando nombres..."}
-                        {verificationStep === 2 && "🔍 Verificando apellidos..."}
-                        {verificationStep === 3 && "🔍 Verificando cédula..."}
-                        {verificationStep === 4 && "🔍 Verificando fecha de nacimiento..."}
-                        {verificationStep === 5 && "✅ Verificación completada"}
-                      </div>
+                      <p className="text-blue-800 font-medium">Comprobando tus datos contra el resultado verificado…</p>
                     </div>
                   </div>
                 </div>
               )}
               
-              {/* Verification Results */}
               {verificationResults && (
                 <div className="mt-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <h4 className="font-medium text-gray-800">Resultados de Verificación:</h4>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap justify-end">
                       <button
+                        type="button"
                         onClick={() => {
-                          if (dniFile) handleDniUpload({ target: { files: [dniFile] } } as unknown as React.ChangeEvent<HTMLInputElement>)
+                          void runDiditFieldVerify()
                         }}
                         className="btn-secondary text-sm px-3 py-1"
-                        disabled={processingDni || !dniFile}
+                        disabled={
+                          identityVerifyBusy ||
+                          !(identityVerificationMethod === 'didit' && livenessCheckEnabled && livenessApproved)
+                        }
                       >
                         🔄 Volver a Verificar
                       </button>
                       <button
+                        type="button"
                         onClick={() => {
-                          if (dniPreviewUrl) URL.revokeObjectURL(dniPreviewUrl);
-                          setDniFile(null);
-                          setDniPreviewUrl('');
-                          setVerificationResults(null);
-                          setVerificationStep(0);
-                          setDniValidation(null);
-                          setError('');
+                          setVerificationResults(null)
+                          setIdentityVerificationMethod(null)
+                          setNationalIdDocumentExpiresAt('')
+                          setError('')
                         }}
                         className="btn-secondary text-sm px-3 py-1"
-                        disabled={processingDni}
+                        disabled={identityVerifyBusy}
                       >
-                        📷 Cambiar Imagen
+                        ↻ Reiniciar verificación
                       </button>
                     </div>
                   </div>
@@ -859,11 +904,23 @@ export default function RegisterPage() {
                             {getRegisterVerificationFieldLabel(field)}
                           </p>
                           <p className="text-sm text-gray-600">
-                            Ingresado: <span className="font-medium">{data.provided}</span>
+                            {field === 'nationalIdDocumentExpiresAt' &&
+                            (data.provided === '—' || data.provided === '(OCR)') ? (
+                              <span>
+                                Origen:{' '}
+                                <span className="font-medium">lectura automática</span>
+                              </span>
+                            ) : (
+                              <>
+                                Ingresado: <span className="font-medium">{data.provided}</span>
+                              </>
+                            )}
                           </p>
                           {data.extracted && (
                             <p className="text-sm text-gray-600">
-                              DNI muestra: <span className="font-medium">{data.extracted}</span>
+                              Registro muestra:
+                              {' '}
+                              <span className="font-medium">{data.extracted}</span>
                             </p>
                           )}
                         </div>
@@ -884,7 +941,7 @@ export default function RegisterPage() {
                           ⚠️ Completa todos los campos correctamente antes de crear la cuenta
                         </p>
                         <p className="text-xs text-orange-500 mt-1">
-                          Puedes corregir los datos manualmente y usar &quot;Volver a Verificar&quot; para reprocesar la imagen
+                          Corregí los datos y tocá «Volver a Verificar».
                         </p>
                       </div>
                     )}
@@ -892,84 +949,6 @@ export default function RegisterPage() {
                 </div>
               )}
             </div>
-
-            {showLiveness && (
-              <div className="mt-8 pt-6 border-t border-amber-200">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">Prueba de vida (Didit)</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  El administrador requiere una verificación biométrica. Se abre Didit en otra pestaña; cuando termines, volvé acá. La comprobación se actualiza sola, o usá &quot;Ya terminé&quot;.
-                </p>
-                {livenessApproved ? (
-                  <p className="text-sm font-medium text-green-700">Prueba de vida aprobada. Podés crear la cuenta.</p>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void startDiditLiveness()
-                        }}
-                        disabled={livenessStarting}
-                        className="btn-primary"
-                      >
-                        <PendingButtonContent
-                          pending={livenessStarting}
-                          pendingText="Iniciando…"
-                          idle="Iniciar prueba de vida (Didit)"
-                        />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (livenessToken) void pollLiveness(livenessToken)
-                        }}
-                        className="btn-secondary text-sm"
-                        disabled={!livenessToken}
-                      >
-                        Ya terminé: comprobar
-                      </button>
-                    </div>
-                    {livenessToken && !livenessApproved && (
-                      <p className="text-xs text-amber-800">
-                        Esperando confirmación de Didit (la página consulta en segundo plano)…
-                      </p>
-                    )}
-                  </div>
-                )}
-                {livenessPollError && <p className="text-sm text-red-600 mt-2">{livenessPollError}</p>}
-              </div>
-            )}
-
-            {/* DNI Validation Details */}
-            {dniValidation && (
-              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <h4 className="font-medium text-red-800 mb-3">🔍 Validación del DNI</h4>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-red-700">Confianza:</span>
-                    <span className={`text-sm font-bold ${
-                      dniValidation.confidence >= 60 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {dniValidation.confidence}%
-                    </span>
-                  </div>
-                  <div className="space-y-1">
-                    {dniValidation.reasons.map((reason) => (
-                      <p key={reason} className="text-xs text-red-600">{reason}</p>
-                    ))}
-                  </div>
-                  <div className="mt-3 pt-2 border-t border-red-200">
-                    <p className="flex items-start gap-1.5 text-xs text-red-500">
-                      <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                      <span>
-                        <strong>Sugerencia:</strong> Asegúrate de subir una foto clara de un DNI uruguayo real, no un
-                        formulario o imagen de prueba.
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">

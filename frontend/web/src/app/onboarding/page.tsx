@@ -23,7 +23,10 @@ import {
   resolveOnboardingUsernameStatus,
   type OnboardingUsernameStatus,
 } from '@/lib/onboarding-form-helpers'
-import { getRegisterNationalIdDocumentExpiresAtValidationError } from '@/lib/register-form-validation'
+import {
+  getRegisterNationalIdDocumentExpiresAtValidationError,
+  REGISTER_USERNAME_REGEX,
+} from '@/lib/register-form-validation'
 
 type VerificationEntry = {
   provided: string
@@ -137,7 +140,7 @@ export default function OnboardingPage() {
       setUsernameStatus('idle')
       return
     }
-    const valid = /^[-a-zA-Z0-9_.]{3,30}$/.test(username)
+    const valid = REGISTER_USERNAME_REGEX.test(username)
     if (!valid) {
       setUsernameStatus('invalid')
       return
@@ -294,7 +297,7 @@ export default function OnboardingPage() {
   }, [firstName, lastName, nationalId, birthdate, nationalIdDocumentExpiresAt, runVerifyDniImage])
 
   function validate() {
-    if (!/^[-a-zA-Z0-9_.]{3,30}$/.test(username)) return 'Usuario inválido.'
+    if (!REGISTER_USERNAME_REGEX.test(username)) return 'Usuario inválido.'
     if (usernameStatus === 'taken') return 'Ese nombre de usuario ya existe.'
     if (!isValidUruguayanCI(nationalId)) return 'La cédula no es válida.'
     if (!firstName.trim() || !lastName.trim()) return 'Nombre y apellido son obligatorios.'
