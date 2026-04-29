@@ -313,13 +313,12 @@ export default function OnboardingPage() {
         Boolean(p.get('verificationSessionId')) ||
         Boolean(p.get('session_id')) ||
         Boolean(p.get('vendor_data'))
-      if (p.get('liveness') !== '1' && !fromDiditUrl) return
-      const fromVerificationUrl =
-        p.get('verificationSessionId')?.trim() ||
-        p.get('session_id')?.trim() ||
-        p.get('vendor_data')?.trim() ||
-        ''
-      let tok: string | null = fromVerificationUrl || null
+      const hasDiditQuery = p.get('liveness') === '1' || fromDiditUrl
+
+      const fromParams = (
+        (p.get('verificationSessionId') || p.get('session_id') || p.get('vendor_data') || '') as string
+      ).trim()
+      let tok: string | null = fromParams.length > 0 ? fromParams : null
       if (!tok) {
         try {
           tok = window.sessionStorage.getItem('edutrack_liveness_token')
@@ -327,19 +326,26 @@ export default function OnboardingPage() {
           /* */
         }
       }
-      if (tok) {
-        setLivenessToken(tok)
-        try {
-          window.sessionStorage.setItem('edutrack_liveness_token', tok)
-        } catch {
-          /* */
-        }
-        if ((p.get('status') || '').toLowerCase() === 'approved') {
-          setLivenessApproved(true)
-          setLivenessPollError('')
-        }
-        void pollLiveness(tok)
+
+      /**
+       * Antes cortábamos si no había `liveness=1`/session en la URL y nunca llegábamos al token en
+       * sessionStorage. Tras un redirect a `/`/`/register` se pierden los params; reactivamos el token sólo si
+       * hay borrador de onboarding (`saveOnboardingDraft` antes de abrir Didit), para no usar tokens viejos.
+       */
+      if (!tok) return
+      if (!hasDiditQuery && !loadOnboardingDraft()) return
+
+      setLivenessToken(tok)
+      try {
+        window.sessionStorage.setItem('edutrack_liveness_token', tok)
+      } catch {
+        /* */
       }
+      if ((p.get('status') || '').toLowerCase() === 'approved') {
+        setLivenessApproved(true)
+        setLivenessPollError('')
+      }
+      void pollLiveness(tok)
     }
     run()
     window.addEventListener('focus', run)
