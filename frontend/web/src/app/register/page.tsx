@@ -140,7 +140,22 @@ export default function RegisterPage() {
     let alive = true
     api('/auth/me')
       .then(() => {
-        if (alive) window.location.replace('/')
+        if (!alive) return
+        // Usuario ya logueado (p. ej. Google + onboarding): el callback Didit suele apuntar a /register…
+        if (typeof window !== 'undefined') {
+          const se = window.location.search
+          const qp = new URLSearchParams(se)
+          const fromDidit =
+            qp.get('liveness') === '1' ||
+            Boolean(qp.get('verificationSessionId')?.trim()) ||
+            Boolean(qp.get('session_id')?.trim()) ||
+            Boolean(qp.get('vendor_data')?.trim())
+          if (fromDidit) {
+            window.location.replace(`/onboarding${se}`)
+            return
+          }
+        }
+        window.location.replace('/')
       })
       .catch(() => {
         if (alive) setSessionGate(false)
@@ -313,30 +328,32 @@ export default function RegisterPage() {
         Boolean(p.get('verificationSessionId')) ||
         Boolean(p.get('session_id')) ||
         Boolean(p.get('vendor_data'))
-      if (p.get('liveness') !== '1' && !fromDiditUrl) return
-      const fromVerificationUrl =
-        p.get('verificationSessionId')?.trim() ||
-        p.get('session_id')?.trim() ||
-        p.get('vendor_data')?.trim() ||
-        ''
+      const hasDiditQuery = p.get('liveness') === '1' || fromDiditUrl
+      let tok =
+        (p.get('verificationSessionId') || p.get('session_id') || p.get('vendor_data') || '').trim() || ''
+      tok = tok || null
       /** Tras Didit, la redirect trae `verificationSessionId` actual; debe ganar ante un token viejo en sessionStorage. */
-      let tok: string | null = fromVerificationUrl || null
       if (!tok) {
         try {
           tok = window.sessionStorage.getItem('edutrack_liveness_token')
-        } catch { /* */ }
-      }
-      if (tok) {
-        setLivenessToken(tok)
-        try {
-          window.sessionStorage.setItem('edutrack_liveness_token', tok)
-        } catch { /* */ }
-        if ((p.get('status') || '').toLowerCase() === 'approved') {
-          setLivenessApproved(true)
-          setLivenessPollError('')
+        } catch {
+          /* */
         }
-        void pollLiveness(tok)
       }
+      if (!tok) return
+      if (!hasDiditQuery && !loadRegisterDraft()) return
+
+      setLivenessToken(tok)
+      try {
+        window.sessionStorage.setItem('edutrack_liveness_token', tok)
+      } catch {
+        /* */
+      }
+      if ((p.get('status') || '').toLowerCase() === 'approved') {
+        setLivenessApproved(true)
+        setLivenessPollError('')
+      }
+      void pollLiveness(tok)
     }
     run()
     window.addEventListener('focus', run)
