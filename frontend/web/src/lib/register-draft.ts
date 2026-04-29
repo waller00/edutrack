@@ -56,3 +56,34 @@ export function clearRegisterDraft(): void {
     /* */
   }
 }
+
+const ONBOARDING_KEY = 'edutrack_onboarding_draft'
+
+export function saveOnboardingDraft(snapshot: RegisterDraftSnapshot): void {
+  try {
+    window.sessionStorage.setItem(ONBOARDING_KEY, JSON.stringify(snapshot))
+  } catch (e) {
+    console.warn('[onboarding-draft] no se pudo guardar', e)
+  }
+}
+
+export function loadOnboardingDraft(): RegisterDraftSnapshot | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.sessionStorage.getItem(ONBOARDING_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw) as RegisterDraftSnapshot
+    if (p?.v !== 1) return null
+    return p
+  } catch {
+    return null
+  }
+}
+
+export function clearOnboardingDraft(): void {
+  try {
+    window.sessionStorage.removeItem(ONBOARDING_KEY)
+  } catch {
+    /* */
+  }
+}

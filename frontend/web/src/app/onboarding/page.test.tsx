@@ -4,112 +4,136 @@ import OnboardingPage from './page'
 import { api } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({ api: vi.fn() }))
-vi.mock('@/lib/image-upload', () => ({
-  compressImage: vi.fn(async (f: File) => f),
-  fileToDataUrl: vi.fn(async () => 'data:image/png;base64,x'),
-}))
 
 const mockedApi = vi.mocked(api)
+
+function baseMeResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    email: 'g@g.com',
+    role: 'STAFF',
+    hasPassword: true,
+    username: 'ana.garcia',
+    firstName: 'Ana',
+    lastName: 'García',
+    nationalId: '41234563',
+    birthdate: '1995-03-15T00:00:00.000Z',
+    ...overrides,
+  }
+}
 
 describe('OnboardingPage', () => {
   beforeEach(() => {
     mockedApi.mockReset()
-    vi.stubGlobal('URL', {
-      ...URL,
-      createObjectURL: vi.fn(() => 'blob:mock-dni'),
-      revokeObjectURL: vi.fn(),
-    })
+    vi.stubGlobal('URL', URL)
+    try {
+      window.sessionStorage.removeItem('edutrack_liveness_token')
+    } catch {
+      /* */
+    }
     Object.defineProperty(window, 'location', {
       configurable: true,
+      writable: true,
       value: { href: 'http://localhost/onboarding' },
     })
   })
 
   it('redirige a login si /auth/me falla', async () => {
-    mockedApi.mockRejectedValueOnce(new Error('401'))
+    mockedApi.mockImplementation((url: string) => {
+      if (String(url).includes('/auth/me')) return Promise.reject(new Error('401'))
+      return Promise.resolve({ livenessCheckEnabled: false })
+    })
     render(<OnboardingPage />)
     await waitFor(() => expect(window.location.href).toBe('/login'))
   })
 
-  it('muestra flujo de completar perfil', async () => {
-    mockedApi.mockResolvedValueOnce({
-      email: 't@test.com',
-      role: 'TEACHER',
-      hasPassword: true,
-      firstName: '',
-      lastName: '',
+  it('muestra flujo Didit de completar perfil', async () => {
+    mockedApi.mockImplementation((url: string) => {
+      if (String(url).includes('/auth/me')) return Promise.resolve(baseMeResponse({ username: '', firstName: '', lastName: '' }))
+      if (String(url).includes('registration-options')) return Promise.resolve({ livenessCheckEnabled: true })
+      if (String(url).includes('check-username')) return Promise.resolve({ available: true, valid: true })
+      return Promise.resolve({})
     })
 
     render(<OnboardingPage />)
 
     expect(await screen.findByText('Completa tu registro')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Verificar identidad/i })).toBeInTheDocument()
   })
 
-  it('rechaza archivo que no es imagen en DNI', async () => {
-    mockedApi.mockResolvedValueOnce({
-      email: 'a@a.com',
-      role: 'STAFF',
-      hasPassword: true,
-      username: 'user.ab',
-      firstName: 'Ana',
-      lastName: 'B',
-      nationalId: '41234563',
-      birthdate: '1990-01-01',
+  it('bloquea envío sin verificación Didit completada', async () => {
+    mockedApi.mockImplementation((url: string) => {
+      if (String(url).includes('/auth/me')) return Promise.resolve(baseMeResponse())
+      if (String(url).includes('registration-options')) return Promise.resolve({ livenessCheckEnabled: true })
+      if (String(url).includes('check-username')) return Promise.resolve({ available: true, valid: true })
+      return Promise.resolve({})
     })
+
     render(<OnboardingPage />)
     await screen.findByText('Completa tu registro')
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, {
-      target: { files: [new File(['x'], 'doc.pdf', { type: 'application/pdf' })] },
-    })
-    expect(await screen.findByText(/Selecciona una imagen válida/i)).toBeInTheDocument()
+
+    const form = document.querySelector('form')
+    expect(form).toBeTruthy()
+    fireEvent.submit(form as HTMLFormElement)
+
+    expect(await screen.findByText(/Debés confirmar tu identidad antes de continuar/i)).toBeInTheDocument()
   })
 
-  it('guarda perfil tras verificar DNI', async () => {
+  it('guarda perfil tras Didit y cruce de campos', async () => {
+    window.sessionStorage.setItem('edutrack_liveness_token', 'didit-test-token')
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: {
+        href: 'http://localhost/onboarding?liveness=1&status=approved&verificationSessionId=didit-test-token',
+        search: '?liveness=1&status=approved&verificationSessionId=didit-test-token',
+        pathname: '/onboarding',
+        replace: vi.fn(),
+        assign: vi.fn(),
+      },
+    })
+
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('/auth/me')) {
-        return {
-          email: 'g@g.com',
-          role: 'STAFF',
-          hasPassword: true,
-          username: 'ana.garcia',
-          firstName: 'Ana',
-          lastName: 'García',
-          nationalId: '41234563',
-          birthdate: '1995-03-15T00:00:00.000Z',
-        }
+        return baseMeResponse()
       }
-      if (String(url).includes('verify-step-by-step')) {
+      if (String(url).includes('registration-options')) {
+        return { livenessCheckEnabled: true }
+      }
+      if (String(url).includes('check-username')) {
+        return { available: true, valid: true }
+      }
+      if (String(url).includes('/auth/liveness/status')) {
+        return { approved: true }
+      }
+      if (String(url).includes('/auth/didit/register-field-verify')) {
         return {
           success: true,
+          verifiedFields: 5,
+          totalFields: 5,
           verification: {
-            firstName: { provided: 'Ana', message: '✓ Coincide' },
-            lastName: { provided: 'García', message: '✓ Coincide' },
-            nationalId: { provided: '4.123.456-3', message: '✓ Coincide' },
-            birthdate: { provided: '1995-03-15', message: '✓ Coincide' },
-            nationalIdDocumentExpiresAt: { provided: '2030-01-01', message: '✓ Coincide' },
+            firstName: { provided: 'Ana', extracted: 'Ana', message: '✓ Coincide' },
+            lastName: { provided: 'García', extracted: 'García', message: '✓ Coincide' },
+            nationalId: { provided: '4.123.456-3', extracted: '4.123.456-3', message: '✓ Coincide' },
+            birthdate: { provided: '1995-03-15', extracted: '1995-03-15', message: '✓ Coincide' },
+            nationalIdDocumentExpiresAt: {
+              provided: '—',
+              extracted: '2030-06-01',
+              message: '✓ Coincide',
+            },
           },
         }
       }
-      if (String(url).includes('/auth/profile') && init?.method === 'PUT') return {}
+      if (String(url).includes('/auth/profile') && init?.method === 'PUT') {
+        return {}
+      }
       return {}
     })
 
     render(<OnboardingPage />)
+
     await screen.findByText('Completa tu registro')
-
-    fireEvent.change(screen.getByLabelText(/Vencimiento del DNI/i), { target: { value: '2030-01-01' } })
-
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(fileInput, {
-      target: { files: [new File(['xx'], 'dni.png', { type: 'image/png' })] },
-    })
-
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(
-        '/auth/verify-step-by-step',
-        expect.objectContaining({ method: 'POST' }),
-      ),
+      expect(mockedApi).toHaveBeenCalledWith('/auth/didit/register-field-verify', expect.objectContaining({ method: 'POST' })),
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Guardar y enviar a validación/ }))
@@ -117,32 +141,46 @@ describe('OnboardingPage', () => {
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/auth/profile', expect.objectContaining({ method: 'PUT' })),
     )
-    expect(window.location.href).toBe('/')
   })
 
   it('muestra error 409 al guardar perfil duplicado', async () => {
+    window.sessionStorage.setItem('edutrack_liveness_token', 'didit-test-token')
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: {
+        href: 'http://localhost/onboarding?liveness=1&status=approved&verificationSessionId=didit-test-token',
+        search: '?liveness=1&status=approved&verificationSessionId=didit-test-token',
+        pathname: '/onboarding',
+        replace: vi.fn(),
+        assign: vi.fn(),
+      },
+    })
+
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('/auth/me')) {
-        return {
-          email: 'g@g.com',
-          role: 'STAFF',
-          hasPassword: true,
-          username: 'ana.garcia',
-          firstName: 'Ana',
-          lastName: 'García',
-          nationalId: '41234563',
-          birthdate: '1995-03-15T00:00:00.000Z',
-        }
+        return baseMeResponse()
       }
-      if (String(url).includes('verify-step-by-step')) {
+      if (String(url).includes('registration-options')) {
+        return { livenessCheckEnabled: true }
+      }
+      if (String(url).includes('check-username')) {
+        return { available: true, valid: true }
+      }
+      if (String(url).includes('/auth/liveness/status')) {
+        return { approved: true }
+      }
+      if (String(url).includes('/auth/didit/register-field-verify')) {
         return {
           success: true,
+          verifiedFields: 5,
+          totalFields: 5,
           verification: {
             firstName: { provided: 'Ana', message: '✓ OK' },
             lastName: { provided: 'G', message: '✓ OK' },
             nationalId: { provided: 'x', message: '✓ OK' },
             birthdate: { provided: 'x', message: '✓ OK' },
-            nationalIdDocumentExpiresAt: { provided: '2030-01-01', message: '✓ OK' },
+            nationalIdDocumentExpiresAt: { provided: '(OCR)', extracted: '2030-01-01', message: '✓ OK' },
           },
         }
       }
@@ -154,12 +192,10 @@ describe('OnboardingPage', () => {
 
     render(<OnboardingPage />)
     await screen.findByText('Completa tu registro')
-    fireEvent.change(screen.getByLabelText(/Vencimiento del DNI/i), { target: { value: '2030-01-01' } })
-    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
-      target: { files: [new File(['x'], 'd.png', { type: 'image/png' })] },
-    })
-    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('verify-step-by-step'), expect.anything()))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/auth/didit/register-field-verify'), expect.anything()))
+
     fireEvent.click(screen.getByRole('button', { name: /Guardar y enviar a validación/ }))
+
     expect(await screen.findByText(/Usuario o cédula ya registrados/i)).toBeInTheDocument()
   })
 })
