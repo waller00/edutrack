@@ -29,7 +29,6 @@ const FALLBACK_NAV: Record<string, NavLink[]> = {
     { href: '/admin/attendance', label: 'Asistencias' },
     { href: '/admin/events', label: 'Eventos' },
     { href: '/admin/licenses', label: 'Licencias' },
-    { href: '/admin/settings', label: 'Seguridad' },
     { href: '/admin/analytics', label: 'Analytics' },
     { href: '/notifications', label: 'Avisos' },
   ],

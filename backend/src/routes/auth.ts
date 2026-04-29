@@ -18,7 +18,8 @@ import {
   mapProfileUpdateError,
 } from "../auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
-import { getOrCreateSystemSettings, isDiditConfigured } from "../system-settings.js";
+import { isDiditConfigured } from "../system-settings.js";
+import { syncLivenessSessionFromDiditApi } from "../didit-sync-session.js";
 
 const r = Router();
 
@@ -30,7 +31,6 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
     { href: "/admin/attendance", label: "Asistencias" },
     { href: "/admin/events", label: "Eventos" },
     { href: "/admin/licenses", label: "Licencias" },
-    { href: "/admin/settings", label: "Seguridad" },
     { href: "/notifications", label: "Avisos" },
   ],
   TEACHER: [
@@ -218,9 +218,7 @@ function createIpRateLimit(windowMs: number, max: number) {
 
 // Check username availability
 r.get("/registration-options", async (_req, res) => {
-  const s = await getOrCreateSystemSettings();
-  const effective = s.livenessCheckEnabled && isDiditConfigured();
-  return res.json({ livenessCheckEnabled: effective });
+  return res.json({ livenessCheckEnabled: isDiditConfigured() });
 });
 
 r.get('/check-username', async (req, res) => {
@@ -238,18 +236,25 @@ r.post("/register", async (req, res) => {
 
   const { email, password, username, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role, livenessToken } = parsed.data;
 
-  const [settings, byEmail, byUsername, byNational] = await Promise.all([
-    getOrCreateSystemSettings(),
+  const [byEmail, byUsername, byNational] = await Promise.all([
     prisma.user.findUnique({ where: { email } }),
     username ? prisma.user.findUnique({ where: { username } }) : Promise.resolve(null),
     nationalId ? prisma.user.findUnique({ where: { nationalId: onlyDigits(nationalId) } }) : Promise.resolve(null),
   ]);
-  const livenessRequired = settings.livenessCheckEnabled && isDiditConfigured();
+  const livenessRequired = isDiditConfigured();
+  /** Fila interna; el cliente puede mandar `id` (vendor_data) o el session_id de Didit del retorno. */
+  let livenessRowId: string | null = null;
   if (livenessRequired) {
     if (!livenessToken) {
       return res.status(400).json({ message: "Falta completar la prueba de vida (Didit)." });
     }
-    const ls = await prisma.livenessSession.findUnique({ where: { id: livenessToken } });
+    let ls = await prisma.livenessSession.findFirst({
+      where: { OR: [{ id: livenessToken }, { diditSessionId: livenessToken }] },
+    });
+    if (ls && ls.status !== "APPROVED" && !ls.consumedAt && ls.diditSessionId) {
+      await syncLivenessSessionFromDiditApi(ls.id);
+      ls = await prisma.livenessSession.findUnique({ where: { id: ls.id } });
+    }
     if (!ls || ls.status !== "APPROVED" || ls.consumedAt) {
       return res.status(400).json({ message: "Prueba de vida no válida o no aprobada. Iniciá el proceso otra vez." });
     }
@@ -259,6 +264,7 @@ r.post("/register", async (req, res) => {
     if (ls.email && ls.email.toLowerCase() !== email.trim().toLowerCase()) {
       return res.status(400).json({ message: "El email de registro no coincide con el de la prueba de vida." });
     }
+    livenessRowId = ls.id;
   }
 
   if (byEmail) return res.status(409).json({ message: "Email ya registrado" });
@@ -284,7 +290,7 @@ r.post("/register", async (req, res) => {
   }
 
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-  const nowLv = livenessRequired && livenessToken ? new Date() : null;
+  const nowLv = livenessRequired && livenessRowId ? new Date() : null;
   const user = await prisma.$transaction(async (tx) => {
     const u = await tx.user.create({
       data: {
@@ -305,9 +311,9 @@ r.post("/register", async (req, res) => {
         livenessVerifiedAt: nowLv,
       },
     });
-    if (livenessRequired && livenessToken) {
+    if (livenessRequired && livenessRowId) {
       await tx.livenessSession.update({
-        where: { id: livenessToken },
+        where: { id: livenessRowId },
         data: { consumedAt: new Date() },
       });
     }

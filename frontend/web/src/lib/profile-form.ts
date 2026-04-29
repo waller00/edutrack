@@ -1,4 +1,5 @@
 import { isValidLocalPhoneUY, normalizeLocalPhoneUY } from '@/lib/uruguay-forms'
+import { REGISTER_USERNAME_REGEX } from '@/lib/register-form-validation'
 
 export function onlyDigits(v: string): string {
   return v.replace(/\D/g, '')
@@ -89,7 +90,7 @@ export function validateProfileForm(params: {
   phoneLocal: string
   canEditCi: boolean
 }): string | null {
-  if (!/^[-a-zA-Z0-9_.]{3,30}$/.test(params.username)) return 'Usuario inválido'
+  if (!REGISTER_USERNAME_REGEX.test(params.username)) return 'Usuario inválido'
   if (params.canEditCi && !validCI(params.nationalId)) return 'Cédula inválida'
   if (!params.firstName.trim() || !params.lastName.trim()) return 'Nombre y apellido obligatorios'
   if (params.phoneLocal && !isValidLocalPhoneUY(params.phoneLocal)) {

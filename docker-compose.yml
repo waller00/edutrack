@@ -28,6 +28,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
       ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-2h}
       REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-7d}
@@ -51,6 +52,8 @@ services:
       DIDIT_API_KEY: ${DIDIT_API_KEY:-}
       DIDIT_WORKFLOW_ID: ${DIDIT_WORKFLOW_ID:-}
       DIDIT_WEBHOOK_SECRET: ${DIDIT_WEBHOOK_SECRET:-}
+      # Opcional: callback HTTPS para crear sesión (Didit); ej. https://TU-NGROK.ngrok-free.app/register?liveness=1
+      DIDIT_CALLBACK_URL: ${DIDIT_CALLBACK_URL:-}
     ports:
       - "4000:4000"
     depends_on:
@@ -72,11 +75,13 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
         NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+        NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL: ${NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL:-}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+      NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL: ${NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL:-}
     ports:
       - "3000:3000"
     depends_on:
