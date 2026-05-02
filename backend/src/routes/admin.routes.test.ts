@@ -5,6 +5,8 @@ import cookieParser from "cookie-parser";
 import { Prisma } from "@prisma/client";
 import { signAccessToken } from "../jwt.js";
 import { computeCICheckDigit } from "../uruguay-ci.js";
+import type { ProfileRole } from "../profile-permissions-defaults.js";
+import { DEFAULT_PROFILE_PERMISSIONS } from "../profile-permissions-defaults.js";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
@@ -16,9 +18,57 @@ const { prismaMock } = vi.hoisted(() => ({
       create: vi.fn(),
       update: vi.fn(),
     },
+    orgRole: {
+      upsert: vi.fn(),
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
+    permission: {
+      upsert: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+    },
+    rolePermission: {
+      count: vi.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+      update: vi.fn(),
+      create: vi.fn(),
+    },
     passwordReset: { create: vi.fn() },
   },
 }));
+
+function permIdForCode(code: string) {
+  return `perm-${code.replace(/\./g, "-")}`;
+}
+
+function orgRoleRowId(role: ProfileRole) {
+  return `rid-${role}`;
+}
+
+function rowsFromDefaultProfileMatrix() {
+  const rows: any[] = [];
+  for (const role of ["ADMIN", "TEACHER", "STAFF"] as ProfileRole[]) {
+    for (const p of DEFAULT_PROFILE_PERMISSIONS[role]) {
+      rows.push({
+        roleId: orgRoleRowId(role),
+        permissionId: permIdForCode(p.id),
+        enabled: p.enabled,
+        scope: p.scope === "all" ? "ALL" : "OWN",
+        label: p.label,
+        permission: { code: p.id, module: p.module, action: p.action, isSystem: true },
+        orgRole: { code: role },
+      });
+    }
+  }
+  return rows;
+}
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
 
@@ -39,21 +89,32 @@ const adminHdr = () => ({
 describe("admin routes (prisma mock)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.orgRole.upsert.mockResolvedValue({});
+    prismaMock.orgRole.findFirst.mockImplementation((args: { where: { code: string } }) => {
+      const code = args?.where?.code;
+      return Promise.resolve({ id: orgRoleRowId(code as ProfileRole), code, active: true });
+    });
+    prismaMock.orgRole.findMany.mockResolvedValue([
+      { code: "ADMIN", label: "Administrador" },
+      { code: "STAFF", label: "Staff" },
+      { code: "TEACHER", label: "Tutor" },
+    ]);
+    prismaMock.orgRole.findUnique.mockImplementation((args: { where: { code: string } }) =>
+      Promise.resolve({ id: orgRoleRowId(args.where.code as ProfileRole), code: args.where.code }),
+    );
+    prismaMock.rolePermission.count.mockResolvedValue(1);
     prismaMock.user.findFirst.mockResolvedValue(null);
     prismaMock.user.findUnique.mockResolvedValue({
       id: "u1",
-      role: "TEACHER",
+      orgRole: { code: "TEACHER" },
       firstName: "A",
       lastName: "B",
     });
-    process.env.PROFILE_PERMISSIONS_FILE = `/tmp/profile-permissions-${process.pid}-${Math.random()}.json`;
   });
 
   it("GET /admin/users paginado", async () => {
     prismaMock.user.count.mockResolvedValue(2);
-    prismaMock.user.findMany.mockResolvedValue([
-      { id: "1", email: "a@a.com", role: "TEACHER" },
-    ]);
+    prismaMock.user.findMany.mockResolvedValue([{ id: "1", email: "a@a.com", orgRole: { code: "TEACHER" } }]);
     const res = await request(app()).get("/admin/users?page=1&pageSize=10").set(adminHdr());
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(2);
@@ -68,7 +129,7 @@ describe("admin routes (prisma mock)", () => {
     const arg = prismaMock.user.findMany.mock.calls[0][0];
     expect(arg.where.AND).toEqual(
       expect.arrayContaining([
-        { NOT: { role: "ADMIN" } },
+        { NOT: { orgRole: { code: "ADMIN" } } },
         expect.objectContaining({ OR: expect.any(Array) }),
       ]),
     );
@@ -82,7 +143,7 @@ describe("admin routes (prisma mock)", () => {
     const arg = prismaMock.user.findMany.mock.calls[0][0];
     expect(arg.take).toBe(100);
     expect(arg.where.AND).toEqual(
-      expect.arrayContaining([{ NOT: { role: "ADMIN" } }, { role: "STAFF" }]),
+      expect.arrayContaining([{ NOT: { orgRole: { code: "ADMIN" } } }, { orgRole: { code: "STAFF" } }]),
     );
   });
 
@@ -91,61 +152,134 @@ describe("admin routes (prisma mock)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("GET /admin/profiles devuelve perfiles por rol", async () => {
-    const res = await request(app()).get("/admin/profiles").set(adminHdr());
-    expect(res.status).toBe(200);
-    expect(res.body.roles).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ role: "TEACHER", label: "Tutor" }),
-        expect.objectContaining({ role: "ADMIN", label: "Administrador" }),
-      ]),
-    );
-    const teacher = res.body.roles.find((role: any) => role.role === "TEACHER");
-    const staff = res.body.roles.find((role: any) => role.role === "STAFF");
-    expect(teacher.permissions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "attendance.read", source: "system" }),
-        expect.objectContaining({ id: "events.read", source: "system" }),
-        expect.objectContaining({ id: "licenses.read", source: "system" }),
-      ]),
-    );
-    expect(teacher.permissions).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "events.create" }),
-        expect.objectContaining({ id: "events.update" }),
-        expect.objectContaining({ id: "licenses.create" }),
-      ]),
-    );
-    expect(staff.permissions).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "attendance.create" }),
-        expect.objectContaining({ id: "licenses.create" }),
-      ]),
-    );
-  });
+  describe("GET/PUT/POST /admin/profiles (matriz en Prisma)", () => {
+    beforeEach(() => {
+      prismaMock.rolePermission.count.mockResolvedValue(50);
+      prismaMock.rolePermission.findMany.mockResolvedValue(rowsFromDefaultProfileMatrix());
+      prismaMock.permission.findUnique.mockImplementation((args: { where: { code?: string } }) => {
+        const code = args?.where?.code;
+        if (!code) return Promise.resolve(null);
+        return Promise.resolve({
+          id: permIdForCode(code),
+          code,
+          module: "m",
+          action: "a",
+          isSystem: true,
+        });
+      });
+      prismaMock.rolePermission.findUnique.mockImplementation(
+        (args: { where: { roleId_permissionId: { roleId: string; permissionId: string } } }) => {
+          const { roleId, permissionId } = args.where.roleId_permissionId;
+          const hit = rowsFromDefaultProfileMatrix().find((r) => r.roleId === roleId && r.permissionId === permissionId);
+          return Promise.resolve(hit ? { roleId, permissionId } : null);
+        },
+      );
+      prismaMock.rolePermission.update.mockResolvedValue({});
+      prismaMock.rolePermission.create.mockResolvedValue({});
+      prismaMock.permission.create.mockResolvedValue({
+        id: "new-perm",
+        code: "reportes.read",
+        module: "Reportes",
+        action: "read",
+        isSystem: false,
+      });
+    });
 
-  it("PUT /admin/profiles/:role/permissions/:id actualiza la matriz sin tocar usuarios", async () => {
-    const res = await request(app())
-      .put("/admin/profiles/TEACHER/permissions/attendance.read")
-      .set(adminHdr())
-      .send({ enabled: false, scope: "own" });
-    expect(res.status).toBe(200);
-    const teacher = res.body.roles.find((role: any) => role.role === "TEACHER");
-    const permission = teacher.permissions.find((p: any) => p.id === "attendance.read");
-    expect(permission.enabled).toBe(false);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
-  });
+    it("GET /admin/profiles devuelve perfiles por rol", async () => {
+      const res = await request(app()).get("/admin/profiles").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body.roles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ role: "TEACHER", label: "Tutor" }),
+          expect.objectContaining({ role: "ADMIN", label: "Administrador" }),
+        ]),
+      );
+      const teacher = res.body.roles.find((role: unknown) => (role as { role: string }).role === "TEACHER") as {
+        permissions: unknown[];
+      };
+      const staff = res.body.roles.find((role: unknown) => (role as { role: string }).role === "STAFF") as {
+        permissions: unknown[];
+      };
+      expect(teacher.permissions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "attendance.read", source: "system" }),
+          expect.objectContaining({ id: "events.read", source: "system" }),
+          expect.objectContaining({ id: "licenses.read", source: "system" }),
+        ]),
+      );
+      expect(teacher.permissions).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "events.create" }),
+          expect.objectContaining({ id: "events.update" }),
+          expect.objectContaining({ id: "licenses.create" }),
+        ]),
+      );
+      expect(staff.permissions).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "attendance.create" }),
+          expect.objectContaining({ id: "licenses.create" }),
+        ]),
+      );
+    });
 
-  it("POST /admin/profiles/:role/permissions crea permiso nuevo", async () => {
-    const res = await request(app())
-      .post("/admin/profiles/TEACHER/permissions")
-      .set(adminHdr())
-      .send({ module: "Reportes", action: "read", label: "Ver mis reportes", scope: "own" });
-    expect(res.status).toBe(201);
-    const teacher = res.body.roles.find((role: any) => role.role === "TEACHER");
-    expect(teacher.permissions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "reportes.read", label: "Ver mis reportes" })]),
-    );
+    it("PUT /admin/profiles/:role/permissions/:id actualiza la matriz sin tocar usuarios", async () => {
+      const snapshot = structuredClone(rowsFromDefaultProfileMatrix());
+      const teacherRead = snapshot.find((r) => r.orgRole.code === "TEACHER" && r.permission.code === "attendance.read");
+      if (teacherRead) teacherRead.enabled = false;
+      prismaMock.rolePermission.findMany.mockResolvedValue(snapshot);
+      const res = await request(app())
+        .put("/admin/profiles/TEACHER/permissions/attendance.read")
+        .set(adminHdr())
+        .send({ enabled: false, scope: "own" });
+      expect(res.status).toBe(200);
+      const teacher = res.body.roles.find((role: unknown) => (role as { role: string }).role === "TEACHER") as {
+        permissions: { id: string; enabled: boolean }[];
+      };
+      const permission = teacher.permissions.find((p) => p.id === "attendance.read");
+      expect(permission?.enabled).toBe(false);
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+
+    it("POST /admin/profiles/:role/permissions crea permiso nuevo", async () => {
+      const extra: any[] = [];
+      prismaMock.permission.create.mockResolvedValue({
+        id: "new-perm-id",
+        code: "reportes.read",
+        module: "Reportes",
+        action: "read",
+        isSystem: false,
+      });
+      prismaMock.rolePermission.create.mockImplementation(async ({ data }: { data: any }) => {
+        const code = (Object.keys(DEFAULT_PROFILE_PERMISSIONS) as ProfileRole[]).find((rc) => orgRoleRowId(rc) === data.roleId) ?? "TEACHER";
+        extra.push({
+          roleId: data.roleId,
+          permissionId: data.permissionId,
+          enabled: data.enabled,
+          scope: data.scope,
+          label: data.label,
+          orgRole: { code },
+          permission: {
+            code: "reportes.read",
+            module: "Reportes",
+            action: "read",
+            isSystem: false,
+          },
+        });
+        return {};
+      });
+      prismaMock.rolePermission.findMany.mockImplementation(async () => [...rowsFromDefaultProfileMatrix(), ...extra]);
+      const res = await request(app())
+        .post("/admin/profiles/TEACHER/permissions")
+        .set(adminHdr())
+        .send({ module: "Reportes", action: "read", label: "Ver mis reportes", scope: "own" });
+      expect(res.status).toBe(201);
+      const teacher = res.body.roles.find((role: unknown) => (role as { role: string }).role === "TEACHER") as {
+        permissions: { id: string; label: string }[];
+      };
+      expect(teacher.permissions).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "reportes.read", label: "Ver mis reportes" })]),
+      );
+    });
   });
 
   it("POST /admin/users 409 email existente", async () => {
@@ -186,7 +320,7 @@ describe("admin routes (prisma mock)", () => {
   it("PUT /admin/users/:id 403 no dar de baja a administrador", async () => {
     prismaMock.user.findUnique.mockResolvedValue({
       id: "adm",
-      role: "ADMIN",
+      orgRole: { code: "ADMIN" },
       firstName: "A",
       lastName: "B",
     });
@@ -290,7 +424,7 @@ describe("admin routes (prisma mock)", () => {
   });
 
   it("PUT /admin/users/:id/lock 403 no bloquear administrador", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ role: "ADMIN" });
+    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "ADMIN" } });
     const res = await request(app()).put("/admin/users/adm/lock?lock=true").set(adminHdr());
     expect(res.status).toBe(403);
     expect(prismaMock.user.update).not.toHaveBeenCalled();
@@ -316,7 +450,7 @@ describe("admin routes (prisma mock)", () => {
   });
 
   it("POST /admin/users/:id/password/reset 403 para administrador", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ role: "ADMIN" });
+    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "ADMIN" } });
     const res = await request(app()).post("/admin/users/adm/password/reset").set(adminHdr());
     expect(res.status).toBe(403);
     expect(prismaMock.passwordReset.create).not.toHaveBeenCalled();

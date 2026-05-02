@@ -260,7 +260,7 @@ describe("attendance /register (prisma mock)", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           event: { type: "CLASE" },
-          user: { role: "STAFF" },
+          user: { orgRole: { code: "STAFF" } },
         }),
         select: { id: true },
       }),

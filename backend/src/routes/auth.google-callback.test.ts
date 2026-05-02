@@ -158,6 +158,18 @@ describe("auth google callback", () => {
       birthdate: new Date("2000-05-20T00:00:00.000Z"),
       username: "adal",
     };
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u3",
+      email: "u3@example.com",
+      isActive: true,
+      emailVerifiedAt: new Date(),
+      firstName: "Ada",
+      lastName: "Lovelace",
+      nationalId: "30458651",
+      birthdate: new Date("2000-05-20T00:00:00.000Z"),
+      username: "adal",
+      orgRole: { code: "ADMIN" },
+    });
     prismaMock.refreshToken.create.mockResolvedValue({});
 
     const res = await request(app()).get("/auth/google/callback");

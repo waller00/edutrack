@@ -23,7 +23,7 @@ async function scopeUserIds(params: { role?: 'ADMIN' | 'STAFF' | 'TEACHER'; user
   if (params.userId) return [params.userId]
   if (!params.role) return null
   const rows = await prisma.user.findMany({
-    where: { role: params.role },
+    where: { orgRole: { code: params.role } },
     select: { id: true },
   })
   return rows.map((x) => x.id)

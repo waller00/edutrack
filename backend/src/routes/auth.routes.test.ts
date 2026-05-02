@@ -47,6 +47,11 @@ vi.mock("../email.js", () => ({
   sendMail: sendMailMock,
 }));
 
+vi.mock("../org-role-service.js", () => ({
+  normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
+  getOrgRoleIdByCodeOrThrow: vi.fn().mockResolvedValue("mock-org-role-id"),
+}));
+
 vi.mock("argon2", () => ({
   default: {
     hash: vi.fn().mockResolvedValue("$argon2id$hashed"),
@@ -76,6 +81,8 @@ describe("auth routes (mocks)", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    sendMailMock.mockReset();
+    sendMailMock.mockResolvedValue(undefined);
     prismaMock.user.findFirst.mockReset();
     prismaMock.user.findUnique.mockReset();
     prismaMock.user.update.mockReset();
@@ -174,7 +181,7 @@ describe("auth routes (mocks)", () => {
       id: "uid-new",
       email: "n@n.com",
       username: "nuser",
-      role: "STAFF",
+      roleId: "mock-org-role-id",
     });
     prismaMock.emailVerification.create.mockResolvedValue({});
     prismaMock.refreshToken.create.mockResolvedValue({});
@@ -198,7 +205,7 @@ describe("auth routes (mocks)", () => {
       id: "uid-smtp",
       email: "smtp@n.com",
       username: "smtpuser",
-      role: "STAFF",
+      roleId: "mock-org-role-id",
     });
     prismaMock.emailVerification.create.mockResolvedValue({});
     prismaMock.refreshToken.create.mockResolvedValue({});
@@ -223,7 +230,7 @@ describe("auth routes (mocks)", () => {
       Promise.resolve({
         id: "u1",
         email: "u@example.com",
-        role: "STAFF",
+        orgRole: { code: "STAFF" },
         passwordHash: "$argon2id$existing",
         isActive: true,
         lockUntil,
@@ -474,7 +481,7 @@ describe("auth routes (mocks)", () => {
     prismaMock.user.findFirst.mockResolvedValue({
       id: "u1",
       email: "u@example.com",
-      role: "STAFF",
+      orgRole: { code: "STAFF" },
       passwordHash: "$argon2id$existing",
       isActive: false,
     });
@@ -488,7 +495,7 @@ describe("auth routes (mocks)", () => {
     prismaMock.user.findFirst.mockResolvedValue({
       id: "u1",
       email: "u@example.com",
-      role: "STAFF",
+      orgRole: { code: "STAFF" },
       passwordHash: "$argon2id$existing",
       isActive: true,
       lockUntil: new Date("2999-01-01T00:00:00.000Z"),
@@ -505,7 +512,7 @@ describe("auth routes (mocks)", () => {
     prismaMock.user.findFirst.mockResolvedValue({
       id: "u1",
       email: "u@example.com",
-      role: "STAFF",
+      orgRole: { code: "STAFF" },
       passwordHash: "$argon2id$existing",
       isActive: true,
       lockUntil: null,
@@ -524,7 +531,7 @@ describe("auth routes (mocks)", () => {
       id: "u1",
       email: "u@example.com",
       name: "User",
-      role: "STAFF",
+      orgRole: { code: "STAFF" },
       passwordHash: "$argon2id$existing",
       isActive: true,
       lockUntil: null,
@@ -649,8 +656,8 @@ describe("auth routes (mocks)", () => {
       id: "u1",
       email: "u@example.com",
       name: "User",
-      role: "STAFF",
       isActive: true,
+      orgRole: { code: "STAFF" },
     });
     prismaMock.user.update.mockResolvedValue({});
     prismaMock.passwordReset.update.mockResolvedValue({});
@@ -675,8 +682,8 @@ describe("auth routes (mocks)", () => {
       id: "u1",
       email: "u@example.com",
       name: "User",
-      role: "STAFF",
       isActive: false,
+      orgRole: { code: "STAFF" },
     });
     const res = await request(app())
       .post("/auth/reset")
@@ -690,7 +697,7 @@ describe("auth routes (mocks)", () => {
       id: "user-1",
       email: "user@example.com",
       name: "User One",
-      role: "STAFF",
+      orgRole: { code: "STAFF" },
       emailVerifiedAt: null,
       username: null,
       nationalId: null,
@@ -716,7 +723,7 @@ describe("auth routes (mocks)", () => {
       id: "user-1",
       email: "user@example.com",
       name: "User One",
-      role: "STAFF",
+      orgRole: { code: "STAFF" },
       emailVerifiedAt: new Date(),
       username: "userone",
       nationalId: "30458651",
@@ -795,8 +802,8 @@ describe("auth routes (mocks)", () => {
     prismaMock.user.findUnique.mockResolvedValue({
       id: "u1",
       email: "u@example.com",
-      role: "STAFF",
       isActive: true,
+      orgRole: { code: "STAFF" },
     });
     const res = await request(app())
       .post("/auth/refresh")
