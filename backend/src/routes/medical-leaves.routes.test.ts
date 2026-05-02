@@ -118,7 +118,7 @@ describe("medical-leaves (prisma mock)", () => {
       id: "L1",
       ...leaveBody,
       status: "ACTIVE",
-      user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
+      user: { id: uid, name: "U", email: "u@u.com", orgRole: { code: "STAFF" } },
     });
     prismaMock.event.findMany.mockResolvedValue([]);
     prismaMock.attendance.updateMany.mockResolvedValue({ count: 0 });
@@ -156,7 +156,7 @@ describe("medical-leaves (prisma mock)", () => {
       ...leaveBody,
       certificate: "https://example.com/cert.pdf",
       status: "ACTIVE",
-      user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
+      user: { id: uid, name: "U", email: "u@u.com", orgRole: { code: "STAFF" } },
     });
     prismaMock.event.findMany.mockResolvedValue([]);
     prismaMock.attendance.updateMany.mockResolvedValue({ count: 0 });
@@ -216,7 +216,7 @@ describe("medical-leaves (prisma mock)", () => {
       ...lic,
       reason: "actualizada",
       status: "ACTIVE",
-      user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
+      user: { id: uid, name: "U", email: "u@u.com", orgRole: { code: "STAFF" } },
     });
     prismaMock.event.findMany.mockResolvedValue([]);
     prismaMock.attendance.updateMany.mockResolvedValue({ count: 0 });
@@ -255,7 +255,7 @@ describe("medical-leaves (prisma mock)", () => {
     prismaMock.medicalLeave.update.mockResolvedValue({
       ...lic,
       reason: "solo motivo",
-      user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
+      user: { id: uid, name: "U", email: "u@u.com", orgRole: { code: "STAFF" } },
     });
     prismaMock.event.findMany.mockResolvedValue([]);
     prismaMock.attendance.updateMany.mockResolvedValue({ count: 0 });
@@ -333,7 +333,7 @@ describe("medical-leaves (prisma mock)", () => {
     prismaMock.medicalLeave.findUnique.mockResolvedValue({
       id: "l1",
       userId: "other-user",
-      user: { id: "other-user", name: "Other", email: "o@o.com", role: "STAFF" },
+      user: { id: "other-user", name: "Other", email: "o@o.com", orgRole: { code: "STAFF" } },
     });
     const res = await request(app()).get("/medical-leaves/l1").set(staff());
     expect(res.status).toBe(403);
@@ -343,7 +343,7 @@ describe("medical-leaves (prisma mock)", () => {
     prismaMock.medicalLeave.findUnique.mockResolvedValue({
       id: "l1",
       userId: uid,
-      user: { id: uid, name: "U", email: "u@u.com", role: "STAFF" },
+      user: { id: uid, name: "U", email: "u@u.com", orgRole: { code: "STAFF" } },
     });
     const res = await request(app()).get("/medical-leaves/l1").set(admin());
     expect(res.status).toBe(200);

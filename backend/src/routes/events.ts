@@ -19,8 +19,41 @@ import {
 } from '../app-timezone.js';
 import { DateTime } from 'luxon';
 import { sendWebPushPayloadToUser } from '../services/webPush.js';
+import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
 
 const r = Router();
+
+/** Aplana `orgRole.code` → `role` en usuarios relacionados del evento. */
+function mapNestedEventUsers(ev: Record<string, unknown>) {
+  const e = { ...ev };
+  if (e.user && typeof e.user === 'object' && e.user !== null && 'orgRole' in e.user) {
+    e.user = attachRoleCode(e.user as Parameters<typeof attachRoleCode>[0]);
+  }
+  if (e.assignedUser && typeof e.assignedUser === 'object' && 'orgRole' in e.assignedUser) {
+    e.assignedUser = attachRoleCode(e.assignedUser as Parameters<typeof attachRoleCode>[0]);
+  }
+  if (Array.isArray(e.attendances)) {
+    e.attendances = e.attendances.map((a) => {
+      const row = a as Record<string, unknown>;
+      if (row.user && typeof row.user === 'object' && row.user !== null && 'orgRole' in row.user) {
+        return { ...row, user: attachRoleCode(row.user as Parameters<typeof attachRoleCode>[0]) };
+      }
+      return a;
+    });
+  }
+  return e;
+}
+
+/** Relación opcional incluida en respuestas de evento. */
+const eventCourseInclude = { select: { id: true, name: true, code: true } } as const
+
+async function assertActiveCourse(courseId: string): Promise<boolean> {
+  const c = await prisma.course.findFirst({
+    where: { id: courseId, isActive: true },
+    select: { id: true },
+  })
+  return Boolean(c)
+}
 
 function myEventsPathForRole(role: string | undefined): string {
   if (role === 'TEACHER') return '/teacher/events';
@@ -76,6 +109,7 @@ const eventSchema = z.object({
   endTime: z.string().min(1),
   // El front puede mandar "" cuando el select está en "Sin asignar"; no es UUID válido.
   assignedUserId: optionalUuidFromInput,
+  courseId: optionalUuidFromInput,
   recurrenceType: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']).default('NONE'),
   recurrenceEnd: z.string().optional().nullable(),
   isRecurring: boolish.default(false),
@@ -90,6 +124,7 @@ const eventUpdateSchema = z.object({
   startTime: z.string().min(1).optional(),
   endTime: z.string().min(1).optional(),
   assignedUserId: nullableOptionalUuidFromUpdateInput,
+  courseId: nullableOptionalUuidFromUpdateInput,
   status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED']).optional(),
   isRecurring: boolish.optional(),
   daysOfWeek: z.preprocess(
@@ -130,6 +165,10 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
     // Si es TEACHER, solo puede asignar eventos a sí mismo
     if (user.role === 'TEACHER' && eventData.assignedUserId && eventData.assignedUserId !== user.sub) {
       return res.status(403).json({ message: 'No puedes asignar eventos a otros usuarios' });
+    }
+
+    if (eventData.courseId && !(await assertActiveCourse(eventData.courseId))) {
+      return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
     }
 
     // Normalización: fecha y hora civil en Uruguay → UTC en DB.
@@ -196,20 +235,22 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         recurrenceEnd: eventData.recurrenceEnd ? parseRecurrenceEndInclusive(eventData.recurrenceEnd) : null,
         isRecurring,
         daysOfWeek: eventData.daysOfWeek ?? [],
+        courseId: eventData.courseId ?? null,
       },
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         assignedUser: {
-          select: { id: true, name: true, email: true, role: true }
-        }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+        },
+        course: eventCourseInclude,
       }
     });
 
     const assigneeId = event.assignedUserId;
     if (assigneeId && assigneeId !== user.sub) {
-      const assigneeRole = event.assignedUser?.role;
+      const assigneeRole = event.assignedUser?.orgRole?.code;
       const titleShort = event.title.length > 80 ? `${event.title.slice(0, 80)}…` : event.title;
       void sendWebPushPayloadToUser(assigneeId, {
         title: 'Edutrack — Nuevo evento',
@@ -230,7 +271,7 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         .catch((err) => console.error('Aviso en app (evento asignado):', err));
     }
 
-    res.json(event);
+    res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
     console.error('Error creando evento:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -264,11 +305,12 @@ r.get('/my-events', authGuard, async (req, res) => {
       where,
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         assignedUser: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
+        course: eventCourseInclude,
         childEvents: {
           select: {
             id: true,
@@ -284,6 +326,8 @@ r.get('/my-events', authGuard, async (req, res) => {
             isRecurring: true,
             daysOfWeek: true,
             parentEventId: true,
+            courseId: true,
+            course: eventCourseInclude,
           },
         },
         _count: {
@@ -296,7 +340,7 @@ r.get('/my-events', authGuard, async (req, res) => {
     // Para eventos repetitivos, generar instancias específicas para el rango de fechas
     const processedEvents = events.flatMap((event) => expandRecurringEvent(event, startDate, endDate))
 
-    res.json(processedEvents);
+    res.json(processedEvents.map((e) => mapNestedEventUsers(e as unknown as Record<string, unknown>)));
   } catch (error) {
     console.error('Error obteniendo eventos:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -361,11 +405,12 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
         where,
         include: {
           user: {
-            select: { id: true, name: true, email: true, role: true }
+            select: { id: true, name: true, email: true, ...selectOrgRoleCode }
           },
           assignedUser: {
-            select: { id: true, name: true, email: true, role: true }
+            select: { id: true, name: true, email: true, ...selectOrgRoleCode }
           },
+          course: eventCourseInclude,
           _count: {
             select: { attendances: true }
           }
@@ -376,7 +421,12 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
       }),
     ]);
 
-    res.json({ total, page, pageSize, data: events });
+    res.json({
+      total,
+      page,
+      pageSize,
+      data: events.map((e) => mapNestedEventUsers(e as unknown as Record<string, unknown>)),
+    });
   } catch (error) {
     console.error('Error obteniendo todos los eventos:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -405,15 +455,16 @@ r.get('/:id', authGuard, async (req, res) => {
       where: { id },
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         assignedUser: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
+        course: eventCourseInclude,
         attendances: {
           include: {
             user: {
-              select: { id: true, name: true, email: true, role: true }
+              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
             }
           },
           orderBy: { time: 'asc' }
@@ -430,7 +481,7 @@ r.get('/:id', authGuard, async (req, res) => {
       return res.status(403).json({ message: 'No tienes permisos para ver este evento' });
     }
 
-    res.json(event);
+    res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
     console.error('Error obteniendo evento:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -478,6 +529,12 @@ r.put('/:id', authGuard, async (req, res) => {
     // Verificar permisos
     if (user.role !== 'ADMIN' && existingEvent.userId !== user.sub && existingEvent.assignedUserId !== user.sub) {
       return res.status(403).json({ message: 'No tienes permisos para editar este evento' });
+    }
+
+    if (parsed.data.courseId !== undefined && parsed.data.courseId !== null) {
+      if (!(await assertActiveCourse(parsed.data.courseId))) {
+        return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
+      }
     }
 
     const updateData: any = { ...parsed.data };
@@ -565,15 +622,16 @@ r.put('/:id', authGuard, async (req, res) => {
       data: updateData,
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         assignedUser: {
-          select: { id: true, name: true, email: true, role: true }
-        }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+        },
+        course: eventCourseInclude,
       }
     });
 
-    res.json(event);
+    res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
     console.error('Error actualizando evento:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -616,15 +674,16 @@ r.put('/:id/cancel', authGuard, async (req, res) => {
       },
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         assignedUser: {
-          select: { id: true, name: true, email: true, role: true }
-        }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+        },
+        course: eventCourseInclude,
       }
     });
 
-    res.json(event);
+    res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
     console.error('Error cancelando evento:', error);
     res.status(500).json({ message: 'Error interno del servidor' });

@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    /** Evita workers que mueran a mitad del run en algunos entornos Windows/Node. */
+    pool: "forks",
+    fileParallelism: false,
     include: ["src/**/*.test.ts"],
     // --- LÍNEA AGREGADA PARA EL CI ---
     setupFiles: ["./vitest.setup.ts"],

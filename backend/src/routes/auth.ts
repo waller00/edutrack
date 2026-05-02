@@ -20,6 +20,7 @@ import {
 import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
 import { isDiditConfigured } from "../system-settings.js";
 import { syncLivenessSessionFromDiditApi } from "../didit-sync-session.js";
+import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../org-role-service.js";
 
 const r = Router();
 
@@ -290,6 +291,13 @@ r.post("/register", async (req, res) => {
   }
 
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+  const registerRoleCode = normalizeOrgRoleCode(role || "STAFF");
+  let registerRoleId: string;
+  try {
+    registerRoleId = await getOrgRoleIdByCodeOrThrow(registerRoleCode);
+  } catch {
+    return res.status(400).json({ message: "Rol inválido." });
+  }
   const nowLv = livenessRequired && livenessRowId ? new Date() : null;
   const user = await prisma.$transaction(async (tx) => {
     const u = await tx.user.create({
@@ -304,7 +312,7 @@ r.post("/register", async (req, res) => {
         phone: normalizePhoneUY(phone) ?? null,
         birthdate: birthdate ? new Date(birthdate) : null,
         nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAtDate ?? null,
-        role: role || "STAFF",
+        roleId: registerRoleId,
         isApproved: false,
         approvedAt: null,
         isActive: true,
@@ -335,12 +343,12 @@ r.post("/register", async (req, res) => {
     console.error("SMTP send error (verify):", e);
   }
 
-  const at = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+  const at = signAccessToken({ sub: user.id, email: user.email, role: registerRoleCode });
   setAuthCookie(res, at);
   const rt = crypto.randomBytes(40).toString("hex");
   await prisma.refreshToken.create({ data: { tokenHash: hashToken(rt), userId: user.id, expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")) } });
   setRefreshCookie(res, rt);
-  return res.json({ id: user.id, email: user.email, username: user.username, role: user.role });
+  return res.json({ id: user.id, email: user.email, username: user.username, role: registerRoleCode });
 });
 
 // Verificar email
@@ -411,6 +419,16 @@ r.put("/profile", authGuard, async (req, res) => {
     return mapProfileUpdateError(error, res);
   }
 
+  const pendingRoleCode = data.role as string | undefined;
+  if ("role" in data) delete (data as Record<string, unknown>).role;
+  if (pendingRoleCode !== undefined) {
+    try {
+      (data as Record<string, unknown>).roleId = await getOrgRoleIdByCodeOrThrow(normalizeOrgRoleCode(pendingRoleCode));
+    } catch {
+      return res.status(400).json({ message: "Rol inválido" });
+    }
+  }
+
   const updated = await prisma.user.update({ where: { id: u.sub }, data });
   return res.json({ ok: true, id: updated.id });
 });
@@ -457,6 +475,7 @@ r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
         { username: { equals: identifier, mode: 'insensitive' as any } },
       ],
     },
+    include: { orgRole: { select: { code: true } } },
   });
   if (!user || !user.passwordHash) return res.status(401).json({ message: "Credenciales" });
   if (!user.isActive) return res.status(403).json({ message: "Cuenta desactivada" });
@@ -473,12 +492,13 @@ r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
 
   await registerSuccessfulLogin(user.id);
 
-  const token = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+  const roleCode = user.orgRole?.code ?? "";
+  const token = signAccessToken({ sub: user.id, email: user.email, role: roleCode });
   setAuthCookie(res, token);
   const rt = crypto.randomBytes(40).toString("hex");
   await prisma.refreshToken.create({ data: { tokenHash: hashToken(rt), userId: user.id, expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")), userAgent: req.headers["user-agent"], ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip } });
   setRefreshCookie(res, rt);
-  return res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
+  return res.json({ id: user.id, email: user.email, name: user.name, role: roleCode });
 });
 
 // Forgot password
@@ -551,7 +571,13 @@ r.post("/reset", async (req, res) => {
 
   const user = await prisma.user.findUnique({
     where: { id: pr.userId },
-    select: { id: true, email: true, name: true, role: true, isActive: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      isActive: true,
+      orgRole: { select: { code: true } },
+    },
   });
   if (!user) return res.status(400).json({ message: "Token inválido" });
   if (!user.isActive) return res.status(403).json({ message: "Cuenta desactivada" });
@@ -563,7 +589,8 @@ r.post("/reset", async (req, res) => {
   ]);
 
   await registerSuccessfulLogin(user.id);
-  const accessToken = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+  const resetRoleCode = user.orgRole?.code ?? "";
+  const accessToken = signAccessToken({ sub: user.id, email: user.email, role: resetRoleCode });
   setAuthCookie(res, accessToken);
   const rt = crypto.randomBytes(40).toString("hex");
   await prisma.refreshToken.create({
@@ -576,23 +603,44 @@ r.post("/reset", async (req, res) => {
     },
   });
   setRefreshCookie(res, rt);
-  return res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
+  return res.json({ id: user.id, email: user.email, name: user.name, role: resetRoleCode });
 });
 
 // Perfil con needsProfileCompletion
 r.get("/me", authGuard, async (req, res) => {
   const u = (req as any).user;
-  const db = await prisma.user.findUnique({ where: { id: u.sub }, select: { id:true, email:true, name:true, role:true, emailVerifiedAt:true, username:true, nationalId:true, nationalIdDocumentExpiresAt:true, firstName:true, lastName:true, phone:true, birthdate:true, passwordHash:true, isApproved:true, approvedAt:true, isActive:true }});
-  if (!db) return res.status(401).json({ message: "No autorizado" });
-  const needsProfileCompletion = !db.firstName || !db.lastName || !db.nationalId || !db.birthdate || !db.username;
-  const hasPassword = !!db.passwordHash;
+  const raw = await prisma.user.findUnique({
+    where: { id: u.sub },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      emailVerifiedAt: true,
+      username: true,
+      nationalId: true,
+      nationalIdDocumentExpiresAt: true,
+      firstName: true,
+      lastName: true,
+      phone: true,
+      birthdate: true,
+      passwordHash: true,
+      isApproved: true,
+      approvedAt: true,
+      isActive: true,
+      orgRole: { select: { code: true } },
+    },
+  });
+  if (!raw) return res.status(401).json({ message: "No autorizado" });
+  const roleCode = raw.orgRole?.code ?? "";
+  const needsProfileCompletion = !raw.firstName || !raw.lastName || !raw.nationalId || !raw.birthdate || !raw.username;
+  const hasPassword = !!raw.passwordHash;
   const canShowNav =
-    Boolean(db.isApproved && db.isActive && !needsProfileCompletion);
+    Boolean(raw.isApproved && raw.isActive && !needsProfileCompletion);
   const navLinks = canShowNav
-    ? NAV_LINKS_BY_ROLE[db.role] || []
+    ? NAV_LINKS_BY_ROLE[roleCode] || []
     : [];
-  const { passwordHash, ...safe } = db as any;
-  res.json({ ...safe, needsProfileCompletion, hasPassword, navLinks });
+  const { passwordHash, orgRole, ...safe } = raw as any;
+  res.json({ ...safe, role: roleCode, needsProfileCompletion, hasPassword, navLinks });
 });
 
 r.post("/logout", async (req, res) => {
@@ -621,13 +669,18 @@ r.get(
     if (!user.emailVerifiedAt) {
       try { await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } }); } catch {}
     }
-    const token = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+    const oauthUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      include: { orgRole: { select: { code: true } } },
+    });
+    const oauthRoleCode = oauthUser?.orgRole?.code ?? "STAFF";
+    const token = signAccessToken({ sub: user.id, email: user.email, role: oauthRoleCode });
     setAuthCookie(res, token);
     // Emitir refresh token también en OAuth
     const rt = crypto.randomBytes(40).toString("hex");
     await prisma.refreshToken.create({ data: { tokenHash: hashToken(rt), userId: user.id, expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")), userAgent: req.headers["user-agent"], ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || (req as any).ip } });
     setRefreshCookie(res, rt);
-    const needsProfileCompletion = !user.firstName || !user.lastName || !user.nationalId || !user.birthdate || !user.username;
+    const needsProfileCompletion = !oauthUser?.firstName || !oauthUser?.lastName || !oauthUser?.nationalId || !oauthUser?.birthdate || !oauthUser?.username;
     res.redirect(process.env.FRONTEND_URL! + (needsProfileCompletion ? "/onboarding" : "/"));
   }
 );
@@ -651,11 +704,15 @@ r.post("/refresh", async (req, res) => {
     prisma.refreshToken.create({ data: { tokenHash: hashToken(newRt), userId: record.userId, expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")), userAgent: req.headers["user-agent"], ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip } }),
   ]);
 
-  const user = await prisma.user.findUnique({ where: { id: record.userId } });
+  const user = await prisma.user.findUnique({
+    where: { id: record.userId },
+    include: { orgRole: { select: { code: true } } },
+  });
   if (!user) return res.status(401).json({ message: "No autorizado" });
   if (!user.isActive) return res.status(403).json({ message: "Cuenta desactivada" });
 
-  const at = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+  const refreshRoleCode = user.orgRole?.code ?? "";
+  const at = signAccessToken({ sub: user.id, email: user.email, role: refreshRoleCode });
   setAuthCookie(res, at);
   setRefreshCookie(res, newRt);
   return res.json({ ok: true });

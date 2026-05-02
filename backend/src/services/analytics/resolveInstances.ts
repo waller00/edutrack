@@ -1,5 +1,6 @@
 import { prisma } from '../../prisma.js'
-import type { Attendance, AttendanceStatus, EventType, Role } from '@prisma/client'
+import type { Attendance, AttendanceStatus, EventType } from '@prisma/client'
+import { attachRoleCode, selectOrgRoleCode } from '../../user-role-prisma.js'
 import type { PlannedInstance, ResolvedAttendanceByInstance } from './models.js'
 import { toYmdUtc } from './dateRange.js'
 
@@ -61,10 +62,19 @@ export async function resolveAttendanceAndJustification(params: {
     },
   })
 
-  const userRows = await prisma.user.findMany({
+  const userRowsRaw = await prisma.user.findMany({
     where: { id: { in: userIds } },
-    select: { id: true, email: true, role: true, name: true, username: true, firstName: true, lastName: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      username: true,
+      firstName: true,
+      lastName: true,
+      ...selectOrgRoleCode,
+    },
   })
+  const userRows = userRowsRaw.map((u) => attachRoleCode(u))
   const userById = new Map(userRows.map((u) => [u.id, u]))
 
   // Licencias médicas activas para justificación de ausencias.
@@ -107,7 +117,7 @@ export async function resolveAttendanceAndJustification(params: {
   for (const planned of instances) {
     const user = userById.get(planned.userIdRequired || '')
     const userDisplayName = user ? formatUserDisplayName(user) : 'Sin nombre'
-    const userRole = (user?.role || 'STAFF') as Role
+    const userRole = user?.role || 'STAFF'
     const userEmail = user?.email || ''
 
     const licenses = planned.userIdRequired ? licensesByUser.get(planned.userIdRequired) || [] : []

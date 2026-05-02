@@ -351,7 +351,15 @@ async function upsertBaseUsers(passwordHash, now) {
   const summary = { created: 0, updated: 0 }
   const users = []
 
+  const orgRoles = await prisma.orgRole.findMany({ select: { id: true, code: true } })
+  const roleIdByCode = new Map(orgRoles.map((r) => [r.code, r.id]))
+
   for (const spec of BASE_USERS) {
+    const roleId = roleIdByCode.get(spec.role)
+    if (!roleId) {
+      throw new Error(`[${SEED_PREFIX}] Falta OrgRole '${spec.role}' en la base (¿seed-org-roles antes de seed.js?)`)
+    }
+
     const existing = await prisma.user.findFirst({
       where: {
         OR: [
@@ -368,7 +376,7 @@ async function upsertBaseUsers(passwordHash, now) {
       firstName: spec.firstName,
       lastName: spec.lastName,
       name: `${spec.firstName} ${spec.lastName}`,
-      role: spec.role,
+      roleId,
       phone: spec.phone,
       nationalId: spec.nationalId,
       birthdate: spec.birthdate,
@@ -389,7 +397,7 @@ async function upsertBaseUsers(passwordHash, now) {
       firstName: spec.firstName,
       lastName: spec.lastName,
       name: `${spec.firstName} ${spec.lastName}`,
-      role: spec.role,
+      roleId,
       phone: spec.phone,
       nationalId: spec.nationalId,
       birthdate: spec.birthdate,
@@ -403,14 +411,14 @@ async function upsertBaseUsers(passwordHash, now) {
       updatedAt: now,
     }
 
-    const user = existing
+    const userRecord = existing
       ? await prisma.user.update({ where: { id: existing.id }, data: updateData })
       : await prisma.user.create({ data: createData })
 
     if (existing) summary.updated += 1
     else summary.created += 1
 
-    users.push(user)
+    users.push({ ...userRecord, role: spec.role })
   }
 
   return { users, summary }

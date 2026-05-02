@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { prisma } from '../prisma.js'
+import { selectOrgRoleCode } from '../user-role-prisma.js'
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 
@@ -30,7 +31,7 @@ export function buildDetailedRecord(att: any) {
     userId: att.user.id,
     userName: att.user.name || att.user.username || 'Sin nombre',
     userEmail: att.user.email,
-    userRole: att.user.role,
+    userRole: att.user.orgRole?.code ?? '',
     eventId: att.event?.id || null,
     eventTitle: att.event?.title || 'Sin evento',
     eventType: att.event?.type || 'N/A',
@@ -47,7 +48,7 @@ export function createUserStat(att: any, userName: string) {
     id: att.user.id,
     name: userName,
     email: att.user.email,
-    role: att.user.role,
+    role: att.user.orgRole?.code ?? '',
     totalAttendances: 0,
     presentCount: 0,
     lateCount: 0,
@@ -129,7 +130,7 @@ r.get('/report', authGuard, requireRole('ADMIN'), async (req, res) => {
       where,
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true, username: true }
+          select: { id: true, name: true, email: true, username: true, ...selectOrgRoleCode }
         },
         event: {
           select: { id: true, title: true, type: true, startTime: true, endTime: true }

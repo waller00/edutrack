@@ -7,16 +7,32 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  ADMIN
-  STAFF
-  TEACHER
+/// Alcance del permiso para la UI y futura autorización fina (propios vs todos).
+enum PermissionScope {
+  OWN
+  ALL
 }
 
 enum InAppNotificationType {
   LICENSE_CREATED
   LICENSE_UPDATED
   EVENT_ASSIGNED
+}
+
+/// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
+model OrgRole {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  label     String
+  builtIn   Boolean  @default(false)
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+  grants    RolePermission[]
+
+  @@index([active])
 }
 
 model User {
@@ -33,9 +49,12 @@ model User {
   birthdate    DateTime?
   passwordHash String?
   googleId     String?  @unique
-  role         Role     @default(STAFF)
+  roleId       String
+  orgRole      OrgRole   @relation(fields: [roleId], references: [id], onDelete: Restrict)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@index([roleId])
   // relations
   passwordResets     PasswordReset[]
   emailVerifications EmailVerification[]
@@ -222,6 +241,48 @@ enum RecurrenceType {
   MONTHLY
 }
 
+/// Catálogo global de permisos (código único, p. ej. `events.read`).
+model Permission {
+  id           String           @id @default(uuid())
+  code         String           @unique
+  module       String
+  action       String
+  isSystem     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  roleGrants   RolePermission[]
+
+  @@index([module])
+}
+
+/// Asignación por rol (FK a OrgRole): labels por rol para un mismo permiso catálogo.
+model RolePermission {
+  roleId        String
+  orgRole       OrgRole        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId  String
+  permission    Permission     @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  enabled       Boolean        @default(true)
+  scope         PermissionScope @default(OWN)
+  label         String
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+/// Cursos para asociar eventos (clases / grupos).
+model Course {
+  id          String   @id @default(uuid())
+  name        String
+  code        String?  @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  events      Event[]
+
+  @@index([isActive])
+}
+
 model Event {
   id              String         @id @default(uuid())
   title           String
@@ -237,6 +298,8 @@ model Event {
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   assignedUserId  String?
   assignedUser    User?          @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  courseId        String?
+  course          Course?        @relation(fields: [courseId], references: [id], onDelete: SetNull)
   recurrenceType  RecurrenceType @default(NONE)
   recurrenceEnd   DateTime?
   isRecurring     Boolean        @default(false)
@@ -250,6 +313,7 @@ model Event {
 
   @@index([userId])
   @@index([assignedUserId])
+  @@index([courseId])
   @@index([startDate])
   @@index([type])
 }

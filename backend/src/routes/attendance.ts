@@ -9,6 +9,12 @@ import {
   isBiometricLate,
 } from '../attendance-logic.js';
 import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveReconciliation.js';
+import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
+
+function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
+  if (!row.user) return row;
+  return { ...row, user: attachRoleCode(row.user) };
+}
 
 const r = Router();
 
@@ -78,8 +84,8 @@ function buildAdminAttendanceWhere(query: Record<string, unknown>) {
 
   if (role) {
     where.user = {
-      role: role as any,
-    }
+      orgRole: { code: String(role).toUpperCase() },
+    };
   }
 
   return where
@@ -167,7 +173,7 @@ r.post('/register', authGuard, async (req, res) => {
       },
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         event: {
           select: { id: true, title: true, type: true, startTime: true, endTime: true }
@@ -175,7 +181,7 @@ r.post('/register', authGuard, async (req, res) => {
       }
     });
 
-    res.json(attendance);
+    res.json(mapAttendanceUser(attendance));
   } catch (error) {
     console.error('Error registrando asistencia:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -234,7 +240,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
         where,
         include: {
           user: {
-            select: { id: true, name: true, email: true, role: true }
+            select: { id: true, name: true, email: true, ...selectOrgRoleCode }
           },
           event: {
             select: { id: true, title: true, type: true, startTime: true, endTime: true }
@@ -268,7 +274,7 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       data: parsed.data,
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         event: {
           select: { id: true, title: true, type: true }
@@ -276,7 +282,7 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       }
     });
 
-    res.json(attendance);
+    res.json(mapAttendanceUser(attendance));
   } catch (error) {
     console.error('Error actualizando asistencia:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -453,13 +459,13 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
       const exitAttendance = await prisma.attendance.create({
         data: buildBiometricAttendancePayload({ userId, attendanceDate, attendanceTime, deviceId, type: 'CHECK_OUT' }),
         include: {
-          user: { select: { id: true, name: true, email: true, role: true } }
+          user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } }
         }
       });
 
       return res.status(201).json({
         type: 'CHECK_OUT',
-        attendance: exitAttendance,
+        attendance: mapAttendanceUser(exitAttendance),
         message: 'Salida registrada automáticamente'
       });
     }
@@ -469,13 +475,13 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
     const entryAttendance = await prisma.attendance.create({
       data: buildBiometricAttendancePayload({ userId, attendanceDate, attendanceTime, deviceId, isLate, type: 'CHECK_IN' }),
       include: {
-        user: { select: { id: true, name: true, email: true, role: true } }
+        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } }
       }
     });
 
     return res.status(201).json({
       type: 'CHECK_IN',
-      attendance: entryAttendance,
+      attendance: mapAttendanceUser(entryAttendance),
       message: isLate ? 'Entrada registrada - RETRASO detectado' : 'Entrada registrada correctamente',
       isLate
     });
@@ -523,12 +529,12 @@ r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), as
       where: { id },
       data: updateData,
       include: {
-        user: { select: { id: true, name: true, email: true, role: true } }
+        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } }
       }
     });
 
     res.json({
-      attendance: updatedAttendance,
+      attendance: mapAttendanceUser(updatedAttendance),
       message: 'Nota agregada correctamente'
     });
   } catch (error) {
@@ -560,7 +566,7 @@ r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
       },
       include: {
         assignedUser: {
-          select: { id: true, name: true, email: true, role: true }
+          select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         }
       }
     });
