@@ -28,14 +28,6 @@ flowchart TD
   T7 -->|No| T9[Rechazar con motivo]
   T1 --> T10[Crear anotaciones]
 
-  %% Estudiante/Padre
-  S1 --> S2[Ver asistencias/anotaciones]
-  S1 --> S3[Solicitar justificativo c/adjunto]
-  S1 --> S4[Ver alertas y recomendaciones]
-  P1 --> P2[Ver asistencias/anotaciones hijo]
-  P1 --> P3[Solicitar justificativo]
-  P1 --> P4[Recibir alertas por email y whatsapp]
-
   %% Admin
   A1 --> A2[Gestionar estructura: cursos, materias, vinculos]
   A1 --> A3[Configurar politicas y umbrales ML]
@@ -64,20 +56,5 @@ flowchart TD
 - Comunicación: notificaciones en app/email; atajos de contacto a padres.
 - Reportes del curso: asistencia por rango, puntualidad, exportación.
 
-#### ESTUDIANTE
-- Mi asistencia: vista calendario/lista; estados y tendencias.
-- Justificativos: crear con adjuntos; ver estado y motivos.
-- Anotaciones: ver observaciones y recomendaciones asociadas.
-- Riesgo (ML): ver su estado/alertas y recomendaciones (si habilitado).
-- Calendario: feriados, exámenes, actividades.
-- Cuenta: actualizar datos permitidos; preferencias de notificación.
-
-#### PADRE
-- Hijos: asistencias y anotaciones por estudiante; resumen semanal.
-- Justificativos: crear solicitudes con adjuntos; seguimiento de estado.
-- Alertas: recibir por ausencias/tardanzas y riesgo alto (ML); confirmar recepción (opcional).
-- Recomendaciones: sugerencias de intervención y canales de contacto.
-- Calendario familiar: eventos por hijo; recordatorios.
-- Perfil y contacto: mantener datos y preferencias.
 
 
