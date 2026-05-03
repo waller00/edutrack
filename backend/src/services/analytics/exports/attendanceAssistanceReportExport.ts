@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
-import type { AttendanceStatus, AttendanceType, EventType, Role } from '@prisma/client'
+import type { AttendanceStatus, AttendanceType, EventType } from '@prisma/client'
 import { prisma } from '../../../prisma.js'
+import { selectOrgRoleCode } from '../../../user-role-prisma.js'
 
 type AttendanceDetailReportFilters = {
   from: string
@@ -11,7 +12,7 @@ type AttendanceDetailReportFilters = {
   eventType?: EventType | undefined
   type?: AttendanceType | undefined
   status?: AttendanceStatus | undefined
-  role?: Role | undefined
+  role?: string | undefined
 }
 
 type AttendanceDetailReportRow = {
@@ -134,7 +135,7 @@ async function buildAttendanceDetailReport(params: { filters: AttendanceDetailRe
     baseWhere.event = { type: params.filters.eventType }
     baseWhere.eventId = { not: null }
   }
-  if (params.filters.role) baseWhere.user = { role: params.filters.role }
+  if (params.filters.role) baseWhere.user = { orgRole: { code: params.filters.role } }
 
   // Selección “por filtros”: definimos qué instancias entran al reporte
   // usando tipo/estado a nivel de registro, y luego completamos las filas con
@@ -173,7 +174,7 @@ async function buildAttendanceDetailReport(params: { filters: AttendanceDetailRe
   const allAttendances = await prisma.attendance.findMany({
     where: baseWhere,
     include: {
-      user: { select: { id: true, name: true, username: true, email: true, role: true, firstName: true, lastName: true } },
+      user: { select: { id: true, name: true, username: true, email: true, firstName: true, lastName: true, ...selectOrgRoleCode } },
       event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
     },
     orderBy: [{ date: 'desc' }, { time: 'desc' }],
@@ -211,7 +212,7 @@ async function buildAttendanceDetailReport(params: { filters: AttendanceDetailRe
         plannedEndTemplate: att.event?.endTime ?? null,
         userId: att.userId,
         usuario: displayName,
-        rol: String(att.user.role),
+        rol: att.user.orgRole?.code ?? '',
         checkIn: null,
         checkOut: null,
       }

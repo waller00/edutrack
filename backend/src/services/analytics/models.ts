@@ -1,6 +1,6 @@
-import type { AttendanceStatus, AttendanceType, EventStatus, EventType, RecurrenceType, Role } from '@prisma/client'
+import type { AttendanceStatus, AttendanceType, EventStatus, EventType, RecurrenceType } from '@prisma/client'
 
-export type RoleParam = Role | undefined
+export type RoleParam = string | undefined
 
 export type AttendanceStatusResolved =
   | 'PRESENT'
@@ -45,7 +45,7 @@ export type ResolvedAttendanceByInstance = {
   checkInNotes: string | null
   checkOutNotes: string | null
   userDisplayName: string
-  userRole: Role
+  userRole: string
   userEmail: string
 }
 

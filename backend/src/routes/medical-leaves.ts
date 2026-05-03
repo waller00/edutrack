@@ -8,6 +8,7 @@ import {
   MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS,
 } from '../medical-leave-certificate.js'
 import { sendWebPushPayloadToUser } from '../services/webPush.js'
+import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js'
 
 function licenseUpdatePreview(reason: string): string {
   return reason.length > 120 ? `${reason.slice(0, 120)}…` : reason
@@ -19,6 +20,10 @@ function myLicensesPathForRole(role: string | undefined): string {
   if (role === 'TEACHER') return '/teacher/licenses'
   if (role === 'STAFF') return '/staff/licenses'
   return '/'
+}
+
+function medicalLeaveWithRoleCode<L extends { user: Parameters<typeof attachRoleCode>[0] }>(l: L) {
+  return { ...l, user: attachRoleCode(l.user) }
 }
 
 const optionalCertificateCreate = z
@@ -88,7 +93,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
               id: true,
               name: true,
               email: true,
-              role: true
+              ...selectOrgRoleCode,
             }
           }
         },
@@ -100,7 +105,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
     ])
 
     res.json({
-      data: licenses,
+      data: licenses.map((li) => medicalLeaveWithRoleCode(li)),
       pagination: {
         page: Number(page),
         pageSize: Number(pageSize),
@@ -204,7 +209,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
             id: true,
             name: true,
             email: true,
-            role: true
+            ...selectOrgRoleCode,
           }
         }
       }
@@ -216,7 +221,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
     void sendWebPushPayloadToUser(userId, {
       title: 'Edutrack — Licencia registrada',
       body: `La institución registró una licencia: ${preview}`,
-      url: myLicensesPathForRole(license.user?.role),
+      url: myLicensesPathForRole(license.user?.orgRole?.code),
     }).catch((err) => console.error('Web push (licencia creada):', err))
 
     void prisma.inAppNotification
@@ -226,12 +231,12 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
           type: 'LICENSE_CREATED',
           title: 'Licencia registrada',
           body: `La institución registró una licencia: ${preview}`,
-          actionUrl: myLicensesPathForRole(license.user?.role),
+          actionUrl: myLicensesPathForRole(license.user?.orgRole?.code),
         },
       })
       .catch((err) => console.error('Aviso en app (licencia creada):', err))
 
-    res.status(201).json({ ...license, reconciliation })
+    res.status(201).json({ ...medicalLeaveWithRoleCode(license), reconciliation })
   } catch (error) {
     console.error('Error creando licencia médica:', error)
     res.status(500).json({ message: 'Error interno del servidor' })
@@ -294,7 +299,7 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
             id: true,
             name: true,
             email: true,
-            role: true
+            ...selectOrgRoleCode,
           }
         }
       }
@@ -307,7 +312,7 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
     void sendWebPushPayloadToUser(ownerId, {
       title: 'Edutrack — Licencia actualizada',
       body: `La institución actualizó una licencia: ${preview}`,
-      url: myLicensesPathForRole(updatedLicense.user?.role),
+      url: myLicensesPathForRole(updatedLicense.user?.orgRole?.code),
     }).catch((err) => console.error('Web push (licencia actualizada):', err))
 
     void prisma.inAppNotification
@@ -317,12 +322,12 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
           type: 'LICENSE_UPDATED',
           title: 'Licencia actualizada',
           body: `La institución actualizó una licencia: ${preview}`,
-          actionUrl: myLicensesPathForRole(updatedLicense.user?.role),
+          actionUrl: myLicensesPathForRole(updatedLicense.user?.orgRole?.code),
         },
       })
       .catch((err) => console.error('Aviso en app (licencia actualizada):', err))
 
-    res.json({ ...updatedLicense, reconciliation })
+    res.json({ ...medicalLeaveWithRoleCode(updatedLicense), reconciliation })
   } catch (error) {
     console.error('Error actualizando licencia médica:', error)
     res.status(500).json({ message: 'Error interno del servidor' })
@@ -371,7 +376,7 @@ r.get('/:id', authGuard, async (req, res) => {
             id: true,
             name: true,
             email: true,
-            role: true
+            ...selectOrgRoleCode,
           }
         }
       }
@@ -386,7 +391,7 @@ r.get('/:id', authGuard, async (req, res) => {
       return res.status(403).json({ message: 'No tienes permisos para ver esta licencia' })
     }
 
-    res.json(license)
+    res.json(medicalLeaveWithRoleCode(license))
   } catch (error) {
     console.error('Error obteniendo licencia médica:', error)
     res.status(500).json({ message: 'Error interno del servidor' })

@@ -1,5 +1,6 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "./org-role-service.js";
 import { prisma } from "./prisma.js";
 
 export function getGoogleProfileData(profile: any) {
@@ -37,6 +38,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.
           });
 
           if (!user) {
+            const staffRoleId = await getOrgRoleIdByCodeOrThrow(normalizeOrgRoleCode("STAFF"));
             user = await prisma.user.create({
               data: {
                 email,
@@ -44,6 +46,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.
                 firstName: givenName,
                 lastName: familyName,
                 googleId: profile.id,
+                roleId: staffRoleId,
                 isApproved: false,
                 approvedAt: null,
                 isActive: true,
