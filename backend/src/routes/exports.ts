@@ -94,7 +94,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
       if (!filters?.role && !filters?.userId) return null
       if (filters?.userId) return [filters.userId]
       const rows = await prisma.user.findMany({
-        where: { role: filters.role },
+        where: { orgRole: { code: filters.role } },
         select: { id: true },
       })
       return rows.map((r) => r.id)

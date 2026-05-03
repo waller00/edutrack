@@ -28,6 +28,11 @@ vi.mock("./prisma.js", () => ({
   prisma: prismaMock,
 }));
 
+vi.mock("./org-role-service.js", () => ({
+  getOrgRoleIdByCodeOrThrow: vi.fn().mockResolvedValue("staff-role-id"),
+  normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
+}));
+
 describe("passportGoogle", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -93,7 +98,11 @@ describe("passportGoogle", () => {
       done
     );
 
-    expect(prismaMock.user.create).toHaveBeenCalled();
+    expect(prismaMock.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ roleId: "staff-role-id", email: "user@example.com" }),
+      }),
+    );
     expect(done).toHaveBeenCalledWith(null, { id: "u1", email: "user@example.com" });
   });
 

@@ -6,6 +6,7 @@ import { signAccessToken } from "../jwt.js";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
+    course: { findFirst: vi.fn() },
     inAppNotification: { create: vi.fn().mockResolvedValue({ id: "n1" }) },
     event: {
       create: vi.fn(),
@@ -44,7 +45,10 @@ const minimalEvent = {
 };
 
 describe("events routes (prisma mock)", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.course.findFirst.mockResolvedValue(null);
+  });
 
   it("POST /events 400 validación zod", async () => {
     const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
@@ -79,6 +83,45 @@ describe("events routes (prisma mock)", () => {
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("ev1");
     expect(prismaMock.inAppNotification.create).not.toHaveBeenCalled();
+    expect(prismaMock.course.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("POST /events 400 si courseId no existe o está inactivo", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c1";
+    prismaMock.course.findFirst.mockResolvedValueOnce(null);
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, courseId });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Curso/i);
+    expect(prismaMock.event.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /events ADMIN crea con courseId activo", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c2";
+    prismaMock.course.findFirst.mockResolvedValueOnce({ id: courseId });
+    prismaMock.event.create.mockResolvedValue({
+      id: "ev1",
+      title: "X",
+      userId: "adm",
+      assignedUserId: null,
+      user: {},
+      assignedUser: null,
+      course: { id: courseId, name: "Curso", code: "c1" },
+    });
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, courseId });
+    expect(res.status).toBe(200);
+    expect(prismaMock.event.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ courseId }),
+      }),
+    );
   });
 
   it("POST /events ADMIN asigna a otro usuario y crea aviso en app", async () => {
@@ -88,8 +131,8 @@ describe("events routes (prisma mock)", () => {
       title: "Reunión pedagógica",
       userId: "adm",
       assignedUserId: teacherId,
-      user: { id: "adm", role: "ADMIN" },
-      assignedUser: { id: teacherId, name: "Doc", email: "t@t.com", role: "TEACHER" },
+      user: { id: "adm", orgRole: { code: "ADMIN" } },
+      assignedUser: { id: teacherId, name: "Doc", email: "t@t.com", orgRole: { code: "TEACHER" } },
     });
     const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
     const res = await request(app())
