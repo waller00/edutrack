@@ -29,6 +29,7 @@ const { prismaMock } = vi.hoisted(() => ({
     },
     permission: {
       upsert: vi.fn(),
+      findMany: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
     },
@@ -41,6 +42,7 @@ const { prismaMock } = vi.hoisted(() => ({
       create: vi.fn(),
     },
     passwordReset: { create: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -68,6 +70,21 @@ function rowsFromDefaultProfileMatrix() {
     }
   }
   return rows;
+}
+
+function permissionCatalogRows() {
+  const byCode = new Map<string, { id: string; code: string; module: string; action: string; isSystem: boolean }>();
+  for (const row of rowsFromDefaultProfileMatrix()) {
+    byCode.set(row.permission.code, {
+      id: row.permissionId,
+      code: row.permission.code,
+      module: row.permission.module,
+      action: row.permission.action,
+      isSystem: row.permission.isSystem,
+      roleGrants: [{ label: row.label }],
+    });
+  }
+  return [...byCode.values()];
 }
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
@@ -103,6 +120,11 @@ describe("admin routes (prisma mock)", () => {
       Promise.resolve({ id: orgRoleRowId(args.where.code as BuiltinProfileRole), code: args.where.code }),
     );
     prismaMock.rolePermission.count.mockResolvedValue(1);
+    prismaMock.permission.findMany.mockResolvedValue(permissionCatalogRows());
+    prismaMock.$transaction.mockImplementation(async (input: any) => {
+      if (typeof input === "function") return input(prismaMock);
+      return Promise.all(input);
+    });
     prismaMock.user.findFirst.mockResolvedValue(null);
     prismaMock.user.findUnique.mockResolvedValue({
       id: "u1",

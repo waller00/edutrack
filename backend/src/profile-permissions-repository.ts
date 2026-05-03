@@ -27,6 +27,29 @@ export async function listActiveRolesMetaOrdered() {
   })
 }
 
+export async function listPermissionCatalog() {
+  const rows = await prisma.permission.findMany({
+    orderBy: [{ module: 'asc' }, { code: 'asc' }],
+    select: {
+      code: true,
+      module: true,
+      action: true,
+      isSystem: true,
+      roleGrants: {
+        take: 1,
+        select: { label: true },
+      },
+    },
+  })
+  return rows.map((permission) => ({
+    id: permission.code,
+    module: permission.module,
+    action: permission.action,
+    label: permission.roleGrants[0]?.label ?? permission.code,
+    source: permission.isSystem ? 'system' as const : 'custom' as const,
+  }))
+}
+
 /** Upsert canónico solo para ADMIN / STAFF / TEACHER (por código de OrgRole). */
 export async function upsertCanonicalProfilePermissions(client: PrismaClient = prisma): Promise<void> {
   await ensureBuiltinOrgRoles()
@@ -155,6 +178,91 @@ export async function updateRolePermissionGrant(
     },
   })
   return existing
+}
+
+export async function replaceRolePermissionGrants(
+  roleCode: string,
+  grants: Array<{ id: string; enabled: boolean; scope?: 'own' | 'all'; label?: string }>,
+) {
+  const org = await prisma.orgRole.findFirst({ where: { code: roleCode, active: true } })
+  if (!org) return { error: 'NO_ROLE' as const }
+
+  const codes = [...new Set(grants.map((grant) => grant.id))]
+  const permissions = await prisma.permission.findMany({ where: { code: { in: codes } } })
+  const byCode = new Map(permissions.map((permission) => [permission.code, permission]))
+  const missing = codes.filter((code) => !byCode.has(code))
+  if (missing.length > 0) return { error: 'NO_PERMISSION' as const, missing }
+
+  await prisma.$transaction(
+    grants.map((grant) => {
+      const permission = byCode.get(grant.id)!
+      return prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: org.id, permissionId: permission.id } },
+        create: {
+          roleId: org.id,
+          permissionId: permission.id,
+          enabled: grant.enabled,
+          scope: scopeToDb(grant.scope ?? 'own'),
+          label: grant.label?.trim() || permission.code,
+        },
+        update: {
+          enabled: grant.enabled,
+          ...(grant.scope !== undefined ? { scope: scopeToDb(grant.scope) } : {}),
+          ...(grant.label !== undefined ? { label: grant.label.trim() || permission.code } : {}),
+        },
+      })
+    }),
+  )
+
+  return { ok: true as const }
+}
+
+export async function createProfileRoleWithPermissions(input: {
+  code: string
+  label: string
+  grants: Array<{ id: string; enabled: boolean; scope?: 'own' | 'all'; label?: string }>
+}) {
+  const codes = [...new Set(input.grants.map((grant) => grant.id))]
+  const permissions = await prisma.permission.findMany({ where: { code: { in: codes } } })
+  const byCode = new Map(permissions.map((permission) => [permission.code, permission]))
+  const missing = codes.filter((code) => !byCode.has(code))
+  if (missing.length > 0) return { error: 'NO_PERMISSION' as const, missing }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const maxRole = await tx.orgRole.findFirst({
+        orderBy: { sortOrder: 'desc' },
+        select: { sortOrder: true },
+      })
+      const org = await tx.orgRole.create({
+        data: {
+          code: input.code,
+          label: input.label.trim(),
+          builtIn: false,
+          active: true,
+          sortOrder: (maxRole?.sortOrder ?? 100) + 1,
+        },
+      })
+      for (const grant of input.grants) {
+        const permission = byCode.get(grant.id)!
+        await tx.rolePermission.create({
+          data: {
+            roleId: org.id,
+            permissionId: permission.id,
+            enabled: grant.enabled,
+            scope: scopeToDb(grant.scope ?? 'own'),
+            label: grant.label?.trim() || permission.code,
+          },
+        })
+      }
+    })
+  } catch (e: unknown) {
+    const meta = typeof e === 'object' && e !== null ? (e as { code?: string }) : {}
+    if (meta.code === 'P2002') return { error: 'EXISTS' as const }
+    throw e
+  }
+
+  return { ok: true as const }
 }
 
 export async function createCustomPermissionForRole(
