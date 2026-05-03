@@ -23,113 +23,9 @@ import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
 
-<<<<<<< HEAD
 async function resolveActiveOrgRole(roleCodeRaw: string) {
   const code = roleCodeRaw.trim().toUpperCase()
   return prisma.orgRole.findFirst({ where: { code, active: true } })
-=======
-const ROLE_LABELS = {
-  ADMIN: 'Administrador',
-  TEACHER: 'Tutor',
-  STAFF: 'Staff',
-} as const
-
-const DEFAULT_PROFILE_PERMISSIONS = {
-  ADMIN: [
-    permission('users.read', 'Usuarios', 'read', 'Ver usuarios', true, 'all'),
-    permission('users.create', 'Usuarios', 'create', 'Crear usuarios', true, 'all'),
-    permission('users.update', 'Usuarios', 'update', 'Editar usuarios', true, 'all'),
-    permission('users.security', 'Usuarios', 'security', 'Bloquear usuarios y resetear contraseñas', true, 'all'),
-    permission('attendance.read', 'Asistencias', 'read', 'Ver asistencias', true, 'all'),
-    permission('attendance.update', 'Asistencias', 'update', 'Editar asistencias', true, 'all'),
-    permission('attendance.delete', 'Asistencias', 'delete', 'Eliminar asistencias', true, 'all'),
-    permission('attendance.biometric', 'Asistencias', 'biometric', 'Registrar asistencia biométrica', true, 'all'),
-    permission('events.read', 'Eventos', 'read', 'Ver eventos', true, 'all'),
-    permission('events.create', 'Eventos', 'create', 'Crear eventos', true, 'all'),
-    permission('events.update', 'Eventos', 'update', 'Editar eventos', true, 'all'),
-    permission('events.cancel', 'Eventos', 'cancel', 'Cancelar eventos', true, 'all'),
-    permission('events.delete', 'Eventos', 'delete', 'Eliminar eventos', true, 'all'),
-    permission('licenses.read', 'Licencias', 'read', 'Ver licencias', true, 'all'),
-    permission('licenses.create', 'Licencias', 'create', 'Crear licencias', true, 'all'),
-    permission('licenses.update', 'Licencias', 'update', 'Editar licencias', true, 'all'),
-    permission('licenses.delete', 'Licencias', 'delete', 'Desactivar licencias', true, 'all'),
-    permission('analytics.read', 'Analytics', 'read', 'Ver analytics', true, 'all'),
-    permission('reports.read', 'Reportes', 'read', 'Ver reportes', true, 'all'),
-    permission('exports.create', 'Exportaciones', 'create', 'Crear exportaciones', true, 'all'),
-    permission('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
-  ],
-  TEACHER: [
-    permission('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
-    permission('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
-    permission('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
-    permission('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
-  ],
-  STAFF: [
-    permission('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
-    permission('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
-    permission('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
-    permission('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
-  ],
-} as const
-
-type ProfileRole = keyof typeof DEFAULT_PROFILE_PERMISSIONS
-type ProfilePermission = {
-  id: string
-  module: string
-  action: string
-  label: string
-  enabled: boolean
-  scope: 'own' | 'all'
-}
-type ProfilePermissionsStore = Record<ProfileRole, ProfilePermission[]>
-
-function permission(
-  id: string,
-  module: string,
-  action: string,
-  label: string,
-  enabled: boolean,
-  scope: 'own' | 'all',
-): ProfilePermission {
-  return { id, module, action, label, enabled, scope }
-}
-
-function cloneDefaultProfilePermissions(): ProfilePermissionsStore {
-  return {
-    ADMIN: DEFAULT_PROFILE_PERMISSIONS.ADMIN.map((p) => ({ ...p })),
-    TEACHER: DEFAULT_PROFILE_PERMISSIONS.TEACHER.map((p) => ({ ...p })),
-    STAFF: DEFAULT_PROFILE_PERMISSIONS.STAFF.map((p) => ({ ...p })),
-  }
-}
-
-function systemPermissionIds(role: ProfileRole): Set<string> {
-  return new Set(DEFAULT_PROFILE_PERMISSIONS[role].map((p) => p.id))
-}
-
-function normalizePermissionId(module: string, action: string) {
-  const clean = (value: string) =>
-    value
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-  return `${clean(module)}.${clean(action)}`
-}
-
-function profilePermissionsResponse(store: ProfilePermissionsStore) {
-  return {
-    roles: (Object.keys(ROLE_LABELS) as ProfileRole[]).map((role) => ({
-      role,
-      label: ROLE_LABELS[role],
-      permissions: store[role].map((permission) => ({
-        ...permission,
-        source: systemPermissionIds(role).has(permission.id) ? 'system' : 'custom',
-      })),
-    })),
-  }
->>>>>>> 4ff420d (Make profile permissions read-only safe)
 }
 
 async function buildAdminUserUpdateData(id: string, payload: {
@@ -326,12 +222,8 @@ r.get('/users', async (req, res) => {
 
 // Gestión de perfiles: tabla Permission + RolePermission (por código de OrgRole en la URL).
 r.get('/profiles', async (_req, res) => {
-<<<<<<< HEAD
   await ensureDefaultProfilePermissionsIfNeeded()
   return replyProfilePayload(res)
-=======
-  res.json(profilePermissionsResponse(cloneDefaultProfilePermissions()))
->>>>>>> 4ff420d (Make profile permissions read-only safe)
 })
 
 r.put('/profiles/:role/permissions/:permissionId', async (req, res) => {
@@ -345,19 +237,10 @@ r.put('/profiles/:role/permissions/:permissionId', async (req, res) => {
   }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
 
-<<<<<<< HEAD
   const roleCode = exists.code
   const result = await updateRolePermissionGrant(roleCode, req.params.permissionId, parsed.data)
   if (!result) return res.status(404).json({ message: 'Permiso no encontrado' })
   return replyProfilePayload(res)
-=======
-  const store = cloneDefaultProfilePermissions()
-  const index = store[role].findIndex((p) => p.id === req.params.permissionId)
-  if (index < 0) return res.status(404).json({ message: 'Permiso no encontrado' })
-
-  // Los permisos reales del sistema no se persisten ni se modifican desde esta pantalla.
-  res.json(profilePermissionsResponse(store))
->>>>>>> 4ff420d (Make profile permissions read-only safe)
 })
 
 r.post('/profiles/:role/permissions', async (req, res) => {
@@ -373,15 +256,9 @@ r.post('/profiles/:role/permissions', async (req, res) => {
   }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
 
-<<<<<<< HEAD
   const roleCode = exists.code
   const code = normalizePermissionId(parsed.data.module, parsed.data.action)
   if (await roleHasPermissionAssignment(roleCode, code)) {
-=======
-  const store = cloneDefaultProfilePermissions()
-  const id = normalizePermissionId(parsed.data.module, parsed.data.action)
-  if (store[role].some((p) => p.id === id)) {
->>>>>>> 4ff420d (Make profile permissions read-only safe)
     return res.status(409).json({ message: 'Ese permiso ya existe para el rol' })
   }
   const created = await createCustomPermissionForRole(roleCode, {
@@ -391,7 +268,6 @@ r.post('/profiles/:role/permissions', async (req, res) => {
     enabled: parsed.data.enabled,
     scope: parsed.data.scope,
   })
-<<<<<<< HEAD
   if (created && 'error' in created && created.error === 'NO_ROLE') {
     return res.status(404).json({ message: 'Rol no encontrado' })
   }
@@ -401,9 +277,6 @@ r.post('/profiles/:role/permissions', async (req, res) => {
   const rolesMeta = await listActiveRolesMetaOrdered()
   const store = await loadProfilePermissionsStore()
   return res.status(201).json(profilePermissionsResponse(store, rolesMeta))
-=======
-  res.status(201).json(profilePermissionsResponse(store))
->>>>>>> 4ff420d (Make profile permissions read-only safe)
 })
 
 // Crear usuario

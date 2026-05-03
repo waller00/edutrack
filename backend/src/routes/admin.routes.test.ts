@@ -5,7 +5,7 @@ import cookieParser from "cookie-parser";
 import { Prisma } from "@prisma/client";
 import { signAccessToken } from "../jwt.js";
 import { computeCICheckDigit } from "../uruguay-ci.js";
-import type { ProfileRole } from "../profile-permissions-defaults.js";
+import type { BuiltinProfileRole } from "../profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../profile-permissions-defaults.js";
 
 const { prismaMock } = vi.hoisted(() => ({
@@ -48,13 +48,13 @@ function permIdForCode(code: string) {
   return `perm-${code.replace(/\./g, "-")}`;
 }
 
-function orgRoleRowId(role: ProfileRole) {
+function orgRoleRowId(role: BuiltinProfileRole) {
   return `rid-${role}`;
 }
 
 function rowsFromDefaultProfileMatrix() {
   const rows: any[] = [];
-  for (const role of ["ADMIN", "TEACHER", "STAFF"] as ProfileRole[]) {
+  for (const role of ["ADMIN", "TEACHER", "STAFF"] as BuiltinProfileRole[]) {
     for (const p of DEFAULT_PROFILE_PERMISSIONS[role]) {
       rows.push({
         roleId: orgRoleRowId(role),
@@ -92,7 +92,7 @@ describe("admin routes (prisma mock)", () => {
     prismaMock.orgRole.upsert.mockResolvedValue({});
     prismaMock.orgRole.findFirst.mockImplementation((args: { where: { code: string } }) => {
       const code = args?.where?.code;
-      return Promise.resolve({ id: orgRoleRowId(code as ProfileRole), code, active: true });
+      return Promise.resolve({ id: orgRoleRowId(code as BuiltinProfileRole), code, active: true });
     });
     prismaMock.orgRole.findMany.mockResolvedValue([
       { code: "ADMIN", label: "Administrador" },
@@ -100,7 +100,7 @@ describe("admin routes (prisma mock)", () => {
       { code: "TEACHER", label: "Tutor" },
     ]);
     prismaMock.orgRole.findUnique.mockImplementation((args: { where: { code: string } }) =>
-      Promise.resolve({ id: orgRoleRowId(args.where.code as ProfileRole), code: args.where.code }),
+      Promise.resolve({ id: orgRoleRowId(args.where.code as BuiltinProfileRole), code: args.where.code }),
     );
     prismaMock.rolePermission.count.mockResolvedValue(1);
     prismaMock.user.findFirst.mockResolvedValue(null);
@@ -185,7 +185,6 @@ describe("admin routes (prisma mock)", () => {
       });
     });
 
-<<<<<<< HEAD
     it("GET /admin/profiles devuelve perfiles por rol", async () => {
       const res = await request(app()).get("/admin/profiles").set(adminHdr());
       expect(res.status).toBe(200);
@@ -251,7 +250,7 @@ describe("admin routes (prisma mock)", () => {
         isSystem: false,
       });
       prismaMock.rolePermission.create.mockImplementation(async ({ data }: { data: any }) => {
-        const code = (Object.keys(DEFAULT_PROFILE_PERMISSIONS) as ProfileRole[]).find((rc) => orgRoleRowId(rc) === data.roleId) ?? "TEACHER";
+        const code = (Object.keys(DEFAULT_PROFILE_PERMISSIONS) as BuiltinProfileRole[]).find((rc) => orgRoleRowId(rc) === data.roleId) ?? "TEACHER";
         extra.push({
           roleId: data.roleId,
           permissionId: data.permissionId,
@@ -281,31 +280,6 @@ describe("admin routes (prisma mock)", () => {
         expect.arrayContaining([expect.objectContaining({ id: "reportes.read", label: "Ver mis reportes" })]),
       );
     });
-=======
-  it("PUT /admin/profiles/:role/permissions/:id no modifica permisos reales ni usuarios", async () => {
-    const res = await request(app())
-      .put("/admin/profiles/TEACHER/permissions/attendance.read")
-      .set(adminHdr())
-      .send({ enabled: false, scope: "own" });
-    expect(res.status).toBe(200);
-    const teacher = res.body.roles.find((role: any) => role.role === "TEACHER");
-    const permission = teacher.permissions.find((p: any) => p.id === "attendance.read");
-    expect(permission.enabled).toBe(true);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
-  });
-
-  it("POST /admin/profiles/:role/permissions responde sin tocar usuarios", async () => {
-    const res = await request(app())
-      .post("/admin/profiles/TEACHER/permissions")
-      .set(adminHdr())
-      .send({ module: "Reportes", action: "read", label: "Ver mis reportes", scope: "own" });
-    expect(res.status).toBe(201);
-    const teacher = res.body.roles.find((role: any) => role.role === "TEACHER");
-    expect(teacher.permissions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "reportes.read", label: "Ver mis reportes" })]),
-    );
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
->>>>>>> 4ff420d (Make profile permissions read-only safe)
   });
 
   it("POST /admin/users 409 email existente", async () => {
