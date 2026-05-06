@@ -7,6 +7,7 @@ import { randomBytes } from 'crypto'
 import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
 import { validateNationalIdDocumentExpiresAtUpdate } from '../auth-profile-pure.js'
 import { isDiditConfigured } from '../system-settings.js'
+import { getOrCreateSystemSettings } from '../system-settings.js'
 import { normalizePermissionId } from '../profile-permissions-defaults.js'
 import {
   createProfileRoleWithPermissions,
@@ -536,8 +537,62 @@ r.post('/users/:id/password/reset', async (req, res) => {
 })
 
 r.get('/system-settings', async (_req, res) => {
+  const row = await getOrCreateSystemSettings()
   return res.json({
     diditConfigured: isDiditConfigured(),
+    livenessCheckEnabled: row.livenessCheckEnabled,
+    attendanceNoShowGraceMinutes: row.attendanceNoShowGraceMinutes,
+    attendanceLateToleranceMinutes: row.attendanceLateToleranceMinutes,
+    attendanceClassBridgeGapMinutes: row.attendanceClassBridgeGapMinutes,
+    attendanceMonitorEnabled: row.attendanceMonitorEnabled,
+    attendanceMonitorIntervalMs: row.attendanceMonitorIntervalMs,
+    biometricLateHour: row.biometricLateHour,
+    biometricLateMinute: row.biometricLateMinute,
+  })
+})
+
+r.put('/system-settings', async (req, res) => {
+  const parsed = z
+    .object({
+      livenessCheckEnabled: z.boolean().optional(),
+      attendanceNoShowGraceMinutes: z.number().int().min(1).max(180).optional(),
+      attendanceLateToleranceMinutes: z.number().int().min(0).max(120).optional(),
+      attendanceClassBridgeGapMinutes: z.number().int().min(15).max(240).optional(),
+      attendanceMonitorEnabled: z.boolean().optional(),
+      attendanceMonitorIntervalMs: z.number().int().min(30000).max(3600000).optional(),
+      biometricLateHour: z.number().int().min(0).max(23).optional(),
+      biometricLateMinute: z.number().int().min(0).max(59).optional(),
+    })
+    .safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  const data = parsed.data
+  const updated = await prisma.systemSettings.upsert({
+    where: { id: 'default' },
+    create: {
+      id: 'default',
+      livenessCheckEnabled: data.livenessCheckEnabled ?? false,
+      attendanceNoShowGraceMinutes: data.attendanceNoShowGraceMinutes ?? 15,
+      attendanceLateToleranceMinutes: data.attendanceLateToleranceMinutes ?? 5,
+      attendanceClassBridgeGapMinutes: data.attendanceClassBridgeGapMinutes ?? 60,
+      attendanceMonitorEnabled: data.attendanceMonitorEnabled ?? true,
+      attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs ?? 120000,
+      biometricLateHour: data.biometricLateHour ?? 8,
+      biometricLateMinute: data.biometricLateMinute ?? 30,
+    },
+    update: data,
+  })
+
+  return res.json({
+    diditConfigured: isDiditConfigured(),
+    livenessCheckEnabled: updated.livenessCheckEnabled,
+    attendanceNoShowGraceMinutes: updated.attendanceNoShowGraceMinutes,
+    attendanceLateToleranceMinutes: updated.attendanceLateToleranceMinutes,
+    attendanceClassBridgeGapMinutes: updated.attendanceClassBridgeGapMinutes,
+    attendanceMonitorEnabled: updated.attendanceMonitorEnabled,
+    attendanceMonitorIntervalMs: updated.attendanceMonitorIntervalMs,
+    biometricLateHour: updated.biometricLateHour,
+    biometricLateMinute: updated.biometricLateMinute,
   })
 })
 

@@ -70,6 +70,7 @@ describe('UserNav', () => {
     expect(screen.queryByRole('button', { name: /volver/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /admin@example.com/i }))
+    expect(screen.getByRole('link', { name: /configuración del sistema/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /cerrar sesión/i }))
 
     await waitFor(() =>

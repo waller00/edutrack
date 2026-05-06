@@ -83,6 +83,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false)
 
   const [livenessCheckEnabled, setLivenessCheckEnabled] = useState(false)
+  const [diditConfiguredOnServer, setDiditConfiguredOnServer] = useState(true)
   const [livenessToken, setLivenessToken] = useState<string | null>(null)
   const [livenessApproved, setLivenessApproved] = useState(false)
   const [livenessStarting, setLivenessStarting] = useState(false)
@@ -175,12 +176,17 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     let alive = true
-    api<{ livenessCheckEnabled?: boolean }>('/auth/registration-options')
+    api<{ livenessCheckEnabled?: boolean; diditConfigured?: boolean }>('/auth/registration-options')
       .then((o) => {
-        if (alive) setLivenessCheckEnabled(!!o?.livenessCheckEnabled)
+        if (!alive) return
+        setLivenessCheckEnabled(!!o?.livenessCheckEnabled)
+        setDiditConfiguredOnServer(o?.diditConfigured !== false)
       })
       .catch(() => {
-        if (alive) setLivenessCheckEnabled(false)
+        if (alive) {
+          setLivenessCheckEnabled(false)
+          setDiditConfiguredOnServer(false)
+        }
       })
     return () => {
       alive = false
@@ -713,6 +719,12 @@ export default function OnboardingPage() {
                   El alta con verificación online no está disponible en este entorno por ahora. Si creés que es un error,
                   comunicate con soporte de la institución.
                 </div>
+              ) : !diditConfiguredOnServer ? (
+                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+                  El alta requiere verificación de identidad (<strong>Didit</strong>), pero el servidor no tiene configurados{' '}
+                  <span className="font-mono text-xs">DIDIT_API_KEY</span> y{' '}
+                  <span className="font-mono text-xs">DIDIT_WORKFLOW_ID</span>. Contactá a quien opera el servidor.
+                </div>
               ) : (
                 <>
                   <p className="text-sm text-gray-600 mb-4">
@@ -868,6 +880,7 @@ export default function OnboardingPage() {
                   loading ||
                   identityVerifyBusy ||
                   verificationHasIssues() ||
+                  (livenessCheckEnabled && !diditConfiguredOnServer) ||
                   (livenessCheckEnabled && !livenessApproved)
                 }
                 className="btn-primary flex-1 disabled:opacity-60"
