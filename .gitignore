@@ -39,3 +39,6 @@ data.sql
 data.sql.gz
 # Dumps Postgres (copias locales / restores; no versionar)
 prod-asistencias*.dump
+
+# Word / documentos binarios (no versionar)
+*.docx

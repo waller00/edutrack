@@ -5,6 +5,7 @@ import {
   jsWeekdayInUruguay,
   parseEventTimeToUruguayHhMm,
   parseStartDateToUruguayYmd,
+  uruguayStartOfDayFromInstant,
   uruguayWallToUtc,
 } from './app-timezone.js'
 
@@ -29,5 +30,11 @@ describe('app-timezone', () => {
     const d = uruguayWallToUtc('2025-06-04', 10, 0)
     const luxDow = DateTime.fromJSDate(d, { zone: 'utc' }).setZone(APP_TIMEZONE).weekday % 7
     expect(jsWeekdayInUruguay(d)).toBe(luxDow)
+  })
+
+  it('uruguayStartOfDayFromInstant: día civil Uruguay para un instante', () => {
+    const utcNoon = new Date('2025-06-15T15:00:00.000Z')
+    const start = uruguayStartOfDayFromInstant(utcNoon)
+    expect(start.toISOString()).toBe('2025-06-15T03:00:00.000Z')
   })
 })

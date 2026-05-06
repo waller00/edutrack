@@ -13,6 +13,7 @@ import {
   getAdminAttendanceTypeLabel,
   getAdminAttendanceTypeStyle,
 } from '@/lib/admin-attendance-display'
+import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/datetime-uy'
 import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
 import {
   BarChart3,
@@ -122,15 +123,12 @@ function renderAttendancesTable(
                 </div>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {new Date(attendance.date).toLocaleDateString('es-ES')}
+                {formatDateInUruguay(attendance.time)}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                 <div className="flex flex-col">
                   <div className="font-medium">
-                    {new Date(attendance.time).toLocaleTimeString('es-ES', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {formatTimeInUruguay(attendance.time)}
                   </div>
                   {attendance.event && (
                     <div className="text-xs text-gray-500">

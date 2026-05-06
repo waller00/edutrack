@@ -61,3 +61,9 @@ export function parseEventTimeToUruguayHhMm(s: string): { hh: number; mm: number
 export function jsWeekdayInUruguay(d: Date): number {
   return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(APP_TIMEZONE).weekday % 7
 }
+
+/** Inicio del día civil en Uruguay (00:00 Montevideo) como instante UTC; para columnas `Attendance.date`. */
+export function uruguayStartOfDayFromInstant(at: Date): Date {
+  const ymd = DateTime.fromJSDate(at, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  return uruguayWallToUtc(ymd, 0, 0)
+}

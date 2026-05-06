@@ -22,6 +22,8 @@ import analyticsRoutes from "./routes/analytics.js";
 import exportsRoutes from "./routes/exports.js";
 import webPushRoutes from "./routes/web-push.js";
 import inAppNotificationRoutes from "./routes/in-app-notifications.js";
+import biometricAdmsRoutes from "./routes/biometric-adms.js";
+import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 
 dns.setDefaultResultOrder("ipv4first");
 
@@ -105,6 +107,8 @@ app.use("/analytics", analyticsRoutes);
 app.use("/exports", exportsRoutes);
 app.use("/notifications/web-push", webPushRoutes);
 app.use("/notifications/in-app", inAppNotificationRoutes);
+app.use("/biometric", biometricAdmsRoutes);
+app.use("/attendance-incidents", attendanceIncidentsRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 

@@ -18,7 +18,7 @@ import {
   mapProfileUpdateError,
 } from "../auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
-import { isDiditConfigured } from "../system-settings.js";
+import { isDiditConfigured, isLivenessRequiredForRegistration } from "../system-settings.js";
 import { syncLivenessSessionFromDiditApi } from "../didit-sync-session.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../org-role-service.js";
 
@@ -219,7 +219,11 @@ function createIpRateLimit(windowMs: number, max: number) {
 
 // Check username availability
 r.get("/registration-options", async (_req, res) => {
-  return res.json({ livenessCheckEnabled: isDiditConfigured() });
+  const livenessRequired = isLivenessRequiredForRegistration()
+  return res.json({
+    livenessCheckEnabled: livenessRequired,
+    diditConfigured: isDiditConfigured(),
+  })
 });
 
 r.get('/check-username', async (req, res) => {
@@ -242,7 +246,14 @@ r.post("/register", async (req, res) => {
     username ? prisma.user.findUnique({ where: { username } }) : Promise.resolve(null),
     nationalId ? prisma.user.findUnique({ where: { nationalId: onlyDigits(nationalId) } }) : Promise.resolve(null),
   ]);
-  const livenessRequired = isDiditConfigured();
+  const requireDidit = isLivenessRequiredForRegistration()
+  if (requireDidit && !isDiditConfigured()) {
+    return res.status(503).json({
+      message:
+        'El registro con verificación de identidad no está disponible: el servidor no tiene configurado Didit (DIDIT_API_KEY y DIDIT_WORKFLOW_ID).',
+    })
+  }
+  const livenessRequired = requireDidit;
   /** Fila interna; el cliente puede mandar `id` (vendor_data) o el session_id de Didit del retorno. */
   let livenessRowId: string | null = null;
   if (livenessRequired) {

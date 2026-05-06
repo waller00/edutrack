@@ -56,6 +56,7 @@ export function buildBiometricAttendancePayload(params: {
   attendanceDate: Date
   attendanceTime: Date
   deviceId?: string
+  eventId?: string
   isLate?: boolean
   type: 'CHECK_IN' | 'CHECK_OUT'
 }): Prisma.AttendanceUncheckedCreateInput {
@@ -67,6 +68,7 @@ export function buildBiometricAttendancePayload(params: {
     status: getBiometricStatus(params.type, params.isLate),
     date: params.attendanceDate,
     time: params.attendanceTime,
+    eventId: params.eventId,
     notes: `${baseNote}${lateNote} - Dispositivo: ${params.deviceId || 'N/A'}`,
   }
 }
