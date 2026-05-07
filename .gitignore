@@ -42,3 +42,4 @@ prod-asistencias*.dump
 
 # Word / documentos binarios (no versionar)
 *.docx
+frontend/web/tsconfig.tsbuildinfo

@@ -11,8 +11,6 @@ flowchart TD
 
   E -->|ADMIN| A1[Panel ADMIN]
   E -->|DOCENTE| T1[Panel Docente]
-  E -->|ESTUDIANTE| S1[Panel Estudiante]
-  E -->|PADRE| P1[Panel Padre]
 
   %% Docente
   T1 --> T2[Seleccionar curso/clase del dia]
