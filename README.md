@@ -1,4 +1,4 @@
-# Sistema de Gestión de Asistencias y anotaciones
+# Sistema de Gestión integral de instituciones educativas
 
 Stack:
 - Backend: Node 20, Express, Prisma (Postgres), JWT + Cookies HttpOnly, Argon2id, Passport Google OAuth.

@@ -203,10 +203,8 @@ export default function AdminEvents() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
-  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
-  const [purgeAllConfirm, setPurgeAllConfirm] = useState('')
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
 
@@ -423,26 +421,6 @@ export default function AdminEvents() {
     setSelectedEventIds((prev) => (prev.length === events.length ? [] : events.map((event) => event.id)))
   }
 
-  async function deleteAllEvents() {
-    if (purgeAllConfirm.trim() !== 'ELIMINAR') {
-      setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
-      return
-    }
-    setBulkDeleting(true)
-    setMessage('')
-    try {
-      const response = await api<{ deletedCount: number }>('/events/purge-all', { method: 'DELETE' })
-      setMessage(`✅ Se eliminaron ${response.deletedCount} eventos. No hay vuelta atrás.`)
-      setPurgeAllConfirm('')
-      setPage(1)
-      await loadEvents()
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al eliminar todos los eventos'}`)
-    } finally {
-      setBulkDeleting(false)
-    }
-  }
-
   return (
     <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-6">
@@ -562,39 +540,6 @@ export default function AdminEvents() {
             {message}
           </div>
         )}
-
-        <details className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <summary className="cursor-pointer list-none font-medium text-red-700">
-            Eliminar todos los registros de eventos
-          </summary>
-          <div className="mt-3 space-y-3">
-            <p className="text-sm text-red-800">
-              Esta acción elimina todos los eventos del sistema. No hay vuelta atrás.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <label htmlFor="events-purge-confirm" className="text-sm font-medium text-red-900">
-                Escribe `ELIMINAR` para habilitar la acción final
-              </label>
-              <input
-                id="events-purge-confirm"
-                type="text"
-                value={purgeAllConfirm}
-                onChange={(e) => setPurgeAllConfirm(e.target.value)}
-                placeholder="ELIMINAR"
-                className="rounded border border-red-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
-              />
-              <button
-                type="button"
-                disabled={bulkDeleting || total === 0}
-                onClick={() => void deleteAllEvents()}
-                className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
-              >
-                {bulkDeleting ? 'Eliminando...' : 'Sí, eliminar todos los registros de eventos'}
-              </button>
-            </div>
-            <p className="text-xs text-red-700">La operación es destructiva y no se puede deshacer.</p>
-          </div>
-        </details>
 
         {/* Tabla de eventos */}
         <div className="bg-white border rounded-lg shadow-sm">

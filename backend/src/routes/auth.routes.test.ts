@@ -86,7 +86,15 @@ describe("auth routes (mocks)", () => {
     prismaMock.user.findFirst.mockReset();
     prismaMock.user.findUnique.mockReset();
     prismaMock.user.update.mockReset();
-    prismaMock.systemSettings.upsert.mockResolvedValue({ livenessCheckEnabled: false });
+    prismaMock.systemSettings.upsert.mockResolvedValue({
+      livenessCheckEnabled: false,
+      attendanceNoShowGraceMinutes: 15,
+      attendanceLateToleranceMinutes: 5,
+      attendanceMonitorEnabled: true,
+      attendanceMonitorIntervalMs: 120000,
+      biometricLateHour: 8,
+      biometricLateMinute: 30,
+    });
     prismaMock.livenessSession.findUnique.mockReset();
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {

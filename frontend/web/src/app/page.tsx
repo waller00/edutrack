@@ -32,6 +32,8 @@ function HomeSectionIcon({ kind }: { kind: HomeSectionIconKind }) {
       return <Users className={cls} aria-hidden />
     case 'profiles':
       return <ShieldCheck className={cls} aria-hidden />
+    case 'settings':
+      return <Wrench className={cls} aria-hidden />
     case 'chart':
       return <BarChart3 className={cls} aria-hidden />
     case 'calendar':

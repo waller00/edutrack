@@ -1,17 +1,29 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import AdminProfilesPage from './page'
+import AdminProfilesPanel from '@/components/AdminProfilesPanel'
 import { api } from '@/lib/api'
-
-vi.mock('@/components/RoleGuard', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
-}))
 
 vi.mock('@/lib/api', () => ({ api: vi.fn() }))
 
 const mockedApi = vi.mocked(api)
 
 const response = {
+  permissionCatalog: [
+    {
+      id: 'attendance.read',
+      module: 'Asistencias',
+      action: 'read',
+      label: 'Ver mis asistencias',
+      source: 'system',
+    },
+    {
+      id: 'reportes.read',
+      module: 'Reportes',
+      action: 'read',
+      label: 'Ver reportes internos',
+      source: 'custom',
+    },
+  ],
   roles: [
     {
       role: 'TEACHER',
@@ -50,7 +62,7 @@ const response = {
   ],
 }
 
-describe('AdminProfilesPage', () => {
+describe('AdminProfilesPanel', () => {
   beforeEach(() => {
     mockedApi.mockReset()
   })
@@ -58,46 +70,41 @@ describe('AdminProfilesPage', () => {
   it('carga roles y permisos por módulo', async () => {
     mockedApi.mockResolvedValueOnce(response)
 
-    render(<AdminProfilesPage />)
+    render(<AdminProfilesPanel />)
 
     expect(await screen.findByText('Gestión de perfiles')).toBeInTheDocument()
     expect(screen.getByText('Tutor')).toBeInTheDocument()
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
     expect(screen.getByText('Ver mis asistencias')).toBeInTheDocument()
-    expect(screen.getAllByText('Actual del sistema')[0]).toBeInTheDocument()
+    expect(screen.getByText('2 activos')).toBeInTheDocument()
   })
 
-  it('actualiza un permiso documentado sin cambiar permisos reales', async () => {
+  it('marca un permiso y guarda el perfil', async () => {
     mockedApi.mockResolvedValueOnce(response).mockResolvedValueOnce(response)
 
-    render(<AdminProfilesPage />)
-    const checkbox = await screen.findByRole('checkbox', { name: /Activo/i })
+    render(<AdminProfilesPanel />)
+    const checkbox = await screen.findByRole('checkbox', { name: /Ver reportes internos/i })
     fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }))
 
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(
-        '/admin/profiles/TEACHER/permissions/reportes.read',
-        expect.objectContaining({ method: 'PUT' }),
-      ),
-    )
-    expect(await screen.findByText(/No se cambiaron los accesos reales/)).toBeInTheDocument()
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+    expect(mockedApi).toHaveBeenLastCalledWith('/admin/profiles/TEACHER/permissions', expect.objectContaining({ method: 'PUT' }))
+    expect(await screen.findByText('Perfil guardado.')).toBeInTheDocument()
   })
 
-  it('agrega un permiso documentado para Tutor con formulario guiado', async () => {
+  it('crea un perfil nuevo con permisos seleccionados', async () => {
     mockedApi.mockResolvedValueOnce(response).mockResolvedValueOnce(response)
 
-    render(<AdminProfilesPage />)
+    render(<AdminProfilesPanel />)
     await screen.findByText('Tutor')
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Agregar permiso documentado/ })[0])
-    fireEvent.change(screen.getByPlaceholderText('Ej: Ver reportes mensuales'), { target: { value: 'Ver reportes' } })
-    fireEvent.click(screen.getByRole('button', { name: /^Agregar$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Nuevo perfil/ }))
+    fireEvent.change(screen.getByPlaceholderText('Ej: Coordinador'), { target: { value: 'Coordinador' } })
+    fireEvent.click(screen.getAllByRole('checkbox', { name: /Ver mis asistencias/i })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: /^Guardar$/ })[0])
 
-    await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(
-        '/admin/profiles/TEACHER/permissions',
-        expect.objectContaining({ method: 'POST' }),
-      ),
-    )
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+    expect(mockedApi).toHaveBeenLastCalledWith('/admin/profiles', expect.objectContaining({ method: 'POST' }))
+    expect(await screen.findByText('Perfil creado.')).toBeInTheDocument()
   })
 })

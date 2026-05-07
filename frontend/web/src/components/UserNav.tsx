@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { Bell, LogOut, User } from 'lucide-react'
+import { Bell, LogOut, Settings, User } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type NavLink = { href: string; label: string }
@@ -25,7 +25,6 @@ function canAccessModules(me: MeUser) {
 const FALLBACK_NAV: Record<string, NavLink[]> = {
   ADMIN: [
     { href: '/admin/users', label: 'Usuarios' },
-    { href: '/admin/profiles', label: 'Perfiles' },
     { href: '/admin/attendance', label: 'Asistencias' },
     { href: '/admin/events', label: 'Eventos' },
     { href: '/admin/licenses', label: 'Licencias' },
@@ -97,23 +96,11 @@ export default function UserNav() {
   }
 
   const roleItems = navItemsForMe(me)
-  const showBackButton = pathname !== '/' && pathname !== '/login' && pathname !== '/register'
 
   return (
     <header className="header-modern">
       <div className="mx-auto max-w-6xl px-4 h-16 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          {showBackButton && (
-            <button 
-              onClick={() => window.history.back()}
-              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all duration-200"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              <span className="text-sm font-medium">Volver</span>
-            </button>
-          )}
           <a href="/" className="font-bold text-xl text-emerald-600 hover:text-emerald-700 transition-colors flex items-center gap-2">
             <img src="/logo.svg" alt="EduTrack" className="w-8 h-8" />
             EduTrack
@@ -177,6 +164,15 @@ export default function UserNav() {
                     <User className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
                     Mi perfil
                   </a>
+                  {me.role === 'ADMIN' && (
+                    <a
+                      href="/admin/settings"
+                      className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+                    >
+                      <Settings className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                      Configuración del sistema
+                    </a>
+                  )}
                   <button
                     onClick={logout}
                     type="button"

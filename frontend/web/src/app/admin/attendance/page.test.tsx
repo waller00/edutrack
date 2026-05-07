@@ -202,49 +202,4 @@ describe('AdminAttendance', () => {
     expect(screen.getByRole('checkbox', { name: 'Seleccionar asistencia de Ana' })).toBeChecked()
   })
 
-  it('elimina todos los registros filtrados, no solo la página actual', async () => {
-    const rec = {
-      id: 'a1',
-      type: 'CHECK_IN' as const,
-      status: 'PRESENT' as const,
-      date: '2025-06-01',
-      time: '2025-06-01T08:00:00.000Z',
-      user: { id: 'u1', name: 'Pedro', email: 'p@b.com', role: 'STAFF' },
-      event: { id: 'e1', title: 'Turno mañana', type: 'CLASE', startTime: '2025-06-01T08:30:00.000Z' },
-    }
-
-    mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (String(url).includes('attendance/all')) {
-        return { total: 35, page: 1, pageSize: 20, data: [rec] }
-      }
-      if (String(url).includes('admin/users')) return { data: [] }
-      if (String(url).includes('attendance/stats')) {
-        return { totalAttendances: 35, presentCount: 35, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 100, lateRate: 0, absenceRate: 0 }
-      }
-      if (String(url).startsWith('/attendance/purge-all?') && init?.method === 'DELETE') {
-        return { deletedCount: 35 }
-      }
-      return {}
-    })
-
-    render(<AdminAttendance />)
-    await screen.findByText('Pedro')
-
-    fireEvent.click(screen.getByText('Eliminar todos los registros filtrados'))
-    fireEvent.change(screen.getByPlaceholderText('ELIMINAR'), { target: { value: 'ELIMINAR' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Sí, eliminar todos los registros filtrados' }))
-
-    await waitFor(() => {
-      expect(mockedApi).toHaveBeenCalledWith(
-        expect.stringContaining('/attendance/purge-all?'),
-        expect.objectContaining({ method: 'DELETE' }),
-      )
-    })
-    expect(mockedApi).toHaveBeenCalledWith(
-      expect.stringContaining('pageSize=20'),
-      expect.objectContaining({ method: 'DELETE' }),
-    )
-    expect(await screen.findByText(/Se eliminaron 35 asistencias del conjunto filtrado/)).toBeInTheDocument()
-  })
-
 })

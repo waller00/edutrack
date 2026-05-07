@@ -62,6 +62,7 @@ export default function RegisterPage() {
   const [verificationResults, setVerificationResults] = useState<RegisterVerificationResults | null>(null)
   const [sessionGate, setSessionGate] = useState(true)
   const [livenessCheckEnabled, setLivenessCheckEnabled] = useState(false)
+  const [diditConfiguredOnServer, setDiditConfiguredOnServer] = useState(true)
   const [livenessToken, setLivenessToken] = useState<string | null>(null)
   const [livenessApproved, setLivenessApproved] = useState(false)
   const [livenessStarting, setLivenessStarting] = useState(false)
@@ -167,12 +168,17 @@ export default function RegisterPage() {
 
   useEffect(() => {
     let alive = true
-    api<{ livenessCheckEnabled?: boolean }>('/auth/registration-options')
+    api<{ livenessCheckEnabled?: boolean; diditConfigured?: boolean }>('/auth/registration-options')
       .then((o) => {
-        if (alive) setLivenessCheckEnabled(!!o?.livenessCheckEnabled)
+        if (!alive) return
+        setLivenessCheckEnabled(!!o?.livenessCheckEnabled)
+        setDiditConfiguredOnServer(o?.diditConfigured !== false)
       })
       .catch(() => {
-        if (alive) setLivenessCheckEnabled(false)
+        if (alive) {
+          setLivenessCheckEnabled(false)
+          setDiditConfiguredOnServer(false)
+        }
       })
     return () => {
       alive = false
@@ -808,6 +814,13 @@ export default function RegisterPage() {
                   El alta con verificación online no está disponible en este entorno por ahora. Si creés que es un error,
                   comunicate con soporte de la institución.
                 </div>
+              ) : !diditConfiguredOnServer ? (
+                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+                  El alta requiere verificación de identidad (<strong>Didit</strong>), pero el servidor aún no tiene la
+                  clave ni el workflow configurados (
+                  <span className="font-mono text-xs">DIDIT_API_KEY</span> /{' '}
+                  <span className="font-mono text-xs">DIDIT_WORKFLOW_ID</span>). Contactá a quien opera el servidor.
+                </div>
               ) : (
                 <>
                   <p className="text-sm text-gray-600 mb-4">
@@ -976,7 +989,12 @@ export default function RegisterPage() {
             
             <div className="flex gap-4 pt-6 border-t border-gray-200">
               <button
-                disabled={loading || verificationHasIssues() || (livenessCheckEnabled && !livenessApproved)}
+                disabled={
+                  loading ||
+                  verificationHasIssues() ||
+                  (livenessCheckEnabled && !diditConfiguredOnServer) ||
+                  (livenessCheckEnabled && !livenessApproved)
+                }
                 className="btn-primary flex-1 disabled:opacity-60"
               >
                 <PendingButtonContent pending={loading} pendingText="Creando…" idle="Crear cuenta" />

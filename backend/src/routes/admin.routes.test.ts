@@ -5,7 +5,7 @@ import cookieParser from "cookie-parser";
 import { Prisma } from "@prisma/client";
 import { signAccessToken } from "../jwt.js";
 import { computeCICheckDigit } from "../uruguay-ci.js";
-import type { ProfileRole } from "../profile-permissions-defaults.js";
+import type { BuiltinProfileRole } from "../profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../profile-permissions-defaults.js";
 
 const { prismaMock } = vi.hoisted(() => ({
@@ -29,6 +29,7 @@ const { prismaMock } = vi.hoisted(() => ({
     },
     permission: {
       upsert: vi.fn(),
+      findMany: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
     },
@@ -41,6 +42,7 @@ const { prismaMock } = vi.hoisted(() => ({
       create: vi.fn(),
     },
     passwordReset: { create: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -48,13 +50,13 @@ function permIdForCode(code: string) {
   return `perm-${code.replace(/\./g, "-")}`;
 }
 
-function orgRoleRowId(role: ProfileRole) {
+function orgRoleRowId(role: BuiltinProfileRole) {
   return `rid-${role}`;
 }
 
 function rowsFromDefaultProfileMatrix() {
   const rows: any[] = [];
-  for (const role of ["ADMIN", "TEACHER", "STAFF"] as ProfileRole[]) {
+  for (const role of ["ADMIN", "TEACHER", "STAFF"] as BuiltinProfileRole[]) {
     for (const p of DEFAULT_PROFILE_PERMISSIONS[role]) {
       rows.push({
         roleId: orgRoleRowId(role),
@@ -68,6 +70,21 @@ function rowsFromDefaultProfileMatrix() {
     }
   }
   return rows;
+}
+
+function permissionCatalogRows() {
+  const byCode = new Map<string, { id: string; code: string; module: string; action: string; isSystem: boolean }>();
+  for (const row of rowsFromDefaultProfileMatrix()) {
+    byCode.set(row.permission.code, {
+      id: row.permissionId,
+      code: row.permission.code,
+      module: row.permission.module,
+      action: row.permission.action,
+      isSystem: row.permission.isSystem,
+      roleGrants: [{ label: row.label }],
+    });
+  }
+  return [...byCode.values()];
 }
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
@@ -92,7 +109,7 @@ describe("admin routes (prisma mock)", () => {
     prismaMock.orgRole.upsert.mockResolvedValue({});
     prismaMock.orgRole.findFirst.mockImplementation((args: { where: { code: string } }) => {
       const code = args?.where?.code;
-      return Promise.resolve({ id: orgRoleRowId(code as ProfileRole), code, active: true });
+      return Promise.resolve({ id: orgRoleRowId(code as BuiltinProfileRole), code, active: true });
     });
     prismaMock.orgRole.findMany.mockResolvedValue([
       { code: "ADMIN", label: "Administrador" },
@@ -100,9 +117,14 @@ describe("admin routes (prisma mock)", () => {
       { code: "TEACHER", label: "Tutor" },
     ]);
     prismaMock.orgRole.findUnique.mockImplementation((args: { where: { code: string } }) =>
-      Promise.resolve({ id: orgRoleRowId(args.where.code as ProfileRole), code: args.where.code }),
+      Promise.resolve({ id: orgRoleRowId(args.where.code as BuiltinProfileRole), code: args.where.code }),
     );
     prismaMock.rolePermission.count.mockResolvedValue(1);
+    prismaMock.permission.findMany.mockResolvedValue(permissionCatalogRows());
+    prismaMock.$transaction.mockImplementation(async (input: any) => {
+      if (typeof input === "function") return input(prismaMock);
+      return Promise.all(input);
+    });
     prismaMock.user.findFirst.mockResolvedValue(null);
     prismaMock.user.findUnique.mockResolvedValue({
       id: "u1",
@@ -250,7 +272,7 @@ describe("admin routes (prisma mock)", () => {
         isSystem: false,
       });
       prismaMock.rolePermission.create.mockImplementation(async ({ data }: { data: any }) => {
-        const code = (Object.keys(DEFAULT_PROFILE_PERMISSIONS) as ProfileRole[]).find((rc) => orgRoleRowId(rc) === data.roleId) ?? "TEACHER";
+        const code = (Object.keys(DEFAULT_PROFILE_PERMISSIONS) as BuiltinProfileRole[]).find((rc) => orgRoleRowId(rc) === data.roleId) ?? "TEACHER";
         extra.push({
           roleId: data.roleId,
           permissionId: data.permissionId,
