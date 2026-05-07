@@ -24,16 +24,14 @@ describe('UserNav', () => {
     })
   })
 
-  it('shows auth links when there is no session and exposes the back button on internal pages', async () => {
+  it('shows auth links when there is no session', async () => {
     vi.mocked(api).mockRejectedValueOnce(new Error('unauthorized'))
-    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {})
 
     render(<UserNav />)
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'Iniciar Sesión' })).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /volver/i }))
 
-    expect(backSpy).toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /volver/i })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Registrarse' })).toBeInTheDocument()
   })
 
@@ -54,7 +52,7 @@ describe('UserNav', () => {
     expect(screen.getByText('A')).toBeInTheDocument()
   })
 
-  it('uses navLinks from the backend, hides the back button on public pages and logs out from the menu', async () => {
+  it('uses navLinks from the backend and logs out from the menu', async () => {
     mockUsePathname.mockReturnValue('/login')
     vi.mocked(api)
       .mockResolvedValueOnce({
@@ -70,6 +68,9 @@ describe('UserNav', () => {
     expect(screen.queryByRole('button', { name: /volver/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /admin@example.com/i }))
+    const menuLinks = screen.getAllByRole('link')
+    expect(menuLinks.map((link) => link.textContent?.trim()).slice(-2)).toEqual(['Mi perfil', 'Configuración del sistema'])
+    expect(screen.getByRole('link', { name: /configuración del sistema/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /cerrar sesión/i }))
 
     await waitFor(() =>

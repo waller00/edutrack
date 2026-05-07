@@ -4,7 +4,18 @@ const smtpHost = process.env.SMTP_HOST!;
 const smtpPort = Number(process.env.SMTP_PORT || 587);
 const smtpUser = process.env.SMTP_USER!;
 const smtpPass = process.env.SMTP_PASS!;
-const smtpFrom = process.env.SMTP_FROM || `no-reply@${new URL(process.env.FRONTEND_URL!).hostname}`;
+function resolveDefaultFromAddress() {
+  const frontendUrl = (process.env.FRONTEND_URL || "").trim();
+  if (frontendUrl) {
+    try {
+      return `no-reply@${new URL(frontendUrl).hostname}`;
+    } catch {
+      // fallback local si FRONTEND_URL es inválida
+    }
+  }
+  return "no-reply@localhost";
+}
+const smtpFrom = process.env.SMTP_FROM || resolveDefaultFromAddress();
 
 /** SendGrid SMTP (587) suele estar bloqueado en Droplets (p. ej. DO); la API v3 va por HTTPS 443. */
 function shouldUseSendGridHttpApi(): boolean {

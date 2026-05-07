@@ -7,13 +7,17 @@ import { randomBytes } from 'crypto'
 import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
 import { validateNationalIdDocumentExpiresAtUpdate } from '../auth-profile-pure.js'
 import { isDiditConfigured } from '../system-settings.js'
+import { getOrCreateSystemSettings } from '../system-settings.js'
 import { normalizePermissionId } from '../profile-permissions-defaults.js'
 import {
+  createProfileRoleWithPermissions,
   createCustomPermissionForRole,
   ensureDefaultProfilePermissionsIfNeeded,
   listActiveRolesMetaOrdered,
+  listPermissionCatalog,
   loadProfilePermissionsStore,
   profilePermissionsResponse,
+  replaceRolePermissionGrants,
   roleHasPermissionAssignment,
   updateRolePermissionGrant,
 } from '../profile-permissions-repository.js'
@@ -88,10 +92,15 @@ function messageForUniqueViolation(err: Prisma.PrismaClientKnownRequestError): s
   return 'Ese dato ya existe en otro usuario (restricción única en la base).'
 }
 
-async function replyProfilePayload(res: { json: (b: unknown) => void }) {
+async function buildProfilePayload() {
   const rolesMeta = await listActiveRolesMetaOrdered()
   const store = await loadProfilePermissionsStore()
-  res.json(profilePermissionsResponse(store, rolesMeta))
+  const permissionCatalog = await listPermissionCatalog()
+  return { ...profilePermissionsResponse(store, rolesMeta), permissionCatalog }
+}
+
+async function replyProfilePayload(res: { json: (b: unknown) => void }) {
+  res.json(await buildProfilePayload())
 }
 
 // --- Roles de organización (CRUD liviano para roles custom) ---
@@ -223,6 +232,85 @@ r.get('/users', async (req, res) => {
 // Gestión de perfiles: tabla Permission + RolePermission (por código de OrgRole en la URL).
 r.get('/profiles', async (_req, res) => {
   await ensureDefaultProfilePermissionsIfNeeded()
+  return replyProfilePayload(res)
+})
+
+type ProfileGrantInput = {
+  id: string
+  enabled: boolean
+  scope?: 'own' | 'all'
+  label?: string
+}
+
+const profileGrantSchema = z.object({
+  id: z.string().min(2).max(120),
+  enabled: z.boolean(),
+  scope: z.enum(['own', 'all']).optional(),
+  label: z.string().min(1).max(80).optional(),
+})
+
+function profileGrantsFromBody(grants: Array<z.infer<typeof profileGrantSchema>>): ProfileGrantInput[] {
+  return grants.map((grant) => ({
+    id: grant.id,
+    enabled: grant.enabled,
+    ...(grant.scope !== undefined ? { scope: grant.scope } : {}),
+    ...(grant.label !== undefined ? { label: grant.label } : {}),
+  }))
+}
+
+r.post('/profiles', async (req, res) => {
+  await ensureDefaultProfilePermissionsIfNeeded()
+  const parsed = z.object({
+    code: z.string().min(2).max(48),
+    label: z.string().min(2).max(80),
+    permissions: z.array(profileGrantSchema).default([]),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+
+  const code = normalizeOrgRoleCode(parsed.data.code)
+  try {
+    validateOrgRoleCode(code)
+  } catch {
+    return res.status(400).json({ message: 'Código de perfil inválido (usa A-Z, números y _, empieza con letra).' })
+  }
+
+  if (['ADMIN', 'TEACHER', 'STAFF'].includes(code)) {
+    return res.status(409).json({ message: 'Ese perfil ya existe' })
+  }
+
+  const created = await createProfileRoleWithPermissions({
+    code,
+    label: parsed.data.label,
+    grants: profileGrantsFromBody(parsed.data.permissions),
+  })
+  if (created && 'error' in created && created.error === 'EXISTS') {
+    return res.status(409).json({ message: 'Ese perfil ya existe' })
+  }
+  if (created && 'error' in created && created.error === 'NO_PERMISSION') {
+    return res.status(400).json({ message: 'Hay permisos inválidos en la selección' })
+  }
+
+  return res.status(201).json(await buildProfilePayload())
+})
+
+r.put('/profiles/:role/permissions', async (req, res) => {
+  await ensureDefaultProfilePermissionsIfNeeded()
+  const exists = await resolveActiveOrgRole(req.params.role)
+  if (!exists) return res.status(404).json({ message: 'Rol no encontrado' })
+
+  const parsed = z.object({
+    permissions: z.array(profileGrantSchema),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+
+  const updated = await replaceRolePermissionGrants(exists.code, profileGrantsFromBody(parsed.data.permissions))
+  if (updated && 'error' in updated && updated.error === 'NO_ROLE') {
+    return res.status(404).json({ message: 'Rol no encontrado' })
+  }
+  if (updated && 'error' in updated && updated.error === 'NO_PERMISSION') {
+    return res.status(400).json({ message: 'Hay permisos inválidos en la selección' })
+  }
+
   return replyProfilePayload(res)
 })
 
@@ -449,8 +537,62 @@ r.post('/users/:id/password/reset', async (req, res) => {
 })
 
 r.get('/system-settings', async (_req, res) => {
+  const row = await getOrCreateSystemSettings()
   return res.json({
     diditConfigured: isDiditConfigured(),
+    livenessCheckEnabled: row.livenessCheckEnabled,
+    attendanceNoShowGraceMinutes: row.attendanceNoShowGraceMinutes,
+    attendanceLateToleranceMinutes: row.attendanceLateToleranceMinutes,
+    attendanceClassBridgeGapMinutes: row.attendanceClassBridgeGapMinutes,
+    attendanceMonitorEnabled: row.attendanceMonitorEnabled,
+    attendanceMonitorIntervalMs: row.attendanceMonitorIntervalMs,
+    biometricLateHour: row.biometricLateHour,
+    biometricLateMinute: row.biometricLateMinute,
+  })
+})
+
+r.put('/system-settings', async (req, res) => {
+  const parsed = z
+    .object({
+      livenessCheckEnabled: z.boolean().optional(),
+      attendanceNoShowGraceMinutes: z.number().int().min(1).max(180).optional(),
+      attendanceLateToleranceMinutes: z.number().int().min(0).max(120).optional(),
+      attendanceClassBridgeGapMinutes: z.number().int().min(15).max(240).optional(),
+      attendanceMonitorEnabled: z.boolean().optional(),
+      attendanceMonitorIntervalMs: z.number().int().min(30000).max(3600000).optional(),
+      biometricLateHour: z.number().int().min(0).max(23).optional(),
+      biometricLateMinute: z.number().int().min(0).max(59).optional(),
+    })
+    .safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  const data = parsed.data
+  const updated = await prisma.systemSettings.upsert({
+    where: { id: 'default' },
+    create: {
+      id: 'default',
+      livenessCheckEnabled: data.livenessCheckEnabled ?? false,
+      attendanceNoShowGraceMinutes: data.attendanceNoShowGraceMinutes ?? 15,
+      attendanceLateToleranceMinutes: data.attendanceLateToleranceMinutes ?? 5,
+      attendanceClassBridgeGapMinutes: data.attendanceClassBridgeGapMinutes ?? 60,
+      attendanceMonitorEnabled: data.attendanceMonitorEnabled ?? true,
+      attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs ?? 120000,
+      biometricLateHour: data.biometricLateHour ?? 8,
+      biometricLateMinute: data.biometricLateMinute ?? 30,
+    },
+    update: data,
+  })
+
+  return res.json({
+    diditConfigured: isDiditConfigured(),
+    livenessCheckEnabled: updated.livenessCheckEnabled,
+    attendanceNoShowGraceMinutes: updated.attendanceNoShowGraceMinutes,
+    attendanceLateToleranceMinutes: updated.attendanceLateToleranceMinutes,
+    attendanceClassBridgeGapMinutes: updated.attendanceClassBridgeGapMinutes,
+    attendanceMonitorEnabled: updated.attendanceMonitorEnabled,
+    attendanceMonitorIntervalMs: updated.attendanceMonitorIntervalMs,
+    biometricLateHour: updated.biometricLateHour,
+    biometricLateMinute: updated.biometricLateMinute,
   })
 })
 

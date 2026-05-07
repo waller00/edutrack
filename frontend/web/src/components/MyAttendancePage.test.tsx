@@ -58,8 +58,8 @@ describe('MyAttendancePage', () => {
 
     render(<MyAttendancePage role="STAFF" />)
 
-    await screen.findByRole('heading', { name: 'Mis Asistencias' })
-    expect(screen.getByText('No hay registros de asistencia')).toBeInTheDocument()
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('No hay registros de asistencia')).toBeInTheDocument()
   })
 
   it('reloads with updated query params when filters change', async () => {
