@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import MyAssignedEventsPage from '@/components/MyAssignedEventsPage'
 import { api } from '@/lib/api'
 
@@ -70,9 +70,13 @@ describe('MyAssignedEventsPage', () => {
     render(<MyAssignedEventsPage role="STAFF" />)
     const allButton = await screen.findByRole('button', { name: 'Todos' })
     await screen.findByText('No hay eventos para mostrar')
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
 
-    fireEvent.click(allButton)
+    await act(async () => {
+      allButton.click()
+    })
 
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     await waitFor(() =>
       expect(mockedApi).toHaveBeenLastCalledWith('/events/my-events?assignedUserId=user-1'),
     )
