@@ -199,10 +199,8 @@ export default function AdminAttendance() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
-  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [selectedAttendanceIds, setSelectedAttendanceIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
-  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('')
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -349,28 +347,6 @@ export default function AdminAttendance() {
     setSelectedAttendanceIds((prev) =>
       prev.length === attendances.length ? [] : attendances.map((attendance) => attendance.id),
     )
-  }
-
-  async function deleteFilteredAttendances() {
-    if (bulkDeleteConfirm.trim() !== 'ELIMINAR') {
-      setMessage('❌ Escribe ELIMINAR para confirmar el borrado masivo')
-      return
-    }
-
-    setBulkDeleting(true)
-    setMessage('')
-    try {
-      const params = buildAdminAttendanceAllQueryString(1, filters)
-      const response = await api<{ deletedCount: number }>(`/attendance/purge-all?${params}`, { method: 'DELETE' })
-      setMessage(`✅ Se eliminaron ${response.deletedCount} asistencias del conjunto filtrado.`)
-      setBulkDeleteConfirm('')
-      setPage(1)
-      await Promise.all([loadAttendances(), loadStats()])
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al eliminar las asistencias filtradas'}`)
-    } finally {
-      setBulkDeleting(false)
-    }
   }
 
   async function exportReport(format: 'excel' | 'pdf') {
@@ -868,42 +844,6 @@ export default function AdminAttendance() {
             {message}
           </div>
         )}
-
-        <details className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <summary className="cursor-pointer list-none font-medium text-red-700">
-            Eliminar todos los registros filtrados
-          </summary>
-          <div className="mt-3 space-y-3">
-            <p className="text-sm text-red-800">
-              Esta acción elimina todos los registros que coincidan con los filtros actuales, no solo los {attendances.length} visibles en esta página.
-            </p>
-            <p className="text-sm text-red-800">
-              Total objetivo actual: {total} registros.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <label htmlFor="attendance-bulk-delete-confirm" className="text-sm font-medium text-red-900">
-                Escribe `ELIMINAR` para habilitar la acción final
-              </label>
-              <input
-                id="attendance-bulk-delete-confirm"
-                type="text"
-                value={bulkDeleteConfirm}
-                onChange={(e) => setBulkDeleteConfirm(e.target.value)}
-                placeholder="ELIMINAR"
-                className="rounded border border-red-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
-              />
-              <button
-                type="button"
-                disabled={bulkDeleting || total === 0}
-                onClick={() => void deleteFilteredAttendances()}
-                className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
-              >
-                {bulkDeleting ? 'Eliminando...' : 'Sí, eliminar todos los registros filtrados'}
-              </button>
-            </div>
-            <p className="text-xs text-red-700">La operación es destructiva y no se puede deshacer.</p>
-          </div>
-        </details>
 
         {/* Tabla de asistencias */}
         <div className="bg-white border rounded-lg shadow-sm">

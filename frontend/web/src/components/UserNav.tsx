@@ -157,6 +157,13 @@ export default function UserNav() {
               </button>
               {open && (
                 <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden fade-in">
+                  <a
+                    href="/profile"
+                    className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+                  >
+                    <User className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                    Mi perfil
+                  </a>
                   {me.role === 'ADMIN' && (
                     <a
                       href="/admin/settings"
@@ -166,13 +173,6 @@ export default function UserNav() {
                       Configuración del sistema
                     </a>
                   )}
-                  <a
-                    href="/profile"
-                    className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
-                  >
-                    <User className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-                    Mi perfil
-                  </a>
                   <button
                     onClick={logout}
                     type="button"
