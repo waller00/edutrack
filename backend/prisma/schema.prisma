@@ -20,6 +20,22 @@ enum InAppNotificationType {
   ATTENDANCE_INCIDENT
 }
 
+/// Registro append-only de acciones relevantes (RF-11). Sin updates ni deletes desde la app.
+enum AuditAction {
+  AUTH_LOGIN_SUCCESS
+  AUTH_LOGIN_FAILURE
+  AUTH_LOGOUT
+  AUTH_GOOGLE_LOGIN_SUCCESS
+  USER_CREATED_BY_ADMIN
+  USER_UPDATED_BY_ADMIN
+  USER_ACCOUNT_LOCK_TOGGLED
+  ADMIN_PASSWORD_RESET_ISSUED
+  MEDICAL_LEAVE_CREATED
+  MEDICAL_LEAVE_UPDATED
+  MEDICAL_LEAVE_DEACTIVATED
+  SYSTEM_SETTINGS_UPDATED
+}
+
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
 model OrgRole {
   id        String   @id @default(uuid())
@@ -69,6 +85,7 @@ model User {
   biometricMappings  BiometricUserMapping[]
   biometricPunches   BiometricPunch[]
   attendanceIncidents AttendanceIncident[]
+  auditEvents         AuditLog[]
   // security
   emailVerifiedAt     DateTime?
   failedLoginAttempts Int       @default(0)
@@ -118,6 +135,24 @@ model InAppNotification {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  occurredAt  DateTime    @default(now())
+  action      AuditAction
+  actorUserId String?
+  actor       User?       @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorIp     String?     @db.VarChar(45)
+  userAgent   String?     @db.VarChar(512)
+  source      String      @default("API") @db.VarChar(32)
+  entityType  String?     @db.VarChar(64)
+  entityId    String?     @db.VarChar(36)
+  metadata    Json?
+
+  @@index([occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
 }
 
 /// Configuración global (fila única `default`).

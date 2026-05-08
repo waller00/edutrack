@@ -38,6 +38,9 @@ const { prismaMock, sendMailMock } = vi.hoisted(() => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
+    auditLog: {
+      create: vi.fn().mockResolvedValue({ id: "a1" }),
+    },
   },
   sendMailMock: vi.fn().mockResolvedValue(undefined),
 }));
