@@ -33,7 +33,9 @@ const USER_FIELD_LABELS: Record<string, string> = {
   nationalIdDocumentExpiresAt: 'vencimiento del documento',
   firstName: 'nombre',
   lastName: 'apellido',
+  name: 'nombre mostrado',
   isApproved: 'aprobación de la cuenta',
+  approvedAt: 'fecha de aprobación',
   isActive: 'cuenta activa',
 }
 

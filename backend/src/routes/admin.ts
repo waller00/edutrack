@@ -74,12 +74,87 @@ async function buildAdminUserUpdateData(id: string, payload: {
   }
   if (typeof payload.isApproved === 'boolean') {
     data.isApproved = payload.isApproved
-    data.approvedAt = payload.isApproved ? new Date() : null
+    if (!payload.isApproved) {
+      data.approvedAt = null
+    } else {
+      const cur = await prisma.user.findUnique({
+        where: { id },
+        select: { isApproved: true },
+      })
+      if (!cur?.isApproved) {
+        data.approvedAt = new Date()
+      }
+    }
   }
   if (typeof payload.isActive === 'boolean') {
     data.isActive = payload.isActive
   }
   return data
+}
+
+/** Nombres semánticos para auditoría (alineados con la UI). */
+const USER_AUDIT_FIELD_ALIASES: Record<string, string> = {
+  roleId: 'role',
+}
+
+function nationalIdComparable(raw: unknown): string {
+  if (raw == null || raw === '') return ''
+  return onlyDigits(String(raw))
+}
+
+function dateComparableMs(raw: unknown): number | null {
+  if (raw == null) return null
+  if (raw instanceof Date) {
+    const t = raw.getTime()
+    return Number.isNaN(t) ? null : t
+  }
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const t = new Date(raw).getTime()
+    return Number.isNaN(t) ? null : t
+  }
+  return null
+}
+
+/** Solo campos cuyo valor en `data` difiere del usuario en BD (el front suele mandar el formulario completo). */
+function computeAuditUserFieldsChanged(
+  before: {
+    roleId?: string | null
+    username?: string | null
+    firstName?: string | null
+    lastName?: string | null
+    name?: string | null
+    nationalId?: string | null
+    nationalIdDocumentExpiresAt?: Date | string | null
+    isApproved?: boolean | null
+    approvedAt?: Date | string | null
+    isActive?: boolean | null
+  },
+  data: Record<string, unknown>,
+): string[] {
+  const out: string[] = []
+  for (const key of Object.keys(data)) {
+    const newVal = data[key]
+    const oldVal = (before as Record<string, unknown>)[key]
+    let changed = false
+    switch (key) {
+      case 'nationalId':
+        changed = nationalIdComparable(oldVal) !== nationalIdComparable(newVal)
+        break
+      case 'nationalIdDocumentExpiresAt':
+      case 'approvedAt':
+        changed = dateComparableMs(oldVal) !== dateComparableMs(newVal)
+        break
+      case 'isApproved':
+      case 'isActive':
+        changed = Boolean(oldVal) !== Boolean(newVal)
+        break
+      default:
+        if (newVal === undefined) continue
+        changed = String(oldVal ?? '') !== String(newVal ?? '')
+    }
+    if (changed) out.push(USER_AUDIT_FIELD_ALIASES[key] ?? key)
+  }
+  return out
 }
 
 function messageForUniqueViolation(err: Prisma.PrismaClientKnownRequestError): string {
@@ -504,6 +579,28 @@ r.put('/users/:id', async (req, res) => {
     }
   }
 
+  const beforeSnapshot = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      roleId: true,
+      username: true,
+      firstName: true,
+      lastName: true,
+      name: true,
+      nationalId: true,
+      nationalIdDocumentExpiresAt: true,
+      isApproved: true,
+      approvedAt: true,
+      isActive: true,
+    },
+  })
+  if (!beforeSnapshot) return res.status(404).json({ message: 'Usuario no encontrado' })
+
+  const fieldsChangedSemantic = computeAuditUserFieldsChanged(beforeSnapshot, data)
+  if (Object.keys(data).length > 0 && fieldsChangedSemantic.length === 0) {
+    return res.json({ ok: true })
+  }
+
   try {
     await prisma.user.update({ where: { id }, data: data as Prisma.UserUpdateInput })
   } catch (error) {
@@ -518,7 +615,7 @@ r.put('/users/:id', async (req, res) => {
     req,
     entityType: 'User',
     entityId: id,
-    metadata: { fieldsChanged: Object.keys(data) },
+    metadata: { fieldsChanged: fieldsChangedSemantic },
   })
   res.json({ ok: true })
 })

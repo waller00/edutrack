@@ -136,6 +136,14 @@ describe("admin routes (prisma mock)", () => {
       orgRole: { code: "TEACHER" },
       firstName: "A",
       lastName: "B",
+      name: "A B",
+      roleId: orgRoleRowId("TEACHER"),
+      username: "teacher1",
+      nationalId: null,
+      nationalIdDocumentExpiresAt: null,
+      isApproved: true,
+      approvedAt: new Date("2020-01-01T00:00:00.000Z"),
+      isActive: true,
     });
     prismaMock.auditLog.findMany.mockResolvedValue([]);
     prismaMock.auditLog.count.mockResolvedValue(0);
