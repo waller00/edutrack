@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { Prisma } from '@prisma/client'
+import { Prisma, AuditAction } from '@prisma/client'
 import { prisma } from '../prisma.js'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { z } from 'zod'
@@ -23,6 +23,12 @@ import {
 } from '../profile-permissions-repository.js'
 import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js'
 import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../org-role-service.js'
+import {
+  AUDIT_ACTION_LABELS,
+  getAuditActionCatalog,
+  parseAuditActionFilter,
+  recordAuditEvent,
+} from '../services/audit-log.js'
 
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
@@ -402,6 +408,14 @@ r.post('/users', async (req, res) => {
       isActive: true,
     },
   })
+  recordAuditEvent({
+    action: AuditAction.USER_CREATED_BY_ADMIN,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: user.id,
+    metadata: { email: user.email },
+  })
   res.json({ id: user.id })
 })
 
@@ -498,6 +512,14 @@ r.put('/users/:id', async (req, res) => {
     }
     throw error
   }
+  recordAuditEvent({
+    action: AuditAction.USER_UPDATED_BY_ADMIN,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { fieldsChanged: Object.keys(data) },
+  })
   res.json({ ok: true })
 })
 
@@ -517,6 +539,14 @@ r.put('/users/:id/lock', async (req, res) => {
     where: { id },
     data: { lockUntil: lock ? new Date(Date.now() + 15 * 60 * 1000) : null, failedLoginAttempts: 0 },
   })
+  recordAuditEvent({
+    action: AuditAction.USER_ACCOUNT_LOCK_TOGGLED,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { locked: lock },
+  })
   res.json({ ok: true })
 })
 
@@ -533,6 +563,14 @@ r.post('/users/:id/password/reset', async (req, res) => {
   const token = randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
   await prisma.passwordReset.create({ data: { token, userId: id, expiresAt } })
+  recordAuditEvent({
+    action: AuditAction.ADMIN_PASSWORD_RESET_ISSUED,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { expiresAt: expiresAt.toISOString() },
+  })
   res.json({ token, expiresAt })
 })
 
@@ -583,6 +621,15 @@ r.put('/system-settings', async (req, res) => {
     update: data,
   })
 
+  recordAuditEvent({
+    action: AuditAction.SYSTEM_SETTINGS_UPDATED,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'SystemSettings',
+    entityId: 'default',
+    metadata: { keysChanged: Object.keys(parsed.data) },
+  })
+
   return res.json({
     diditConfigured: isDiditConfigured(),
     livenessCheckEnabled: updated.livenessCheckEnabled,
@@ -593,6 +640,79 @@ r.put('/system-settings', async (req, res) => {
     attendanceMonitorIntervalMs: updated.attendanceMonitorIntervalMs,
     biometricLateHour: updated.biometricLateHour,
     biometricLateMinute: updated.biometricLateMinute,
+  })
+})
+
+r.get('/audit-logs', async (req, res) => {
+  const parsed = z
+    .object({
+      page: z.coerce.number().int().min(1).optional().default(1),
+      pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+      action: z.string().optional(),
+      actorUserId: z.string().uuid().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    })
+    .safeParse(req.query)
+  if (!parsed.success) {
+    return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+  }
+  const { page, pageSize, action: actionRaw, actorUserId, from, to } = parsed.data
+  if (actionRaw && !parseAuditActionFilter(actionRaw)) {
+    return res.status(400).json({ message: 'Tipo de acción inválido' })
+  }
+  const action = parseAuditActionFilter(actionRaw)
+
+  const where: Prisma.AuditLogWhereInput = {}
+  if (action) where.action = action
+  if (actorUserId) where.actorUserId = actorUserId
+  if (from || to) {
+    where.occurredAt = {}
+    if (from) {
+      const d = new Date(from)
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ message: 'Fecha "desde" inválida' })
+      where.occurredAt.gte = d
+    }
+    if (to) {
+      const d = new Date(to)
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ message: 'Fecha "hasta" inválida' })
+      where.occurredAt.lte = d
+    }
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({
+      where,
+      orderBy: { occurredAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: { actor: { select: { id: true, name: true, email: true } } },
+    }),
+  ])
+
+  const data = rows.map((row) => ({
+    id: row.id,
+    occurredAt: row.occurredAt.toISOString(),
+    action: row.action,
+    actionLabel: AUDIT_ACTION_LABELS[row.action],
+    actorUserId: row.actorUserId,
+    actorName: row.actor?.name ?? null,
+    actorEmail: row.actor?.email ?? null,
+    actorIp: row.actorIp,
+    userAgent: row.userAgent,
+    source: row.source,
+    entityType: row.entityType,
+    entityId: row.entityId,
+    metadata: row.metadata,
+  }))
+
+  return res.json({
+    total,
+    page,
+    pageSize,
+    actionCatalog: getAuditActionCatalog(),
+    data,
   })
 })
 

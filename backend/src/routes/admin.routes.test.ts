@@ -42,6 +42,11 @@ const { prismaMock } = vi.hoisted(() => ({
       create: vi.fn(),
     },
     passwordReset: { create: vi.fn() },
+    auditLog: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+      create: vi.fn().mockResolvedValue({ id: "a1" }),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -132,6 +137,9 @@ describe("admin routes (prisma mock)", () => {
       firstName: "A",
       lastName: "B",
     });
+    prismaMock.auditLog.findMany.mockResolvedValue([]);
+    prismaMock.auditLog.count.mockResolvedValue(0);
+    prismaMock.auditLog.create.mockResolvedValue({ id: "audit-1" });
   });
 
   it("GET /admin/users paginado", async () => {
@@ -482,5 +490,29 @@ describe("admin routes (prisma mock)", () => {
     const tok = signAccessToken({ sub: "t", email: "t@t.com", role: "TEACHER" });
     const res = await request(app()).get("/admin/users").set("Authorization", `Bearer ${tok}`);
     expect(res.status).toBe(403);
+  });
+
+  it("GET /admin/audit-logs devuelve datos y catálogo de acciones", async () => {
+    prismaMock.auditLog.count.mockResolvedValue(1);
+    prismaMock.auditLog.findMany.mockResolvedValue([
+      {
+        id: "log-1",
+        occurredAt: new Date("2026-01-01T12:00:00.000Z"),
+        action: "AUTH_LOGIN_SUCCESS",
+        actorUserId: "u1",
+        actorIp: "1.2.3.4",
+        userAgent: "vitest",
+        source: "API",
+        entityType: null,
+        entityId: null,
+        metadata: null,
+        actor: { id: "u1", name: "Test", email: "t@t.com" },
+      },
+    ]);
+    const res = await request(app()).get("/admin/audit-logs?page=1&pageSize=10").set(adminHdr());
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(Array.isArray(res.body.actionCatalog)).toBe(true);
+    expect(res.body.data[0].actionLabel).toMatch(/sesión/i);
   });
 });

@@ -2,7 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import argon2 from "argon2";
 import { prisma } from "../prisma.js";
-import { signAccessToken } from "../jwt.js";
+import { signAccessToken, verifyToken } from "../jwt.js";
+import { recordAuditEvent } from "../services/audit-log.js";
+import { AuditAction } from "@prisma/client";
 import { authGuard } from "../middlewares/auth.js";
 import passport from "../passportGoogle.js";
 import crypto from "crypto";
@@ -31,6 +33,7 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
     { href: "/admin/attendance", label: "Asistencias" },
     { href: "/admin/events", label: "Eventos" },
     { href: "/admin/licenses", label: "Licencias" },
+    { href: "/admin/analytics", label: "Analytics" },
     { href: "/notifications", label: "Avisos" },
   ],
   TEACHER: [
@@ -487,20 +490,53 @@ r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
     },
     include: { orgRole: { select: { code: true } } },
   });
-  if (!user || !user.passwordHash) return res.status(401).json({ message: "Credenciales" });
-  if (!user.isActive) return res.status(403).json({ message: "Cuenta desactivada" });
+  if (!user || !user.passwordHash) {
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      req,
+      metadata: { reason: "UNKNOWN_IDENTIFIER_OR_NO_PASSWORD" },
+    });
+    return res.status(401).json({ message: "Credenciales" });
+  }
+  if (!user.isActive) {
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      actorUserId: user.id,
+      req,
+      metadata: { reason: "ACCOUNT_INACTIVE" },
+    });
+    return res.status(403).json({ message: "Cuenta desactivada" });
+  }
 
   if (user.lockUntil && user.lockUntil > new Date()) {
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      actorUserId: user.id,
+      req,
+      metadata: { reason: "ACCOUNT_LOCKED" },
+    });
     return res.status(429).json({ message: "Cuenta bloqueada temporalmente. Intenta más tarde" });
   }
 
   const ok = await argon2.verify(user.passwordHash, password);
   if (!ok) {
     await registerFailedLogin(user.id);
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      actorUserId: user.id,
+      req,
+      metadata: { reason: "INVALID_PASSWORD" },
+    });
     return res.status(401).json({ message: "Credenciales" });
   }
 
   await registerSuccessfulLogin(user.id);
+
+  recordAuditEvent({
+    action: AuditAction.AUTH_LOGIN_SUCCESS,
+    actorUserId: user.id,
+    req,
+  });
 
   const roleCode = user.orgRole?.code ?? "";
   const token = signAccessToken({ sub: user.id, email: user.email, role: roleCode });
@@ -654,6 +690,22 @@ r.get("/me", authGuard, async (req, res) => {
 });
 
 r.post("/logout", async (req, res) => {
+  let actorId: string | null = null;
+  const accessTok = (req as any).cookies?.access_token as string | undefined;
+  if (accessTok) {
+    try {
+      const payload = verifyToken(accessTok);
+      actorId = payload.sub ?? null;
+    } catch {
+      /* cookie inválida: igual cerramos sesión */
+    }
+  }
+  recordAuditEvent({
+    action: AuditAction.AUTH_LOGOUT,
+    actorUserId: actorId,
+    req,
+  });
+
   const rt = (req as any).cookies?.refresh_token as string | undefined;
   if (rt) {
     try {
@@ -691,6 +743,12 @@ r.get(
     await prisma.refreshToken.create({ data: { tokenHash: hashToken(rt), userId: user.id, expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")), userAgent: req.headers["user-agent"], ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || (req as any).ip } });
     setRefreshCookie(res, rt);
     const needsProfileCompletion = !oauthUser?.firstName || !oauthUser?.lastName || !oauthUser?.nationalId || !oauthUser?.birthdate || !oauthUser?.username;
+    recordAuditEvent({
+      action: AuditAction.AUTH_GOOGLE_LOGIN_SUCCESS,
+      actorUserId: user.id,
+      req,
+      metadata: { needsProfileCompletion },
+    });
     res.redirect(process.env.FRONTEND_URL! + (needsProfileCompletion ? "/onboarding" : "/"));
   }
 );
