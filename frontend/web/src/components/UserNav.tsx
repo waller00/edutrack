@@ -4,8 +4,6 @@ import { usePathname } from 'next/navigation'
 import { Bell, LogOut, Settings, User } from 'lucide-react'
 import { api } from '@/lib/api'
 
-type NavLink = { href: string; label: string }
-
 type MeUser = {
   role: string
   name?: string
@@ -13,42 +11,10 @@ type MeUser = {
   isApproved?: boolean
   isActive?: boolean
   needsProfileCompletion?: boolean
-  /** Viene del API: lista autorizada (evita enlaces viejos en caché del navegador) */
-  navLinks?: NavLink[]
 }
 
 function canAccessModules(me: MeUser) {
   return Boolean(me.isApproved && me.isActive && !me.needsProfileCompletion)
-}
-
-/** Si el backend viejo no manda navLinks */
-const FALLBACK_NAV: Record<string, NavLink[]> = {
-  ADMIN: [
-    { href: '/admin/users', label: 'Usuarios' },
-    { href: '/admin/attendance', label: 'Asistencias' },
-    { href: '/admin/events', label: 'Eventos' },
-    { href: '/admin/licenses', label: 'Licencias' },
-    { href: '/admin/analytics', label: 'Analytics' },
-    { href: '/notifications', label: 'Avisos' },
-  ],
-  TEACHER: [
-    { href: '/teacher/attendance', label: 'Mis asistencias' },
-    { href: '/teacher/events', label: 'Mis eventos' },
-    { href: '/teacher/licenses', label: 'Mis licencias' },
-    { href: '/notifications', label: 'Avisos' },
-  ],
-  STAFF: [
-    { href: '/staff/attendance', label: 'Mis asistencias' },
-    { href: '/staff/events', label: 'Mis eventos' },
-    { href: '/staff/licenses', label: 'Mis licencias' },
-    { href: '/notifications', label: 'Avisos' },
-  ],
-}
-
-function navItemsForMe(me: MeUser | null): NavLink[] {
-  if (!me) return []
-  if (Array.isArray(me.navLinks)) return me.navLinks
-  return canAccessModules(me) ? FALLBACK_NAV[me.role] || [] : []
 }
 
 export default function UserNav() {
@@ -95,32 +61,16 @@ export default function UserNav() {
     window.location.href = '/login'
   }
 
-  const roleItems = navItemsForMe(me)
-
   return (
     <header className="header-modern">
-      <div className="mx-auto max-w-6xl px-4 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <a href="/" className="font-bold text-xl text-emerald-600 hover:text-emerald-700 transition-colors flex items-center gap-2">
+      <div className="mx-auto max-w-6xl px-4 h-16 flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <a href="/" className="font-bold text-xl text-emerald-600 hover:text-emerald-700 transition-colors flex items-center gap-2 shrink-0">
             <img src="/logo.svg" alt="EduTrack" className="w-8 h-8" />
             EduTrack
           </a>
         </div>
-        {me && roleItems.length > 0 && (
-          <nav className="flex flex-wrap justify-center gap-4 md:gap-8 text-sm font-medium max-w-[50%] md:max-w-none" data-nav-api="1">
-            {roleItems.map(it => (
-              <a
-                key={it.label}
-                href={it.href}
-                className="text-gray-700 hover:text-emerald-600 transition-colors duration-200 relative group"
-              >
-                {it.label}
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-emerald-600 transition-all duration-200 group-hover:w-full"></span>
-              </a>
-            ))}
-          </nav>
-        )}
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-4">
           {me && canAccessModules(me) && (
             <a
               href="/notifications"

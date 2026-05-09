@@ -273,13 +273,14 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
                       </div>
                     </td>
                     <td className="px-4 py-3.5 text-gray-800">
-                      {r.actorName || r.actorEmail ? (
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{r.actorName || '—'}</div>
-                          {r.actorEmail ? (
-                            <div className="truncate text-xs text-gray-500">{r.actorEmail}</div>
-                          ) : null}
+                      {r.actorName ? (
+                        <div className="min-w-0 truncate font-medium" title={r.actorEmail || undefined}>
+                          {r.actorName}
                         </div>
+                      ) : r.actorEmail ? (
+                        <span className="text-gray-600" title={r.actorEmail}>
+                          {r.actorEmail}
+                        </span>
                       ) : (
                         <span className="text-gray-400">—</span>
                       )}

@@ -8,6 +8,7 @@ import {
   FileText,
   Info,
   LayoutDashboard,
+  LineChart,
   Loader2,
   Mail,
   PenLine,
@@ -42,6 +43,8 @@ function HomeSectionIcon({ kind }: { kind: HomeSectionIconKind }) {
       return <FileText className={cls} aria-hidden />
     case 'dashboard':
       return <LayoutDashboard className={cls} aria-hidden />
+    case 'analytics':
+      return <LineChart className={cls} aria-hidden />
     default:
       return <Wrench className={cls} aria-hidden />
   }

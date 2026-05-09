@@ -39,7 +39,9 @@ describe('getHomeSectionIconKind', () => {
     ['Configuración del sistema', 'settings'],
     ['asistencias', 'chart'],
     ['eventos', 'calendar'],
+    ['Gestión de eventos y notificaciones', 'calendar'],
     ['licencias', 'file'],
+    ['Analíticas', 'analytics'],
     ['Panel admin', 'dashboard'],
     ['Otro', 'default'],
   ])('%s → %s', (title, kind) => {

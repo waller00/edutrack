@@ -18,6 +18,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   MEDICAL_LEAVE_UPDATED: "Licencia / permiso actualizado",
   MEDICAL_LEAVE_DEACTIVATED: "Licencia / permiso desactivado",
   SYSTEM_SETTINGS_UPDATED: "Parámetros del sistema actualizados",
+  EVENT_CREATED: "Evento creado",
 };
 
 export function parseAuditActionFilter(raw: string | undefined): AuditAction | undefined {

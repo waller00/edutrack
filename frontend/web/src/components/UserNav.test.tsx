@@ -35,36 +35,42 @@ describe('UserNav', () => {
     expect(screen.getByRole('link', { name: 'Registrarse' })).toBeInTheDocument()
   })
 
-  it('renders fallback role links for approved users when the api does not provide navLinks', async () => {
-    vi.mocked(api).mockResolvedValueOnce({
-      role: 'TEACHER',
-      name: 'Ana',
-      email: 'ana@example.com',
-      isApproved: true,
-      isActive: true,
-      needsProfileCompletion: false,
-    })
+  it('no muestra barra de módulos; campana y menú de usuario para docente aprobado', async () => {
+    vi.mocked(api)
+      .mockResolvedValueOnce({
+        role: 'TEACHER',
+        name: 'Ana',
+        email: 'ana@example.com',
+        isApproved: true,
+        isActive: true,
+        needsProfileCompletion: false,
+      })
+      .mockResolvedValueOnce({ count: 0 })
 
     render(<UserNav />)
 
-    expect(await screen.findByText('Mis asistencias')).toBeInTheDocument()
-    expect(screen.getByText('Mis eventos')).toBeInTheDocument()
-    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(await screen.findByText('A')).toBeInTheDocument()
+    expect(screen.queryByText('Mis asistencias')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /avisos/i })).toBeInTheDocument()
   })
 
-  it('uses navLinks from the backend and logs out from the menu', async () => {
+  it('admin puede abrir menú y cerrar sesión', async () => {
     mockUsePathname.mockReturnValue('/login')
     vi.mocked(api)
       .mockResolvedValueOnce({
         role: 'ADMIN',
         email: 'admin@example.com',
-        navLinks: [{ href: '/custom', label: 'Custom link' }],
+        isApproved: true,
+        isActive: true,
+        needsProfileCompletion: false,
       })
+      .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({})
 
     render(<UserNav />)
 
-    expect(await screen.findByText('Custom link')).toBeInTheDocument()
+    expect(await screen.findByText('admin@example.com')).toBeInTheDocument()
+    expect(screen.queryByText('Usuarios')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /volver/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /admin@example.com/i }))

@@ -27,6 +27,7 @@ export type HomeSectionIconKind =
   | 'calendar'
   | 'file'
   | 'dashboard'
+  | 'analytics'
   | 'default'
 
 export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
@@ -36,6 +37,10 @@ export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
   if (title.includes('asistencias')) return 'chart'
   if (title.includes('eventos')) return 'calendar'
   if (title.includes('licencias')) return 'file'
+  {
+    const t = title.toLowerCase()
+    if (t.includes('analít') || t.includes('analit') || t.includes('analytics')) return 'analytics'
+  }
   if (title.includes('Panel')) return 'dashboard'
   return 'default'
 }
@@ -44,8 +49,19 @@ export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {
   ADMIN: [
     { title: 'Gestión de usuarios', desc: 'Gestiona los usuarios del sistema.', cta: 'Administrar usuarios', href: '/admin/users' },
     { title: 'Gestión de asistencias', desc: 'Registro y control de asistencias del personal.', cta: 'Gestionar asistencias', href: '/admin/attendance' },
-    { title: 'Gestión de eventos', desc: 'Crear y administrar turnos y eventos.', cta: 'Gestionar eventos', href: '/admin/events' },
+    {
+      title: 'Gestión de eventos y notificaciones',
+      desc: 'Crear turnos y eventos; los avisos a docentes llegan por la campana.',
+      cta: 'Gestionar eventos',
+      href: '/admin/events',
+    },
     { title: 'Gestión de licencias', desc: 'Administra licencias médicas y laborales.', cta: 'Gestionar licencias', href: '/admin/licenses' },
+    {
+      title: 'Analíticas',
+      desc: 'Indicadores y estadísticas para seguimiento operativo.',
+      cta: 'Ver analíticas',
+      href: '/admin/analytics',
+    },
   ],
   TEACHER: [
     { title: 'Mis asistencias', desc: 'Consulta tu historial de asistencias.', cta: 'Ver asistencias', href: '/teacher/attendance' },

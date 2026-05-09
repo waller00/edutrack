@@ -34,6 +34,7 @@ enum AuditAction {
   MEDICAL_LEAVE_UPDATED
   MEDICAL_LEAVE_DEACTIVATED
   SYSTEM_SETTINGS_UPDATED
+  EVENT_CREATED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).

@@ -20,6 +20,8 @@ import {
 import { DateTime } from 'luxon';
 import { sendWebPushPayloadToUser } from '../services/webPush.js';
 import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
+import { AuditAction } from '@prisma/client';
+import { recordAuditEvent } from '../services/audit-log.js';
 
 const r = Router();
 
@@ -270,6 +272,19 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         })
         .catch((err) => console.error('Aviso en app (evento asignado):', err));
     }
+
+    recordAuditEvent({
+      action: AuditAction.EVENT_CREATED,
+      actorUserId: user.sub,
+      req,
+      entityType: 'Event',
+      entityId: event.id,
+      metadata: {
+        title: event.title,
+        type: event.type,
+        assignedUserId: event.assignedUserId,
+      },
+    });
 
     res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
