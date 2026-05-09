@@ -127,7 +127,6 @@ export default function AdminUsersPage() {
     if (u.role === 'ADMIN') return null
     return (
       <tr key={u.id} className="border-t hover:bg-slate-50">
-        <td className="px-3 py-2">{u.email}</td>
         <td className="px-3 py-2">{u.username || '-'}</td>
         <td className="px-3 py-2">{u.role}</td>
         <td className="px-3 py-2">
@@ -256,7 +255,6 @@ export default function AdminUsersPage() {
           <table className="min-w-full text-sm">
             <thead className="bg-slate-100">
               <tr>
-                <th className="px-3 py-2 text-left">Email</th>
                 <th className="px-3 py-2 text-left">Usuario</th>
                 <th className="px-3 py-2 text-left">Rol</th>
                 <th className="px-3 py-2 text-left">Nombre</th>

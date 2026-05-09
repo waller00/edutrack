@@ -14,6 +14,9 @@ const { prismaMock } = vi.hoisted(() => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    auditLog: {
+      create: vi.fn().mockResolvedValue({ id: "a1" }),
+    },
     user: { findUnique: vi.fn() },
     event: { findMany: vi.fn() },
     attendance: {
