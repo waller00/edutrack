@@ -38,7 +38,7 @@ describe('AdminUsersPage', () => {
 
     render(<AdminUsersPage />)
 
-    expect(await screen.findByText('e@test.com')).toBeInTheDocument()
+    expect(await screen.findByText('user1')).toBeInTheDocument()
     expect(screen.getByText('Verificado')).toBeInTheDocument()
     expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/admin/users?'))
   })
@@ -68,7 +68,7 @@ describe('AdminUsersPage', () => {
       .mockResolvedValueOnce({ total: 1, data: [{ ...row, username: 'newname' }] })
 
     render(<AdminUsersPage />)
-    await screen.findByText('e@test.com')
+    await screen.findByText('user1')
 
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
     expect(await screen.findByText('Editar usuario')).toBeInTheDocument()
@@ -85,7 +85,7 @@ describe('AdminUsersPage', () => {
       .mockRejectedValueOnce({ message: '409 conflict' })
 
     render(<AdminUsersPage />)
-    await screen.findByText('e@test.com')
+    await screen.findByText('user1')
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
@@ -102,7 +102,7 @@ describe('AdminUsersPage', () => {
       .mockResolvedValueOnce({ token: 'tok', expiresAt: '2026-01-01' })
 
     render(<AdminUsersPage />)
-    await screen.findByText('e@test.com')
+    await screen.findByText('user1')
 
     fireEvent.click(screen.getByTitle('Bloquear'))
     await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/lock'), expect.any(Object)))
@@ -118,7 +118,7 @@ describe('AdminUsersPage', () => {
       .mockResolvedValueOnce({ total: 1, data: [{ ...row, isApproved: false }] })
 
     render(<AdminUsersPage />)
-    await screen.findByText('e@test.com')
+    await screen.findByText('user1')
 
     fireEvent.click(screen.getByTitle('Volver a pendiente'))
 

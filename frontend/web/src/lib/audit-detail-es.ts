@@ -15,6 +15,15 @@ const MEDICAL_LEAVE_TYPE_LABELS: Record<string, string> = {
   OTHER: 'Otro tipo de permiso',
 }
 
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  JORNADA_LABORAL: 'Jornada laboral',
+  REUNION: 'Reunión',
+  CLASE: 'Clase',
+  EVENTO: 'Evento',
+  CAPACITACION: 'Capacitación',
+  CITA_MEDICA: 'Cita médica',
+}
+
 const SYSTEM_SETTINGS_LABELS: Record<string, string> = {
   livenessCheckEnabled: 'verificación de vida en altas',
   attendanceNoShowGraceMinutes: 'tolerancia de no-show docente',
@@ -170,6 +179,21 @@ export function auditMetadataDisplay(action: string, metadata: unknown): AuditDe
     }
     case 'MEDICAL_LEAVE_DEACTIVATED': {
       return { lines: ['La licencia o permiso dejó de estar vigente.'], technicalJson }
+    }
+    case 'EVENT_CREATED': {
+      const title = r.title != null ? String(r.title) : ''
+      const typeKey = r.type != null ? String(r.type) : ''
+      const typeLabel = EVENT_TYPE_LABELS[typeKey] ?? typeKey.replace(/_/g, ' ').toLowerCase()
+      const assigned = r.assignedUserId != null && String(r.assignedUserId).trim() !== ''
+      const lines: string[] = []
+      if (title) lines.push(`Título: «${title.length > 120 ? `${title.slice(0, 117)}…` : title}».`)
+      if (typeKey) lines.push(`Tipo: ${typeLabel}.`)
+      lines.push(
+        assigned
+          ? 'Quedó asignado a otra persona: recibió aviso en la campana (y push si aplica).'
+          : 'Sin asignatario: no se generó aviso de asignación.',
+      )
+      return { lines, technicalJson }
     }
     default:
       break

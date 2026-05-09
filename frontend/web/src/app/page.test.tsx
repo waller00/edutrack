@@ -40,7 +40,8 @@ describe('Home page', () => {
     render(<Home />)
 
     expect(await screen.findByText('Gestión de usuarios')).toBeInTheDocument()
-    expect(screen.getByText('Gestión de eventos')).toBeInTheDocument()
+    expect(screen.getByText('Gestión de eventos y notificaciones')).toBeInTheDocument()
+    expect(screen.getByText('Analíticas')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /reenviar correo/i }))
 

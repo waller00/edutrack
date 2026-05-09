@@ -26,28 +26,14 @@ import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../org-role-ser
 
 const r = Router();
 
-/** Enlaces de cabecera: solo lo que el rol puede usar (fuente única, no en el bundle del front) */
+/**
+ * Enlaces de cabecera: vacíos — la navegación va por el panel de inicio y la campana de avisos.
+ * (Se mantiene la clave en /auth/me por compatibilidad con clientes viejos.)
+ */
 const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
-  ADMIN: [
-    { href: "/admin/users", label: "Usuarios" },
-    { href: "/admin/attendance", label: "Asistencias" },
-    { href: "/admin/events", label: "Eventos" },
-    { href: "/admin/licenses", label: "Licencias" },
-    { href: "/admin/analytics", label: "Analytics" },
-    { href: "/notifications", label: "Avisos" },
-  ],
-  TEACHER: [
-    { href: "/teacher/attendance", label: "Mis asistencias" },
-    { href: "/teacher/events", label: "Mis eventos" },
-    { href: "/teacher/licenses", label: "Mis licencias" },
-    { href: "/notifications", label: "Avisos" },
-  ],
-  STAFF: [
-    { href: "/staff/attendance", label: "Mis asistencias" },
-    { href: "/staff/events", label: "Mis eventos" },
-    { href: "/staff/licenses", label: "Mis licencias" },
-    { href: "/notifications", label: "Avisos" },
-  ],
+  ADMIN: [],
+  TEACHER: [],
+  STAFF: [],
 };
 
 const registerSchema = z.object({
