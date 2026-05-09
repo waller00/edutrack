@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { prisma } from '../prisma.js'
 import { reconcileAttendancesForMedicalLeave } from '../services/medicalLeaveReconciliation.js'
+import { recordAuditEvent } from '../services/audit-log.js'
+import { AuditAction } from '@prisma/client'
 import {
   isValidMedicalLeaveCertificateValue,
   MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS,
@@ -236,6 +238,15 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
       })
       .catch((err) => console.error('Aviso en app (licencia creada):', err))
 
+    recordAuditEvent({
+      action: AuditAction.MEDICAL_LEAVE_CREATED,
+      actorUserId: req.user?.id ?? null,
+      req,
+      entityType: 'MedicalLeave',
+      entityId: license.id,
+      metadata: { affectedUserId: userId, type: license.type },
+    })
+
     res.status(201).json({ ...medicalLeaveWithRoleCode(license), reconciliation })
   } catch (error) {
     console.error('Error creando licencia médica:', error)
@@ -327,6 +338,15 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
       })
       .catch((err) => console.error('Aviso en app (licencia actualizada):', err))
 
+    recordAuditEvent({
+      action: AuditAction.MEDICAL_LEAVE_UPDATED,
+      actorUserId: req.user?.id ?? null,
+      req,
+      entityType: 'MedicalLeave',
+      entityId: id,
+      metadata: { affectedUserId: ownerId },
+    })
+
     res.json({ ...medicalLeaveWithRoleCode(updatedLicense), reconciliation })
   } catch (error) {
     console.error('Error actualizando licencia médica:', error)
@@ -354,6 +374,15 @@ r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
         deactivatedBy: req.user?.id,
         deactivatedAt: new Date()
       } as any
+    })
+
+    recordAuditEvent({
+      action: AuditAction.MEDICAL_LEAVE_DEACTIVATED,
+      actorUserId: req.user?.id ?? null,
+      req,
+      entityType: 'MedicalLeave',
+      entityId: id,
+      metadata: { affectedUserId: license.userId },
     })
 
     res.json({ message: 'Licencia médica desactivada correctamente' })

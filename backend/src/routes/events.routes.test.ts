@@ -7,6 +7,7 @@ import { signAccessToken } from "../jwt.js";
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     course: { findFirst: vi.fn() },
+    auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
     inAppNotification: { create: vi.fn().mockResolvedValue({ id: "n1" }) },
     event: {
       create: vi.fn(),
