@@ -189,6 +189,30 @@ describe("admin routes (prisma mock)", () => {
     );
   });
 
+  it("GET /admin/users filtros aprobación activo verificado bloqueo y documento", async () => {
+    prismaMock.user.count.mockResolvedValue(0);
+    prismaMock.user.findMany.mockResolvedValue([]);
+    const res = await request(app())
+      .get(
+        "/admin/users?approved=false&active=true&verified=true&locked=false&docExpiring=true",
+      )
+      .set(adminHdr());
+    expect(res.status).toBe(200);
+    const arg = prismaMock.user.findMany.mock.calls[0][0];
+    expect(arg.where.AND).toEqual(
+      expect.arrayContaining([
+        { NOT: { orgRole: { code: "ADMIN" } } },
+        { isApproved: false },
+        { isActive: true },
+        { emailVerifiedAt: { not: null } },
+        { OR: [{ lockUntil: null }, { lockUntil: { lte: expect.any(Date) } }] },
+        {
+          nationalIdDocumentExpiresAt: { not: null, gte: expect.any(Date), lte: expect.any(Date) },
+        },
+      ]),
+    );
+  });
+
   it("POST /admin/users 400 body inválido", async () => {
     const res = await request(app()).post("/admin/users").set(adminHdr()).send({ email: "bad" });
     expect(res.status).toBe(400);

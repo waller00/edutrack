@@ -6,10 +6,6 @@ import { api } from '@/lib/api'
 vi.mock('@/components/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
 }))
-vi.mock('@/components/DateRangeFields', () => ({
-  default: () => <div data-testid="dr" />,
-}))
-
 vi.mock('@/lib/api', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 

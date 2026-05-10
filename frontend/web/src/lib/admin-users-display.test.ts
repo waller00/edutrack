@@ -1,7 +1,9 @@
 import {
+  ADMIN_USERS_PAGE_SIZE,
   buildAdminUserEditChanges,
   buildAdminUsersQueryParams,
   cloneAdminUser,
+  type AdminUsersListFilters,
   getActiveBadgeClass,
   getActiveLabel,
   getAdminUserSaveErrorMessage,
@@ -21,11 +23,39 @@ const u = (p: Partial<AdminUserRow> & Pick<AdminUserRow, 'id' | 'email'>): Admin
   ...p,
 })
 
+const baseFilters = (over?: Partial<AdminUsersListFilters>): AdminUsersListFilters => ({
+  q: '',
+  role: 'ALL',
+  approved: '',
+  active: '',
+  verified: '',
+  locked: '',
+  page: 1,
+  ...over,
+})
+
 describe('buildAdminUsersQueryParams', () => {
   it('base y filtro rol', () => {
-    expect(buildAdminUsersQueryParams('', 'ALL')).toContain('page=1')
-    expect(buildAdminUsersQueryParams('ana', 'TEACHER')).toContain('q=ana')
-    expect(buildAdminUsersQueryParams('', 'STAFF')).toContain('role=STAFF')
+    expect(buildAdminUsersQueryParams(baseFilters())).toContain('page=1')
+    expect(buildAdminUsersQueryParams(baseFilters())).toContain(`pageSize=${ADMIN_USERS_PAGE_SIZE}`)
+    expect(buildAdminUsersQueryParams(baseFilters({ q: 'ana', role: 'TEACHER' }))).toContain('q=ana')
+    expect(buildAdminUsersQueryParams(baseFilters({ role: 'STAFF' }))).toContain('role=STAFF')
+  })
+
+  it('filtros extended', () => {
+    const qs = buildAdminUsersQueryParams(
+      baseFilters({
+        approved: 'false',
+        active: 'true',
+        verified: 'true',
+        locked: 'false',
+      }),
+    )
+    expect(qs).toContain('approved=false')
+    expect(qs).toContain('active=true')
+    expect(qs).toContain('verified=true')
+    expect(qs).toContain('locked=false')
+    expect(qs).not.toContain('docExpiring')
   })
 })
 
@@ -45,7 +75,7 @@ describe('buildAdminUserEditChanges', () => {
 
   it('detecta cambios', () => {
     const orig = u({ id: '1', email: 'a', role: 'STAFF', username: 'x', nationalId: '1' })
-    const ed = { ...orig, role: 'TEACHER' as const, username: 'y', nationalId: '2' }
+    const ed = { ...orig, role: 'TEACHER', username: 'y', nationalId: '2' }
     const c = buildAdminUserEditChanges(orig, ed)
     expect(c.some((x) => x.includes('Rol'))).toBe(true)
     expect(c.some((x) => x.includes('Usuario'))).toBe(true)
@@ -71,18 +101,21 @@ describe('getAdminUserSaveErrorMessage', () => {
 
 describe('badges y labels', () => {
   it('verificación email', () => {
-    expect(getVerificationLabel()).toBe('No verificado')
+    expect(getVerificationLabel()).toBe('Sin verificar')
     expect(getVerificationLabel('2024')).toBe('Verificado')
     expect(getVerificationBadgeClass()).toContain('amber')
-    expect(getVerificationBadgeClass('x')).toContain('green')
+    expect(getVerificationBadgeClass('x')).toContain('emerald')
   })
 
   it('aprobación activo lock', () => {
     expect(getApprovalLabel(false)).toBe('Pendiente')
     expect(getActiveLabel(false)).toBe('Baja')
-    expect(getLockLabel('x')).toBe('Bloqueado')
+    const future = new Date(Date.now() + 86400000).toISOString()
+    expect(getLockLabel(future)).toContain('Bloqueado')
+    expect(getLockLabel('x')).toBe('Sin bloqueo')
     expect(getLockBadgeClass()).toContain('slate')
     expect(getApprovalBadgeClass(false)).toContain('amber')
+    expect(getApprovalBadgeClass(true)).toContain('emerald')
     expect(getActiveBadgeClass(false)).toContain('red')
   })
 })

@@ -1,5 +1,4 @@
 'use client'
-import DateRangeFields from '@/components/DateRangeFields'
 import MedicalLeaveCertificateLink from '@/components/MedicalLeaveCertificateLink'
 import RoleGuard from '@/components/RoleGuard'
 import { useEffect, useState } from 'react'
@@ -19,6 +18,7 @@ import {
 } from '@/lib/medical-leave-certificate-client'
 import { formatValidationErrorFromApi } from '@/lib/api-validation-message'
 import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+import { Calendar, FileText, Loader2, Plus, Search, Trash2 } from 'lucide-react'
 
 type License = {
   id: string
@@ -259,12 +259,19 @@ export default function LicensesPage() {
     setSelectedLicenseIds((prev) => (prev.length === selectableIds.length ? [] : selectableIds))
   }
 
+  const licensesActiveCount = licenses.filter((l) => l.status === 'ACTIVE').length
+  const licensesInactiveCount = licenses.filter((l) => l.status === 'INACTIVE').length
+  const licensesMedicalCount = licenses.filter((l) => l.type === 'MEDICAL_LEAVE').length
+
   function renderLicensesRows() {
     if (loading) {
       return (
         <tr>
-          <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
-            Cargando...
+          <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
+            <span className="inline-flex items-center justify-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
+              Cargando…
+            </span>
           </td>
         </tr>
       )
@@ -311,7 +318,7 @@ export default function LicensesPage() {
         <td className="px-6 py-4 whitespace-nowrap text-sm">
           <MedicalLeaveCertificateLink
             certificate={license.certificate}
-            linkClassName="text-indigo-600 hover:text-indigo-800 font-medium"
+            linkClassName="text-emerald-700 hover:text-emerald-900 font-medium"
           />
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -324,7 +331,7 @@ export default function LicensesPage() {
                   certificate: license.certificate ?? '',
                 })
               }}
-              className="text-indigo-600 hover:text-indigo-900"
+              className="text-emerald-700 hover:text-emerald-900 font-medium"
             >
               Editar
             </button>
@@ -337,30 +344,37 @@ export default function LicensesPage() {
   return (
     <RoleGuard allow={['ADMIN']}>
       <main className="mx-auto max-w-7xl p-6 space-y-8">
-        {/* Header moderno */}
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <span className="text-emerald-600 text-xl">📄</span>
+        {/* Header alineado a otros módulos admin */}
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
+              <FileText className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Gestión de licencias</h1>
-              <p className="text-gray-600 max-w-2xl">
-                Registro centralizado por la dirección o administración. El personal solo consulta sus licencias en
-                su panel. Las licencias activas se reflejan en la justificación de inasistencias cuando corresponde.
+              <p className="mt-1 max-w-2xl text-gray-600">
+                Registro centralizado por la dirección o administración. El personal solo consulta sus licencias en su
+                panel. Las licencias activas se reflejan en la justificación de inasistencias cuando corresponde.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setCreateModalError('')
-              setCreating(true)
-            }}
-            className="btn-primary"
-          >
-            ➕ Nueva Licencia
-          </button>
+          <div className="flex flex-col items-end gap-4 shrink-0">
+            <div className="text-right">
+              <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licenses.length}</div>
+              <div className="text-sm text-gray-600">registros listados</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCreateModalError('')
+                setCreating(true)
+              }}
+              className="btn-primary inline-flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4 shrink-0" aria-hidden />
+              Nueva Licencia
+            </button>
+          </div>
         </div>
 
         {message && !creating && !editing && (
@@ -372,47 +386,91 @@ export default function LicensesPage() {
           </div>
         )}
 
-        {/* Filtros */}
-        <div className="bg-white border rounded-lg p-6 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold">Filtros</h2>
-            <button
-              onClick={() => {
-                setFilters({
-                  userId: '',
-                  type: '',
-                  status: '',
-                  startDate: getLicenseAdminDefaultStartDate(),
-                  endDate: ''
-                })
-              }}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border"
-            >
-              Limpiar Filtros
-            </button>
+        {/* Filtros (mismo patrón que Control y seguimiento del personal) */}
+        <div className="card">
+          <div className="card-header">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
+                  <Search className="h-4 w-4 text-emerald-600" aria-hidden />
+                </div>
+                <h2 className="text-lg font-semibold text-gray-900">Filtros de Búsqueda</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilters({
+                    userId: '',
+                    type: '',
+                    status: '',
+                    startDate: getLicenseAdminDefaultStartDate(),
+                    endDate: ''
+                  })
+                }}
+                className="btn-secondary inline-flex items-center gap-1.5 text-sm"
+              >
+                <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
+                Limpiar
+              </button>
+            </div>
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
+              <label
+                htmlFor="license-filter-from"
+                className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700"
+              >
+                <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                Desde (período)
+              </label>
+              <input
+                id="license-filter-from"
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="license-filter-to"
+                className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700"
+              >
+                <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                Hasta (período)
+              </label>
+              <input
+                id="license-filter-to"
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Usuario</label>
               <select
                 value={filters.userId}
                 onChange={(e) => setFilters({ ...filters, userId: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="select-field"
               >
                 <option value="">Todos</option>
-                {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.name}</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
                 ))}
               </select>
             </div>
-            
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Tipo</label>
               <select
                 value={filters.type}
                 onChange={(e) => setFilters({ ...filters, type: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="select-field"
               >
                 <option value="">Todos</option>
                 <option value="MEDICAL_LEAVE">Licencia Médica</option>
@@ -420,41 +478,55 @@ export default function LicensesPage() {
                 <option value="OTHER">Otro</option>
               </select>
             </div>
-            
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Estado</label>
               <select
                 value={filters.status}
                 onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="select-field"
               >
                 <option value="">Todos</option>
                 <option value="ACTIVE">Activa</option>
                 <option value="INACTIVE">Inactiva</option>
               </select>
             </div>
-            
-            <DateRangeFields
-              startDate={filters.startDate}
-              endDate={filters.endDate}
-              onStartDateChange={(value) => setFilters({ ...filters, startDate: value })}
-              onEndDateChange={(value) => setFilters({ ...filters, endDate: value })}
-            />
           </div>
-          
-          <div className="mt-4">
-            <button
-              onClick={loadLicenses}
-              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-            >
-              Aplicar Filtros
+
+          <div className="mt-6">
+            <button type="button" onClick={() => void loadLicenses()} className="btn-primary">
+              Aplicar filtros
             </button>
           </div>
         </div>
 
+        {/* KPIs rápidos (derivados del listado actual, sin nueva lógica de negocio) */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <div className="text-sm text-gray-500">Totales listados</div>
+            <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licenses.length}</div>
+            <div className="text-xs text-gray-500">Tras última carga o filtros</div>
+          </div>
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <div className="text-sm text-gray-500">Activas</div>
+            <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licensesActiveCount}</div>
+            <div className="text-xs text-gray-500">En esta vista</div>
+          </div>
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <div className="text-sm text-gray-500">Inactivas</div>
+            <div className="text-2xl font-bold text-red-600">{loading ? '—' : licensesInactiveCount}</div>
+            <div className="text-xs text-gray-500">En esta vista</div>
+          </div>
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <div className="text-sm text-gray-500">Lic. médicas</div>
+            <div className="text-2xl font-bold text-slate-800">{loading ? '—' : licensesMedicalCount}</div>
+            <div className="text-xs text-gray-500">En esta vista</div>
+          </div>
+        </div>
+
         {/* Tabla de licencias */}
-        <div className="bg-white border rounded-lg shadow-sm">
-          <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-gray-100 p-6 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-semibold">Licencias</h2>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
@@ -466,9 +538,9 @@ export default function LicensesPage() {
                 type="button"
                 onClick={deleteSelectedLicenses}
                 disabled={selectedLicenseIds.length === 0 || deletingSelected}
-                className="inline-flex items-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="btn-secondary inline-flex items-center gap-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionadas'}
+                {deletingSelected ? 'Eliminando…' : 'Eliminar seleccionadas'}
               </button>
             </div>
           </div>
@@ -505,8 +577,8 @@ export default function LicensesPage() {
 
         {/* Modal para crear licencia */}
         {creating && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-gray-100 bg-white p-6 shadow-xl">
               <h3 className="text-lg font-semibold mb-4">Nueva Licencia</h3>
 
               {createModalError ? (
@@ -525,7 +597,7 @@ export default function LicensesPage() {
                     aria-label="Usuario de licencia"
                     value={newLicense.userId}
                     onChange={(e) => setNewLicense({ ...newLicense, userId: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="">Seleccionar usuario</option>
                     {users.map(user => (
@@ -555,7 +627,7 @@ export default function LicensesPage() {
                       })
                       if (type !== 'MEDICAL_LEAVE') setNewCertificateUrl('')
                     }}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="MEDICAL_LEAVE">Licencia Médica</option>
                     <option value="WORK_LEAVE">Licencia Laboral</option>
@@ -571,7 +643,7 @@ export default function LicensesPage() {
                         type="text"
                         value={newLicense.doctorName}
                         onChange={(e) => setNewLicense({ ...newLicense, doctorName: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         placeholder="Nombre del médico o matrícula"
                       />
                     </div>
@@ -581,7 +653,7 @@ export default function LicensesPage() {
                         type="text"
                         value={newLicense.doctorPhone}
                         onChange={(e) => setNewLicense({ ...newLicense, doctorPhone: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         placeholder="Teléfono o consultorio"
                       />
                     </div>
@@ -596,7 +668,7 @@ export default function LicensesPage() {
                       type="date"
                       value={newLicense.startDate}
                       onChange={(e) => setNewLicense({ ...newLicense, startDate: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
                   
@@ -607,7 +679,7 @@ export default function LicensesPage() {
                       type="date"
                       value={newLicense.endDate}
                       onChange={(e) => setNewLicense({ ...newLicense, endDate: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
                 </div>
@@ -618,7 +690,7 @@ export default function LicensesPage() {
                     aria-label="Motivo (obligatorio)"
                     value={newLicense.reason}
                     onChange={(e) => setNewLicense({ ...newLicense, reason: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     rows={3}
                   />
                 </div>
@@ -637,13 +709,13 @@ export default function LicensesPage() {
                       value={newCertificateUrl}
                       onChange={(e) => setNewCertificateUrl(e.target.value)}
                       placeholder="https://…"
-                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     <div>
                       <input
                         type="file"
                         accept={medicalLeaveCertificateAcceptAttr()}
-                        className="block w-full text-sm text-gray-600 file:mr-3 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-50"
+                        className="block w-full text-sm text-gray-600 file:mr-3 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-emerald-700 hover:file:bg-emerald-50"
                         onChange={async (e) => {
                           const file = e.target.files?.[0]
                           if (!file) return
@@ -675,13 +747,13 @@ export default function LicensesPage() {
                     aria-label="Notas adicionales"
                     value={newLicense.notes}
                     onChange={(e) => setNewLicense({ ...newLicense, notes: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     rows={2}
                   />
                 </div>
               </div>
               
-              <div className="flex justify-end gap-2 mt-6">
+              <div className="mt-6 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -701,15 +773,11 @@ export default function LicensesPage() {
                       certificateFileLabel: '',
                     })
                   }}
-                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                  className="btn-secondary"
                 >
                   Cancelar
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void createLicense()}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                >
+                <button type="button" onClick={() => void createLicense()} className="btn-primary">
                   Crear Licencia
                 </button>
               </div>
@@ -719,10 +787,19 @@ export default function LicensesPage() {
 
         {/* Modal para ver detalles */}
         {editing && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-4">Editar Licencia</h3>
-              
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-gray-100 bg-white p-6 shadow-xl">
+              <h3 className="mb-4 text-lg font-semibold">Editar Licencia</h3>
+
+              {editModalError ? (
+                <div
+                  className={`mb-4 whitespace-pre-line rounded border p-3 text-sm ${getAdminFlashMessageClass(editModalError)}`}
+                  role="alert"
+                >
+                  {editModalError}
+                </div>
+              ) : null}
+
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -735,7 +812,7 @@ export default function LicensesPage() {
                     <select
                       value={editing.type}
                       onChange={(e) => setEditing({ ...editing, type: e.target.value as any })}
-                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     >
                       <option value="MEDICAL_LEAVE">Licencia Médica</option>
                       <option value="WORK_LEAVE">Licencia Laboral</option>
@@ -751,7 +828,7 @@ export default function LicensesPage() {
                       type="date"
                       value={editing.startDate.split('T')[0]}
                       onChange={(e) => setEditing({ ...editing, startDate: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
                   
@@ -761,7 +838,7 @@ export default function LicensesPage() {
                       type="date"
                       value={editing.endDate.split('T')[0]}
                       onChange={(e) => setEditing({ ...editing, endDate: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
                 </div>
@@ -776,7 +853,7 @@ export default function LicensesPage() {
                   <textarea
                     value={editing.reason}
                     onChange={(e) => setEditing({ ...editing, reason: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     rows={3}
                   />
                 </div>
@@ -789,7 +866,7 @@ export default function LicensesPage() {
                         type="text"
                         value={editing.doctorName || ''}
                         onChange={(e) => setEditing({ ...editing, doctorName: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         placeholder="Nombre o matrícula"
                       />
                     </div>
@@ -800,7 +877,7 @@ export default function LicensesPage() {
                         type="text"
                         value={editing.doctorPhone || ''}
                         onChange={(e) => setEditing({ ...editing, doctorPhone: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         placeholder="Teléfono o consultorio"
                       />
                     </div>
@@ -816,7 +893,7 @@ export default function LicensesPage() {
                           value={editing.certificate?.startsWith('http') ? editing.certificate : ''}
                           onChange={(e) => setEditing({ ...editing, certificate: e.target.value })}
                           placeholder="https://…"
-                          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                       )}
                       {editing.certificate?.startsWith('data:') && (
@@ -825,18 +902,18 @@ export default function LicensesPage() {
                       <input
                         type="file"
                         accept={medicalLeaveCertificateAcceptAttr()}
-                        className="block w-full text-sm text-gray-600 file:mr-3 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-50"
+                        className="block w-full text-sm text-gray-600 file:mr-3 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-emerald-700 hover:file:bg-emerald-50"
                         onChange={async (e) => {
                           const file = e.target.files?.[0]
                           if (!file) return
                           const r = await readMedicalLeaveCertificateFile(file)
                           if (!r.ok) {
-                            setMessage(`❌ ${r.error}`)
+                            setEditModalError(`❌ ${r.error}`)
                             e.target.value = ''
                             return
                           }
                           setEditing((prev) => (prev ? { ...prev, certificate: r.dataUrl } : prev))
-                          setMessage('')
+                          setEditModalError('')
                           e.target.value = ''
                         }}
                       />
@@ -858,7 +935,7 @@ export default function LicensesPage() {
                   <textarea
                     value={editing.notes || ''}
                     onChange={(e) => setEditing({ ...editing, notes: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     rows={3}
                   />
                 </div>
@@ -878,22 +955,18 @@ export default function LicensesPage() {
                 )}
               </div>
               
-              <div className="flex justify-end gap-2 mt-6">
+              <div className="mt-6 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setEditModalError('')
                     setEditing(null)
                   }}
-                  className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                  className="btn-secondary"
                 >
                   Cancelar
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void updateLicense()}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                >
+                <button type="button" onClick={() => void updateLicense()} className="btn-primary">
                   Guardar Cambios
                 </button>
               </div>
