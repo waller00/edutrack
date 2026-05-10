@@ -3,7 +3,12 @@ import { z } from 'zod'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
-import { computeDashboardKpis, computeSeriesByWeek } from '../services/analytics/metrics.js'
+import {
+  computeDashboardKpis,
+  computeSeriesByWeek,
+  computeTopRiskEvents,
+  computeTopRiskPeople,
+} from '../services/analytics/metrics.js'
 import { prisma } from '../prisma.js'
 
 const r = Router()
@@ -29,34 +34,52 @@ async function scopeUserIds(params: { role?: 'ADMIN' | 'STAFF' | 'TEACHER'; user
   return rows.map((x) => x.id)
 }
 
+type ParsedDashboardQuery = z.infer<typeof dashboardQuerySchema>
+
+async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
+  const { from, to, role, userId, eventType } = data
+  const granularity = data.granularity || 'week'
+  if (granularity !== 'week') {
+    // Fase 1: se implementa week; las otras granularidades se soportan en el builder en Fase 2.
+  }
+
+  const userIds = await scopeUserIds({ role, userId })
+  const plannedInstances = await getPlannedInstances({ from, to, userId, userIds: userIds || undefined, eventType })
+  const resolvedInstances = await resolveAttendanceAndJustification({ plannedInstances })
+  const kpis = await computeDashboardKpis({ from, to, resolvedInstances })
+
+  const seriesRaw = computeSeriesByWeek(resolvedInstances, from, to)
+  const series = {
+    lateRateByPeriod: seriesRaw.map((s) => ({ period: s.period, value: s.lateRate })),
+    aopByPeriod: seriesRaw.map((s) => ({ period: s.period, value: s.aop })),
+  }
+
+  const topRiskPeople = computeTopRiskPeople(resolvedInstances, { limit: 10 })
+  const topRiskEvents = computeTopRiskEvents(resolvedInstances, { limit: 10 })
+
+  return {
+    meta: {
+      resolvedInstanceCount: resolvedInstances.length,
+      rangeFrom: data.from,
+      rangeTo: data.to,
+      roleFilter: role ?? null,
+      eventTypeFilter: eventType ?? null,
+      generatedAt: new Date().toISOString(),
+    },
+    kpis,
+    series,
+    topLists: { topRiskPeople, topRiskEvents },
+  }
+}
+
 r.get('/dashboard', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
     const parsed = dashboardQuerySchema.safeParse(req.query)
     if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
 
-    const { from, to, role, userId, eventType } = parsed.data
-    const granularity = parsed.data.granularity || 'week'
-    if (granularity !== 'week') {
-      // Fase 1: se implementa week; las otras granularidades se soportan en el builder en Fase 2.
-      // Para evitar ambigüedad, normalizamos a week.
-    }
+    const body = await computeAdminAnalyticsBody(parsed.data)
 
-    const userIds = await scopeUserIds({ role, userId })
-    const plannedInstances = await getPlannedInstances({ from, to, userId, userIds: userIds || undefined, eventType })
-    const resolvedInstances = await resolveAttendanceAndJustification({ plannedInstances })
-    const kpis = await computeDashboardKpis({ from, to, resolvedInstances })
-
-    const seriesRaw = computeSeriesByWeek(resolvedInstances, from, to)
-    const series = {
-      lateRateByPeriod: seriesRaw.map((s) => ({ period: s.period, value: s.lateRate })),
-      aopByPeriod: seriesRaw.map((s) => ({ period: s.period, value: s.aop })),
-    }
-
-    return res.json({
-      kpis,
-      series,
-      topLists: { topRiskPeople: [], topRiskEvents: [] },
-    })
+    return res.json(body)
   } catch (error: any) {
     return res.status(500).json({ message: 'Error interno del servidor', error: error?.message || String(error) })
   }
@@ -66,8 +89,16 @@ r.get('/dashboard', authGuard, requireRole('ADMIN'), async (req, res) => {
 r.get('/metrics', authGuard, requireRole('ADMIN'), async (req, res) => {
   return res.json({ ok: true, message: 'metrics endpoint (Fase 2: expandir agregaciones)' })
 })
-r.get('/rankings', authGuard, requireRole('ADMIN'), async (_req, res) => {
-  return res.json({ people: [], events: [] })
+r.get('/rankings', authGuard, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const parsed = dashboardQuerySchema.safeParse(req.query)
+    if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
+
+    const { topLists } = await computeAdminAnalyticsBody(parsed.data)
+    return res.json({ people: topLists.topRiskPeople, events: topLists.topRiskEvents })
+  } catch (error: any) {
+    return res.status(500).json({ message: 'Error interno del servidor', error: error?.message || String(error) })
+  }
 })
 r.get('/alerts/critical', authGuard, requireRole('ADMIN'), async (_req, res) => {
   return res.json({ alerts: [] })
