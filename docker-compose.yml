@@ -54,6 +54,9 @@ services:
       DIDIT_WEBHOOK_SECRET: ${DIDIT_WEBHOOK_SECRET:-}
       # Opcional: callback HTTPS para crear sesión (Didit); ej. https://TU-NGROK.ngrok-free.app/register?liveness=1
       DIDIT_CALLBACK_URL: ${DIDIT_CALLBACK_URL:-}
+      # RF-10 asistente (OpenAI): definir en .env del host; sin esto el endpoint responde 503
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
     ports:
       - "4000:4000"
     depends_on:
