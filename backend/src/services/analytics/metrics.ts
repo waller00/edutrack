@@ -1,5 +1,10 @@
 import { prisma } from '../../prisma.js'
-import type { DashboardKpis, PlannedInstance, ResolvedAttendanceByInstance } from './models.js'
+import type {
+  DashboardKpis,
+  DashboardTopRiskEvent,
+  DashboardTopRiskPerson,
+  ResolvedAttendanceByInstance,
+} from './models.js'
 import { toYmdUtc, parseYmdToUtcRange } from './dateRange.js'
 
 const SLA_DAYS = 3
@@ -116,4 +121,104 @@ export async function computeDashboardKpis(params: {
   const PC_count = await computePCCount({ from: params.from, to: params.to })
   const out: DashboardKpis = { ...kpis, PC_count }
   return out
+}
+
+const RISK_WEIGHT_LATE = 1
+const RISK_WEIGHT_ABSENT_UNJUSTIFIED = 2
+
+/**
+ * Prioriza personas con más eventos tardíos y ausencias sin justificación (sin licencia).
+ * `riskScore`: tarde ×1 + ausente no justificado ×2 por instancia.
+ */
+type PersonAggRow = Pick<
+  DashboardTopRiskPerson,
+  | 'userId'
+  | 'displayName'
+  | 'role'
+  | 'plannedCount'
+  | 'lateCount'
+  | 'absentNotJustifiedCount'
+  | 'absentJustifiedCount'
+>
+
+export function computeTopRiskPeople(
+  resolved: ResolvedAttendanceByInstance[],
+  opts: { limit?: number } = {},
+): DashboardTopRiskPerson[] {
+  const limit = opts.limit ?? 10
+  const byUser = new Map<string, PersonAggRow>()
+
+  for (const r of resolved) {
+    const userId = r.planned.userIdRequired
+    if (!userId) continue
+
+    let row = byUser.get(userId)
+    if (!row) {
+      row = {
+        userId,
+        displayName: r.userDisplayName,
+        role: r.userRole || '—',
+        plannedCount: 0,
+        lateCount: 0,
+        absentNotJustifiedCount: 0,
+        absentJustifiedCount: 0,
+      }
+      byUser.set(userId, row)
+    }
+
+    row.plannedCount += 1
+    if (r.checkInStatusResolved === 'LATE') row.lateCount += 1
+    if (r.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED') row.absentNotJustifiedCount += 1
+    if (r.checkInStatusResolved === 'ABSENT_JUSTIFIED') row.absentJustifiedCount += 1
+  }
+
+  const out: DashboardTopRiskPerson[] = [...byUser.values()].map((row) => ({
+    ...row,
+    riskScore:
+      row.lateCount * RISK_WEIGHT_LATE + row.absentNotJustifiedCount * RISK_WEIGHT_ABSENT_UNJUSTIFIED,
+  }))
+
+  out.sort((a, b) => {
+    if (b.riskScore !== a.riskScore) return b.riskScore - a.riskScore
+    if (b.absentNotJustifiedCount !== a.absentNotJustifiedCount) return b.absentNotJustifiedCount - a.absentNotJustifiedCount
+    return b.lateCount - a.lateCount
+  })
+
+  return out.slice(0, limit)
+}
+
+/**
+ * Eventos con mayor fricción simultánea: tardanza sobre entradas registradas + ausentismo / instancias planificadas.
+ */
+export function computeTopRiskEvents(resolved: ResolvedAttendanceByInstance[], opts: { limit?: number } = {}): DashboardTopRiskEvent[] {
+  const limit = opts.limit ?? 10
+  const byEventId = new Map<string, ResolvedAttendanceByInstance[]>()
+  for (const r of resolved) {
+    const id = r.planned.eventId
+    if (!byEventId.has(id)) byEventId.set(id, [])
+    byEventId.get(id)!.push(r)
+  }
+
+  const rows: DashboardTopRiskEvent[] = []
+  for (const [, arr] of byEventId) {
+    const k = computeRangeKpis(arr, { plannedInstancesCount: arr.length })
+    const sample = arr[0]!.planned
+    rows.push({
+      eventId: sample.eventId,
+      title: sample.eventTitle || 'Sin título',
+      eventType: sample.eventType,
+      plannedCount: arr.length,
+      lateRatePct: k.M2_LATE_RATE_pct,
+      absentOverPlanPct: k.M4_AOP_pct,
+      focusScore: roundTo(k.M2_LATE_RATE_pct + k.M4_AOP_pct, 2),
+    })
+  }
+
+  rows.sort((a, b) => {
+    if (b.focusScore !== a.focusScore) return b.focusScore - a.focusScore
+    if (b.absentOverPlanPct !== a.absentOverPlanPct) return b.absentOverPlanPct - a.absentOverPlanPct
+    return b.lateRatePct - a.lateRatePct
+  })
+
+  return rows.slice(0, limit)
 }
