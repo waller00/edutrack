@@ -29,6 +29,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       if (errorData.message) {
         errorMessage = errorData.message;
       }
+      if (errorData.detail != null && String(errorData.detail).trim() !== "") {
+        errorMessage = `${errorMessage} — ${String(errorData.detail)}`;
+      }
       // Create error with status and data
       const error = new Error(errorMessage) as any;
       error.status = res.status;
