@@ -58,3 +58,28 @@ export type DashboardKpis = {
   PC_count: number
 }
 
+/** Personas con más incidencias (tarde + ausencias no justificadas) en el período filtrado. */
+export type DashboardTopRiskPerson = {
+  userId: string
+  displayName: string
+  role: string
+  plannedCount: number
+  lateCount: number
+  absentNotJustifiedCount: number
+  absentJustifiedCount: number
+  /** Heurística ordenable para priorizar seguimiento (no es nota disciplinaria). */
+  riskScore: number
+}
+
+/** Eventos con peor desempeño agregado (tasa tardanza + absentismo sobre plan). */
+export type DashboardTopRiskEvent = {
+  eventId: string
+  title: string
+  eventType: string
+  plannedCount: number
+  lateRatePct: number
+  absentOverPlanPct: number
+  /** Suma tardanza + absentismo para ordenar rankings. */
+  focusScore: number
+}
+

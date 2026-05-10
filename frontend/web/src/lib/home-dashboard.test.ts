@@ -41,7 +41,7 @@ describe('getHomeSectionIconKind', () => {
     ['eventos', 'calendar'],
     ['Gestión de eventos y notificaciones', 'calendar'],
     ['licencias', 'file'],
-    ['Analíticas', 'analytics'],
+    ['Analítica institucional', 'analytics'],
     ['Panel admin', 'dashboard'],
     ['Otro', 'default'],
   ])('%s → %s', (title, kind) => {

@@ -267,20 +267,53 @@ r.get('/users', async (req, res) => {
   const pageSize = Math.min(Number((req.query.pageSize as string) || 20), 100)
   const role = ((req.query.role as string) || '').trim().toUpperCase() || undefined
   const q = (req.query.q as string) || ''
+  const approved = (req.query.approved as string) || ''
+  const active = (req.query.active as string) || ''
+  const verified = (req.query.verified as string) || ''
+  const locked = (req.query.locked as string) || ''
+  const docExpiring = (req.query.docExpiring as string) || ''
+
   const and: Prisma.UserWhereInput[] = [{ NOT: { orgRole: { code: 'ADMIN' } } }]
   if (role) {
     and.push({ orgRole: { code: role } })
   }
-  if (q) {
+  if (q.trim()) {
+    const term = q.trim()
+    const orFields: Prisma.UserWhereInput[] = [
+      { email: { contains: term, mode: 'insensitive' } },
+      { username: { contains: term, mode: 'insensitive' } },
+      { firstName: { contains: term, mode: 'insensitive' } },
+      { lastName: { contains: term, mode: 'insensitive' } },
+      { name: { contains: term, mode: 'insensitive' } },
+    ]
+    const idDigits = term.replace(/\D/g, '')
+    if (idDigits.length >= 4) {
+      orFields.push({ nationalId: { contains: idDigits, mode: 'insensitive' } })
+    }
+    and.push({ OR: orFields })
+  }
+  if (approved === 'true') and.push({ isApproved: true })
+  if (approved === 'false') and.push({ isApproved: false })
+  if (active === 'true') and.push({ isActive: true })
+  if (active === 'false') and.push({ isActive: false })
+  if (verified === 'true') and.push({ emailVerifiedAt: { not: null } })
+  if (verified === 'false') and.push({ emailVerifiedAt: null })
+
+  const now = new Date()
+  if (locked === 'true') {
+    and.push({ lockUntil: { gt: now } })
+  }
+  if (locked === 'false') {
+    and.push({ OR: [{ lockUntil: null }, { lockUntil: { lte: now } }] })
+  }
+  if (docExpiring === 'true') {
+    const horizon = new Date(now)
+    horizon.setUTCDate(horizon.getUTCDate() + 90)
     and.push({
-      OR: [
-        { email: { contains: q, mode: 'insensitive' } },
-        { username: { contains: q, mode: 'insensitive' } },
-        { firstName: { contains: q, mode: 'insensitive' } },
-        { lastName: { contains: q, mode: 'insensitive' } },
-      ],
+      nationalIdDocumentExpiresAt: { not: null, gte: now, lte: horizon },
     })
   }
+
   const where: Prisma.UserWhereInput = { AND: and }
   const [total, raw] = await Promise.all([
     prisma.user.count({ where }),
