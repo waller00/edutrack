@@ -59,7 +59,7 @@ export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {
     },
     { title: 'Gestión de licencias', desc: 'Administra licencias médicas y laborales.', cta: 'Gestionar licencias', href: '/admin/licenses' },
     {
-      title: 'Analítica',
+      title: 'Analítica institucional',
       desc: 'KPIs con tendencias semanales, rankings y exportaciones para soporte a la decisión.',
       cta: 'Abrir analítica',
       href: '/admin/analytics',
