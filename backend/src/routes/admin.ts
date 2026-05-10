@@ -29,6 +29,7 @@ import {
   parseAuditActionFilter,
   recordAuditEvent,
 } from '../services/audit-log.js'
+import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
 
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
@@ -811,6 +812,32 @@ r.get('/audit-logs', async (req, res) => {
     actionCatalog: getAuditActionCatalog(),
     data,
   })
+})
+
+/** RF-10 MVP: consulta en lenguaje natural → intención vía OpenAI → datos con Prisma (solo lectura). */
+r.post('/query-assistant', async (req, res) => {
+  const parsed = z.object({ question: z.string().min(1).max(2000) }).safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ message: 'Pregunta inválida', errors: parsed.error.errors })
+  }
+  try {
+    const result = await runAdminQueryAssistant(parsed.data.question)
+    return res.json(result)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'OPENAI_API_KEY_NOT_CONFIGURED') {
+      return res.status(503).json({
+        message: 'El asistente no está configurado. Definí OPENAI_API_KEY en el servidor.',
+      })
+    }
+    if (msg.startsWith('OPENAI_API_KEY_INVALID_FORMAT:')) {
+      return res.status(503).json({
+        message: msg.replace(/^OPENAI_API_KEY_INVALID_FORMAT:\s*/, ''),
+      })
+    }
+    console.error('[query-assistant]', e)
+    return res.status(500).json({ message: 'No se pudo procesar la consulta.', detail: msg })
+  }
 })
 
 export default r

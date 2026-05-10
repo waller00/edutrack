@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LineChart,
   Loader2,
+  MessageCircle,
   Mail,
   PenLine,
   ShieldCheck,
@@ -45,6 +46,8 @@ function HomeSectionIcon({ kind }: { kind: HomeSectionIconKind }) {
       return <LayoutDashboard className={cls} aria-hidden />
     case 'analytics':
       return <LineChart className={cls} aria-hidden />
+    case 'assistant':
+      return <MessageCircle className={cls} aria-hidden />
     default:
       return <Wrench className={cls} aria-hidden />
   }

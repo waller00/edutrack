@@ -8,7 +8,8 @@ import { computeCICheckDigit } from "../uruguay-ci.js";
 import type { BuiltinProfileRole } from "../profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../profile-permissions-defaults.js";
 
-const { prismaMock } = vi.hoisted(() => ({
+const { prismaMock, runAdminQueryAssistantMock } = vi.hoisted(() => ({
+  runAdminQueryAssistantMock: vi.fn(),
   prismaMock: {
     user: {
       count: vi.fn(),
@@ -93,6 +94,9 @@ function permissionCatalogRows() {
 }
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../services/query-assistant/run.js", () => ({
+  runAdminQueryAssistant: runAdminQueryAssistantMock,
+}));
 
 import adminRoutes from "./admin.js";
 
@@ -522,5 +526,39 @@ describe("admin routes (prisma mock)", () => {
     expect(res.body.total).toBe(1);
     expect(Array.isArray(res.body.actionCatalog)).toBe(true);
     expect(res.body.data[0].actionLabel).toMatch(/sesión/i);
+  });
+
+  it("POST /admin/query-assistant 400 si falta pregunta", async () => {
+    const res = await request(app()).post("/admin/query-assistant").set(adminHdr()).send({ question: "" });
+    expect(res.status).toBe(400);
+    expect(runAdminQueryAssistantMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /admin/query-assistant devuelve resultado del servicio", async () => {
+    runAdminQueryAssistantMock.mockResolvedValue({
+      intent: "HOURS_WORKED_SUMMARY",
+      summary: "Resumen de prueba",
+      columns: [{ key: "name", label: "Nombre" }],
+      rows: [{ name: "Ana" }],
+    });
+    const res = await request(app())
+      .post("/admin/query-assistant")
+      .set(adminHdr())
+      .send({ question: "horas en octubre" });
+    expect(res.status).toBe(200);
+    expect(res.body.intent).toBe("HOURS_WORKED_SUMMARY");
+    expect(res.body.summary).toBe("Resumen de prueba");
+    expect(res.body.rows).toHaveLength(1);
+    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("horas en octubre");
+  });
+
+  it("POST /admin/query-assistant 503 si falta OPENAI_API_KEY", async () => {
+    runAdminQueryAssistantMock.mockRejectedValue(new Error("OPENAI_API_KEY_NOT_CONFIGURED"));
+    const res = await request(app())
+      .post("/admin/query-assistant")
+      .set(adminHdr())
+      .send({ question: "horas en octubre" });
+    expect(res.status).toBe(503);
+    expect(res.body.message).toMatch(/OPENAI_API_KEY/i);
   });
 });

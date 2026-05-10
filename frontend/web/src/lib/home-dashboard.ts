@@ -28,6 +28,7 @@ export type HomeSectionIconKind =
   | 'file'
   | 'dashboard'
   | 'analytics'
+  | 'assistant'
   | 'default'
 
 export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
@@ -41,6 +42,7 @@ export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
     const t = title.toLowerCase()
     if (t.includes('analít') || t.includes('analit') || t.includes('analytics')) return 'analytics'
   }
+  if (title.toLowerCase().includes('asistente')) return 'assistant'
   if (title.includes('Panel')) return 'dashboard'
   return 'default'
 }
@@ -61,6 +63,12 @@ export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {
       desc: 'Indicadores y estadísticas para seguimiento operativo.',
       cta: 'Ver analíticas',
       href: '/admin/analytics',
+    },
+    {
+      title: 'Asistente de consultas',
+      desc: 'Consultas en lenguaje natural: horas, incidencias, licencias, eventos, biométrico, usuarios y auditoría',
+      cta: 'Abrir asistente',
+      href: '/admin/query-assistant',
     },
   ],
   TEACHER: [
