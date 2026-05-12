@@ -38,6 +38,9 @@ const { prismaMock, sendMailMock } = vi.hoisted(() => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
+    auditLog: {
+      create: vi.fn().mockResolvedValue({ id: "a1" }),
+    },
   },
   sendMailMock: vi.fn().mockResolvedValue(undefined),
 }));
@@ -86,7 +89,15 @@ describe("auth routes (mocks)", () => {
     prismaMock.user.findFirst.mockReset();
     prismaMock.user.findUnique.mockReset();
     prismaMock.user.update.mockReset();
-    prismaMock.systemSettings.upsert.mockResolvedValue({ livenessCheckEnabled: false });
+    prismaMock.systemSettings.upsert.mockResolvedValue({
+      livenessCheckEnabled: false,
+      attendanceNoShowGraceMinutes: 15,
+      attendanceLateToleranceMinutes: 5,
+      attendanceMonitorEnabled: true,
+      attendanceMonitorIntervalMs: 120000,
+      biometricLateHour: 8,
+      biometricLateMinute: 30,
+    });
     prismaMock.livenessSession.findUnique.mockReset();
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {
@@ -718,7 +729,7 @@ describe("auth routes (mocks)", () => {
     expect(res.body.navLinks).toEqual([]);
   });
 
-  it("GET /auth/me devuelve navegación cuando el perfil está completo y habilitado", async () => {
+  it("GET /auth/me devuelve navLinks vacío cuando el perfil está completo (navegación por inicio)", async () => {
     prismaMock.user.findUnique.mockResolvedValue({
       id: "user-1",
       email: "user@example.com",
@@ -739,10 +750,7 @@ describe("auth routes (mocks)", () => {
     const res = await request(app()).get("/auth/me").set(authHeader());
     expect(res.status).toBe(200);
     expect(res.body.needsProfileCompletion).toBe(false);
-    expect(res.body.navLinks).toHaveLength(4);
-    expect(res.body.navLinks[0].href).toBe("/staff/attendance");
-    expect(res.body.navLinks[2].href).toBe("/staff/licenses");
-    expect(res.body.navLinks[3].href).toBe("/notifications");
+    expect(res.body.navLinks).toEqual([]);
   });
 
   it("GET /auth/me 401 si el usuario autenticado ya no existe", async () => {

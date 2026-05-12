@@ -2,7 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import argon2 from "argon2";
 import { prisma } from "../prisma.js";
-import { signAccessToken } from "../jwt.js";
+import { signAccessToken, verifyToken } from "../jwt.js";
+import { recordAuditEvent } from "../services/audit-log.js";
+import { AuditAction } from "@prisma/client";
 import { authGuard } from "../middlewares/auth.js";
 import passport from "../passportGoogle.js";
 import crypto from "crypto";
@@ -18,34 +20,20 @@ import {
   mapProfileUpdateError,
 } from "../auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
-import { isDiditConfigured } from "../system-settings.js";
+import { isDiditConfigured, isLivenessRequiredForRegistration } from "../system-settings.js";
 import { syncLivenessSessionFromDiditApi } from "../didit-sync-session.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../org-role-service.js";
 
 const r = Router();
 
-/** Enlaces de cabecera: solo lo que el rol puede usar (fuente única, no en el bundle del front) */
+/**
+ * Enlaces de cabecera: vacíos — la navegación va por el panel de inicio y la campana de avisos.
+ * (Se mantiene la clave en /auth/me por compatibilidad con clientes viejos.)
+ */
 const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
-  ADMIN: [
-    { href: "/admin/users", label: "Usuarios" },
-    { href: "/admin/profiles", label: "Perfiles" },
-    { href: "/admin/attendance", label: "Asistencias" },
-    { href: "/admin/events", label: "Eventos" },
-    { href: "/admin/licenses", label: "Licencias" },
-    { href: "/notifications", label: "Avisos" },
-  ],
-  TEACHER: [
-    { href: "/teacher/attendance", label: "Mis asistencias" },
-    { href: "/teacher/events", label: "Mis eventos" },
-    { href: "/teacher/licenses", label: "Mis licencias" },
-    { href: "/notifications", label: "Avisos" },
-  ],
-  STAFF: [
-    { href: "/staff/attendance", label: "Mis asistencias" },
-    { href: "/staff/events", label: "Mis eventos" },
-    { href: "/staff/licenses", label: "Mis licencias" },
-    { href: "/notifications", label: "Avisos" },
-  ],
+  ADMIN: [],
+  TEACHER: [],
+  STAFF: [],
 };
 
 const registerSchema = z.object({
@@ -219,7 +207,11 @@ function createIpRateLimit(windowMs: number, max: number) {
 
 // Check username availability
 r.get("/registration-options", async (_req, res) => {
-  return res.json({ livenessCheckEnabled: isDiditConfigured() });
+  const livenessRequired = isLivenessRequiredForRegistration()
+  return res.json({
+    livenessCheckEnabled: livenessRequired,
+    diditConfigured: isDiditConfigured(),
+  })
 });
 
 r.get('/check-username', async (req, res) => {
@@ -242,7 +234,14 @@ r.post("/register", async (req, res) => {
     username ? prisma.user.findUnique({ where: { username } }) : Promise.resolve(null),
     nationalId ? prisma.user.findUnique({ where: { nationalId: onlyDigits(nationalId) } }) : Promise.resolve(null),
   ]);
-  const livenessRequired = isDiditConfigured();
+  const requireDidit = isLivenessRequiredForRegistration()
+  if (requireDidit && !isDiditConfigured()) {
+    return res.status(503).json({
+      message:
+        'El registro con verificación de identidad no está disponible: el servidor no tiene configurado Didit (DIDIT_API_KEY y DIDIT_WORKFLOW_ID).',
+    })
+  }
+  const livenessRequired = requireDidit;
   /** Fila interna; el cliente puede mandar `id` (vendor_data) o el session_id de Didit del retorno. */
   let livenessRowId: string | null = null;
   if (livenessRequired) {
@@ -477,20 +476,53 @@ r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
     },
     include: { orgRole: { select: { code: true } } },
   });
-  if (!user || !user.passwordHash) return res.status(401).json({ message: "Credenciales" });
-  if (!user.isActive) return res.status(403).json({ message: "Cuenta desactivada" });
+  if (!user || !user.passwordHash) {
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      req,
+      metadata: { reason: "UNKNOWN_IDENTIFIER_OR_NO_PASSWORD" },
+    });
+    return res.status(401).json({ message: "Credenciales" });
+  }
+  if (!user.isActive) {
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      actorUserId: user.id,
+      req,
+      metadata: { reason: "ACCOUNT_INACTIVE" },
+    });
+    return res.status(403).json({ message: "Cuenta desactivada" });
+  }
 
   if (user.lockUntil && user.lockUntil > new Date()) {
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      actorUserId: user.id,
+      req,
+      metadata: { reason: "ACCOUNT_LOCKED" },
+    });
     return res.status(429).json({ message: "Cuenta bloqueada temporalmente. Intenta más tarde" });
   }
 
   const ok = await argon2.verify(user.passwordHash, password);
   if (!ok) {
     await registerFailedLogin(user.id);
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      actorUserId: user.id,
+      req,
+      metadata: { reason: "INVALID_PASSWORD" },
+    });
     return res.status(401).json({ message: "Credenciales" });
   }
 
   await registerSuccessfulLogin(user.id);
+
+  recordAuditEvent({
+    action: AuditAction.AUTH_LOGIN_SUCCESS,
+    actorUserId: user.id,
+    req,
+  });
 
   const roleCode = user.orgRole?.code ?? "";
   const token = signAccessToken({ sub: user.id, email: user.email, role: roleCode });
@@ -644,6 +676,22 @@ r.get("/me", authGuard, async (req, res) => {
 });
 
 r.post("/logout", async (req, res) => {
+  let actorId: string | null = null;
+  const accessTok = (req as any).cookies?.access_token as string | undefined;
+  if (accessTok) {
+    try {
+      const payload = verifyToken(accessTok);
+      actorId = payload.sub ?? null;
+    } catch {
+      /* cookie inválida: igual cerramos sesión */
+    }
+  }
+  recordAuditEvent({
+    action: AuditAction.AUTH_LOGOUT,
+    actorUserId: actorId,
+    req,
+  });
+
   const rt = (req as any).cookies?.refresh_token as string | undefined;
   if (rt) {
     try {
@@ -681,6 +729,12 @@ r.get(
     await prisma.refreshToken.create({ data: { tokenHash: hashToken(rt), userId: user.id, expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")), userAgent: req.headers["user-agent"], ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || (req as any).ip } });
     setRefreshCookie(res, rt);
     const needsProfileCompletion = !oauthUser?.firstName || !oauthUser?.lastName || !oauthUser?.nationalId || !oauthUser?.birthdate || !oauthUser?.username;
+    recordAuditEvent({
+      action: AuditAction.AUTH_GOOGLE_LOGIN_SUCCESS,
+      actorUserId: user.id,
+      req,
+      metadata: { needsProfileCompletion },
+    });
     res.redirect(process.env.FRONTEND_URL! + (needsProfileCompletion ? "/onboarding" : "/"));
   }
 );

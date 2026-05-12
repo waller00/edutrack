@@ -22,29 +22,54 @@ export function getWelcomeMessage(inactiveAccount: boolean, pendingApproval: boo
 export type HomeSectionIconKind =
   | 'users'
   | 'profiles'
+  | 'settings'
   | 'chart'
   | 'calendar'
   | 'file'
   | 'dashboard'
+  | 'analytics'
+  | 'assistant'
   | 'default'
 
 export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
   if (title.includes('usuarios')) return 'users'
   if (title.includes('perfiles')) return 'profiles'
+  if (title.includes('Configuración')) return 'settings'
   if (title.includes('asistencias')) return 'chart'
   if (title.includes('eventos')) return 'calendar'
   if (title.includes('licencias')) return 'file'
+  {
+    const t = title.toLowerCase()
+    if (t.includes('analít') || t.includes('analit') || t.includes('analytics')) return 'analytics'
+  }
+  if (title.toLowerCase().includes('asistente')) return 'assistant'
   if (title.includes('Panel')) return 'dashboard'
   return 'default'
 }
 
 export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {
   ADMIN: [
-    { title: 'Gestión de usuarios', desc: 'Altas, roles y permisos.', cta: 'Administrar usuarios', href: '/admin/users' },
-    { title: 'Gestión de perfiles', desc: 'Roles y matriz editable de permisos por módulo.', cta: 'Administrar perfiles', href: '/admin/profiles' },
+    { title: 'Gestión de usuarios', desc: 'Gestiona los usuarios del sistema.', cta: 'Administrar usuarios', href: '/admin/users' },
     { title: 'Gestión de asistencias', desc: 'Registro y control de asistencias del personal.', cta: 'Gestionar asistencias', href: '/admin/attendance' },
-    { title: 'Gestión de eventos', desc: 'Crear y administrar turnos y eventos.', cta: 'Gestionar eventos', href: '/admin/events' },
+    {
+      title: 'Gestión de eventos y notificaciones',
+      desc: 'Crear turnos y eventos; los avisos a docentes llegan por la campana.',
+      cta: 'Gestionar eventos',
+      href: '/admin/events',
+    },
     { title: 'Gestión de licencias', desc: 'Administra licencias médicas y laborales.', cta: 'Gestionar licencias', href: '/admin/licenses' },
+    {
+      title: 'Analítica institucional',
+      desc: 'KPIs con tendencias semanales, rankings y exportaciones para soporte a la decisión.',
+      cta: 'Abrir analítica',
+      href: '/admin/analytics',
+    },
+    {
+      title: 'Asistente de consultas',
+      desc: 'Consultas en lenguaje natural: horas, incidencias, licencias, eventos, biométrico, usuarios y auditoría',
+      cta: 'Abrir asistente',
+      href: '/admin/query-assistant',
+    },
   ],
   TEACHER: [
     { title: 'Mis asistencias', desc: 'Consulta tu historial de asistencias.', cta: 'Ver asistencias', href: '/teacher/attendance' },

@@ -8,7 +8,8 @@ import { computeCICheckDigit } from "../uruguay-ci.js";
 import type { BuiltinProfileRole } from "../profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../profile-permissions-defaults.js";
 
-const { prismaMock } = vi.hoisted(() => ({
+const { prismaMock, runAdminQueryAssistantMock } = vi.hoisted(() => ({
+  runAdminQueryAssistantMock: vi.fn(),
   prismaMock: {
     user: {
       count: vi.fn(),
@@ -42,6 +43,11 @@ const { prismaMock } = vi.hoisted(() => ({
       create: vi.fn(),
     },
     passwordReset: { create: vi.fn() },
+    auditLog: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+      create: vi.fn().mockResolvedValue({ id: "a1" }),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -88,6 +94,9 @@ function permissionCatalogRows() {
 }
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../services/query-assistant/run.js", () => ({
+  runAdminQueryAssistant: runAdminQueryAssistantMock,
+}));
 
 import adminRoutes from "./admin.js";
 
@@ -131,7 +140,18 @@ describe("admin routes (prisma mock)", () => {
       orgRole: { code: "TEACHER" },
       firstName: "A",
       lastName: "B",
+      name: "A B",
+      roleId: orgRoleRowId("TEACHER"),
+      username: "teacher1",
+      nationalId: null,
+      nationalIdDocumentExpiresAt: null,
+      isApproved: true,
+      approvedAt: new Date("2020-01-01T00:00:00.000Z"),
+      isActive: true,
     });
+    prismaMock.auditLog.findMany.mockResolvedValue([]);
+    prismaMock.auditLog.count.mockResolvedValue(0);
+    prismaMock.auditLog.create.mockResolvedValue({ id: "audit-1" });
   });
 
   it("GET /admin/users paginado", async () => {
@@ -166,6 +186,30 @@ describe("admin routes (prisma mock)", () => {
     expect(arg.take).toBe(100);
     expect(arg.where.AND).toEqual(
       expect.arrayContaining([{ NOT: { orgRole: { code: "ADMIN" } } }, { orgRole: { code: "STAFF" } }]),
+    );
+  });
+
+  it("GET /admin/users filtros aprobación activo verificado bloqueo y documento", async () => {
+    prismaMock.user.count.mockResolvedValue(0);
+    prismaMock.user.findMany.mockResolvedValue([]);
+    const res = await request(app())
+      .get(
+        "/admin/users?approved=false&active=true&verified=true&locked=false&docExpiring=true",
+      )
+      .set(adminHdr());
+    expect(res.status).toBe(200);
+    const arg = prismaMock.user.findMany.mock.calls[0][0];
+    expect(arg.where.AND).toEqual(
+      expect.arrayContaining([
+        { NOT: { orgRole: { code: "ADMIN" } } },
+        { isApproved: false },
+        { isActive: true },
+        { emailVerifiedAt: { not: null } },
+        { OR: [{ lockUntil: null }, { lockUntil: { lte: expect.any(Date) } }] },
+        {
+          nationalIdDocumentExpiresAt: { not: null, gte: expect.any(Date), lte: expect.any(Date) },
+        },
+      ]),
     );
   });
 
@@ -482,5 +526,63 @@ describe("admin routes (prisma mock)", () => {
     const tok = signAccessToken({ sub: "t", email: "t@t.com", role: "TEACHER" });
     const res = await request(app()).get("/admin/users").set("Authorization", `Bearer ${tok}`);
     expect(res.status).toBe(403);
+  });
+
+  it("GET /admin/audit-logs devuelve datos y catálogo de acciones", async () => {
+    prismaMock.auditLog.count.mockResolvedValue(1);
+    prismaMock.auditLog.findMany.mockResolvedValue([
+      {
+        id: "log-1",
+        occurredAt: new Date("2026-01-01T12:00:00.000Z"),
+        action: "AUTH_LOGIN_SUCCESS",
+        actorUserId: "u1",
+        actorIp: "1.2.3.4",
+        userAgent: "vitest",
+        source: "API",
+        entityType: null,
+        entityId: null,
+        metadata: null,
+        actor: { id: "u1", name: "Test", email: "t@t.com" },
+      },
+    ]);
+    const res = await request(app()).get("/admin/audit-logs?page=1&pageSize=10").set(adminHdr());
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(Array.isArray(res.body.actionCatalog)).toBe(true);
+    expect(res.body.data[0].actionLabel).toMatch(/sesión/i);
+  });
+
+  it("POST /admin/query-assistant 400 si falta pregunta", async () => {
+    const res = await request(app()).post("/admin/query-assistant").set(adminHdr()).send({ question: "" });
+    expect(res.status).toBe(400);
+    expect(runAdminQueryAssistantMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /admin/query-assistant devuelve resultado del servicio", async () => {
+    runAdminQueryAssistantMock.mockResolvedValue({
+      intent: "HOURS_WORKED_SUMMARY",
+      summary: "Resumen de prueba",
+      columns: [{ key: "name", label: "Nombre" }],
+      rows: [{ name: "Ana" }],
+    });
+    const res = await request(app())
+      .post("/admin/query-assistant")
+      .set(adminHdr())
+      .send({ question: "horas en octubre" });
+    expect(res.status).toBe(200);
+    expect(res.body.intent).toBe("HOURS_WORKED_SUMMARY");
+    expect(res.body.summary).toBe("Resumen de prueba");
+    expect(res.body.rows).toHaveLength(1);
+    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("horas en octubre");
+  });
+
+  it("POST /admin/query-assistant 503 si falta OPENAI_API_KEY", async () => {
+    runAdminQueryAssistantMock.mockRejectedValue(new Error("OPENAI_API_KEY_NOT_CONFIGURED"));
+    const res = await request(app())
+      .post("/admin/query-assistant")
+      .set(adminHdr())
+      .send({ question: "horas en octubre" });
+    expect(res.status).toBe(503);
+    expect(res.body.message).toMatch(/OPENAI_API_KEY/i);
   });
 });

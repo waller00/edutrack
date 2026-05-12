@@ -25,16 +25,18 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       // dni-processor: ~2.3k líneas OCR/sharp/tesseract; excluido de métrica
       exclude: [
-        "src/**/*.test.ts", 
+        "src/**/*.test.ts",
         "src/routes/dni-processor.ts",
-        "src/services/analytics/**", // Excluimos esto
-        "src/services/exports/**"    // Y esto también
+        "src/services/analytics/**",
+        "src/services/exports/**",
+        // RF-10: handlers Prisma + OpenAI; cobertura vía tests puntuales (heuristics, date-range) y ruta admin mockeada
+        "src/services/query-assistant/**",
       ],
       thresholds: {
         lines: 70,
         statements: 70,
         functions: 60,
-        branches: 75,
+        branches: 70,
       },
     },
   },

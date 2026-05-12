@@ -17,6 +17,24 @@ enum InAppNotificationType {
   LICENSE_CREATED
   LICENSE_UPDATED
   EVENT_ASSIGNED
+  ATTENDANCE_INCIDENT
+}
+
+/// Registro append-only de acciones relevantes (RF-11). Sin updates ni deletes desde la app.
+enum AuditAction {
+  AUTH_LOGIN_SUCCESS
+  AUTH_LOGIN_FAILURE
+  AUTH_LOGOUT
+  AUTH_GOOGLE_LOGIN_SUCCESS
+  USER_CREATED_BY_ADMIN
+  USER_UPDATED_BY_ADMIN
+  USER_ACCOUNT_LOCK_TOGGLED
+  ADMIN_PASSWORD_RESET_ISSUED
+  MEDICAL_LEAVE_CREATED
+  MEDICAL_LEAVE_UPDATED
+  MEDICAL_LEAVE_DEACTIVATED
+  SYSTEM_SETTINGS_UPDATED
+  EVENT_CREATED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
@@ -65,6 +83,10 @@ model User {
   medicalLeaves      MedicalLeave[]
   webPushSubscriptions WebPushSubscription[]
   inAppNotifications InAppNotification[]
+  biometricMappings  BiometricUserMapping[]
+  biometricPunches   BiometricPunch[]
+  attendanceIncidents AttendanceIncident[]
+  auditEvents         AuditLog[]
   // security
   emailVerifiedAt     DateTime?
   failedLoginAttempts Int       @default(0)
@@ -116,10 +138,36 @@ model InAppNotification {
   @@index([userId, readAt])
 }
 
+model AuditLog {
+  id          String      @id @default(uuid())
+  occurredAt  DateTime    @default(now())
+  action      AuditAction
+  actorUserId String?
+  actor       User?       @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorIp     String?     @db.VarChar(45)
+  userAgent   String?     @db.VarChar(512)
+  source      String      @default("API") @db.VarChar(32)
+  entityType  String?     @db.VarChar(64)
+  entityId    String?     @db.VarChar(36)
+  metadata    Json?
+
+  @@index([occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+}
+
 /// Configuración global (fila única `default`).
 model SystemSettings {
   id                    String   @id @default("default")
   livenessCheckEnabled  Boolean  @default(false)
+  attendanceNoShowGraceMinutes Int @default(15)
+  attendanceLateToleranceMinutes Int @default(5)
+  /// Si el hueco entre el fin de una clase y el inicio de la siguiente es >= este valor (minutos), se exige nueva entrada biométrica.
+  attendanceClassBridgeGapMinutes Int @default(60)
+  attendanceMonitorEnabled Boolean @default(true)
+  attendanceMonitorIntervalMs Int @default(120000)
+  biometricLateHour Int @default(8)
+  biometricLateMinute Int @default(30)
   updatedAt             DateTime @updatedAt
 }
 
@@ -182,6 +230,19 @@ enum AttendanceType {
   CHECK_OUT
 }
 
+enum BiometricPunchType {
+  CHECK_IN
+  CHECK_OUT
+  UNKNOWN
+}
+
+enum BiometricPunchProcessStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  DUPLICATE
+}
+
 enum AttendanceStatus {
   // Estados para CHECK_IN
   PRESENT
@@ -205,12 +266,116 @@ model Attendance {
   notes       String?
   eventId     String?
   event       Event?           @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  biometricPunch BiometricPunch?
+  incidents   AttendanceIncident[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
   @@index([userId])
   @@index([date])
   @@index([eventId])
+}
+
+enum AttendanceIncidentType {
+  LATE_ARRIVAL
+  TEACHER_NO_SHOW
+  EARLY_EXIT
+}
+
+enum AttendanceIncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model AttendanceIncident {
+  id              String                   @id @default(uuid())
+  type            AttendanceIncidentType
+  status          AttendanceIncidentStatus @default(OPEN)
+  title           String
+  description     String?
+  severity        String                   @default("HIGH")
+  userId          String
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId         String?
+  event           Event?                   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  attendanceId    String?
+  attendance      Attendance?              @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  biometricPunchId String?
+  biometricPunch  BiometricPunch?          @relation(fields: [biometricPunchId], references: [id], onDelete: SetNull)
+  detectedAt      DateTime                 @default(now())
+  acknowledgedAt  DateTime?
+  resolvedAt      DateTime?
+  resolvedBy      String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  @@index([status, type])
+  @@index([eventId])
+  @@index([userId])
+  @@index([detectedAt])
+}
+
+model BiometricDevice {
+  id         String   @id @default(uuid())
+  code       String   @unique
+  name       String
+  secretHash String
+  timezone   String   @default("America/Montevideo")
+  isActive   Boolean  @default(true)
+  allowedIps String[] @default([])
+  lastSeenAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  punches    BiometricPunch[]
+  mappings   BiometricUserMapping[]
+
+  @@index([isActive])
+}
+
+model BiometricUserMapping {
+  id           String          @id @default(uuid())
+  deviceId     String
+  device       BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceUserId String
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  punches      BiometricPunch[]
+
+  @@unique([deviceId, deviceUserId])
+  @@index([userId])
+  @@index([isActive])
+}
+
+model BiometricPunch {
+  id            String                     @id @default(uuid())
+  deviceId      String
+  device        BiometricDevice            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  mappingId     String?
+  mapping       BiometricUserMapping?      @relation(fields: [mappingId], references: [id], onDelete: SetNull)
+  userId        String?
+  user          User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attendanceId  String?                    @unique
+  attendance    Attendance?                @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  externalId    String?
+  deviceUserId  String
+  occurredAt    DateTime
+  receivedAt    DateTime                   @default(now())
+  punchType     BiometricPunchType         @default(UNKNOWN)
+  processStatus BiometricPunchProcessStatus @default(PENDING)
+  processError  String?
+  payload       Json
+  incidents     AttendanceIncident[]
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+
+  @@unique([deviceId, deviceUserId, occurredAt])
+  @@unique([deviceId, externalId])
+  @@index([processStatus])
+  @@index([occurredAt])
 }
 
 // Sistema de Eventos y Turnos
@@ -308,6 +473,7 @@ model Event {
   parentEvent     Event?         @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
   childEvents     Event[]        @relation("EventRecurrence")
   attendances     Attendance[]
+  attendanceIncidents AttendanceIncident[]
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
