@@ -28,6 +28,10 @@ export const llmIntentSchema = z.object({
       /** Incidencias: solo abiertas o todas */
       incidentStatusScope: z.enum(['OPEN_ONLY', 'ALL']).optional(),
       incidentTypeScope: z.enum(['LATE_ARRIVAL', 'TEACHER_NO_SHOW', 'EARLY_EXIT', 'ALL']).optional(),
+      /** Incidencias: listado detallado (default) o conteo por persona (p. ej. «quién faltó más»). */
+      incidentViewMode: z.enum(['LIST', 'COUNT_BY_USER']).optional(),
+      /** Licencias: todas, solo vigentes/activas o solo inactivas (cerradas). */
+      leaveStatusScope: z.enum(['ALL', 'ACTIVE_ONLY', 'INACTIVE_ONLY']).optional(),
       biometricIssueScope: z.enum(['FAILED', 'PENDING', 'BOTH']).optional(),
       /** Usuarios / cuentas (sin período obligatorio) */
       userAdminScope: z

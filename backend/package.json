@@ -13,6 +13,7 @@
     "start": "node dist/server.js",
     "prisma:studio": "prisma studio",
     "seed": "node prisma/seed-all.mjs",
+    "seed:liceo": "node prisma/seed-liceo-6months.mjs",
     "seed:biometric": "node prisma/seed-biometric-adms.mjs",
     "vapid:keys": "node --input-type=module -e \"import w from 'web-push'; const k=w.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY='+k.publicKey); console.log('VAPID_PRIVATE_KEY='+k.privateKey); console.log('VAPID_SUBJECT=mailto:cambiar@tu-dominio.com');\""
   },
