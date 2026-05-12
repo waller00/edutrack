@@ -1,11 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import AdminProfilesPage from './page'
+import AdminProfilesPanel from '@/components/AdminProfilesPanel'
 import { api } from '@/lib/api'
-
-vi.mock('@/components/RoleGuard', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
-}))
 
 vi.mock('@/lib/api', () => ({ api: vi.fn() }))
 
@@ -66,7 +62,7 @@ const response = {
   ],
 }
 
-describe('AdminProfilesPage', () => {
+describe('AdminProfilesPanel', () => {
   beforeEach(() => {
     mockedApi.mockReset()
   })
@@ -74,7 +70,7 @@ describe('AdminProfilesPage', () => {
   it('carga roles y permisos por módulo', async () => {
     mockedApi.mockResolvedValueOnce(response)
 
-    render(<AdminProfilesPage />)
+    render(<AdminProfilesPanel />)
 
     expect(await screen.findByText('Gestión de perfiles')).toBeInTheDocument()
     expect(screen.getByText('Tutor')).toBeInTheDocument()
@@ -86,7 +82,7 @@ describe('AdminProfilesPage', () => {
   it('marca un permiso y guarda el perfil', async () => {
     mockedApi.mockResolvedValueOnce(response).mockResolvedValueOnce(response)
 
-    render(<AdminProfilesPage />)
+    render(<AdminProfilesPanel />)
     const checkbox = await screen.findByRole('checkbox', { name: /Ver reportes internos/i })
     fireEvent.click(checkbox)
     fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }))
@@ -99,7 +95,7 @@ describe('AdminProfilesPage', () => {
   it('crea un perfil nuevo con permisos seleccionados', async () => {
     mockedApi.mockResolvedValueOnce(response).mockResolvedValueOnce(response)
 
-    render(<AdminProfilesPage />)
+    render(<AdminProfilesPanel />)
     await screen.findByText('Tutor')
 
     fireEvent.click(screen.getByRole('button', { name: /Nuevo perfil/ }))

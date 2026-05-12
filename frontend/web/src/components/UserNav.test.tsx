@@ -24,52 +24,59 @@ describe('UserNav', () => {
     })
   })
 
-  it('shows auth links when there is no session and exposes the back button on internal pages', async () => {
+  it('shows auth links when there is no session', async () => {
     vi.mocked(api).mockRejectedValueOnce(new Error('unauthorized'))
-    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {})
 
     render(<UserNav />)
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'Iniciar Sesión' })).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /volver/i }))
 
-    expect(backSpy).toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /volver/i })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Registrarse' })).toBeInTheDocument()
   })
 
-  it('renders fallback role links for approved users when the api does not provide navLinks', async () => {
-    vi.mocked(api).mockResolvedValueOnce({
-      role: 'TEACHER',
-      name: 'Ana',
-      email: 'ana@example.com',
-      isApproved: true,
-      isActive: true,
-      needsProfileCompletion: false,
-    })
+  it('no muestra barra de módulos; campana y menú de usuario para docente aprobado', async () => {
+    vi.mocked(api)
+      .mockResolvedValueOnce({
+        role: 'TEACHER',
+        name: 'Ana',
+        email: 'ana@example.com',
+        isApproved: true,
+        isActive: true,
+        needsProfileCompletion: false,
+      })
+      .mockResolvedValueOnce({ count: 0 })
 
     render(<UserNav />)
 
-    expect(await screen.findByText('Mis asistencias')).toBeInTheDocument()
-    expect(screen.getByText('Mis eventos')).toBeInTheDocument()
-    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(await screen.findByText('A')).toBeInTheDocument()
+    expect(screen.queryByText('Mis asistencias')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /avisos/i })).toBeInTheDocument()
   })
 
-  it('uses navLinks from the backend, hides the back button on public pages and logs out from the menu', async () => {
+  it('admin puede abrir menú y cerrar sesión', async () => {
     mockUsePathname.mockReturnValue('/login')
     vi.mocked(api)
       .mockResolvedValueOnce({
         role: 'ADMIN',
         email: 'admin@example.com',
-        navLinks: [{ href: '/custom', label: 'Custom link' }],
+        isApproved: true,
+        isActive: true,
+        needsProfileCompletion: false,
       })
+      .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({})
 
     render(<UserNav />)
 
-    expect(await screen.findByText('Custom link')).toBeInTheDocument()
+    expect(await screen.findByText('admin@example.com')).toBeInTheDocument()
+    expect(screen.queryByText('Usuarios')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /volver/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /admin@example.com/i }))
+    const menuLinks = screen.getAllByRole('link')
+    expect(menuLinks.map((link) => link.textContent?.trim()).slice(-2)).toEqual(['Mi perfil', 'Configuración del sistema'])
+    expect(screen.getByRole('link', { name: /configuración del sistema/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /cerrar sesión/i }))
 
     await waitFor(() =>

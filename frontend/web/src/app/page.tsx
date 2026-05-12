@@ -8,7 +8,9 @@ import {
   FileText,
   Info,
   LayoutDashboard,
+  LineChart,
   Loader2,
+  MessageCircle,
   Mail,
   PenLine,
   ShieldCheck,
@@ -32,6 +34,8 @@ function HomeSectionIcon({ kind }: { kind: HomeSectionIconKind }) {
       return <Users className={cls} aria-hidden />
     case 'profiles':
       return <ShieldCheck className={cls} aria-hidden />
+    case 'settings':
+      return <Wrench className={cls} aria-hidden />
     case 'chart':
       return <BarChart3 className={cls} aria-hidden />
     case 'calendar':
@@ -40,6 +44,10 @@ function HomeSectionIcon({ kind }: { kind: HomeSectionIconKind }) {
       return <FileText className={cls} aria-hidden />
     case 'dashboard':
       return <LayoutDashboard className={cls} aria-hidden />
+    case 'analytics':
+      return <LineChart className={cls} aria-hidden />
+    case 'assistant':
+      return <MessageCircle className={cls} aria-hidden />
     default:
       return <Wrench className={cls} aria-hidden />
   }

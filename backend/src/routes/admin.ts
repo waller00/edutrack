@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { Prisma } from '@prisma/client'
+import { Prisma, AuditAction } from '@prisma/client'
 import { prisma } from '../prisma.js'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { z } from 'zod'
@@ -7,6 +7,7 @@ import { randomBytes } from 'crypto'
 import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
 import { validateNationalIdDocumentExpiresAtUpdate } from '../auth-profile-pure.js'
 import { isDiditConfigured } from '../system-settings.js'
+import { getOrCreateSystemSettings } from '../system-settings.js'
 import { normalizePermissionId } from '../profile-permissions-defaults.js'
 import {
   createProfileRoleWithPermissions,
@@ -22,6 +23,13 @@ import {
 } from '../profile-permissions-repository.js'
 import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js'
 import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../org-role-service.js'
+import {
+  AUDIT_ACTION_LABELS,
+  getAuditActionCatalog,
+  parseAuditActionFilter,
+  recordAuditEvent,
+} from '../services/audit-log.js'
+import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
 
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
@@ -67,12 +75,87 @@ async function buildAdminUserUpdateData(id: string, payload: {
   }
   if (typeof payload.isApproved === 'boolean') {
     data.isApproved = payload.isApproved
-    data.approvedAt = payload.isApproved ? new Date() : null
+    if (!payload.isApproved) {
+      data.approvedAt = null
+    } else {
+      const cur = await prisma.user.findUnique({
+        where: { id },
+        select: { isApproved: true },
+      })
+      if (!cur?.isApproved) {
+        data.approvedAt = new Date()
+      }
+    }
   }
   if (typeof payload.isActive === 'boolean') {
     data.isActive = payload.isActive
   }
   return data
+}
+
+/** Nombres semánticos para auditoría (alineados con la UI). */
+const USER_AUDIT_FIELD_ALIASES: Record<string, string> = {
+  roleId: 'role',
+}
+
+function nationalIdComparable(raw: unknown): string {
+  if (raw == null || raw === '') return ''
+  return onlyDigits(String(raw))
+}
+
+function dateComparableMs(raw: unknown): number | null {
+  if (raw == null) return null
+  if (raw instanceof Date) {
+    const t = raw.getTime()
+    return Number.isNaN(t) ? null : t
+  }
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const t = new Date(raw).getTime()
+    return Number.isNaN(t) ? null : t
+  }
+  return null
+}
+
+/** Solo campos cuyo valor en `data` difiere del usuario en BD (el front suele mandar el formulario completo). */
+function computeAuditUserFieldsChanged(
+  before: {
+    roleId?: string | null
+    username?: string | null
+    firstName?: string | null
+    lastName?: string | null
+    name?: string | null
+    nationalId?: string | null
+    nationalIdDocumentExpiresAt?: Date | string | null
+    isApproved?: boolean | null
+    approvedAt?: Date | string | null
+    isActive?: boolean | null
+  },
+  data: Record<string, unknown>,
+): string[] {
+  const out: string[] = []
+  for (const key of Object.keys(data)) {
+    const newVal = data[key]
+    const oldVal = (before as Record<string, unknown>)[key]
+    let changed = false
+    switch (key) {
+      case 'nationalId':
+        changed = nationalIdComparable(oldVal) !== nationalIdComparable(newVal)
+        break
+      case 'nationalIdDocumentExpiresAt':
+      case 'approvedAt':
+        changed = dateComparableMs(oldVal) !== dateComparableMs(newVal)
+        break
+      case 'isApproved':
+      case 'isActive':
+        changed = Boolean(oldVal) !== Boolean(newVal)
+        break
+      default:
+        if (newVal === undefined) continue
+        changed = String(oldVal ?? '') !== String(newVal ?? '')
+    }
+    if (changed) out.push(USER_AUDIT_FIELD_ALIASES[key] ?? key)
+  }
+  return out
 }
 
 function messageForUniqueViolation(err: Prisma.PrismaClientKnownRequestError): string {
@@ -184,20 +267,53 @@ r.get('/users', async (req, res) => {
   const pageSize = Math.min(Number((req.query.pageSize as string) || 20), 100)
   const role = ((req.query.role as string) || '').trim().toUpperCase() || undefined
   const q = (req.query.q as string) || ''
+  const approved = (req.query.approved as string) || ''
+  const active = (req.query.active as string) || ''
+  const verified = (req.query.verified as string) || ''
+  const locked = (req.query.locked as string) || ''
+  const docExpiring = (req.query.docExpiring as string) || ''
+
   const and: Prisma.UserWhereInput[] = [{ NOT: { orgRole: { code: 'ADMIN' } } }]
   if (role) {
     and.push({ orgRole: { code: role } })
   }
-  if (q) {
+  if (q.trim()) {
+    const term = q.trim()
+    const orFields: Prisma.UserWhereInput[] = [
+      { email: { contains: term, mode: 'insensitive' } },
+      { username: { contains: term, mode: 'insensitive' } },
+      { firstName: { contains: term, mode: 'insensitive' } },
+      { lastName: { contains: term, mode: 'insensitive' } },
+      { name: { contains: term, mode: 'insensitive' } },
+    ]
+    const idDigits = term.replace(/\D/g, '')
+    if (idDigits.length >= 4) {
+      orFields.push({ nationalId: { contains: idDigits, mode: 'insensitive' } })
+    }
+    and.push({ OR: orFields })
+  }
+  if (approved === 'true') and.push({ isApproved: true })
+  if (approved === 'false') and.push({ isApproved: false })
+  if (active === 'true') and.push({ isActive: true })
+  if (active === 'false') and.push({ isActive: false })
+  if (verified === 'true') and.push({ emailVerifiedAt: { not: null } })
+  if (verified === 'false') and.push({ emailVerifiedAt: null })
+
+  const now = new Date()
+  if (locked === 'true') {
+    and.push({ lockUntil: { gt: now } })
+  }
+  if (locked === 'false') {
+    and.push({ OR: [{ lockUntil: null }, { lockUntil: { lte: now } }] })
+  }
+  if (docExpiring === 'true') {
+    const horizon = new Date(now)
+    horizon.setUTCDate(horizon.getUTCDate() + 90)
     and.push({
-      OR: [
-        { email: { contains: q, mode: 'insensitive' } },
-        { username: { contains: q, mode: 'insensitive' } },
-        { firstName: { contains: q, mode: 'insensitive' } },
-        { lastName: { contains: q, mode: 'insensitive' } },
-      ],
+      nationalIdDocumentExpiresAt: { not: null, gte: now, lte: horizon },
     })
   }
+
   const where: Prisma.UserWhereInput = { AND: and }
   const [total, raw] = await Promise.all([
     prisma.user.count({ where }),
@@ -401,6 +517,14 @@ r.post('/users', async (req, res) => {
       isActive: true,
     },
   })
+  recordAuditEvent({
+    action: AuditAction.USER_CREATED_BY_ADMIN,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: user.id,
+    metadata: { email: user.email },
+  })
   res.json({ id: user.id })
 })
 
@@ -489,6 +613,28 @@ r.put('/users/:id', async (req, res) => {
     }
   }
 
+  const beforeSnapshot = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      roleId: true,
+      username: true,
+      firstName: true,
+      lastName: true,
+      name: true,
+      nationalId: true,
+      nationalIdDocumentExpiresAt: true,
+      isApproved: true,
+      approvedAt: true,
+      isActive: true,
+    },
+  })
+  if (!beforeSnapshot) return res.status(404).json({ message: 'Usuario no encontrado' })
+
+  const fieldsChangedSemantic = computeAuditUserFieldsChanged(beforeSnapshot, data)
+  if (Object.keys(data).length > 0 && fieldsChangedSemantic.length === 0) {
+    return res.json({ ok: true })
+  }
+
   try {
     await prisma.user.update({ where: { id }, data: data as Prisma.UserUpdateInput })
   } catch (error) {
@@ -497,6 +643,14 @@ r.put('/users/:id', async (req, res) => {
     }
     throw error
   }
+  recordAuditEvent({
+    action: AuditAction.USER_UPDATED_BY_ADMIN,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { fieldsChanged: fieldsChangedSemantic },
+  })
   res.json({ ok: true })
 })
 
@@ -516,6 +670,14 @@ r.put('/users/:id/lock', async (req, res) => {
     where: { id },
     data: { lockUntil: lock ? new Date(Date.now() + 15 * 60 * 1000) : null, failedLoginAttempts: 0 },
   })
+  recordAuditEvent({
+    action: AuditAction.USER_ACCOUNT_LOCK_TOGGLED,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { locked: lock },
+  })
   res.json({ ok: true })
 })
 
@@ -532,13 +694,183 @@ r.post('/users/:id/password/reset', async (req, res) => {
   const token = randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
   await prisma.passwordReset.create({ data: { token, userId: id, expiresAt } })
+  recordAuditEvent({
+    action: AuditAction.ADMIN_PASSWORD_RESET_ISSUED,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { expiresAt: expiresAt.toISOString() },
+  })
   res.json({ token, expiresAt })
 })
 
 r.get('/system-settings', async (_req, res) => {
+  const row = await getOrCreateSystemSettings()
   return res.json({
     diditConfigured: isDiditConfigured(),
+    livenessCheckEnabled: row.livenessCheckEnabled,
+    attendanceNoShowGraceMinutes: row.attendanceNoShowGraceMinutes,
+    attendanceLateToleranceMinutes: row.attendanceLateToleranceMinutes,
+    attendanceClassBridgeGapMinutes: row.attendanceClassBridgeGapMinutes,
+    attendanceMonitorEnabled: row.attendanceMonitorEnabled,
+    attendanceMonitorIntervalMs: row.attendanceMonitorIntervalMs,
+    biometricLateHour: row.biometricLateHour,
+    biometricLateMinute: row.biometricLateMinute,
   })
+})
+
+r.put('/system-settings', async (req, res) => {
+  const parsed = z
+    .object({
+      livenessCheckEnabled: z.boolean().optional(),
+      attendanceNoShowGraceMinutes: z.number().int().min(1).max(180).optional(),
+      attendanceLateToleranceMinutes: z.number().int().min(0).max(120).optional(),
+      attendanceClassBridgeGapMinutes: z.number().int().min(15).max(240).optional(),
+      attendanceMonitorEnabled: z.boolean().optional(),
+      attendanceMonitorIntervalMs: z.number().int().min(30000).max(3600000).optional(),
+      biometricLateHour: z.number().int().min(0).max(23).optional(),
+      biometricLateMinute: z.number().int().min(0).max(59).optional(),
+    })
+    .safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  const data = parsed.data
+  const updated = await prisma.systemSettings.upsert({
+    where: { id: 'default' },
+    create: {
+      id: 'default',
+      livenessCheckEnabled: data.livenessCheckEnabled ?? false,
+      attendanceNoShowGraceMinutes: data.attendanceNoShowGraceMinutes ?? 15,
+      attendanceLateToleranceMinutes: data.attendanceLateToleranceMinutes ?? 5,
+      attendanceClassBridgeGapMinutes: data.attendanceClassBridgeGapMinutes ?? 60,
+      attendanceMonitorEnabled: data.attendanceMonitorEnabled ?? true,
+      attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs ?? 120000,
+      biometricLateHour: data.biometricLateHour ?? 8,
+      biometricLateMinute: data.biometricLateMinute ?? 30,
+    },
+    update: data,
+  })
+
+  recordAuditEvent({
+    action: AuditAction.SYSTEM_SETTINGS_UPDATED,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'SystemSettings',
+    entityId: 'default',
+    metadata: { keysChanged: Object.keys(parsed.data) },
+  })
+
+  return res.json({
+    diditConfigured: isDiditConfigured(),
+    livenessCheckEnabled: updated.livenessCheckEnabled,
+    attendanceNoShowGraceMinutes: updated.attendanceNoShowGraceMinutes,
+    attendanceLateToleranceMinutes: updated.attendanceLateToleranceMinutes,
+    attendanceClassBridgeGapMinutes: updated.attendanceClassBridgeGapMinutes,
+    attendanceMonitorEnabled: updated.attendanceMonitorEnabled,
+    attendanceMonitorIntervalMs: updated.attendanceMonitorIntervalMs,
+    biometricLateHour: updated.biometricLateHour,
+    biometricLateMinute: updated.biometricLateMinute,
+  })
+})
+
+r.get('/audit-logs', async (req, res) => {
+  const parsed = z
+    .object({
+      page: z.coerce.number().int().min(1).optional().default(1),
+      pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+      action: z.string().optional(),
+      actorUserId: z.string().uuid().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    })
+    .safeParse(req.query)
+  if (!parsed.success) {
+    return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+  }
+  const { page, pageSize, action: actionRaw, actorUserId, from, to } = parsed.data
+  if (actionRaw && !parseAuditActionFilter(actionRaw)) {
+    return res.status(400).json({ message: 'Tipo de acción inválido' })
+  }
+  const action = parseAuditActionFilter(actionRaw)
+
+  const where: Prisma.AuditLogWhereInput = {}
+  if (action) where.action = action
+  if (actorUserId) where.actorUserId = actorUserId
+  if (from || to) {
+    where.occurredAt = {}
+    if (from) {
+      const d = new Date(from)
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ message: 'Fecha "desde" inválida' })
+      where.occurredAt.gte = d
+    }
+    if (to) {
+      const d = new Date(to)
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ message: 'Fecha "hasta" inválida' })
+      where.occurredAt.lte = d
+    }
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({
+      where,
+      orderBy: { occurredAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: { actor: { select: { id: true, name: true, email: true } } },
+    }),
+  ])
+
+  const data = rows.map((row) => ({
+    id: row.id,
+    occurredAt: row.occurredAt.toISOString(),
+    action: row.action,
+    actionLabel: AUDIT_ACTION_LABELS[row.action],
+    actorUserId: row.actorUserId,
+    actorName: row.actor?.name ?? null,
+    actorEmail: row.actor?.email ?? null,
+    actorIp: row.actorIp,
+    userAgent: row.userAgent,
+    source: row.source,
+    entityType: row.entityType,
+    entityId: row.entityId,
+    metadata: row.metadata,
+  }))
+
+  return res.json({
+    total,
+    page,
+    pageSize,
+    actionCatalog: getAuditActionCatalog(),
+    data,
+  })
+})
+
+/** RF-10 MVP: consulta en lenguaje natural → intención vía OpenAI → datos con Prisma (solo lectura). */
+r.post('/query-assistant', async (req, res) => {
+  const parsed = z.object({ question: z.string().min(1).max(2000) }).safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ message: 'Pregunta inválida', errors: parsed.error.errors })
+  }
+  try {
+    const result = await runAdminQueryAssistant(parsed.data.question)
+    return res.json(result)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'OPENAI_API_KEY_NOT_CONFIGURED') {
+      return res.status(503).json({
+        message: 'El asistente no está configurado. Definí OPENAI_API_KEY en el servidor.',
+      })
+    }
+    if (msg.startsWith('OPENAI_API_KEY_INVALID_FORMAT:')) {
+      return res.status(503).json({
+        message: msg.replace(/^OPENAI_API_KEY_INVALID_FORMAT:\s*/, ''),
+      })
+    }
+    console.error('[query-assistant]', e)
+    return res.status(500).json({ message: 'No se pudo procesar la consulta.', detail: msg })
+  }
 })
 
 export default r

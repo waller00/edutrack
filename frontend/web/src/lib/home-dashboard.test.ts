@@ -36,9 +36,12 @@ describe('getHomeSectionIconKind', () => {
   it.each([
     ['Gestión de usuarios', 'users'],
     ['Gestión de perfiles', 'profiles'],
+    ['Configuración del sistema', 'settings'],
     ['asistencias', 'chart'],
     ['eventos', 'calendar'],
+    ['Gestión de eventos y notificaciones', 'calendar'],
     ['licencias', 'file'],
+    ['Analítica institucional', 'analytics'],
     ['Panel admin', 'dashboard'],
     ['Otro', 'default'],
   ])('%s → %s', (title, kind) => {
@@ -62,6 +65,8 @@ describe('getVisibleHomeSections', () => {
   it('ADMIN ve todas las secciones admin', () => {
     const s = getVisibleHomeSections(me({ email: 'a@b.c', role: 'ADMIN' }))
     expect(s).toEqual(HOME_SECTIONS_BY_ROLE.ADMIN)
+    expect(s.some((section) => section.title === 'Configuración del sistema')).toBe(false)
+    expect(s.some((section) => section.title === 'Gestión de perfiles')).toBe(false)
   })
 
   it('TEACHER y STAFF ven sus rutas', () => {
