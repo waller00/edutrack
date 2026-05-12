@@ -28,10 +28,14 @@ const INTENT_TITLE: Record<string, string> = {
 
 const EXAMPLE_PROMPTS: { label: string; text: string }[] = [
   { label: 'Horas', text: 'Horas trabajadas en octubre' },
-  { label: 'Licencias', text: 'Licencias de marzo' },
+  { label: 'Horas docente', text: 'Horas del docente Martínez en mayo' },
+  { label: 'Licencias', text: 'Licencias activas en marzo' },
   { label: 'Incidencias', text: 'Incidencias abiertas de mayo' },
+  { label: 'Ausencias', text: '¿Quién faltó más en abril?' },
   { label: 'Usuarios', text: 'Lista de usuarios' },
   { label: 'Tardanzas', text: 'Tardanzas en septiembre' },
+  { label: 'Tardanzas docente', text: 'Tardanzas docente Ana en agosto' },
+  { label: 'Eventos', text: 'Eventos asignados a docentes en junio' },
   { label: 'Auditoría', text: 'Auditoría de logins este mes' },
 ]
 

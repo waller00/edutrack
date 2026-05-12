@@ -38,9 +38,14 @@ export async function executeMedicalLeavesSummary(
     }
   }
 
+  const leaveScope = payload.params.leaveStatusScope ?? 'ALL'
+  const statusFilter =
+    leaveScope === 'ACTIVE_ONLY' ? ({ status: 'ACTIVE' as const } as const) : leaveScope === 'INACTIVE_ONLY' ? ({ status: 'INACTIVE' as const } as const) : {}
+
   const leaves = await prisma.medicalLeave.findMany({
     where: {
       AND: [{ startDate: { lte: end } }, { endDate: { gte: start } }],
+      ...statusFilter,
       ...(userIds ? { userId: { in: userIds } } : {}),
     },
     orderBy: { startDate: 'desc' },
@@ -52,7 +57,11 @@ export async function executeMedicalLeavesSummary(
 
   return {
     intent: 'MEDICAL_LEAVES_SUMMARY',
-    summary: payload.reply || `Licencias con período que cruza ${range.from} – ${range.to}.`,
+    summary:
+      payload.reply ||
+      `Licencias con período que cruza ${range.from} – ${range.to}${
+        leaveScope === 'ACTIVE_ONLY' ? ' (solo activas/vigentes).' : leaveScope === 'INACTIVE_ONLY' ? ' (solo inactivas).' : '.'
+      }`,
     columns: [
       { key: 'desde', label: 'Desde' },
       { key: 'hasta', label: 'Hasta' },
