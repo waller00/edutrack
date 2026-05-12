@@ -51,6 +51,9 @@ docker compose down
 - Definir `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL` y Google OAuth callback según dominio HTTPS.
 - Detrás de HTTPS habilitar `secure: true` en cookie (ver `src/routes/auth.ts`).
 
+## Ciberseguridad y continuidad
+- Ver **[docs/CIBERSEGURIDAD_CONTINUIDAD.md](docs/CIBERSEGURIDAD_CONTINUIDAD.md)** para controles de seguridad, riesgos, RTO/RPO, backups, restore y procedimientos de continuidad del negocio.
+
 ## Mover datos local -> producción
 - `data.sql` queda ignorado por Git a propósito. No debe viajar en commits ni quedar en el historial.
 - Para exportar tu base local:
