@@ -47,6 +47,25 @@ Reglas:
 - reply: una frase corta en español al usuario (confirmación o aclaración mínima).
 - JSON único, sin markdown.`
 
+const DATABASE_CONTEXT = `Contexto de base de datos disponible (estructura, sin datos reales):
+- User: personas/cuentas del sistema. Campos útiles: id, email, username, firstName, lastName, name, nationalIdDocumentExpiresAt, isApproved, isActive, lockUntil, createdAt, roleId. Relación con OrgRole por roleId. Usá userSearch para nombres, apellidos, username o email.
+- OrgRole: rol organizacional. Campos: code, label. Códigos esperados: ADMIN, TEACHER, STAFF, STUDENT u otros roles configurados.
+- Attendance: marcas de asistencia. Campos: userId, eventId, type, status, date, time. type: CHECK_IN/CHECK_OUT. status incluye PRESENT, LATE, ABSENT_NOT_JUSTIFIED, ABSENT_JUSTIFIED, EXIT, EARLY_EXIT.
+- AttendanceIncident: incidencias derivadas de asistencia. Campos: userId, eventId, attendanceId, type, status, detectedAt. type: LATE_ARRIVAL (llegada tarde), TEACHER_NO_SHOW (falta/ausencia docente), EARLY_EXIT (salida anticipada). status: OPEN, ACKNOWLEDGED, RESOLVED.
+- Event: clases, jornadas, reuniones y turnos. Campos: title, type, status, startDate, endDate, startTime, endTime, userId, assignedUserId, courseId. Para eventos asignados a docentes/personal, assignedUserId es la persona asignada.
+- Course: cursos/grupos asociados a eventos. Campos: name, code, isActive.
+- MedicalLeave: licencias o permisos. Campos: userId, type, status, startDate, endDate, reason. status: ACTIVE/INACTIVE. El período de licencia se interpreta por solapamiento con el rango pedido.
+- BiometricPunch: marcas crudas del reloj biométrico. Campos: userId, deviceUserId, occurredAt, punchType, processStatus, processError. processStatus: PENDING, PROCESSED, FAILED, DUPLICATE.
+- AuditLog: auditoría del sistema. Campos: occurredAt, action, actorUserId, actorIp, source, entityType, entityId, metadata.
+
+Mapa semántico:
+- "faltas", "ausencias", "no vino", "no llegó", "inasistencias docentes" suelen mapear a AttendanceIncident.type TEACHER_NO_SHOW.
+- "llegadas tarde", "tardanzas", "entradas tarde" suelen mapear a AttendanceIncident.type LATE_ARRIVAL o Attendance CHECK_IN con status LATE; para conteos por persona preferí ATTENDANCE_LATE_SUMMARY.
+- "salidas anticipadas" mapea a AttendanceIncident.type EARLY_EXIT.
+- "docentes con más faltas", "ranking de ausencias", "quién faltó más" mapea a ATTENDANCE_INCIDENTS_SUMMARY con incidentViewMode COUNT_BY_USER e incidentTypeScope TEACHER_NO_SHOW.
+- "licencias activas/vigentes" mapea a MEDICAL_LEAVES_SUMMARY con leaveStatusScope ACTIVE_ONLY.
+- "usuarios pendientes", "cuentas bloqueadas", "documento por vencer" mapea a USERS_ADMIN_SNAPSHOT con userAdminScope correspondiente.`
+
 function currentContextLine() {
   const now = new Date()
   return `Contexto: fecha/hora servidor UTC aproximada: ${now.toISOString().slice(0, 10)} (usá este año si el usuario no indica año explícito).`
@@ -73,7 +92,7 @@ export async function parseQuestionWithLlm(question: string): Promise<LlmIntentP
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${SYSTEM_PROMPT}\n${currentContextLine()}` },
+        { role: 'system', content: `${SYSTEM_PROMPT}\n\n${DATABASE_CONTEXT}\n${currentContextLine()}` },
         { role: 'user', content: question.trim().slice(0, 2000) },
       ],
     })
