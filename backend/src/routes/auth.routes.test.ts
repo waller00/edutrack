@@ -4,7 +4,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import { signAccessToken } from "../jwt.js";
 
-const { prismaMock, sendMailMock } = vi.hoisted(() => ({
+const { prismaMock, sendMailMock, totpVerifyMock } = vi.hoisted(() => ({
   prismaMock: {
     user: {
       findUnique: vi.fn(),
@@ -43,6 +43,7 @@ const { prismaMock, sendMailMock } = vi.hoisted(() => ({
     },
   },
   sendMailMock: vi.fn().mockResolvedValue(undefined),
+  totpVerifyMock: vi.fn().mockReturnValue({ valid: true }),
 }));
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
@@ -69,6 +70,18 @@ vi.mock("argon2", () => ({
     hash: vi.fn().mockResolvedValue("$argon2id$hashed"),
     verify: vi.fn().mockResolvedValue(true),
   },
+}));
+
+vi.mock("qrcode", () => ({
+  default: {
+    toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,qr"),
+  },
+}));
+
+vi.mock("otplib", () => ({
+  generateSecret: vi.fn(() => "TESTTOTPSECRET"),
+  generateURI: vi.fn(() => "otpauth://totp/EduTrack:u@example.com?secret=TESTTOTPSECRET"),
+  verifySync: totpVerifyMock,
 }));
 
 import authRoutes from "./auth.js";
@@ -124,6 +137,7 @@ describe("auth routes (mocks)", () => {
     vi.unstubAllGlobals();
     const argon2 = await import("argon2");
     vi.mocked(argon2.default.verify).mockResolvedValue(true);
+    totpVerifyMock.mockReturnValue({ valid: true });
   });
 
   it("GET /auth/check-username nombre corto", async () => {
@@ -591,6 +605,99 @@ describe("auth routes (mocks)", () => {
       .post("/auth/login/2fa")
       .send({ twoFactorToken: "token-temporal-invalido", code: "123456" });
     expect(res.status).toBe(401);
+  });
+
+  it("POST /auth/2fa/setup y confirm activa 2FA y devuelve códigos de respaldo", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "user-1",
+      email: "u@example.com",
+      twoFactorEnabled: false,
+    });
+    prismaMock.user.update.mockResolvedValue({});
+
+    const setup = await request(app())
+      .post("/auth/2fa/setup")
+      .set(authHeader("STAFF", "user-1"))
+      .send({});
+
+    expect(setup.status).toBe(200);
+    expect(setup.body.qrCodeDataUrl).toBe("data:image/png;base64,qr");
+    const encryptedSecret = prismaMock.user.update.mock.calls[0][0].data.twoFactorSecret;
+    expect(encryptedSecret).toEqual(expect.any(String));
+
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "user-1",
+      twoFactorEnabled: false,
+      twoFactorSecret: encryptedSecret,
+    });
+
+    const confirm = await request(app())
+      .post("/auth/2fa/confirm")
+      .set(authHeader("STAFF", "user-1"))
+      .send({ code: "123456" });
+
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.backupCodes).toHaveLength(10);
+    expect(prismaMock.user.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          twoFactorEnabled: true,
+          twoFactorBackupCodes: expect.any(String),
+        }),
+      }),
+    );
+  });
+
+  it("POST /auth/login/2fa con código válido emite cookies", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "user-1",
+      email: "u@example.com",
+      twoFactorEnabled: false,
+    });
+    prismaMock.user.update.mockResolvedValue({});
+    await request(app())
+      .post("/auth/2fa/setup")
+      .set(authHeader("STAFF", "user-1"))
+      .send({});
+    const encryptedSecret = prismaMock.user.update.mock.calls[0][0].data.twoFactorSecret;
+
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "user-1",
+      email: "u@example.com",
+      name: "User",
+      orgRole: { code: "STAFF" },
+      passwordHash: "$argon2id$existing",
+      isActive: true,
+      lockUntil: null,
+      twoFactorEnabled: true,
+    });
+    const loginWith2fa = await request(app())
+      .post("/auth/login")
+      .set("x-forwarded-for", "10.2.0.3")
+      .send({ identifier: "u@example.com", password: "Abcd1234!" });
+
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "user-1",
+      email: "u@example.com",
+      name: "User",
+      isActive: true,
+      twoFactorEnabled: true,
+      twoFactorSecret: encryptedSecret,
+      twoFactorBackupCodes: null,
+      orgRole: { code: "STAFF" },
+    });
+    prismaMock.user.update.mockResolvedValue({});
+    prismaMock.refreshToken.create.mockResolvedValue({});
+
+    const res = await request(app())
+      .post("/auth/login/2fa")
+      .set("x-forwarded-for", "10.2.0.4")
+      .send({ twoFactorToken: loginWith2fa.body.twoFactorToken, code: "123456" });
+
+    expect(loginWith2fa.status).toBe(200);
+    expect(loginWith2fa.body.requiresTwoFactor).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.headers["set-cookie"]).toBeDefined();
   });
 
   it("POST /auth/forgot 400 si falta captcha cuando está habilitado", async () => {

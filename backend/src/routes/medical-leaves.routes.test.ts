@@ -30,6 +30,13 @@ const { prismaMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("@prisma/client", () => ({
+  AuditAction: {
+    MEDICAL_LEAVE_CREATED: "MEDICAL_LEAVE_CREATED",
+    MEDICAL_LEAVE_UPDATED: "MEDICAL_LEAVE_UPDATED",
+    MEDICAL_LEAVE_DEACTIVATED: "MEDICAL_LEAVE_DEACTIVATED",
+  },
+}));
 
 import medicalRoutes from "./medical-leaves.js";
 
