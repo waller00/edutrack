@@ -23,6 +23,7 @@ const INTENT_TITLE: Record<string, string> = {
   ATTENDANCE_LATE_SUMMARY: 'Tardanzas',
   USERS_ADMIN_SNAPSHOT: 'Usuarios',
   AUDIT_LOG_SUMMARY: 'Auditoría',
+  SQL_QUERY: 'Consulta SQL',
   UNKNOWN: 'Consulta no reconocida',
 }
 
