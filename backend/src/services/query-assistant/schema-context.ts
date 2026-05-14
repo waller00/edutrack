@@ -10,10 +10,9 @@ export const DATABASE_CONTEXT = `Contexto de base de datos disponible (estructur
 - Tabla "AuditLog": auditoría del sistema. Campos: "id", "occurredAt", "action", "actorUserId", "actorIp", "source", "entityType", "entityId", "metadata".
 
 Mapa semántico:
-- "faltas", "ausencias", "no vino", "no llegó", "inasistencias docentes" suelen mapear a "AttendanceIncident"."type" = 'TEACHER_NO_SHOW'.
-- "llegadas tarde", "tardanzas", "entradas tarde" suelen mapear a "AttendanceIncident"."type" = 'LATE_ARRIVAL' o "Attendance" CHECK_IN con status LATE.
+- "faltas", "ausencias", "no vino", "no llegó", "inasistencias" en consultas directas de asistencia suelen mapear a "Attendance"."status" IN ('ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED'). Si el usuario habla de incidencias o ausencias docentes detectadas, también puede mapear a "AttendanceIncident"."type" = 'TEACHER_NO_SHOW'.
+- "llegaron tarde", "personas que llegaron tarde", "tardanzas", "entradas tarde" en consultas directas suelen mapear a "Attendance"."type" = 'CHECK_IN' y "Attendance"."status" = 'LATE'. Si el usuario habla de incidencias, puede mapear a "AttendanceIncident"."type" = 'LATE_ARRIVAL'.
 - "salidas anticipadas" mapea a "AttendanceIncident"."type" = 'EARLY_EXIT'.
 - "docentes con más faltas", "ranking de ausencias", "quién faltó más" requiere agrupar por usuario y contar incidencias TEACHER_NO_SHOW.
 - "licencias activas/vigentes" mapea a "MedicalLeave"."status" = 'ACTIVE'.
 - "usuarios pendientes", "cuentas bloqueadas", "documento por vencer" mapea a "User" con isApproved/isActive/lockUntil/nationalIdDocumentExpiresAt.`
-

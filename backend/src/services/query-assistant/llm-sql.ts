@@ -21,15 +21,23 @@ Reglas estrictas:
 - Usá nombres de tablas y columnas entre comillas dobles, por ejemplo "AttendanceIncident"."detectedAt".
 - Usá aliases legibles en español para las columnas finales, por ejemplo AS "Docente", AS "Cantidad".
 - Para nombres de persona preferí COALESCE(NULLIF("User"."name", ''), NULLIF(CONCAT_WS(' ', "User"."firstName", "User"."lastName"), ''), "User"."username", "User"."email").
-- Si el usuario dice "mayo" sin año, usá el año del contexto.
-- Si el usuario dice "este mes", usá el mes y año del contexto.
+- Si el usuario dice un mes por nombre sin año explícito, por ejemplo "mayo", NO asumas el año actual: filtrá por EXTRACT(MONTH FROM fecha) = número_del_mes y devolvé también el año en una columna si ayuda.
+- Solo usá el año del contexto cuando el usuario diga "este mes", "este año", "actual", o mencione explícitamente ese año.
+- Si el usuario dice "este mes", usá mes y año del contexto.
 - Para "más de 4", filtrá HAVING COUNT(*) > 4. Para "4 o más" o "al menos 4", usá HAVING COUNT(*) >= 4.
 - Para rankings o "quién ... más", usá GROUP BY, COUNT(*) y ORDER BY COUNT(*) DESC.
-- Para faltas/ausencias docentes usá "AttendanceIncident"."type" = 'TEACHER_NO_SHOW'.
-- Para tardanzas usá "AttendanceIncident"."type" = 'LATE_ARRIVAL' salvo que pidan marcas de asistencia, donde podés usar "Attendance"."status" = 'LATE'.
+- Para preguntas directas de asistencia ("personas que llegaron tarde", "quiénes llegaron tarde", "faltaron", "ausentes") preferí la tabla "Attendance".
+- Para personas que llegaron tarde usá "Attendance"."type" = 'CHECK_IN' y "Attendance"."status" = 'LATE'.
+- Para faltas/ausencias directas usá "Attendance"."status" IN ('ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED') cuando pidan listado de personas, y "AttendanceIncident"."type" = 'TEACHER_NO_SHOW' cuando pidan incidencias, ranking de incidencias o ausencias docentes detectadas.
+- Para tardanzas/incidencias de llegada tarde usá "AttendanceIncident"."type" = 'LATE_ARRIVAL' solo si el usuario habla de incidencias.
 - Limitá los resultados a 200 filas como máximo.
 - Si la pregunta no se puede responder con las tablas disponibles, devolvé un SELECT inocuo sin filas: SELECT 'No se puede responder con el esquema disponible' AS "Mensaje" WHERE false.
-- JSON único, sin markdown.`
+- JSON único, sin markdown.
+
+Ejemplos de SQL esperado:
+- "personas que llegaron tarde en mayo" → SELECT persona, fecha, hora usando "Attendance" JOIN "User", WHERE "Attendance"."type" = 'CHECK_IN' AND "Attendance"."status" = 'LATE' AND EXTRACT(MONTH FROM "Attendance"."date") = 5, sin filtrar año si no lo nombró.
+- "docentes con más de 4 faltas en mayo" → GROUP BY usuario, contar ausencias con "Attendance"."status" IN ('ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED') o incidentes TEACHER_NO_SHOW si pregunta por incidencias; HAVING COUNT(*) > 4; EXTRACT(MONTH) = 5 sin año si no lo nombró.
+- "quién faltó más este mes" → usar mes y año del contexto, agrupar por persona, ORDER BY cantidad DESC.`
 
 const FORBIDDEN_SQL = /\b(insert|update|delete|upsert|merge|alter|drop|create|truncate|grant|revoke|copy|call|do|execute|vacuum|analyze|set|reset|listen|notify)\b/i
 const ALLOWED_TABLES = new Set([
