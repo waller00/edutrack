@@ -28,6 +28,7 @@ docker compose up -d --build
 ## Variables
 - Para correr con Docker Compose local, usar `.env.compose.example` en la raíz.
 - Si querés OAuth Google, SMTP o Turnstile, completar esas variables en el `.env` raíz antes de levantar.
+- Para 2FA/TOTP opcional, definir `TWO_FACTOR_ENCRYPTION_KEY` con un secreto largo y estable; si no se define, el backend usa `JWT_SECRET` como respaldo para cifrar los secretos de autenticador.
 - Los archivos `backend/.env` y `frontend/web/.env.local` ya no son necesarios para el arranque con Compose.
 
 ## Docker Compose local
