@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { FileText, Info, KeyRound, Lock, Save, User } from 'lucide-react'
+import { FileText, Info, KeyRound, Lock, Save, ShieldCheck, ShieldOff, User } from 'lucide-react'
 import { PendingButtonContent } from '@/components/PendingButtonContent'
 import { api } from '@/lib/api'
 import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
@@ -38,6 +38,12 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
   const [showCur,setShowCur]=useState(false)
   const [showNew,setShowNew]=useState(false)
   const [showConf,setShowConf]=useState(false)
+  const [twoFactorEnabled,setTwoFactorEnabled]=useState(false)
+  const [twoFactorQr,setTwoFactorQr]=useState('')
+  const [twoFactorCode,setTwoFactorCode]=useState('')
+  const [twoFactorDisableValue,setTwoFactorDisableValue]=useState('')
+  const [twoFactorBackupCodes,setTwoFactorBackupCodes]=useState<string[]>([])
+  const [savingTwoFactor,setSavingTwoFactor]=useState(false)
 
   const ci = useMemo(()=>formatCI(nationalId),[nationalId])
   useEffect(()=>{ setNationalId(ci) },[ci])
@@ -55,6 +61,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
         u.nationalIdDocumentExpiresAt ? String(u.nationalIdDocumentExpiresAt).slice(0, 10) : '',
       )
       setHasPassword(!!u.hasPassword)
+      setTwoFactorEnabled(!!u.twoFactorEnabled)
     }).catch(()=> window.location.href='/login')
   },[])
 
@@ -101,6 +108,51 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
     }catch(e:any){
       setMsg(getPasswordErrorMessage(e))
     }finally{ setSavingPass(false) }
+  }
+
+  async function startTwoFactorSetup(){
+    setMsg('')
+    setSavingTwoFactor(true)
+    try{
+      const result = await api<any>('/auth/2fa/setup',{ method:'POST', body: JSON.stringify({}) })
+      setTwoFactorQr(result.qrCodeDataUrl)
+      setTwoFactorCode('')
+      setTwoFactorBackupCodes([])
+    }catch(e:any){
+      setMsg(e?.message || 'No se pudo iniciar la configuración de 2FA')
+    }finally{ setSavingTwoFactor(false) }
+  }
+
+  async function confirmTwoFactor(){
+    setMsg('')
+    setSavingTwoFactor(true)
+    try{
+      const result = await api<any>('/auth/2fa/confirm',{ method:'POST', body: JSON.stringify({ code: twoFactorCode.trim() }) })
+      setTwoFactorEnabled(true)
+      setTwoFactorQr('')
+      setTwoFactorCode('')
+      setTwoFactorBackupCodes(result.backupCodes || [])
+      setMsg('Autenticación en dos pasos activada')
+    }catch(e:any){
+      setMsg(e?.message || 'Código inválido')
+    }finally{ setSavingTwoFactor(false) }
+  }
+
+  async function disableTwoFactor(){
+    setMsg('')
+    setSavingTwoFactor(true)
+    try{
+      await api('/auth/2fa/disable',{
+        method:'POST',
+        body: JSON.stringify(hasPassword ? { password: twoFactorDisableValue } : { code: twoFactorDisableValue }),
+      })
+      setTwoFactorEnabled(false)
+      setTwoFactorDisableValue('')
+      setTwoFactorBackupCodes([])
+      setMsg('Autenticación en dos pasos desactivada')
+    }catch(e:any){
+      setMsg(e?.message || 'No se pudo desactivar 2FA')
+    }finally{ setSavingTwoFactor(false) }
   }
 
   if(!me) return null
@@ -314,6 +366,108 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
             </div>
           </div>
         )}
+
+        <div className="mt-8 pt-6 border-t border-gray-200 space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center shrink-0">
+                {twoFactorEnabled ? (
+                  <ShieldCheck className="h-4 w-4 text-emerald-600" aria-hidden />
+                ) : (
+                  <ShieldOff className="h-4 w-4 text-gray-500" aria-hidden />
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Autenticación en dos pasos</h3>
+                <p className="text-sm text-gray-600">
+                  {twoFactorEnabled
+                    ? 'Activa. Se pedirá un código de Google Authenticator al iniciar sesión.'
+                    : 'Opcional. Usa Google Authenticator o cualquier app compatible con TOTP.'}
+                </p>
+              </div>
+            </div>
+            {!twoFactorEnabled && !twoFactorQr && (
+              <button
+                type="button"
+                onClick={startTwoFactorSetup}
+                disabled={savingTwoFactor}
+                className="btn-secondary justify-center"
+              >
+                <PendingButtonContent pending={savingTwoFactor} pendingText="Generando…" idle="Activar 2FA" />
+              </button>
+            )}
+          </div>
+
+          {twoFactorQr && (
+            <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <div className="bg-white rounded-lg p-3 w-fit">
+                <img src={twoFactorQr} alt="Código QR para configurar 2FA" className="w-56 h-56" />
+              </div>
+              <div className="space-y-4">
+                <p className="text-sm text-emerald-900">
+                  Escanea el QR con Google Authenticator y escribe el código de 6 dígitos para confirmar la activación.
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Código</label>
+                  <input
+                    className="input-field max-w-xs text-center tracking-[0.4em]"
+                    value={twoFactorCode}
+                    onChange={e=>setTwoFactorCode(e.target.value)}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder="123456"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button type="button" onClick={confirmTwoFactor} disabled={savingTwoFactor} className="btn-primary">
+                    <PendingButtonContent pending={savingTwoFactor} pendingText="Confirmando…" idle="Confirmar 2FA" />
+                  </button>
+                  <button type="button" onClick={()=>{ setTwoFactorQr(''); setTwoFactorCode('') }} className="btn-secondary">
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {twoFactorBackupCodes.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-medium text-amber-900">Códigos de respaldo</p>
+              <p className="text-sm text-amber-800 mt-1">Guárdalos en un lugar seguro. Se muestran una sola vez.</p>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">
+                {twoFactorBackupCodes.map(code => (
+                  <code key={code} className="rounded bg-white px-2 py-1 text-sm text-gray-900 text-center">{code}</code>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {twoFactorEnabled && (
+            <div className="flex flex-col md:flex-row gap-3 md:items-end">
+              <div className="w-full md:max-w-sm">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {hasPassword ? 'Contraseña actual para desactivar' : 'Código 2FA para desactivar'}
+                </label>
+                <input
+                  type={hasPassword ? 'password' : 'text'}
+                  className="input-field"
+                  value={twoFactorDisableValue}
+                  onChange={e=>setTwoFactorDisableValue(e.target.value)}
+                  placeholder={hasPassword ? 'Tu contraseña actual' : '123456'}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={disableTwoFactor}
+                disabled={savingTwoFactor || !twoFactorDisableValue.trim()}
+                className="btn-secondary justify-center disabled:opacity-60"
+              >
+                <PendingButtonContent pending={savingTwoFactor} pendingText="Desactivando…" idle="Desactivar 2FA" />
+              </button>
+            </div>
+          )}
+        </div>
       </section>
 
       <WebPushSection />

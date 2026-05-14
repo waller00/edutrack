@@ -50,6 +50,15 @@ vi.mock("../email.js", () => ({
   sendMail: sendMailMock,
 }));
 
+vi.mock("@prisma/client", () => ({
+  AuditAction: {
+    AUTH_LOGIN_SUCCESS: "AUTH_LOGIN_SUCCESS",
+    AUTH_LOGIN_FAILURE: "AUTH_LOGIN_FAILURE",
+    AUTH_LOGOUT: "AUTH_LOGOUT",
+    AUTH_GOOGLE_LOGIN_SUCCESS: "AUTH_GOOGLE_LOGIN_SUCCESS",
+  },
+}));
+
 vi.mock("../org-role-service.js", () => ({
   normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
   getOrgRoleIdByCodeOrThrow: vi.fn().mockResolvedValue("mock-org-role-id"),
@@ -498,6 +507,7 @@ describe("auth routes (mocks)", () => {
     });
     const res = await request(app())
       .post("/auth/login")
+      .set("x-forwarded-for", "10.2.0.1")
       .send({ identifier: "u@example.com", password: "Abcd1234!" });
     expect(res.status).toBe(403);
   });
@@ -554,6 +564,33 @@ describe("auth routes (mocks)", () => {
       .send({ identifier: "u@example.com", password: "Abcd1234!" });
     expect(res.status).toBe(200);
     expect(res.headers["set-cookie"]).toBeDefined();
+  });
+
+  it("POST /auth/login con 2FA activo devuelve token temporal sin cookies", async () => {
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "u1",
+      email: "u@example.com",
+      name: "User",
+      orgRole: { code: "STAFF" },
+      passwordHash: "$argon2id$existing",
+      isActive: true,
+      lockUntil: null,
+      twoFactorEnabled: true,
+    });
+    const res = await request(app())
+      .post("/auth/login")
+      .send({ identifier: "u@example.com", password: "Abcd1234!" });
+    expect(res.status).toBe(200);
+    expect(res.body.requiresTwoFactor).toBe(true);
+    expect(res.body.twoFactorToken).toEqual(expect.any(String));
+    expect(res.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("POST /auth/login/2fa rechaza token temporal inválido", async () => {
+    const res = await request(app())
+      .post("/auth/login/2fa")
+      .send({ twoFactorToken: "token-temporal-invalido", code: "123456" });
+    expect(res.status).toBe(401);
   });
 
   it("POST /auth/forgot 400 si falta captcha cuando está habilitado", async () => {

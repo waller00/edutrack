@@ -22,6 +22,8 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-https://165.22.34.95:3000}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       JWT_SECRET: ${JWT_SECRET}
+      TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY:-}
+      TWO_FACTOR_ISSUER: ${TWO_FACTOR_ISSUER:-EduTrack}
       ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-2h}
       REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-7d}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
