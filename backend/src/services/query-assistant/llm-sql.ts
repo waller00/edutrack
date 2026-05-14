@@ -1,5 +1,7 @@
 import OpenAI, { APIError } from 'openai'
+import { DateTime } from 'luxon'
 import { z } from 'zod'
+import { APP_TIMEZONE } from '../../app-timezone.js'
 import { prisma } from '../../prisma.js'
 import { DATABASE_CONTEXT } from './schema-context.js'
 import type { QueryAssistantTableResult } from './schemas.js'
@@ -21,6 +23,10 @@ Reglas estrictas:
 - Usá nombres de tablas y columnas entre comillas dobles, por ejemplo "AttendanceIncident"."detectedAt".
 - Usá aliases legibles en español para las columnas finales, por ejemplo AS "Docente", AS "Cantidad".
 - Para nombres de persona preferí COALESCE(NULLIF("User"."name", ''), NULLIF(CONCAT_WS(' ', "User"."firstName", "User"."lastName"), ''), "User"."username", "User"."email").
+- Zona horaria obligatoria del producto: America/Montevideo. La base guarda instantes UTC. Para filtrar o mostrar fecha/hora civil Uruguay en SQL usá ("Tabla"."campoFecha" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo').
+- Para preguntas por día civil ("8 de mayo", "hoy", "ayer"), filtrá usando la fecha proyectada a Uruguay, por ejemplo DATE("Attendance"."time" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo') = DATE '2026-05-08'.
+- Para mostrar horas, devolvé la hora civil Uruguay, por ejemplo to_char(("Attendance"."time" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo'), 'HH24:MI') AS "Hora".
+- Para mostrar fechas, devolvé la fecha civil Uruguay, por ejemplo to_char(("Attendance"."time" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo'), 'DD/MM/YYYY') AS "Fecha".
 - Si el usuario dice un mes por nombre sin año explícito, por ejemplo "mayo", NO asumas el año actual: filtrá por EXTRACT(MONTH FROM fecha) = número_del_mes y devolvé también el año en una columna si ayuda.
 - Solo usá el año del contexto cuando el usuario diga "este mes", "este año", "actual", o mencione explícitamente ese año.
 - Si el usuario dice "este mes", usá mes y año del contexto.
@@ -35,8 +41,9 @@ Reglas estrictas:
 - JSON único, sin markdown.
 
 Ejemplos de SQL esperado:
-- "personas que llegaron tarde en mayo" → SELECT persona, fecha, hora usando "Attendance" JOIN "User", WHERE "Attendance"."type" = 'CHECK_IN' AND "Attendance"."status" = 'LATE' AND EXTRACT(MONTH FROM "Attendance"."date") = 5, sin filtrar año si no lo nombró.
-- "docentes con más de 4 faltas en mayo" → GROUP BY usuario, contar ausencias con "Attendance"."status" IN ('ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED') o incidentes TEACHER_NO_SHOW si pregunta por incidencias; HAVING COUNT(*) > 4; EXTRACT(MONTH) = 5 sin año si no lo nombró.
+- "personas que llegaron tarde en mayo" → SELECT persona, fecha y hora civil Uruguay usando "Attendance" JOIN "User", WHERE "Attendance"."type" = 'CHECK_IN' AND "Attendance"."status" = 'LATE' AND EXTRACT(MONTH FROM ("Attendance"."time" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo')) = 5, sin filtrar año si no lo nombró.
+- "a que horas marco Carolina Lopez el 8 de mayo y en que estado" → SELECT to_char(("Attendance"."time" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo'), 'HH24:MI') AS "Hora", "Attendance"."status" AS "Estado" filtrando por DATE(("Attendance"."time" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo')) = DATE 'AAAA-05-08' si hay año explícito; si no hay año, filtrá día y mes civil Uruguay.
+- "docentes con más de 4 faltas en mayo" → GROUP BY usuario, contar ausencias con "Attendance"."status" IN ('ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED') o incidentes TEACHER_NO_SHOW si pregunta por incidencias; HAVING COUNT(*) > 4; EXTRACT(MONTH) = 5 en fecha civil Uruguay sin año si no lo nombró.
 - "quién faltó más este mes" → usar mes y año del contexto, agrupar por persona, ORDER BY cantidad DESC.`
 
 const FORBIDDEN_SQL = /\b(insert|update|delete|upsert|merge|alter|drop|create|truncate|grant|revoke|copy|call|do|execute|vacuum|analyze|set|reset|listen|notify)\b/i
@@ -104,7 +111,9 @@ function limitedSql(sql: string): string {
 function normalizeValue(value: unknown): string | number | null {
   if (value == null) return null
   if (typeof value === 'bigint') return Number(value)
-  if (value instanceof Date) return value.toISOString().slice(0, 19).replace('T', ' ')
+  if (value instanceof Date) {
+    return DateTime.fromJSDate(value, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('dd/MM/yyyy HH:mm')
+  }
   if (typeof value === 'number' || typeof value === 'string') return value
   if (typeof value === 'boolean') return value ? 'Sí' : 'No'
   return JSON.stringify(value)
