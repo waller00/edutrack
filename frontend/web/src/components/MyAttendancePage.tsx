@@ -90,8 +90,9 @@ export default function MyAttendancePage({ role }: { role: 'TEACHER' | 'STAFF' }
 
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
+            <label htmlFor="my-attendance-start-date" className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
             <input
+              id="my-attendance-start-date"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
@@ -99,8 +100,9 @@ export default function MyAttendancePage({ role }: { role: 'TEACHER' | 'STAFF' }
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
+            <label htmlFor="my-attendance-end-date" className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
             <input
+              id="my-attendance-end-date"
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}

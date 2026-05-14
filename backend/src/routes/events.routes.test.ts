@@ -22,6 +22,11 @@ const { prismaMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("@prisma/client", () => ({
+  AuditAction: {
+    EVENT_CREATED: "EVENT_CREATED",
+  },
+}));
 
 import eventsRoutes from "./events.js";
 

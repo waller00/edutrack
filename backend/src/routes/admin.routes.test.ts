@@ -97,6 +97,30 @@ vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../services/query-assistant/run.js", () => ({
   runAdminQueryAssistant: runAdminQueryAssistantMock,
 }));
+vi.mock("@prisma/client", () => ({
+  Prisma: {
+    PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
+      code: string;
+      clientVersion: string;
+      meta?: Record<string, unknown>;
+
+      constructor(message: string, options: { code: string; clientVersion: string; meta?: Record<string, unknown> }) {
+        super(message);
+        this.name = "PrismaClientKnownRequestError";
+        this.code = options.code;
+        this.clientVersion = options.clientVersion;
+        this.meta = options.meta;
+      }
+    },
+  },
+  AuditAction: {
+    USER_CREATED_BY_ADMIN: "USER_CREATED_BY_ADMIN",
+    USER_UPDATED_BY_ADMIN: "USER_UPDATED_BY_ADMIN",
+    USER_ACCOUNT_LOCK_TOGGLED: "USER_ACCOUNT_LOCK_TOGGLED",
+    ADMIN_PASSWORD_RESET_ISSUED: "ADMIN_PASSWORD_RESET_ISSUED",
+    SYSTEM_SETTINGS_UPDATED: "SYSTEM_SETTINGS_UPDATED",
+  },
+}));
 
 import adminRoutes from "./admin.js";
 

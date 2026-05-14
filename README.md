@@ -28,6 +28,7 @@ docker compose up -d --build
 ## Variables
 - Para correr con Docker Compose local, usar `.env.compose.example` en la raíz.
 - Si querés OAuth Google, SMTP o Turnstile, completar esas variables en el `.env` raíz antes de levantar.
+- Para 2FA/TOTP opcional, definir `TWO_FACTOR_ENCRYPTION_KEY` con un secreto largo y estable; si no se define, el backend usa `JWT_SECRET` como respaldo para cifrar los secretos de autenticador.
 - Los archivos `backend/.env` y `frontend/web/.env.local` ya no son necesarios para el arranque con Compose.
 
 ## Docker Compose local
@@ -50,6 +51,9 @@ docker compose down
 - Levantar servicios con `docker compose -f docker-compose.cloud.yml up -d --build`.
 - Definir `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL` y Google OAuth callback según dominio HTTPS.
 - Detrás de HTTPS habilitar `secure: true` en cookie (ver `src/routes/auth.ts`).
+
+## Ciberseguridad y continuidad
+- Ver **[docs/CIBERSEGURIDAD_CONTINUIDAD.md](docs/CIBERSEGURIDAD_CONTINUIDAD.md)** para controles de seguridad, riesgos, RTO/RPO, backups, restore y procedimientos de continuidad del negocio.
 
 ## Mover datos local -> producción
 - `data.sql` queda ignorado por Git a propósito. No debe viajar en commits ni quedar en el historial.

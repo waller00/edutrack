@@ -40,6 +40,14 @@ const { prismaMock, passportState } = vi.hoisted(() => ({
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../email.js", () => ({ sendMail: vi.fn() }));
+vi.mock("@prisma/client", () => ({
+  AuditAction: {
+    AUTH_GOOGLE_LOGIN_SUCCESS: "AUTH_GOOGLE_LOGIN_SUCCESS",
+    AUTH_LOGOUT: "AUTH_LOGOUT",
+    AUTH_LOGIN_SUCCESS: "AUTH_LOGIN_SUCCESS",
+    AUTH_LOGIN_FAILURE: "AUTH_LOGIN_FAILURE",
+  },
+}));
 vi.mock("argon2", () => ({
   default: {
     hash: vi.fn(),

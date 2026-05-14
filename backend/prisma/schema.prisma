@@ -94,6 +94,10 @@ model User {
   isApproved          Boolean   @default(true)
   approvedAt          DateTime?
   isActive            Boolean   @default(true)
+  twoFactorEnabled    Boolean   @default(false)
+  twoFactorSecret     String?
+  twoFactorConfirmedAt DateTime?
+  twoFactorBackupCodes String?
   /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
   livenessVerifiedAt  DateTime?
 }
