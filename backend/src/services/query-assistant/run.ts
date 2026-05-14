@@ -4,12 +4,22 @@ import { executeAuditLogSummary } from './audit-summary.js'
 import { executeBiometricIssuesSummary } from './biometric-issues.js'
 import { executeHoursWorkedSummary } from './hours-worked.js'
 import { executeAttendanceIncidentsSummary } from './incidents.js'
+import { runNaturalLanguageSqlQuery } from './llm-sql.js'
 import { parseQuestionWithLlm } from './llm-parse.js'
 import { executeMedicalLeavesSummary } from './medical-leaves.js'
 import type { QueryAssistantTableResult } from './schemas.js'
 import { executeUsersAdminSnapshot } from './users-admin.js'
 
 export async function runAdminQueryAssistant(question: string): Promise<QueryAssistantTableResult> {
+  if (process.env.QUERY_ASSISTANT_MODE !== 'intent') {
+    try {
+      return await runNaturalLanguageSqlQuery(question)
+    } catch (e) {
+      if (process.env.QUERY_ASSISTANT_MODE === 'sql') throw e
+      console.warn('[query-assistant] SQL mode failed, falling back to intent mode', e)
+    }
+  }
+
   const parsed = await parseQuestionWithLlm(question)
 
   switch (parsed.intent) {

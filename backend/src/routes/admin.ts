@@ -847,7 +847,7 @@ r.get('/audit-logs', async (req, res) => {
   })
 })
 
-/** RF-10 MVP: consulta en lenguaje natural → intención vía OpenAI → datos con Prisma (solo lectura). */
+/** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
 r.post('/query-assistant', async (req, res) => {
   const parsed = z.object({ question: z.string().min(1).max(2000) }).safeParse(req.body)
   if (!parsed.success) {

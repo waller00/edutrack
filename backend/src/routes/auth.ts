@@ -2,12 +2,14 @@ import { Router } from "express";
 import { z } from "zod";
 import argon2 from "argon2";
 import { prisma } from "../prisma.js";
-import { signAccessToken, verifyToken } from "../jwt.js";
+import { signAccessToken, signTwoFactorLoginToken, verifyToken, verifyTwoFactorLoginToken } from "../jwt.js";
 import { recordAuditEvent } from "../services/audit-log.js";
 import { AuditAction } from "@prisma/client";
 import { authGuard } from "../middlewares/auth.js";
 import passport from "../passportGoogle.js";
 import crypto from "crypto";
+import qrcode from "qrcode";
+import { generateSecret, generateURI, verifySync } from "otplib";
 import { sendMail } from "../email.js";
 import { onlyDigits, isValidUruguayanCI } from "../uruguay-ci.js";
 import {
@@ -51,6 +53,7 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({ identifier: z.string().min(3).max(100), password: z.string().min(8).max(64) });
+const twoFactorCodeSchema = z.string().trim().regex(/^\d{6}$|^[A-Z0-9]{4}-[A-Z0-9]{4}$/i);
 
 // Configuración de cookies endurecida y configurable
 function resolveCookieConfig() {
@@ -116,6 +119,73 @@ function parseDurationMs(input: string) {
 }
 function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function twoFactorEncryptionKey() {
+  return crypto
+    .createHash("sha256")
+    .update(process.env.TWO_FACTOR_ENCRYPTION_KEY || process.env.JWT_SECRET || "dev-only-two-factor-key")
+    .digest();
+}
+
+function encryptTwoFactorSecret(secret: string) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", twoFactorEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
+  return JSON.stringify({
+    v: 1,
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    data: encrypted.toString("base64"),
+  });
+}
+
+function decryptTwoFactorSecret(value: string) {
+  const parsed = JSON.parse(value) as { iv: string; tag: string; data: string };
+  const decipher = crypto.createDecipheriv("aes-256-gcm", twoFactorEncryptionKey(), Buffer.from(parsed.iv, "base64"));
+  decipher.setAuthTag(Buffer.from(parsed.tag, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(parsed.data, "base64")), decipher.final()]).toString("utf8");
+}
+
+function generateBackupCodes() {
+  return Array.from({ length: 10 }, () => `${crypto.randomBytes(2).toString("hex").toUpperCase()}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`);
+}
+
+function serializePlainBackupCodes(codes: string[]) {
+  return JSON.stringify({ v: 1, codes: codes.map((code) => hashToken(code.toUpperCase())) });
+}
+
+function consumeBackupCode(stored: string | null | undefined, code: string) {
+  if (!stored) return { ok: false, next: stored ?? null };
+  const normalized = code.trim().toUpperCase();
+  const parsed = JSON.parse(stored) as { codes: string[] };
+  const hashed = hashToken(normalized);
+  if (!parsed.codes.includes(hashed)) return { ok: false, next: stored };
+  return { ok: true, next: serializeBackupCodes(parsed.codes.filter((existing) => existing !== hashed)) };
+}
+
+function serializeBackupCodes(hashedCodes: string[]) {
+  return JSON.stringify({ v: 1, codes: hashedCodes });
+}
+
+function issueSessionCookies(res: any, req: any, user: { id: string; email: string; role: string }) {
+  const token = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+  setAuthCookie(res, token);
+  const rt = crypto.randomBytes(40).toString("hex");
+  setRefreshCookie(res, rt);
+  return prisma.refreshToken.create({
+    data: {
+      tokenHash: hashToken(rt),
+      userId: user.id,
+      expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")),
+      userAgent: req.headers["user-agent"],
+      ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip,
+    },
+  });
+}
+
+function verifyTotpCode(code: string, secret: string) {
+  return verifySync({ secret, token: code, epochTolerance: 30 }).valid;
 }
 
 // helpers comunes
@@ -461,6 +531,92 @@ r.put("/password/change", authGuard, async (req, res) => {
   return res.json({ ok: true });
 });
 
+r.post("/2fa/setup", authGuard, async (req, res) => {
+  const u = (req as any).user;
+  const me = await prisma.user.findUnique({ where: { id: u.sub }, select: { id: true, email: true, twoFactorEnabled: true } });
+  if (!me) return res.status(401).json({ message: "No autorizado" });
+  if (me.twoFactorEnabled) return res.status(409).json({ message: "La autenticación en dos pasos ya está activa" });
+
+  const secret = generateSecret();
+  const issuer = process.env.TWO_FACTOR_ISSUER || "EduTrack";
+  const otpauthUrl = generateURI({ issuer, label: me.email, secret });
+  const qrCodeDataUrl = await qrcode.toDataURL(otpauthUrl, { margin: 1, width: 240 });
+  await prisma.user.update({
+    where: { id: me.id },
+    data: { twoFactorSecret: encryptTwoFactorSecret(secret), twoFactorConfirmedAt: null, twoFactorBackupCodes: null },
+  });
+  return res.json({ qrCodeDataUrl, otpauthUrl });
+});
+
+r.post("/2fa/confirm", authGuard, async (req, res) => {
+  const u = (req as any).user;
+  const parsed = z.object({ code: z.string().trim().regex(/^\d{6}$/) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Código inválido" });
+
+  const me = await prisma.user.findUnique({
+    where: { id: u.sub },
+    select: { id: true, twoFactorEnabled: true, twoFactorSecret: true },
+  });
+  if (!me) return res.status(401).json({ message: "No autorizado" });
+  if (me.twoFactorEnabled) return res.status(409).json({ message: "La autenticación en dos pasos ya está activa" });
+  if (!me.twoFactorSecret) return res.status(400).json({ message: "Primero inicia la configuración de 2FA" });
+
+  const secret = decryptTwoFactorSecret(me.twoFactorSecret);
+  if (!verifyTotpCode(parsed.data.code, secret)) return res.status(401).json({ message: "Código inválido" });
+
+  const backupCodes = generateBackupCodes();
+  await prisma.user.update({
+    where: { id: me.id },
+    data: {
+      twoFactorEnabled: true,
+      twoFactorConfirmedAt: new Date(),
+      twoFactorBackupCodes: serializePlainBackupCodes(backupCodes),
+    },
+  });
+  return res.json({ ok: true, backupCodes });
+});
+
+r.post("/2fa/disable", authGuard, async (req, res) => {
+  const u = (req as any).user;
+  const parsed = z.object({ password: z.string().min(1).optional(), code: z.string().trim().optional() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
+
+  const me = await prisma.user.findUnique({
+    where: { id: u.sub },
+    select: { id: true, passwordHash: true, twoFactorEnabled: true, twoFactorSecret: true, twoFactorBackupCodes: true },
+  });
+  if (!me) return res.status(401).json({ message: "No autorizado" });
+  if (!me.twoFactorEnabled) return res.status(409).json({ message: "La autenticación en dos pasos no está activa" });
+
+  let verified = false;
+  if (parsed.data.password && me.passwordHash) verified = await argon2.verify(me.passwordHash, parsed.data.password);
+  if (!verified && parsed.data.code && me.twoFactorSecret) {
+    const code = parsed.data.code.trim();
+    if (/^\d{6}$/.test(code)) verified = verifyTotpCode(code, decryptTwoFactorSecret(me.twoFactorSecret));
+    else if (/^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(code)) verified = consumeBackupCode(me.twoFactorBackupCodes, code).ok;
+  }
+  if (!verified) return res.status(401).json({ message: "Verificación inválida" });
+
+  await prisma.user.update({
+    where: { id: me.id },
+    data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorConfirmedAt: null, twoFactorBackupCodes: null },
+  });
+  return res.json({ ok: true });
+});
+
+r.post("/2fa/backup-codes/regenerate", authGuard, async (req, res) => {
+  const u = (req as any).user;
+  const parsed = z.object({ code: z.string().trim().regex(/^\d{6}$/) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Código inválido" });
+  const me = await prisma.user.findUnique({ where: { id: u.sub }, select: { id: true, twoFactorEnabled: true, twoFactorSecret: true } });
+  if (!me) return res.status(401).json({ message: "No autorizado" });
+  if (!me.twoFactorEnabled || !me.twoFactorSecret) return res.status(409).json({ message: "La autenticación en dos pasos no está activa" });
+  if (!verifyTotpCode(parsed.data.code, decryptTwoFactorSecret(me.twoFactorSecret))) return res.status(401).json({ message: "Código inválido" });
+  const backupCodes = generateBackupCodes();
+  await prisma.user.update({ where: { id: me.id }, data: { twoFactorBackupCodes: serializePlainBackupCodes(backupCodes) } });
+  return res.json({ backupCodes });
+});
+
 // Login
 r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
@@ -516,6 +672,21 @@ r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
     return res.status(401).json({ message: "Credenciales" });
   }
 
+  const roleCode = user.orgRole?.code ?? "";
+  if (user.twoFactorEnabled) {
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_SUCCESS,
+      actorUserId: user.id,
+      req,
+      metadata: { requiresTwoFactor: true },
+    });
+    return res.json({
+      requiresTwoFactor: true,
+      twoFactorToken: signTwoFactorLoginToken({ sub: user.id, email: user.email, role: roleCode }),
+      email: user.email,
+    });
+  }
+
   await registerSuccessfulLogin(user.id);
 
   recordAuditEvent({
@@ -524,13 +695,61 @@ r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
     req,
   });
 
-  const roleCode = user.orgRole?.code ?? "";
-  const token = signAccessToken({ sub: user.id, email: user.email, role: roleCode });
-  setAuthCookie(res, token);
-  const rt = crypto.randomBytes(40).toString("hex");
-  await prisma.refreshToken.create({ data: { tokenHash: hashToken(rt), userId: user.id, expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")), userAgent: req.headers["user-agent"], ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip } });
-  setRefreshCookie(res, rt);
+  await issueSessionCookies(res, req, { id: user.id, email: user.email, role: roleCode });
   return res.json({ id: user.id, email: user.email, name: user.name, role: roleCode });
+});
+
+r.post("/login/2fa", createIpRateLimit(60 * 1000, 10), async (req, res) => {
+  const parsed = z.object({ twoFactorToken: z.string().min(20), code: twoFactorCodeSchema }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
+
+  let payload: ReturnType<typeof verifyTwoFactorLoginToken>;
+  try {
+    payload = verifyTwoFactorLoginToken(parsed.data.twoFactorToken);
+  } catch {
+    return res.status(401).json({ message: "Token inválido" });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: payload.sub },
+    include: { orgRole: { select: { code: true } } },
+  });
+  if (!user || !user.isActive) return res.status(401).json({ message: "No autorizado" });
+  if (!user.twoFactorEnabled || !user.twoFactorSecret) return res.status(409).json({ message: "La autenticación en dos pasos no está activa" });
+
+  const code = parsed.data.code.trim();
+  let ok = false;
+  let backupCodesUpdate: string | null | undefined;
+  if (/^\d{6}$/.test(code)) {
+    ok = verifyTotpCode(code, decryptTwoFactorSecret(user.twoFactorSecret));
+  } else {
+    const consumed = consumeBackupCode(user.twoFactorBackupCodes, code);
+    ok = consumed.ok;
+    backupCodesUpdate = consumed.next;
+  }
+  if (!ok) {
+    recordAuditEvent({
+      action: AuditAction.AUTH_LOGIN_FAILURE,
+      actorUserId: user.id,
+      req,
+      metadata: { reason: "INVALID_2FA_CODE" },
+    });
+    return res.status(401).json({ message: "Código inválido" });
+  }
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedLoginAttempts: 0,
+        lockUntil: null,
+        ...(backupCodesUpdate !== undefined ? { twoFactorBackupCodes: backupCodesUpdate } : {}),
+      },
+    }),
+  ]);
+  await issueSessionCookies(res, req, { id: user.id, email: user.email, role: user.orgRole?.code ?? "" });
+  recordAuditEvent({ action: AuditAction.AUTH_LOGIN_SUCCESS, actorUserId: user.id, req, metadata: { twoFactor: true } });
+  return res.json({ id: user.id, email: user.email, name: user.name, role: user.orgRole?.code ?? "" });
 });
 
 // Forgot password
@@ -608,6 +827,7 @@ r.post("/reset", async (req, res) => {
       email: true,
       name: true,
       isActive: true,
+      twoFactorEnabled: true,
       orgRole: { select: { code: true } },
     },
   });
@@ -620,21 +840,16 @@ r.post("/reset", async (req, res) => {
     prisma.passwordReset.update({ where: { token }, data: { usedAt: new Date() } }),
   ]);
 
-  await registerSuccessfulLogin(user.id);
   const resetRoleCode = user.orgRole?.code ?? "";
-  const accessToken = signAccessToken({ sub: user.id, email: user.email, role: resetRoleCode });
-  setAuthCookie(res, accessToken);
-  const rt = crypto.randomBytes(40).toString("hex");
-  await prisma.refreshToken.create({
-    data: {
-      tokenHash: hashToken(rt),
-      userId: user.id,
-      expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")),
-      userAgent: req.headers["user-agent"],
-      ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip,
-    },
-  });
-  setRefreshCookie(res, rt);
+  if (user.twoFactorEnabled) {
+    return res.json({
+      requiresTwoFactor: true,
+      twoFactorToken: signTwoFactorLoginToken({ sub: user.id, email: user.email, role: resetRoleCode }),
+      email: user.email,
+    });
+  }
+  await registerSuccessfulLogin(user.id);
+  await issueSessionCookies(res, req, { id: user.id, email: user.email, role: resetRoleCode });
   return res.json({ id: user.id, email: user.email, name: user.name, role: resetRoleCode });
 });
 
@@ -659,6 +874,7 @@ r.get("/me", authGuard, async (req, res) => {
       isApproved: true,
       approvedAt: true,
       isActive: true,
+      twoFactorEnabled: true,
       orgRole: { select: { code: true } },
     },
   });
@@ -722,13 +938,20 @@ r.get(
       include: { orgRole: { select: { code: true } } },
     });
     const oauthRoleCode = oauthUser?.orgRole?.code ?? "STAFF";
-    const token = signAccessToken({ sub: user.id, email: user.email, role: oauthRoleCode });
-    setAuthCookie(res, token);
-    // Emitir refresh token también en OAuth
-    const rt = crypto.randomBytes(40).toString("hex");
-    await prisma.refreshToken.create({ data: { tokenHash: hashToken(rt), userId: user.id, expiresAt: new Date(Date.now() + parseDurationMs(process.env.REFRESH_TOKEN_TTL || "7d")), userAgent: req.headers["user-agent"], ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || (req as any).ip } });
-    setRefreshCookie(res, rt);
     const needsProfileCompletion = !oauthUser?.firstName || !oauthUser?.lastName || !oauthUser?.nationalId || !oauthUser?.birthdate || !oauthUser?.username;
+    if (oauthUser?.twoFactorEnabled) {
+      const twoFactorToken = signTwoFactorLoginToken({ sub: user.id, email: user.email, role: oauthRoleCode });
+      recordAuditEvent({
+        action: AuditAction.AUTH_GOOGLE_LOGIN_SUCCESS,
+        actorUserId: user.id,
+        req,
+        metadata: { needsProfileCompletion, requiresTwoFactor: true },
+      });
+      return res.redirect(
+        `${process.env.FRONTEND_URL!}/login?twoFactorToken=${encodeURIComponent(twoFactorToken)}&email=${encodeURIComponent(user.email)}`,
+      );
+    }
+    await issueSessionCookies(res, req, { id: user.id, email: user.email, role: oauthRoleCode });
     recordAuditEvent({
       action: AuditAction.AUTH_GOOGLE_LOGIN_SUCCESS,
       actorUserId: user.id,

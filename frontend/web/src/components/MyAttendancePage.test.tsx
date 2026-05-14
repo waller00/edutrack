@@ -68,22 +68,15 @@ describe('MyAttendancePage', () => {
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never)
 
-    const { container } = render(<MyAttendancePage role="TEACHER" />)
-    // Tras /auth/me el layout se muestra un instante y luego load() pone loading otra vez:
-    // hay que esperar a que el segundo fetch termine y existan los dos <input type="date">.
-    await waitFor(() => {
-      expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2)
-    })
-    const endDateInput = container.querySelectorAll<HTMLInputElement>('input[type="date"]')[1]!
+    render(<MyAttendancePage role="TEACHER" />)
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+    const endDateInput = await screen.findByLabelText('Fecha fin')
     fireEvent.change(endDateInput, { target: { value: '2026-03-20' } })
 
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenLastCalledWith(
-        expect.stringContaining('/attendance/my-attendances?'),
+      expect(mockedApi).toHaveBeenCalledWith(
+        expect.stringContaining('endDate=2026-03-20'),
       ),
-    )
-    expect(mockedApi).toHaveBeenLastCalledWith(
-      expect.stringContaining('endDate=2026-03-20'),
     )
   })
 

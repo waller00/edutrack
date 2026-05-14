@@ -13,12 +13,22 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [externalError, setExternalError] = useState('')
+  const [twoFactorToken, setTwoFactorToken] = useState('')
+  const [twoFactorEmail, setTwoFactorEmail] = useState('')
+  const [twoFactorCode, setTwoFactorCode] = useState('')
   /** true hasta saber si ya hay sesión (evita mostrar login estando logueado) */
   const [sessionPending, setSessionPending] = useState(true)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     setExternalError(params.get('error') || '')
+    const token = params.get('twoFactorToken') || ''
+    if (token) {
+      setTwoFactorToken(token)
+      setTwoFactorEmail(params.get('email') || '')
+      setSessionPending(false)
+      window.history.replaceState({}, '', '/login')
+    }
   }, [])
 
   useEffect(() => {
@@ -40,13 +50,36 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      await api('/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) })
+      const result = await api<any>('/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) })
+      if (result?.requiresTwoFactor) {
+        setTwoFactorToken(result.twoFactorToken)
+        setTwoFactorEmail(result.email || identifier)
+        setTwoFactorCode('')
+        return
+      }
       window.location.href = '/'
     } catch (e:any) {
       const msg = String(e?.message||'')
       if (msg.includes('429')) setError('Tu cuenta está temporalmente bloqueada por intentos fallidos. Intenta más tarde.')
       else if (msg.includes('desactivada')) setError('Tu cuenta está dada de baja. Contacta a un administrador.')
       else setError('Credenciales inválidas')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function onTwoFactorSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      await api('/auth/login/2fa', {
+        method: 'POST',
+        body: JSON.stringify({ twoFactorToken, code: twoFactorCode.trim() }),
+      })
+      window.location.href = '/'
+    } catch {
+      setError('Código de autenticación inválido')
     } finally {
       setLoading(false)
     }
@@ -77,6 +110,50 @@ export default function LoginPage() {
                     <p className="text-gray-600">Accede a tu cuenta para continuar</p>
                   </div>
           
+          {twoFactorToken ? (
+            <form onSubmit={onTwoFactorSubmit} className="space-y-6">
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <p className="text-sm font-medium text-emerald-900">Verificación en dos pasos</p>
+                <p className="text-sm text-emerald-800 mt-1">
+                  Ingresa el código de Google Authenticator o un código de respaldo{twoFactorEmail ? ` para ${twoFactorEmail}` : ''}.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Código de autenticación
+                </label>
+                <input
+                  className="input-field text-center tracking-[0.4em]"
+                  value={twoFactorCode}
+                  onChange={e => setTwoFactorCode(e.target.value)}
+                  autoComplete="one-time-code"
+                  inputMode="text"
+                  maxLength={9}
+                  placeholder="123456"
+                  required
+                />
+              </div>
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm">{error}</p>
+                </div>
+              )}
+              <button className="btn-primary w-full justify-center" disabled={loading} type="submit">
+                <PendingButtonContent pending={loading} pendingText="Verificando…" idle="Verificar" />
+              </button>
+              <button
+                type="button"
+                className="btn-secondary w-full justify-center"
+                onClick={() => {
+                  setTwoFactorToken('')
+                  setTwoFactorCode('')
+                  setError('')
+                }}
+              >
+                Volver al login
+              </button>
+            </form>
+          ) : (
           <form onSubmit={onSubmit} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -128,6 +205,7 @@ export default function LoginPage() {
               <PendingButtonContent pending={loading} pendingText="Ingresando…" idle="Entrar" />
             </button>
           </form>
+          )}
           
           <div className="flex justify-between mt-6 text-sm">
             <a href="/forgot" className="text-emerald-600 hover:text-emerald-700 font-medium">
