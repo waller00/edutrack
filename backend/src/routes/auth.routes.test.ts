@@ -617,7 +617,7 @@ describe("auth routes (mocks)", () => {
     expect(res.headers["set-cookie"]).toBeDefined();
   });
 
-  it("POST /auth/login con 2FA activo devuelve token temporal sin cookies", async () => {
+  it("POST /auth/login con 2FA activo devuelve token temporal y limpia sesión previa", async () => {
     prismaMock.user.findFirst.mockResolvedValue({
       id: "u1",
       email: "u@example.com",
@@ -634,7 +634,15 @@ describe("auth routes (mocks)", () => {
     expect(res.status).toBe(200);
     expect(res.body.requiresTwoFactor).toBe(true);
     expect(res.body.twoFactorToken).toEqual(expect.any(String));
-    expect(res.headers["set-cookie"]).toBeUndefined();
+    expect(res.headers["set-cookie"]).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("access_token=;"),
+        expect.stringContaining("refresh_token=;"),
+      ]),
+    );
+    expect(res.headers["set-cookie"]).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/access_token=[^;]/)]),
+    );
   });
 
   it("POST /auth/login/2fa rechaza token temporal inválido", async () => {
