@@ -1,6 +1,8 @@
 # Moodle local para integrar EduTrack (solo desarrollo).
 #
 # Arranque (en la raíz del repo):
+#   La red debe existir (la crea el deploy a testing/prod o el primer uso):
+#     docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
 #   docker compose -f docker-compose.moodle.yml up -d
 #
 # Primera vez: la instalación de Moodle en el contenedor suele tardar ~4–8 min (CLI + tablas);
@@ -124,5 +126,7 @@ volumes:
   moodle_moodledata:
 
 networks:
+  # Misma red que auth en docker-compose.cloud.yml / docker-compose.yml (external).
   moodle-net:
-    driver: bridge
+    name: edutrack_moodle-net
+    external: true
