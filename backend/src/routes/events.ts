@@ -23,6 +23,7 @@ import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
 import { AuditAction } from '@prisma/client';
 import { recordAuditEvent } from '../services/audit-log.js';
 import { getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js';
+import { ensureMoodleUserById } from '../services/moodle.js';
 
 const r = Router();
 
@@ -323,6 +324,10 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         assignedUserId: event.assignedUserId,
       },
     });
+
+    if (assigneeId) {
+      void ensureMoodleUserById(assigneeId);
+    }
 
     res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
@@ -776,6 +781,10 @@ r.put('/:id', authGuard, async (req, res) => {
         subject: eventSubjectInclude,
       }
     });
+
+    if (parsed.data.assignedUserId !== undefined && parsed.data.assignedUserId !== null) {
+      void ensureMoodleUserById(parsed.data.assignedUserId);
+    }
 
     res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {

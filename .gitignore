@@ -39,6 +39,8 @@ data.sql
 data.sql.gz
 # Dumps Postgres (copias locales / restores; no versionar)
 prod-asistencias*.dump
+testing_asistencias.dump
+moodle-local-backup.sql
 
 # Word / documentos binarios (no versionar)
 *.docx
