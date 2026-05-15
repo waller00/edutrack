@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import {
   Check,
   ChevronDown,
+  Eye,
   Plus,
   RotateCcw,
   Save,
@@ -108,7 +109,8 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [catalog, setCatalog] = useState<PermissionCatalogItem[]>([])
   const [drafts, setDrafts] = useState<Record<string, Record<string, DraftPermission>>>({})
-  const [openRoles, setOpenRoles] = useState<Record<string, boolean>>({})
+  const [selectedRole, setSelectedRole] = useState('')
+  const [previewOpen, setPreviewOpen] = useState(false)
   const [newProfileOpen, setNewProfileOpen] = useState(false)
   const [newProfile, setNewProfile] = useState<NewProfileForm>(EMPTY_NEW_PROFILE)
   const [savingRole, setSavingRole] = useState('')
@@ -119,9 +121,7 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
     setProfiles(data.roles)
     setCatalog(data.permissionCatalog)
     setDrafts(Object.fromEntries(data.roles.map((profile) => [profile.role, buildDraft(profile, data.permissionCatalog)])))
-    setOpenRoles((current) =>
-      Object.fromEntries(data.roles.map((profile, index) => [profile.role, current[profile.role] ?? index === 0])),
-    )
+    setSelectedRole((current) => current || data.roles[0]?.role || '')
     setNewProfile((current) => ({
       ...current,
       permissions: buildEmptyProfileDraft(data.permissionCatalog),
@@ -175,16 +175,6 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
     }))
   }
 
-  function updateNewPermission(permissionId: string, patch: Partial<DraftPermission>) {
-    setNewProfile((current) => ({
-      ...current,
-      permissions: {
-        ...current.permissions,
-        [permissionId]: { ...current.permissions[permissionId], ...patch },
-      },
-    }))
-  }
-
   async function saveProfile(role: string) {
     setSavingRole(role)
     setMessage('')
@@ -223,7 +213,7 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
       applyProfiles(data)
       setNewProfile({ ...EMPTY_NEW_PROFILE, permissions: buildEmptyProfileDraft(data.permissionCatalog) })
       setNewProfileOpen(false)
-      setOpenRoles((current) => ({ ...current, [code]: true }))
+      setSelectedRole(code)
       setMessage('Perfil creado.')
     } catch (error: any) {
       setMessage(error?.message || 'No se pudo crear el perfil')
@@ -374,72 +364,118 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
                   </button>
                 </div>
               </div>
-              <div className="p-5">{renderPermissionRows(newProfile.permissions, updateNewPermission)}</div>
+              <div className="border-t border-gray-100 p-5 text-sm text-gray-600">
+                Primero creá el perfil. Después seleccionalo en <span className="font-semibold text-gray-800">Perfil a configurar</span> para activar permisos y revisar la vista previa.
+              </div>
             </article>
           )}
 
-          {profiles.map((profile) => {
+          {(() => {
+            const profile = profiles.find((p) => p.role === selectedRole) ?? profiles[0]
+            if (!profile) return null
             const draft = drafts[profile.role] ?? {}
-            const activeCount = Object.values(draft).filter((permission) => permission.enabled).length
-            return (
-              <article key={profile.role} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => setOpenRoles((current) => ({ ...current, [profile.role]: !current[profile.role] }))}
-                  className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50"
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                      <UserCog className="h-5 w-5 text-emerald-700" aria-hidden />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-lg font-semibold text-gray-950">{profile.label}</span>
-                      <span className="block text-sm text-gray-600">{profile.role}</span>
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-3">
-                    <span className="hidden rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 sm:inline">
-                      {activeCount} activos
-                    </span>
-                    <ChevronDown
-                      className={`h-5 w-5 text-gray-500 transition-transform ${openRoles[profile.role] ? 'rotate-180' : ''}`}
-                      aria-hidden
-                    />
-                  </span>
-                </button>
+            const active = Object.values(draft).filter((permission) => permission.enabled)
+            const byModule = active.reduce<Record<string, DraftPermission[]>>((acc, permission) => {
+              const meta = catalog.find((item) => item.id === permission.id)
+              const moduleName = meta?.module ?? 'Otros'
+              acc[moduleName] = acc[moduleName] || []
+              acc[moduleName].push(permission)
+              return acc
+            }, {})
 
-                {openRoles[profile.role] && (
-                  <div className="border-t border-gray-100 p-5">
-                    <div className="mb-4 flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDrafts((current) => ({
-                            ...current,
-                            [profile.role]: buildDraft(profile, catalog),
-                          }))
-                        }
-                        className="btn-secondary inline-flex items-center gap-2"
-                      >
-                        <RotateCcw className="h-4 w-4" aria-hidden />
-                        Deshacer
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => saveProfile(profile.role)}
-                        disabled={savingRole === profile.role}
-                        className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
-                      >
-                        {savingRole === profile.role ? <Check className="h-4 w-4" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
-                        {savingRole === profile.role ? 'Guardando...' : 'Guardar'}
-                      </button>
+            return (
+              <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+                <aside className="self-start rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Perfil a configurar
+                  </label>
+                  <select
+                    value={profile.role}
+                    onChange={(event) => setSelectedRole(event.target.value)}
+                    className="input-field mb-3 bg-white text-sm"
+                  >
+                    {profiles.map((p) => (
+                      <option key={p.role} value={p.role}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="rounded-lg bg-slate-50 p-3 text-sm">
+                    <p className="font-semibold text-gray-950">{profile.label}</p>
+                    <p className="text-xs text-gray-500">{profile.role}</p>
+                    <p className="mt-2 text-xs text-gray-600">{active.length} permisos activos</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewOpen((current) => !current)}
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+                  >
+                    <Eye className="h-4 w-4" aria-hidden />
+                    {previewOpen ? 'Ocultar vista previa' : 'Ver vista previa'}
+                  </button>
+                </aside>
+
+                <section className="space-y-4">
+                  {previewOpen && (
+                    <article className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-5">
+                      <h2 className="text-base font-semibold text-emerald-950">Vista previa del rol</h2>
+                      <p className="mt-1 text-sm text-emerald-800">
+                        Así quedaría el acceso para una persona con el perfil {profile.label}.
+                      </p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {Object.entries(byModule).map(([module, permissions]) => (
+                          <div key={module} className="rounded-lg border border-emerald-100 bg-white p-3">
+                            <p className="font-medium text-gray-950">{module}</p>
+                            <ul className="mt-2 space-y-1 text-sm text-gray-600">
+                              {permissions.map((permission) => (
+                                <li key={permission.id}>
+                                  {permission.label} · {scopeLabel(permission.scope)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  )}
+
+                  <article className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h2 className="text-lg font-semibold text-gray-950">Permisos de {profile.label}</h2>
+                        <p className="text-sm text-gray-600">Activá módulos y elegí si ve solo lo propio o todos los registros.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDrafts((current) => ({
+                              ...current,
+                              [profile.role]: buildDraft(profile, catalog),
+                            }))
+                          }
+                          className="btn-secondary inline-flex items-center gap-2"
+                        >
+                          <RotateCcw className="h-4 w-4" aria-hidden />
+                          Deshacer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveProfile(profile.role)}
+                          disabled={savingRole === profile.role}
+                          className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          {savingRole === profile.role ? <Check className="h-4 w-4" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
+                          {savingRole === profile.role ? 'Guardando...' : 'Guardar'}
+                        </button>
+                      </div>
                     </div>
                     {renderPermissionRows(draft, (permissionId, patch) => updateDraft(profile.role, permissionId, patch))}
-                  </div>
-                )}
-              </article>
+                  </article>
+                </section>
+              </div>
             )
-          })}
+          })()}
         </section>
       )}
     </div>

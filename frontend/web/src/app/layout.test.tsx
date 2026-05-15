@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import RootLayout, { metadata } from './layout'
 
 vi.mock('@/components/UserNav', () => ({
-  default: () => <div data-testid="user-nav">User nav</div>,
+  default: ({ children }: { children: React.ReactNode }) => <div data-testid="user-nav">User nav{children}</div>,
 }))
 
 describe('RootLayout', () => {

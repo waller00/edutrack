@@ -20,8 +20,13 @@ describe("events-query", () => {
   it("applyEventStartDateFilter con rango", () => {
     const w: any = {};
     applyEventStartDateFilter(w, "2025-01-01T00:00:00.000Z", "2025-01-31T23:59:59.000Z");
-    expect(w.startDate.gte).toBeInstanceOf(Date);
-    expect(w.startDate.lte).toBeInstanceOf(Date);
+    expect(w.AND).toBeDefined();
+    const single = w.AND[0].OR[0];
+    const recurring = w.AND[0].OR[1];
+    expect(single.startDate.gte).toBeInstanceOf(Date);
+    expect(single.startDate.lte).toBeInstanceOf(Date);
+    expect(recurring.startDate.lte).toBeInstanceOf(Date);
+    expect(recurring.OR[1].recurrenceEnd.gte).toBeInstanceOf(Date);
   });
 
   it("buildMyEventsBaseFilter", () => {

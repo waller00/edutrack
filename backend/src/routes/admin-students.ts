@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import type { Request } from 'express'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
 import { prisma } from '../prisma.js'
@@ -51,6 +52,10 @@ const tuitionYearRowSchema = z.object({
   notes: z.preprocess(emptyToUndefined, z.string().max(2000).optional()),
 })
 
+const tuitionMonthRowSchema = tuitionYearRowSchema.extend({
+  month: z.number().int().min(1).max(12),
+})
+
 function parseOptionalEndOfDayDate(raw: string | undefined): Date | undefined {
   if (!raw) return undefined
   const d = new Date(raw)
@@ -90,11 +95,78 @@ const studentWriteBaseSchema = z.object({
 
 const studentCreateSchema = studentWriteBaseSchema.extend({
   tuitionYears: z.array(tuitionYearRowSchema).max(80).optional(),
+  tuitionMonths: z.array(tuitionMonthRowSchema).max(240).optional(),
 })
 
 const studentUpdateSchema = studentWriteBaseSchema.partial().extend({
   tuitionYears: z.array(tuitionYearRowSchema).max(80).optional(),
+  tuitionMonths: z.array(tuitionMonthRowSchema).max(240).optional(),
 })
+
+type TuitionMonthDbRow = {
+  id: string
+  year: number
+  month: number
+  paid: boolean
+  paidAt: Date | null
+  amountCents: number | null
+  notes: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+async function findTuitionMonths(studentIds: string[], year?: number): Promise<Record<string, TuitionMonthDbRow[]>> {
+  if (!studentIds.length) return {}
+  const rows = year
+    ? await prisma.$queryRaw<Array<TuitionMonthDbRow & { studentId: string }>>`
+        SELECT id, "studentId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt"
+        FROM "StudentTuitionMonth"
+        WHERE "studentId" IN (${Prisma.join(studentIds)}) AND year = ${year}
+        ORDER BY year DESC, month ASC
+      `
+    : await prisma.$queryRaw<Array<TuitionMonthDbRow & { studentId: string }>>`
+        SELECT id, "studentId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt"
+        FROM "StudentTuitionMonth"
+        WHERE "studentId" IN (${Prisma.join(studentIds)})
+        ORDER BY year DESC, month ASC
+      `
+  const byStudent: Record<string, TuitionMonthDbRow[]> = {}
+  for (const row of rows) {
+    byStudent[row.studentId] = byStudent[row.studentId] ?? []
+    byStudent[row.studentId].push(row)
+  }
+  return byStudent
+}
+
+async function findStudentIdsByTuitionMonth(year: number, month?: number, paid?: boolean): Promise<string[]> {
+  if (month && paid === true) {
+    const rows = await prisma.$queryRaw<Array<{ studentId: string }>>`
+      SELECT "studentId" FROM "StudentTuitionMonth"
+      WHERE year = ${year} AND month = ${month} AND paid = true
+    `
+    return rows.map((r) => r.studentId)
+  }
+  if (month && paid === false) {
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT s.id
+      FROM "Student" s
+      LEFT JOIN "StudentTuitionMonth" tm
+        ON tm."studentId" = s.id AND tm.year = ${year} AND tm.month = ${month} AND tm.paid = true
+      WHERE tm.id IS NULL
+    `
+    return rows.map((r) => r.id)
+  }
+  const rows = month
+    ? await prisma.$queryRaw<Array<{ studentId: string }>>`
+        SELECT "studentId" FROM "StudentTuitionMonth"
+        WHERE year = ${year} AND month = ${month}
+      `
+    : await prisma.$queryRaw<Array<{ studentId: string }>>`
+        SELECT "studentId" FROM "StudentTuitionMonth"
+        WHERE year = ${year}
+      `
+  return rows.map((r) => r.studentId)
+}
 
 function serializeTuitionRow(row: {
   id: string
@@ -109,6 +181,30 @@ function serializeTuitionRow(row: {
   return {
     id: row.id,
     year: row.year,
+    paid: row.paid,
+    paidAt: row.paidAt?.toISOString() ?? null,
+    amountCents: row.amountCents,
+    notes: row.notes,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
+function serializeTuitionMonthRow(row: {
+  id: string
+  year: number
+  month: number
+  paid: boolean
+  paidAt: Date | null
+  amountCents: number | null
+  notes: string | null
+  createdAt: Date
+  updatedAt: Date
+}) {
+  return {
+    id: row.id,
+    year: row.year,
+    month: row.month,
     paid: row.paid,
     paidAt: row.paidAt?.toISOString() ?? null,
     amountCents: row.amountCents,
@@ -148,6 +244,17 @@ function serializeStudentDetail(row: {
     createdAt: Date
     updatedAt: Date
   }>
+  tuitionMonths: Array<{
+    id: string
+    year: number
+    month: number
+    paid: boolean
+    paidAt: Date | null
+    amountCents: number | null
+    notes: string | null
+    createdAt: Date
+    updatedAt: Date
+  }>
 }) {
   return {
     id: row.id,
@@ -170,6 +277,9 @@ function serializeStudentDetail(row: {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     tuitionYears: [...row.tuitionYears].sort((a, b) => b.year - a.year).map(serializeTuitionRow),
+    tuitionMonths: [...row.tuitionMonths]
+      .sort((a, b) => (b.year === a.year ? a.month - b.month : b.year - a.year))
+      .map(serializeTuitionMonthRow),
   }
 }
 
@@ -212,6 +322,8 @@ r.get('/', async (req, res) => {
     const courseId = ((req.query.courseId as string) || '').trim()
     const status = ((req.query.status as string) || '').trim().toUpperCase()
     const tuitionYear = (req.query.tuitionYear as string) || ''
+    const tuitionPreviewYear = (req.query.tuitionPreviewYear as string) || ''
+    const tuitionMonth = (req.query.tuitionMonth as string) || ''
     const tuitionPaid = (req.query.tuitionPaid as string) || ''
 
     const scoped = await scopedSchoolYearWhere(req)
@@ -235,12 +347,17 @@ r.get('/', async (req, res) => {
     }
     const ty = Number(tuitionYear)
     if (!Number.isNaN(ty) && ty >= 1980 && ty <= 2100) {
-      if (tuitionPaid === 'true') {
-        and.push({ tuitionYears: { some: { year: ty, paid: true } } })
-      } else if (tuitionPaid === 'false') {
-        and.push({ tuitionYears: { some: { year: ty, paid: false } } })
+      const tm = Number(tuitionMonth)
+      if (!Number.isNaN(tm) && tm >= 1 && tm <= 12) {
+        if (tuitionPaid === 'true') {
+          and.push({ id: { in: await findStudentIdsByTuitionMonth(ty, tm, true) } })
+        } else if (tuitionPaid === 'false') {
+          and.push({ id: { in: await findStudentIdsByTuitionMonth(ty, tm, false) } })
+        } else {
+          and.push({ id: { in: await findStudentIdsByTuitionMonth(ty, tm) } })
+        }
       } else {
-        and.push({ tuitionYears: { some: { year: ty } } })
+        and.push({ id: { in: await findStudentIdsByTuitionMonth(ty) } })
       }
     }
 
@@ -266,14 +383,20 @@ r.get('/', async (req, res) => {
           withdrawalAcademicYear: true,
           healthCardExpiresAt: true,
           createdAt: true,
-          tuitionYears: {
-            select: { year: true, paid: true },
-            orderBy: { year: 'desc' },
-            take: 6,
-          },
         },
       }),
     ])
+
+    const previewTy = Number(tuitionPreviewYear)
+    const previewYear = !Number.isNaN(previewTy) && previewTy >= 1980 && previewTy <= 2100
+      ? previewTy
+      : !Number.isNaN(ty) && ty >= 1980 && ty <= 2100
+        ? ty
+        : undefined
+    const tuitionMonthsByStudent = await findTuitionMonths(
+      rows.map((row) => row.id),
+      previewYear,
+    )
 
     const data = rows.map((row) => ({
       id: row.id,
@@ -288,7 +411,11 @@ r.get('/', async (req, res) => {
       withdrawalAcademicYear: row.withdrawalAcademicYear,
       healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
-      tuitionYearsPreview: row.tuitionYears,
+      tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
+        year: t.year,
+        month: t.month,
+        paid: t.paid,
+      })),
     }))
 
     return res.json({ total, page, pageSize, data })
@@ -309,7 +436,8 @@ r.get('/:id', async (req, res) => {
       },
     })
     if (!row) return res.status(404).json({ message: 'Estudiante no encontrado' })
-    return res.json(serializeStudentDetail(row))
+    const tuitionMonths = (await findTuitionMonths([row.id]))[row.id] ?? []
+    return res.json(serializeStudentDetail({ ...row, tuitionMonths }))
   } catch (e) {
     console.error('[admin/students/:id]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -353,6 +481,11 @@ r.post('/', async (req, res) => {
     if (new Set(years).size !== years.length) {
       return res.status(400).json({ message: 'Años de cuota duplicados en el mismo estudiante' })
     }
+    const tuitionMonths = body.tuitionMonths ?? []
+    const monthKeys = tuitionMonths.map((t) => `${t.year}-${t.month}`)
+    if (new Set(monthKeys).size !== monthKeys.length) {
+      return res.status(400).json({ message: 'Meses de mensualidad duplicados en el mismo estudiante' })
+    }
 
     const created = await prisma.$transaction(async (tx) => {
       const s = await tx.student.create({
@@ -386,13 +519,33 @@ r.post('/', async (req, res) => {
           })),
         })
       }
+      if (tuitionMonths.length) {
+        for (const t of tuitionMonths) {
+          await tx.$executeRaw`
+            INSERT INTO "StudentTuitionMonth" ("id", "studentId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt")
+            VALUES (
+              ${randomUUID()},
+              ${s.id},
+              ${t.year},
+              ${t.month},
+              ${t.paid ?? false},
+              ${t.paidAt ? parseOptionalEndOfDayDate(t.paidAt) ?? null : null},
+              ${t.amountCents ?? null},
+              ${t.notes ?? null},
+              now(),
+              now()
+            )
+          `
+        }
+      }
       return tx.student.findUniqueOrThrow({
         where: { id: s.id },
         include: { course: { select: { id: true, name: true, code: true } }, tuitionYears: true },
       })
     })
 
-    return res.status(201).json(serializeStudentDetail(created))
+    const createdTuitionMonths = (await findTuitionMonths([created.id]))[created.id] ?? []
+    return res.status(201).json(serializeStudentDetail({ ...created, tuitionMonths: createdTuitionMonths }))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
     if (code === 'P2003') {
@@ -438,6 +591,13 @@ r.put('/:id', async (req, res) => {
       const years = tuitionYears.map((t) => t.year)
       if (new Set(years).size !== years.length) {
         return res.status(400).json({ message: 'Años de cuota duplicados en el mismo estudiante' })
+      }
+    }
+    const tuitionMonths = body.tuitionMonths
+    if (tuitionMonths) {
+      const monthKeys = tuitionMonths.map((t) => `${t.year}-${t.month}`)
+      if (new Set(monthKeys).size !== monthKeys.length) {
+        return res.status(400).json({ message: 'Meses de mensualidad duplicados en el mismo estudiante' })
       }
     }
 
@@ -492,13 +652,36 @@ r.put('/:id', async (req, res) => {
           })
         }
       }
+      if (tuitionMonths) {
+        await tx.$executeRaw`DELETE FROM "StudentTuitionMonth" WHERE "studentId" = ${id}`
+        if (tuitionMonths.length) {
+          for (const t of tuitionMonths) {
+            await tx.$executeRaw`
+              INSERT INTO "StudentTuitionMonth" ("id", "studentId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt")
+              VALUES (
+                ${randomUUID()},
+                ${id},
+                ${t.year},
+                ${t.month},
+                ${t.paid ?? false},
+                ${t.paidAt ? parseOptionalEndOfDayDate(t.paidAt) ?? null : null},
+                ${t.amountCents ?? null},
+                ${t.notes ?? null},
+                now(),
+                now()
+              )
+            `
+          }
+        }
+      }
       return tx.student.findUniqueOrThrow({
         where: { id },
         include: { course: { select: { id: true, name: true, code: true } }, tuitionYears: true },
       })
     })
 
-    return res.json(serializeStudentDetail(updated))
+    const updatedTuitionMonths = (await findTuitionMonths([updated.id]))[updated.id] ?? []
+    return res.json(serializeStudentDetail({ ...updated, tuitionMonths: updatedTuitionMonths }))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
     if (code === 'P2003') {

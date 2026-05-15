@@ -5,9 +5,19 @@ import { APP_TIMEZONE } from './app-timezone.js'
 
 export function applyEventStartDateFilter(where: any, startDate?: unknown, endDate?: unknown) {
   if (!startDate && !endDate) return;
-  where.startDate = {};
-  if (startDate) where.startDate.gte = new Date(startDate as string);
-  if (endDate) where.startDate.lte = new Date(endDate as string);
+  const start = startDate ? new Date(startDate as string) : null;
+  const end = endDate ? new Date(endDate as string) : null;
+  const singleEventDateFilter: any = { isRecurring: false };
+  singleEventDateFilter.startDate = {};
+  if (start) singleEventDateFilter.startDate.gte = start;
+  if (end) singleEventDateFilter.startDate.lte = end;
+
+  const recurringEventFilter: any = { isRecurring: true };
+  if (end) recurringEventFilter.startDate = { lte: end };
+  if (start) recurringEventFilter.OR = [{ recurrenceEnd: null }, { recurrenceEnd: { gte: start } }];
+
+  const previousAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+  where.AND = [...previousAnd, { OR: [singleEventDateFilter, recurringEventFilter] }];
 }
 
 export function buildMyEventsBaseFilter(userId: string) {
@@ -185,6 +195,10 @@ export function expandRecurringEvent(event: any, startDate?: unknown, endDate?: 
         title: ex.title ?? occ.title,
         description: ex.description ?? occ.description,
         type: ex.type ?? occ.type,
+        courseId: ex.courseId ?? occ.courseId,
+        subjectId: ex.subjectId ?? occ.subjectId,
+        course: ex.course ?? occ.course,
+        subject: ex.subject ?? occ.subject,
         // Override de horario si existiera
         startDate: ex.startTime ? new Date(ex.startTime) : occ.startDate,
         startTime: ex.startTime ? new Date(ex.startTime) : occ.startTime,

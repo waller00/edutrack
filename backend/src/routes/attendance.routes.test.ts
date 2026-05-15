@@ -472,6 +472,7 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.body.totalAttendances).toBe(3);
     const w = prismaMock.attendance.count.mock.calls[0][0].where;
     expect(w.userId).toBe("user-1");
+    expect(w.type).toBe("CHECK_IN");
   });
 
   it("GET /attendance/stats ADMIN filtra por userId", async () => {

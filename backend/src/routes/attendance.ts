@@ -337,43 +337,25 @@ r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 });
 
+function buildAttendanceStatsWhere(query: Record<string, unknown>, user: { role: string; sub: string }) {
+  const where = buildAdminAttendanceWhere(query)
+  if (user.role !== 'ADMIN') {
+    where.userId = user.sub
+  }
+  /** Tasas de presencia/ausencia/tarde solo aplican a entradas; las salidas (EXIT) no deben inflar el total. */
+  if (!query.type) {
+    where.type = 'CHECK_IN'
+  }
+  return where
+}
+
 // Obtener estadísticas de asistencias
 r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
-    const { startDate, endDate, userId, eventType, eventId, type, status, role } = req.query;
-    
-    const where: any = {};
-    
-    applyDateRangeFilter(where, startDate, endDate)
-
-    // Si no es ADMIN, solo puede ver sus propias estadísticas
-    if (user.role !== 'ADMIN') {
-      where.userId = user.sub;
-    } else if (userId) {
-      where.userId = userId;
-    }
-
-    // Filtros equivalentes a los usados para el listado
-    if (user.role === 'ADMIN' && role) {
-      where.user = { role: role as any };
-    }
-    if (eventType) {
-      where.event = { type: eventType as any };
-      // Asegura que eventId no sea null cuando filtramos por tipo de evento
-      where.eventId = { not: null };
-    }
-    if (eventId) {
-      where.eventId = eventId as string;
-    }
-    if (type) {
-      where.type = type as any;
-    }
-    if (status) {
-      where.status = status as any;
-    }
+    const where = buildAttendanceStatsWhere(req.query as Record<string, unknown>, user)
 
     const [totalAttendances, presentCount, absentCount, lateCount, medicalLeaveCount] = await Promise.all([
       prisma.attendance.count({ where }),
@@ -385,13 +367,12 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
         },
       }),
       prisma.attendance.count({ where: { ...where, status: 'LATE' } }),
-      // Para el panel de asistencias, "médica" se refleja como ausencia justificada.
       prisma.attendance.count({ where: { ...where, status: 'ABSENT_JUSTIFIED' } }),
     ])
 
-    const attendanceRate = totalAttendances > 0 ? (presentCount / totalAttendances) * 100 : 0;
-    const lateRate = totalAttendances > 0 ? (lateCount / totalAttendances) * 100 : 0;
-    const absenceRate = totalAttendances > 0 ? (absentCount / totalAttendances) * 100 : 0;
+    const attendanceRate = totalAttendances > 0 ? (presentCount / totalAttendances) * 100 : 0
+    const lateRate = totalAttendances > 0 ? (lateCount / totalAttendances) * 100 : 0
+    const absenceRate = totalAttendances > 0 ? (absentCount / totalAttendances) * 100 : 0
 
     res.json({
       totalAttendances,

@@ -12,6 +12,7 @@ const filters = {
   endDate: '',
   userId: '',
   assignedUserId: '',
+  courseId: '00000000-0000-4000-8000-0000000000c1',
   type: 'CLASE',
   status: 'SCHEDULED',
 }
@@ -34,6 +35,7 @@ describe('admin-events-display', () => {
     const q = buildAdminEventsAllQueryString(2, filters)
     expect(q).toContain('page=2')
     expect(q).toContain('type=CLASE')
+    expect(q).toContain('courseId=00000000-0000-4000-8000-0000000000c1')
     expect(getAdminEventsDefaultStartDate(2023)).toBe('2023-01-01')
   })
 

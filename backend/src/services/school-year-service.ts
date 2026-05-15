@@ -67,7 +67,7 @@ export async function copyCoursesBetweenSchoolYears(
   prisma: PrismaClient,
   targetSchoolYearId: string,
   sourceSchoolYearId: string,
-): Promise<{ created: number }> {
+): Promise<{ created: number; subjectsCreated: number }> {
   if (targetSchoolYearId === sourceSchoolYearId) {
     throw new Error('SAME_SCHOOL_YEAR')
   }
@@ -80,19 +80,38 @@ export async function copyCoursesBetweenSchoolYears(
   const existing = await prisma.course.count({ where: { schoolYearId: targetSchoolYearId } })
   if (existing > 0) throw new Error('TARGET_YEAR_HAS_COURSES')
 
-  const courses = await prisma.course.findMany({ where: { schoolYearId: sourceSchoolYearId } })
+  const courses = await prisma.course.findMany({
+    where: { schoolYearId: sourceSchoolYearId },
+    include: { subjects: true },
+  })
   let created = 0
-  for (const c of courses) {
-    await prisma.course.create({
-      data: {
-        name: c.name,
-        code: c.code,
-        description: c.description,
-        isActive: true,
-        schoolYearId: targetSchoolYearId,
-      },
-    })
-    created += 1
-  }
-  return { created }
+  let subjectsCreated = 0
+  await prisma.$transaction(async (tx) => {
+    for (const c of courses) {
+      const newCourse = await tx.course.create({
+        data: {
+          name: c.name,
+          code: c.code,
+          description: c.description,
+          isActive: true,
+          schoolYearId: targetSchoolYearId,
+        },
+      })
+      created += 1
+      if (c.subjects.length > 0) {
+        await tx.subject.createMany({
+          data: c.subjects.map((s) => ({
+            name: s.name,
+            code: s.code,
+            description: s.description,
+            sortOrder: s.sortOrder,
+            isActive: s.isActive,
+            courseId: newCourse.id,
+          })),
+        })
+        subjectsCreated += c.subjects.length
+      }
+    }
+  })
+  return { created, subjectsCreated }
 }

@@ -475,10 +475,30 @@ model Course {
   updatedAt    DateTime    @updatedAt
   events       Event[]
   students     Student[]
+  subjects     Subject[]
 
   @@unique([schoolYearId, code])
   @@index([isActive])
   @@index([schoolYearId])
+}
+
+/// Asignatura de un curso. Sin jerarquía de “subcursos”: materias comunes vs orientación
+/// se modelan con cursos distintos y listas de asignaturas propias.
+model Subject {
+  id          String   @id @default(uuid())
+  name        String
+  code        String?
+  description String?  @db.Text
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  events      Event[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([courseId])
+  @@map("asignaturas")
 }
 
 /// Estado de matrícula para informes de abandono y seguimiento administrativo.
@@ -520,7 +540,8 @@ model Student {
 
   internalNotes String? @db.Text
 
-  tuitionYears StudentTuitionYear[]
+  tuitionYears  StudentTuitionYear[]
+  tuitionMonths StudentTuitionMonth[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -549,6 +570,25 @@ model StudentTuitionYear {
   @@index([year])
 }
 
+/// Mensualidad por estudiante. El año permite conservar historial y filtrar ciclos anteriores.
+model StudentTuitionMonth {
+  id          String    @id @default(uuid())
+  studentId   String
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  year        Int
+  month       Int
+  paid        Boolean   @default(false)
+  paidAt      DateTime?
+  amountCents Int?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, year, month])
+  @@index([year, month])
+}
+
 model Event {
   id                  String               @id @default(uuid())
   title               String
@@ -568,6 +608,8 @@ model Event {
   schoolYear          SchoolYear?          @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
   courseId            String?
   course              Course?              @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  subjectId           String?
+  subject             Subject?             @relation(fields: [subjectId], references: [id], onDelete: SetNull)
   recurrenceType      RecurrenceType       @default(NONE)
   recurrenceEnd       DateTime?
   isRecurring         Boolean              @default(false)
@@ -584,6 +626,7 @@ model Event {
   @@index([assignedUserId])
   @@index([schoolYearId])
   @@index([courseId])
+  @@index([subjectId])
   @@index([startDate])
   @@index([type])
 }

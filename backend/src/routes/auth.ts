@@ -25,6 +25,7 @@ import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.j
 import { isDiditConfigured, isLivenessRequiredForRegistration } from "../system-settings.js";
 import { syncLivenessSessionFromDiditApi } from "../didit-sync-session.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../org-role-service.js";
+import { ensureDefaultProfilePermissionsIfNeeded } from "../profile-permissions-repository.js";
 
 const r = Router();
 
@@ -182,6 +183,25 @@ function issueSessionCookies(res: any, req: any, user: { id: string; email: stri
       ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip,
     },
   });
+}
+
+async function enabledPermissionsForRole(roleCode: string) {
+  if (!roleCode) return []
+  const rows = await prisma.rolePermission.findMany({
+    where: {
+      enabled: true,
+      orgRole: { code: roleCode, active: true },
+    },
+    select: {
+      permission: { select: { code: true } },
+      scope: true,
+    },
+    orderBy: { permission: { code: "asc" } },
+  });
+  return rows.map((row) => ({
+    id: row.permission.code,
+    scope: row.scope === "ALL" ? "all" : "own",
+  }));
 }
 
 function verifyTotpCode(code: string, secret: string) {
@@ -882,13 +902,23 @@ r.get("/me", authGuard, async (req, res) => {
   const roleCode = raw.orgRole?.code ?? "";
   const needsProfileCompletion = !raw.firstName || !raw.lastName || !raw.nationalId || !raw.birthdate || !raw.username;
   const hasPassword = !!raw.passwordHash;
+  await ensureDefaultProfilePermissionsIfNeeded();
+  const permissions = await enabledPermissionsForRole(roleCode);
   const canShowNav =
     Boolean(raw.isApproved && raw.isActive && !needsProfileCompletion);
   const navLinks = canShowNav
     ? NAV_LINKS_BY_ROLE[roleCode] || []
     : [];
   const { passwordHash, orgRole, ...safe } = raw as any;
-  res.json({ ...safe, role: roleCode, needsProfileCompletion, hasPassword, navLinks });
+  res.json({
+    ...safe,
+    role: roleCode,
+    needsProfileCompletion,
+    hasPassword,
+    navLinks,
+    permissions,
+    permissionIds: permissions.map((permission) => permission.id),
+  });
 });
 
 r.post("/logout", async (req, res) => {

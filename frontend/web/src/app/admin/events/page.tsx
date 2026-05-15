@@ -3,7 +3,7 @@ import DateRangeFields from '@/components/DateRangeFields'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Calendar } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -13,7 +13,6 @@ import {
   getAdminEventStatusLabel,
   getAdminEventStatusStyle,
   getAdminEventTypeLabel,
-  getAdminEventsDefaultStartDate,
   type AdminEventCreatorRole,
 } from '@/lib/admin-events-display'
 import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
@@ -23,6 +22,14 @@ import {
   formatClockHhMmInUruguayFromIso,
   getTodayYmdInUruguay,
 } from '@/lib/datetime-uy'
+
+type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
+type SubjectOpt = { id: string; name: string; code: string | null }
+
+function withSchoolYear(path: string, schoolYearQuery: string): string {
+  if (!schoolYearQuery) return path
+  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
+}
 
 type Event = {
   id: string
@@ -50,6 +57,10 @@ type Event = {
     role: string
   }
   assignedUserId?: string
+  courseId?: string | null
+  course?: { id: string; name: string; code: string | null } | null
+  subjectId?: string | null
+  subject?: { id: string; name: string; code: string | null } | null
   recurrenceType: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
   isRecurring: boolean
   daysOfWeek: number[]
@@ -70,9 +81,26 @@ type User = {
 type EventTypeOption = Event['type']
 type EventStatusOption = Event['status']
 type RoleOption = AdminEventCreatorRole
-type EditableEvent = Pick<Event, 'title' | 'description' | 'type' | 'startDate' | 'startTime' | 'endTime' | 'assignedUserId' | 'recurrenceType' | 'isRecurring' | 'daysOfWeek' | 'recurrenceEnd'> & {
+type EditableEvent = Pick<
+  Event,
+  | 'title'
+  | 'description'
+  | 'type'
+  | 'startDate'
+  | 'startTime'
+  | 'endTime'
+  | 'assignedUserId'
+  | 'courseId'
+  | 'subjectId'
+  | 'recurrenceType'
+  | 'isRecurring'
+  | 'daysOfWeek'
+  | 'recurrenceEnd'
+> & {
   assignedUserId: string
   recurrenceEnd: string
+  courseId: string
+  subjectId: string
 }
 
 function timeStringToMinutes(t: string): number | null {
@@ -189,17 +217,22 @@ function renderEventsEmptyState(events: Event[]) {
 
 export default function AdminEvents() {
   const syCtx = useOptionalAdminSchoolYear()
+  const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
 
   const [events, setEvents] = useState<Event[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [courses, setCourses] = useState<CourseOpt[]>([])
+  const [createSubjects, setCreateSubjects] = useState<SubjectOpt[]>([])
+  const [editSubjects, setEditSubjects] = useState<SubjectOpt[]>([])
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [editingEvent, setEditingEvent] = useState<Event | null>(null)
   const [filters, setFilters] = useState({
-    startDate: getAdminEventsDefaultStartDate(),
+    startDate: '',
     endDate: '',
     userId: '',
     assignedUserId: '',
+    courseId: '',
     type: '',
     status: ''
   })
@@ -219,6 +252,8 @@ export default function AdminEvents() {
     startTime: '09:00',
     endTime: '10:00',
     assignedUserId: '',
+    courseId: '',
+    subjectId: '',
     recurrenceType: 'NONE',
     isRecurring: false,
     daysOfWeek: [],
@@ -233,6 +268,19 @@ export default function AdminEvents() {
     loadUsers()
   }, [page, filters, syCtx?.allYears, syCtx?.schoolYearQuery])
 
+  const loadCourses = useCallback(async () => {
+    try {
+      const c = await api<CourseOpt[]>(withSchoolYear('/courses?all=1', schoolYearQuery))
+      setCourses(Array.isArray(c) ? c : [])
+    } catch {
+      setCourses([])
+    }
+  }, [schoolYearQuery])
+
+  useEffect(() => {
+    void loadCourses()
+  }, [loadCourses])
+
   useEffect(() => {
     setPortalReady(true)
   }, [])
@@ -240,6 +288,46 @@ export default function AdminEvents() {
   useEffect(() => {
     setSelectedEventIds([])
   }, [events])
+
+  useEffect(() => {
+    if (!creating || !newEvent.courseId) {
+      setCreateSubjects([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const path = `/courses/${newEvent.courseId}/subjects?all=1`
+        const list = await api<SubjectOpt[]>(withSchoolYear(path, schoolYearQuery))
+        if (!cancelled) setCreateSubjects(Array.isArray(list) ? list : [])
+      } catch {
+        if (!cancelled) setCreateSubjects([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [creating, newEvent.courseId, schoolYearQuery])
+
+  useEffect(() => {
+    if (!editingEvent?.courseId) {
+      setEditSubjects([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const path = `/courses/${editingEvent.courseId}/subjects?all=1`
+        const list = await api<SubjectOpt[]>(withSchoolYear(path, schoolYearQuery))
+        if (!cancelled) setEditSubjects(Array.isArray(list) ? list : [])
+      } catch {
+        if (!cancelled) setEditSubjects([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [editingEvent?.courseId, schoolYearQuery])
 
   async function loadEvents() {
     setLoading(true)
@@ -287,6 +375,8 @@ export default function AdminEvents() {
       startTime: '09:00',
       endTime: '10:00',
       assignedUserId: '',
+      courseId: '',
+      subjectId: '',
       recurrenceType: 'NONE',
       isRecurring: false,
       daysOfWeek: [],
@@ -341,6 +431,12 @@ export default function AdminEvents() {
       }
       if (newEvent.assignedUserId) {
         eventData.assignedUserId = newEvent.assignedUserId
+      }
+      if (newEvent.courseId) {
+        eventData.courseId = newEvent.courseId
+      }
+      if (newEvent.subjectId) {
+        eventData.subjectId = newEvent.subjectId
       }
 
       await api('/events/', {
@@ -429,7 +525,7 @@ export default function AdminEvents() {
   }
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="events.read" permissionScope="all">
       <main className="mx-auto max-w-7xl p-6 space-y-6">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
@@ -464,10 +560,11 @@ export default function AdminEvents() {
             <h2 className="text-lg font-semibold">Filtros</h2>
             <button
               onClick={() => setFilters({
-                startDate: getAdminEventsDefaultStartDate(),
+                startDate: '',
                 endDate: '',
                 userId: '',
                 assignedUserId: '',
+                courseId: '',
                 type: '',
                 status: ''
               })}
@@ -477,7 +574,7 @@ export default function AdminEvents() {
             </button>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
             <DateRangeFields
               startDate={filters.startDate}
               endDate={filters.endDate}
@@ -507,6 +604,21 @@ export default function AdminEvents() {
                 <option value="">Todos</option>
                 {users.map(user => (
                   <option key={user.id} value={user.id}>{user.username || user.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Curso</label>
+              <select
+                value={filters.courseId}
+                onChange={(e) => setFilters({ ...filters, courseId: e.target.value })}
+                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              >
+                <option value="">Todos</option>
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code ? `${c.code} — ${c.name}` : c.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -586,6 +698,8 @@ export default function AdminEvents() {
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Título</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Curso</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Asignatura</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Inicio</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Fin</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Asignado</th>
@@ -617,6 +731,30 @@ export default function AdminEvents() {
                         <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                           {getAdminEventTypeLabel(event.type)}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {event.course ? (
+                          <div>
+                            <div className="font-medium">{event.course.name}</div>
+                            {event.course.code ? (
+                              <div className="text-xs text-gray-500">{event.course.code}</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {event.subject ? (
+                          <div>
+                            <div className="font-medium">{event.subject.name}</div>
+                            {event.subject.code ? (
+                              <div className="text-xs text-gray-500">{event.subject.code}</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         <div>
@@ -838,6 +976,46 @@ export default function AdminEvents() {
                       .map(user => (
                         <option key={user.id} value={user.id}>{user.username || user.name} ({user.role})</option>
                       ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Curso (opcional)</label>
+                  <select
+                    value={newEvent.courseId}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setNewEvent((prev) => ({
+                        ...prev,
+                        courseId: v,
+                        subjectId: prev.courseId === v ? prev.subjectId : '',
+                      }))
+                    }}
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  >
+                    <option value="">Sin curso</option>
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code ? `${c.code} — ${c.name}` : c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Asignatura (opcional)</label>
+                  <select
+                    value={newEvent.subjectId}
+                    onChange={(e) => setNewEvent({ ...newEvent, subjectId: e.target.value })}
+                    disabled={!newEvent.courseId}
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="">{newEvent.courseId ? 'Sin asignatura' : 'Elegí un curso primero'}</option>
+                    {createSubjects.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.code ? `${s.code} — ${s.name}` : s.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 
@@ -1062,6 +1240,56 @@ export default function AdminEvents() {
                     {users.map(user => (
                       <option key={user.id} value={user.id}>
                         {user.username || user.name} ({user.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Curso (opcional)</label>
+                  <select
+                    value={editingEvent.courseId ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value || null
+                      setEditingEvent((prev) => {
+                        if (!prev) return prev
+                        const prevC = prev.courseId ?? ''
+                        const nextC = v ?? ''
+                        return {
+                          ...prev,
+                          courseId: v,
+                          subjectId: prevC === nextC ? prev.subjectId : null,
+                        }
+                      })
+                    }}
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  >
+                    <option value="">Sin curso</option>
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code ? `${c.code} — ${c.name}` : c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Asignatura (opcional)</label>
+                  <select
+                    value={editingEvent.subjectId ?? ''}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        subjectId: e.target.value || null,
+                      })
+                    }
+                    disabled={!editingEvent.courseId}
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="">{editingEvent.courseId ? 'Sin asignatura' : 'Elegí un curso primero'}</option>
+                    {editSubjects.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.code ? `${s.code} — ${s.name}` : s.name}
                       </option>
                     ))}
                   </select>

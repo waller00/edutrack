@@ -89,6 +89,7 @@ export type AdminEventsListFilters = {
   endDate: string
   userId: string
   assignedUserId: string
+  courseId: string
   type: string
   status: string
 }
@@ -106,6 +107,7 @@ export function buildAdminEventsAllQueryString(
   if (f.endDate) params.set('endDate', f.endDate)
   if (f.userId) params.set('userId', f.userId)
   if (f.assignedUserId) params.set('assignedUserId', f.assignedUserId)
+  if (f.courseId) params.set('courseId', f.courseId)
   if (f.type) params.set('type', f.type)
   if (f.status) params.set('status', f.status)
   if (extra?.allYears) params.set('allYears', '1')

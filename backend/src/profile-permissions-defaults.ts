@@ -51,6 +51,12 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('analytics.read', 'Analytics', 'read', 'Ver analytics', true, 'all'),
     perm('reports.read', 'Reportes', 'read', 'Ver reportes', true, 'all'),
     perm('exports.create', 'Exportaciones', 'create', 'Crear exportaciones', true, 'all'),
+    perm('school-years.manage', 'Ciclos lectivos', 'manage', 'Gestionar ciclos lectivos', true, 'all'),
+    perm('courses.manage', 'Cursos', 'manage', 'Gestionar cursos y materias', true, 'all'),
+    perm('students.manage', 'Estudiantes', 'manage', 'Gestionar estudiantes', true, 'all'),
+    perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
+    perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
+    perm('query-assistant.use', 'Consultas', 'use', 'Usar asistente de consultas', true, 'all'),
     perm('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
   ],
   TEACHER: [

@@ -3,11 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import StaffAttendance from './staff/attendance/page'
 import StaffEvents from './staff/events/page'
 import StaffLicenses from './staff/licenses/page'
-import StaffReportsRedirect from './staff/reports/page'
 import TeacherAttendance from './teacher/attendance/page'
 import TeacherEvents from './teacher/events/page'
 import TeacherLicenses from './teacher/licenses/page'
-import TeacherReportsRedirect from './teacher/reports/page'
 import StudentAttendance from './student/attendance/page'
 import LegacyRegisterRedirect from './register-step-by-step/page'
 
@@ -92,11 +90,4 @@ describe('wrapper pages', () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/register'))
   })
 
-  it('redirects legacy reports pages to their attendance modules', () => {
-    StaffReportsRedirect()
-    TeacherReportsRedirect()
-
-    expect(redirectMock).toHaveBeenNthCalledWith(1, '/staff/attendance')
-    expect(redirectMock).toHaveBeenNthCalledWith(2, '/teacher/attendance')
-  })
 })
