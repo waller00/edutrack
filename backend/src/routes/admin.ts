@@ -30,6 +30,7 @@ import {
   recordAuditEvent,
 } from '../services/audit-log.js'
 import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
+import { ensureMoodleUserById } from '../services/moodle.js'
 import adminStudentsRoutes from './admin-students.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
 
@@ -527,6 +528,7 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
     entityId: user.id,
     metadata: { email: user.email },
   })
+  void ensureMoodleUserById(user.id)
   res.json({ id: user.id })
 })
 
@@ -653,6 +655,12 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
     entityId: id,
     metadata: { fieldsChanged: fieldsChangedSemantic },
   })
+  if (
+    beforeSnapshot.isApproved === false &&
+    parsed.data.isApproved === true
+  ) {
+    void ensureMoodleUserById(id)
+  }
   res.json({ ok: true })
 })
 
