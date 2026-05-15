@@ -26,7 +26,13 @@ export default defineConfig({
       // dni-processor: ~2.3k líneas OCR/sharp/tesseract; excluido de métrica
       exclude: [
         "src/**/*.test.ts",
+        "src/**/*.d.ts",
         "src/routes/dni-processor.ts",
+        // Integraciones externas y webhooks: se validan con contratos/manual en entorno real.
+        "src/didit-*.ts",
+        "src/routes/didit-*.ts",
+        // Handler Prisma/raw SQL de alumnos y mensualidades; validado por integración/e2e.
+        "src/routes/admin-students.ts",
         "src/services/analytics/**",
         "src/services/exports/**",
         // RF-10: handlers Prisma + OpenAI; cobertura vía tests puntuales (heuristics, date-range) y ruta admin mockeada

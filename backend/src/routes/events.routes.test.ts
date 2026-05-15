@@ -268,8 +268,10 @@ describe("events routes (prisma mock)", () => {
     expect(where.assignedUserId).toBe("u2");
     expect(where.type).toBe("CLASE");
     expect(where.status).toBe("SCHEDULED");
-    expect(where.startDate.gte).toBeInstanceOf(Date);
-    expect(where.startDate.lte).toBeInstanceOf(Date);
+    expect(where.AND[0].OR[0].startDate.gte).toBeInstanceOf(Date);
+    expect(where.AND[0].OR[0].startDate.lte).toBeInstanceOf(Date);
+    expect(where.AND[0].OR[1].startDate.lte).toBeInstanceOf(Date);
+    expect(where.AND[0].OR[1].OR[1].recurrenceEnd.gte).toBeInstanceOf(Date);
     expect(where.schoolYearId).toBe("sy-default");
   });
 

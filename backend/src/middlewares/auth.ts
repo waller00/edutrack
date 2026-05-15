@@ -63,8 +63,8 @@ export function requirePermission(permissionCode: string, requiredScope?: "own" 
         return res.status(403).json({ message: "Prohibido" });
       }
       next();
-    } catch (error) {
-      next(error);
+    } catch {
+      return res.status(403).json({ message: "Prohibido" });
     }
   };
 }
