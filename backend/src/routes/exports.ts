@@ -16,6 +16,7 @@ import {
 } from '../services/analytics/exports/attendanceAssistanceReportExport.js'
 import { generateMonthlySummaryPdf } from '../services/analytics/exports/monthlySummaryPdf.js'
 import { prisma } from '../prisma.js'
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
 
@@ -37,6 +38,9 @@ const exportBodySchema = z.object({
       status: z
         .enum(['PRESENT', 'LATE', 'ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'EXIT', 'EARLY_EXIT'])
         .optional(),
+      schoolYearId: z.string().uuid().optional(),
+      /** Si es true / "1", el export incluye todos los ciclos (sin filtro por event.schoolYearId). */
+      allYears: z.union([z.boolean(), z.literal('1'), z.literal('0')]).optional(),
     })
     .optional(),
   page: z
@@ -64,6 +68,9 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
     const eventId = filters && 'eventId' in filters ? (filters as any).eventId : undefined
     const type = filters && 'type' in filters ? (filters as any).type : undefined
     const status = filters && 'status' in filters ? (filters as any).status : undefined
+    const allYearsExport =
+      (filters as { allYears?: unknown } | undefined)?.allYears === true ||
+      (filters as { allYears?: unknown } | undefined)?.allYears === '1'
 
     if (role) filterSuffixParts.push(`role-${sanitizePart(role)}`)
     if (userId) filterSuffixParts.push(`user-${shortUuid(userId)}`)
@@ -103,6 +110,15 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
     const userIds = await scopeUserIds()
 
     if (reportKey === 'attendance_detail') {
+      let resolvedAttendanceSchoolYearId: string | undefined
+      if (!allYearsExport) {
+        const sy = await resolveSchoolYearIdForList(prisma, {
+          role: 'ADMIN',
+          requestedSchoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
+        })
+        if (sy) resolvedAttendanceSchoolYearId = sy
+      }
+
       const attendanceFiltersForBackend = {
         from,
         to,
@@ -112,6 +128,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
         eventType: filters?.eventType,
         type: filters?.type,
         status: filters?.status,
+        ...(resolvedAttendanceSchoolYearId ? { schoolYearId: resolvedAttendanceSchoolYearId } : {}),
       }
 
       if (format === 'XLSX') {

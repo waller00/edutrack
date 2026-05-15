@@ -7,6 +7,7 @@ import { signAccessToken } from "../jwt.js";
 const eid = "00000000-0000-4000-8000-0000000000e1";
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
+    schoolYear: { findUnique: vi.fn(), findFirst: vi.fn() },
     event: { findUnique: vi.fn(), findMany: vi.fn() },
     attendance: {
       findFirst: vi.fn(),
@@ -46,7 +47,11 @@ const validBody = {
 };
 
 describe("attendance /register (prisma mock)", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.schoolYear.findFirst.mockResolvedValue(null);
+    prismaMock.schoolYear.findUnique.mockResolvedValue(null);
+  });
 
   it("401 sin auth", async () => {
     const res = await request(app()).post("/attendance/register").send(validBody);
@@ -196,6 +201,30 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendance.count).toHaveBeenCalled();
   });
 
+  it("GET /attendance/all fusiona ciclo lectivo en filtro de evento", async () => {
+    const sy = "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee";
+    prismaMock.schoolYear.findUnique.mockResolvedValueOnce({ id: sy });
+    prismaMock.attendance.count.mockResolvedValue(0);
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+    const res = await request(app())
+      .get(`/attendance/all?schoolYearId=${sy}`)
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+    expect(res.status).toBe(200);
+    const where = prismaMock.attendance.count.mock.calls[0][0].where as { event: { schoolYearId: string } };
+    expect(where.event.schoolYearId).toBe(sy);
+  });
+
+  it("GET /attendance/all con allYears no filtra por ciclo", async () => {
+    prismaMock.attendance.count.mockResolvedValue(0);
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+    const res = await request(app())
+      .get("/attendance/all?allYears=1")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+    expect(res.status).toBe(200);
+    const where = prismaMock.attendance.count.mock.calls[0][0].where;
+    expect(where.event).toBeUndefined();
+  });
+
   it("GET /attendance/all 500 si falla la consulta", async () => {
     prismaMock.attendance.count.mockRejectedValueOnce(new Error("db"));
     const res = await request(app())
@@ -259,7 +288,7 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendance.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          event: { type: "CLASE" },
+          event: expect.objectContaining({ type: "CLASE" }),
           user: { orgRole: { code: "STAFF" } },
         }),
         select: { id: true },

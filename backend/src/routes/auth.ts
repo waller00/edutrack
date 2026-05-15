@@ -218,7 +218,7 @@ const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 
 async function validateUniqueUsername(userId: string, username?: string) {
-  if (!username) return null;
+  if (!username) return undefined;
   const exist = await prisma.user.findUnique({ where: { username } });
   if (exist && exist.id !== userId) throw new Error('USERNAME_CONFLICT');
   return username;
@@ -248,20 +248,33 @@ async function validateAndBuildProfileUpdate(data: {
 }) {
   const update: any = {};
   const me = await prisma.user.findUnique({ where: { id: data.userId } });
+  if (!me) throw new Error('NOT_FOUND');
   const isAdmin = data.userRole === 'ADMIN';
   const isSettingInitialNationalId = !me?.nationalId;
 
-  update.username = await validateUniqueUsername(data.userId, data.username);
-  update.nationalId = await validateNationalIdUpdate(data.userId, data.nationalId, isAdmin, isSettingInitialNationalId);
-  update.role = validateRoleUpdate(data.role, isAdmin, me);
+  const username = await validateUniqueUsername(data.userId, data.username);
+  if (username !== undefined) update.username = username;
+
+  const nationalId = await validateNationalIdUpdate(data.userId, data.nationalId, isAdmin, isSettingInitialNationalId);
+  if (nationalId !== undefined) update.nationalId = nationalId;
+
+  const role = validateRoleUpdate(data.role, isAdmin, me);
+  if (role !== undefined) update.role = role;
 
   if (data.firstName) update.firstName = data.firstName;
   if (data.lastName) update.lastName = data.lastName;
-  if (data.firstName || data.lastName) update.name = buildProfileName(data.firstName, data.lastName);
+  if (data.firstName || data.lastName) {
+    update.name = buildProfileName(data.firstName ?? me.firstName ?? undefined, data.lastName ?? me.lastName ?? undefined);
+  }
 
-  update.phone = validatePhoneUpdate(data.phone);
-  update.birthdate = validateBirthdateUpdate(data.birthdate);
-  update.nationalIdDocumentExpiresAt = validateNationalIdDocumentExpiresAtUpdate(data.nationalIdDocumentExpiresAt);
+  const phone = validatePhoneUpdate(data.phone);
+  if (phone !== undefined) update.phone = phone;
+
+  const birthdate = validateBirthdateUpdate(data.birthdate);
+  if (birthdate !== undefined) update.birthdate = birthdate;
+
+  const nationalIdDocumentExpiresAt = validateNationalIdDocumentExpiresAtUpdate(data.nationalIdDocumentExpiresAt);
+  if (nationalIdDocumentExpiresAt !== undefined) update.nationalIdDocumentExpiresAt = nationalIdDocumentExpiresAt;
 
   return update;
 }

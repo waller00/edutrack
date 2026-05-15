@@ -440,6 +440,43 @@ describe("auth routes (mocks)", () => {
     expect(res.body.ok).toBe(true);
   });
 
+  it("PUT /auth/profile no borra username ni cédula cuando llegan campos parciales", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "user-1",
+      username: "teacher1",
+      nationalId: "30458651",
+      firstName: "Ada",
+      lastName: "Lovelace",
+    });
+    prismaMock.user.update.mockResolvedValue({ id: "user-1" });
+
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ firstName: "Alicia" });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: {
+        firstName: "Alicia",
+        name: "Alicia Lovelace",
+      },
+    });
+  });
+
+  it("PUT /auth/profile 401 si el usuario autenticado ya no existe", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce(null);
+
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ firstName: "Alicia" });
+
+    expect(res.status).toBe(401);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
   it("PUT /auth/password 400 si la contraseña no cumple política fuerte", async () => {
     prismaMock.user.findUnique.mockResolvedValue({ passwordHash: null });
     const res = await request(app())
