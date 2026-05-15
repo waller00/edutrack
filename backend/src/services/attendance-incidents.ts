@@ -6,6 +6,7 @@ import {
   fetchTeacherClassSlotsForUruguayDay,
   findBlockContainingEventId,
 } from "./teacher-class-blocks.js";
+import { isNonWorkingDate } from "./non-working-days.js";
 
 function minutesDiff(a: Date, b: Date) {
   return Math.floor((a.getTime() - b.getTime()) / (1000 * 60));
@@ -177,6 +178,8 @@ export async function scanAndCreateTeacherNoShowIncidents(now = new Date()) {
   for (const ev of candidateEvents) {
     const userId = ev.assignedUserId!;
     const anchorTime = ev.startTime ?? ev.startDate;
+    if (await isNonWorkingDate(new Date(anchorTime))) continue;
+
     const day = uruguayStartOfDayFromInstant(new Date(anchorTime));
 
     const slots = await fetchTeacherClassSlotsForUruguayDay(tx, userId, new Date(anchorTime));

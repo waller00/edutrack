@@ -63,6 +63,7 @@ describe('UserNav', () => {
         isApproved: true,
         isActive: true,
         needsProfileCompletion: false,
+        permissions: [{ id: 'settings.manage', scope: 'all' }],
       })
       .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({})
@@ -98,5 +99,55 @@ describe('UserNav', () => {
 
     await screen.findByText('admin@example.com')
     expect(screen.queryByText('Usuarios')).not.toBeInTheDocument()
+  })
+
+  it('admin con permisos globales no ve atajos "Mis…" de otros roles en el menú lateral', async () => {
+    mockUsePathname.mockReturnValue('/admin/licenses')
+    vi.mocked(api)
+      .mockResolvedValueOnce({
+        role: 'ADMIN',
+        name: 'Admin',
+        email: 'admin@example.com',
+        isApproved: true,
+        isActive: true,
+        needsProfileCompletion: false,
+        permissions: [
+          { id: 'attendance.read', scope: 'all' },
+          { id: 'events.read', scope: 'all' },
+          { id: 'licenses.read', scope: 'all' },
+          { id: 'users.read', scope: 'all' },
+        ],
+      })
+      .mockResolvedValueOnce({ count: 0 })
+
+    render(<UserNav />)
+
+    await screen.findByRole('link', { name: 'Licencias' })
+    expect(screen.queryByRole('link', { name: 'Mis licencias' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Mis asistencias' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Mis eventos' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Eventos asignados' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Asistencias' })).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Asistencias' })).toHaveAttribute('href', '/admin/attendance')
+  })
+
+  it('muestra módulos por permiso aunque el rol no sea ADMIN', async () => {
+    mockUsePathname.mockReturnValue('/admin/users')
+    vi.mocked(api)
+      .mockResolvedValueOnce({
+        role: 'STAFF',
+        email: 'staff@example.com',
+        isApproved: true,
+        isActive: true,
+        needsProfileCompletion: false,
+        permissions: [{ id: 'users.read', scope: 'all' }],
+      })
+      .mockResolvedValueOnce({ count: 0 })
+
+    render(<UserNav />)
+
+    expect((await screen.findAllByText('staff@example.com')).length).toBeGreaterThan(0)
+    expect(screen.getByRole('link', { name: 'Usuarios' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Cursos' })).not.toBeInTheDocument()
   })
 })

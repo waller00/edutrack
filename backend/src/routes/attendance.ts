@@ -12,6 +12,7 @@ import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveRe
 import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
 import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance-school-year.js';
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
+import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -144,6 +145,15 @@ r.post('/register', authGuard, async (req, res) => {
 
     const evStart = event.startTime ? new Date(event.startTime) : new Date(event.startDate)
     const evEnd = event.endTime ? new Date(event.endTime) : evStart
+    const nonWorkingDay = await findNonWorkingDayForDate(evStart)
+    if (nonWorkingDay) {
+      return res.status(403).json({
+        message: `No se puede registrar asistencia: ${nonWorkingDay.reason}`,
+        code: 'ATTENDANCE_BLOCKED_BY_NON_WORKING_DAY',
+        nonWorkingDayId: nonWorkingDay.id,
+      })
+    }
+
     const blockingLicense = await findApprovedLicenseCoveringEventTime(user.sub, evStart, evEnd)
     if (blockingLicense) {
       return res.status(403).json({
@@ -420,6 +430,15 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
       });
     }
 
+    const nonWorkingDay = await findNonWorkingDayForDate(attendanceTime)
+    if (nonWorkingDay) {
+      return res.status(403).json({
+        message: `Marcación biométrica no permitida: ${nonWorkingDay.reason}`,
+        code: 'BIOMETRIC_BLOCKED_BY_NON_WORKING_DAY',
+        nonWorkingDayId: nonWorkingDay.id,
+      });
+    }
+
     // Verificar si ya existe una entrada para este usuario en esta fecha
     const existingEntry = await prisma.attendance.findFirst({
       where: {
@@ -573,6 +592,11 @@ r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
     for (const event of events) {
       const eventDate = new Date(event.startDate);
       eventDate.setHours(0, 0, 0, 0);
+
+      const nonWorkingDay = await findNonWorkingDayForDate(new Date(event.startTime || event.startDate));
+      if (nonWorkingDay) {
+        continue;
+      }
 
       // Verificar si ya existe una asistencia para este evento en esta fecha
       const existingAttendance = await prisma.attendance.findFirst({
