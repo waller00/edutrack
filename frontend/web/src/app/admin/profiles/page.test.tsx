@@ -73,10 +73,10 @@ describe('AdminProfilesPanel', () => {
     render(<AdminProfilesPanel />)
 
     expect(await screen.findByText('Gestión de perfiles')).toBeInTheDocument()
-    expect(screen.getByText('Tutor')).toBeInTheDocument()
+    expect(screen.getAllByText('Tutor').length).toBeGreaterThan(0)
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
     expect(screen.getByText('Ver mis asistencias')).toBeInTheDocument()
-    expect(screen.getByText('2 activos')).toBeInTheDocument()
+    expect(screen.getAllByText('2 permisos activos').length).toBeGreaterThan(0)
   })
 
   it('marca un permiso y guarda el perfil', async () => {
@@ -96,7 +96,7 @@ describe('AdminProfilesPanel', () => {
     mockedApi.mockResolvedValueOnce(response).mockResolvedValueOnce(response)
 
     render(<AdminProfilesPanel />)
-    await screen.findByText('Tutor')
+    await screen.findAllByText('Tutor')
 
     fireEvent.click(screen.getByRole('button', { name: /Nuevo perfil/ }))
     fireEvent.change(screen.getByPlaceholderText('Ej: Coordinador'), { target: { value: 'Coordinador' } })

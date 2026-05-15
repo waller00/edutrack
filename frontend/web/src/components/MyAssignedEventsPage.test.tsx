@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import MyAssignedEventsPage from '@/components/MyAssignedEventsPage'
 import { api } from '@/lib/api'
 
@@ -72,9 +72,7 @@ describe('MyAssignedEventsPage', () => {
     await screen.findByText('No hay eventos para mostrar')
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
 
-    await act(async () => {
-      allButton.click()
-    })
+    fireEvent.click(allButton)
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     await waitFor(() =>

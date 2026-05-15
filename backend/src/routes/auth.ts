@@ -187,21 +187,26 @@ function issueSessionCookies(res: any, req: any, user: { id: string; email: stri
 
 async function enabledPermissionsForRole(roleCode: string) {
   if (!roleCode) return []
-  const rows = await prisma.rolePermission.findMany({
-    where: {
-      enabled: true,
-      orgRole: { code: roleCode, active: true },
-    },
-    select: {
-      permission: { select: { code: true } },
-      scope: true,
-    },
-    orderBy: { permission: { code: "asc" } },
-  });
-  return rows.map((row) => ({
-    id: row.permission.code,
-    scope: row.scope === "ALL" ? "all" : "own",
-  }));
+  try {
+    const rows = await prisma.rolePermission.findMany({
+      where: {
+        enabled: true,
+        orgRole: { code: roleCode, active: true },
+      },
+      select: {
+        permission: { select: { code: true } },
+        scope: true,
+      },
+      orderBy: { permission: { code: "asc" } },
+    });
+    return rows.map((row) => ({
+      id: row.permission.code,
+      scope: row.scope === "ALL" ? "all" : "own",
+    }));
+  } catch (error) {
+    console.warn("[auth/me] permissions lookup skipped", error);
+    return [];
+  }
 }
 
 function verifyTotpCode(code: string, secret: string) {
@@ -902,7 +907,11 @@ r.get("/me", authGuard, async (req, res) => {
   const roleCode = raw.orgRole?.code ?? "";
   const needsProfileCompletion = !raw.firstName || !raw.lastName || !raw.nationalId || !raw.birthdate || !raw.username;
   const hasPassword = !!raw.passwordHash;
-  await ensureDefaultProfilePermissionsIfNeeded();
+  try {
+    await ensureDefaultProfilePermissionsIfNeeded();
+  } catch (error) {
+    console.warn("[auth/me] permissions bootstrap skipped", error);
+  }
   const permissions = await enabledPermissionsForRole(roleCode);
   const canShowNav =
     Boolean(raw.isApproved && raw.isActive && !needsProfileCompletion);

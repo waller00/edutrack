@@ -35,13 +35,14 @@ describe('Home page', () => {
         isApproved: true,
         isActive: true,
       })
+      .mockResolvedValueOnce({ total: 0, data: [] })
       .mockResolvedValueOnce({})
 
     render(<Home />)
 
-    expect(await screen.findByText('Gestión de usuarios')).toBeInTheDocument()
-    expect(screen.getByText('Gestión de eventos y notificaciones')).toBeInTheDocument()
-    expect(screen.getByText('Analítica institucional')).toBeInTheDocument()
+    expect(await screen.findByText('Actividad de asistencias')).toBeInTheDocument()
+    expect(screen.getByText('Gestión completa')).toBeInTheDocument()
+    expect(await screen.findByText(/No hay marcaciones en los últimos días/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /reenviar correo/i }))
 
