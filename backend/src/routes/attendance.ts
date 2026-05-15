@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
-import { authGuard, requireRole, requireAnyRole } from '../middlewares/auth.js';
+import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js';
 import {
   getDuplicateAttendanceMessage,
   getAttendanceStatus,
@@ -95,7 +95,7 @@ function buildAdminAttendanceWhere(query: Record<string, unknown>) {
 }
 
 // Registrar asistencia (CHECK_IN o CHECK_OUT)
-r.post('/register', authGuard, async (req, res) => {
+r.post('/register', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
@@ -201,7 +201,7 @@ r.post('/register', authGuard, async (req, res) => {
 });
 
 // Obtener asistencias del usuario actual
-r.get('/my-attendances', authGuard, async (req, res) => {
+r.get('/my-attendances', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
@@ -240,7 +240,7 @@ r.get('/my-attendances', authGuard, async (req, res) => {
 });
 
 // Obtener todas las asistencias (solo ADMIN)
-r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req, res) => {
   try {
     const page = Number(req.query.page) || 1;
     const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
@@ -274,7 +274,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
 })
 
 // Actualizar asistencia (solo ADMIN)
-r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.put('/:id', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
   try {
     const { id } = req.params;
     const parsed = attendanceUpdateSchema.safeParse(req.body);
@@ -304,7 +304,7 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
 });
 
 // Eliminar todas las asistencias (solo ADMIN)
-r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
+r.delete('/purge-all', authGuard, requirePermission('attendance.delete', 'all'), async (_req, res) => {
   try {
     const q = _req.query as Record<string, unknown>
     const where = buildAdminAttendanceWhere(q)
@@ -338,7 +338,7 @@ r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
 });
 
 // Eliminar asistencia (solo ADMIN)
-r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.delete('/:id', authGuard, requirePermission('attendance.delete', 'all'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -356,7 +356,8 @@ r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
 async function buildAttendanceStatsWhereAsync(query: Record<string, unknown>, user: { role: string; sub: string }) {
   const where = buildAdminAttendanceWhere(query)
   await attachResolvedSchoolYearToAttendanceWhere(prisma, where, query, user.role)
-  if (user.role !== 'ADMIN') {
+  const scope = await userPermissionScope(user.sub, 'attendance.read', user.role)
+  if (scope !== 'all') {
     where.userId = user.sub
   }
   /** Tasas de presencia/ausencia/tarde solo aplican a entradas; las salidas (EXIT) no deben inflar el total. */
@@ -367,7 +368,7 @@ async function buildAttendanceStatsWhereAsync(query: Record<string, unknown>, us
 }
 
 // Obtener estadísticas de asistencias
-r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) => {
+r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
@@ -408,7 +409,7 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
 });
 
 // Registrar asistencia automática (desde sistema biométrico)
-r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all'), async (req, res) => {
   try {
     const { userId, timestamp, deviceId } = req.body;
     
@@ -499,7 +500,7 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
 });
 
 // Agregar nota a asistencia existente (para retrasos o salidas anticipadas)
-r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), async (req, res) => {
+r.post('/:id/note', authGuard, requirePermission('attendance.update'), async (req, res) => {
   try {
     const { id } = req.params;
     const { note, markLate, markEarlyExit } = req.body;
@@ -514,7 +515,8 @@ r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), as
     }
 
     // Verificar permisos
-    if (req.user.role !== 'ADMIN' && existingAttendance.userId !== req.user.sub) {
+    const attendanceUpdateScope = await userPermissionScope(req.user.sub, 'attendance.update', req.user.role)
+    if (attendanceUpdateScope !== 'all' && existingAttendance.userId !== req.user.sub) {
       return res.status(403).json({ message: 'No tienes permisos para modificar este registro' });
     }
 
@@ -551,7 +553,7 @@ r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), as
 });
 
 // Marcar ausencias automáticamente basadas en eventos y licencias médicas (solo admin)
-r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
   try {
     const { startDate, endDate, userId, schoolYearId: bodySchoolYearId, allYears: bodyAllYears } = req.body ?? {};
 

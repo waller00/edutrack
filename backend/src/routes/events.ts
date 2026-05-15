@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
-import { authGuard, requireRole, requireAnyRole } from '../middlewares/auth.js';
+import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js';
 import {
   applyEventStartDateFilter,
   buildMyEventsBaseFilter,
@@ -72,10 +72,8 @@ async function assertActiveSubjectInCourse(
 }
 
 function myEventsPathForRole(role: string | undefined): string {
-  if (role === 'TEACHER') return '/teacher/events';
-  if (role === 'STAFF') return '/staff/events';
   if (role === 'ADMIN') return '/admin/events';
-  return '/';
+  return '/me/events';
 }
 
 function toTimeMinutes(hh: number, mm: number) {
@@ -159,7 +157,7 @@ const eventUpdateSchema = z.object({
 });
 
 // Crear evento
-r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) => {
+r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
@@ -180,8 +178,9 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
 
     const eventData = parsed.data;
 
-    // Si es TEACHER, solo puede asignar eventos a sí mismo
-    if (user.role === 'TEACHER' && eventData.assignedUserId && eventData.assignedUserId !== user.sub) {
+    const eventCreateScope = await userPermissionScope(user.sub, 'events.create', user.role)
+    // Los permisos de alcance propio no pueden asignar eventos a terceros.
+    if (eventCreateScope !== 'all' && eventData.assignedUserId && eventData.assignedUserId !== user.sub) {
       return res.status(403).json({ message: 'No puedes asignar eventos a otros usuarios' });
     }
 
@@ -337,7 +336,7 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
 });
 
 // Obtener eventos del usuario actual
-r.get('/my-events', authGuard, async (req, res) => {
+r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
@@ -453,7 +452,7 @@ async function markExpiredEvents() {
 }
 
 // Obtener todos los eventos (solo ADMIN)
-r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, res) => {
   try {
     const user = req.user
     if (!user) return res.status(401).json({ message: 'No autorizado' })
@@ -539,7 +538,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
 });
 
 // Eliminar todos los eventos (solo ADMIN)
-r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
+r.delete('/purge-all', authGuard, requirePermission('events.delete', 'all'), async (_req, res) => {
   try {
     const deleted = await prisma.event.deleteMany({})
     res.json({ ok: true, deletedCount: deleted.count, message: 'Todos los eventos fueron eliminados' })
@@ -550,7 +549,7 @@ r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
 })
 
 // Obtener evento por ID
-r.get('/:id', authGuard, async (req, res) => {
+r.get('/:id', authGuard, requirePermission('events.read'), async (req, res) => {
   try {
     const { id } = req.params;
     const user = req.user;
@@ -582,8 +581,8 @@ r.get('/:id', authGuard, async (req, res) => {
       return res.status(404).json({ message: 'Evento no encontrado' });
     }
 
-    // Verificar permisos: solo ADMIN puede ver todos los eventos, o el usuario debe ser el creador/asignado
-    if (user.role !== 'ADMIN' && event.userId !== user.sub && event.assignedUserId !== user.sub) {
+    const eventReadScope = await userPermissionScope(user.sub, 'events.read', user.role)
+    if (eventReadScope !== 'all' && event.userId !== user.sub && event.assignedUserId !== user.sub) {
       return res.status(403).json({ message: 'No tienes permisos para ver este evento' });
     }
 
@@ -595,7 +594,7 @@ r.get('/:id', authGuard, async (req, res) => {
 });
 
 // Actualizar evento
-r.put('/:id', authGuard, async (req, res) => {
+r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) => {
   try {
     const { id } = req.params;
     const user = req.user;
@@ -634,8 +633,8 @@ r.put('/:id', authGuard, async (req, res) => {
       return res.status(404).json({ message: 'Evento no encontrado' });
     }
 
-    // Verificar permisos
-    if (user.role !== 'ADMIN' && existingEvent.userId !== user.sub && existingEvent.assignedUserId !== user.sub) {
+    const eventUpdateScope = await userPermissionScope(user.sub, 'events.update', user.role)
+    if (eventUpdateScope !== 'all' && existingEvent.userId !== user.sub && existingEvent.assignedUserId !== user.sub) {
       return res.status(403).json({ message: 'No tienes permisos para editar este evento' });
     }
 
@@ -794,7 +793,7 @@ r.put('/:id', authGuard, async (req, res) => {
 });
 
 // Cancelar evento
-r.put('/:id/cancel', authGuard, async (req, res) => {
+r.put('/:id/cancel', authGuard, requirePermission('events.cancel'), async (req, res) => {
   try {
     const { id } = req.params;
     const user = req.user;
@@ -816,8 +815,8 @@ r.put('/:id/cancel', authGuard, async (req, res) => {
       return res.status(400).json({ message: 'El evento ya está cancelado' });
     }
 
-    // Verificar permisos
-    if (user.role !== 'ADMIN' && existingEvent.userId !== user.sub && existingEvent.assignedUserId !== user.sub) {
+    const eventCancelScope = await userPermissionScope(user.sub, 'events.cancel', user.role)
+    if (eventCancelScope !== 'all' && existingEvent.userId !== user.sub && existingEvent.assignedUserId !== user.sub) {
       return res.status(403).json({ message: 'No tienes permisos para cancelar este evento' });
     }
 
@@ -847,7 +846,7 @@ r.put('/:id/cancel', authGuard, async (req, res) => {
 });
 
 // Eliminar evento (solo ADMIN)
-r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.delete('/:id', authGuard, requirePermission('events.delete', 'all'), async (req, res) => {
   try {
     const { id } = req.params;
 

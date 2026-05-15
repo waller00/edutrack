@@ -1,5 +1,5 @@
 import MyAttendancePage from '@/components/MyAttendancePage'
 
-export default function TeacherAttendance() {
+export default function MeAttendance() {
   return <MyAttendancePage />
 }

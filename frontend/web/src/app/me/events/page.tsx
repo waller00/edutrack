@@ -1,5 +1,5 @@
 import MyAssignedEventsPage from '@/components/MyAssignedEventsPage'
 
-export default function StaffEvents() {
+export default function MeEvents() {
   return <MyAssignedEventsPage />
 }

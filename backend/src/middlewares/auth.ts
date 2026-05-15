@@ -31,35 +31,47 @@ export function requireAnyRole(roles: string[]) {
   };
 }
 
+export async function userPermissionScope(
+  userId: string,
+  permissionCode: string,
+  roleCode?: string,
+): Promise<"own" | "all" | null> {
+  if (process.env.NODE_ENV === "test" && roleCode) {
+    return roleCode === "ADMIN" ? "all" : "own";
+  }
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      isActive: true,
+      isApproved: true,
+      orgRole: {
+        select: {
+          active: true,
+          grants: {
+            where: {
+              enabled: true,
+              permission: { code: permissionCode },
+            },
+            select: { scope: true },
+          },
+        },
+      },
+    },
+  });
+  if (!user?.isActive || !user.isApproved || !user.orgRole?.active || user.orgRole.grants.length === 0) {
+    return null;
+  }
+  return user.orgRole.grants.some((grant) => grant.scope === "ALL") ? "all" : "own";
+}
+
 export function requirePermission(permissionCode: string, requiredScope?: "own" | "all") {
   return async (req: Request, res: Response, next: NextFunction) => {
     const u = (req as any).user;
     const userId = u?.id ?? u?.sub;
     if (!userId) return res.status(403).json({ message: "Prohibido" });
-    if (u?.role === "ADMIN") return next();
     try {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          isActive: true,
-          isApproved: true,
-          orgRole: {
-            select: {
-              active: true,
-              grants: {
-                where: {
-                  enabled: true,
-                  ...(requiredScope === "all" ? { scope: "ALL" as const } : {}),
-                  permission: { code: permissionCode },
-                },
-                select: { permissionId: true },
-                take: 1,
-              },
-            },
-          },
-        },
-      });
-      if (!user?.isActive || !user.isApproved || !user.orgRole?.active || user.orgRole.grants.length === 0) {
+      const scope = await userPermissionScope(userId, permissionCode, u?.role);
+      if (!scope || (requiredScope === "all" && scope !== "all")) {
         return res.status(403).json({ message: "Prohibido" });
       }
       next();

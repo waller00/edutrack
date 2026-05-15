@@ -1,5 +1,5 @@
 import MyLicensesPage from '@/components/MyLicensesPage'
 
-export default function StaffLicenses() {
+export default function MeLicenses() {
   return <MyLicensesPage />
 }

@@ -71,7 +71,7 @@ export default function TestPreprocessingPage() {
   const getConfidenceColor = getPreprocessingConfidenceColorClass
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="settings.manage" permissionScope="all">
       <main className="mx-auto max-w-7xl p-6 space-y-8">
         <div className="header-modern">
           <h1 className="flex items-center gap-3 text-3xl font-bold text-gray-900">

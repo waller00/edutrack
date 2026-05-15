@@ -141,7 +141,7 @@ describe("medical-leaves (prisma mock)", () => {
         data: expect.objectContaining({
           userId: uid,
           type: "LICENSE_CREATED",
-          actionUrl: "/staff/licenses",
+          actionUrl: "/me/licenses",
         }),
       }),
     );
@@ -242,7 +242,7 @@ describe("medical-leaves (prisma mock)", () => {
         data: expect.objectContaining({
           userId: uid,
           type: "LICENSE_UPDATED",
-          actionUrl: "/staff/licenses",
+          actionUrl: "/me/licenses",
         }),
       }),
     );

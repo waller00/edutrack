@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { authGuard, requireRole } from '../middlewares/auth.js'
+import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { createPendingExport, getDownloadUrl, getExport, markDone, markFailed } from '../services/exports/exportStore.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
@@ -51,7 +51,7 @@ const exportBodySchema = z.object({
     .optional(),
 })
 
-r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, res) => {
   try {
     const parsed = exportBodySchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
@@ -178,7 +178,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 })
 
-r.get('/:exportId', authGuard, requireRole('ADMIN'), (req, res) => {
+r.get('/:exportId', authGuard, requirePermission('exports.create', 'all'), (req, res) => {
   const exportId = req.params.exportId
   const e = getExport(exportId)
   if (!e) return res.status(404).json({ message: 'Export no encontrada' })
@@ -186,7 +186,7 @@ r.get('/:exportId', authGuard, requireRole('ADMIN'), (req, res) => {
   res.json({ exportId: e.exportId, status: e.status, downloadUrl })
 })
 
-r.get('/:exportId/download', authGuard, requireRole('ADMIN'), (req, res) => {
+r.get('/:exportId/download', authGuard, requirePermission('exports.create', 'all'), (req, res) => {
   const exportId = req.params.exportId
   const e = getExport(exportId)
   if (!e) return res.status(404).json({ message: 'Export no encontrada' })
@@ -197,4 +197,3 @@ r.get('/:exportId/download', authGuard, requireRole('ADMIN'), (req, res) => {
 })
 
 export default r
-
