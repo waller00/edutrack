@@ -86,5 +86,6 @@ export function mapProfileUpdateError(error: Error, res: { status: (n: number) =
   if (error.message === "INVALID_NATIONAL_ID_DOCUMENT_EXPIRES_AT")
     return res.status(400).json({ message: "Vencimiento de documento inválido" });
   if (error.message === "FORBIDDEN") return res.status(403).json({ message: "Prohibido" });
+  if (error.message === "NOT_FOUND") return res.status(401).json({ message: "No autorizado" });
   throw error;
 }

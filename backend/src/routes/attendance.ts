@@ -10,6 +10,8 @@ import {
 } from '../attendance-logic.js';
 import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveReconciliation.js';
 import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
+import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance-school-year.js';
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -232,7 +234,9 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
     const page = Number(req.query.page) || 1;
     const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
-    const where = buildAdminAttendanceWhere(req.query as Record<string, unknown>)
+    const q = req.query as Record<string, unknown>;
+    const where = buildAdminAttendanceWhere(q)
+    await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, req.user?.role ?? 'ADMIN')
 
     const [total, attendances] = await Promise.all([
       prisma.attendance.count({ where }),
@@ -292,7 +296,9 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
 // Eliminar todas las asistencias (solo ADMIN)
 r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
   try {
-    const where = buildAdminAttendanceWhere(_req.query as Record<string, unknown>)
+    const q = _req.query as Record<string, unknown>
+    const where = buildAdminAttendanceWhere(q)
+    await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, _req.user?.role ?? 'ADMIN')
     const matches = await prisma.attendance.findMany({
       where,
       select: { id: true },
@@ -337,8 +343,9 @@ r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 });
 
-function buildAttendanceStatsWhere(query: Record<string, unknown>, user: { role: string; sub: string }) {
+async function buildAttendanceStatsWhereAsync(query: Record<string, unknown>, user: { role: string; sub: string }) {
   const where = buildAdminAttendanceWhere(query)
+  await attachResolvedSchoolYearToAttendanceWhere(prisma, where, query, user.role)
   if (user.role !== 'ADMIN') {
     where.userId = user.sub
   }
@@ -355,7 +362,7 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
-    const where = buildAttendanceStatsWhere(req.query as Record<string, unknown>, user)
+    const where = await buildAttendanceStatsWhereAsync(req.query as Record<string, unknown>, user)
 
     const [totalAttendances, presentCount, absentCount, lateCount, medicalLeaveCount] = await Promise.all([
       prisma.attendance.count({ where }),
@@ -527,7 +534,7 @@ r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), as
 // Marcar ausencias automáticamente basadas en eventos y licencias médicas (solo admin)
 r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
-    const { startDate, endDate, userId } = req.body;
+    const { startDate, endDate, userId, schoolYearId: bodySchoolYearId, allYears: bodyAllYears } = req.body ?? {};
 
     if (!startDate || !endDate) {
       return res.status(400).json({ message: 'startDate y endDate son requeridos' });
@@ -536,6 +543,14 @@ r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
+    const allYears = bodyAllYears === true || bodyAllYears === '1';
+    const resolvedSchoolYearId = allYears
+      ? undefined
+      : await resolveSchoolYearIdForList(prisma, {
+          role: 'ADMIN',
+          requestedSchoolYearId: typeof bodySchoolYearId === 'string' ? bodySchoolYearId : undefined,
+        });
+
     // Obtener todos los eventos en el rango de fechas
     const events = await prisma.event.findMany({
       where: {
@@ -543,7 +558,8 @@ r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
           gte: start,
           lte: end
         },
-        ...(userId && { assignedUserId: userId })
+        ...(userId && { assignedUserId: userId }),
+        ...(resolvedSchoolYearId && { schoolYearId: resolvedSchoolYearId }),
       },
       include: {
         assignedUser: {

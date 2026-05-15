@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 import type { AttendanceStatus, AttendanceType, EventType } from '@prisma/client'
 import { prisma } from '../../../prisma.js'
+import { mergeSchoolYearIntoAttendanceEventWhere } from '../../../attendance-school-year.js'
 import { selectOrgRoleCode } from '../../../user-role-prisma.js'
 
 type AttendanceDetailReportFilters = {
@@ -13,6 +14,7 @@ type AttendanceDetailReportFilters = {
   type?: AttendanceType | undefined
   status?: AttendanceStatus | undefined
   role?: string | undefined
+  schoolYearId?: string | undefined
 }
 
 type AttendanceDetailReportRow = {
@@ -136,6 +138,9 @@ async function buildAttendanceDetailReport(params: { filters: AttendanceDetailRe
     baseWhere.eventId = { not: null }
   }
   if (params.filters.role) baseWhere.user = { orgRole: { code: params.filters.role } }
+  if (params.filters.schoolYearId) {
+    mergeSchoolYearIntoAttendanceEventWhere(baseWhere, params.filters.schoolYearId)
+  }
 
   // Selección “por filtros”: definimos qué instancias entran al reporte
   // usando tipo/estado a nivel de registro, y luego completamos las filas con

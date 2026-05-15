@@ -1,6 +1,7 @@
 'use client'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import {
@@ -23,6 +24,11 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
+
+function withSchoolYear(path: string, schoolYearQuery: string): string {
+  if (!schoolYearQuery) return path
+  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
+}
 
 type AttendanceRecord = {
   id: string
@@ -204,10 +210,13 @@ export default function AdminAttendance() {
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
 
+  const syCtx = useOptionalAdminSchoolYear()
+  const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+
   useEffect(() => {
     loadAttendances()
     loadUsers()
-  }, [page, filters])
+  }, [page, filters, schoolYearQuery])
 
   useEffect(() => {
     if (filters.userId) {
@@ -217,12 +226,22 @@ export default function AdminAttendance() {
       setSelectedEventName('')
       setFilters(prev => ({ ...prev, eventId: '' }))
     }
-  }, [filters.userId, filters.startDate, filters.endDate])
+  }, [filters.userId, filters.startDate, filters.endDate, schoolYearQuery])
 
   useEffect(() => {
     loadStats()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.startDate, filters.endDate, filters.userId, filters.eventType, filters.eventId, filters.type, filters.status, filters.role])
+  }, [
+    filters.startDate,
+    filters.endDate,
+    filters.userId,
+    filters.eventType,
+    filters.eventId,
+    filters.type,
+    filters.status,
+    filters.role,
+    schoolYearQuery,
+  ])
 
   useEffect(() => {
     setSelectedAttendanceIds([])
@@ -232,12 +251,13 @@ export default function AdminAttendance() {
     setLoading(true)
     try {
       const qs = buildAdminAttendanceAllQueryString(page, filters)
+      const url = withSchoolYear(`/attendance/all?${qs}`, schoolYearQuery)
       const data = await api<{
         total: number
         page: number
         pageSize: number
         data: AttendanceRecord[]
-      }>(`/attendance/all?${qs}`)
+      }>(url)
       
       setAttendances(data.data)
       setTotal(data.total)
@@ -262,7 +282,8 @@ export default function AdminAttendance() {
       if (filters.role) params.set('role', filters.role)
 
       const qs = params.toString()
-      const url = qs ? `/attendance/stats?${qs}` : '/attendance/stats'
+      const base = qs ? `/attendance/stats?${qs}` : '/attendance/stats'
+      const url = withSchoolYear(base, schoolYearQuery)
       const data = await api<AttendanceStats>(url)
       setStats(data)
     } catch (error) {
@@ -295,7 +316,10 @@ export default function AdminAttendance() {
       if (filters.startDate) params.set('startDate', filters.startDate)
       if (filters.endDate) params.set('endDate', filters.endDate)
       
-      const data = await api<any[]>(`/reports/user-events/${userId}?${params.toString()}`)
+      const q = params.toString()
+      const base = q ? `/reports/user-events/${userId}?${q}` : `/reports/user-events/${userId}`
+      const url = withSchoolYear(base, schoolYearQuery)
+      const data = await api<any[]>(url)
       setUserEvents(data)
     } catch (error) {
       console.error('Error cargando eventos del usuario:', error)
@@ -390,6 +414,10 @@ export default function AdminAttendance() {
           eventType: filters.eventType || undefined,
           type: filters.type || undefined,
           status: filters.status || undefined,
+          ...(syCtx?.allYears ? { allYears: true } : {}),
+          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
+            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
+            : {}),
         },
       }
 
@@ -440,7 +468,11 @@ export default function AdminAttendance() {
         body: JSON.stringify({
           startDate,
           endDate,
-          userId: filters.userId || undefined
+          userId: filters.userId || undefined,
+          ...(syCtx?.allYears ? { allYears: '1' } : {}),
+          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
+            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
+            : {}),
         })
       })
 
