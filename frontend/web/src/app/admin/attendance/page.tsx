@@ -6,7 +6,6 @@ import { api } from '@/lib/api'
 import {
   buildAdminAttendanceAllQueryString,
   buildAttendanceExportReportQueryString,
-  getAdminAttendanceDefaultStartDate,
   getAdminAttendancePlannedTimeLabel,
   getAdminAttendanceStatusLabel,
   getAdminAttendanceStatusStyle,
@@ -181,7 +180,7 @@ export default function AdminAttendance() {
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<AttendanceRecord | null>(null)
   const [filters, setFilters] = useState({
-    startDate: getAdminAttendanceDefaultStartDate(),
+    startDate: '',
     endDate: '',
     userId: '',
     eventId: '',
@@ -458,7 +457,7 @@ export default function AdminAttendance() {
   }
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="attendance.read" permissionScope="all">
       <main className="mx-auto max-w-7xl p-6 space-y-8">
         {/* Header moderno */}
         <div className="flex justify-between items-center">
@@ -512,7 +511,7 @@ export default function AdminAttendance() {
                 <button
                   onClick={() => {
                     setFilters({
-                      startDate: getAdminAttendanceDefaultStartDate(),
+                      startDate: '',
                       endDate: '',
                       userId: '',
                       eventId: '',
@@ -757,7 +756,7 @@ export default function AdminAttendance() {
             <div className="text-2xl font-bold text-emerald-600">
               {statsLoading || !stats || typeof stats.attendanceRate !== 'number' ? '—' : `${stats.attendanceRate}%`}
             </div>
-            <div className="text-xs text-gray-500">Sobre el rango filtrado</div>
+            <div className="text-xs text-gray-500">Solo entradas (CHECK_IN) en el rango filtrado</div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
@@ -765,7 +764,7 @@ export default function AdminAttendance() {
             <div className="text-2xl font-bold text-emerald-600">
               {statsLoading || !stats || typeof stats.presentCount !== 'number' ? '—' : stats.presentCount}
             </div>
-            <div className="text-xs text-gray-500">Cantidad de registros</div>
+            <div className="text-xs text-gray-500">Entradas presentes</div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
@@ -794,7 +793,7 @@ export default function AdminAttendance() {
           <div className="flex items-center justify-between gap-4 mb-4">
             <h3 className="text-lg font-semibold">Distribución de Estados</h3>
             <div className="text-sm text-gray-500">
-              {statsLoading ? 'Cargando…' : stats ? `Total: ${stats.totalAttendances}` : ''}
+              {statsLoading ? 'Cargando…' : stats ? `Entradas: ${stats.totalAttendances}` : ''}
             </div>
           </div>
           {statsLoading || !stats ? (

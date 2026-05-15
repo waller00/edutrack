@@ -4,12 +4,11 @@ import { prisma } from '../prisma.js'
 import {
   activateSchoolYearById,
   copyCoursesBetweenSchoolYears,
-  getActiveSchoolYear,
 } from '../services/school-year-service.js'
 
 const r = Router()
 
-function serializeYear(row: {
+type YearSerializeInput = {
   id: string
   code: number
   label: string
@@ -18,7 +17,10 @@ function serializeYear(row: {
   status: string
   createdAt: Date
   updatedAt: Date
-}) {
+  _count?: { courses: number }
+}
+
+function serializeYear(row: YearSerializeInput) {
   return {
     id: row.id,
     code: row.code,
@@ -28,6 +30,7 @@ function serializeYear(row: {
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    coursesCount: row._count?.courses ?? 0,
   }
 }
 
@@ -35,6 +38,7 @@ r.get('/', async (_req, res) => {
   try {
     const rows = await prisma.schoolYear.findMany({
       orderBy: [{ code: 'desc' }],
+      include: { _count: { select: { courses: true } } },
     })
     return res.json(rows.map(serializeYear))
   } catch (e) {
@@ -45,7 +49,11 @@ r.get('/', async (_req, res) => {
 
 r.get('/active', async (_req, res) => {
   try {
-    const row = await getActiveSchoolYear(prisma)
+    const row = await prisma.schoolYear.findFirst({
+      where: { status: 'ACTIVE' },
+      orderBy: { code: 'desc' },
+      include: { _count: { select: { courses: true } } },
+    })
     if (!row) return res.json(null)
     return res.json(serializeYear(row))
   } catch (e) {
@@ -141,7 +149,7 @@ r.post('/', async (req, res) => {
         status: status ?? 'PLANNED',
       },
     })
-    return res.status(201).json(serializeYear(row))
+    return res.status(201).json(serializeYear({ ...row, _count: { courses: 0 } }))
   } catch (e: unknown) {
     const codeP = (e as { code?: string }).code
     if (codeP === 'P2002') {
@@ -180,7 +188,11 @@ r.patch('/:id', async (req, res) => {
       where: { id },
       data: data as { label?: string; startsOn?: Date | null; endsOn?: Date | null },
     })
-    return res.json(serializeYear(row))
+    const full = await prisma.schoolYear.findUniqueOrThrow({
+      where: { id: row.id },
+      include: { _count: { select: { courses: true } } },
+    })
+    return res.json(serializeYear(full))
   } catch (e: unknown) {
     const codeP = (e as { code?: string }).code
     if (codeP === 'P2025') return res.status(404).json({ message: 'Ciclo no encontrado' })
@@ -198,7 +210,11 @@ r.post('/:id/activate', async (req, res) => {
       return res.status(400).json({ message: 'No se puede activar un ciclo ya cerrado' })
     }
     const updated = await activateSchoolYearById(prisma, id)
-    return res.json(serializeYear(updated))
+    const full = await prisma.schoolYear.findUniqueOrThrow({
+      where: { id: updated.id },
+      include: { _count: { select: { courses: true } } },
+    })
+    return res.json(serializeYear(full))
   } catch (e) {
     console.error('[admin/school-years activate]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -219,7 +235,11 @@ r.post('/:id/close', async (req, res) => {
       where: { id },
       data: { status: 'CLOSED' },
     })
-    return res.json(serializeYear(updated))
+    const full = await prisma.schoolYear.findUniqueOrThrow({
+      where: { id: updated.id },
+      include: { _count: { select: { courses: true } } },
+    })
+    return res.json(serializeYear(full))
   } catch (e) {
     console.error('[admin/school-years close]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })

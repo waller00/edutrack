@@ -35,6 +35,7 @@ describe('getWelcomeMessage', () => {
 describe('getHomeSectionIconKind', () => {
   it.each([
     ['Estudiantes (matrícula y cuotas)', 'students'],
+    ['Cursos y asignaturas', 'courses'],
     ['Gestión de usuarios', 'users'],
     ['Gestión de perfiles', 'profiles'],
     ['Configuración del sistema', 'settings'],

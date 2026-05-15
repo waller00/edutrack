@@ -15,6 +15,8 @@ export type SchoolYearApiRow = {
   status: string
   createdAt: string
   updatedAt: string
+  /** Cantidad de cursos catalogados en este ciclo (para UI / copiar estructura). */
+  coursesCount?: number
 }
 
 type AdminSchoolYearContextValue = {

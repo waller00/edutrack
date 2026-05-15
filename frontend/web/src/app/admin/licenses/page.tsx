@@ -6,7 +6,6 @@ import { api } from '@/lib/api'
 import {
   buildMedicalLeavesQueryString,
   formatLicenseAdminUserDisplayName,
-  getLicenseAdminDefaultStartDate,
   getLicenseStatusBadgeClass,
   getLicenseStatusLabel,
   getLicenseTypeLabel,
@@ -75,7 +74,7 @@ export default function LicensesPage() {
     userId: '',
     type: '',
     status: '',
-    startDate: getLicenseAdminDefaultStartDate(),
+    startDate: '',
     endDate: ''
   })
 
@@ -342,7 +341,7 @@ export default function LicensesPage() {
   }
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="licenses.read" permissionScope="all">
       <main className="mx-auto max-w-7xl p-6 space-y-8">
         {/* Header alineado a otros módulos admin */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
@@ -403,7 +402,7 @@ export default function LicensesPage() {
                     userId: '',
                     type: '',
                     status: '',
-                    startDate: getLicenseAdminDefaultStartDate(),
+                    startDate: '',
                     endDate: ''
                   })
                 }}

@@ -40,8 +40,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span className="hidden sm:inline">Filtro API:</span>
             <code className="rounded bg-slate-100 px-2 py-0.5 max-w-[220px] truncate">{schoolYearQuery || '—'}</code>
-            <Link href="/admin/school-years/compare" className="text-emerald-700 hover:underline shrink-0">
-              Comparar ciclos
+            <Link href="/admin/school-years" className="text-emerald-700 hover:underline shrink-0">
+              Gestionar ciclos
             </Link>
           </div>
         </div>

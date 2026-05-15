@@ -490,7 +490,7 @@ export default function AdminAnalyticsPage() {
   const eventsRank = dashboard?.topLists?.topRiskEvents ?? []
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="analytics.read" permissionScope="all">
       <main className="mx-auto max-w-7xl space-y-8 p-6">
         <header className="flex flex-col justify-between gap-6 lg:flex-row lg:items-start">
           <div className="flex items-start gap-4">

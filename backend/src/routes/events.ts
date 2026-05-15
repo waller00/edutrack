@@ -49,6 +49,7 @@ function mapNestedEventUsers(ev: Record<string, unknown>) {
 
 /** Relación opcional incluida en respuestas de evento. */
 const eventCourseInclude = { select: { id: true, name: true, code: true } } as const
+const eventSubjectInclude = { select: { id: true, name: true, code: true } } as const
 
 async function assertActiveCourse(courseId: string): Promise<{ id: string; schoolYearId: string | null } | null> {
   const c = await prisma.course.findFirst({
@@ -56,6 +57,17 @@ async function assertActiveCourse(courseId: string): Promise<{ id: string; schoo
     select: { id: true, schoolYearId: true },
   })
   return c
+}
+
+async function assertActiveSubjectInCourse(
+  subjectId: string,
+  courseId: string,
+): Promise<{ id: string } | null> {
+  const s = await prisma.subject.findFirst({
+    where: { id: subjectId, courseId, isActive: true },
+    select: { id: true },
+  })
+  return s
 }
 
 function myEventsPathForRole(role: string | undefined): string {
@@ -113,6 +125,7 @@ const eventSchema = z.object({
   // El front puede mandar "" cuando el select está en "Sin asignar"; no es UUID válido.
   assignedUserId: optionalUuidFromInput,
   courseId: optionalUuidFromInput,
+  subjectId: optionalUuidFromInput,
   recurrenceType: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']).default('NONE'),
   recurrenceEnd: z.string().optional().nullable(),
   isRecurring: boolish.default(false),
@@ -128,6 +141,7 @@ const eventUpdateSchema = z.object({
   endTime: z.string().min(1).optional(),
   assignedUserId: nullableOptionalUuidFromUpdateInput,
   courseId: nullableOptionalUuidFromUpdateInput,
+  subjectId: nullableOptionalUuidFromUpdateInput,
   status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED']).optional(),
   isRecurring: boolish.optional(),
   daysOfWeek: z.preprocess(
@@ -177,6 +191,15 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
       }
       resolvedSchoolYearId = c.schoolYearId ?? null;
+    }
+    if (eventData.subjectId) {
+      if (!eventData.courseId) {
+        return res.status(400).json({ message: 'Seleccioná un curso para asociar una asignatura' });
+      }
+      const sub = await assertActiveSubjectInCourse(eventData.subjectId, eventData.courseId);
+      if (!sub) {
+        return res.status(400).json({ message: 'Asignatura no encontrada o no pertenece al curso' });
+      }
     }
     if (!resolvedSchoolYearId) {
       resolvedSchoolYearId = await getActiveSchoolYearId(prisma);
@@ -250,6 +273,7 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         isRecurring,
         daysOfWeek: eventData.daysOfWeek ?? [],
         courseId: eventData.courseId ?? null,
+        subjectId: eventData.subjectId ?? null,
         schoolYearId: resolvedSchoolYearId,
       },
       include: {
@@ -260,6 +284,7 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         course: eventCourseInclude,
+        subject: eventSubjectInclude,
       }
     });
 
@@ -313,6 +338,8 @@ r.get('/my-events', authGuard, async (req, res) => {
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
     const { startDate, endDate, type, status } = req.query;
+    const courseIdRaw = Array.isArray(req.query.courseId) ? req.query.courseId[0] : req.query.courseId;
+    const courseIdFilter = optionalUuidFromInput.safeParse(courseIdRaw);
 
     const where: any = buildMyEventsBaseFilter(user.sub)
     // Excluimos excepciones materializadas en childEvents para evitar duplicados.
@@ -334,6 +361,10 @@ r.get('/my-events', authGuard, async (req, res) => {
       where.status = status;
     }
 
+    if (courseIdFilter.success && courseIdFilter.data) {
+      where.courseId = courseIdFilter.data;
+    }
+
     const events = await prisma.event.findMany({
       where,
       include: {
@@ -344,6 +375,7 @@ r.get('/my-events', authGuard, async (req, res) => {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         course: eventCourseInclude,
+        subject: eventSubjectInclude,
         childEvents: {
           select: {
             id: true,
@@ -360,7 +392,9 @@ r.get('/my-events', authGuard, async (req, res) => {
             daysOfWeek: true,
             parentEventId: true,
             courseId: true,
+            subjectId: true,
             course: eventCourseInclude,
+            subject: eventSubjectInclude,
           },
         },
         _count: {
@@ -386,12 +420,23 @@ async function markExpiredEvents() {
     const now = new Date();
     await prisma.event.updateMany({
       where: {
-        endDate: {
-          lt: now
-        },
         status: {
           in: ['SCHEDULED', 'IN_PROGRESS']
-        }
+        },
+        OR: [
+          {
+            isRecurring: true,
+            recurrenceEnd: {
+              lt: now,
+            },
+          },
+          {
+            isRecurring: false,
+            endDate: {
+              lt: now,
+            },
+          },
+        ],
       },
       data: {
         status: 'EXPIRED'
@@ -412,6 +457,8 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
     await markExpiredEvents();
     
     const { startDate, endDate, userId, assignedUserId, type, status } = req.query;
+    const courseIdRaw = Array.isArray(req.query.courseId) ? req.query.courseId[0] : req.query.courseId;
+    const courseIdFilter = optionalUuidFromInput.safeParse(courseIdRaw);
     const page = Number(req.query.page) || 1;
     const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
 
@@ -447,6 +494,10 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
       where.schoolYearId = schoolYearId;
     }
 
+    if (courseIdFilter.success && courseIdFilter.data) {
+      where.courseId = courseIdFilter.data;
+    }
+
     const [total, events] = await Promise.all([
       prisma.event.count({ where }),
       prisma.event.findMany({
@@ -459,6 +510,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
             select: { id: true, name: true, email: true, ...selectOrgRoleCode }
           },
           course: eventCourseInclude,
+          subject: eventSubjectInclude,
           _count: {
             select: { attendances: true }
           }
@@ -509,6 +561,7 @@ r.get('/:id', authGuard, async (req, res) => {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         course: eventCourseInclude,
+        subject: eventSubjectInclude,
         attendances: {
           include: {
             user: {
@@ -559,6 +612,8 @@ r.put('/:id', authGuard, async (req, res) => {
         id: true,
         userId: true,
         assignedUserId: true,
+        courseId: true,
+        subjectId: true,
         startDate: true,
         startTime: true,
         endTime: true,
@@ -591,6 +646,41 @@ r.put('/:id', authGuard, async (req, res) => {
           return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
         }
         updateData.schoolYearId = co.schoolYearId ?? (await getActiveSchoolYearId(prisma))
+      }
+    }
+
+    if (parsed.data.subjectId !== undefined && parsed.data.subjectId !== null) {
+      if (parsed.data.courseId === undefined && !existingEvent.courseId) {
+        return res.status(400).json({ message: 'Seleccioná un curso para asociar una asignatura' });
+      }
+    }
+
+    if (updateData.courseId === null) {
+      updateData.subjectId = null
+    } else if (
+      updateData.courseId !== undefined &&
+      updateData.courseId !== existingEvent.courseId &&
+      updateData.subjectId === undefined
+    ) {
+      updateData.subjectId = null
+    }
+
+    const finalCourseId =
+      updateData.courseId !== undefined ? updateData.courseId : existingEvent.courseId
+    const finalSubjectId =
+      updateData.subjectId !== undefined ? updateData.subjectId : existingEvent.subjectId
+
+    if (finalCourseId === null && finalSubjectId != null) {
+      return res.status(400).json({ message: 'Asignatura requiere curso' })
+    }
+
+    if (finalSubjectId != null) {
+      if (!finalCourseId) {
+        return res.status(400).json({ message: 'Asignatura requiere curso' })
+      }
+      const okSub = await assertActiveSubjectInCourse(finalSubjectId, finalCourseId)
+      if (!okSub) {
+        return res.status(400).json({ message: 'Asignatura no encontrada o no pertenece al curso' })
       }
     }
 
@@ -683,6 +773,7 @@ r.put('/:id', authGuard, async (req, res) => {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         course: eventCourseInclude,
+        subject: eventSubjectInclude,
       }
     });
 
@@ -735,6 +826,7 @@ r.put('/:id/cancel', authGuard, async (req, res) => {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         course: eventCourseInclude,
+        subject: eventSubjectInclude,
       }
     });
 

@@ -4,14 +4,17 @@ import RoleGuard from '@/components/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api'
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, GraduationCap, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { CalendarCheck, ChevronLeft, ChevronRight, GraduationCap, Loader2, Plus, Trash2, X } from 'lucide-react'
 
 const PAGE_SIZE = 20
+const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
+const CURRENT_YEAR = new Date().getFullYear()
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
 
 type TuitionRow = {
   year: number
+  month: number
   paid: boolean
   paidAt: string | null
   amountCents: number | null
@@ -30,7 +33,7 @@ type StudentListRow = {
   withdrawalAcademicYear: number | null
   healthCardExpiresAt: string | null
   createdAt: string
-  tuitionYearsPreview: { year: number; paid: boolean }[]
+  tuitionMonthsPreview: { year: number; month: number; paid: boolean }[]
 }
 
 type StudentDetail = {
@@ -52,9 +55,10 @@ type StudentDetail = {
   internalNotes: string | null
   createdAt: string
   updatedAt: string
-  tuitionYears: {
+  tuitionMonths: {
     id: string
     year: number
+    month: number
     paid: boolean
     paidAt: string | null
     amountCents: number | null
@@ -101,7 +105,7 @@ function emptyDraft(): Omit<StudentFormState, 'id'> {
     withdrawnAt: null,
     withdrawalAcademicYear: null,
     internalNotes: null,
-    tuitionYears: [],
+    tuitionMonths: [],
   }
 }
 
@@ -121,7 +125,8 @@ export default function AdminStudentsPage() {
   const [draftQ, setDraftQ] = useState('')
   const [courseId, setCourseId] = useState('')
   const [status, setStatus] = useState('')
-  const [tuitionYear, setTuitionYear] = useState('')
+  const [tuitionYear, setTuitionYear] = useState(String(CURRENT_YEAR))
+  const [tuitionMonth, setTuitionMonth] = useState('')
   const [tuitionPaid, setTuitionPaid] = useState('')
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'create' | 'edit' | null>(null)
@@ -160,11 +165,13 @@ export default function AdminStudentsPage() {
         const sp = new URLSearchParams()
         sp.set('page', String(page))
         sp.set('pageSize', String(PAGE_SIZE))
+        if (tuitionYear.trim() && /^\d{4}$/.test(tuitionYear.trim())) sp.set('tuitionPreviewYear', tuitionYear.trim())
         if (q.trim()) sp.set('q', q.trim())
         if (courseId) sp.set('courseId', courseId)
         if (status) sp.set('status', status)
-        if (tuitionYear.trim() && /^\d{4}$/.test(tuitionYear.trim())) {
+        if ((tuitionMonth || tuitionPaid) && tuitionYear.trim() && /^\d{4}$/.test(tuitionYear.trim())) {
           sp.set('tuitionYear', tuitionYear.trim())
+          if (tuitionMonth) sp.set('tuitionMonth', tuitionMonth)
           if (tuitionPaid === 'true' || tuitionPaid === 'false') sp.set('tuitionPaid', tuitionPaid)
         }
         const r = await api<{ total: number; page: number; pageSize: number; data: StudentListRow[] }>(
@@ -180,7 +187,7 @@ export default function AdminStudentsPage() {
         setLoading(false)
       }
     },
-    [q, courseId, status, tuitionYear, tuitionPaid, schoolYearQuery],
+    [q, courseId, status, tuitionYear, tuitionMonth, tuitionPaid, schoolYearQuery],
   )
 
   useEffect(() => {
@@ -213,9 +220,10 @@ export default function AdminStudentsPage() {
       void _c
       setForm({
         ...rest,
-        tuitionYears: d.tuitionYears.map((t) => ({
+        tuitionMonths: d.tuitionMonths.map((t) => ({
           id: t.id,
           year: t.year,
+          month: t.month,
           paid: t.paid,
           paidAt: t.paidAt,
           amountCents: t.amountCents,
@@ -238,8 +246,9 @@ export default function AdminStudentsPage() {
   }
 
   function tuitionToPayload(): TuitionRow[] {
-    return form.tuitionYears.map((t) => ({
+    return form.tuitionMonths.map((t) => ({
       year: t.year,
+      month: t.month,
       paid: t.paid,
       paidAt: t.paidAt || null,
       amountCents: t.amountCents ?? null,
@@ -266,7 +275,7 @@ export default function AdminStudentsPage() {
         withdrawnAt: form.withdrawnAt ? `${ymd(form.withdrawnAt)}T12:00:00.000Z` : undefined,
         withdrawalAcademicYear: form.withdrawalAcademicYear ?? undefined,
         internalNotes: form.internalNotes?.trim() || undefined,
-        tuitionYears: tuitionToPayload(),
+        tuitionMonths: tuitionToPayload(),
       }
       if (syCtx && !syCtx.allYears) {
         const yid = syCtx.selectedId ?? syCtx.activeId
@@ -298,34 +307,46 @@ export default function AdminStudentsPage() {
     }
   }
 
-  function addTuitionYear() {
-    const years = new Set(form.tuitionYears.map((t) => t.year))
-    const y = new Date().getFullYear()
-    let next = y
-    while (years.has(next) && next > y - 15) next -= 1
-    if (years.has(next)) next = y + 1
-    setForm((f) => ({
-      ...f,
-      tuitionYears: [{ id: '', year: next, paid: false, paidAt: null, amountCents: null, notes: null }, ...f.tuitionYears],
-    }))
-  }
-
-  function updateTuition(i: number, patch: Partial<(typeof form.tuitionYears)[0]>) {
+  function updateTuition(i: number, patch: Partial<(typeof form.tuitionMonths)[0]>) {
     setForm((f) => {
-      const tuitionYears = [...f.tuitionYears]
-      tuitionYears[i] = { ...tuitionYears[i], ...patch }
-      return { ...f, tuitionYears }
+      const tuitionMonths = [...f.tuitionMonths]
+      tuitionMonths[i] = { ...tuitionMonths[i], ...patch }
+      return { ...f, tuitionMonths }
     })
   }
 
-  function removeTuition(i: number) {
-    setForm((f) => ({ ...f, tuitionYears: f.tuitionYears.filter((_, j) => j !== i) }))
+  function toggleTuitionMonth(year: number, month: number) {
+    setForm((f) => {
+      const existing = f.tuitionMonths.find((t) => t.year === year && t.month === month)
+      if (!existing) {
+        return {
+          ...f,
+          tuitionMonths: [
+            ...f.tuitionMonths,
+            { id: '', year, month, paid: true, paidAt: new Date().toISOString(), amountCents: null, notes: null },
+          ],
+        }
+      }
+      return {
+        ...f,
+        tuitionMonths: f.tuitionMonths.map((t) =>
+          t.year === year && t.month === month
+            ? { ...t, paid: !t.paid, paidAt: !t.paid ? new Date().toISOString() : null }
+            : t,
+        ),
+      }
+    })
+  }
+
+  function monthsForYear(rows: { year: number; month: number; paid: boolean }[], year: number) {
+    const paid = new Set(rows.filter((t) => t.year === year && t.paid).map((t) => t.month))
+    return MONTHS.map((m) => ({ month: m, paid: paid.has(m) }))
   }
 
   const totalPages = Math.max(1, Math.ceil(list.total / list.pageSize))
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="students.manage">
       <main className="mx-auto max-w-7xl p-6 space-y-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -404,7 +425,7 @@ export default function AdminStudentsPage() {
               </select>
             </div>
             <div className="w-24">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Año cuota</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Año</label>
               <input
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 value={tuitionYear}
@@ -412,8 +433,23 @@ export default function AdminStudentsPage() {
                 placeholder="2025"
               />
             </div>
+            <div className="w-24">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Mes</label>
+              <select
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                value={tuitionMonth}
+                onChange={(e) => setTuitionMonth(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {MONTHS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="min-w-[120px]">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Pagó (año)</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Pago</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 value={tuitionPaid}
@@ -438,7 +474,7 @@ export default function AdminStudentsPage() {
                   <th className="py-2 pr-3 font-medium">Estudiante</th>
                   <th className="py-2 pr-3 font-medium">Curso</th>
                   <th className="py-2 pr-3 font-medium">Estado</th>
-                  <th className="py-2 pr-3 font-medium">Cuotas (vista)</th>
+                  <th className="py-2 pr-3 font-medium">Mensualidades {tuitionYear || CURRENT_YEAR}</th>
                   <th className="py-2 pr-3 font-medium w-28" />
                 </tr>
               </thead>
@@ -470,10 +506,22 @@ export default function AdminStudentsPage() {
                       </td>
                       <td className="py-2 pr-3 text-gray-700">{row.course?.name ?? '—'}</td>
                       <td className="py-2 pr-3">{STATUS_LABEL[row.enrollmentStatus] ?? row.enrollmentStatus}</td>
-                      <td className="py-2 pr-3 text-xs text-gray-600">
-                        {row.tuitionYearsPreview.length === 0
-                          ? '—'
-                          : row.tuitionYearsPreview.map((t) => `${t.year}:${t.paid ? '✓' : '○'}`).join(' ')}
+                      <td className="py-2 pr-3">
+                        <div className="flex min-w-[360px] flex-wrap gap-1.5" aria-label="Mensualidades">
+                          {monthsForYear(row.tuitionMonthsPreview, Number(tuitionYear) || CURRENT_YEAR).map((m) => (
+                            <span
+                              key={m.month}
+                              className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold ${
+                                m.paid
+                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                  : 'border-gray-300 bg-white text-gray-500'
+                              }`}
+                              title={`Mes ${m.month}: ${m.paid ? 'pagado' : 'pendiente'}`}
+                            >
+                              {m.month}
+                            </span>
+                          ))}
+                        </div>
                       </td>
                       <td className="py-2 pr-3">
                         <button
@@ -677,74 +725,91 @@ export default function AdminStudentsPage() {
                   />
                 </div>
 
-                <div className="border-t border-gray-100 pt-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-900">Cuotas por año</span>
-                    <button type="button" className="btn-secondary text-xs" onClick={addTuitionYear}>
-                      Añadir año
-                    </button>
+                <div className="border-t border-gray-100 pt-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-2 font-medium text-gray-900">
+                      <CalendarCheck className="h-4 w-4 text-emerald-600" aria-hidden />
+                      Mensualidades
+                    </span>
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      Año
+                      <input
+                        type="number"
+                        className="w-24 rounded-lg border border-gray-200 px-2 py-1 text-sm"
+                        value={tuitionYear || CURRENT_YEAR}
+                        onChange={(e) => setTuitionYear(e.target.value)}
+                      />
+                    </label>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    Un registro por año calendario del ciclo. Podés marcar si pagó, monto en centavos y notas.
-                  </p>
-                  <div className="space-y-2">
-                    {form.tuitionYears.map((t, i) => (
-                      <div key={`${t.year}-${i}`} className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-2">
-                        <div className="w-20">
-                          <label className="block text-[10px] uppercase text-gray-500">Año</label>
-                          <input
-                            type="number"
-                            className="w-full rounded border border-gray-200 px-2 py-1"
-                            value={t.year}
-                            onChange={(e) => updateTuition(i, { year: Number.parseInt(e.target.value, 10) || 0 })}
-                          />
-                        </div>
-                        <label className="flex items-center gap-1 pb-1">
-                          <input
-                            type="checkbox"
-                            checked={t.paid}
-                            onChange={(e) => updateTuition(i, { paid: e.target.checked })}
-                          />
-                          Pagó
-                        </label>
-                        <div className="w-36">
-                          <label className="block text-[10px] uppercase text-gray-500">Fecha pago</label>
-                          <input
-                            type="date"
-                            className="w-full rounded border border-gray-200 px-2 py-1"
-                            value={ymd(t.paidAt)}
-                            onChange={(e) =>
-                              updateTuition(i, { paidAt: e.target.value ? `${e.target.value}T00:00:00.000Z` : null })
-                            }
-                          />
-                        </div>
-                        <div className="w-28">
-                          <label className="block text-[10px] uppercase text-gray-500">Monto (¢)</label>
-                          <input
-                            type="number"
-                            className="w-full rounded border border-gray-200 px-2 py-1"
-                            value={t.amountCents ?? ''}
-                            onChange={(e) =>
-                              updateTuition(i, {
-                                amountCents: e.target.value === '' ? null : Number.parseInt(e.target.value, 10),
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="min-w-[120px] flex-1">
-                          <label className="block text-[10px] uppercase text-gray-500">Notas</label>
-                          <input
-                            className="w-full rounded border border-gray-200 px-2 py-1"
-                            value={t.notes ?? ''}
-                            onChange={(e) => updateTuition(i, { notes: e.target.value || null })}
-                          />
-                        </div>
-                        <button type="button" className="p-1 text-gray-500 hover:text-red-600" onClick={() => removeTuition(i)}>
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
+                  <div className="grid grid-cols-6 gap-2 sm:grid-cols-12">
+                    {monthsForYear(form.tuitionMonths, Number(tuitionYear) || CURRENT_YEAR).map((m) => (
+                      <button
+                        key={m.month}
+                        type="button"
+                        className={`h-10 rounded-full border text-sm font-semibold transition ${
+                          m.paid
+                            ? 'border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                            : 'border-gray-300 bg-white text-gray-600 hover:border-emerald-300 hover:text-emerald-700'
+                        }`}
+                        onClick={() => toggleTuitionMonth(Number(tuitionYear) || CURRENT_YEAR, m.month)}
+                        aria-pressed={m.paid}
+                        title={`Mes ${m.month}: ${m.paid ? 'pagado' : 'pendiente'}`}
+                      >
+                        {m.month}
+                      </button>
                     ))}
                   </div>
+                  <p className="text-xs text-gray-500">
+                    {monthsForYear(form.tuitionMonths, Number(tuitionYear) || CURRENT_YEAR).filter((m) => m.paid).length} pagos ·{' '}
+                    {12 - monthsForYear(form.tuitionMonths, Number(tuitionYear) || CURRENT_YEAR).filter((m) => m.paid).length}{' '}
+                    pendientes
+                  </p>
+                  {form.tuitionMonths
+                    .filter((t) => t.year === (Number(tuitionYear) || CURRENT_YEAR) && t.paid)
+                    .sort((a, b) => a.month - b.month)
+                    .map((t) => {
+                      const i = form.tuitionMonths.findIndex((x) => x.year === t.year && x.month === t.month)
+                      return (
+                        <div key={`${t.year}-${t.month}`} className="grid gap-2 rounded-lg bg-slate-50 p-2 sm:grid-cols-[72px_140px_120px_1fr]">
+                          <div>
+                            <label className="block text-[10px] uppercase text-gray-500">Mes</label>
+                            <span className="block rounded border border-gray-200 bg-white px-2 py-1 font-semibold">{t.month}</span>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase text-gray-500">Fecha pago</label>
+                            <input
+                              type="date"
+                              className="w-full rounded border border-gray-200 px-2 py-1"
+                              value={ymd(t.paidAt)}
+                              onChange={(e) =>
+                                updateTuition(i, { paidAt: e.target.value ? `${e.target.value}T00:00:00.000Z` : null })
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase text-gray-500">Monto (¢)</label>
+                            <input
+                              type="number"
+                              className="w-full rounded border border-gray-200 px-2 py-1"
+                              value={t.amountCents ?? ''}
+                              onChange={(e) =>
+                                updateTuition(i, {
+                                  amountCents: e.target.value === '' ? null : Number.parseInt(e.target.value, 10),
+                                })
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase text-gray-500">Notas</label>
+                            <input
+                              className="w-full rounded border border-gray-200 px-2 py-1"
+                              value={t.notes ?? ''}
+                              onChange={(e) => updateTuition(i, { notes: e.target.value || null })}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
                 </div>
               </div>
               <div className="flex justify-end gap-2 border-t border-gray-100 px-4 py-3">

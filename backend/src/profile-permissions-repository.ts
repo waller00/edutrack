@@ -91,10 +91,51 @@ export async function upsertCanonicalProfilePermissions(client: PrismaClient = p
   }
 }
 
+async function ensureCanonicalProfilePermissionsPresent(client: PrismaClient = prisma): Promise<void> {
+  await ensureBuiltinOrgRoles()
+  const builtins: BuiltinProfileRole[] = ['ADMIN', 'STAFF', 'TEACHER']
+  for (const code of builtins) {
+    const org = await client.orgRole.findUnique({ where: { code } })
+    if (!org) continue
+    for (const p of DEFAULT_PROFILE_PERMISSIONS[code]) {
+      if (REMOVED_PROFILE_PERMISSION_IDS[code].has(p.id)) continue
+      const permRow = await client.permission.upsert({
+        where: { code: p.id },
+        create: {
+          code: p.id,
+          module: p.module,
+          action: p.action,
+          isSystem: true,
+        },
+        update: {
+          module: p.module,
+          action: p.action,
+          isSystem: true,
+        },
+      })
+      if (!permRow) continue
+      await client.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: org.id, permissionId: permRow.id } },
+        create: {
+          roleId: org.id,
+          permissionId: permRow.id,
+          enabled: p.enabled,
+          scope: scopeToDb(p.scope),
+          label: p.label,
+        },
+        update: {},
+      })
+    }
+  }
+}
+
 export async function ensureDefaultProfilePermissionsIfNeeded(): Promise<void> {
   await ensureBuiltinOrgRoles()
   const count = await prisma.rolePermission.count()
-  if (count > 0) return
+  if (count > 0) {
+    await ensureCanonicalProfilePermissionsPresent()
+    return
+  }
   await upsertCanonicalProfilePermissions()
 }
 

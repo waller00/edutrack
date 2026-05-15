@@ -1,6 +1,7 @@
-export type HomeMeRole = 'ADMIN' | 'TEACHER' | 'STAFF'
+export type HomeMeRole = 'ADMIN' | 'TEACHER' | 'STAFF' | 'STUDENT'
 
 export type HomeMe = {
+  id?: string
   name?: string
   email: string
   role: HomeMeRole
@@ -22,6 +23,7 @@ export function getWelcomeMessage(inactiveAccount: boolean, pendingApproval: boo
 export type HomeSectionIconKind =
   | 'users'
   | 'students'
+  | 'courses'
   | 'profiles'
   | 'settings'
   | 'chart'
@@ -34,6 +36,7 @@ export type HomeSectionIconKind =
 
 export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
   if (title.toLowerCase().includes('estudiantes')) return 'students'
+  if (title.toLowerCase().includes('cursos') && title.toLowerCase().includes('asignaturas')) return 'courses'
   if (title.includes('usuarios')) return 'users'
   if (title.includes('perfiles')) return 'profiles'
   if (title.includes('Configuración')) return 'settings'
@@ -57,6 +60,12 @@ export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {
       desc: 'Registro administrativo sin login: curso, contacto, cuotas por año y abandono.',
       cta: 'Gestionar estudiantes',
       href: '/admin/students',
+    },
+    {
+      title: 'Cursos y asignaturas',
+      desc: 'Catálogo por ciclo lectivo: asignaturas por curso (orientaciones distintas = cursos distintos).',
+      cta: 'Gestionar cursos',
+      href: '/admin/courses',
     },
     { title: 'Gestión de asistencias', desc: 'Registro y control de asistencias del personal.', cta: 'Gestionar asistencias', href: '/admin/attendance' },
     {
@@ -89,6 +98,7 @@ export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {
     { title: 'Mis eventos', desc: 'Consulta tus eventos.', cta: 'Ver eventos', href: '/staff/events' },
     { title: 'Mis licencias', desc: 'Consulta tus licencias registradas.', cta: 'Ver licencias', href: '/staff/licenses' },
   ],
+  STUDENT: [],
 }
 
 export function getVisibleHomeSections(me: HomeMe): HomeSection[] {

@@ -1,5 +1,10 @@
-import { redirect } from 'next/navigation'
+import AdminAuditPanel from '@/components/AdminAuditPanel'
+import RoleGuard from '@/components/RoleGuard'
 
 export default function AdminAuditPage() {
-  redirect('/admin/settings?section=audit')
+  return (
+    <RoleGuard permission="audit.read">
+      <AdminAuditPanel />
+    </RoleGuard>
+  )
 }
