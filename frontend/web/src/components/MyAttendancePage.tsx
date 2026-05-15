@@ -24,7 +24,7 @@ type AttendanceRecord = {
   event?: { id: string; title: string; type: string }
 }
 
-export default function MyAttendancePage({ role }: { role: 'TEACHER' | 'STAFF' }) {
+export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {
   const [me, setMe] = useState<{ id: string } | null>(null)
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -73,7 +73,7 @@ export default function MyAttendancePage({ role }: { role: 'TEACHER' | 'STAFF' }
   if (loading) return <p>Cargando...</p>
 
   return (
-    <RoleGuard allow={[role]}>
+    <RoleGuard permission="attendance.read" permissionScope="own">
       <main className="mx-auto max-w-6xl p-6 space-y-6">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">

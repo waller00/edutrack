@@ -89,7 +89,7 @@ export default function TrainDniPage() {
   }
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="settings.manage" permissionScope="all">
       <main className="mx-auto max-w-6xl p-6 space-y-8">
         <section className="text-center py-8">
           <div className="inline-flex items-center gap-3 mb-4">

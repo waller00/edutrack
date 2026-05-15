@@ -30,7 +30,7 @@ export type AssignedEventRow = {
   assignedUser?: { id: string; name: string; email: string; role: string }
 }
 
-export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAFF' }) {
+export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {
   const [me, setMe] = useState<{ id: string } | null>(null)
   const [events, setEvents] = useState<AssignedEventRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -105,7 +105,7 @@ export default function MyAssignedEventsPage({ role }: { role: 'TEACHER' | 'STAF
       : events
 
   return (
-    <RoleGuard allow={[role]}>
+    <RoleGuard permission="events.read" permissionScope="own">
       <main className="mx-auto max-w-6xl p-6 space-y-6">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">

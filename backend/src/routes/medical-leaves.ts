@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { authGuard, requireRole } from '../middlewares/auth.js'
+import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js'
 import { prisma } from '../prisma.js'
 import { reconcileAttendancesForMedicalLeave } from '../services/medicalLeaveReconciliation.js'
 import { recordAuditEvent } from '../services/audit-log.js'
@@ -19,8 +19,8 @@ function licenseUpdatePreview(reason: string): string {
 const r = Router()
 
 function myLicensesPathForRole(role: string | undefined): string {
-  if (role === 'TEACHER') return '/teacher/licenses'
-  if (role === 'STAFF') return '/staff/licenses'
+  if (role === 'ADMIN') return '/admin/licenses'
+  if (role) return '/me/licenses'
   return '/'
 }
 
@@ -63,7 +63,7 @@ const medicalLeaveUpdateSchema = z.object({
 })
 
 // Obtener todas las licencias médicas (solo admin)
-r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/all', authGuard, requirePermission('licenses.read', 'all'), async (req, res) => {
   try {
     const { 
       userId, 
@@ -122,7 +122,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
 })
 
 // Obtener licencias médicas del usuario actual
-r.get('/my-leaves', authGuard, async (req, res) => {
+r.get('/my-leaves', authGuard, requirePermission('licenses.read'), async (req, res) => {
   try {
     const userId = req.user?.id
     if (!userId) return res.status(401).json({ message: 'No autorizado' })
@@ -157,7 +157,7 @@ r.get('/my-leaves', authGuard, async (req, res) => {
 })
 
 // Crear nueva licencia médica (solo admin)
-r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.post('/', authGuard, requirePermission('licenses.create', 'all'), async (req, res) => {
   try {
     const parsed = medicalLeaveSchema.safeParse(req.body)
     
@@ -255,7 +255,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
 })
 
 // Actualizar licencia médica (solo admin)
-r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.put('/:id', authGuard, requirePermission('licenses.update', 'all'), async (req, res) => {
   try {
     const { id } = req.params
     const parsed = medicalLeaveUpdateSchema.safeParse(req.body)
@@ -355,7 +355,7 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
 })
 
 // Desactivar licencia médica (solo admin)
-r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.delete('/:id', authGuard, requirePermission('licenses.delete', 'all'), async (req, res) => {
   try {
     const { id } = req.params
 
@@ -393,7 +393,7 @@ r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
 })
 
 // Obtener licencia médica por ID
-r.get('/:id', authGuard, async (req, res) => {
+r.get('/:id', authGuard, requirePermission('licenses.read'), async (req, res) => {
   try {
     const { id } = req.params
 
@@ -415,8 +415,8 @@ r.get('/:id', authGuard, async (req, res) => {
       return res.status(404).json({ message: 'Licencia médica no encontrada' })
     }
 
-    // Solo admin puede ver todas las licencias, usuarios solo pueden ver las suyas
-    if (!req.user || (req.user.role !== 'ADMIN' && license.userId !== req.user.id)) {
+    const licenseReadScope = req.user?.id ? await userPermissionScope(req.user.id, 'licenses.read', req.user.role) : null
+    if (!req.user || (licenseReadScope !== 'all' && license.userId !== req.user.id)) {
       return res.status(403).json({ message: 'No tienes permisos para ver esta licencia' })
     }
 

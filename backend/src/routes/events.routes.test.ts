@@ -185,7 +185,7 @@ describe("events routes (prisma mock)", () => {
         data: expect.objectContaining({
           userId: teacherId,
           type: "EVENT_ASSIGNED",
-          actionUrl: "/teacher/events",
+          actionUrl: "/me/events",
         }),
       }),
     );

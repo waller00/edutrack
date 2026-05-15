@@ -48,7 +48,7 @@ export default function RoleGuard({
         setOk(true)
       })
       .catch(() => (window.location.href = '/login'))
-  }, [allow, permission])
+  }, [allow, permission, permissionScope])
 
   if (!ok) return null
   return <>{children}</>

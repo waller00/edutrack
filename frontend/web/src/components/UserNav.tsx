@@ -38,7 +38,6 @@ type MeUser = {
 type NavItem = {
   label: string
   href: string
-  roles: string[]
   permission?: string
   permissionScope?: 'own' | 'all'
 }
@@ -46,7 +45,6 @@ type NavItem = {
 type NavGroup = {
   title: string
   icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
-  roles: string[]
   items: NavItem[]
 }
 
@@ -54,58 +52,49 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Dashboard',
     icon: LayoutDashboard,
-    roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'],
     items: [
-      { label: 'Inicio', href: '/', roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'] },
-      { label: 'Notificaciones', href: '/notifications', roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'], permission: 'notifications.read' },
+      { label: 'Inicio', href: '/' },
+      { label: 'Notificaciones', href: '/notifications', permission: 'notifications.read' },
     ],
   },
   {
     title: 'Personal',
     icon: Users,
-    roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'],
     items: [
-      { label: 'Asistencias', href: '/admin/attendance', roles: ['ADMIN'], permission: 'attendance.read', permissionScope: 'all' },
-      { label: 'Eventos', href: '/admin/events', roles: ['ADMIN'], permission: 'events.read', permissionScope: 'all' },
-      { label: 'Usuarios', href: '/admin/users', roles: ['ADMIN'], permission: 'users.read', permissionScope: 'all' },
-      { label: 'Licencias', href: '/admin/licenses', roles: ['ADMIN'], permission: 'licenses.read', permissionScope: 'all' },
-      { label: 'Mis eventos', href: '/teacher/events', roles: ['TEACHER'], permission: 'events.read', permissionScope: 'own' },
-      { label: 'Mis asistencias', href: '/teacher/attendance', roles: ['TEACHER'], permission: 'attendance.read', permissionScope: 'own' },
-      { label: 'Mis licencias', href: '/teacher/licenses', roles: ['TEACHER'], permission: 'licenses.read', permissionScope: 'own' },
-      { label: 'Eventos asignados', href: '/staff/events', roles: ['STAFF'], permission: 'events.read', permissionScope: 'own' },
-      { label: 'Asistencias', href: '/staff/attendance', roles: ['STAFF'], permission: 'attendance.read', permissionScope: 'own' },
-      { label: 'Mis licencias', href: '/staff/licenses', roles: ['STAFF'], permission: 'licenses.read', permissionScope: 'own' },
-      { label: 'Mis asistencias', href: '/student/attendance', roles: ['STUDENT'] },
+      { label: 'Asistencias', href: '/admin/attendance', permission: 'attendance.read', permissionScope: 'all' },
+      { label: 'Eventos', href: '/admin/events', permission: 'events.read', permissionScope: 'all' },
+      { label: 'Usuarios', href: '/admin/users', permission: 'users.read', permissionScope: 'all' },
+      { label: 'Licencias', href: '/admin/licenses', permission: 'licenses.read', permissionScope: 'all' },
+      { label: 'Mis eventos', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
+      { label: 'Mis asistencias', href: '/me/attendance', permission: 'attendance.read', permissionScope: 'own' },
+      { label: 'Mis licencias', href: '/me/licenses', permission: 'licenses.read', permissionScope: 'own' },
     ],
   },
   {
     title: 'Gestión académica',
     icon: School,
-    roles: ['ADMIN'],
     items: [
-      { label: 'Ciclos lectivos', href: '/admin/school-years', roles: ['ADMIN'], permission: 'school-years.manage' },
-      { label: 'Cursos', href: '/admin/courses', roles: ['ADMIN'], permission: 'courses.manage' },
-      { label: 'Estudiantes', href: '/admin/students', roles: ['ADMIN'], permission: 'students.manage' },
+      { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage' },
+      { label: 'Cursos', href: '/admin/courses', permission: 'courses.manage' },
+      { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage' },
     ],
   },
   {
     title: 'Reportes',
     icon: BarChart3,
-    roles: ['ADMIN'],
     items: [
-      { label: 'Analítica', href: '/admin/analytics', roles: ['ADMIN'], permission: 'analytics.read' },
-      { label: 'Asistente de consultas', href: '/admin/query-assistant', roles: ['ADMIN'], permission: 'query-assistant.use' },
+      { label: 'Analítica', href: '/admin/analytics', permission: 'analytics.read' },
+      { label: 'Asistente de consultas', href: '/admin/query-assistant', permission: 'query-assistant.use' },
     ],
   },
   {
     title: 'Configuración',
     icon: SlidersHorizontal,
-    roles: ['ADMIN'],
     items: [
-      { label: 'Mi perfil', href: '/profile', roles: ['ADMIN'] },
-      { label: 'Configuración del sistema', href: '/admin/settings', roles: ['ADMIN'], permission: 'settings.manage' },
-      { label: 'Roles / Perfiles', href: '/admin/profiles', roles: ['ADMIN'], permission: 'profiles.manage' },
-      { label: 'Auditoría', href: '/admin/audit', roles: ['ADMIN'], permission: 'audit.read' },
+      { label: 'Mi perfil', href: '/profile' },
+      { label: 'Configuración del sistema', href: '/admin/settings', permission: 'settings.manage' },
+      { label: 'Roles / Perfiles', href: '/admin/profiles', permission: 'profiles.manage' },
+      { label: 'Auditoría', href: '/admin/audit', permission: 'audit.read' },
     ],
   },
 ]
@@ -139,30 +128,22 @@ function permissionMap(me: MeUser) {
 }
 
 function canSeeItem(me: MeUser, item: NavItem) {
-  const roleMatches = item.roles.includes(me.role)
-
   if (item.permission) {
     const scope = permissionMap(me).get(item.permission)
     if (scope === undefined) return false
 
     if (item.permissionScope === 'all') {
-      if (scope !== 'all') return false
-      if (roleMatches) return true
-      /** Un STAFF con permiso en todo el sistema puede usar pantallas marcadas como admin (p. ej. usuarios). */
-      if (me.role === 'STAFF' && item.roles.includes('ADMIN')) return true
-      return false
+      return scope === 'all'
     }
 
     if (item.permissionScope === 'own') {
-      /** Atajos "Mis X" / portal por rol: no duplicar para ADMIN con permiso global de otro ámbito. */
-      return roleMatches && (scope === 'own' || scope === 'all')
+      return scope === 'own'
     }
 
-    /** Ítem con permiso pero sin scope en nav: acceso si el permiso está concedido y el rol encaja (o alcance global). */
-    return Boolean(scope) && (roleMatches || scope === 'all')
+    return Boolean(scope)
   }
 
-  return roleMatches
+  return true
 }
 
 function hasPermission(me: MeUser, permission: string, permissionScope?: 'own' | 'all') {
@@ -275,7 +256,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
             <User className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
             Mi perfil
           </a>
-          {hasPermission(me, 'settings.manage') && (
+          {hasPermission(me, 'settings.manage', 'all') && (
             <a
               href="/admin/settings"
               className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 transition-colors hover:bg-emerald-50 hover:text-emerald-700"

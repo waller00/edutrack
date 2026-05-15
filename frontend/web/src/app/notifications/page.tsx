@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Bell, CheckCheck, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PendingButtonContent } from '@/components/PendingButtonContent'
+import RoleGuard from '@/components/RoleGuard'
 
 type InAppItem = {
   id: string
@@ -72,7 +73,8 @@ export default function NotificationsPage() {
   const unread = items.filter((it) => !it.readAt).length
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-10">
+    <RoleGuard permission="notifications.read">
+      <div className="mx-auto max-w-2xl px-4 py-10">
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Avisos</h1>
@@ -178,6 +180,7 @@ export default function NotificationsPage() {
           })}
         </ul>
       )}
-    </div>
+      </div>
+    </RoleGuard>
   )
 }

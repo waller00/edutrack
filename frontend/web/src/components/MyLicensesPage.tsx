@@ -20,7 +20,7 @@ type License = {
   certificate?: string | null
 }
 
-export default function MyLicensesPage({ role }: { role: 'STAFF' | 'TEACHER' }) {
+export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = {}) {
   const [licenses, setLicenses] = useState<License[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -40,7 +40,7 @@ export default function MyLicensesPage({ role }: { role: 'STAFF' | 'TEACHER' }) 
   }, [])
 
   return (
-    <RoleGuard allow={[role]}>
+    <RoleGuard permission="licenses.read" permissionScope="own">
       <main className="mx-auto max-w-6xl p-6 space-y-8">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">

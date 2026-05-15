@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { authGuard, requireRole } from "../middlewares/auth.js";
+import { authGuard, requirePermission } from "../middlewares/auth.js";
 import { prisma } from "../prisma.js";
 import { scanAndCreateTeacherNoShowIncidents } from "../services/attendance-incidents.js";
 
@@ -15,7 +15,7 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
 
-r.get("/", authGuard, requireRole("ADMIN"), async (req, res) => {
+r.get("/", authGuard, requirePermission("attendance.read", "all"), async (req, res) => {
   const parsed = listQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ message: "Parámetros inválidos", errors: parsed.error.errors });
@@ -47,7 +47,7 @@ r.get("/", authGuard, requireRole("ADMIN"), async (req, res) => {
   return res.json({ total, page, pageSize, data });
 });
 
-r.post("/scan-now", authGuard, requireRole("ADMIN"), async (_req, res) => {
+r.post("/scan-now", authGuard, requirePermission("attendance.update", "all"), async (_req, res) => {
   try {
     const result = await scanAndCreateTeacherNoShowIncidents(new Date());
     return res.json({ ok: true, ...result });
@@ -57,7 +57,7 @@ r.post("/scan-now", authGuard, requireRole("ADMIN"), async (_req, res) => {
   }
 });
 
-r.patch("/:id/resolve", authGuard, requireRole("ADMIN"), async (req, res) => {
+r.patch("/:id/resolve", authGuard, requirePermission("attendance.update", "all"), async (req, res) => {
   const { id } = req.params;
   const incident = await prisma.attendanceIncident.findUnique({ where: { id } });
   if (!incident) return res.status(404).json({ message: "Incidente no encontrado" });
