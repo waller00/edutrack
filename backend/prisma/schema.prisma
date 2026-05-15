@@ -458,6 +458,7 @@ model SchoolYear {
   courses   Course[]
   events    Event[]
   students  Student[]
+  nonWorkingDays NonWorkingDay[]
 
   @@index([status])
 }
@@ -641,6 +642,26 @@ enum MedicalLeaveType {
 enum MedicalLeaveStatus {
   ACTIVE
   INACTIVE
+}
+
+enum NonWorkingDayType {
+  HOLIDAY
+  NON_WORKING_DAY
+}
+
+model NonWorkingDay {
+  id           String            @id @default(uuid())
+  date         DateTime          @unique
+  type         NonWorkingDayType @default(NON_WORKING_DAY)
+  reason       String
+  notes        String?
+  schoolYearId String?
+  schoolYear   SchoolYear?       @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([date])
+  @@index([schoolYearId])
 }
 
 model MedicalLeave {

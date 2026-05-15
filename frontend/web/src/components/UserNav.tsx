@@ -57,7 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'],
     items: [
       { label: 'Inicio', href: '/', roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'] },
-      { label: 'Notificaciones', href: '/notifications', roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'] },
+      { label: 'Notificaciones', href: '/notifications', roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'], permission: 'notifications.read' },
     ],
   },
   {
@@ -66,15 +66,15 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ['ADMIN', 'TEACHER', 'STAFF', 'STUDENT'],
     items: [
       { label: 'Asistencias', href: '/admin/attendance', roles: ['ADMIN'], permission: 'attendance.read', permissionScope: 'all' },
-      { label: 'Eventos / Clases', href: '/admin/events', roles: ['ADMIN'], permission: 'events.read', permissionScope: 'all' },
+      { label: 'Eventos', href: '/admin/events', roles: ['ADMIN'], permission: 'events.read', permissionScope: 'all' },
       { label: 'Usuarios', href: '/admin/users', roles: ['ADMIN'], permission: 'users.read', permissionScope: 'all' },
       { label: 'Licencias', href: '/admin/licenses', roles: ['ADMIN'], permission: 'licenses.read', permissionScope: 'all' },
-      { label: 'Mis eventos', href: '/teacher/events', roles: ['TEACHER'] },
-      { label: 'Mis asistencias', href: '/teacher/attendance', roles: ['TEACHER'] },
-      { label: 'Mis licencias', href: '/teacher/licenses', roles: ['TEACHER'] },
-      { label: 'Eventos asignados', href: '/staff/events', roles: ['STAFF'] },
-      { label: 'Asistencias', href: '/staff/attendance', roles: ['STAFF'] },
-      { label: 'Mis licencias', href: '/staff/licenses', roles: ['STAFF'] },
+      { label: 'Mis eventos', href: '/teacher/events', roles: ['TEACHER'], permission: 'events.read', permissionScope: 'own' },
+      { label: 'Mis asistencias', href: '/teacher/attendance', roles: ['TEACHER'], permission: 'attendance.read', permissionScope: 'own' },
+      { label: 'Mis licencias', href: '/teacher/licenses', roles: ['TEACHER'], permission: 'licenses.read', permissionScope: 'own' },
+      { label: 'Eventos asignados', href: '/staff/events', roles: ['STAFF'], permission: 'events.read', permissionScope: 'own' },
+      { label: 'Asistencias', href: '/staff/attendance', roles: ['STAFF'], permission: 'attendance.read', permissionScope: 'own' },
+      { label: 'Mis licencias', href: '/staff/licenses', roles: ['STAFF'], permission: 'licenses.read', permissionScope: 'own' },
       { label: 'Mis asistencias', href: '/student/attendance', roles: ['STUDENT'] },
     ],
   },
@@ -139,11 +139,35 @@ function permissionMap(me: MeUser) {
 }
 
 function canSeeItem(me: MeUser, item: NavItem) {
+  const roleMatches = item.roles.includes(me.role)
+
   if (item.permission) {
     const scope = permissionMap(me).get(item.permission)
-    if (scope && (!item.permissionScope || item.permissionScope === scope || scope === 'all')) return true
+    if (scope === undefined) return false
+
+    if (item.permissionScope === 'all') {
+      if (scope !== 'all') return false
+      if (roleMatches) return true
+      /** Un STAFF con permiso en todo el sistema puede usar pantallas marcadas como admin (p. ej. usuarios). */
+      if (me.role === 'STAFF' && item.roles.includes('ADMIN')) return true
+      return false
+    }
+
+    if (item.permissionScope === 'own') {
+      /** Atajos "Mis X" / portal por rol: no duplicar para ADMIN con permiso global de otro ámbito. */
+      return roleMatches && (scope === 'own' || scope === 'all')
+    }
+
+    /** Ítem con permiso pero sin scope en nav: acceso si el permiso está concedido y el rol encaja (o alcance global). */
+    return Boolean(scope) && (roleMatches || scope === 'all')
   }
-  return item.roles.includes(me.role)
+
+  return roleMatches
+}
+
+function hasPermission(me: MeUser, permission: string, permissionScope?: 'own' | 'all') {
+  const scope = permissionMap(me).get(permission)
+  return Boolean(scope && (!permissionScope || permissionScope === scope || scope === 'all'))
 }
 
 function visibleGroups(me: MeUser) {
@@ -251,7 +275,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
             <User className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
             Mi perfil
           </a>
-          {me.role === 'ADMIN' && (
+          {hasPermission(me, 'settings.manage') && (
             <a
               href="/admin/settings"
               className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
