@@ -93,7 +93,11 @@ export type AdminEventsListFilters = {
   status: string
 }
 
-export function buildAdminEventsAllQueryString(page: number, f: AdminEventsListFilters): string {
+export function buildAdminEventsAllQueryString(
+  page: number,
+  f: AdminEventsListFilters,
+  extra?: { schoolYearId?: string; allYears?: boolean },
+): string {
   const params = new URLSearchParams({
     page: String(page),
     pageSize: '20',
@@ -104,5 +108,7 @@ export function buildAdminEventsAllQueryString(page: number, f: AdminEventsListF
   if (f.assignedUserId) params.set('assignedUserId', f.assignedUserId)
   if (f.type) params.set('type', f.type)
   if (f.status) params.set('status', f.status)
+  if (extra?.allYears) params.set('allYears', '1')
+  else if (extra?.schoolYearId) params.set('schoolYearId', extra.schoolYearId)
   return params.toString()
 }

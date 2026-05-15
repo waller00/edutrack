@@ -9,6 +9,14 @@ vi.mock("./app.js", () => ({
   default: { listen: listenSpy },
 }));
 
+vi.mock("./services/school-year-service.js", () => ({
+  ensureDefaultSchoolYearAndBackfill: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./prisma.js", () => ({
+  prisma: {},
+}));
+
 describe("server", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -22,8 +30,8 @@ describe("server", () => {
     await import("./server.js");
 
     expect(listenSpy).toHaveBeenCalledWith(4321, expect.any(Function));
-// En src/server.test.ts (alrededor de la línea 25)
-expect(logSpy).toHaveBeenCalledWith("🚀 Auth-service corriendo en HTTP (puerto 4321)");  });
+    expect(logSpy).toHaveBeenCalledWith("🚀 Auth-service corriendo en HTTP (puerto 4321)");
+  });
 
   it("falls back to port 4000", async () => {
     delete process.env.PORT;

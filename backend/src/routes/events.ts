@@ -22,6 +22,7 @@ import { sendWebPushPayloadToUser } from '../services/webPush.js';
 import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
 import { AuditAction } from '@prisma/client';
 import { recordAuditEvent } from '../services/audit-log.js';
+import { getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js';
 
 const r = Router();
 
@@ -49,12 +50,12 @@ function mapNestedEventUsers(ev: Record<string, unknown>) {
 /** Relación opcional incluida en respuestas de evento. */
 const eventCourseInclude = { select: { id: true, name: true, code: true } } as const
 
-async function assertActiveCourse(courseId: string): Promise<boolean> {
+async function assertActiveCourse(courseId: string): Promise<{ id: string; schoolYearId: string | null } | null> {
   const c = await prisma.course.findFirst({
     where: { id: courseId, isActive: true },
-    select: { id: true },
+    select: { id: true, schoolYearId: true },
   })
-  return Boolean(c)
+  return c
 }
 
 function myEventsPathForRole(role: string | undefined): string {
@@ -169,8 +170,19 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
       return res.status(403).json({ message: 'No puedes asignar eventos a otros usuarios' });
     }
 
-    if (eventData.courseId && !(await assertActiveCourse(eventData.courseId))) {
-      return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
+    let resolvedSchoolYearId: string | null = null
+    if (eventData.courseId) {
+      const c = await assertActiveCourse(eventData.courseId)
+      if (!c) {
+        return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
+      }
+      resolvedSchoolYearId = c.schoolYearId ?? null;
+    }
+    if (!resolvedSchoolYearId) {
+      resolvedSchoolYearId = await getActiveSchoolYearId(prisma);
+    }
+    if (!resolvedSchoolYearId) {
+      return res.status(400).json({ message: 'No hay ciclo lectivo activo. Configurá un año lectivo primero.' });
     }
 
     // Normalización: fecha y hora civil en Uruguay → UTC en DB.
@@ -238,6 +250,7 @@ r.post('/', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) =>
         isRecurring,
         daysOfWeek: eventData.daysOfWeek ?? [],
         courseId: eventData.courseId ?? null,
+        schoolYearId: resolvedSchoolYearId,
       },
       include: {
         user: {
@@ -304,6 +317,11 @@ r.get('/my-events', authGuard, async (req, res) => {
     const where: any = buildMyEventsBaseFilter(user.sub)
     // Excluimos excepciones materializadas en childEvents para evitar duplicados.
     where.parentEventId = null
+
+    const activeSy = await getActiveSchoolYearId(prisma)
+    if (activeSy) {
+      where.schoolYearId = activeSy
+    }
 
     // Si hay filtro de fecha, buscar eventos que puedan tener instancias en ese rango
     applyMyEventsDateFilter(where, user.sub, startDate, endDate)
@@ -387,12 +405,23 @@ async function markExpiredEvents() {
 // Obtener todos los eventos (solo ADMIN)
 r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
   try {
+    const user = req.user
+    if (!user) return res.status(401).json({ message: 'No autorizado' })
+
     // Marcar eventos vencidos antes de obtener la lista
     await markExpiredEvents();
     
     const { startDate, endDate, userId, assignedUserId, type, status } = req.query;
     const page = Number(req.query.page) || 1;
     const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
+
+    const allYears = req.query.allYears === '1'
+    const schoolYearId = allYears
+      ? undefined
+      : await resolveSchoolYearIdForList(prisma, {
+          role: user.role,
+          requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
+        })
 
     const where: any = {};
 
@@ -412,6 +441,10 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
 
     if (status) {
       where.status = status;
+    }
+
+    if (schoolYearId) {
+      where.schoolYearId = schoolYearId;
     }
 
     const [total, events] = await Promise.all([
@@ -546,13 +579,20 @@ r.put('/:id', authGuard, async (req, res) => {
       return res.status(403).json({ message: 'No tienes permisos para editar este evento' });
     }
 
-    if (parsed.data.courseId !== undefined && parsed.data.courseId !== null) {
-      if (!(await assertActiveCourse(parsed.data.courseId))) {
-        return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
+    const updateData: any = { ...parsed.data };
+
+    if (parsed.data.courseId !== undefined) {
+      if (parsed.data.courseId === null) {
+        const sy = await getActiveSchoolYearId(prisma)
+        if (sy) updateData.schoolYearId = sy
+      } else {
+        const co = await assertActiveCourse(parsed.data.courseId)
+        if (!co) {
+          return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
+        }
+        updateData.schoolYearId = co.schoolYearId ?? (await getActiveSchoolYearId(prisma))
       }
     }
-
-    const updateData: any = { ...parsed.data };
 
     // Normalización UTC de startDate/startTime/endTime si se envían.
     // Si no se envían, conservamos componentes del evento actual.

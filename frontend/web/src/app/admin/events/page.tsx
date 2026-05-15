@@ -2,6 +2,7 @@
 import DateRangeFields from '@/components/DateRangeFields'
 import PaginationControls from '@/components/PaginationControls'
 import RoleGuard from '@/components/RoleGuard'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Calendar } from 'lucide-react'
@@ -187,6 +188,8 @@ function renderEventsEmptyState(events: Event[]) {
 }
 
 export default function AdminEvents() {
+  const syCtx = useOptionalAdminSchoolYear()
+
   const [events, setEvents] = useState<Event[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(false)
@@ -228,7 +231,7 @@ export default function AdminEvents() {
   useEffect(() => {
     loadEvents()
     loadUsers()
-  }, [page, filters])
+  }, [page, filters, syCtx?.allYears, syCtx?.schoolYearQuery])
 
   useEffect(() => {
     setPortalReady(true)
@@ -241,7 +244,11 @@ export default function AdminEvents() {
   async function loadEvents() {
     setLoading(true)
     try {
-      const qs = buildAdminEventsAllQueryString(page, filters)
+      const qs = buildAdminEventsAllQueryString(page, filters, {
+        allYears: syCtx?.allYears,
+        schoolYearId:
+          syCtx && !syCtx.allYears ? syCtx.selectedId ?? syCtx.activeId ?? undefined : undefined,
+      })
       const data = await api<{
         total: number
         page: number
