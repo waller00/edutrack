@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  GraduationCap,
   Wrench,
 } from 'lucide-react'
 import { PendingButtonContent } from '@/components/PendingButtonContent'
@@ -32,6 +33,8 @@ function HomeSectionIcon({ kind }: { kind: HomeSectionIconKind }) {
   switch (kind) {
     case 'users':
       return <Users className={cls} aria-hidden />
+    case 'students':
+      return <GraduationCap className={cls} aria-hidden />
     case 'profiles':
       return <ShieldCheck className={cls} aria-hidden />
     case 'settings':

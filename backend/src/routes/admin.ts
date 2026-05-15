@@ -30,6 +30,8 @@ import {
   recordAuditEvent,
 } from '../services/audit-log.js'
 import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
+import adminStudentsRoutes from './admin-students.js'
+import adminSchoolYearsRoutes from './admin-school-years.js'
 
 const r = Router()
 r.use(authGuard, requireRole('ADMIN'))
@@ -846,6 +848,9 @@ r.get('/audit-logs', async (req, res) => {
     data,
   })
 })
+
+r.use('/students', adminStudentsRoutes)
+r.use('/school-years', adminSchoolYearsRoutes)
 
 /** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
 r.post('/query-assistant', async (req, res) => {

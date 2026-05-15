@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { authGuard, requireRole } from '../middlewares/auth.js'
 import { prisma } from '../prisma.js'
 import { selectOrgRoleCode } from '../user-role-prisma.js'
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 
@@ -652,11 +653,23 @@ r.get('/user-events/:userId', authGuard, requireRole('ADMIN'), async (req, res) 
     const { userId } = req.params
     const { startDate, endDate } = req.query
 
+    const allYears = req.query.allYears === '1'
+    const schoolYearId = allYears
+      ? undefined
+      : await resolveSchoolYearIdForList(prisma, {
+          role: req.user?.role,
+          requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
+        })
+
     const where: any = {
       OR: [
         { userId: userId },
         { assignedUserId: userId }
       ]
+    }
+
+    if (schoolYearId) {
+      where.schoolYearId = schoolYearId
     }
 
     if (startDate || endDate) {

@@ -21,6 +21,7 @@ export function getWelcomeMessage(inactiveAccount: boolean, pendingApproval: boo
 
 export type HomeSectionIconKind =
   | 'users'
+  | 'students'
   | 'profiles'
   | 'settings'
   | 'chart'
@@ -32,6 +33,7 @@ export type HomeSectionIconKind =
   | 'default'
 
 export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
+  if (title.toLowerCase().includes('estudiantes')) return 'students'
   if (title.includes('usuarios')) return 'users'
   if (title.includes('perfiles')) return 'profiles'
   if (title.includes('Configuración')) return 'settings'
@@ -50,6 +52,12 @@ export function getHomeSectionIconKind(title: string): HomeSectionIconKind {
 export const HOME_SECTIONS_BY_ROLE: Record<HomeMeRole, HomeSection[]> = {
   ADMIN: [
     { title: 'Gestión de usuarios', desc: 'Gestiona los usuarios del sistema.', cta: 'Administrar usuarios', href: '/admin/users' },
+    {
+      title: 'Estudiantes (matrícula y cuotas)',
+      desc: 'Registro administrativo sin login: curso, contacto, cuotas por año y abandono.',
+      cta: 'Gestionar estudiantes',
+      href: '/admin/students',
+    },
     { title: 'Gestión de asistencias', desc: 'Registro y control de asistencias del personal.', cta: 'Gestionar asistencias', href: '/admin/attendance' },
     {
       title: 'Gestión de eventos y notificaciones',

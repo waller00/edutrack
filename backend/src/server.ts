@@ -1,4 +1,6 @@
 import app from "./app.js";
+import { prisma } from "./prisma.js";
+import { ensureDefaultSchoolYearAndBackfill } from "./services/school-year-service.js";
 import { scanAndCreateTeacherNoShowIncidents } from "./services/attendance-incidents.js";
 import { getAttendanceOperationalSettings } from "./system-settings.js";
 
@@ -10,9 +12,13 @@ const port = Number(process.env.PORT || 4000);
  * El certificado SSL (HTTPS) lo gestiona Cloudflare o un Proxy externo.
  * Esto evita conflictos de certificados y errores de CORS en el 'preflight'.
  */
-app.listen(port, () => {
-  console.log(`🚀 Auth-service corriendo en HTTP (puerto ${port})`);
-});
+ensureDefaultSchoolYearAndBackfill(prisma)
+  .catch((e) => console.error("[school-year] bootstrap:", e))
+  .finally(() => {
+    app.listen(port, () => {
+      console.log(`🚀 Auth-service corriendo en HTTP (puerto ${port})`);
+    });
+  });
 
 let lastMonitorRunAt = 0;
 const monitorTickMs = 30000;

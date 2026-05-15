@@ -98,6 +98,11 @@ const { prismaMock, workbookWriteSpy, MockWorkbook, MockPDFDocument, pdfInstance
 }});
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../services/school-year-service.js", () => ({
+  getActiveSchoolYearId: vi.fn().mockResolvedValue("sy-default"),
+  resolveSchoolYearIdForList: vi.fn().mockResolvedValue("sy-default"),
+  getActiveSchoolYear: vi.fn().mockResolvedValue({ id: "sy-default", code: 2026, status: "ACTIVE" }),
+}));
 vi.mock("exceljs", () => ({
   default: { Workbook: MockWorkbook },
 }));

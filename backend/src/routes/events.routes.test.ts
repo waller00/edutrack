@@ -22,6 +22,11 @@ const { prismaMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../services/school-year-service.js", () => ({
+  getActiveSchoolYearId: vi.fn().mockResolvedValue("sy-default"),
+  resolveSchoolYearIdForList: vi.fn().mockResolvedValue("sy-default"),
+  getActiveSchoolYear: vi.fn().mockResolvedValue({ id: "sy-default", code: 2026, status: "ACTIVE" }),
+}));
 vi.mock("@prisma/client", () => ({
   AuditAction: {
     EVENT_CREATED: "EVENT_CREATED",
@@ -107,7 +112,7 @@ describe("events routes (prisma mock)", () => {
 
   it("POST /events ADMIN crea con courseId activo", async () => {
     const courseId = "00000000-0000-4000-8000-0000000000c2";
-    prismaMock.course.findFirst.mockResolvedValueOnce({ id: courseId });
+    prismaMock.course.findFirst.mockResolvedValueOnce({ id: courseId, schoolYearId: "sy-default" });
     prismaMock.event.create.mockResolvedValue({
       id: "ev1",
       title: "X",
@@ -125,7 +130,7 @@ describe("events routes (prisma mock)", () => {
     expect(res.status).toBe(200);
     expect(prismaMock.event.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ courseId }),
+        data: expect.objectContaining({ courseId, schoolYearId: "sy-default" }),
       }),
     );
   });
@@ -197,6 +202,7 @@ describe("events routes (prisma mock)", () => {
     const where = prismaMock.event.findMany.mock.calls[0][0].where;
     expect(where.type).toBe("CLASE");
     expect(where.status).toBe("SCHEDULED");
+    expect(where.schoolYearId).toBe("sy-default");
   });
 
   it("GET /events/all ADMIN", async () => {
@@ -223,6 +229,7 @@ describe("events routes (prisma mock)", () => {
     expect(where.status).toBe("SCHEDULED");
     expect(where.startDate.gte).toBeInstanceOf(Date);
     expect(where.startDate.lte).toBeInstanceOf(Date);
+    expect(where.schoolYearId).toBe("sy-default");
   });
 
   it("GET /events/all 500 si falla prisma", async () => {

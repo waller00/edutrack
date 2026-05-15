@@ -36,4 +36,11 @@ describe('admin-events-display', () => {
     expect(q).toContain('type=CLASE')
     expect(getAdminEventsDefaultStartDate(2023)).toBe('2023-01-01')
   })
+
+  it('query con ciclo lectivo', () => {
+    const q = buildAdminEventsAllQueryString(1, filters, { schoolYearId: 'sy-1' })
+    expect(q).toContain('schoolYearId=sy-1')
+    const q2 = buildAdminEventsAllQueryString(1, filters, { allYears: true })
+    expect(q2).toContain('allYears=1')
+  })
 })
