@@ -657,6 +657,7 @@ r.post("/2fa/backup-codes/regenerate", authGuard, async (req, res) => {
 
 // Login
 r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
+  clearAuthCookies(res);
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
 
@@ -738,6 +739,7 @@ r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
 });
 
 r.post("/login/2fa", createIpRateLimit(60 * 1000, 10), async (req, res) => {
+  clearAuthCookies(res);
   const parsed = z.object({ twoFactorToken: z.string().min(20), code: twoFactorCodeSchema }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
 

@@ -26,6 +26,10 @@ services:
       TWO_FACTOR_ISSUER: ${TWO_FACTOR_ISSUER:-EduTrack}
       ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-2h}
       REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-7d}
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      COOKIE_AUTO_DOMAIN: ${COOKIE_AUTO_DOMAIN:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
       # Correo (recuperación de contraseña, verificación): definir en .env del servidor
