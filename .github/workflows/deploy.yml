@@ -65,6 +65,8 @@ jobs:
               git reset --hard origin/develop
             fi
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
+            # Red compartida con auth (MOODLE) y docker-compose.moodle.yml; debe existir antes de up
+            docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF down
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
             # NEXT_PUBLIC_* va en el build de Next: sin --no-cache web puede quedar imagen vieja sin Turnstile
@@ -104,6 +106,7 @@ jobs:
               git reset --hard origin/main
             fi
             CF="-f docker-compose.cloud.yml"
+            docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF down
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
             compose $CF build --no-cache web
@@ -140,6 +143,7 @@ jobs:
             TARGET_REF="${{ github.event.inputs.git_ref }}"
             git reset --hard "$TARGET_REF"
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
+            docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF down
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
             compose $CF build --no-cache web
@@ -176,6 +180,7 @@ jobs:
             TARGET_REF="${{ github.event.inputs.git_ref }}"
             git reset --hard "$TARGET_REF"
             CF="-f docker-compose.cloud.yml"
+            docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF down
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
             compose $CF build --no-cache web
