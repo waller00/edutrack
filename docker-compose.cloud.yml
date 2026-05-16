@@ -95,3 +95,4 @@ networks:
   net:
   moodle-net:
     name: edutrack_moodle-net
+    external: true
