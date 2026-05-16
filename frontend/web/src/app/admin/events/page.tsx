@@ -218,6 +218,8 @@ function renderEventsEmptyState(events: Event[]) {
 export default function AdminEvents() {
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+  /** Cursos/asignaturas: siempre un solo ciclo (evita EMS1-ARTE-2020, 2024, 2025… en el combo). */
+  const coursePickerQuery = syCtx?.schoolYearScopedQuery ?? schoolYearQuery
 
   const [events, setEvents] = useState<Event[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -270,12 +272,12 @@ export default function AdminEvents() {
 
   const loadCourses = useCallback(async () => {
     try {
-      const c = await api<CourseOpt[]>(withSchoolYear('/courses?all=1', schoolYearQuery))
+      const c = await api<CourseOpt[]>(withSchoolYear('/courses?all=1', coursePickerQuery))
       setCourses(Array.isArray(c) ? c : [])
     } catch {
       setCourses([])
     }
-  }, [schoolYearQuery])
+  }, [coursePickerQuery])
 
   useEffect(() => {
     void loadCourses()
