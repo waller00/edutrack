@@ -128,14 +128,17 @@ async function moodleRest(wsfunction: string, params: Record<string, string>): P
   const hostHeader = moodleCanonicalHostHeader();
   const { status, text } = await httpPostFormUrlEncoded(base, path, body, hostHeader);
 
+  if (status < 200 || status >= 300) {
+    throw new Error(`MOODLE_HTTP_${status}: ${text.slice(0, 500)}`);
+  }
+
   let data: unknown;
   try {
     data = JSON.parse(text) as unknown;
   } catch {
-    throw new Error(`MOODLE_BAD_RESPONSE: ${text.slice(0, 200)}`);
-  }
-  if (status < 200 || status >= 300) {
-    throw new Error(`MOODLE_HTTP_${status}: ${JSON.stringify(data)}`);
+    throw new Error(
+      `MOODLE_BAD_RESPONSE: HTTP ${status}, len=${text.length}, body=${text.slice(0, 200)}`,
+    );
   }
   if (data && typeof data === "object" && "exception" in data) {
     const o = data as Record<string, unknown>;

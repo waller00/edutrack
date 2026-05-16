@@ -30,6 +30,8 @@ type AdminSchoolYearContextValue = {
   reload: () => Promise<void>
   /** Sufijo para anexar a URLs de API admin (`schoolYearId=` o `allYears=1`). */
   schoolYearQuery: string
+  /** Ciclo fijo (nunca `allYears`): combos de curso/asignatura al crear eventos, etc. */
+  schoolYearScopedQuery: string
 }
 
 const AdminSchoolYearContext = createContext<AdminSchoolYearContextValue | null>(null)
@@ -102,6 +104,12 @@ export function AdminSchoolYearProvider({ children }: { children: React.ReactNod
     return `schoolYearId=${encodeURIComponent(id)}`
   }, [allYears, selectedId, activeId])
 
+  const schoolYearScopedQuery = useMemo(() => {
+    const id = selectedId ?? activeId
+    if (!id) return ''
+    return `schoolYearId=${encodeURIComponent(id)}`
+  }, [selectedId, activeId])
+
   const value = useMemo<AdminSchoolYearContextValue>(
     () => ({
       loading,
@@ -113,8 +121,20 @@ export function AdminSchoolYearProvider({ children }: { children: React.ReactNod
       setAllYears,
       reload,
       schoolYearQuery,
+      schoolYearScopedQuery,
     }),
-    [loading, years, activeId, selectedId, allYears, setSelectedId, setAllYears, reload, schoolYearQuery],
+    [
+      loading,
+      years,
+      activeId,
+      selectedId,
+      allYears,
+      setSelectedId,
+      setAllYears,
+      reload,
+      schoolYearQuery,
+      schoolYearScopedQuery,
+    ],
   )
 
   return <AdminSchoolYearContext.Provider value={value}>{children}</AdminSchoolYearContext.Provider>
