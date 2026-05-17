@@ -326,9 +326,7 @@ async function ensureSchoolYearBackfill() {
       data: { code, label: `Ciclo lectivo ${code}`, status: 'ACTIVE' },
     })
   }
-  await prisma.course.updateMany({ where: { schoolYearId: null }, data: { schoolYearId: active.id } })
   await prisma.event.updateMany({ where: { schoolYearId: null }, data: { schoolYearId: active.id } })
-  await prisma.student.updateMany({ where: { schoolYearId: null }, data: { schoolYearId: active.id } })
 }
 
 async function cleanupManagedArtifacts() {

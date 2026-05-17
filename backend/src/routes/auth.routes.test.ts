@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
-import { signAccessToken } from "../auth/jwt.js";
+import { signAccessToken, signTwoFactorLoginToken } from "../auth/jwt.js";
 
 const { prismaMock, sendMailMock, totpVerifyMock } = vi.hoisted(() => ({
   prismaMock: {
@@ -29,6 +29,12 @@ const { prismaMock, sendMailMock, totpVerifyMock } = vi.hoisted(() => ({
       updateMany: vi.fn(),
       findFirst: vi.fn(),
       update: vi.fn(),
+    },
+    twoFactorBackupCode: {
+      deleteMany: vi.fn(),
+      createMany: vi.fn(),
+      findFirst: vi.fn(),
+      updateMany: vi.fn(),
     },
     passwordReset: {
       updateMany: vi.fn(),
@@ -111,6 +117,14 @@ describe("auth routes (mocks)", () => {
     prismaMock.user.findFirst.mockReset();
     prismaMock.user.findUnique.mockReset();
     prismaMock.user.update.mockReset();
+    prismaMock.twoFactorBackupCode.deleteMany.mockReset();
+    prismaMock.twoFactorBackupCode.createMany.mockReset();
+    prismaMock.twoFactorBackupCode.findFirst.mockReset();
+    prismaMock.twoFactorBackupCode.updateMany.mockReset();
+    prismaMock.twoFactorBackupCode.deleteMany.mockResolvedValue({ count: 0 });
+    prismaMock.twoFactorBackupCode.createMany.mockResolvedValue({ count: 10 });
+    prismaMock.twoFactorBackupCode.findFirst.mockResolvedValue(null);
+    prismaMock.twoFactorBackupCode.updateMany.mockResolvedValue({ count: 0 });
     prismaMock.systemSettings.upsert.mockResolvedValue({
       livenessCheckEnabled: false,
       attendanceNoShowGraceMinutes: 15,
@@ -123,10 +137,15 @@ describe("auth routes (mocks)", () => {
     prismaMock.livenessSession.findUnique.mockReset();
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {
-        return (arg as (tx: { user: typeof prismaMock.user; livenessSession: { update: ReturnType<typeof vi.fn> } }) => Promise<unknown>)(
+        return (arg as (tx: {
+          user: typeof prismaMock.user;
+          livenessSession: { update: ReturnType<typeof vi.fn> };
+          twoFactorBackupCode: typeof prismaMock.twoFactorBackupCode;
+        }) => Promise<unknown>)(
           {
             user: prismaMock.user,
             livenessSession: { update: vi.fn().mockResolvedValue({}) },
+            twoFactorBackupCode: prismaMock.twoFactorBackupCode,
           },
         );
       }
@@ -667,6 +686,7 @@ describe("auth routes (mocks)", () => {
 
     expect(setup.status).toBe(200);
     expect(setup.body.qrCodeDataUrl).toBe("data:image/png;base64,qr");
+    expect(setup.body.manualEntryKey).toBe("TESTTOTPSECRET");
     const encryptedSecret = prismaMock.user.update.mock.calls[0][0].data.twoFactorSecret;
     expect(encryptedSecret).toEqual(expect.any(String));
 
@@ -687,8 +707,15 @@ describe("auth routes (mocks)", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           twoFactorEnabled: true,
-          twoFactorBackupCodes: expect.any(String),
         }),
+      }),
+    );
+    expect(prismaMock.twoFactorBackupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: "user-1" } });
+    expect(prismaMock.twoFactorBackupCode.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ userId: "user-1", codeHash: expect.any(String) }),
+        ]),
       }),
     );
   });
@@ -728,7 +755,6 @@ describe("auth routes (mocks)", () => {
       isActive: true,
       twoFactorEnabled: true,
       twoFactorSecret: encryptedSecret,
-      twoFactorBackupCodes: null,
       orgRole: { code: "STAFF" },
     });
     prismaMock.user.update.mockResolvedValue({});
@@ -743,6 +769,47 @@ describe("auth routes (mocks)", () => {
     expect(loginWith2fa.body.requiresTwoFactor).toBe(true);
     expect(res.status).toBe(200);
     expect(res.headers["set-cookie"]).toBeDefined();
+  });
+
+  it("POST /auth/login/2fa consume un código de respaldo de un solo uso", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "user-1",
+      email: "u@example.com",
+      twoFactorEnabled: false,
+    });
+    prismaMock.user.update.mockResolvedValue({});
+    await request(app())
+      .post("/auth/2fa/setup")
+      .set(authHeader("STAFF", "user-1"))
+      .send({});
+    const encryptedSecret = prismaMock.user.update.mock.calls[0][0].data.twoFactorSecret;
+
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "user-1",
+      email: "u@example.com",
+      name: "User",
+      isActive: true,
+      twoFactorEnabled: true,
+      twoFactorSecret: encryptedSecret,
+      orgRole: { code: "STAFF" },
+    });
+    prismaMock.twoFactorBackupCode.findFirst.mockResolvedValueOnce({ id: "backup-1" });
+    prismaMock.twoFactorBackupCode.updateMany.mockResolvedValueOnce({ count: 1 });
+    prismaMock.refreshToken.create.mockResolvedValue({});
+
+    const res = await request(app())
+      .post("/auth/login/2fa")
+      .send({
+        twoFactorToken: signTwoFactorLoginToken({ sub: "user-1", email: "u@example.com", role: "STAFF" }),
+        code: "ABCD-1234",
+      });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.twoFactorBackupCode.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "backup-1", usedAt: null },
+      }),
+    );
   });
 
   it("POST /auth/forgot 400 si falta captcha cuando está habilitado", async () => {

@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import {
   activateSchoolYearById,
@@ -17,7 +18,7 @@ type YearSerializeInput = {
   status: string
   createdAt: Date
   updatedAt: Date
-  _count?: { courses: number }
+  coursesCount?: number
 }
 
 function serializeYear(row: YearSerializeInput) {
@@ -30,17 +31,33 @@ function serializeYear(row: YearSerializeInput) {
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    coursesCount: row._count?.courses ?? 0,
+    coursesCount: row.coursesCount ?? 0,
   }
+}
+
+async function countCourseOfferings(schoolYearId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*)::bigint AS count FROM "CourseOffering" WHERE "schoolYearId" = ${schoolYearId}
+  `
+  return Number(rows[0]?.count ?? 0)
+}
+
+async function countsBySchoolYear(schoolYearIds: string[]): Promise<Record<string, number>> {
+  if (schoolYearIds.length === 0) return {}
+  const rows = await prisma.$queryRaw<Array<{ schoolYearId: string; count: bigint }>>`
+    SELECT "schoolYearId", COUNT(*)::bigint AS count
+    FROM "CourseOffering"
+    WHERE "schoolYearId" IN (${Prisma.join(schoolYearIds)})
+    GROUP BY "schoolYearId"
+  `
+  return Object.fromEntries(rows.map((row) => [row.schoolYearId, Number(row.count)]))
 }
 
 r.get('/', async (_req, res) => {
   try {
-    const rows = await prisma.schoolYear.findMany({
-      orderBy: [{ code: 'desc' }],
-      include: { _count: { select: { courses: true } } },
-    })
-    return res.json(rows.map(serializeYear))
+    const rows = await prisma.schoolYear.findMany({ orderBy: [{ code: 'desc' }] })
+    const counts = await countsBySchoolYear(rows.map((row) => row.id))
+    return res.json(rows.map((row) => serializeYear({ ...row, coursesCount: counts[row.id] ?? 0 })))
   } catch (e) {
     console.error('[admin/school-years]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -52,10 +69,9 @@ r.get('/active', async (_req, res) => {
     const row = await prisma.schoolYear.findFirst({
       where: { status: 'ACTIVE' },
       orderBy: { code: 'desc' },
-      include: { _count: { select: { courses: true } } },
     })
     if (!row) return res.json(null)
-    return res.json(serializeYear(row))
+    return res.json(serializeYear({ ...row, coursesCount: await countCourseOfferings(row.id) }))
   } catch (e) {
     console.error('[admin/school-years/active]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -77,16 +93,16 @@ r.get('/compare-metrics', async (req, res) => {
     if (!ya || !yb) return res.status(404).json({ message: 'Año lectivo no encontrado' })
 
     const [studentsA, studentsB, coursesA, coursesB, groupA, groupB] = await Promise.all([
-      prisma.student.count({ where: { schoolYearId: ya.id } }),
-      prisma.student.count({ where: { schoolYearId: yb.id } }),
-      prisma.course.count({ where: { schoolYearId: ya.id } }),
-      prisma.course.count({ where: { schoolYearId: yb.id } }),
-      prisma.student.groupBy({
+      (prisma as any).studentEnrollment.count({ where: { schoolYearId: ya.id } }),
+      (prisma as any).studentEnrollment.count({ where: { schoolYearId: yb.id } }),
+      countCourseOfferings(ya.id),
+      countCourseOfferings(yb.id),
+      (prisma as any).studentEnrollment.groupBy({
         by: ['enrollmentStatus'],
         where: { schoolYearId: ya.id },
         _count: { _all: true },
       }),
-      prisma.student.groupBy({
+      (prisma as any).studentEnrollment.groupBy({
         by: ['enrollmentStatus'],
         where: { schoolYearId: yb.id },
         _count: { _all: true },
@@ -149,7 +165,7 @@ r.post('/', async (req, res) => {
         status: status ?? 'PLANNED',
       },
     })
-    return res.status(201).json(serializeYear({ ...row, _count: { courses: 0 } }))
+    return res.status(201).json(serializeYear({ ...row, coursesCount: 0 }))
   } catch (e: unknown) {
     const codeP = (e as { code?: string }).code
     if (codeP === 'P2002') {
@@ -188,11 +204,8 @@ r.patch('/:id', async (req, res) => {
       where: { id },
       data: data as { label?: string; startsOn?: Date | null; endsOn?: Date | null },
     })
-    const full = await prisma.schoolYear.findUniqueOrThrow({
-      where: { id: row.id },
-      include: { _count: { select: { courses: true } } },
-    })
-    return res.json(serializeYear(full))
+    const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: row.id } })
+    return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))
   } catch (e: unknown) {
     const codeP = (e as { code?: string }).code
     if (codeP === 'P2025') return res.status(404).json({ message: 'Ciclo no encontrado' })
@@ -210,11 +223,8 @@ r.post('/:id/activate', async (req, res) => {
       return res.status(400).json({ message: 'No se puede activar un ciclo ya cerrado' })
     }
     const updated = await activateSchoolYearById(prisma, id)
-    const full = await prisma.schoolYear.findUniqueOrThrow({
-      where: { id: updated.id },
-      include: { _count: { select: { courses: true } } },
-    })
-    return res.json(serializeYear(full))
+    const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: updated.id } })
+    return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))
   } catch (e) {
     console.error('[admin/school-years activate]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -235,11 +245,8 @@ r.post('/:id/close', async (req, res) => {
       where: { id },
       data: { status: 'CLOSED' },
     })
-    const full = await prisma.schoolYear.findUniqueOrThrow({
-      where: { id: updated.id },
-      include: { _count: { select: { courses: true } } },
-    })
-    return res.json(serializeYear(full))
+    const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: updated.id } })
+    return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))
   } catch (e) {
     console.error('[admin/school-years close]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })

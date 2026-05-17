@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { authGuard, requireAnyRoleOrPermission, requirePermission } from '../middlewares/auth.js'
-import { getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
+import { ensureCourseOffering, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
 
@@ -52,9 +52,11 @@ async function findCourseVisibleToUser(
         role: user.role,
         requestedSchoolYearId: typeof query.schoolYearId === 'string' ? query.schoolYearId : undefined,
       })
-  const where: Prisma.CourseWhereInput = { id: courseId }
+  const where: any = { id: courseId }
   if (!includeInactive) where.isActive = true
-  if (schoolYearId) where.schoolYearId = schoolYearId
+  if (schoolYearId) {
+    where.offerings = { some: { schoolYearId, ...(includeInactive ? {} : { isActive: true }) } }
+  }
   return prisma.course.findFirst({ where, select: { id: true } })
 }
 
@@ -69,15 +71,37 @@ r.get('/', authGuard, requireAnyRoleOrPermission(['ADMIN', 'STAFF', 'TEACHER'], 
           role: req.user?.role,
           requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
         })
-    const where: Prisma.CourseWhereInput = {}
+    const where: any = {}
     if (!includeInactive) where.isActive = true
-    if (schoolYearId) where.schoolYearId = schoolYearId
+    if (schoolYearId) {
+      where.offerings = { some: { schoolYearId, ...(includeInactive ? {} : { isActive: true }) } }
+    }
     const list = await prisma.course.findMany({
       where,
-      select: { id: true, name: true, code: true, description: true, isActive: true, schoolYearId: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        description: true,
+        isActive: true,
+        offerings: schoolYearId
+          ? { where: { schoolYearId }, select: { id: true, isActive: true, schoolYearId: true }, take: 1 }
+          : { select: { id: true, isActive: true, schoolYearId: true }, take: 1 },
+      } as any,
       orderBy: [{ name: 'asc' }],
     })
-    res.json(list)
+    res.json(
+      (list as any[]).map((course) => ({
+        id: course.id,
+        name: course.name,
+        code: course.code,
+        description: course.description,
+        isActive: course.isActive,
+        schoolYearId: course.offerings[0]?.schoolYearId ?? null,
+        courseOfferingId: course.offerings[0]?.id ?? null,
+        offeringIsActive: course.offerings[0]?.isActive ?? null,
+      })),
+    )
   } catch (e) {
     console.error('Error listando cursos:', e)
     res.status(500).json({ message: 'Error interno del servidor' })
@@ -101,24 +125,52 @@ r.post('/', authGuard, requirePermission('courses.manage', 'all'), async (req, r
     }
     const sy = await prisma.schoolYear.findUnique({ where: { id: schoolYearId }, select: { id: true } })
     if (!sy) return res.status(400).json({ message: 'Ciclo lectivo no encontrado' })
-    const created = await prisma.course.create({
-      data: {
-        name,
-        code: code ?? null,
-        description: description ?? null,
-        isActive,
-        schoolYearId,
-      },
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        description: true,
-        isActive: true,
-        schoolYearId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    const created = await prisma.$transaction(async (tx) => {
+      const existing = code
+        ? await tx.course.findFirst({ where: { code }, select: { id: true } })
+        : await tx.course.findFirst({ where: { name, code: null }, select: { id: true } })
+      const course = existing
+        ? await tx.course.update({
+            where: { id: existing.id },
+            data: {
+              name,
+              description: description ?? null,
+              isActive,
+            },
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              description: true,
+              isActive: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : await tx.course.create({
+            data: {
+              name,
+              code: code ?? null,
+              description: description ?? null,
+              isActive,
+            },
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              description: true,
+              isActive: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+      const offering = await (tx as any).courseOffering.upsert({
+        where: { courseId_schoolYearId: { courseId: course.id, schoolYearId } },
+        update: { isActive },
+        create: { courseId: course.id, schoolYearId, isActive },
+        select: { id: true, schoolYearId: true, isActive: true },
+      })
+      return { ...course, schoolYearId: offering.schoolYearId, courseOfferingId: offering.id, offeringIsActive: offering.isActive }
     })
     res.status(201).json(created)
   } catch (e: unknown) {
@@ -155,8 +207,17 @@ r.put('/:courseId', authGuard, requirePermission('courses.manage', 'all'), async
         ...(data.description !== undefined ? { description: data.description } : {}),
         ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
       },
-      select: { id: true, name: true, code: true, description: true, isActive: true, schoolYearId: true },
+      select: { id: true, name: true, code: true, description: true, isActive: true },
     })
+    const requestedSchoolYearId =
+      typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined
+    if (requestedSchoolYearId && data.isActive !== undefined) {
+      await ensureCourseOffering(prisma, course.id, requestedSchoolYearId)
+      await (prisma as any).courseOffering.update({
+        where: { courseId_schoolYearId: { courseId: course.id, schoolYearId: requestedSchoolYearId } },
+        data: { isActive: data.isActive },
+      })
+    }
     res.json(updated)
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
@@ -174,7 +235,13 @@ r.delete('/:courseId', authGuard, requirePermission('courses.manage', 'all'), as
     if (!cid.success) return res.status(400).json({ message: 'Curso inválido' })
     const course = await findCourseVisibleToUser(cid.data, user, { ...req.query, all: '1' })
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
-    await prisma.course.delete({ where: { id: course.id } })
+    const requestedSchoolYearId =
+      typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined
+    if (requestedSchoolYearId) {
+      await (prisma as any).courseOffering.deleteMany({ where: { courseId: course.id, schoolYearId: requestedSchoolYearId } })
+    } else {
+      await prisma.course.update({ where: { id: course.id }, data: { isActive: false } })
+    }
     res.json({ ok: true })
   } catch (e) {
     console.error('Error eliminando curso:', e)

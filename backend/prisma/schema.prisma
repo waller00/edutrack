@@ -95,11 +95,23 @@ model User {
   twoFactorEnabled            Boolean                @default(false)
   twoFactorSecret             String?
   twoFactorConfirmedAt        DateTime?
-  twoFactorBackupCodes        String?
+  twoFactorBackupCodes        TwoFactorBackupCode[]
   /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
   livenessVerifiedAt          DateTime?
 
   @@index([roleId])
+}
+
+model TwoFactorBackupCode {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, codeHash])
+  @@index([userId, usedAt])
 }
 
 model PasswordReset {
@@ -446,41 +458,56 @@ enum SchoolYearStatus {
 }
 
 model SchoolYear {
-  id        String           @id @default(uuid())
+  id                 String              @id @default(uuid())
   /// Año calendario del ciclo (ej. 2026); único en la institución.
-  code      Int              @unique
-  label     String
-  startsOn  DateTime?
-  endsOn    DateTime?
-  status    SchoolYearStatus @default(PLANNED)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-  courses   Course[]
-  events    Event[]
-  students  Student[]
-  nonWorkingDays NonWorkingDay[]
+  code               Int                 @unique
+  label              String
+  startsOn           DateTime?
+  endsOn             DateTime?
+  status             SchoolYearStatus    @default(PLANNED)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  courseOfferings    CourseOffering[]
+  events             Event[]
+  studentEnrollments StudentEnrollment[]
+  nonWorkingDays     NonWorkingDay[]
 
   @@index([status])
 }
 
 /// Cursos para asociar eventos (clases / grupos).
 model Course {
-  id           String      @id @default(uuid())
-  name         String
-  code         String?
-  description  String?
-  isActive     Boolean     @default(true)
-  schoolYearId String?
-  schoolYear   SchoolYear? @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  events       Event[]
-  students     Student[]
-  subjects     Subject[]
+  id          String           @id @default(uuid())
+  name        String
+  code        String?          @unique
+  description String?
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  subjects    Subject[]
+  offerings   CourseOffering[]
 
-  @@unique([schoolYearId, code])
   @@index([isActive])
-  @@index([schoolYearId])
+}
+
+/// Oferta anual de un curso del catálogo dentro de un ciclo lectivo.
+/// Permite cerrar/abrir años sin duplicar Course ni sus Subject.
+model CourseOffering {
+  id                 String              @id @default(uuid())
+  courseId           String
+  course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  schoolYearId       String
+  schoolYear         SchoolYear          @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  isActive           Boolean             @default(true)
+  notes              String?             @db.Text
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  events             Event[]
+  studentEnrollments StudentEnrollment[]
+
+  @@unique([courseId, schoolYearId])
+  @@index([schoolYearId, isActive])
+  @@index([courseId])
 }
 
 /// Asignatura de un curso. Sin jerarquía de “subcursos”: materias comunes vs orientación
@@ -518,12 +545,6 @@ model Student {
   /// Documento identificatorio (opcional; no implica usuario del sistema).
   documentId String?
 
-  schoolYearId String?
-  schoolYear   SchoolYear? @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
-
-  courseId String?
-  course   Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
-
   contactPhone String?
   tutorPhone   String?
   contactEmail String?
@@ -534,23 +555,38 @@ model Student {
   /// Acceso al portal del liceo u otras notas sensibles (opcional).
   liceoAccessNotes String? @db.Text
 
-  enrollmentStatus       StudentEnrollmentStatus @default(ACTIVE)
-  withdrawnAt            DateTime?
-  /// Año del ciclo lectivo asociado al egreso o abandono (informes anuales).
-  withdrawalAcademicYear Int?
-
   internalNotes String? @db.Text
 
   tuitionYears  StudentTuitionYear[]
   tuitionMonths StudentTuitionMonth[]
+  enrollments   StudentEnrollment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([courseId])
-  @@index([schoolYearId])
-  @@index([enrollmentStatus])
   @@index([lastName, firstName])
+}
+
+/// Historial de matrícula por ciclo. Es la fuente nueva para progreso académico:
+/// curso/oferta, estado, fechas de salida y resultado quedan versionados por año.
+model StudentEnrollment {
+  id                     String                  @id @default(uuid())
+  studentId              String
+  student                Student                 @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId           String
+  schoolYear             SchoolYear              @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  courseOfferingId       String
+  courseOffering         CourseOffering          @relation(fields: [courseOfferingId], references: [id], onDelete: Restrict)
+  enrollmentStatus       StudentEnrollmentStatus @default(ACTIVE)
+  withdrawnAt            DateTime?
+  withdrawalAcademicYear Int?
+  notes                  String?                 @db.Text
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([studentId, schoolYearId])
+  @@index([schoolYearId, enrollmentStatus])
+  @@index([courseOfferingId])
 }
 
 /// Cuota por año calendario del ciclo (ej. 2025); permite consultar años anteriores.
@@ -607,8 +643,8 @@ model Event {
   assignedUser        User?                @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
   schoolYearId        String?
   schoolYear          SchoolYear?          @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
-  courseId            String?
-  course              Course?              @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  courseOfferingId    String?
+  courseOffering      CourseOffering?      @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
   subjectId           String?
   subject             Subject?             @relation(fields: [subjectId], references: [id], onDelete: SetNull)
   recurrenceType      RecurrenceType       @default(NONE)
@@ -626,7 +662,7 @@ model Event {
   @@index([userId])
   @@index([assignedUserId])
   @@index([schoolYearId])
-  @@index([courseId])
+  @@index([courseOfferingId])
   @@index([subjectId])
   @@index([startDate])
   @@index([type])
