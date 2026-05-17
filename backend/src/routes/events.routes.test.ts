@@ -7,6 +7,7 @@ import { signAccessToken } from "../auth/jwt.js";
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     course: { findFirst: vi.fn() },
+    courseOffering: { findFirst: vi.fn() },
     subject: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
     inAppNotification: { create: vi.fn().mockResolvedValue({ id: "n1" }) },
@@ -60,6 +61,7 @@ describe("events routes (prisma mock)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.course.findFirst.mockResolvedValue(null);
+    prismaMock.courseOffering.findFirst.mockResolvedValue(null);
     prismaMock.subject.findFirst.mockResolvedValue(null);
   });
 
@@ -127,7 +129,7 @@ describe("events routes (prisma mock)", () => {
   it("POST /events 400 si subjectId no pertenece al curso", async () => {
     const courseId = "00000000-0000-4000-8000-0000000000c2";
     const subId = "00000000-0000-4000-8000-0000000000a1";
-    prismaMock.course.findFirst.mockResolvedValueOnce({ id: courseId, schoolYearId: "sy-default" });
+    prismaMock.courseOffering.findFirst.mockResolvedValueOnce({ id: "off-1", courseId, schoolYearId: "sy-default" });
     prismaMock.subject.findFirst.mockResolvedValueOnce(null);
     const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
     const res = await request(app())
@@ -141,7 +143,7 @@ describe("events routes (prisma mock)", () => {
 
   it("POST /events ADMIN crea con courseId activo", async () => {
     const courseId = "00000000-0000-4000-8000-0000000000c2";
-    prismaMock.course.findFirst.mockResolvedValueOnce({ id: courseId, schoolYearId: "sy-default" });
+    prismaMock.courseOffering.findFirst.mockResolvedValueOnce({ id: "off-1", courseId, schoolYearId: "sy-default" });
     prismaMock.event.create.mockResolvedValue({
       id: "ev1",
       title: "X",
@@ -149,7 +151,7 @@ describe("events routes (prisma mock)", () => {
       assignedUserId: null,
       user: {},
       assignedUser: null,
-      course: { id: courseId, name: "Curso", code: "c1" },
+      courseOffering: { id: "off-1", courseId, course: { id: courseId, name: "Curso", code: "c1" } },
     });
     const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
     const res = await request(app())
@@ -159,7 +161,7 @@ describe("events routes (prisma mock)", () => {
     expect(res.status).toBe(200);
     expect(prismaMock.event.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ courseId, schoolYearId: "sy-default" }),
+        data: expect.objectContaining({ courseOfferingId: "off-1", schoolYearId: "sy-default" }),
       }),
     );
   });
@@ -243,7 +245,7 @@ describe("events routes (prisma mock)", () => {
       .set("Authorization", `Bearer ${tok}`);
     expect(res.status).toBe(200);
     const where = prismaMock.event.findMany.mock.calls[0][0].where;
-    expect(where.courseId).toBe(cid);
+    expect(where.courseOffering.courseId).toBe(cid);
   });
 
   it("GET /events/all ADMIN", async () => {
@@ -285,7 +287,7 @@ describe("events routes (prisma mock)", () => {
       .set("Authorization", `Bearer ${tok}`);
     expect(res.status).toBe(200);
     const where = prismaMock.event.findMany.mock.calls[0][0].where;
-    expect(where.courseId).toBe(cid);
+    expect(where.courseOffering.courseId).toBe(cid);
   });
 
   it("GET /events/all 500 si falla prisma", async () => {

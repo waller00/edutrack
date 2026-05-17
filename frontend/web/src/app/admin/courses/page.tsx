@@ -13,6 +13,8 @@ type CourseRow = {
   description: string | null
   isActive: boolean
   schoolYearId?: string | null
+  courseOfferingId?: string | null
+  offeringIsActive?: boolean | null
 }
 
 type SubjectRow = {
@@ -122,8 +124,6 @@ export default function AdminCoursesPage() {
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
   const activeSchoolYearId = syCtx?.allYears ? null : syCtx?.selectedId ?? syCtx?.activeId ?? null
-  const activeSchoolYear = syCtx?.years.find((year) => year.id === activeSchoolYearId) ?? null
-  const activeSchoolYearCode = activeSchoolYear?.code ?? new Date().getFullYear()
 
   const [courses, setCourses] = useState<CourseRow[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
@@ -226,7 +226,7 @@ export default function AdminCoursesPage() {
     const name = isEms
       ? `${baseMeta.title} - ${orientationLabel}${subgroup ? ` - ${subgroup}` : ''}`
       : `${baseMeta.title}${subgroup ? ` - ${subgroup}` : ''}`
-    const codeParts = [courseDraft.base, ...(isEms ? [courseDraft.orientation] : []), String(activeSchoolYearCode)]
+    const codeParts = [courseDraft.base, ...(isEms ? [courseDraft.orientation] : [])]
     if (subgroup) codeParts.push(slug(subgroup))
     const code = codeParts.join('-')
 
@@ -268,7 +268,7 @@ export default function AdminCoursesPage() {
     if (!courseEditDraft.name.trim()) return
     setMsg('')
     try {
-      const updated = await api<CourseRow>(`/courses/${courseId}`, {
+      const updated = await api<CourseRow>(withSchoolYear(`/courses/${courseId}`, schoolYearQuery), {
         method: 'PUT',
         body: JSON.stringify({
           name: courseEditDraft.name.trim(),
@@ -288,25 +288,30 @@ export default function AdminCoursesPage() {
   async function toggleCourseActive(course: CourseRow) {
     setMsg('')
     try {
-      const updated = await api<CourseRow>(`/courses/${course.id}`, {
+      const currentlyActive = course.offeringIsActive ?? course.isActive
+      const updated = await api<CourseRow>(withSchoolYear(`/courses/${course.id}`, schoolYearQuery), {
         method: 'PUT',
-        body: JSON.stringify({ isActive: !course.isActive }),
+        body: JSON.stringify({ isActive: !currentlyActive }),
       })
-      setCourses((current) => current.map((row) => (row.id === course.id ? updated : row)))
-      setMsg(updated.isActive ? 'Curso activado.' : 'Curso desactivado.')
+      setCourses((current) =>
+        current.map((row) =>
+          row.id === course.id ? { ...row, ...updated, offeringIsActive: !currentlyActive } : row,
+        ),
+      )
+      setMsg(!currentlyActive ? 'Curso activado en el ciclo.' : 'Curso desactivado en el ciclo.')
     } catch (e: unknown) {
       setMsg((e as Error)?.message || 'Error al cambiar el estado del curso.')
     }
   }
 
   async function removeCourse(course: CourseRow) {
-    if (!confirm(`¿Eliminar "${course.name}"? Se van a eliminar sus asignaturas y se desvincularán eventos/estudiantes.`)) return
+    if (!confirm(`¿Quitar "${course.name}" de este ciclo? El catálogo y sus asignaturas se conservan.`)) return
     setMsg('')
     try {
-      await api(`/courses/${course.id}`, { method: 'DELETE' })
+      await api(withSchoolYear(`/courses/${course.id}`, schoolYearQuery), { method: 'DELETE' })
       setCourses((current) => current.filter((row) => row.id !== course.id))
       if (selectedCourseId === course.id) setSelectedCourseId(null)
-      setMsg('Curso eliminado.')
+      setMsg('Curso quitado del ciclo.')
     } catch (e: unknown) {
       setMsg((e as Error)?.message || 'Error al eliminar curso.')
     }
@@ -390,7 +395,7 @@ export default function AdminCoursesPage() {
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Cursos</h2>
-                <p className="text-xs text-gray-500">Primero EBI por nivel; EMS separado por orientación.</p>
+                <p className="text-xs text-gray-500">Catálogo estable; cada ciclo activa su propia oferta.</p>
               </div>
               <Layers className="h-5 w-5 text-emerald-600" aria-hidden />
             </div>
@@ -532,17 +537,17 @@ export default function AdminCoursesPage() {
                                   <div className="font-medium text-gray-900">{c.displayLabel}</div>
                                   <div className="text-xs text-gray-500">
                                     {c.code ? `${c.code} · ` : ''}
-                                    {c.isActive ? 'Activo' : 'Inactivo'}
+                                    {(c.offeringIsActive ?? c.isActive) ? 'Activo en ciclo' : 'Inactivo'}
                                   </div>
                                 </button>
                                 <div className="flex shrink-0 gap-1">
                                   <button
                                     type="button"
-                                    className={`rounded p-1.5 text-xs ${c.isActive ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
-                                    title={c.isActive ? 'Desactivar' : 'Activar'}
+                                    className={`rounded p-1.5 text-xs ${(c.offeringIsActive ?? c.isActive) ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
+                                    title={(c.offeringIsActive ?? c.isActive) ? 'Desactivar' : 'Activar'}
                                     onClick={() => void toggleCourseActive(c)}
                                   >
-                                    {c.isActive ? 'Off' : 'On'}
+                                    {(c.offeringIsActive ?? c.isActive) ? 'Off' : 'On'}
                                   </button>
                                   <button type="button" className="rounded p-1.5 text-gray-500 hover:bg-gray-100" title="Editar" onClick={() => startEditCourse(c)}>
                                     <Pencil className="h-4 w-4" aria-hidden />

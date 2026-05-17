@@ -12,10 +12,7 @@ export async function getActiveSchoolYearId(prisma: PrismaClient): Promise<strin
   return y?.id ?? null
 }
 
-/**
- * Garantiza al menos un año ACTIVE y asigna `schoolYearId` en filas legacy (null).
- * Idempotente: seguro llamar en cada arranque y al final del seed.
- */
+/** Garantiza al menos un ciclo ACTIVE. Idempotente. */
 export async function ensureDefaultSchoolYearAndBackfill(prisma: PrismaClient): Promise<void> {
   let active = await getActiveSchoolYear(prisma)
   if (!active) {
@@ -28,9 +25,6 @@ export async function ensureDefaultSchoolYearAndBackfill(prisma: PrismaClient): 
       },
     })
   }
-  await prisma.course.updateMany({ where: { schoolYearId: null }, data: { schoolYearId: active.id } })
-  await prisma.event.updateMany({ where: { schoolYearId: null }, data: { schoolYearId: active.id } })
-  await prisma.student.updateMany({ where: { schoolYearId: null }, data: { schoolYearId: active.id } })
 }
 
 /** ADMIN/STAFF puede elegir año por query. Otros roles: siempre el año activo. */
@@ -68,6 +62,7 @@ export async function copyCoursesBetweenSchoolYears(
   targetSchoolYearId: string,
   sourceSchoolYearId: string,
 ): Promise<{ created: number; subjectsCreated: number }> {
+  const db = prisma as any
   if (targetSchoolYearId === sourceSchoolYearId) {
     throw new Error('SAME_SCHOOL_YEAR')
   }
@@ -77,41 +72,57 @@ export async function copyCoursesBetweenSchoolYears(
   ])
   if (!target || !source) throw new Error('SCHOOL_YEAR_NOT_FOUND')
 
-  const existing = await prisma.course.count({ where: { schoolYearId: targetSchoolYearId } })
+  const existing = await db.courseOffering.count({ where: { schoolYearId: targetSchoolYearId } })
   if (existing > 0) throw new Error('TARGET_YEAR_HAS_COURSES')
 
-  const courses = await prisma.course.findMany({
+  const sourceOfferings = await db.courseOffering.findMany({
     where: { schoolYearId: sourceSchoolYearId },
-    include: { subjects: true },
+    include: { course: true },
   })
   let created = 0
-  let subjectsCreated = 0
+  const subjectsCreated = 0
   await prisma.$transaction(async (tx) => {
-    for (const c of courses) {
-      const newCourse = await tx.course.create({
+    for (const offering of sourceOfferings) {
+      await (tx as any).courseOffering.create({
         data: {
-          name: c.name,
-          code: c.code,
-          description: c.description,
-          isActive: true,
+          courseId: offering.courseId,
           schoolYearId: targetSchoolYearId,
+          isActive: offering.isActive,
+          notes: `Oferta replicada desde ciclo ${source.code}`,
         },
       })
       created += 1
-      if (c.subjects.length > 0) {
-        await tx.subject.createMany({
-          data: c.subjects.map((s) => ({
-            name: s.name,
-            code: s.code,
-            description: s.description,
-            sortOrder: s.sortOrder,
-            isActive: s.isActive,
-            courseId: newCourse.id,
-          })),
-        })
-        subjectsCreated += c.subjects.length
-      }
     }
   })
   return { created, subjectsCreated }
+}
+
+export async function ensureCourseOffering(
+  prisma: PrismaClient,
+  courseId: string,
+  schoolYearId: string,
+): Promise<{ id: string; courseId: string; schoolYearId: string; isActive: boolean }> {
+  const db = prisma as any
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { id: true, isActive: true },
+  })
+  if (!course) throw new Error('COURSE_NOT_FOUND')
+  return db.courseOffering.upsert({
+    where: { courseId_schoolYearId: { courseId, schoolYearId } },
+    update: {},
+    create: { courseId, schoolYearId, isActive: course.isActive },
+    select: { id: true, courseId: true, schoolYearId: true, isActive: true },
+  })
+}
+
+export async function findActiveCourseOffering(
+  prisma: PrismaClient,
+  courseId: string,
+  schoolYearId: string,
+): Promise<{ id: string; courseId: string; schoolYearId: string; isActive: boolean } | null> {
+  return (prisma as any).courseOffering.findFirst({
+    where: { courseId, schoolYearId, isActive: true, course: { isActive: true } },
+    select: { id: true, courseId: true, schoolYearId: true, isActive: true },
+  })
 }

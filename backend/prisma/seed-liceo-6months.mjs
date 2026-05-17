@@ -262,6 +262,13 @@ async function main() {
   })
 
   console.log('[4/8] Cursos demo...')
+  let activeSchoolYear = await prisma.schoolYear.findFirst({ where: { status: 'ACTIVE' }, orderBy: { code: 'desc' } })
+  if (!activeSchoolYear) {
+    const code = new Date().getUTCFullYear()
+    activeSchoolYear = await prisma.schoolYear.create({
+      data: { code, label: `Ciclo lectivo ${code}`, status: 'ACTIVE' },
+    })
+  }
   await prisma.course.createMany({
     data: DEMO_COURSES.map((c) => ({
       name: `${c.name} ${NOTE_TAG}`.slice(0, 120),
@@ -274,6 +281,15 @@ async function main() {
     select: { id: true, name: true, code: true },
     orderBy: { code: 'asc' },
   })
+  const offerings = []
+  for (const course of courses) {
+    offerings.push(
+      await prisma.courseOffering.create({
+        data: { courseId: course.id, schoolYearId: activeSchoolYear.id, isActive: true },
+      }),
+    )
+  }
+  const offeringByCourseId = new Map(offerings.map((offering) => [offering.courseId, offering]))
 
   console.log('[5/8] Docentes (%s)...', TEACHER_COUNT)
   const teachers = []
@@ -346,7 +362,8 @@ async function main() {
         location: `Aula / laboratorio (dow ${slot.dow})`,
         userId: adminBefore.id,
         assignedUserId: teacher.id,
-        courseId: course.id,
+        schoolYearId: activeSchoolYear.id,
+        courseOfferingId: offeringByCourseId.get(course.id)?.id,
         recurrenceType: 'WEEKLY',
         recurrenceEnd: horizonEnd,
         isRecurring: true,
@@ -377,7 +394,8 @@ async function main() {
         location: 'Sala docente',
         userId: adminBefore.id,
         assignedUserId: teacher.id,
-        courseId: courses[(ti + h) % courses.length].id,
+        schoolYearId: activeSchoolYear.id,
+        courseOfferingId: offeringByCourseId.get(courses[(ti + h) % courses.length].id)?.id,
         recurrenceType: 'NONE',
         recurrenceEnd: null,
         isRecurring: false,

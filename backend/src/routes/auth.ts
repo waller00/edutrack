@@ -152,21 +152,30 @@ function generateBackupCodes() {
   return Array.from({ length: 10 }, () => `${crypto.randomBytes(2).toString("hex").toUpperCase()}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`);
 }
 
-function serializePlainBackupCodes(codes: string[]) {
-  return JSON.stringify({ v: 1, codes: codes.map((code) => hashToken(code.toUpperCase())) });
+function hashBackupCode(code: string) {
+  return hashToken(code.trim().toUpperCase());
 }
 
-function consumeBackupCode(stored: string | null | undefined, code: string) {
-  if (!stored) return { ok: false, next: stored ?? null };
-  const normalized = code.trim().toUpperCase();
-  const parsed = JSON.parse(stored) as { codes: string[] };
-  const hashed = hashToken(normalized);
-  if (!parsed.codes.includes(hashed)) return { ok: false, next: stored };
-  return { ok: true, next: serializeBackupCodes(parsed.codes.filter((existing) => existing !== hashed)) };
+async function replaceBackupCodesForUser(userId: string, client: any = prisma) {
+  const backupCodes = generateBackupCodes();
+  await client.twoFactorBackupCode.deleteMany({ where: { userId } });
+  await client.twoFactorBackupCode.createMany({
+    data: backupCodes.map((code) => ({ userId, codeHash: hashBackupCode(code) })),
+  });
+  return backupCodes;
 }
 
-function serializeBackupCodes(hashedCodes: string[]) {
-  return JSON.stringify({ v: 1, codes: hashedCodes });
+async function consumeBackupCodeForUser(userId: string, code: string, client: any = prisma) {
+  const existing = await client.twoFactorBackupCode.findFirst({
+    where: { userId, codeHash: hashBackupCode(code), usedAt: null },
+    select: { id: true },
+  });
+  if (!existing) return false;
+  const consumed = await client.twoFactorBackupCode.updateMany({
+    where: { id: existing.id, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+  return consumed.count === 1;
 }
 
 function issueSessionCookies(res: any, req: any, user: { id: string; email: string; role: string }) {
@@ -586,11 +595,14 @@ r.post("/2fa/setup", authGuard, async (req, res) => {
   const issuer = process.env.TWO_FACTOR_ISSUER || "EduTrack";
   const otpauthUrl = generateURI({ issuer, label: me.email, secret });
   const qrCodeDataUrl = await qrcode.toDataURL(otpauthUrl, { margin: 1, width: 240 });
-  await prisma.user.update({
-    where: { id: me.id },
-    data: { twoFactorSecret: encryptTwoFactorSecret(secret), twoFactorConfirmedAt: null, twoFactorBackupCodes: null },
+  await prisma.$transaction(async (tx: any) => {
+    await tx.user.update({
+      where: { id: me.id },
+      data: { twoFactorSecret: encryptTwoFactorSecret(secret), twoFactorConfirmedAt: null },
+    });
+    await tx.twoFactorBackupCode.deleteMany({ where: { userId: me.id } });
   });
-  return res.json({ qrCodeDataUrl, otpauthUrl });
+  return res.json({ qrCodeDataUrl, otpauthUrl, manualEntryKey: secret, issuer, accountName: me.email });
 });
 
 r.post("/2fa/confirm", authGuard, async (req, res) => {
@@ -609,14 +621,15 @@ r.post("/2fa/confirm", authGuard, async (req, res) => {
   const secret = decryptTwoFactorSecret(me.twoFactorSecret);
   if (!verifyTotpCode(parsed.data.code, secret)) return res.status(401).json({ message: "Código inválido" });
 
-  const backupCodes = generateBackupCodes();
-  await prisma.user.update({
-    where: { id: me.id },
-    data: {
-      twoFactorEnabled: true,
-      twoFactorConfirmedAt: new Date(),
-      twoFactorBackupCodes: serializePlainBackupCodes(backupCodes),
-    },
+  const backupCodes = await prisma.$transaction(async (tx: any) => {
+    await tx.user.update({
+      where: { id: me.id },
+      data: {
+        twoFactorEnabled: true,
+        twoFactorConfirmedAt: new Date(),
+      },
+    });
+    return replaceBackupCodesForUser(me.id, tx);
   });
   return res.json({ ok: true, backupCodes });
 });
@@ -628,7 +641,7 @@ r.post("/2fa/disable", authGuard, async (req, res) => {
 
   const me = await prisma.user.findUnique({
     where: { id: u.sub },
-    select: { id: true, passwordHash: true, twoFactorEnabled: true, twoFactorSecret: true, twoFactorBackupCodes: true },
+    select: { id: true, passwordHash: true, twoFactorEnabled: true, twoFactorSecret: true },
   });
   if (!me) return res.status(401).json({ message: "No autorizado" });
   if (!me.twoFactorEnabled) return res.status(409).json({ message: "La autenticación en dos pasos no está activa" });
@@ -638,13 +651,16 @@ r.post("/2fa/disable", authGuard, async (req, res) => {
   if (!verified && parsed.data.code && me.twoFactorSecret) {
     const code = parsed.data.code.trim();
     if (/^\d{6}$/.test(code)) verified = verifyTotpCode(code, decryptTwoFactorSecret(me.twoFactorSecret));
-    else if (/^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(code)) verified = consumeBackupCode(me.twoFactorBackupCodes, code).ok;
+    else if (/^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(code)) verified = await consumeBackupCodeForUser(me.id, code);
   }
   if (!verified) return res.status(401).json({ message: "Verificación inválida" });
 
-  await prisma.user.update({
-    where: { id: me.id },
-    data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorConfirmedAt: null, twoFactorBackupCodes: null },
+  await prisma.$transaction(async (tx: any) => {
+    await tx.user.update({
+      where: { id: me.id },
+      data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorConfirmedAt: null },
+    });
+    await tx.twoFactorBackupCode.deleteMany({ where: { userId: me.id } });
   });
   return res.json({ ok: true });
 });
@@ -657,8 +673,7 @@ r.post("/2fa/backup-codes/regenerate", authGuard, async (req, res) => {
   if (!me) return res.status(401).json({ message: "No autorizado" });
   if (!me.twoFactorEnabled || !me.twoFactorSecret) return res.status(409).json({ message: "La autenticación en dos pasos no está activa" });
   if (!verifyTotpCode(parsed.data.code, decryptTwoFactorSecret(me.twoFactorSecret))) return res.status(401).json({ message: "Código inválido" });
-  const backupCodes = generateBackupCodes();
-  await prisma.user.update({ where: { id: me.id }, data: { twoFactorBackupCodes: serializePlainBackupCodes(backupCodes) } });
+  const backupCodes = await replaceBackupCodesForUser(me.id);
   return res.json({ backupCodes });
 });
 
@@ -766,13 +781,10 @@ r.post("/login/2fa", createIpRateLimit(60 * 1000, 10), async (req, res) => {
 
   const code = parsed.data.code.trim();
   let ok = false;
-  let backupCodesUpdate: string | null | undefined;
   if (/^\d{6}$/.test(code)) {
     ok = verifyTotpCode(code, decryptTwoFactorSecret(user.twoFactorSecret));
   } else {
-    const consumed = consumeBackupCode(user.twoFactorBackupCodes, code);
-    ok = consumed.ok;
-    backupCodesUpdate = consumed.next;
+    ok = await consumeBackupCodeForUser(user.id, code);
   }
   if (!ok) {
     recordAuditEvent({
@@ -790,7 +802,6 @@ r.post("/login/2fa", createIpRateLimit(60 * 1000, 10), async (req, res) => {
       data: {
         failedLoginAttempts: 0,
         lockUntil: null,
-        ...(backupCodesUpdate !== undefined ? { twoFactorBackupCodes: backupCodesUpdate } : {}),
       },
     }),
   ]);

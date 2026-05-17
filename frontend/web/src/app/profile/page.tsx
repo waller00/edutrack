@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { FileText, Info, KeyRound, Lock, Save, ShieldCheck, ShieldOff, User } from 'lucide-react'
+import { Copy, Download, FileText, Info, KeyRound, Lock, Save, ShieldCheck, ShieldOff, User } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
 import PhoneBirthdateFields from '@/components/forms/PhoneBirthdateFields'
@@ -40,6 +40,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
   const [showConf,setShowConf]=useState(false)
   const [twoFactorEnabled,setTwoFactorEnabled]=useState(false)
   const [twoFactorQr,setTwoFactorQr]=useState('')
+  const [twoFactorManualKey,setTwoFactorManualKey]=useState('')
   const [twoFactorCode,setTwoFactorCode]=useState('')
   const [twoFactorDisableValue,setTwoFactorDisableValue]=useState('')
   const [twoFactorBackupCodes,setTwoFactorBackupCodes]=useState<string[]>([])
@@ -116,6 +117,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
     try{
       const result = await api<any>('/auth/2fa/setup',{ method:'POST', body: JSON.stringify({}) })
       setTwoFactorQr(result.qrCodeDataUrl)
+      setTwoFactorManualKey(result.manualEntryKey || '')
       setTwoFactorCode('')
       setTwoFactorBackupCodes([])
     }catch(e:any){
@@ -130,6 +132,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
       const result = await api<any>('/auth/2fa/confirm',{ method:'POST', body: JSON.stringify({ code: twoFactorCode.trim() }) })
       setTwoFactorEnabled(true)
       setTwoFactorQr('')
+      setTwoFactorManualKey('')
       setTwoFactorCode('')
       setTwoFactorBackupCodes(result.backupCodes || [])
       setMsg('Autenticación en dos pasos activada')
@@ -153,6 +156,39 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
     }catch(e:any){
       setMsg(e?.message || 'No se pudo desactivar 2FA')
     }finally{ setSavingTwoFactor(false) }
+  }
+
+  async function copyTwoFactorManualKey(){
+    if(!twoFactorManualKey) return
+    try{
+      await navigator.clipboard.writeText(twoFactorManualKey)
+      setMsg('Clave copiada')
+    }catch{
+      setMsg('No se pudo copiar la clave')
+    }
+  }
+
+  function downloadTwoFactorBackupCodes(){
+    if(twoFactorBackupCodes.length===0) return
+    const issuedAt = new Date().toISOString().slice(0,10)
+    const content = [
+      'Codigos de recuperacion 2FA - EduTrack',
+      `Cuenta: ${me?.email || ''}`,
+      `Fecha: ${issuedAt}`,
+      '',
+      ...twoFactorBackupCodes,
+      '',
+      'Guarda estos codigos en un lugar seguro. Cada codigo se puede usar una sola vez.',
+    ].join('\n')
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `edutrack-codigos-recuperacion-${issuedAt}.txt`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
   }
 
   if(!me) return null
@@ -407,6 +443,20 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                 <p className="text-sm text-emerald-900">
                   Escanea el QR con Google Authenticator y escribe el código de 6 dígitos para confirmar la activación.
                 </p>
+                {twoFactorManualKey && (
+                  <div className="rounded-lg border border-emerald-200 bg-white p-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">Clave manual</p>
+                        <code className="mt-1 block break-all text-sm text-gray-900">{twoFactorManualKey}</code>
+                      </div>
+                      <button type="button" onClick={copyTwoFactorManualKey} className="btn-secondary justify-center">
+                        <Copy className="h-4 w-4" aria-hidden />
+                        Copiar
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Código</label>
                   <input
@@ -423,7 +473,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                   <button type="button" onClick={confirmTwoFactor} disabled={savingTwoFactor} className="btn-primary">
                     <PendingButtonContent pending={savingTwoFactor} pendingText="Confirmando…" idle="Confirmar 2FA" />
                   </button>
-                  <button type="button" onClick={()=>{ setTwoFactorQr(''); setTwoFactorCode('') }} className="btn-secondary">
+                  <button type="button" onClick={()=>{ setTwoFactorQr(''); setTwoFactorManualKey(''); setTwoFactorCode('') }} className="btn-secondary">
                     Cancelar
                   </button>
                 </div>
@@ -433,8 +483,16 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
 
           {twoFactorBackupCodes.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm font-medium text-amber-900">Códigos de respaldo</p>
-              <p className="text-sm text-amber-800 mt-1">Guárdalos en un lugar seguro. Se muestran una sola vez.</p>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-amber-900">Códigos de respaldo</p>
+                  <p className="text-sm text-amber-800 mt-1">Guárdalos en un lugar seguro. Se muestran una sola vez.</p>
+                </div>
+                <button type="button" onClick={downloadTwoFactorBackupCodes} className="btn-secondary justify-center">
+                  <Download className="h-4 w-4" aria-hidden />
+                  Descargar
+                </button>
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">
                 {twoFactorBackupCodes.map(code => (
                   <code key={code} className="rounded bg-white px-2 py-1 text-sm text-gray-900 text-center">{code}</code>

@@ -173,19 +173,19 @@ export default function AdminSchoolYearsPage() {
       return
     }
     if ((copyTarget.coursesCount ?? 0) > 0) {
-      setErr('El ciclo destino ya tiene cursos catalogados.')
+      setErr('El ciclo destino ya tiene ofertas de cursos.')
       return
     }
     clearFlash()
     setCopying(true)
     try {
       await api(`/admin/school-years/${copyTarget.id}/copy-courses-from/${copySourceId}`, { method: 'POST' })
-      setMsg('Cursos y asignaturas copiados al ciclo destino.')
+      setMsg('Oferta de cursos replicada al ciclo destino.')
       setCopyTarget(null)
       setCopySourceId('')
       await reload()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'No se pudo copiar')
+      setErr(e instanceof Error ? e.message : 'No se pudo replicar')
     } finally {
       setCopying(false)
     }
@@ -222,8 +222,8 @@ export default function AdminSchoolYearsPage() {
             <h1 className="text-2xl font-bold text-gray-950">Ciclos lectivos</h1>
           </div>
           <p className="max-w-3xl text-sm text-gray-600">
-            Alta y edición de ciclos, activación del año en curso, cierre y copia de catálogo cuando el ciclo destino tiene{' '}
-            <strong>0 cursos</strong> (la columna «Cursos» y el botón Copiar se actualizan con el conteo real). Abajo podés
+            Alta y edición de ciclos, activación del año en curso, cierre y replicación de oferta cuando el ciclo destino tiene{' '}
+            <strong>0 ofertas</strong> (la columna «Cursos» muestra cuántos cursos están ofertados en ese ciclo). Abajo podés
             comparar métricas entre dos ciclos. El selector global del encabezado admin sigue filtrando listados en el resto
             del sistema.
           </p>
@@ -329,8 +329,8 @@ export default function AdminSchoolYearsPage() {
                             disabled={(y.coursesCount ?? 0) > 0}
                             title={
                               (y.coursesCount ?? 0) > 0
-                                ? `Este ciclo ya tiene ${y.coursesCount} curso(s). La copia solo está permitida con catálogo vacío.`
-                                : 'Copiar cursos y asignaturas desde otro ciclo'
+                                ? `Este ciclo ya tiene ${y.coursesCount} oferta(s). La replicación solo está permitida con oferta vacía.`
+                                : 'Replicar oferta de cursos desde otro ciclo'
                             }
                             className="rounded-lg border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
                             onClick={() => {
@@ -340,7 +340,7 @@ export default function AdminSchoolYearsPage() {
                           >
                             <span className="inline-flex items-center gap-1">
                               <Copy className="h-3.5 w-3.5" aria-hidden />
-                              Copiar cursos
+                              Replicar oferta
                             </span>
                           </button>
                         )}
@@ -363,7 +363,7 @@ export default function AdminSchoolYearsPage() {
           >
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Nuevo ciclo lectivo</h2>
-              <p className="text-sm text-gray-500">Se crea en estado planificado; luego podés activarlo o copiar cursos.</p>
+              <p className="text-sm text-gray-500">Se crea en estado planificado; luego podés activarlo o replicar ofertas.</p>
             </div>
             <ChevronDown className={`h-5 w-5 shrink-0 text-gray-500 transition ${createOpen ? 'rotate-180' : ''}`} aria-hidden />
           </button>
@@ -410,7 +410,7 @@ export default function AdminSchoolYearsPage() {
         <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="text-lg font-semibold text-gray-900">Comparar dos ciclos</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Totales de estudiantes por estado de matrícula y cantidad de cursos catalogados. Útil para ver diferencias
+            Totales de estudiantes por estado de matrícula y cantidad de cursos ofertados. Útil para ver diferencias
             entre años antes de planificar el siguiente.
           </p>
           <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -521,10 +521,10 @@ export default function AdminSchoolYearsPage() {
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold text-gray-900">Copiar cursos hacia {copyTarget.code}</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Replicar oferta hacia {copyTarget.code}</h3>
               <p className="mt-1 text-sm text-gray-600">
-                El destino debe tener <strong>0 cursos</strong> (ahora: {copyTarget.coursesCount ?? 0}). Se copian cursos y
-                asignaturas desde el ciclo origen.
+                El destino debe tener <strong>0 ofertas</strong> (ahora: {copyTarget.coursesCount ?? 0}). Se activan los
+                mismos cursos del ciclo origen usando el catálogo estable.
               </p>
               <div className="mt-4">
                 <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo origen</label>
@@ -542,7 +542,7 @@ export default function AdminSchoolYearsPage() {
                   Cancelar
                 </button>
                 <button type="button" className="btn-primary text-sm" disabled={copying} onClick={() => void submitCopy()}>
-                  {copying ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Copiar'}
+                  {copying ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Replicar'}
                 </button>
               </div>
             </div>

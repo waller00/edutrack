@@ -30,6 +30,11 @@ const r = Router();
 /** Aplana `orgRole.code` → `role` en usuarios relacionados del evento. */
 function mapNestedEventUsers(ev: Record<string, unknown>) {
   const e = { ...ev };
+  if (e.courseOffering && typeof e.courseOffering === 'object' && e.courseOffering !== null) {
+    const co = e.courseOffering as { courseId?: unknown; course?: unknown };
+    e.courseId = co.courseId ?? null;
+    e.course = co.course ?? null;
+  }
   if (e.user && typeof e.user === 'object' && e.user !== null && 'orgRole' in e.user) {
     e.user = attachRoleCode(e.user as Parameters<typeof attachRoleCode>[0]);
   }
@@ -49,15 +54,21 @@ function mapNestedEventUsers(ev: Record<string, unknown>) {
 }
 
 /** Relación opcional incluida en respuestas de evento. */
-const eventCourseInclude = { select: { id: true, name: true, code: true } } as const
 const eventSubjectInclude = { select: { id: true, name: true, code: true } } as const
+const eventCourseOfferingInclude = {
+  select: { id: true, courseId: true, schoolYearId: true, course: { select: { id: true, name: true, code: true } } },
+} as const
 
-async function assertActiveCourse(courseId: string): Promise<{ id: string; schoolYearId: string | null } | null> {
-  const c = await prisma.course.findFirst({
-    where: { id: courseId, isActive: true },
-    select: { id: true, schoolYearId: true },
+async function assertCourseOfferedInSchoolYear(
+  courseId: string,
+  schoolYearId: string,
+): Promise<{ id: string; schoolYearId: string; courseId: string } | null> {
+  const offering = await (prisma as any).courseOffering?.findFirst?.({
+    where: { courseId, schoolYearId, isActive: true, course: { isActive: true } },
+    select: { id: true, courseId: true, schoolYearId: true },
   })
-  return c
+  if (offering) return offering
+  return null
 }
 
 async function assertActiveSubjectInCourse(
@@ -184,13 +195,25 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       return res.status(403).json({ message: 'No puedes asignar eventos a otros usuarios' });
     }
 
-    let resolvedSchoolYearId: string | null = null
+    let resolvedSchoolYearId: string | null =
+      typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : null
+    if (resolvedSchoolYearId) {
+      const sy = await prisma.schoolYear.findUnique({ where: { id: resolvedSchoolYearId }, select: { id: true } })
+      if (!sy) return res.status(400).json({ message: 'Ciclo lectivo no encontrado' })
+    }
+    if (!resolvedSchoolYearId) {
+      resolvedSchoolYearId = await getActiveSchoolYearId(prisma);
+    }
+    if (!resolvedSchoolYearId) {
+      return res.status(400).json({ message: 'No hay ciclo lectivo activo. Configurá un año lectivo primero.' });
+    }
+    let resolvedCourseOfferingId: string | null = null
     if (eventData.courseId) {
-      const c = await assertActiveCourse(eventData.courseId)
-      if (!c) {
-        return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
+      const offering = await assertCourseOfferedInSchoolYear(eventData.courseId, resolvedSchoolYearId)
+      if (!offering) {
+        return res.status(400).json({ message: 'Curso no encontrado, inactivo o no ofertado en este ciclo' });
       }
-      resolvedSchoolYearId = c.schoolYearId ?? null;
+      resolvedCourseOfferingId = offering.id || null
     }
     if (eventData.subjectId) {
       if (!eventData.courseId) {
@@ -201,13 +224,6 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
         return res.status(400).json({ message: 'Asignatura no encontrada o no pertenece al curso' });
       }
     }
-    if (!resolvedSchoolYearId) {
-      resolvedSchoolYearId = await getActiveSchoolYearId(prisma);
-    }
-    if (!resolvedSchoolYearId) {
-      return res.status(400).json({ message: 'No hay ciclo lectivo activo. Configurá un año lectivo primero.' });
-    }
-
     // Normalización: fecha y hora civil en Uruguay → UTC en DB.
     const ymd = parseStartDateToUruguayYmd(eventData.startDate);
     const tStart = parseEventTimeToUruguayHhMm(eventData.startTime);
@@ -256,7 +272,7 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       }
     }
 
-    const event = await prisma.event.create({
+    const event = (await prisma.event.create({
       data: {
         title: eventData.title,
         description: eventData.description ?? null,
@@ -272,7 +288,7 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
         recurrenceEnd: eventData.recurrenceEnd ? parseRecurrenceEndInclusive(eventData.recurrenceEnd) : null,
         isRecurring,
         daysOfWeek: eventData.daysOfWeek ?? [],
-        courseId: eventData.courseId ?? null,
+        courseOfferingId: resolvedCourseOfferingId,
         subjectId: eventData.subjectId ?? null,
         schoolYearId: resolvedSchoolYearId,
       },
@@ -283,10 +299,10 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
         assignedUser: {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
-        course: eventCourseInclude,
+        courseOffering: eventCourseOfferingInclude,
         subject: eventSubjectInclude,
       }
-    });
+    } as any)) as any;
 
     const assigneeId = event.assignedUserId;
     if (assigneeId && assigneeId !== user.sub) {
@@ -366,10 +382,10 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
     }
 
     if (courseIdFilter.success && courseIdFilter.data) {
-      where.courseId = courseIdFilter.data;
+      where.courseOffering = { courseId: courseIdFilter.data };
     }
 
-    const events = await prisma.event.findMany({
+    const events = await (prisma.event as any).findMany({
       where,
       include: {
         user: {
@@ -378,7 +394,7 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
         assignedUser: {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
-        course: eventCourseInclude,
+        courseOffering: eventCourseOfferingInclude,
         subject: eventSubjectInclude,
         childEvents: {
           select: {
@@ -395,9 +411,8 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
             isRecurring: true,
             daysOfWeek: true,
             parentEventId: true,
-            courseId: true,
             subjectId: true,
-            course: eventCourseInclude,
+            courseOffering: eventCourseOfferingInclude,
             subject: eventSubjectInclude,
           },
         },
@@ -499,12 +514,12 @@ r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, re
     }
 
     if (courseIdFilter.success && courseIdFilter.data) {
-      where.courseId = courseIdFilter.data;
+      where.courseOffering = { courseId: courseIdFilter.data };
     }
 
     const [total, events] = await Promise.all([
       prisma.event.count({ where }),
-      prisma.event.findMany({
+      (prisma.event as any).findMany({
         where,
         include: {
           user: {
@@ -513,7 +528,7 @@ r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, re
           assignedUser: {
             select: { id: true, name: true, email: true, ...selectOrgRoleCode }
           },
-          course: eventCourseInclude,
+          courseOffering: eventCourseOfferingInclude,
           subject: eventSubjectInclude,
           _count: {
             select: { attendances: true }
@@ -555,7 +570,7 @@ r.get('/:id', authGuard, requirePermission('events.read'), async (req, res) => {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
-    const event = await prisma.event.findUnique({
+    const event = await (prisma.event as any).findUnique({
       where: { id },
       include: {
         user: {
@@ -564,7 +579,7 @@ r.get('/:id', authGuard, requirePermission('events.read'), async (req, res) => {
         assignedUser: {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
-        course: eventCourseInclude,
+        courseOffering: eventCourseOfferingInclude,
         subject: eventSubjectInclude,
         attendances: {
           include: {
@@ -610,14 +625,15 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
     }
 
     // Verificar que el evento existe y el usuario tiene permisos
-    const existingEvent = await prisma.event.findUnique({
+    const existingEvent = await (prisma.event as any).findUnique({
       where: { id },
       select: {
         id: true,
         userId: true,
         assignedUserId: true,
-        courseId: true,
+        courseOffering: { select: { courseId: true } },
         subjectId: true,
+        schoolYearId: true,
         startDate: true,
         startTime: true,
         endTime: true,
@@ -639,38 +655,52 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
     }
 
     const updateData: any = { ...parsed.data };
+    delete updateData.courseId
 
     if (parsed.data.courseId !== undefined) {
       if (parsed.data.courseId === null) {
         const sy = await getActiveSchoolYearId(prisma)
         if (sy) updateData.schoolYearId = sy
+        updateData.courseOfferingId = null
       } else {
-        const co = await assertActiveCourse(parsed.data.courseId)
-        if (!co) {
-          return res.status(400).json({ message: 'Curso no encontrado o inactivo' });
+        const requestedSchoolYearId =
+          typeof req.query.schoolYearId === 'string'
+            ? req.query.schoolYearId
+            : undefined
+        const targetSchoolYearId =
+          requestedSchoolYearId ??
+          existingEvent.schoolYearId ??
+          (await getActiveSchoolYearId(prisma))
+        if (!targetSchoolYearId) {
+          return res.status(400).json({ message: 'No hay ciclo lectivo activo. Configurá un año lectivo primero.' })
         }
-        updateData.schoolYearId = co.schoolYearId ?? (await getActiveSchoolYearId(prisma))
+        const co = await assertCourseOfferedInSchoolYear(parsed.data.courseId, targetSchoolYearId)
+        if (!co) {
+          return res.status(400).json({ message: 'Curso no encontrado, inactivo o no ofertado en este ciclo' });
+        }
+        updateData.schoolYearId = co.schoolYearId
+        updateData.courseOfferingId = co.id || null
       }
     }
 
     if (parsed.data.subjectId !== undefined && parsed.data.subjectId !== null) {
-      if (parsed.data.courseId === undefined && !existingEvent.courseId) {
+      if (parsed.data.courseId === undefined && !existingEvent.courseOffering?.courseId) {
         return res.status(400).json({ message: 'Seleccioná un curso para asociar una asignatura' });
       }
     }
 
-    if (updateData.courseId === null) {
+    if (parsed.data.courseId === null) {
       updateData.subjectId = null
     } else if (
-      updateData.courseId !== undefined &&
-      updateData.courseId !== existingEvent.courseId &&
+      parsed.data.courseId !== undefined &&
+      parsed.data.courseId !== existingEvent.courseOffering?.courseId &&
       updateData.subjectId === undefined
     ) {
       updateData.subjectId = null
     }
 
     const finalCourseId =
-      updateData.courseId !== undefined ? updateData.courseId : existingEvent.courseId
+      parsed.data.courseId !== undefined ? parsed.data.courseId : existingEvent.courseOffering?.courseId
     const finalSubjectId =
       updateData.subjectId !== undefined ? updateData.subjectId : existingEvent.subjectId
 
@@ -766,7 +796,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       }
     }
 
-    const event = await prisma.event.update({
+    const event = await (prisma.event as any).update({
       where: { id },
       data: updateData,
       include: {
@@ -776,7 +806,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
         assignedUser: {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
-        course: eventCourseInclude,
+        courseOffering: eventCourseOfferingInclude,
         subject: eventSubjectInclude,
       }
     });
@@ -802,7 +832,7 @@ r.put('/:id/cancel', authGuard, requirePermission('events.cancel'), async (req, 
     const { reason } = req.body;
 
     // Verificar que el evento existe y el usuario tiene permisos
-    const existingEvent = await prisma.event.findUnique({
+    const existingEvent = await (prisma.event as any).findUnique({
       where: { id },
       select: { userId: true, assignedUserId: true, status: true, description: true }
     });
@@ -820,7 +850,7 @@ r.put('/:id/cancel', authGuard, requirePermission('events.cancel'), async (req, 
       return res.status(403).json({ message: 'No tienes permisos para cancelar este evento' });
     }
 
-    const event = await prisma.event.update({
+    const event = await (prisma.event as any).update({
       where: { id },
       data: { 
         status: 'CANCELLED',
@@ -833,7 +863,7 @@ r.put('/:id/cancel', authGuard, requirePermission('events.cancel'), async (req, 
         assignedUser: {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
-        course: eventCourseInclude,
+        courseOffering: eventCourseOfferingInclude,
         subject: eventSubjectInclude,
       }
     });

@@ -300,7 +300,7 @@ export default function AdminEvents() {
     void (async () => {
       try {
         const path = `/courses/${newEvent.courseId}/subjects?all=1`
-        const list = await api<SubjectOpt[]>(withSchoolYear(path, schoolYearQuery))
+        const list = await api<SubjectOpt[]>(withSchoolYear(path, coursePickerQuery))
         if (!cancelled) setCreateSubjects(Array.isArray(list) ? list : [])
       } catch {
         if (!cancelled) setCreateSubjects([])
@@ -309,7 +309,7 @@ export default function AdminEvents() {
     return () => {
       cancelled = true
     }
-  }, [creating, newEvent.courseId, schoolYearQuery])
+  }, [creating, newEvent.courseId, coursePickerQuery])
 
   useEffect(() => {
     if (!editingEvent?.courseId) {
@@ -320,7 +320,7 @@ export default function AdminEvents() {
     void (async () => {
       try {
         const path = `/courses/${editingEvent.courseId}/subjects?all=1`
-        const list = await api<SubjectOpt[]>(withSchoolYear(path, schoolYearQuery))
+        const list = await api<SubjectOpt[]>(withSchoolYear(path, coursePickerQuery))
         if (!cancelled) setEditSubjects(Array.isArray(list) ? list : [])
       } catch {
         if (!cancelled) setEditSubjects([])
@@ -329,7 +329,7 @@ export default function AdminEvents() {
     return () => {
       cancelled = true
     }
-  }, [editingEvent?.courseId, schoolYearQuery])
+  }, [editingEvent?.courseId, coursePickerQuery])
 
   async function loadEvents() {
     setLoading(true)
@@ -441,7 +441,7 @@ export default function AdminEvents() {
         eventData.subjectId = newEvent.subjectId
       }
 
-      await api('/events/', {
+      await api(withSchoolYear('/events/', coursePickerQuery), {
         method: 'POST',
         body: JSON.stringify(eventData),
       })
@@ -457,7 +457,7 @@ export default function AdminEvents() {
 
   async function updateEvent(id: string, updates: Partial<Event>) {
     try {
-      await api(`/events/${id}`, {
+      await api(withSchoolYear(`/events/${id}`, coursePickerQuery), {
         method: 'PUT',
         body: JSON.stringify(updates)
       })

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
-import { getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
+import { ensureCourseOffering, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
 
@@ -17,6 +17,14 @@ async function scopedSchoolYearWhere(req: Request): Promise<Prisma.StudentWhereI
   })
   if (!id) return {}
   return { schoolYearId: id }
+}
+
+async function scopedSchoolYearId(req: Request): Promise<string | null> {
+  if (req.query.allYears === '1') return null
+  return resolveSchoolYearIdForList(prisma, {
+    role: req.user?.role,
+    requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
+  })
 }
 
 const enrollmentStatusZ = z.enum(['ACTIVE', 'WITHDRAWN', 'GRADUATED', 'TRANSFERRED'])
@@ -221,6 +229,7 @@ function serializeStudentDetail(row: {
   documentId: string | null
   schoolYearId: string | null
   courseId: string | null
+  courseOfferingId?: string | null
   course: { id: string; name: string; code: string | null } | null
   contactPhone: string | null
   tutorPhone: string | null
@@ -263,6 +272,7 @@ function serializeStudentDetail(row: {
     documentId: row.documentId,
     schoolYearId: row.schoolYearId,
     courseId: row.courseId,
+    courseOfferingId: row.courseOfferingId ?? null,
     course: row.course,
     contactPhone: row.contactPhone,
     tutorPhone: row.tutorPhone,
@@ -291,15 +301,18 @@ r.get('/summary', async (req, res) => {
       return res.status(400).json({ message: 'courseId inválido' })
     }
     const courseId = parsedCourse.data
-    const scoped = await scopedSchoolYearWhere(req)
-    const where: Prisma.StudentWhereInput = { ...scoped }
-    if (courseId) where.courseId = courseId
+    const schoolYearId = await scopedSchoolYearId(req)
+    const where: any = {}
+    const enrollmentWhere: any = {}
+    if (schoolYearId) enrollmentWhere.schoolYearId = schoolYearId
+    if (courseId) enrollmentWhere.courseOffering = { courseId }
+    if (Object.keys(enrollmentWhere).length) where.enrollments = { some: enrollmentWhere }
 
     const [total, grouped] = await Promise.all([
       prisma.student.count({ where }),
-      prisma.student.groupBy({
+      (prisma as any).studentEnrollment.groupBy({
         by: ['enrollmentStatus'],
-        where,
+        where: enrollmentWhere,
         _count: { _all: true },
       }),
     ])
@@ -326,9 +339,8 @@ r.get('/', async (req, res) => {
     const tuitionMonth = (req.query.tuitionMonth as string) || ''
     const tuitionPaid = (req.query.tuitionPaid as string) || ''
 
-    const scoped = await scopedSchoolYearWhere(req)
-    const and: Prisma.StudentWhereInput[] = []
-    if (scoped.schoolYearId) and.push({ schoolYearId: scoped.schoolYearId })
+    const schoolYearId = await scopedSchoolYearId(req)
+    const and: any[] = []
     if (q) {
       and.push({
         OR: [
@@ -340,10 +352,13 @@ r.get('/', async (req, res) => {
     }
     if (courseId) {
       const parsed = z.string().uuid().safeParse(courseId)
-      if (parsed.success) and.push({ courseId: parsed.data })
+      if (parsed.success) and.push({ enrollments: { some: { courseOffering: { courseId: parsed.data } } } })
     }
     if (status && ['ACTIVE', 'WITHDRAWN', 'GRADUATED', 'TRANSFERRED'].includes(status)) {
-      and.push({ enrollmentStatus: status as StudentEnrollmentStatus })
+      and.push({ enrollments: { some: { enrollmentStatus: status as StudentEnrollmentStatus } } })
+    }
+    if (schoolYearId) {
+      and.push({ enrollments: { some: { schoolYearId } } })
     }
     const ty = Number(tuitionYear)
     if (!Number.isNaN(ty) && ty >= 1980 && ty <= 2100) {
@@ -361,7 +376,7 @@ r.get('/', async (req, res) => {
       }
     }
 
-    const where: Prisma.StudentWhereInput = and.length ? { AND: and } : {}
+    const where: any = and.length ? { AND: and } : {}
 
     const [total, rows] = await Promise.all([
       prisma.student.count({ where }),
@@ -370,20 +385,14 @@ r.get('/', async (req, res) => {
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          documentId: true,
-          schoolYearId: true,
-          courseId: true,
-          course: { select: { id: true, name: true, code: true } },
-          enrollmentStatus: true,
-          withdrawnAt: true,
-          withdrawalAcademicYear: true,
-          healthCardExpiresAt: true,
-          createdAt: true,
-        },
+        include: {
+          enrollments: {
+            where: schoolYearId ? { schoolYearId } : {},
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: { courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } } },
+          },
+        } as any,
       }),
     ])
 
@@ -393,30 +402,36 @@ r.get('/', async (req, res) => {
       : !Number.isNaN(ty) && ty >= 1980 && ty <= 2100
         ? ty
         : undefined
+    const rowsAny = rows as any[]
     const tuitionMonthsByStudent = await findTuitionMonths(
-      rows.map((row) => row.id),
+      rowsAny.map((row) => row.id),
       previewYear,
     )
 
-    const data = rows.map((row) => ({
-      id: row.id,
-      firstName: row.firstName,
-      lastName: row.lastName,
-      documentId: row.documentId,
-      schoolYearId: row.schoolYearId,
-      courseId: row.courseId,
-      course: row.course,
-      enrollmentStatus: row.enrollmentStatus,
-      withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
-      withdrawalAcademicYear: row.withdrawalAcademicYear,
-      healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
-      createdAt: row.createdAt.toISOString(),
-      tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
-        year: t.year,
-        month: t.month,
-        paid: t.paid,
-      })),
-    }))
+    const data = rowsAny.map((row) => {
+      const enrollment = row.enrollments?.[0] ?? null
+      const courseOffering = enrollment?.courseOffering ?? null
+      return {
+          id: row.id,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          documentId: row.documentId,
+          schoolYearId: enrollment?.schoolYearId ?? null,
+          courseId: courseOffering?.courseId ?? null,
+          courseOfferingId: courseOffering?.id ?? null,
+          course: courseOffering?.course ?? null,
+          enrollmentStatus: enrollment?.enrollmentStatus ?? 'ACTIVE',
+          withdrawnAt: enrollment?.withdrawnAt?.toISOString() ?? null,
+          withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? null,
+          healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+          createdAt: row.createdAt.toISOString(),
+          tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
+            year: t.year,
+            month: t.month,
+            paid: t.paid,
+          })),
+        }
+      })
 
     return res.json({ total, page, pageSize, data })
   } catch (e) {
@@ -428,16 +443,33 @@ r.get('/', async (req, res) => {
 r.get('/:id', async (req, res) => {
   const id = req.params.id
   try {
-    const row = await prisma.student.findUnique({
+    const row = await (prisma.student as any).findUnique({
       where: { id },
       include: {
-        course: { select: { id: true, name: true, code: true } },
+        enrollments: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } } },
+        },
         tuitionYears: true,
       },
     })
     if (!row) return res.status(404).json({ message: 'Estudiante no encontrado' })
+    const rowAny = row as any
+    const enrollment = rowAny.enrollments?.[0] ?? null
+    const courseOffering = enrollment?.courseOffering ?? null
     const tuitionMonths = (await findTuitionMonths([row.id]))[row.id] ?? []
-    return res.json(serializeStudentDetail({ ...row, tuitionMonths }))
+    return res.json(serializeStudentDetail({
+      ...rowAny,
+      schoolYearId: enrollment?.schoolYearId ?? null,
+      courseId: courseOffering?.courseId ?? null,
+      courseOfferingId: courseOffering?.id ?? null,
+      course: courseOffering?.course ?? null,
+      enrollmentStatus: enrollment?.enrollmentStatus ?? 'ACTIVE',
+      withdrawnAt: enrollment?.withdrawnAt ?? null,
+      withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? null,
+      tuitionMonths,
+    }))
   } catch (e) {
     console.error('[admin/students/:id]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -455,22 +487,23 @@ r.post('/', async (req, res) => {
   const body = parsed.data
   try {
     let resolvedSchoolYearId = body.schoolYearId ?? null
+    let resolvedCourseOfferingId: string | null = null
     if (body.courseId) {
       const c = await prisma.course.findUnique({
         where: { id: body.courseId },
-        select: { id: true, schoolYearId: true },
+        select: { id: true },
       })
       if (!c) return res.status(400).json({ message: 'Curso no encontrado' })
-      if (!resolvedSchoolYearId) resolvedSchoolYearId = c.schoolYearId
-      else if (c.schoolYearId && resolvedSchoolYearId !== c.schoolYearId) {
-        return res.status(400).json({ message: 'El curso pertenece a otro ciclo lectivo que el indicado' })
-      }
     }
     if (!resolvedSchoolYearId) {
       resolvedSchoolYearId = await getActiveSchoolYearId(prisma)
     }
     if (!resolvedSchoolYearId) {
       return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
+    }
+    if (body.courseId) {
+      const offering = await ensureCourseOffering(prisma, body.courseId, resolvedSchoolYearId)
+      resolvedCourseOfferingId = offering.id
     }
 
     const health = body.healthCardExpiresAt ? parseOptionalEndOfDayDate(body.healthCardExpiresAt) : undefined
@@ -493,20 +526,28 @@ r.post('/', async (req, res) => {
           firstName: body.firstName,
           lastName: body.lastName,
           documentId: body.documentId ?? null,
-          schoolYearId: resolvedSchoolYearId,
-          courseId: body.courseId ?? null,
           contactPhone: body.contactPhone ?? null,
           tutorPhone: body.tutorPhone ?? null,
           contactEmail: body.contactEmail ?? null,
           address: body.address ?? null,
           healthCardExpiresAt: health ?? null,
           liceoAccessNotes: body.liceoAccessNotes ?? null,
+          internalNotes: body.internalNotes ?? null,
+        } as any,
+      })
+      if (body.courseId && resolvedCourseOfferingId) {
+        await (tx as any).studentEnrollment.create({
+          data: {
+          studentId: s.id,
+          schoolYearId: resolvedSchoolYearId,
+          courseOfferingId: resolvedCourseOfferingId,
           enrollmentStatus: (body.enrollmentStatus ?? 'ACTIVE') as StudentEnrollmentStatus,
           withdrawnAt: withdrawn ?? null,
           withdrawalAcademicYear: body.withdrawalAcademicYear ?? null,
-          internalNotes: body.internalNotes ?? null,
-        },
-      })
+          notes: body.internalNotes ?? null,
+          },
+        })
+      }
       if (tuitionYears.length) {
         await tx.studentTuitionYear.createMany({
           data: tuitionYears.map((t) => ({
@@ -540,12 +581,32 @@ r.post('/', async (req, res) => {
       }
       return tx.student.findUniqueOrThrow({
         where: { id: s.id },
-        include: { course: { select: { id: true, name: true, code: true } }, tuitionYears: true },
+        include: {
+          enrollments: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: { courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } } },
+          },
+          tuitionYears: true,
+        } as any,
       })
     })
 
+    const createdAny = created as any
+    const enrollment = createdAny.enrollments?.[0] ?? null
+    const courseOffering = enrollment?.courseOffering ?? null
     const createdTuitionMonths = (await findTuitionMonths([created.id]))[created.id] ?? []
-    return res.status(201).json(serializeStudentDetail({ ...created, tuitionMonths: createdTuitionMonths }))
+    return res.status(201).json(serializeStudentDetail({
+      ...createdAny,
+      schoolYearId: enrollment?.schoolYearId ?? resolvedSchoolYearId,
+      courseId: courseOffering?.courseId ?? null,
+      courseOfferingId: courseOffering?.id ?? null,
+      course: courseOffering?.course ?? null,
+      enrollmentStatus: enrollment?.enrollmentStatus ?? (body.enrollmentStatus ?? 'ACTIVE'),
+      withdrawnAt: enrollment?.withdrawnAt ?? withdrawn ?? null,
+      withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
+      tuitionMonths: createdTuitionMonths,
+    }))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
     if (code === 'P2003') {
@@ -570,20 +631,16 @@ r.put('/:id', async (req, res) => {
     return res.status(400).json({ message: 'Sin cambios' })
   }
   try {
-    const existing = await prisma.student.findUnique({ where: { id }, select: { id: true } })
+    const existing = await (prisma.student as any).findUnique({ where: { id }, select: { id: true } })
     if (!existing) return res.status(404).json({ message: 'Estudiante no encontrado' })
 
+    let nextCourseOfferingId: string | null | undefined = undefined
     if (body.courseId !== undefined && body.courseId !== null) {
       const c = await prisma.course.findUnique({
         where: { id: body.courseId },
-        select: { id: true, schoolYearId: true },
+        select: { id: true },
       })
       if (!c) return res.status(400).json({ message: 'Curso no encontrado' })
-      if (body.schoolYearId !== undefined) {
-        if (c.schoolYearId && body.schoolYearId && body.schoolYearId !== c.schoolYearId) {
-          return res.status(400).json({ message: 'Curso y ciclo lectivo no coinciden' })
-        }
-      }
     }
 
     const tuitionYears = body.tuitionYears
@@ -601,20 +658,20 @@ r.put('/:id', async (req, res) => {
       }
     }
 
-    const data: Prisma.StudentUncheckedUpdateInput = {}
+    const data: any = {}
     if (body.firstName !== undefined) data.firstName = body.firstName
     if (body.lastName !== undefined) data.lastName = body.lastName
     if (body.documentId !== undefined) data.documentId = body.documentId ?? null
-    if (body.courseId !== undefined) data.courseId = body.courseId ?? null
-    if (body.schoolYearId !== undefined) {
-      data.schoolYearId = body.schoolYearId ?? null
-    }
-    if (body.courseId !== undefined && body.courseId !== null && body.schoolYearId === undefined) {
-      const c = await prisma.course.findUnique({
-        where: { id: body.courseId },
-        select: { schoolYearId: true },
-      })
-      if (c?.schoolYearId) data.schoolYearId = c.schoolYearId
+    const targetSchoolYearId =
+      body.schoolYearId ??
+      (await getActiveSchoolYearId(prisma))
+    if (body.courseId !== undefined) {
+      if (body.courseId && targetSchoolYearId) {
+        const offering = await ensureCourseOffering(prisma, body.courseId, targetSchoolYearId)
+        nextCourseOfferingId = offering.id
+      } else {
+        nextCourseOfferingId = null
+      }
     }
     if (body.contactPhone !== undefined) data.contactPhone = body.contactPhone ?? null
     if (body.tutorPhone !== undefined) data.tutorPhone = body.tutorPhone ?? null
@@ -626,16 +683,39 @@ r.put('/:id', async (req, res) => {
         : null
     }
     if (body.liceoAccessNotes !== undefined) data.liceoAccessNotes = body.liceoAccessNotes ?? null
-    if (body.enrollmentStatus !== undefined) data.enrollmentStatus = body.enrollmentStatus
-    if (body.withdrawnAt !== undefined) {
-      data.withdrawnAt = body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null
-    }
-    if (body.withdrawalAcademicYear !== undefined) data.withdrawalAcademicYear = body.withdrawalAcademicYear ?? null
     if (body.internalNotes !== undefined) data.internalNotes = body.internalNotes ?? null
 
     const updated = await prisma.$transaction(async (tx) => {
       if (Object.keys(data).length) {
         await tx.student.update({ where: { id }, data })
+      }
+      const currentEnrollment = targetSchoolYearId
+        ? await (tx as any).studentEnrollment.findUnique({
+            where: { studentId_schoolYearId: { studentId: id, schoolYearId: targetSchoolYearId } },
+          })
+        : null
+      const finalCourseOfferingId =
+        nextCourseOfferingId !== undefined ? nextCourseOfferingId : currentEnrollment?.courseOfferingId
+      if (targetSchoolYearId && finalCourseOfferingId) {
+        await (tx as any).studentEnrollment.upsert({
+          where: { studentId_schoolYearId: { studentId: id, schoolYearId: targetSchoolYearId } },
+          update: {
+            courseOfferingId: finalCourseOfferingId,
+            ...(body.enrollmentStatus !== undefined ? { enrollmentStatus: body.enrollmentStatus } : {}),
+            ...(body.withdrawnAt !== undefined ? { withdrawnAt: body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null } : {}),
+            ...(body.withdrawalAcademicYear !== undefined ? { withdrawalAcademicYear: body.withdrawalAcademicYear ?? null } : {}),
+            ...(body.internalNotes !== undefined ? { notes: body.internalNotes ?? null } : {}),
+          },
+          create: {
+            studentId: id,
+            schoolYearId: targetSchoolYearId,
+            courseOfferingId: finalCourseOfferingId,
+            enrollmentStatus: (body.enrollmentStatus ?? 'ACTIVE') as StudentEnrollmentStatus,
+            withdrawnAt: body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null,
+            withdrawalAcademicYear: body.withdrawalAcademicYear ?? null,
+            notes: body.internalNotes ?? null,
+          },
+        })
       }
       if (tuitionYears) {
         await tx.studentTuitionYear.deleteMany({ where: { studentId: id } })
@@ -676,12 +756,33 @@ r.put('/:id', async (req, res) => {
       }
       return tx.student.findUniqueOrThrow({
         where: { id },
-        include: { course: { select: { id: true, name: true, code: true } }, tuitionYears: true },
+        include: {
+          enrollments: {
+            where: targetSchoolYearId ? { schoolYearId: targetSchoolYearId } : {},
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: { courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } } },
+          },
+          tuitionYears: true,
+        } as any,
       })
     })
 
+    const updatedAny = updated as any
+    const enrollment = updatedAny.enrollments?.[0] ?? null
+    const courseOffering = enrollment?.courseOffering ?? null
     const updatedTuitionMonths = (await findTuitionMonths([updated.id]))[updated.id] ?? []
-    return res.json(serializeStudentDetail({ ...updated, tuitionMonths: updatedTuitionMonths }))
+    return res.json(serializeStudentDetail({
+      ...updatedAny,
+      schoolYearId: enrollment?.schoolYearId ?? targetSchoolYearId ?? null,
+      courseId: courseOffering?.courseId ?? null,
+      courseOfferingId: courseOffering?.id ?? null,
+      course: courseOffering?.course ?? null,
+      enrollmentStatus: enrollment?.enrollmentStatus ?? body.enrollmentStatus ?? 'ACTIVE',
+      withdrawnAt: enrollment?.withdrawnAt ?? (body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null),
+      withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
+      tuitionMonths: updatedTuitionMonths,
+    }))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
     if (code === 'P2003') {
