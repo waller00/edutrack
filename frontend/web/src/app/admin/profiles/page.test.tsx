@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import AdminProfilesPanel from '@/components/AdminProfilesPanel'
-import { api } from '@/lib/api'
+import AdminProfilesPanel from '@/components/admin/AdminProfilesPanel'
+import { api } from '@/lib/api/client'
 
-vi.mock('@/lib/api', () => ({ api: vi.fn() }))
+vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 
 const mockedApi = vi.mocked(api)
 

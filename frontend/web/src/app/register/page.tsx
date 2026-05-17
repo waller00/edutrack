@@ -1,16 +1,16 @@
 'use client'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api } from '@/lib/api'
-import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
+import { api } from '@/lib/api/client'
+import PhoneBirthdateFields from '@/components/forms/PhoneBirthdateFields'
 import {
   onlyDigits,
   formatUruguayanCI,
   normalizeLocalPhoneUY,
   isValidUruguayanCI,
-} from '@/lib/uruguay-forms'
-import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
-import { PendingButtonContent } from '@/components/PendingButtonContent'
-import { getPasswordStrength, getStrengthBarClass } from '@/lib/password-strength'
+} from '@/lib/forms/uruguay-forms'
+import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
+import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import { getPasswordStrength, getStrengthBarClass } from '@/lib/auth/password-strength'
 import {
   getRegisterVerificationFieldLabel,
   getRegisterVerificationMessageClass,
@@ -23,13 +23,13 @@ import {
   type RegisterRole,
   type RegisterUsernameStatus,
   type RegisterVerificationResults,
-} from '@/lib/register-form-validation'
+} from '@/lib/auth/register-form-validation'
 import {
   clearRegisterDraft,
   loadRegisterDraft,
   saveRegisterDraft,
   type RegisterDraftSnapshot,
-} from '@/lib/register-draft'
+} from '@/lib/auth/register-draft'
 
 type DiditFieldVerifyApiResponse = {
   success?: boolean

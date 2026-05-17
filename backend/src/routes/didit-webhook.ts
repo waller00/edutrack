@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
-import { prisma } from '../prisma.js'
-import { verifyDiditWebhookSignature } from '../didit-signature.js'
-import { diditStringToLivenessStatus } from '../didit-status.js'
+import { prisma } from '../db/prisma.js'
+import { verifyDiditWebhookSignature } from '../integrations/didit/signature.js'
+import { diditStringToLivenessStatus } from '../integrations/didit/status.js'
 import type { LivenessSessionStatus } from '@prisma/client'
 
 function isTerminal(s: LivenessSessionStatus) {

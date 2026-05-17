@@ -44,7 +44,7 @@ const { prismaMock } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../services/medicalLeaveReconciliation.js", () => ({
   findApprovedLicenseCoveringEventTime: vi.fn(),
 }));

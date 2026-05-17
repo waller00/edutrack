@@ -3,7 +3,7 @@ import type { Request } from 'express'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
-import { prisma } from '../prisma.js'
+import { prisma } from '../db/prisma.js'
 import { getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()

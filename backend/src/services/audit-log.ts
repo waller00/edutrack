@@ -1,7 +1,7 @@
 import type { Request } from "express";
 import type { Prisma } from "@prisma/client";
 import { AuditAction } from "@prisma/client";
-import { prisma } from "../prisma.js";
+import { prisma } from "../db/prisma.js";
 
 const UA_MAX = 512;
 

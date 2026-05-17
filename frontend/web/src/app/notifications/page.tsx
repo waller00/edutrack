@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Bell, CheckCheck, ExternalLink } from 'lucide-react'
-import { api } from '@/lib/api'
-import { PendingButtonContent } from '@/components/PendingButtonContent'
-import RoleGuard from '@/components/RoleGuard'
+import { api } from '@/lib/api/client'
+import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import RoleGuard from '@/components/auth/RoleGuard'
 
 type InAppItem = {
   id: string

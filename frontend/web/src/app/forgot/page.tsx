@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { PendingButtonContent } from '@/components/PendingButtonContent'
-import { api } from '@/lib/api'
+import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import { api } from '@/lib/api/client'
 import { Info } from 'lucide-react'
 
 declare global {

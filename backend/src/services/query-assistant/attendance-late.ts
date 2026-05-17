@@ -1,4 +1,4 @@
-import { prisma } from '../../prisma.js'
+import { prisma } from '../../db/prisma.js'
 import { resolveYmdRangeFromPayload, ymdBoundsUtc } from './date-range.js'
 import { resolveUserIdsFromSearch, userDisplayName } from './helpers.js'
 import type { LlmIntentPayload, QueryAssistantTableResult } from './schemas.js'

@@ -1,6 +1,6 @@
 import './globals.css'
 import type { Metadata } from 'next'
-import UserNav from '@/components/UserNav'
+import UserNav from '@/components/navigation/UserNav'
 
 export const metadata: Metadata = {
   title: 'EduTrack',

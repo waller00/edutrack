@@ -3,9 +3,9 @@
 import AdminOperationalSettingsPanel, {
   type OperationalSettingsSection,
   type OperationalSettingsData,
-} from '@/components/AdminOperationalSettingsPanel'
-import RoleGuard from '@/components/RoleGuard'
-import { api } from '@/lib/api'
+} from '@/components/admin/AdminOperationalSettingsPanel'
+import RoleGuard from '@/components/auth/RoleGuard'
+import { api } from '@/lib/api/client'
 import { Fingerprint, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 

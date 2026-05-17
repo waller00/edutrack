@@ -3,10 +3,10 @@ import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { Prisma } from "@prisma/client";
-import { signAccessToken } from "../jwt.js";
-import { computeCICheckDigit } from "../uruguay-ci.js";
-import type { BuiltinProfileRole } from "../profile-permissions-defaults.js";
-import { DEFAULT_PROFILE_PERMISSIONS } from "../profile-permissions-defaults.js";
+import { signAccessToken } from "../auth/jwt.js";
+import { computeCICheckDigit } from "../identity/uruguay-ci.js";
+import type { BuiltinProfileRole } from "../identity/profile-permissions-defaults.js";
+import { DEFAULT_PROFILE_PERMISSIONS } from "../identity/profile-permissions-defaults.js";
 
 const { prismaMock, runAdminQueryAssistantMock } = vi.hoisted(() => ({
   runAdminQueryAssistantMock: vi.fn(),
@@ -93,7 +93,7 @@ function permissionCatalogRows() {
   return [...byCode.values()];
 }
 
-vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../services/query-assistant/run.js", () => ({
   runAdminQueryAssistant: runAdminQueryAssistantMock,
 }));

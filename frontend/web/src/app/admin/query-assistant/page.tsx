@@ -1,7 +1,7 @@
 'use client'
 
-import RoleGuard from '@/components/RoleGuard'
-import { api } from '@/lib/api'
+import RoleGuard from '@/components/auth/RoleGuard'
+import { api } from '@/lib/api/client'
 import { ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
 import { useCallback, useState } from 'react'
 

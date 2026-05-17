@@ -15,7 +15,7 @@ import {
   generateAttendanceAssistanceReportXlsxFromAttendances,
 } from '../services/analytics/exports/attendanceAssistanceReportExport.js'
 import { generateMonthlySummaryPdf } from '../services/analytics/exports/monthlySummaryPdf.js'
-import { prisma } from '../prisma.js'
+import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()

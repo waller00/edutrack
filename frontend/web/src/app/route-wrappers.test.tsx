@@ -14,19 +14,19 @@ const eventsMock = vi.fn(() => <div>Events page</div>)
 const licensesMock = vi.fn(() => <div>Licenses page</div>)
 const redirectMock = vi.fn()
 
-vi.mock('@/components/MyAttendancePage', () => ({
+vi.mock('@/components/personal/MyAttendancePage', () => ({
   default: () => attendanceMock(),
 }))
 
-vi.mock('@/components/MyAssignedEventsPage', () => ({
+vi.mock('@/components/personal/MyAssignedEventsPage', () => ({
   default: () => eventsMock(),
 }))
 
-vi.mock('@/components/MyLicensesPage', () => ({
+vi.mock('@/components/personal/MyLicensesPage', () => ({
   default: () => licensesMock(),
 }))
 
-vi.mock('@/components/RoleGuard', () => ({
+vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
 }))
 

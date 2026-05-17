@@ -1,5 +1,5 @@
 'use client'
-import RoleGuard from '@/components/RoleGuard'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { BarChart3 } from 'lucide-react'
 
 export default function StudentAttendance() {

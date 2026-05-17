@@ -1,6 +1,6 @@
 'use client'
 
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
 const LS_KEY = 'edutrack_admin_school_year_id'

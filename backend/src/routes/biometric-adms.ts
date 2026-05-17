@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import crypto from "crypto";
-import { prisma } from "../prisma.js";
-import { buildBiometricAttendancePayload } from "../attendance-logic.js";
+import { prisma } from "../db/prisma.js";
+import { buildBiometricAttendancePayload } from "../attendance/attendance-logic.js";
 import { findApprovedLicenseCoveringEventTime } from "../services/medicalLeaveReconciliation.js";
 import {
   findAssignedEventForAttendanceInstant,
@@ -16,8 +16,8 @@ import {
   findBlockContainingEventId,
   findBlockContainingInstant,
 } from "../services/teacher-class-blocks.js";
-import { uruguayStartOfDayFromInstant } from "../app-timezone.js";
-import { getAttendanceOperationalSettings, isBiometricLateBySettings } from "../system-settings.js";
+import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
+import { getAttendanceOperationalSettings, isBiometricLateBySettings } from "../config/system-settings.js";
 
 const r = Router();
 

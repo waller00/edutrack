@@ -1,9 +1,9 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import VerifyPage from './page'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 
-vi.mock('@/lib/api', () => ({
+vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 

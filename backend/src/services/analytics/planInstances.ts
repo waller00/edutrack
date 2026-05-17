@@ -1,4 +1,4 @@
-import { prisma } from '../../prisma.js'
+import { prisma } from '../../db/prisma.js'
 import type { AttendanceType, EventStatus, EventType } from '@prisma/client'
 import type { PlannedInstance } from './models.js'
 import { parseYmdToUtcRange, toYmdUtc } from './dateRange.js'

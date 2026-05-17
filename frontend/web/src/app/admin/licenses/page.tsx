@@ -1,22 +1,22 @@
 'use client'
-import MedicalLeaveCertificateLink from '@/components/MedicalLeaveCertificateLink'
-import RoleGuard from '@/components/RoleGuard'
+import MedicalLeaveCertificateLink from '@/components/personal/MedicalLeaveCertificateLink'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   buildMedicalLeavesQueryString,
   formatLicenseAdminUserDisplayName,
   getLicenseStatusBadgeClass,
   getLicenseStatusLabel,
   getLicenseTypeLabel,
-} from '@/lib/admin-licenses-display'
+} from '@/lib/admin/licenses-display'
 import {
   medicalLeaveCertificateAcceptAttr,
   readMedicalLeaveCertificateFile,
   certificateHasValue,
-} from '@/lib/medical-leave-certificate-client'
-import { formatValidationErrorFromApi } from '@/lib/api-validation-message'
-import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+} from '@/lib/medical-leaves/certificate-client'
+import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
+import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { Calendar, FileText, Loader2, Plus, Search, Trash2 } from 'lucide-react'
 
 type License = {

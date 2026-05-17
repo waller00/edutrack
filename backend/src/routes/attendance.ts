@@ -1,18 +1,18 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../prisma.js';
+import { prisma } from '../db/prisma.js';
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js';
 import {
   getDuplicateAttendanceMessage,
   getAttendanceStatus,
   buildBiometricAttendancePayload,
-  isBiometricLate,
-} from '../attendance-logic.js';
+} from '../attendance/attendance-logic.js';
 import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveReconciliation.js';
-import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
-import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance-school-year.js';
+import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
+import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attendance-school-year.js';
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
+import { getAttendanceOperationalSettings, isBiometricLateBySettings } from '../config/system-settings.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -165,12 +165,14 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
     }
 
     const actualTime = new Date(time);
+    const runtimeSettings = await getAttendanceOperationalSettings();
     const status = getAttendanceStatus({
       type,
       actualTime,
       startTime: event.startTime,
       endTime: event.endTime,
       hasApprovedLicense: false,
+      lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
     });
 
     const attendance = await prisma.attendance.create({
@@ -478,7 +480,8 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
       });
     }
 
-    const isLate = isBiometricLate(attendanceTime)
+    const runtimeSettings = await getAttendanceOperationalSettings()
+    const isLate = isBiometricLateBySettings(attendanceTime, runtimeSettings)
     
     const entryAttendance = await prisma.attendance.create({
       data: buildBiometricAttendancePayload({ userId, attendanceDate, attendanceTime, deviceId, isLate, type: 'CHECK_IN' }),

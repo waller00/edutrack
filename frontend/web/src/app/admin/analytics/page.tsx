@@ -1,9 +1,9 @@
 'use client'
 
-import RoleGuard from '@/components/RoleGuard'
-import { api } from '@/lib/api'
-import { getAdminEventTypeLabel } from '@/lib/admin-events-display'
-import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+import RoleGuard from '@/components/auth/RoleGuard'
+import { api } from '@/lib/api/client'
+import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
+import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   ArrowRight,
   BarChart3,
