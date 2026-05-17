@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../prisma.js';
+import { prisma } from '../db/prisma.js';
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js';
 import {
   applyEventStartDateFilter,
   buildMyEventsBaseFilter,
   applyMyEventsDateFilter,
   expandRecurringEvent,
-} from '../events-query.js';
+} from '../events/events-query.js';
 import {
   APP_TIMEZONE,
   isYmdDateString,
@@ -16,10 +16,10 @@ import {
   parseStartDateToUruguayYmd,
   uruguayWallToUtc,
   uruguayYmdEndOfDayToUtc,
-} from '../app-timezone.js';
+} from '../config/app-timezone.js';
 import { DateTime } from 'luxon';
 import { sendWebPushPayloadToUser } from '../services/webPush.js';
-import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
+import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
 import { AuditAction } from '@prisma/client';
 import { recordAuditEvent } from '../services/audit-log.js';
 import { getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js';

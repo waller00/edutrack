@@ -1,8 +1,8 @@
 import app from "./app.js";
-import { prisma } from "./prisma.js";
+import { prisma } from "./db/prisma.js";
 import { ensureDefaultSchoolYearAndBackfill } from "./services/school-year-service.js";
 import { scanAndCreateTeacherNoShowIncidents } from "./services/attendance-incidents.js";
-import { getAttendanceOperationalSettings } from "./system-settings.js";
+import { getAttendanceOperationalSettings } from "./config/system-settings.js";
 
 // Definimos el puerto (4000 por defecto para el backend)
 const port = Number(process.env.PORT || 4000);
@@ -22,7 +22,7 @@ ensureDefaultSchoolYearAndBackfill(prisma)
 
 let lastMonitorRunAt = 0;
 const monitorTickMs = 30000;
-setInterval(() => {
+const attendanceMonitorInterval = setInterval(() => {
   void (async () => {
     const runtime = await getAttendanceOperationalSettings();
     if (!runtime.monitorEnabled) return;
@@ -34,3 +34,4 @@ setInterval(() => {
     console.error("attendance monitor tick:", error);
   });
 }, monitorTickMs);
+attendanceMonitorInterval.unref?.();

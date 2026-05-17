@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
-import { signAccessToken } from "../jwt.js";
+import { signAccessToken } from "../auth/jwt.js";
 
 const { prismaMock, sendMailMock, totpVerifyMock } = vi.hoisted(() => ({
   prismaMock: {
@@ -46,8 +46,8 @@ const { prismaMock, sendMailMock, totpVerifyMock } = vi.hoisted(() => ({
   totpVerifyMock: vi.fn().mockReturnValue({ valid: true }),
 }));
 
-vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
-vi.mock("../email.js", () => ({
+vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../notifications/email.js", () => ({
   sendMail: sendMailMock,
 }));
 
@@ -60,7 +60,7 @@ vi.mock("@prisma/client", () => ({
   },
 }));
 
-vi.mock("../org-role-service.js", () => ({
+vi.mock("../identity/org-role-service.js", () => ({
   normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
   getOrgRoleIdByCodeOrThrow: vi.fn().mockResolvedValue("mock-org-role-id"),
 }));

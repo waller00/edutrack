@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
-import { verifyToken } from "../jwt.js";
-import { prisma } from "../prisma.js";
+import { verifyToken } from "../auth/jwt.js";
+import { prisma } from "../db/prisma.js";
 
 export function authGuard(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization?.replace("Bearer ", "");

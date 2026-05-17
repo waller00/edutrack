@@ -1,8 +1,8 @@
 'use client'
 
-import RoleGuard from '@/components/RoleGuard'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import { useCallback, useEffect, useState } from 'react'
 import { CalendarCheck, ChevronLeft, ChevronRight, GraduationCap, Loader2, Plus, Trash2, X } from 'lucide-react'
 

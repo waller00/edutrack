@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authGuard, requirePermission } from "../middlewares/auth.js";
-import { prisma } from "../prisma.js";
+import { prisma } from "../db/prisma.js";
 import { utcDay } from "../services/non-working-days.js";
 
 const r = Router();

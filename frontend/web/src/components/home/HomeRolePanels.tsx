@@ -3,14 +3,14 @@
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { Calendar, ChevronRight, ClipboardList, Clock, Loader2, LogIn, LogOut, User } from 'lucide-react'
-import { api } from '@/lib/api'
-import type { AssignedEventRow } from '@/components/MyAssignedEventsPage'
+import { api } from '@/lib/api/client'
+import type { AssignedEventRow } from '@/components/personal/MyAssignedEventsPage'
 import {
   getEventTypeLabel,
   getAssignedEventStatusLabel,
   getAssignedEventStatusColor,
-} from '@/lib/assigned-event-display'
-import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/datetime-uy'
+} from '@/lib/events/assigned-event-display'
+import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
 
 type AttendanceFeedRow = {
   id: string

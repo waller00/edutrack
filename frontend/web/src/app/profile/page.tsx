@@ -1,12 +1,12 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { FileText, Info, KeyRound, Lock, Save, ShieldCheck, ShieldOff, User } from 'lucide-react'
-import { PendingButtonContent } from '@/components/PendingButtonContent'
-import { api } from '@/lib/api'
-import PhoneBirthdateFields from '@/components/PhoneBirthdateFields'
-import WebPushSection from '@/components/WebPushSection'
-import { formatLocalMobileInputFromE164 } from '@/lib/uruguay-forms'
-import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
+import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import { api } from '@/lib/api/client'
+import PhoneBirthdateFields from '@/components/forms/PhoneBirthdateFields'
+import WebPushSection from '@/components/notifications/WebPushSection'
+import { formatLocalMobileInputFromE164 } from '@/lib/forms/uruguay-forms'
+import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
 import {
   buildProfilePayload,
   canEditNationalId,
@@ -16,7 +16,7 @@ import {
   isStrongPassword,
   STRONG_PASSWORD_MESSAGE,
   validateProfileForm,
-} from '@/lib/profile-form'
+} from '@/lib/profile/profile-form'
 
 export default function ProfilePage(){ // NOSONAR preserve current profile UI flow
   const [me,setMe]=useState<any>(null)

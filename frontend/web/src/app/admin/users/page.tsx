@@ -1,8 +1,8 @@
 'use client'
 
-import RoleGuard from '@/components/RoleGuard'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { useCallback, useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   ADMIN_USERS_PAGE_SIZE,
   buildAdminUserEditChanges,
@@ -23,7 +23,7 @@ import {
   type AdminUserRow,
   type AdminUsersListFilters,
   type TriState,
-} from '@/lib/admin-users-display'
+} from '@/lib/admin/users-display'
 import { ChevronLeft, ChevronRight, Loader2, Search, Users } from 'lucide-react'
 
 type OrgRoleRow = { code: string; label: string; active: boolean }

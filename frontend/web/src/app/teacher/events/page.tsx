@@ -1,4 +1,4 @@
-import MyAssignedEventsPage from '@/components/MyAssignedEventsPage'
+import MyAssignedEventsPage from '@/components/personal/MyAssignedEventsPage'
 
 export default function TeacherEvents() {
   return <MyAssignedEventsPage />

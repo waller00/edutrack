@@ -1,5 +1,5 @@
 import { AuditAction } from '@prisma/client'
-import { prisma } from '../../prisma.js'
+import { prisma } from '../../db/prisma.js'
 import { AUDIT_ACTION_LABELS } from '../audit-log.js'
 import { resolveYmdRangeFromPayload, ymdBoundsUtc, ymdRangeForCalendarMonth } from './date-range.js'
 import type { LlmIntentPayload, QueryAssistantTableResult } from './schemas.js'

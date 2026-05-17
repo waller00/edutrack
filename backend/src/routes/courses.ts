@@ -2,7 +2,7 @@ import { Router } from 'express'
 import type { Request } from 'express'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
-import { prisma } from '../prisma.js'
+import { prisma } from '../db/prisma.js'
 import { authGuard, requireAnyRoleOrPermission, requirePermission } from '../middlewares/auth.js'
 import { getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 

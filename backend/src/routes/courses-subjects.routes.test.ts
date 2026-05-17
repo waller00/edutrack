@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import request from 'supertest'
 import express from 'express'
 import cookieParser from 'cookie-parser'
-import { signAccessToken } from '../jwt.js'
+import { signAccessToken } from '../auth/jwt.js'
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
@@ -11,7 +11,7 @@ const { prismaMock } = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('../prisma.js', () => ({ prisma: prismaMock }))
+vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
 vi.mock('../services/school-year-service.js', () => ({
   getActiveSchoolYearId: vi.fn().mockResolvedValue('sy-default'),
   resolveSchoolYearIdForList: vi.fn().mockResolvedValue('sy-default'),

@@ -1,6 +1,6 @@
-import { prisma } from '../../prisma.js'
+import { prisma } from '../../db/prisma.js'
 import type { Attendance, AttendanceStatus, EventType } from '@prisma/client'
-import { attachRoleCode, selectOrgRoleCode } from '../../user-role-prisma.js'
+import { attachRoleCode, selectOrgRoleCode } from '../../identity/user-role-prisma.js'
 import type { PlannedInstance, ResolvedAttendanceByInstance } from './models.js'
 import { toYmdUtc } from './dateRange.js'
 

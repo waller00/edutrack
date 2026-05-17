@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import RootLayout, { metadata } from './layout'
 
-vi.mock('@/components/UserNav', () => ({
+vi.mock('@/components/navigation/UserNav', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="user-nav">User nav{children}</div>,
 }))
 

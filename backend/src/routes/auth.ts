@@ -1,17 +1,17 @@
 import { Router } from "express";
 import { z } from "zod";
 import argon2 from "argon2";
-import { prisma } from "../prisma.js";
-import { signAccessToken, signTwoFactorLoginToken, verifyToken, verifyTwoFactorLoginToken } from "../jwt.js";
+import { prisma } from "../db/prisma.js";
+import { signAccessToken, signTwoFactorLoginToken, verifyToken, verifyTwoFactorLoginToken } from "../auth/jwt.js";
 import { recordAuditEvent } from "../services/audit-log.js";
 import { AuditAction } from "@prisma/client";
 import { authGuard } from "../middlewares/auth.js";
-import passport from "../passportGoogle.js";
+import passport from "../auth/passportGoogle.js";
 import crypto from "crypto";
 import qrcode from "qrcode";
 import { generateSecret, generateURI, verifySync } from "otplib";
-import { sendMail } from "../email.js";
-import { onlyDigits, isValidUruguayanCI } from "../uruguay-ci.js";
+import { sendMail } from "../notifications/email.js";
+import { onlyDigits, isValidUruguayanCI } from "../identity/uruguay-ci.js";
 import {
   normalizePhoneUY,
   buildProfileName,
@@ -20,12 +20,12 @@ import {
   validateBirthdateUpdate,
   validateNationalIdDocumentExpiresAtUpdate,
   mapProfileUpdateError,
-} from "../auth-profile-pure.js";
-import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
-import { isDiditConfigured, isLivenessRequiredForRegistration } from "../system-settings.js";
-import { syncLivenessSessionFromDiditApi } from "../didit-sync-session.js";
-import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../org-role-service.js";
-import { ensureDefaultProfilePermissionsIfNeeded } from "../profile-permissions-repository.js";
+} from "../auth/auth-profile-pure.js";
+import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
+import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/system-settings.js";
+import { syncLivenessSessionFromDiditApi } from "../integrations/didit/sync-session.js";
+import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
+import { ensureDefaultProfilePermissionsIfNeeded } from "../identity/profile-permissions-repository.js";
 
 const r = Router();
 
@@ -216,6 +216,13 @@ function verifyTotpCode(code: string, secret: string) {
 // helpers comunes
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
+const turnstileDebugEnabled = process.env.TURNSTILE_DEBUG === "true";
+
+function logTurnstileDebug(message: string, metadata: Record<string, unknown>) {
+  if (turnstileDebugEnabled) {
+    console.log(message, metadata);
+  }
+}
 
 async function validateUniqueUsername(userId: string, username?: string) {
   if (!username) return undefined;
@@ -805,14 +812,14 @@ r.post("/forgot", createIpRateLimit(15 * 60 * 1000, 5), async (req, res) => {
       return res.status(400).json({ message: "captcha" });
     }
     try {
-      console.log("[TURNSTILE] verifying", { host: req.headers.host, origin: req.headers.origin });
+      logTurnstileDebug("[TURNSTILE] verifying", { host: req.headers.host, origin: req.headers.origin });
       const resp = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET, response: captchaToken }),
       });
       const data = await resp.json();
-      console.log("[TURNSTILE] verify response", { status: resp.status, success: data?.success, "error-codes": data?.["error-codes"], hostname: data?.hostname });
+      logTurnstileDebug("[TURNSTILE] verify response", { status: resp.status, success: data?.success, "error-codes": data?.["error-codes"], hostname: data?.hostname });
       if (!data.success) return res.status(400).json({ message: "captcha" });
     } catch (e) {
       console.error("[TURNSTILE] verify error", e);

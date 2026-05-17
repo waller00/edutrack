@@ -1,6 +1,6 @@
-import { prisma } from "../prisma.js";
-import { getAttendanceOperationalSettings } from "../system-settings.js";
-import { uruguayStartOfDayFromInstant } from "../app-timezone.js";
+import { prisma } from "../db/prisma.js";
+import { getAttendanceOperationalSettings } from "../config/system-settings.js";
+import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
 import {
   buildContiguousClassBlocks,
   fetchTeacherClassSlotsForUruguayDay,

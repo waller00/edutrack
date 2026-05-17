@@ -1,9 +1,9 @@
 'use client'
-import PaginationControls from '@/components/PaginationControls'
-import RoleGuard from '@/components/RoleGuard'
+import PaginationControls from '@/components/common/PaginationControls'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   buildAdminAttendanceAllQueryString,
   buildAttendanceExportReportQueryString,
@@ -12,9 +12,9 @@ import {
   getAdminAttendanceStatusStyle,
   getAdminAttendanceTypeLabel,
   getAdminAttendanceTypeStyle,
-} from '@/lib/admin-attendance-display'
-import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/datetime-uy'
-import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+} from '@/lib/admin/attendance-display'
+import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
+import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   BarChart3,
   Calendar,

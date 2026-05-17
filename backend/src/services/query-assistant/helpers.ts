@@ -1,4 +1,4 @@
-import { prisma } from '../../prisma.js'
+import { prisma } from '../../db/prisma.js'
 
 /** null = sin filtro; [] = sin coincidencias (el caller puede cortar). */
 export async function resolveUserIdsFromSearch(userSearch: string | undefined): Promise<string[] | null> {

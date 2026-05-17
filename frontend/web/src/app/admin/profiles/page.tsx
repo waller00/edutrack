@@ -1,5 +1,5 @@
-import AdminProfilesPanel from '@/components/AdminProfilesPanel'
-import RoleGuard from '@/components/RoleGuard'
+import AdminProfilesPanel from '@/components/admin/AdminProfilesPanel'
+import RoleGuard from '@/components/auth/RoleGuard'
 
 export default function AdminProfilesPage() {
   return (

@@ -1,14 +1,14 @@
 import { Router } from 'express'
 import { Prisma, AuditAction } from '@prisma/client'
-import { prisma } from '../prisma.js'
+import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
-import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
-import { validateNationalIdDocumentExpiresAtUpdate } from '../auth-profile-pure.js'
-import { isDiditConfigured } from '../system-settings.js'
-import { getOrCreateSystemSettings } from '../system-settings.js'
-import { normalizePermissionId } from '../profile-permissions-defaults.js'
+import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
+import { validateNationalIdDocumentExpiresAtUpdate } from '../auth/auth-profile-pure.js'
+import { isDiditConfigured } from '../config/system-settings.js'
+import { getOrCreateSystemSettings } from '../config/system-settings.js'
+import { normalizePermissionId } from '../identity/profile-permissions-defaults.js'
 import {
   createProfileRoleWithPermissions,
   createCustomPermissionForRole,
@@ -20,9 +20,9 @@ import {
   replaceRolePermissionGrants,
   roleHasPermissionAssignment,
   updateRolePermissionGrant,
-} from '../profile-permissions-repository.js'
-import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js'
-import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../org-role-service.js'
+} from '../identity/profile-permissions-repository.js'
+import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
+import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../identity/org-role-service.js'
 import {
   AUDIT_ACTION_LABELS,
   getAuditActionCatalog,

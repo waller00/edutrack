@@ -32,9 +32,6 @@ test-results/
 *.tfstate.backup
 .terraform.lock.hcl
 *.exe
-# OCR auxiliar del examen (imágenes / modelo spa local)
-examen_ocr/
-tessdata_local/
 data.sql
 data.sql.gz
 # Dumps Postgres (copias locales / restores; no versionar)

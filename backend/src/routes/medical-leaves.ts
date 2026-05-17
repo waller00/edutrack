@@ -1,16 +1,16 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js'
-import { prisma } from '../prisma.js'
+import { prisma } from '../db/prisma.js'
 import { reconcileAttendancesForMedicalLeave } from '../services/medicalLeaveReconciliation.js'
 import { recordAuditEvent } from '../services/audit-log.js'
 import { AuditAction } from '@prisma/client'
 import {
   isValidMedicalLeaveCertificateValue,
   MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS,
-} from '../medical-leave-certificate.js'
+} from '../medical-leaves/medical-leave-certificate.js'
 import { sendWebPushPayloadToUser } from '../services/webPush.js'
-import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js'
+import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
 
 function licenseUpdatePreview(reason: string): string {
   return reason.length > 120 ? `${reason.slice(0, 120)}…` : reason

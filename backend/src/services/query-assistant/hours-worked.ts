@@ -1,4 +1,4 @@
-import { prisma } from '../../prisma.js'
+import { prisma } from '../../db/prisma.js'
 import { getPlannedInstances } from '../analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../analytics/resolveInstances.js'
 import { resolveYmdRangeFromPayload } from './date-range.js'

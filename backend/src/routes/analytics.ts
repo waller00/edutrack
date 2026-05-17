@@ -9,7 +9,7 @@ import {
   computeTopRiskEvents,
   computeTopRiskPeople,
 } from '../services/analytics/metrics.js'
-import { prisma } from '../prisma.js'
+import { prisma } from '../db/prisma.js'
 
 const r = Router()
 

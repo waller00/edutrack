@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { authGuard, requirePermission } from "../middlewares/auth.js";
-import { prisma } from "../prisma.js";
+import { prisma } from "../db/prisma.js";
 import { scanAndCreateTeacherNoShowIncidents } from "../services/attendance-incidents.js";
 
 const r = Router();

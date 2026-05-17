@@ -5,8 +5,8 @@
  * - No sobrescribe PRESENT/LATE sin dejar rastro (notas de conflicto).
  */
 import type { AttendanceStatus, Event, MedicalLeave } from '@prisma/client'
-import { prisma } from '../prisma.js'
-import { expandRecurringEvent } from '../events-query.js'
+import { prisma } from '../db/prisma.js'
+import { expandRecurringEvent } from '../events/events-query.js'
 
 const AUDIT_PREFIX = '[LIC-AUTO]'
 

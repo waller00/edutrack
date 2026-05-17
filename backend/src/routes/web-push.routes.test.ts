@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
-import { signAccessToken } from "../jwt.js";
+import { signAccessToken } from "../auth/jwt.js";
 
 vi.mock("web-push", () => ({
   default: {
@@ -22,7 +22,7 @@ const { prismaMock } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 
 import webPushRoutes from "./web-push.js";
 

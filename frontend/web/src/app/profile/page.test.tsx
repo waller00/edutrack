@@ -1,18 +1,18 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProfilePage from './page'
-import { api } from '@/lib/api'
-import { STRONG_PASSWORD_MESSAGE } from '@/lib/password-strength'
+import { api } from '@/lib/api/client'
+import { STRONG_PASSWORD_MESSAGE } from '@/lib/auth/password-strength'
 
-vi.mock('@/lib/api', () => ({
+vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 
-vi.mock('@/components/WebPushSection', () => ({
+vi.mock('@/components/notifications/WebPushSection', () => ({
   default: () => null,
 }))
 
-vi.mock('@/components/PhoneBirthdateFields', () => ({
+vi.mock('@/components/forms/PhoneBirthdateFields', () => ({
   default({
     phoneLocal,
     birthdate,

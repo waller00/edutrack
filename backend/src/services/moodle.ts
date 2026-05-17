@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import http from "node:http";
 import https from "node:https";
-import { prisma } from "../prisma.js";
+import { prisma } from "../db/prisma.js";
 
 export type MoodleSyncUserInput = {
   id: string;

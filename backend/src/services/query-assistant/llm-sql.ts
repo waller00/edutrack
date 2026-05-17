@@ -1,8 +1,8 @@
 import OpenAI, { APIError } from 'openai'
 import { DateTime } from 'luxon'
 import { z } from 'zod'
-import { APP_TIMEZONE } from '../../app-timezone.js'
-import { prisma } from '../../prisma.js'
+import { APP_TIMEZONE } from '../../config/app-timezone.js'
+import { prisma } from '../../db/prisma.js'
 import { DATABASE_CONTEXT } from './schema-context.js'
 import type { QueryAssistantTableResult } from './schemas.js'
 

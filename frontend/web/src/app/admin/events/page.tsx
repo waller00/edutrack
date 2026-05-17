@@ -1,12 +1,12 @@
 'use client'
-import DateRangeFields from '@/components/DateRangeFields'
-import PaginationControls from '@/components/PaginationControls'
-import RoleGuard from '@/components/RoleGuard'
+import DateRangeFields from '@/components/forms/DateRangeFields'
+import PaginationControls from '@/components/common/PaginationControls'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Calendar } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   buildAdminEventsAllQueryString,
   getAdminEventRoleTypeOptions,
@@ -14,14 +14,14 @@ import {
   getAdminEventStatusStyle,
   getAdminEventTypeLabel,
   type AdminEventCreatorRole,
-} from '@/lib/admin-events-display'
-import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+} from '@/lib/admin/events-display'
+import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   formatDateInUruguay,
   formatTimeInUruguay,
   formatClockHhMmInUruguayFromIso,
   getTodayYmdInUruguay,
-} from '@/lib/datetime-uy'
+} from '@/lib/forms/datetime-uy'
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
 type SubjectOpt = { id: string; name: string; code: string | null }

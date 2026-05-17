@@ -1,8 +1,8 @@
 'use client'
 
-import RoleGuard from '@/components/RoleGuard'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { useAdminSchoolYear, type SchoolYearApiRow } from '@/contexts/AdminSchoolYearContext'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import { useCallback, useMemo, useState } from 'react'
 import { CalendarRange, ChevronDown, Loader2, Pencil, Plus, RefreshCw, Copy } from 'lucide-react'
 

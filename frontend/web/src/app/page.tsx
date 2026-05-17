@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, Info, Loader2, Mail, PenLine } from 'lucide-react'
-import { PendingButtonContent } from '@/components/PendingButtonContent'
+import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { HomeAdminAttendanceFeed, HomeGenericHint, HomeUpcomingSchedule } from '@/components/home/HomeRolePanels'
-import { api } from '@/lib/api'
-import type { HomeMe } from '@/lib/home-dashboard'
-import { getWelcomeMessage } from '@/lib/home-dashboard'
+import { api } from '@/lib/api/client'
+import type { HomeMe } from '@/lib/home/dashboard'
+import { getWelcomeMessage } from '@/lib/home/dashboard'
 
 export default function Home() {
   const [me, setMe] = useState<HomeMe | null>(null)
