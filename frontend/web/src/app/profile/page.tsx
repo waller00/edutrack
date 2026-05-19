@@ -45,6 +45,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
   const [twoFactorDisableValue,setTwoFactorDisableValue]=useState('')
   const [twoFactorBackupCodes,setTwoFactorBackupCodes]=useState<string[]>([])
   const [savingTwoFactor,setSavingTwoFactor]=useState(false)
+  const [manualKeyCopied,setManualKeyCopied]=useState(false)
 
   const ci = useMemo(()=>formatCI(nationalId),[nationalId])
   useEffect(()=>{ setNationalId(ci) },[ci])
@@ -120,6 +121,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
       setTwoFactorManualKey(result.manualEntryKey || '')
       setTwoFactorCode('')
       setTwoFactorBackupCodes([])
+      setManualKeyCopied(false)
     }catch(e:any){
       setMsg(e?.message || 'No se pudo iniciar la configuración de 2FA')
     }finally{ setSavingTwoFactor(false) }
@@ -161,11 +163,38 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
   async function copyTwoFactorManualKey(){
     if(!twoFactorManualKey) return
     try{
-      await navigator.clipboard.writeText(twoFactorManualKey)
+      if(navigator.clipboard?.writeText){
+        await navigator.clipboard.writeText(twoFactorManualKey)
+      }else{
+        copyTextWithFallback(twoFactorManualKey)
+      }
+      setManualKeyCopied(true)
       setMsg('Clave copiada')
     }catch{
-      setMsg('No se pudo copiar la clave')
+      try{
+        copyTextWithFallback(twoFactorManualKey)
+        setManualKeyCopied(true)
+        setMsg('Clave copiada')
+      }catch{
+        setManualKeyCopied(false)
+        setMsg('No se pudo copiar la clave. Seleccionala y copiala manualmente.')
+      }
     }
+  }
+
+  function copyTextWithFallback(text: string){
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', 'true')
+    area.style.position = 'fixed'
+    area.style.top = '-9999px'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    area.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    area.remove()
+    if(!ok) throw new Error('COPY_FAILED')
   }
 
   function downloadTwoFactorBackupCodes(){
@@ -452,7 +481,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
                       </div>
                       <button type="button" onClick={copyTwoFactorManualKey} className="btn-secondary justify-center">
                         <Copy className="h-4 w-4" aria-hidden />
-                        Copiar
+                        {manualKeyCopied ? 'Copiado' : 'Copiar'}
                       </button>
                     </div>
                   </div>
