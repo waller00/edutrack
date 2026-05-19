@@ -77,14 +77,21 @@ function defaultLabel(permission: PermissionCatalogItem) {
   return permission.label || `${permission.module}: ${permission.action}`
 }
 
+function trimRepeatedChar(value: string, char: string) {
+  let start = 0
+  let end = value.length
+  while (start < end && value[start] === char) start += 1
+  while (end > start && value[end - 1] === char) end -= 1
+  return value.slice(start, end)
+}
+
 function slugRoleCode(value: string) {
-  return value
+  const normalized = value
     .trim()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toUpperCase()
+  return trimRepeatedChar(normalized, '_').toUpperCase()
 }
 
 function buildDraft(profile: Profile, catalog: PermissionCatalogItem[]): Record<string, DraftPermission> {

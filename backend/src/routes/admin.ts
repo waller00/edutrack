@@ -163,7 +163,9 @@ function computeAuditUserFieldsChanged(
 
 function messageForUniqueViolation(err: Prisma.PrismaClientKnownRequestError): string {
   const raw = err.meta?.target as string | string[] | undefined
-  const parts = Array.isArray(raw) ? raw.map(String) : raw != null ? [String(raw)] : []
+  let parts: string[] = []
+  if (Array.isArray(raw)) parts = raw.map(String)
+  else if (raw != null) parts = [String(raw)]
   const joined = parts.join(' ')
   if (joined.includes('nationalId')) {
     return 'Esa cédula ya está asignada a otro usuario. Quitá la cédula del otro usuario primero o usá una cédula distinta.'

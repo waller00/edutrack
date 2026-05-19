@@ -102,6 +102,22 @@ describe("email SendGrid HTTPS API", () => {
     ]);
   });
 
+  it("parsea remitentes SendGrid con comillas simples y sin nombre", async () => {
+    process.env.SMTP_FROM = "'Mesa de ayuda' <help@test.com>";
+    let { sendMail } = await import("./email.js");
+    await sendMail({ to: "user@example.com", subject: "Con nombre", html: "<p>cuerpo</p>" });
+
+    vi.resetModules();
+    process.env.SMTP_FROM = "plain@test.com";
+    ({ sendMail } = await import("./email.js"));
+    await sendMail({ to: "user@example.com", subject: "Sin nombre", html: "<p>cuerpo</p>" });
+
+    const firstBody = JSON.parse((vi.mocked(fetch).mock.calls[0][1]?.body as string) ?? "{}");
+    const secondBody = JSON.parse((vi.mocked(fetch).mock.calls[1][1]?.body as string) ?? "{}");
+    expect(firstBody.from).toEqual({ email: "help@test.com", name: "Mesa de ayuda" });
+    expect(secondBody.from).toEqual({ email: "plain@test.com" });
+  });
+
   it("con SENDGRID_HTTP_API=false usa nodemailer aunque sea SendGrid", async () => {
     process.env.SENDGRID_HTTP_API = "false";
     const { sendMail } = await import("./email.js");

@@ -100,13 +100,13 @@ export async function buildAttendanceDetailRowsFromAttendances(params: {
   filters: {
     from: string
     to: string
-    userId?: string | undefined
-    eventId?: string | undefined
-    eventType?: EventType | undefined
-    type?: AttendanceType | undefined
-    status?: AttendanceStatus | undefined
-    role?: string | undefined
-    schoolYearId?: string | undefined
+    userId?: string
+    eventId?: string
+    eventType?: EventType
+    type?: AttendanceType
+    status?: AttendanceStatus
+    role?: string
+    schoolYearId?: string
   }
 }) {
   const { from, to } = params.filters
