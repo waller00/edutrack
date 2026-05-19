@@ -16,7 +16,9 @@ export function applyEventStartDateFilter(where: any, startDate?: unknown, endDa
   if (end) recurringEventFilter.startDate = { lte: end };
   if (start) recurringEventFilter.OR = [{ recurrenceEnd: null }, { recurrenceEnd: { gte: start } }];
 
-  const previousAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+  let previousAnd: unknown[] = [];
+  if (Array.isArray(where.AND)) previousAnd = where.AND;
+  else if (where.AND) previousAnd = [where.AND];
   where.AND = [...previousAnd, { OR: [singleEventDateFilter, recurringEventFilter] }];
 }
 

@@ -27,10 +27,15 @@ function shouldUseSendGridHttpApi(): boolean {
 
 function parseFromHeader(from: string): { email: string; name?: string } {
   const t = from.trim();
-  const m = t.match(/^(.+?)\s*<([^>]+)>$/);
-  if (m) {
-    const name = m[1].replace(/^["']+|["']+$/g, "").trim();
-    const email = m[2].trim();
+  const emailStart = t.lastIndexOf("<");
+  const emailEnd = t.endsWith(">") ? t.length - 1 : -1;
+  if (emailStart > 0 && emailEnd > emailStart) {
+    const rawName = t.slice(0, emailStart).trim();
+    const first = rawName[0];
+    const last = rawName[rawName.length - 1];
+    const quoted = rawName.length >= 2 && ((first === '"' && last === '"') || (first === "'" && last === "'"));
+    const name = (quoted ? rawName.slice(1, -1) : rawName).trim();
+    const email = t.slice(emailStart + 1, emailEnd).trim();
     if (name) return { email, name };
     return { email };
   }

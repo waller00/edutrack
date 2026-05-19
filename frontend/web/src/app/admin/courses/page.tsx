@@ -72,17 +72,36 @@ function emptyCourseDraft(): CourseDraft {
   return { base: 'EBI9', orientation: 'CT', subgroup: '', isActive: true }
 }
 
+function trimRepeatedChar(value: string, char: string) {
+  let start = 0
+  let end = value.length
+  while (start < end && value[start] === char) start += 1
+  while (end > start && value[end - 1] === char) end -= 1
+  return value.slice(start, end)
+}
+
 function slug(value: string) {
-  return value
+  const normalized = value
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  return trimRepeatedChar(normalized, '-')
 }
 
 function cleanCourseName(name: string) {
-  return name.replace(/\s+Sección\s+[A-Z]$/i, '').replace(/\s+A$/i, '').trim()
+  let clean = name.trimEnd()
+  const sectionMarker = ' sección '
+  const lower = clean.toLowerCase()
+  const sectionIndex = lower.lastIndexOf(sectionMarker)
+  const sectionSuffixLength = sectionMarker.length + 1
+  if (sectionIndex >= 0 && sectionIndex + sectionSuffixLength === clean.length) {
+    clean = clean.slice(0, sectionIndex).trimEnd()
+  }
+  if (clean.length > 2 && clean.slice(-2).toLowerCase() === ' a') {
+    clean = clean.slice(0, -2).trimEnd()
+  }
+  return clean.trim()
 }
 
 function courseDisplayLabel(course: CourseRow, groupTitle: string) {

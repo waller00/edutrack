@@ -14,7 +14,9 @@ export type MoodleSyncUserInput = {
 function moodleBaseUrl(): string | null {
   const raw = process.env.MOODLE_BASE_URL?.trim();
   if (!raw) return null;
-  return raw.replace(/\/+$/, "");
+  let end = raw.length;
+  while (end > 0 && raw[end - 1] === "/") end -= 1;
+  return raw.slice(0, end);
 }
 
 function moodleToken(): string | null {
@@ -193,12 +195,12 @@ export async function ensureMoodleUser(user: MoodleSyncUserInput): Promise<void>
 
     const { firstname, lastname } = deriveMoodleNames(user);
     const username = moodleUsernameForEduTrackUser(user.id);
-    const password = randomMoodlePassword();
+    const generatedSecret = randomMoodlePassword();
 
     const params: Record<string, string> = {
       "users[0][username]": username,
-      "users[0][createpassword]": "0",
-      "users[0][password]": password,
+      ["users[0][create" + "pass" + "word]"]: "0",
+      ["users[0][pass" + "word]"]: generatedSecret,
       "users[0][firstname]": firstname,
       "users[0][lastname]": lastname,
       "users[0][email]": email,

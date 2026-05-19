@@ -87,7 +87,7 @@ export function normalizePermissionId(module: string, action: string) {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
+      .replace(/(?:^-|-$)/g, '')
   return `${clean(module)}.${clean(action)}`
 }
 

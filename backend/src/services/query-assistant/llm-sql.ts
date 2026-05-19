@@ -76,7 +76,9 @@ function getOpenAiClient() {
 }
 
 function stripTrailingSemicolon(sql: string): string {
-  return sql.trim().replace(/;+$/u, '').trim()
+  let clean = sql.trim()
+  while (clean.endsWith(';')) clean = clean.slice(0, -1).trimEnd()
+  return clean.trim()
 }
 
 function referencedTables(sql: string): string[] {

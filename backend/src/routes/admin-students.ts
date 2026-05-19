@@ -16,7 +16,7 @@ async function scopedSchoolYearWhere(req: Request): Promise<Prisma.StudentWhereI
     requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
   })
   if (!id) return {}
-  return { schoolYearId: id }
+  return { enrollments: { some: { schoolYearId: id } } }
 }
 
 async function scopedSchoolYearId(req: Request): Promise<string | null> {
