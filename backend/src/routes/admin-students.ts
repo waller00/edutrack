@@ -339,44 +339,120 @@ r.get('/', async (req, res) => {
     const tuitionMonth = (req.query.tuitionMonth as string) || ''
     const tuitionPaid = (req.query.tuitionPaid as string) || ''
 
+    const allYears = req.query.allYears === '1'
     const schoolYearId = await scopedSchoolYearId(req)
     const and: any[] = []
+    const enrollmentWhere: any = {}
+    const studentWhereForEnrollment: any = {}
     if (q) {
-      and.push({
+      const qWhere = {
         OR: [
           { firstName: { contains: q, mode: 'insensitive' } },
           { lastName: { contains: q, mode: 'insensitive' } },
           { documentId: { contains: q, mode: 'insensitive' } },
         ],
-      })
+      }
+      and.push(qWhere)
+      studentWhereForEnrollment.AND = [...(studentWhereForEnrollment.AND ?? []), qWhere]
     }
     if (courseId) {
       const parsed = z.string().uuid().safeParse(courseId)
-      if (parsed.success) and.push({ enrollments: { some: { courseOffering: { courseId: parsed.data } } } })
+      if (parsed.success) enrollmentWhere.courseOffering = { courseId: parsed.data }
     }
     if (status && ['ACTIVE', 'WITHDRAWN', 'GRADUATED', 'TRANSFERRED'].includes(status)) {
-      and.push({ enrollments: { some: { enrollmentStatus: status as StudentEnrollmentStatus } } })
+      enrollmentWhere.enrollmentStatus = status as StudentEnrollmentStatus
     }
     if (schoolYearId) {
-      and.push({ enrollments: { some: { schoolYearId } } })
+      enrollmentWhere.schoolYearId = schoolYearId
     }
+    if (Object.keys(enrollmentWhere).length) {
+      and.push({ enrollments: { some: enrollmentWhere } })
+    }
+    const previewTy = Number(tuitionPreviewYear)
     const ty = Number(tuitionYear)
+    const previewYear = !Number.isNaN(previewTy) && previewTy >= 1980 && previewTy <= 2100
+      ? previewTy
+      : !Number.isNaN(ty) && ty >= 1980 && ty <= 2100
+        ? ty
+        : undefined
+    let tuitionStudentIds: string[] | null = null
     if (!Number.isNaN(ty) && ty >= 1980 && ty <= 2100) {
       const tm = Number(tuitionMonth)
       if (!Number.isNaN(tm) && tm >= 1 && tm <= 12) {
         if (tuitionPaid === 'true') {
-          and.push({ id: { in: await findStudentIdsByTuitionMonth(ty, tm, true) } })
+          tuitionStudentIds = await findStudentIdsByTuitionMonth(ty, tm, true)
         } else if (tuitionPaid === 'false') {
-          and.push({ id: { in: await findStudentIdsByTuitionMonth(ty, tm, false) } })
+          tuitionStudentIds = await findStudentIdsByTuitionMonth(ty, tm, false)
         } else {
-          and.push({ id: { in: await findStudentIdsByTuitionMonth(ty, tm) } })
+          tuitionStudentIds = await findStudentIdsByTuitionMonth(ty, tm)
         }
       } else {
-        and.push({ id: { in: await findStudentIdsByTuitionMonth(ty) } })
+        tuitionStudentIds = await findStudentIdsByTuitionMonth(ty)
       }
+      and.push({ id: { in: tuitionStudentIds } })
+      studentWhereForEnrollment.AND = [
+        ...(studentWhereForEnrollment.AND ?? []),
+        { id: { in: tuitionStudentIds } },
+      ]
     }
 
     const where: any = and.length ? { AND: and } : {}
+
+    if (allYears) {
+      const enrollmentListWhere: any = { ...enrollmentWhere }
+      if (Object.keys(studentWhereForEnrollment).length) enrollmentListWhere.student = studentWhereForEnrollment
+      const [total, enrollmentRows] = await Promise.all([
+        (prisma as any).studentEnrollment.count({ where: enrollmentListWhere }),
+        (prisma as any).studentEnrollment.findMany({
+          where: enrollmentListWhere,
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          include: {
+            schoolYear: { select: { id: true, code: true, label: true, status: true } },
+            student: true,
+            courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } },
+          },
+          orderBy: [
+            { schoolYear: { code: 'desc' } },
+            { student: { lastName: 'asc' } },
+            { student: { firstName: 'asc' } },
+          ],
+        }),
+      ])
+      const rowsAny = enrollmentRows as any[]
+      const tuitionMonthsByStudent = await findTuitionMonths(
+        rowsAny.map((row) => row.studentId),
+        previewYear,
+      )
+      const data = rowsAny.map((enrollment) => {
+        const row = enrollment.student
+        const courseOffering = enrollment.courseOffering ?? null
+        return {
+          id: `${row.id}:${enrollment.id}`,
+          studentId: row.id,
+          enrollmentId: enrollment.id,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          documentId: row.documentId,
+          schoolYearId: enrollment.schoolYearId,
+          schoolYearCode: enrollment.schoolYear?.code ?? null,
+          courseId: courseOffering?.courseId ?? null,
+          courseOfferingId: courseOffering?.id ?? null,
+          course: courseOffering?.course ?? null,
+          enrollmentStatus: enrollment.enrollmentStatus ?? 'ACTIVE',
+          withdrawnAt: enrollment.withdrawnAt?.toISOString() ?? null,
+          withdrawalAcademicYear: enrollment.withdrawalAcademicYear ?? null,
+          healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+          createdAt: row.createdAt.toISOString(),
+          tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
+            year: t.year,
+            month: t.month,
+            paid: t.paid,
+          })),
+        }
+      })
+      return res.json({ total, page, pageSize, data })
+    }
 
     const [total, rows] = await Promise.all([
       prisma.student.count({ where }),
@@ -396,12 +472,6 @@ r.get('/', async (req, res) => {
       }),
     ])
 
-    const previewTy = Number(tuitionPreviewYear)
-    const previewYear = !Number.isNaN(previewTy) && previewTy >= 1980 && previewTy <= 2100
-      ? previewTy
-      : !Number.isNaN(ty) && ty >= 1980 && ty <= 2100
-        ? ty
-        : undefined
     const rowsAny = rows as any[]
     const tuitionMonthsByStudent = await findTuitionMonths(
       rowsAny.map((row) => row.id),
@@ -443,10 +513,12 @@ r.get('/', async (req, res) => {
 r.get('/:id', async (req, res) => {
   const id = req.params.id
   try {
+    const schoolYearId = await scopedSchoolYearId(req)
     const row = await (prisma.student as any).findUnique({
       where: { id },
       include: {
         enrollments: {
+          where: schoolYearId ? { schoolYearId } : {},
           orderBy: { createdAt: 'desc' },
           take: 1,
           include: { courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } } },

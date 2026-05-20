@@ -10,7 +10,8 @@ const PAGE_SIZE = 20
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 const CURRENT_YEAR = new Date().getFullYear()
 
-type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
+type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean; offeringIsActive?: boolean | null }
+type TuitionMonthState = 'paid' | 'pending' | 'none'
 
 type TuitionRow = {
   year: number
@@ -23,9 +24,13 @@ type TuitionRow = {
 
 type StudentListRow = {
   id: string
+  studentId?: string
+  enrollmentId?: string
   firstName: string
   lastName: string
   documentId: string | null
+  schoolYearId?: string | null
+  schoolYearCode?: number | null
   courseId: string | null
   course: { id: string; name: string; code: string | null } | null
   enrollmentStatus: string
@@ -112,6 +117,10 @@ function emptyDraft(): Omit<StudentFormState, 'id'> {
 export default function AdminStudentsPage() {
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+  const coursePickerQuery = syCtx?.schoolYearScopedQuery ?? schoolYearQuery
+  const selectedSchoolYearId = syCtx ? syCtx.selectedId ?? syCtx.activeId : null
+  const selectedSchoolYear = syCtx?.years.find((y) => y.id === selectedSchoolYearId) ?? null
+  const selectedSchoolYearCode = selectedSchoolYear?.code ?? CURRENT_YEAR
 
   const [summary, setSummary] = useState<{ total: number; byStatus: Record<string, number> } | null>(null)
   const [courses, setCourses] = useState<CourseOpt[]>([])
@@ -151,12 +160,12 @@ export default function AdminStudentsPage() {
 
   const loadCourses = useCallback(async () => {
     try {
-      const c = await api<CourseOpt[]>(withSchoolYear('/courses?all=1', schoolYearQuery))
+      const c = await api<CourseOpt[]>(withSchoolYear('/courses', coursePickerQuery))
       setCourses(Array.isArray(c) ? c : [])
     } catch {
       setCourses([])
     }
-  }, [schoolYearQuery])
+  }, [coursePickerQuery])
 
   const loadList = useCallback(
     async (page: number) => {
@@ -199,6 +208,10 @@ export default function AdminStudentsPage() {
     void loadList(1)
   }, [loadList])
 
+  useEffect(() => {
+    setTuitionYear(String(syCtx?.allYears ? CURRENT_YEAR : selectedSchoolYearCode))
+  }, [selectedSchoolYearCode, syCtx?.allYears])
+
   function applyFilters() {
     setQ(draftQ)
   }
@@ -215,7 +228,7 @@ export default function AdminStudentsPage() {
     setEditId(row.id)
     setModal('edit')
     try {
-      const d = await api<StudentDetail>(`/admin/students/${row.id}`)
+      const d = await api<StudentDetail>(withSchoolYear(`/admin/students/${row.studentId ?? row.id}`, schoolYearQuery))
       const { course: _c, ...rest } = d
       void _c
       setForm({
@@ -327,11 +340,17 @@ export default function AdminStudentsPage() {
           ],
         }
       }
+      if (!existing.paid) {
+        return {
+          ...f,
+          tuitionMonths: f.tuitionMonths.filter((t) => !(t.year === year && t.month === month)),
+        }
+      }
       return {
         ...f,
         tuitionMonths: f.tuitionMonths.map((t) =>
           t.year === year && t.month === month
-            ? { ...t, paid: !t.paid, paidAt: !t.paid ? new Date().toISOString() : null }
+            ? { ...t, paid: false, paidAt: null, amountCents: null }
             : t,
         ),
       }
@@ -339,8 +358,24 @@ export default function AdminStudentsPage() {
   }
 
   function monthsForYear(rows: { year: number; month: number; paid: boolean }[], year: number) {
-    const paid = new Set(rows.filter((t) => t.year === year && t.paid).map((t) => t.month))
-    return MONTHS.map((m) => ({ month: m, paid: paid.has(m) }))
+    const byMonth = new Map(rows.filter((t) => t.year === year).map((t) => [t.month, t.paid]))
+    return MONTHS.map((m) => {
+      const paid = byMonth.get(m)
+      const status: TuitionMonthState = paid === true ? 'paid' : paid === false ? 'pending' : 'none'
+      return { month: m, paid: paid === true, status }
+    })
+  }
+
+  function tuitionMonthClass(status: TuitionMonthState) {
+    if (status === 'paid') return 'border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+    if (status === 'pending') return 'border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200'
+    return 'border-gray-300 bg-white text-gray-500 hover:border-emerald-300 hover:text-emerald-700'
+  }
+
+  function tuitionMonthLabel(status: TuitionMonthState) {
+    if (status === 'paid') return 'pagado'
+    if (status === 'pending') return 'pendiente'
+    return 'sin estado'
   }
 
   const totalPages = Math.max(1, Math.ceil(list.total / list.pageSize))
@@ -472,22 +507,25 @@ export default function AdminStudentsPage() {
               <thead>
                 <tr className="border-b border-gray-200 text-left text-gray-600">
                   <th className="py-2 pr-3 font-medium">Estudiante</th>
+                  {syCtx?.allYears ? <th className="py-2 pr-3 font-medium">Ciclo</th> : null}
                   <th className="py-2 pr-3 font-medium">Curso</th>
                   <th className="py-2 pr-3 font-medium">Estado</th>
-                  <th className="py-2 pr-3 font-medium">Mensualidades {tuitionYear || CURRENT_YEAR}</th>
+                  <th className="py-2 pr-3 font-medium">
+                    Mensualidades {syCtx?.allYears ? 'del ciclo' : tuitionYear || CURRENT_YEAR}
+                  </th>
                   <th className="py-2 pr-3 font-medium w-28" />
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-gray-500">
+                    <td colSpan={syCtx?.allYears ? 6 : 5} className="py-12 text-center text-gray-500">
                       <Loader2 className="inline h-6 w-6 animate-spin text-emerald-600" aria-hidden />
                     </td>
                   </tr>
                 ) : list.data.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-gray-500">
+                    <td colSpan={syCtx?.allYears ? 6 : 5} className="py-8 text-center text-gray-500">
                       No hay registros con estos filtros.
                     </td>
                   </tr>
@@ -504,19 +542,27 @@ export default function AdminStudentsPage() {
                         </button>
                         {row.documentId && <div className="text-xs text-gray-500">{row.documentId}</div>}
                       </td>
+                      {syCtx?.allYears ? (
+                        <td className="py-2 pr-3 text-gray-600">{row.schoolYearCode ?? '—'}</td>
+                      ) : null}
                       <td className="py-2 pr-3 text-gray-700">{row.course?.name ?? '—'}</td>
                       <td className="py-2 pr-3">{STATUS_LABEL[row.enrollmentStatus] ?? row.enrollmentStatus}</td>
                       <td className="py-2 pr-3">
                         <div className="flex min-w-[360px] flex-wrap gap-1.5" aria-label="Mensualidades">
-                          {monthsForYear(row.tuitionMonthsPreview, Number(tuitionYear) || CURRENT_YEAR).map((m) => (
+                          {monthsForYear(
+                            row.tuitionMonthsPreview,
+                            syCtx?.allYears && row.schoolYearCode ? row.schoolYearCode : Number(tuitionYear) || CURRENT_YEAR,
+                          ).map((m) => (
                             <span
                               key={m.month}
                               className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold ${
-                                m.paid
+                                m.status === 'paid'
                                   ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                  : 'border-gray-300 bg-white text-gray-500'
+                                  : m.status === 'pending'
+                                    ? 'border-amber-300 bg-amber-100 text-amber-800'
+                                    : 'border-gray-300 bg-white text-gray-500'
                               }`}
-                              title={`Mes ${m.month}: ${m.paid ? 'pagado' : 'pendiente'}`}
+                              title={`Mes ${m.month}: ${tuitionMonthLabel(m.status)}`}
                             >
                               {m.month}
                             </span>
@@ -528,7 +574,7 @@ export default function AdminStudentsPage() {
                           type="button"
                           className="text-red-600 hover:text-red-800 p-1"
                           title="Eliminar"
-                          onClick={() => void remove(row.id)}
+                          onClick={() => void remove(row.studentId ?? row.id)}
                         >
                           <Trash2 className="h-4 w-4" aria-hidden />
                         </button>
@@ -746,23 +792,23 @@ export default function AdminStudentsPage() {
                       <button
                         key={m.month}
                         type="button"
-                        className={`h-10 rounded-full border text-sm font-semibold transition ${
-                          m.paid
-                            ? 'border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                            : 'border-gray-300 bg-white text-gray-600 hover:border-emerald-300 hover:text-emerald-700'
-                        }`}
+                        className={`h-10 rounded-full border text-sm font-semibold transition ${tuitionMonthClass(m.status)}`}
                         onClick={() => toggleTuitionMonth(Number(tuitionYear) || CURRENT_YEAR, m.month)}
-                        aria-pressed={m.paid}
-                        title={`Mes ${m.month}: ${m.paid ? 'pagado' : 'pendiente'}`}
+                        aria-pressed={m.status !== 'none'}
+                        title={`Mes ${m.month}: ${tuitionMonthLabel(m.status)}`}
                       >
                         {m.month}
                       </button>
                     ))}
                   </div>
                   <p className="text-xs text-gray-500">
-                    {monthsForYear(form.tuitionMonths, Number(tuitionYear) || CURRENT_YEAR).filter((m) => m.paid).length} pagos ·{' '}
-                    {12 - monthsForYear(form.tuitionMonths, Number(tuitionYear) || CURRENT_YEAR).filter((m) => m.paid).length}{' '}
-                    pendientes
+                    {(() => {
+                      const months = monthsForYear(form.tuitionMonths, Number(tuitionYear) || CURRENT_YEAR)
+                      const paid = months.filter((m) => m.status === 'paid').length
+                      const pending = months.filter((m) => m.status === 'pending').length
+                      const none = months.length - paid - pending
+                      return `${paid} pagos · ${pending} pendientes · ${none} sin estado`
+                    })()}
                   </p>
                   {form.tuitionMonths
                     .filter((t) => t.year === (Number(tuitionYear) || CURRENT_YEAR) && t.paid)

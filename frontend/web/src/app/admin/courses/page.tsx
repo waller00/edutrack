@@ -4,7 +4,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BookOpen, Layers, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Layers, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 
 type CourseRow = {
   id: string
@@ -37,16 +37,18 @@ function emptySubjectDraft() {
 }
 
 const ORIENTATION_LABELS: Record<string, string> = {
-  CT: 'Ciencias y Tecnología',
-  SH: 'Sociales y Humanidades',
+  CIENT: 'Ciencias y Tecnología',
+  HUM: 'Ciencias Sociales y Humanidades',
   VIDA: 'Ciencias de la Vida',
-  ARTE: 'Arte y Expresión',
+  ARTE: 'Creativo Artístico',
+  ECO: 'Ciencias Económicas',
+  GRAL: 'General',
 }
 
 const COURSE_BASES = [
-  { key: 'EBI9', title: '9.º EBI', kind: 'EBI' },
-  { key: 'EBI8', title: '8.º EBI', kind: 'EBI' },
-  { key: 'EBI7', title: '7.º EBI', kind: 'EBI' },
+  { key: '7', title: '7.º', kind: 'EBI' },
+  { key: '8', title: '8.º', kind: 'EBI' },
+  { key: '9', title: '9.º', kind: 'EBI' },
   { key: 'EMS1', title: '1.º EMS', kind: 'EMS' },
   { key: 'EMS2', title: '2.º EMS', kind: 'EMS' },
   { key: 'EMS3', title: '3.º EMS', kind: 'EMS' },
@@ -69,7 +71,7 @@ type CourseGroup = {
 }
 
 function emptyCourseDraft(): CourseDraft {
-  return { base: 'EBI9', orientation: 'CT', subgroup: '', isActive: true }
+  return { base: '7', orientation: 'CIENT', subgroup: '', isActive: true }
 }
 
 function trimRepeatedChar(value: string, char: string) {
@@ -105,6 +107,15 @@ function cleanCourseName(name: string) {
 }
 
 function courseDisplayLabel(course: CourseRow, groupTitle: string) {
+  const code = course.code ?? ''
+  const compactBasic = code.match(/^([789])([A-Z])$/)
+  if (compactBasic) return `${compactBasic[1]}.º ${compactBasic[2]}`
+  const compactEms = code.match(/^([123])EMS-([A-Z]+)(?:-([A-Z0-9]+))?/)
+  if (compactEms) {
+    const orientation = ORIENTATION_LABELS[compactEms[2]] ?? compactEms[2]
+    return compactEms[3] ? `${orientation} ${compactEms[3]}` : orientation
+  }
+
   const name = cleanCourseName(course.name)
   if (name === groupTitle) return 'Grupo principal'
   if (name.startsWith(`${groupTitle} - `)) return name.slice(groupTitle.length + 3)
@@ -121,9 +132,9 @@ function groupCourses(courses: CourseRow[]): CourseGroup[] {
 
   for (const course of courses) {
     const code = course.code ?? ''
-    const ebi = code.match(/^EBI([789])-/)
-    const ems = code.match(/^EMS([123])-/)
-    const key = ebi ? `EBI${ebi[1]}` : ems ? `EMS${ems[1]}` : 'OTROS'
+    const ebi = code.match(/^(?:EBI)?([789])(?:[A-Z]|-|$)/)
+    const ems = code.match(/^(?:(?:EMS)?([123])|([123])EMS)(?:-|$)/)
+    const key = ebi ? ebi[1] : ems ? `EMS${ems[1] ?? ems[2]}` : 'OTROS'
     const group = buckets.get(key) ?? buckets.get('OTROS')!
     group.items.push({ ...course, displayLabel: courseDisplayLabel(course, group.title) })
   }
@@ -160,6 +171,9 @@ export default function AdminCoursesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState(emptySubjectDraft)
   const courseGroups = useMemo(() => groupCourses(courses), [courses])
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(COURSE_BASES.map((base) => [base.key, true])),
+  )
 
   const loadCourses = useCallback(async () => {
     setCoursesLoading(true)
@@ -389,6 +403,10 @@ export default function AdminCoursesPage() {
   }
 
   const selectedCourse = courses.find((c) => c.id === selectedCourseId)
+  const selectedGroupKey = useMemo(() => {
+    if (!selectedCourse) return null
+    return courseGroups.find((group) => group.items.some((item) => item.id === selectedCourse.id))?.key ?? null
+  }, [courseGroups, selectedCourse])
 
   return (
     <RoleGuard permission="courses.manage">
@@ -498,21 +516,37 @@ export default function AdminCoursesPage() {
             ) : courses.length === 0 ? (
               <p className="text-sm text-gray-500">No hay cursos en este ciclo lectivo.</p>
             ) : (
-              <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1">
+              <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
                 {courseGroups.map((group) => (
-                  <div key={group.key}>
-                    <div className="mb-1 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2">
-                      <h3 className="text-sm font-semibold text-gray-900">{group.title}</h3>
-                      <span className="text-xs text-gray-500">{group.items.length} opción{group.items.length === 1 ? '' : 'es'}</span>
-                    </div>
-                    <ul className="space-y-1">
-                      {group.items.map((c) => (
-                        <li key={c.id}>
-                          <div
-                            className={`rounded-lg border px-3 py-2 text-sm transition ${
-                              selectedCourseId === c.id ? 'border-emerald-500 bg-emerald-50' : 'border-transparent hover:bg-gray-50'
-                            }`}
-                          >
+                  <div key={group.key} className="rounded-lg border border-gray-200 bg-white">
+                    <button
+                      type="button"
+                      className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left ${
+                        selectedGroupKey === group.key ? 'bg-emerald-50' : 'bg-slate-50 hover:bg-slate-100'
+                      }`}
+                      onClick={() => setExpandedGroups((current) => ({ ...current, [group.key]: !(current[group.key] ?? true) }))}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        {(expandedGroups[group.key] ?? true) ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                        )}
+                        <span className="truncate text-sm font-semibold text-gray-900">{group.title}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-gray-500">
+                        {group.items.length} grupo{group.items.length === 1 ? '' : 's'}
+                      </span>
+                    </button>
+                    {(expandedGroups[group.key] ?? true) && (
+                      <ul className="space-y-1 border-t border-gray-100 p-2">
+                        {group.items.map((c) => (
+                          <li key={c.id}>
+                            <div
+                              className={`rounded-md border px-3 py-2 text-sm transition ${
+                                selectedCourseId === c.id ? 'border-emerald-500 bg-emerald-50' : 'border-transparent hover:bg-gray-50'
+                              }`}
+                            >
                             {editingCourseId === c.id ? (
                               <div className="space-y-2">
                                 <input
@@ -562,11 +596,22 @@ export default function AdminCoursesPage() {
                                 <div className="flex shrink-0 gap-1">
                                   <button
                                     type="button"
-                                    className={`rounded p-1.5 text-xs ${(c.offeringIsActive ?? c.isActive) ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
+                                    role="switch"
+                                    aria-checked={c.offeringIsActive ?? c.isActive}
+                                    className={`relative mt-0.5 h-6 w-11 rounded-full transition ${
+                                      (c.offeringIsActive ?? c.isActive) ? 'bg-emerald-600' : 'bg-gray-300'
+                                    }`}
                                     title={(c.offeringIsActive ?? c.isActive) ? 'Desactivar' : 'Activar'}
                                     onClick={() => void toggleCourseActive(c)}
                                   >
-                                    {(c.offeringIsActive ?? c.isActive) ? 'Off' : 'On'}
+                                    <span
+                                      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${
+                                        (c.offeringIsActive ?? c.isActive) ? 'left-5' : 'left-0.5'
+                                      }`}
+                                    />
+                                    <span className="sr-only">
+                                      {(c.offeringIsActive ?? c.isActive) ? 'Desactivar curso en ciclo' : 'Activar curso en ciclo'}
+                                    </span>
                                   </button>
                                   <button type="button" className="rounded p-1.5 text-gray-500 hover:bg-gray-100" title="Editar" onClick={() => startEditCourse(c)}>
                                     <Pencil className="h-4 w-4" aria-hidden />
@@ -577,10 +622,11 @@ export default function AdminCoursesPage() {
                                 </div>
                               </div>
                             )}
-                            </div>
-                        </li>
-                      ))}
-                    </ul>
+                              </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 ))}
               </div>
