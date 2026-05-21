@@ -406,13 +406,20 @@ export default function AdminAnalyticsPage() {
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
       const exportId = res.exportId
 
+      let exportDone = false
       for (let i = 0; i < 30; i++) {
-        const statusRes = await api<{ status: string; downloadUrl: string | null }>(`/exports/${exportId}`)
-        if (statusRes.status === 'DONE') break
+        const statusRes = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        if (statusRes.status === 'DONE') {
+          exportDone = true
+          break
+        }
+        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando export')
         await new Promise((r) => setTimeout(r, 250))
       }
+      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
+      if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
       const blob = await dl.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -449,13 +456,20 @@ export default function AdminAnalyticsPage() {
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
       const exportId = res.exportId
 
+      let exportDone = false
       for (let i = 0; i < 30; i++) {
-        const statusRes = await api<{ status: string; downloadUrl: string | null }>(`/exports/${exportId}`)
-        if (statusRes.status === 'DONE') break
+        const statusRes = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        if (statusRes.status === 'DONE') {
+          exportDone = true
+          break
+        }
+        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando export')
         await new Promise((r) => setTimeout(r, 250))
       }
+      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
+      if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
       const blob = await dl.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')

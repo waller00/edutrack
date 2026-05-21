@@ -272,7 +272,7 @@ export default function AdminEvents() {
 
   const loadCourses = useCallback(async () => {
     try {
-      const c = await api<CourseOpt[]>(withSchoolYear('/courses?all=1', coursePickerQuery))
+      const c = await api<CourseOpt[]>(withSchoolYear('/courses', coursePickerQuery))
       setCourses(Array.isArray(c) ? c : [])
     } catch {
       setCourses([])
@@ -299,7 +299,7 @@ export default function AdminEvents() {
     let cancelled = false
     void (async () => {
       try {
-        const path = `/courses/${newEvent.courseId}/subjects?all=1`
+        const path = `/courses/${newEvent.courseId}/subjects`
         const list = await api<SubjectOpt[]>(withSchoolYear(path, coursePickerQuery))
         if (!cancelled) setCreateSubjects(Array.isArray(list) ? list : [])
       } catch {
@@ -319,7 +319,7 @@ export default function AdminEvents() {
     let cancelled = false
     void (async () => {
       try {
-        const path = `/courses/${editingEvent.courseId}/subjects?all=1`
+        const path = `/courses/${editingEvent.courseId}/subjects`
         const list = await api<SubjectOpt[]>(withSchoolYear(path, coursePickerQuery))
         if (!cancelled) setEditSubjects(Array.isArray(list) ? list : [])
       } catch {

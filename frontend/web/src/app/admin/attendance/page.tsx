@@ -424,11 +424,17 @@ export default function AdminAttendance() {
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(payload) })
       const exportId = res.exportId
 
+      let exportDone = false
       for (let i = 0; i < 40; i++) {
-        const st = await api<{ status: string; downloadUrl: string | null }>(`/exports/${exportId}`)
-        if (st.status === 'DONE') break
+        const st = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        if (st.status === 'DONE') {
+          exportDone = true
+          break
+        }
+        if (st.status === 'FAILED') throw new Error(st.errorMessage || 'Error generando export')
         await new Promise((r) => setTimeout(r, 250))
       }
+      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
       if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
