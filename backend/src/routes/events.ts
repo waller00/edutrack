@@ -885,7 +885,13 @@ r.delete('/:id', authGuard, requirePermission('events.delete', 'all'), async (re
     });
 
     res.json({ message: 'Evento eliminado correctamente' });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ message: 'Evento no encontrado' });
+    }
+    if (error?.code === 'P2003') {
+      return res.status(409).json({ message: 'No se puede eliminar el evento porque tiene registros asociados' });
+    }
     console.error('Error eliminando evento:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }

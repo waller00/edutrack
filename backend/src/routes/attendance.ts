@@ -94,6 +94,65 @@ function buildAdminAttendanceWhere(query: Record<string, unknown>) {
   return where
 }
 
+function wantsIncidentRows(query: Record<string, unknown>) {
+  return query.includeIncidents === '1' || query.includeIncidents === 'true'
+}
+
+function buildAdminAttendanceIncidentWhere(query: Record<string, unknown>, attendanceWhere: any) {
+  const { startDate, endDate, userId, eventId, eventType, role } = query
+  const where: any = {
+    type: 'TEACHER_NO_SHOW',
+  }
+
+  if (startDate || endDate) {
+    where.detectedAt = {}
+    if (startDate) where.detectedAt.gte = new Date(startDate as string)
+    if (endDate) where.detectedAt.lte = new Date(endDate as string)
+  }
+
+  if (userId) where.userId = userId
+  if (eventId) where.eventId = eventId
+
+  if (eventType || attendanceWhere.event) {
+    where.event = {
+      ...(attendanceWhere.event && typeof attendanceWhere.event === 'object' ? attendanceWhere.event : {}),
+      ...(eventType ? { type: eventType as any } : {}),
+    }
+    where.eventId = {
+      ...(where.eventId ? { equals: where.eventId } : {}),
+      not: null,
+    }
+  }
+
+  if (role) {
+    where.user = {
+      orgRole: { code: String(role).toUpperCase() },
+    }
+  }
+
+  return where
+}
+
+function mapAttendanceIncidentAsFeedRow(row: any) {
+  const when = row.detectedAt ?? row.createdAt
+  return {
+    id: `incident:${row.id}`,
+    kind: 'INCIDENT',
+    incidentId: row.id,
+    incidentType: row.type,
+    incidentStatus: row.status,
+    severity: row.severity,
+    title: row.title,
+    description: row.description,
+    type: 'INCIDENT',
+    status: 'ABSENT_NOT_JUSTIFIED',
+    date: when,
+    time: when,
+    user: row.user ? attachRoleCode(row.user) : row.user,
+    event: row.event,
+  }
+}
+
 // Registrar asistencia (CHECK_IN o CHECK_OUT)
 r.post('/register', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
@@ -249,6 +308,51 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
     const q = req.query as Record<string, unknown>;
     const where = buildAdminAttendanceWhere(q)
     await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, req.user?.role ?? 'ADMIN')
+
+    if (wantsIncidentRows(q)) {
+      const incidentWhere = buildAdminAttendanceIncidentWhere(q, where)
+      const fetchForMerge = page * pageSize
+      const [attendanceTotal, incidentTotal, attendanceRows, incidentRows] = await Promise.all([
+        prisma.attendance.count({ where }),
+        prisma.attendanceIncident.count({ where: incidentWhere }),
+        prisma.attendance.findMany({
+          where,
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+            },
+            event: {
+              select: { id: true, title: true, type: true, startTime: true, endTime: true }
+            }
+          },
+          orderBy: [{ date: 'desc' }, { time: 'desc' }],
+          take: fetchForMerge,
+        }),
+        prisma.attendanceIncident.findMany({
+          where: incidentWhere,
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+            },
+            event: {
+              select: { id: true, title: true, type: true, startTime: true, endTime: true }
+            },
+          },
+          orderBy: { detectedAt: 'desc' },
+          take: fetchForMerge,
+        }),
+      ]);
+
+      const merged = [...attendanceRows.map(mapAttendanceUser), ...incidentRows.map(mapAttendanceIncidentAsFeedRow)]
+        .sort((a: any, b: any) => {
+          const aTime = new Date(a.time ?? a.date).getTime()
+          const bTime = new Date(b.time ?? b.date).getTime()
+          return bTime - aTime
+        })
+        .slice((page - 1) * pageSize, page * pageSize)
+
+      return res.json({ total: attendanceTotal + incidentTotal, page, pageSize, data: merged });
+    }
 
     const [total, attendances] = await Promise.all([
       prisma.attendance.count({ where }),

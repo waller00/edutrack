@@ -19,6 +19,10 @@ const { prismaMock } = vi.hoisted(() => ({
       delete: vi.fn(),
       deleteMany: vi.fn(),
     },
+    attendanceIncident: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+    },
     medicalLeave: { findFirst: vi.fn(), findMany: vi.fn() },
     systemSettings: { upsert: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
@@ -244,6 +248,52 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.body.total).toBe(2);
     expect(res.body.page).toBe(2);
     expect(prismaMock.attendance.count).toHaveBeenCalled();
+  });
+
+  it("GET /attendance/all incluye faltas docentes cuando se solicita feed mixto", async () => {
+    prismaMock.attendance.count.mockResolvedValue(1);
+    prismaMock.attendanceIncident.count.mockResolvedValue(1);
+    prismaMock.attendance.findMany.mockResolvedValue([
+      {
+        id: "a1",
+        type: "CHECK_IN",
+        status: "PRESENT",
+        date: new Date("2026-05-20T12:00:00.000Z"),
+        time: new Date("2026-05-20T12:00:00.000Z"),
+        user: {},
+      },
+    ]);
+    prismaMock.attendanceIncident.findMany.mockResolvedValue([
+      {
+        id: "i1",
+        type: "TEACHER_NO_SHOW",
+        status: "OPEN",
+        severity: "HIGH",
+        title: "Docente no presente en aula",
+        description: "No hay marcación de entrada.",
+        detectedAt: new Date("2026-05-20T18:15:00.000Z"),
+        user: {},
+        event: { id: eid, title: "Evento - Test", type: "CLASE" },
+      },
+    ]);
+
+    const res = await request(app())
+      .get("/attendance/all?includeIncidents=true&pageSize=10")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(2);
+    expect(res.body.data[0]).toMatchObject({
+      id: "incident:i1",
+      type: "INCIDENT",
+      status: "ABSENT_NOT_JUSTIFIED",
+      title: "Docente no presente en aula",
+    });
+    expect(prismaMock.attendanceIncident.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ type: "TEACHER_NO_SHOW" }),
+      }),
+    );
   });
 
   it("GET /attendance/all fusiona ciclo lectivo en filtro de evento", async () => {

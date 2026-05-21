@@ -183,7 +183,7 @@ r.get('/:exportId', authGuard, requirePermission('exports.create', 'all'), (req,
   const e = getExport(exportId)
   if (!e) return res.status(404).json({ message: 'Export no encontrada' })
   const downloadUrl = e.status === 'DONE' ? getDownloadUrl(exportId) : null
-  res.json({ exportId: e.exportId, status: e.status, downloadUrl })
+  res.json({ exportId: e.exportId, status: e.status, downloadUrl, errorMessage: e.errorMessage })
 })
 
 r.get('/:exportId/download', authGuard, requirePermission('exports.create', 'all'), (req, res) => {

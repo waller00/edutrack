@@ -1,0 +1,281 @@
+{
+  "info": {
+    "_postman_id": "b8efdc6b-0d9d-4c6f-a5e6-edutrack-testing",
+    "name": "EduTrack API Testing - DEV-T7029 a DEV-T7126",
+    "description": "Colección organizada para ejecutar las pruebas API Postman del plan DEV-T7029 a DEV-T7126. Ajustar variables antes de correr: baseUrl, credenciales, IDs y tokens. El header X-Expected-Status lo usa el test común para validar el estado HTTP esperado.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const expected = pm.request.headers.get('X-Expected-Status');",
+          "if (expected) {",
+          "  const allowed = expected.split(',').map((x) => Number(x.trim())).filter(Boolean);",
+          "  pm.test(`HTTP esperado (${expected})`, function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf(allowed);",
+          "  });",
+          "}",
+          "let json = null;",
+          "try { json = pm.response.json(); } catch (e) {}",
+          "if (json && typeof json === 'object') {",
+          "  const pairs = [",
+          "    ['id', 'lastId'],",
+          "    ['exportId', 'exportId'],",
+          "    ['token', 'lastToken'],",
+          "    ['twoFactorToken', 'twoFactorToken'],",
+          "    ['sessionId', 'diditSessionId'],",
+          "    ['diditSessionId', 'diditSessionId'],",
+          "    ['verificationUrl', 'diditVerificationUrl'],",
+          "    ['courseOfferingId', 'courseOfferingId']",
+          "  ];",
+          "  for (const [key, variable] of pairs) {",
+          "    if (json[key]) pm.collectionVariables.set(variable, json[key]);",
+          "  }",
+          "  if (json.id && pm.info.requestName.includes('Crear curso')) pm.collectionVariables.set('courseId', json.id);",
+          "  if (json.id && pm.info.requestName.includes('Crear evento')) pm.collectionVariables.set('eventId', json.id);",
+          "  if (json.id && pm.info.requestName.includes('Crear estudiante')) pm.collectionVariables.set('studentId', json.id);",
+          "  if (json.id && pm.info.requestName.includes('Crear licencia')) pm.collectionVariables.set('licenseId', json.id);",
+          "  if (json.id && pm.info.requestName.includes('Crear día no laborable')) pm.collectionVariables.set('nonWorkingDayId', json.id);",
+          "  if (json.token && pm.info.requestName.includes('Resetear contraseña')) pm.collectionVariables.set('resetToken', json.token);",
+          "  if (json.data && Array.isArray(json.data) && json.data[0]?.id) pm.collectionVariables.set('lastListId', json.data[0].id);",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000" },
+    { "key": "adminEmail", "value": "admin@edutrack.test" },
+    { "key": "adminUsername", "value": "admin" },
+    { "key": "adminPassword", "value": "Admin123!" },
+    { "key": "wrongPassword", "value": "ContraseñaIncorrecta123!" },
+    { "key": "inactiveEmail", "value": "inactivo@edutrack.test" },
+    { "key": "inactivePassword", "value": "Inactivo123!" },
+    { "key": "staffEmail", "value": "staff@edutrack.test" },
+    { "key": "staffPassword", "value": "Staff123!" },
+    { "key": "noPermissionEmail", "value": "sinpermiso@edutrack.test" },
+    { "key": "noPermissionPassword", "value": "SinPermiso123!" },
+    { "key": "newUserEmail", "value": "postman.usuario+{{$timestamp}}@edutrack.test" },
+    { "key": "newUsername", "value": "postman{{$timestamp}}" },
+    { "key": "newPassword", "value": "Postman123!" },
+    { "key": "duplicateEmail", "value": "admin@edutrack.test" },
+    { "key": "verificationToken", "value": "PEGAR_TOKEN_EMAIL" },
+    { "key": "resetToken", "value": "PEGAR_TOKEN_RESET" },
+    { "key": "twoFactorCode", "value": "000000" },
+    { "key": "twoFactorToken", "value": "" },
+    { "key": "diditSessionId", "value": "" },
+    { "key": "schoolYearId", "value": "PEGAR_SCHOOL_YEAR_ID" },
+    { "key": "targetSchoolYearId", "value": "PEGAR_TARGET_SCHOOL_YEAR_ID" },
+    { "key": "runSchoolYearCode", "value": "2099" },
+    { "key": "sourceSchoolYearId", "value": "PEGAR_SOURCE_SCHOOL_YEAR_ID" },
+    { "key": "userId", "value": "PEGAR_USER_ID" },
+    { "key": "teacherUserId", "value": "PEGAR_TEACHER_USER_ID" },
+    { "key": "studentId", "value": "PEGAR_STUDENT_ID" },
+    { "key": "courseId", "value": "PEGAR_COURSE_ID" },
+    { "key": "subjectId", "value": "PEGAR_SUBJECT_ID" },
+    { "key": "eventId", "value": "PEGAR_EVENT_ID" },
+    { "key": "attendanceId", "value": "PEGAR_ATTENDANCE_ID" },
+    { "key": "licenseId", "value": "PEGAR_LICENSE_ID" },
+    { "key": "nonWorkingDayId", "value": "PEGAR_NON_WORKING_DAY_ID" },
+    { "key": "notificationId", "value": "PEGAR_NOTIFICATION_ID" },
+    { "key": "exportId", "value": "PEGAR_EXPORT_ID" },
+    { "key": "fromDate", "value": "2026-05-01" },
+    { "key": "toDate", "value": "2026-05-31" },
+    { "key": "eventDate", "value": "2026-05-25" },
+    { "key": "admsDeviceCode", "value": "F22-LOCAL-01" },
+    { "key": "admsDeviceUserId", "value": "1001" },
+    { "key": "admsSecret", "value": "PEGAR_ADMS_SECRET" }
+  ],
+  "item": [
+    {
+      "name": "01 - Autenticación",
+      "item": [
+        {
+          "name": "DEV-T7029 - API-AUTH-001 [Postman] Login correcto con email",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/login", "body": { "mode": "raw", "raw": "{\n  \"identifier\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}" } }
+        },
+        {
+          "name": "DEV-T7030 - API-AUTH-002 [Postman] Login correcto con nombre de usuario",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/login", "body": { "mode": "raw", "raw": "{\n  \"identifier\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}" } }
+        },
+        {
+          "name": "DEV-T7031 - API-AUTH-003 [Postman] Login con contraseña incorrecta",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "401" }], "url": "{{baseUrl}}/auth/login", "body": { "mode": "raw", "raw": "{\n  \"identifier\": \"{{adminEmail}}\",\n  \"password\": \"{{wrongPassword}}\"\n}" } }
+        },
+        {
+          "name": "DEV-T7032 - API-AUTH-004 [Postman] Login de cuenta desactivada",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "403" }], "url": "{{baseUrl}}/auth/login", "body": { "mode": "raw", "raw": "{\n  \"identifier\": \"{{inactiveEmail}}\",\n  \"password\": \"{{inactivePassword}}\"\n}" } }
+        },
+        {
+          "name": "DEV-T7033 - API-AUTH-005 [Postman] Consultar usuario actual",
+          "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/me" }
+        },
+        {
+          "name": "DEV-T7034 - API-AUTH-006 [Postman] Usuario actual sin sesión",
+          "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "401" }], "url": "{{baseUrl}}/auth/me" }
+        },
+        {
+          "name": "DEV-T7035 - API-AUTH-007 [Postman] Renovar sesión",
+          "request": { "method": "POST", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/refresh" }
+        },
+        {
+          "name": "DEV-T7036 - API-AUTH-008 [Postman] Cerrar sesión",
+          "request": { "method": "POST", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/logout" }
+        }
+      ]
+    },
+    {
+      "name": "02 - Registro, Email y Contraseña",
+      "item": [
+        { "name": "DEV-T7037 - API-REG-001 [Postman] Opciones de registro", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/registration-options" } },
+        { "name": "DEV-T7038 - API-REG-002 [Postman] Consultar nombre de usuario disponible", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/check-username?u={{newUsername}}" } },
+        { "name": "DEV-T7039 - API-REG-003 [Postman] Registrar usuario válido", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,200" }], "url": "{{baseUrl}}/auth/register", "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{newUserEmail}}\",\n  \"username\": \"{{newUsername}}\",\n  \"password\": \"{{newPassword}}\",\n  \"firstName\": \"Postman\",\n  \"lastName\": \"Testing\",\n  \"phone\": \"099123456\",\n  \"birthdate\": \"2000-01-01T00:00:00.000Z\",\n  \"nationalId\": \"11111111\",\n  \"nationalIdDocumentExpiresAt\": \"2030-12-31\",\n  \"role\": \"STAFF\"\n}" } } },
+        { "name": "DEV-T7040 - API-REG-004 [Postman] Registro con email duplicado", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "409" }], "url": "{{baseUrl}}/auth/register", "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{duplicateEmail}}\",\n  \"username\": \"dup{{$timestamp}}\",\n  \"password\": \"{{newPassword}}\",\n  \"firstName\": \"Email\",\n  \"lastName\": \"Duplicado\",\n  \"role\": \"STAFF\"\n}" } } },
+        { "name": "DEV-T7041 - API-REG-005 [Postman] Registro con contraseña débil", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "400" }], "url": "{{baseUrl}}/auth/register", "body": { "mode": "raw", "raw": "{\n  \"email\": \"weak{{$timestamp}}@edutrack.test\",\n  \"username\": \"weak{{$timestamp}}\",\n  \"password\": \"123\",\n  \"firstName\": \"Weak\",\n  \"lastName\": \"Password\",\n  \"role\": \"STAFF\"\n}" } } },
+        { "name": "DEV-T7042 - API-REG-006 [Postman] Registro sin prueba de vida requerida", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "400,503" }], "url": "{{baseUrl}}/auth/register", "body": { "mode": "raw", "raw": "{\n  \"email\": \"didit-missing{{$timestamp}}@edutrack.test\",\n  \"username\": \"diditmiss{{$timestamp}}\",\n  \"password\": \"{{newPassword}}\",\n  \"firstName\": \"Didit\",\n  \"lastName\": \"Missing\",\n  \"role\": \"STAFF\"\n}" } } },
+        { "name": "DEV-T7043 - API-EMAIL-001 [Postman] Verificar correo", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,400" }], "url": "{{baseUrl}}/auth/verify", "body": { "mode": "raw", "raw": "{\n  \"token\": \"{{verificationToken}}\"\n}" } } },
+        { "name": "DEV-T7044 - API-EMAIL-002 [Postman] Reenviar verificación", "request": { "method": "POST", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/verify/resend" } },
+        { "name": "DEV-T7045 - API-PASS-001 [Postman] Solicitar recuperación", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/forgot", "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{adminEmail}}\"\n}" } } },
+        { "name": "DEV-T7046 - API-PASS-002 [Postman] Restablecer contraseña", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,400" }], "url": "{{baseUrl}}/auth/reset", "body": { "mode": "raw", "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"password\": \"{{newPassword}}\"\n}" } } }
+      ]
+    },
+    {
+      "name": "03 - Perfil y 2FA",
+      "item": [
+        { "name": "DEV-T7047 - API-PROF-001 [Postman] Actualizar perfil", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/profile", "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Admin\",\n  \"lastName\": \"Postman\",\n  \"phone\": \"099123456\"\n}" } } },
+        { "name": "DEV-T7048 - API-PROF-002 [Postman] Cambiar contraseña", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,400" }], "url": "{{baseUrl}}/auth/password/change", "body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"{{adminPassword}}\",\n  \"newPassword\": \"{{adminPassword}}\"\n}" } } },
+        { "name": "DEV-T7049 - API-2FA-001 [Postman] Iniciar doble verificación", "request": { "method": "POST", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/2fa/setup" } },
+        { "name": "DEV-T7050 - API-2FA-002 [Postman] Confirmar doble verificación", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,400" }], "url": "{{baseUrl}}/auth/2fa/confirm", "body": { "mode": "raw", "raw": "{\n  \"code\": \"{{twoFactorCode}}\"\n}" } } },
+        { "name": "DEV-T7051 - API-2FA-003 [Postman] Login con doble verificación", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,401" }], "url": "{{baseUrl}}/auth/login/2fa", "body": { "mode": "raw", "raw": "{\n  \"twoFactorToken\": \"{{twoFactorToken}}\",\n  \"code\": \"{{twoFactorCode}}\"\n}" } } },
+        { "name": "DEV-T7052 - API-2FA-004 [Postman] Desactivar doble verificación", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,400" }], "url": "{{baseUrl}}/auth/2fa/disable", "body": { "mode": "raw", "raw": "{\n  \"code\": \"{{twoFactorCode}}\"\n}" } } }
+      ]
+    },
+    {
+      "name": "04 - Didit",
+      "item": [
+        { "name": "DEV-T7053 - API-DIDIT-001 [Postman] Crear sesión Didit", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,503" }], "url": "{{baseUrl}}/auth/didit/liveness-session", "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{newUserEmail}}\"\n}" } } },
+        { "name": "DEV-T7054 - API-DIDIT-002 [Postman] Verificar campos Didit", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,400" }], "url": "{{baseUrl}}/auth/didit/register-field-verify", "body": { "mode": "raw", "raw": "{\n  \"livenessToken\": \"{{diditSessionId}}\",\n  \"email\": \"{{newUserEmail}}\",\n  \"firstName\": \"Postman\",\n  \"lastName\": \"Testing\"\n}" } } },
+        { "name": "DEV-T7055 - API-DIDIT-003 [Postman] Consultar estado Didit", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/auth/liveness/status?token={{diditSessionId}}" } }
+      ]
+    },
+    {
+      "name": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "item": [
+        { "name": "DEV-T7056 - API-USR-001 [Postman] Listar usuarios", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/users?page=1&pageSize=20" } },
+        { "name": "DEV-T7057 - API-USR-002 [Postman] Crear usuario", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/users", "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin-created{{$timestamp}}@edutrack.test\",\n  \"username\": \"admcreated{{$timestamp}}\",\n  \"role\": \"STAFF\"\n}" } } },
+        { "name": "DEV-T7058 - API-USR-003 [Postman] Editar usuario", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/users/{{userId}}", "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Editado\",\n  \"lastName\": \"Postman\",\n  \"isApproved\": true\n}" } } },
+        { "name": "DEV-T7059 - API-USR-004 [Postman] Bloquear usuario", "request": { "method": "PUT", "header": [{ "key": "X-Expected-Status", "value": "200,403,404" }], "url": "{{baseUrl}}/admin/users/{{userId}}/lock?lock=true" } },
+        { "name": "DEV-T7060 - API-USR-005 [Postman] Resetear contraseña de usuario", "request": { "method": "POST", "header": [{ "key": "X-Expected-Status", "value": "200,403,404" }], "url": "{{baseUrl}}/admin/users/{{userId}}/password/reset" } },
+        { "name": "DEV-T7061 - API-PERM-001 [Postman] Listar perfiles", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/profiles" } },
+        { "name": "DEV-T7062 - API-PERM-002 [Postman] Crear perfil", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,409" }], "url": "{{baseUrl}}/admin/profiles", "body": { "mode": "raw", "raw": "{\n  \"code\": \"POSTMAN_ROLE\",\n  \"label\": \"Postman Role\",\n  \"permissions\": []\n}" } } },
+        { "name": "DEV-T7063 - API-PERM-003 [Postman] Actualizar permisos de perfil", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/admin/profiles/POSTMAN_ROLE/permissions", "body": { "mode": "raw", "raw": "{\n  \"permissions\": []\n}" } } },
+        { "name": "DEV-T7064 - API-SET-001 [Postman] Consultar configuración", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/system-settings" } },
+        { "name": "DEV-T7065 - API-SET-002 [Postman] Actualizar configuración", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/system-settings", "body": { "mode": "raw", "raw": "{\n  \"attendanceLateToleranceMinutes\": 5,\n  \"attendanceNoShowGraceMinutes\": 15,\n  \"attendanceMonitorEnabled\": true\n}" } } },
+        { "name": "DEV-T7066 - API-AUD-001 [Postman] Listar auditoría", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/audit-logs?page=1&pageSize=20" } },
+        { "name": "DEV-T7067 - API-QA-001 [Postman] Enviar pregunta al asistente", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/query-assistant", "body": { "mode": "raw", "raw": "{\n  \"question\": \"¿Cuántas asistencias tardías hubo este mes?\"\n}" } } }
+      ]
+    },
+    {
+      "name": "06 - Estudiantes",
+      "item": [
+        { "name": "DEV-T7068 - API-STU-001 [Postman] Listar estudiantes", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/students?page=1&pageSize=20&schoolYearId={{schoolYearId}}" } },
+        { "name": "DEV-T7069 - API-STU-002 [Postman] Resumen de estudiantes", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/students/summary?schoolYearId={{schoolYearId}}" } },
+        { "name": "DEV-T7070 - API-STU-003 [Postman] Crear estudiante", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,200" }], "url": "{{baseUrl}}/admin/students?schoolYearId={{schoolYearId}}", "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Alumno\",\n  \"lastName\": \"Postman\",\n  \"documentId\": \"STU{{$timestamp}}\",\n  \"email\": \"alumno{{$timestamp}}@edutrack.test\",\n  \"courseId\": \"{{courseId}}\"\n}" } } },
+        { "name": "DEV-T7071 - API-STU-004 [Postman] Editar estudiante", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/admin/students/{{studentId}}?schoolYearId={{schoolYearId}}", "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Alumno Editado\",\n  \"lastName\": \"Postman\",\n  \"courseId\": \"{{courseId}}\"\n}" } } },
+        { "name": "DEV-T7072 - API-STU-005 [Postman] Eliminar estudiante", "request": { "method": "DELETE", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/admin/students/{{studentId}}?schoolYearId={{schoolYearId}}" } }
+      ]
+    },
+    {
+      "name": "07 - Cursos, Asignaturas y Ciclos",
+      "item": [
+        { "name": "DEV-T7073 - API-COURSE-001 [Postman] Listar cursos", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/courses?schoolYearId={{schoolYearId}}" } },
+        { "name": "DEV-T7074 - API-COURSE-002 [Postman] Crear curso", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,409" }], "url": "{{baseUrl}}/courses", "body": { "mode": "raw", "raw": "{\n  \"name\": \"Curso Postman {{$timestamp}}\",\n  \"code\": \"POST{{$timestamp}}\",\n  \"description\": \"Curso creado desde Postman\",\n  \"schoolYearId\": \"{{schoolYearId}}\",\n  \"isActive\": true\n}" } } },
+        { "name": "DEV-T7075 - API-COURSE-003 [Postman] Editar curso", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/courses/{{courseId}}?schoolYearId={{schoolYearId}}", "body": { "mode": "raw", "raw": "{\n  \"name\": \"Curso Postman Editado\",\n  \"description\": \"Editado desde Postman\",\n  \"isActive\": true\n}" } } },
+        { "name": "DEV-T7076 - API-COURSE-004 [Postman] Eliminar curso", "request": { "method": "DELETE", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/courses/{{courseId}}?schoolYearId={{schoolYearId}}" } },
+        { "name": "DEV-T7077 - API-SUBJ-001 [Postman] Listar asignaturas", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/courses/{{courseId}}/subjects?schoolYearId={{schoolYearId}}" } },
+        { "name": "DEV-T7078 - API-SUBJ-002 [Postman] Crear asignatura", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,409" }], "url": "{{baseUrl}}/courses/{{courseId}}/subjects?schoolYearId={{schoolYearId}}", "body": { "mode": "raw", "raw": "{\n  \"name\": \"Asignatura Postman {{$timestamp}}\",\n  \"code\": \"SUB{{$timestamp}}\",\n  \"sortOrder\": 1,\n  \"isActive\": true\n}" } } },
+        { "name": "DEV-T7079 - API-SY-001 [Postman] Listar ciclos", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/school-years" } },
+        { "name": "DEV-T7080 - API-SY-002 [Postman] Consultar ciclo activo", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/admin/school-years/active" } },
+        { "name": "DEV-T7081 - API-SY-003 [Postman] Crear ciclo", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,409" }], "url": "{{baseUrl}}/admin/school-years", "body": { "mode": "raw", "raw": "{\n  \"code\": {{runSchoolYearCode}},\n  \"label\": \"Ciclo Postman {{$timestamp}}\",\n  \"startsOn\": \"2099-03-01\",\n  \"endsOn\": \"2099-12-15\"\n}" } } },
+        { "name": "DEV-T7082 - API-SY-004 [Postman] Activar ciclo", "request": { "method": "POST", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/admin/school-years/{{schoolYearId}}/activate" } },
+        { "name": "DEV-T7083 - API-SY-005 [Postman] Copiar cursos entre ciclos", "request": { "method": "POST", "header": [{ "key": "X-Expected-Status", "value": "201,200,404" }], "url": "{{baseUrl}}/admin/school-years/{{targetSchoolYearId}}/copy-courses-from/{{sourceSchoolYearId}}" } }
+      ]
+    },
+    {
+      "name": "08 - Eventos",
+      "item": [
+        { "name": "DEV-T7084 - API-EVT-001 [Postman] Crear evento", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,200" }], "url": "{{baseUrl}}/events?schoolYearId={{schoolYearId}}", "body": { "mode": "raw", "raw": "{\n  \"title\": \"Evento Postman {{$timestamp}}\",\n  \"description\": \"Creado desde Postman\",\n  \"type\": \"CLASE\",\n  \"startDate\": \"{{eventDate}}\",\n  \"startTime\": \"09:00\",\n  \"endTime\": \"10:00\",\n  \"assignedUserId\": \"{{teacherUserId}}\",\n  \"courseId\": \"{{courseId}}\",\n  \"subjectId\": \"{{subjectId}}\",\n  \"recurrenceType\": \"NONE\",\n  \"daysOfWeek\": []\n}" } } },
+        { "name": "DEV-T7085 - API-EVT-002 [Postman] Listar mis eventos", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/events/my-events?from={{fromDate}}&to={{toDate}}" } },
+        { "name": "DEV-T7086 - API-EVT-003 [Postman] Listar eventos administrativos", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/events/all?page=1&pageSize=20&schoolYearId={{schoolYearId}}" } },
+        { "name": "DEV-T7087 - API-EVT-004 [Postman] Ver evento", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/events/{{eventId}}" } },
+        { "name": "DEV-T7088 - API-EVT-005 [Postman] Editar evento", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/events/{{eventId}}?schoolYearId={{schoolYearId}}", "body": { "mode": "raw", "raw": "{\n  \"title\": \"Evento Postman Editado\",\n  \"description\": \"Editado desde Postman\",\n  \"type\": \"CLASE\",\n  \"startDate\": \"{{eventDate}}\",\n  \"startTime\": \"09:30\",\n  \"endTime\": \"10:30\",\n  \"assignedUserId\": \"{{teacherUserId}}\",\n  \"courseId\": \"{{courseId}}\",\n  \"subjectId\": \"{{subjectId}}\"\n}" } } },
+        { "name": "DEV-T7089 - API-EVT-006 [Postman] Eliminar evento", "request": { "method": "DELETE", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/events/{{eventId}}" } }
+      ]
+    },
+    {
+      "name": "09 - Asistencias, Biométrico y ADMS",
+      "item": [
+        { "name": "DEV-T7090 - API-ATT-001 [Postman] Registrar entrada", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,201,409" }], "url": "{{baseUrl}}/attendance/register", "body": { "mode": "raw", "raw": "{\n  \"type\": \"CHECK_IN\",\n  \"date\": \"{{eventDate}}T12:00:00.000Z\",\n  \"time\": \"{{eventDate}}T12:00:00.000Z\",\n  \"eventId\": \"{{eventId}}\"\n}" } } },
+        { "name": "DEV-T7091 - API-ATT-002 [Postman] Registrar salida", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,201,409" }], "url": "{{baseUrl}}/attendance/register", "body": { "mode": "raw", "raw": "{\n  \"type\": \"CHECK_OUT\",\n  \"date\": \"{{eventDate}}T13:00:00.000Z\",\n  \"time\": \"{{eventDate}}T13:00:00.000Z\",\n  \"eventId\": \"{{eventId}}\"\n}" } } },
+        { "name": "DEV-T7092 - API-ATT-003 [Postman] Listar mis asistencias", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/attendance/my-attendances?startDate={{fromDate}}&endDate={{toDate}}" } },
+        { "name": "DEV-T7093 - API-ATT-004 [Postman] Listar todas las asistencias", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/attendance/all?startDate={{fromDate}}&endDate={{toDate}}&schoolYearId={{schoolYearId}}" } },
+        { "name": "DEV-T7094 - API-ATT-005 [Postman] Editar asistencia", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/attendance/{{attendanceId}}", "body": { "mode": "raw", "raw": "{\n  \"status\": \"PRESENT\",\n  \"notes\": \"Editado desde Postman\"\n}" } } },
+        { "name": "DEV-T7095 - API-ATT-006 [Postman] Eliminar asistencia", "request": { "method": "DELETE", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/attendance/{{attendanceId}}" } },
+        { "name": "DEV-T7096 - API-ATT-007 [Postman] Consultar estadísticas", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/attendance/stats?startDate={{fromDate}}&endDate={{toDate}}" } },
+        { "name": "DEV-T7097 - API-BIO-001 [Postman] Marcación biométrica simple", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,201,400,409" }], "url": "{{baseUrl}}/attendance/biometric", "body": { "mode": "raw", "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"type\": \"CHECK_IN\",\n  \"time\": \"{{eventDate}}T12:00:00.000Z\"\n}" } } },
+        { "name": "DEV-T7098 - API-ADMS-001 [Postman] Ingesta ADMS correcta", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Biometric-Secret", "value": "{{admsSecret}}" }, { "key": "X-Expected-Status", "value": "200,201" }], "url": "{{baseUrl}}/biometric/adms-ingest", "body": { "mode": "raw", "raw": "{\n  \"deviceCode\": \"{{admsDeviceCode}}\",\n  \"deviceUserId\": \"{{admsDeviceUserId}}\",\n  \"timestamp\": \"{{eventDate}}T12:00:00.000Z\",\n  \"punchType\": \"CHECK_IN\",\n  \"externalId\": \"postman-adms-{{$timestamp}}\"\n}" } } },
+        { "name": "DEV-T7099 - API-ADMS-002 [Postman] Ingesta ADMS sin secreto", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "401,403" }], "url": "{{baseUrl}}/biometric/adms-ingest", "body": { "mode": "raw", "raw": "{\n  \"deviceCode\": \"{{admsDeviceCode}}\",\n  \"deviceUserId\": \"{{admsDeviceUserId}}\",\n  \"timestamp\": \"{{eventDate}}T12:00:00.000Z\",\n  \"punchType\": \"CHECK_IN\",\n  \"externalId\": \"postman-adms-no-secret-{{$timestamp}}\"\n}" } } },
+        { "name": "DEV-T7100 - API-ADMS-003 [Postman] Ingesta ADMS duplicada", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Biometric-Secret", "value": "{{admsSecret}}" }, { "key": "X-Expected-Status", "value": "200,409" }], "url": "{{baseUrl}}/biometric/adms-ingest", "body": { "mode": "raw", "raw": "{\n  \"deviceCode\": \"{{admsDeviceCode}}\",\n  \"deviceUserId\": \"{{admsDeviceUserId}}\",\n  \"timestamp\": \"{{eventDate}}T12:00:00.000Z\",\n  \"punchType\": \"CHECK_IN\",\n  \"externalId\": \"postman-adms-{{$timestamp}}\"\n}" } } }
+      ]
+    },
+    {
+      "name": "10 - Licencias y Días No Laborables",
+      "item": [
+        { "name": "DEV-T7101 - API-LIC-001 [Postman] Listar licencias", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/medical-leaves/all?from={{fromDate}}&to={{toDate}}" } },
+        { "name": "DEV-T7102 - API-LIC-002 [Postman] Listar mis licencias", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/medical-leaves/my-leaves" } },
+        { "name": "DEV-T7103 - API-LIC-003 [Postman] Crear licencia", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,200" }], "url": "{{baseUrl}}/medical-leaves", "body": { "mode": "raw", "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"type\": \"MEDICAL_LEAVE\",\n  \"startDate\": \"{{fromDate}}T00:00:00.000Z\",\n  \"endDate\": \"{{toDate}}T23:59:59.000Z\",\n  \"reason\": \"Licencia Postman\",\n  \"status\": \"ACTIVE\"\n}" } } },
+        { "name": "DEV-T7104 - API-LIC-004 [Postman] Editar licencia", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/medical-leaves/{{licenseId}}", "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Licencia editada desde Postman\",\n  \"status\": \"ACTIVE\"\n}" } } },
+        { "name": "DEV-T7105 - API-LIC-005 [Postman] Desactivar licencia", "request": { "method": "DELETE", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/medical-leaves/{{licenseId}}" } },
+        { "name": "DEV-T7106 - API-NWD-001 [Postman] Listar días no laborables", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/non-working-days?from={{fromDate}}&to={{toDate}}" } },
+        { "name": "DEV-T7107 - API-NWD-002 [Postman] Crear día no laborable", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,200,409" }], "url": "{{baseUrl}}/non-working-days", "body": { "mode": "raw", "raw": "{\n  \"date\": \"{{eventDate}}\",\n  \"reason\": \"Día Postman\",\n  \"type\": \"NON_WORKING_DAY\",\n  \"schoolYearId\": \"{{schoolYearId}}\"\n}" } } },
+        { "name": "DEV-T7108 - API-NWD-003 [Postman] Eliminar día no laborable", "request": { "method": "DELETE", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/non-working-days/{{nonWorkingDayId}}" } }
+      ]
+    },
+    {
+      "name": "11 - Analíticas, Exportaciones y Reportes",
+      "item": [
+        { "name": "DEV-T7109 - API-AN-001 [Postman] Consultar dashboard", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/analytics/dashboard?from={{fromDate}}&to={{toDate}}" } },
+        { "name": "DEV-T7110 - API-AN-002 [Postman] Consultar rankings", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/analytics/rankings?from={{fromDate}}&to={{toDate}}" } },
+        { "name": "DEV-T7111 - API-EXP-001 [Postman] Crear exportación detalle asistencia", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201" }], "url": "{{baseUrl}}/exports", "body": { "mode": "raw", "raw": "{\n  \"reportKey\": \"attendance_detail\",\n  \"format\": \"XLSX\",\n  \"from\": \"{{fromDate}}\",\n  \"to\": \"{{toDate}}\",\n  \"filters\": {\n    \"schoolYearId\": \"{{schoolYearId}}\"\n  }\n}" } } },
+        { "name": "DEV-T7112 - API-EXP-002 [Postman] Consultar exportación", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/exports/{{exportId}}" } },
+        { "name": "DEV-T7113 - API-EXP-003 [Postman] Descargar exportación", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200,404,409" }], "url": "{{baseUrl}}/exports/{{exportId}}/download" } },
+        { "name": "DEV-T7114 - API-REP-001 [Postman] Descargar reporte Excel", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/reports/report?format=excel&startDate={{fromDate}}&endDate={{toDate}}" } },
+        { "name": "DEV-T7115 - API-REP-002 [Postman] Descargar reporte PDF", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/reports/report?format=pdf&startDate={{fromDate}}&endDate={{toDate}}" } }
+      ]
+    },
+    {
+      "name": "12 - Notificaciones y Push",
+      "item": [
+        { "name": "DEV-T7116 - API-NOT-001 [Postman] Listar notificaciones", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/notifications/in-app" } },
+        { "name": "DEV-T7117 - API-NOT-002 [Postman] Contar no leídas", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/notifications/in-app/unread-count" } },
+        { "name": "DEV-T7118 - API-NOT-003 [Postman] Marcar aviso leído", "request": { "method": "PATCH", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/notifications/in-app/{{notificationId}}/read" } },
+        { "name": "DEV-T7119 - API-PUSH-001 [Postman] Consultar clave pública push", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/notifications/web-push/vapid-public-key" } },
+        { "name": "DEV-T7120 - API-PUSH-002 [Postman] Registrar suscripción push", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,201,400" }], "url": "{{baseUrl}}/notifications/web-push/subscribe", "body": { "mode": "raw", "raw": "{\n  \"endpoint\": \"https://example.com/push/postman\",\n  \"keys\": {\n    \"p256dh\": \"PEGAR_P256DH\",\n    \"auth\": \"PEGAR_AUTH\"\n  }\n}" } } },
+        { "name": "DEV-T7121 - API-PUSH-003 [Postman] Probar notificación push", "request": { "method": "POST", "header": [{ "key": "X-Expected-Status", "value": "200,400,404" }], "url": "{{baseUrl}}/notifications/web-push/test" } }
+      ]
+    },
+    {
+      "name": "13 - Permisos Negativos",
+      "item": [
+        { "name": "DEV-T7122 - API-PERM-001 [Postman] Bloquear acceso admin sin sesión", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "401" }], "url": "{{baseUrl}}/admin/users" } },
+        { "name": "DEV-T7123 - API-PERM-002 [Postman] Bloquear acceso admin sin permiso", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "403" }], "url": "{{baseUrl}}/admin/users" } },
+        { "name": "DEV-T7124 - API-PERM-003 [Postman] Bloquear edición de asistencia sin permiso", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "403" }], "url": "{{baseUrl}}/attendance/{{attendanceId}}", "body": { "mode": "raw", "raw": "{\n  \"notes\": \"Intento sin permiso\"\n}" } } },
+        { "name": "DEV-T7125 - API-PERM-004 [Postman] Bloquear creación de exportación sin permiso", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "403" }], "url": "{{baseUrl}}/exports", "body": { "mode": "raw", "raw": "{\n  \"reportKey\": \"attendance_detail\",\n  \"format\": \"CSV\",\n  \"from\": \"{{fromDate}}\",\n  \"to\": \"{{toDate}}\"\n}" } } },
+        { "name": "DEV-T7126 - API-PERM-005 [Postman] Bloquear creación de licencia sin permiso", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "403" }], "url": "{{baseUrl}}/medical-leaves", "body": { "mode": "raw", "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"startDate\": \"{{fromDate}}\",\n  \"endDate\": \"{{toDate}}\",\n  \"reason\": \"Intento sin permiso\"\n}" } } }
+      ]
+    }
+  ]
+}

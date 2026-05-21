@@ -525,6 +525,25 @@ describe("events routes (prisma mock)", () => {
     expect(res.status).toBe(500);
   });
 
+  it("DELETE /events/:id responde 404 si no existe", async () => {
+    prismaMock.event.delete.mockRejectedValueOnce({ code: "P2025" });
+    const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .delete("/events/e1")
+      .set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/no encontrado/i);
+  });
+
+  it("DELETE /events/:id responde 409 si tiene registros asociados", async () => {
+    prismaMock.event.delete.mockRejectedValueOnce({ code: "P2003" });
+    const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .delete("/events/e1")
+      .set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(409);
+  });
+
   it("PUT /events/:id/cancel ya cancelado 400", async () => {
     prismaMock.event.findUnique.mockResolvedValue({
       userId: "u1",

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { Calendar, ChevronRight, ClipboardList, Clock, Loader2, LogIn, LogOut, User } from 'lucide-react'
+import { AlertTriangle, Calendar, ChevronRight, ClipboardList, Clock, Loader2, LogIn, LogOut, User } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import type { AssignedEventRow } from '@/components/personal/MyAssignedEventsPage'
 import {
@@ -14,10 +14,14 @@ import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-u
 
 type AttendanceFeedRow = {
   id: string
-  type: 'CHECK_IN' | 'CHECK_OUT'
+  type: 'CHECK_IN' | 'CHECK_OUT' | 'INCIDENT'
   status: string
   date: string
   time: string
+  kind?: 'INCIDENT'
+  title?: string
+  description?: string | null
+  incidentType?: string
   user?: { id: string; name?: string | null; email: string; role?: string }
   event?: { id: string; title: string; type: string } | null
 }
@@ -37,6 +41,11 @@ function labelAttendanceStatus(status: string): string {
     EARLY_EXIT: 'Salida anticipada',
   }
   return m[status] ?? status
+}
+
+function labelAttendanceFeedRow(row: AttendanceFeedRow): string {
+  if (row.kind === 'INCIDENT' || row.type === 'INCIDENT') return 'Falta'
+  return labelAttendanceStatus(row.status)
 }
 
 function badgeClassForStatus(status: string): string {
@@ -107,6 +116,7 @@ export function HomeAdminAttendanceFeed() {
         endDate: end.toISOString(),
         page: '1',
         pageSize: '24',
+        includeIncidents: 'true',
       })
       const res = await api<AttendanceFeedResponse>(`/attendance/all?${params.toString()}`)
       setRows(res.data ?? [])
@@ -161,24 +171,37 @@ export function HomeAdminAttendanceFeed() {
                   className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
                     r.type === 'CHECK_IN'
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-slate-200 bg-slate-50 text-slate-600'
+                      : r.type === 'INCIDENT'
+                        ? 'border-red-200 bg-red-50 text-red-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-600'
                   }`}
-                  title={r.type === 'CHECK_IN' ? 'Entrada' : 'Salida'}
+                  title={r.type === 'CHECK_IN' ? 'Entrada' : r.type === 'INCIDENT' ? 'Falta' : 'Salida'}
                 >
-                  {r.type === 'CHECK_IN' ? <LogIn className="h-[18px] w-[18px]" aria-hidden /> : <LogOut className="h-[18px] w-[18px]" aria-hidden />}
+                  {r.type === 'CHECK_IN' ? (
+                    <LogIn className="h-[18px] w-[18px]" aria-hidden />
+                  ) : r.type === 'INCIDENT' ? (
+                    <AlertTriangle className="h-[18px] w-[18px]" aria-hidden />
+                  ) : (
+                    <LogOut className="h-[18px] w-[18px]" aria-hidden />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-slate-900">{r.user?.name || r.user?.email || 'Usuario'}</span>
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(r.status)}`}>
-                      {labelAttendanceStatus(r.status)}
+                      {labelAttendanceFeedRow(r)}
                     </span>
                     <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                      {r.type === 'CHECK_IN' ? 'Entrada' : 'Salida'}
+                      {r.type === 'CHECK_IN' ? 'Entrada' : r.type === 'INCIDENT' ? 'Incidencia' : 'Salida'}
                     </span>
                   </div>
                   <p className="truncate text-sm text-slate-600">
-                    {r.event?.title ? (
+                    {r.type === 'INCIDENT' ? (
+                      <span>
+                        <span className="text-slate-400">Evento · </span>
+                        {r.event?.title || r.title || 'Docente no presente en aula'}
+                      </span>
+                    ) : r.event?.title ? (
                       <span>
                         <span className="text-slate-400">Evento · </span>
                         {r.event.title}

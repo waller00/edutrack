@@ -55,6 +55,24 @@ describe('AdminEvents', () => {
     expect(await screen.findByText('No hay eventos')).toBeInTheDocument()
   })
 
+  it('carga solo cursos activos para crear o filtrar eventos', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('events/all')) {
+        return { total: 0, page: 1, pageSize: 20, data: [] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).startsWith('/courses')) return []
+      return {}
+    })
+
+    render(<AdminEvents />)
+    await screen.findByText('No hay eventos')
+
+    const courseCalls = mockedApi.mock.calls.map((call) => String(call[0])).filter((url) => url.startsWith('/courses'))
+    expect(courseCalls).toContain('/courses')
+    expect(courseCalls.some((url) => url.includes('all=1'))).toBe(false)
+  })
+
   it('cancela evento vía API', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('events/all')) {
