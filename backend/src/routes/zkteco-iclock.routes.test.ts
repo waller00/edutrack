@@ -79,4 +79,47 @@ describe("zkteco iclock routes", () => {
       punchType: "CHECK_IN",
     });
   });
+
+  it("GET getrequest sin SN devuelve 400", async () => {
+    const res = await request(app()).get("/iclock/getrequest");
+    expect(res.status).toBe(400);
+    expect(res.text).toContain("missing SN");
+  });
+
+  it("POST ATTLOG sin dispositivo registrado responde OK", async () => {
+    findDeviceMock.mockResolvedValue(null);
+    const res = await request(app())
+      .post("/iclock/cdata?SN=UNKNOWN&table=ATTLOG")
+      .set("Content-Type", "text/plain")
+      .send("1001\t2026-05-21 10:00:00\t0\t1\n");
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("OK");
+    expect(processMock).not.toHaveBeenCalled();
+  });
+
+  it("rechaza IP no permitida en ATTLOG", async () => {
+    findDeviceMock.mockResolvedValue({
+      id: "dev-1",
+      code: "F22-LOCAL-01",
+      name: "F22",
+      isActive: true,
+      secretHash: "x",
+      allowedIps: ["10.0.0.5"],
+      timezone: "America/Montevideo",
+      admsSerial: "SN123",
+    });
+    const res = await request(app())
+      .post("/iclock/cdata?SN=SN123&table=ATTLOG")
+      .set("Content-Type", "text/plain")
+      .set("X-Forwarded-For", "192.168.1.6")
+      .send("1001\t2026-05-21 10:00:00\t0\t1\n");
+    expect(res.status).toBe(403);
+    expect(res.text).toContain("IP not allowed");
+  });
+
+  it("POST registry responde OK", async () => {
+    const res = await request(app()).post("/iclock/registry?SN=SN123");
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("OK");
+  });
 });

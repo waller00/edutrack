@@ -1,23 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const listenSpy = vi.fn((_port: number, _host: string, callback?: () => void) => {
-  callback?.();
+const { listenSpy, createServerSpy } = vi.hoisted(() => {
+  const listenSpy = vi.fn((_port: number, _host: string, callback?: () => void) => {
+    callback?.();
+  });
+  const createServerSpy = vi.fn(() => ({ listen: listenSpy }));
+  return { listenSpy, createServerSpy };
 });
 
-const createServerSpy = vi.fn(() => ({
-  listen: listenSpy,
+vi.mock("node:http", () => ({
+  default: { createServer: createServerSpy },
 }));
-
-vi.mock("node:http", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:http")>();
-  return {
-    ...actual,
-    default: {
-      ...actual.default,
-      createServer: createServerSpy,
-    },
-  };
-});
 
 vi.mock("../app.js", () => ({
   default: {},
@@ -44,12 +37,11 @@ describe("server", () => {
     vi.resetModules();
     vi.clearAllMocks();
     delete process.env.PORT;
-    delete process.env.ZKTECO_ICLOCK_PORT;
+    process.env.ZKTECO_ICLOCK_PORT = "0";
   });
 
   it("starts the app on the configured port", async () => {
     process.env.PORT = "4321";
-    process.env.ZKTECO_ICLOCK_PORT = "0";
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await import("../server.js");
@@ -60,7 +52,7 @@ describe("server", () => {
   });
 
   it("falls back to port 4000", async () => {
-    process.env.ZKTECO_ICLOCK_PORT = "0";
+    delete process.env.PORT;
     await import("../server.js");
     expect(listenSpy).toHaveBeenCalledWith(4000, "0.0.0.0", expect.any(Function));
   });
