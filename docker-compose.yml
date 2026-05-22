@@ -63,8 +63,13 @@ services:
       MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
       MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
       MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
+      ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-8081}
     ports:
       - "4000:4000"
+      - "8081:8081"
+      - "80:8081"
+      - "8080:8081"
+      - "8088:8081"
     # Moodle en el host (puerto 8080): fuerza IPv4; sin esto Node puede resolver host.docker.internal solo a IPv6 y fallar.
     extra_hosts:
       - "host.docker.internal:host-gateway"

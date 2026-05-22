@@ -23,6 +23,7 @@ import exportsRoutes from "./routes/exports.js";
 import webPushRoutes from "./routes/web-push.js";
 import inAppNotificationRoutes from "./routes/in-app-notifications.js";
 import biometricAdmsRoutes from "./routes/biometric-adms.js";
+import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 
 dns.setDefaultResultOrder("ipv4first");
@@ -83,6 +84,22 @@ app.use(
   }),
 );
 app.use(morgan("dev"));
+
+const iclockTextParser = express.text({
+  limit: "10mb",
+  type: (req) => !String(req.headers["content-type"] || "").includes("application/json"),
+});
+
+// Protocolo push ZKTeco (F22 ADMS): cuerpo texto plano en /iclock/*
+// Algunos F22 llaman /cdata o /getrequest sin prefijo → reescritura interna a /iclock/*
+app.use((req, _res, next) => {
+  const base = req.path.split("?")[0] ?? "";
+  if (base === "/cdata" || base === "/getrequest" || base === "/registry" || base === "/devicecmd") {
+    req.url = `/iclock${req.url}`;
+  }
+  next();
+});
+app.use("/iclock", iclockTextParser, zktecoIclockRoutes);
 // Webhook Didit: cuerpo raw para validar HMAC
 app.post(
   "/webhooks/didit",
