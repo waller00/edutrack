@@ -1,0 +1,328 @@
+import crypto from "crypto";
+import { prisma } from "../db/prisma.js";
+import { buildBiometricAttendancePayload } from "../attendance/attendance-logic.js";
+import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
+import { getAttendanceOperationalSettings, isBiometricLateBySettings } from "../config/system-settings.js";
+import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
+import {
+  findAssignedEventForAttendanceInstant,
+  maybeCreateLateArrivalIncident,
+  resolveNoShowIncidentsForEvents,
+} from "./attendance-incidents.js";
+import {
+  buildContiguousClassBlocks,
+  earlyEntryWindowMinutes,
+  fetchTeacherClassSlotsForUruguayDay,
+  findBlockContainingEventId,
+  findBlockContainingInstant,
+} from "./teacher-class-blocks.js";
+
+export function hashBiometricSecret(raw: string) {
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+export function isBiometricSecretValid(storedHash: string, providedRaw: string) {
+  const providedHash = hashBiometricSecret(providedRaw);
+  const a = Buffer.from(storedHash);
+  const b = Buffer.from(providedHash);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function isLateAgainstEventStart(
+  attendanceTime: Date,
+  eventStartTime: Date | null | undefined,
+  toleranceMinutes: number,
+) {
+  if (!eventStartTime) return false;
+  const minsLate = Math.floor((attendanceTime.getTime() - new Date(eventStartTime).getTime()) / (1000 * 60));
+  return minsLate > toleranceMinutes;
+}
+
+async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDate: Date): Promise<string | null> {
+  const rows = await tx.attendance.findMany({
+    where: { userId, date: attendanceDate },
+    orderBy: { time: "asc" },
+    select: { type: true, eventId: true },
+  });
+  let openAnchor: string | null = null;
+  for (const r of rows) {
+    if (r.type === "CHECK_IN") openAnchor = r.eventId;
+    else if (r.type === "CHECK_OUT") openAnchor = null;
+  }
+  return openAnchor;
+}
+
+async function resolveBiometricAttendanceLinkage(
+  tx: any,
+  params: {
+    userId: string;
+    occurredAt: Date;
+    punchType: "CHECK_IN" | "CHECK_OUT";
+    attendanceDate: Date;
+    bridgeGapMinutes: number;
+  },
+) {
+  const { userId, occurredAt, punchType, attendanceDate, bridgeGapMinutes } = params;
+  const slots = await fetchTeacherClassSlotsForUruguayDay(tx, userId, occurredAt);
+  const blocks = buildContiguousClassBlocks(slots, bridgeGapMinutes);
+  const early = earlyEntryWindowMinutes(bridgeGapMinutes);
+
+  if (punchType === "CHECK_IN") {
+    const block = findBlockContainingInstant(occurredAt, blocks, early);
+    if (block?.length) {
+      const first = block[0]!;
+      return {
+        attendanceEventId: first.id,
+        lateReference: first,
+        blockEventIds: block.map((e) => e.id),
+      };
+    }
+    const fb = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
+    return {
+      attendanceEventId: fb?.id,
+      lateReference: fb,
+      blockEventIds: fb?.id ? [fb.id] : [],
+    };
+  }
+
+  const openId = await getOpenCheckInAnchorEventId(tx, userId, attendanceDate);
+  if (openId) {
+    const block = findBlockContainingEventId(openId, blocks);
+    if (block?.length) {
+      const last = block[block.length - 1]!;
+      return {
+        attendanceEventId: last.id,
+        lateReference: null,
+        blockEventIds: block.map((e) => e.id),
+      };
+    }
+  }
+  const fb = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
+  return {
+    attendanceEventId: fb?.id,
+    lateReference: null,
+    blockEventIds: fb?.id ? [fb.id] : [],
+  };
+}
+
+export type BiometricIngestParams = {
+  deviceDbId: string;
+  deviceCode: string;
+  deviceUserId: string;
+  occurredAt: Date;
+  externalId?: string;
+  punchType?: "CHECK_IN" | "CHECK_OUT";
+  payload: unknown;
+};
+
+export type BiometricIngestResult =
+  | { ok: true; duplicate: boolean; punchId: string; attendanceId?: string | null; isLate?: boolean; attendance?: unknown }
+  | { ok: false; reason: "NO_MAPPING"; punchId: string }
+  | { ok: false; reason: "LICENSE_BLOCKED"; punchId: string };
+
+export async function findBiometricDeviceByCode(code: string) {
+  return prisma.biometricDevice.findUnique({
+    where: { code },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      isActive: true,
+      secretHash: true,
+      allowedIps: true,
+      timezone: true,
+      admsSerial: true,
+    },
+  });
+}
+
+/** Resuelve dispositivo por número de serie ADMS (SN) o por código interno. */
+export async function findBiometricDeviceByAdmsSn(sn: string) {
+  return prisma.biometricDevice.findFirst({
+    where: {
+      isActive: true,
+      OR: [{ code: sn }, { admsSerial: sn }],
+    },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      isActive: true,
+      secretHash: true,
+      allowedIps: true,
+      timezone: true,
+      admsSerial: true,
+    },
+  });
+}
+
+export async function processBiometricIngest(params: BiometricIngestParams): Promise<BiometricIngestResult> {
+  const { deviceDbId, deviceCode, deviceUserId, occurredAt, externalId, punchType, payload } = params;
+
+  const mapping = await prisma.biometricUserMapping.findFirst({
+    where: { deviceId: deviceDbId, deviceUserId, isActive: true },
+    select: { id: true, userId: true },
+  });
+
+  if (!mapping) {
+    const rejectedPunch = await prisma.biometricPunch.create({
+      data: {
+        deviceId: deviceDbId,
+        deviceUserId,
+        externalId,
+        occurredAt,
+        punchType: "UNKNOWN",
+        processStatus: "FAILED",
+        processError: "No existe mapeo activo para deviceUserId",
+        payload: payload as object,
+      },
+      select: { id: true },
+    });
+    return { ok: false, reason: "NO_MAPPING", punchId: rejectedPunch.id };
+  }
+
+  const attendanceDate = uruguayStartOfDayFromInstant(occurredAt);
+  const runtimeSettings = await getAttendanceOperationalSettings();
+
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      const existing = await tx.biometricPunch.findUnique({
+        where: {
+          deviceId_deviceUserId_occurredAt: {
+            deviceId: deviceDbId,
+            deviceUserId,
+            occurredAt,
+          },
+        },
+        select: { id: true, attendanceId: true },
+      });
+      if (existing) {
+        return { duplicate: true as const, punchId: existing.id, attendanceId: existing.attendanceId };
+      }
+
+      const licBio = await findApprovedLicenseCoveringEventTime(mapping.userId, occurredAt, occurredAt);
+      if (licBio) {
+        const blockedPunch = await tx.biometricPunch.create({
+          data: {
+            deviceId: deviceDbId,
+            mappingId: mapping.id,
+            userId: mapping.userId,
+            deviceUserId,
+            externalId,
+            occurredAt,
+            punchType: punchType ?? "UNKNOWN",
+            processStatus: "FAILED",
+            processError: "Marcación bloqueada por licencia médica activa",
+            payload: payload as object,
+          },
+          select: { id: true },
+        });
+        return { blockedByLicense: true as const, punchId: blockedPunch.id };
+      }
+
+      let resolvedType: "CHECK_IN" | "CHECK_OUT" = punchType ?? "CHECK_IN";
+      if (!punchType) {
+        const lastRow = await tx.attendance.findFirst({
+          where: { userId: mapping.userId, date: attendanceDate },
+          orderBy: { time: "desc" },
+          select: { type: true },
+        });
+        resolvedType = !lastRow || lastRow.type === "CHECK_OUT" ? "CHECK_IN" : "CHECK_OUT";
+      }
+
+      const linkage = await resolveBiometricAttendanceLinkage(tx, {
+        userId: mapping.userId,
+        occurredAt,
+        punchType: resolvedType,
+        attendanceDate,
+        bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+      });
+      const lateRef = linkage.lateReference;
+      const isLate =
+        resolvedType === "CHECK_IN"
+          ? lateRef?.startTime
+            ? isLateAgainstEventStart(occurredAt, lateRef.startTime, runtimeSettings.lateToleranceMinutes)
+            : isBiometricLateBySettings(occurredAt, runtimeSettings)
+          : false;
+
+      const attendance = await tx.attendance.create({
+        data: buildBiometricAttendancePayload({
+          userId: mapping.userId,
+          attendanceDate,
+          attendanceTime: occurredAt,
+          deviceId: deviceCode,
+          eventId: linkage.attendanceEventId || undefined,
+          isLate,
+          type: resolvedType,
+        }),
+        select: { id: true, type: true, status: true, date: true, time: true, eventId: true },
+      });
+
+      const punch = await tx.biometricPunch.create({
+        data: {
+          deviceId: deviceDbId,
+          mappingId: mapping.id,
+          userId: mapping.userId,
+          attendanceId: attendance.id,
+          deviceUserId,
+          externalId,
+          occurredAt,
+          punchType: resolvedType,
+          processStatus: "PROCESSED",
+          payload: payload as object,
+        },
+        select: { id: true },
+      });
+
+      if (resolvedType === "CHECK_IN") {
+        await maybeCreateLateArrivalIncident({
+          tx,
+          userId: mapping.userId,
+          eventId: lateRef?.id,
+          eventType: lateRef?.type,
+          eventTitle: lateRef?.title,
+          attendanceId: attendance.id,
+          biometricPunchId: punch.id,
+          attendanceTime: occurredAt,
+          eventStartTime: lateRef?.startTime || null,
+          lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
+        });
+      }
+      await resolveNoShowIncidentsForEvents(tx, mapping.userId, linkage.blockEventIds);
+
+      await tx.biometricDevice.update({
+        where: { id: deviceDbId },
+        data: { lastSeenAt: new Date() },
+      });
+
+      return { duplicate: false as const, punchId: punch.id, attendance, isLate };
+    });
+
+    if ("blockedByLicense" in created) {
+      return { ok: false, reason: "LICENSE_BLOCKED", punchId: created.punchId };
+    }
+
+    if (created.duplicate) {
+      return {
+        ok: true,
+        duplicate: true,
+        punchId: created.punchId,
+        attendanceId: created.attendanceId,
+      };
+    }
+
+    return {
+      ok: true,
+      duplicate: false,
+      punchId: created.punchId,
+      attendance: created.attendance,
+      isLate: created.isLate,
+    };
+  } catch (error: any) {
+    if (error?.code === "P2002") {
+      return { ok: true, duplicate: true, punchId: "duplicate" };
+    }
+    throw error;
+  }
+}

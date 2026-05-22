@@ -335,6 +335,8 @@ model AttendanceIncident {
 model BiometricDevice {
   id         String                 @id @default(uuid())
   code       String                 @unique
+  /// Número de serie ADMS del terminal (query `SN`); si no se define, se usa `code`.
+  admsSerial String?                @unique
   name       String
   secretHash String
   timezone   String                 @default("America/Montevideo")

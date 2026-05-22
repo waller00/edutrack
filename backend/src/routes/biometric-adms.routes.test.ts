@@ -103,10 +103,13 @@ describe("biometric ADMS ingest", () => {
     });
     prismaMock.biometricDevice.findUnique.mockResolvedValue({
       id: "device-1",
+      code: "F22-TEST-01",
       name: "F22",
       isActive: true,
       secretHash: sha256("local-secret"),
       allowedIps: [],
+      timezone: "America/Montevideo",
+      admsSerial: null,
     });
   });
 
