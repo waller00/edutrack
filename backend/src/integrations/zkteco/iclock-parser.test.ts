@@ -15,6 +15,14 @@ describe("parseAttlogBody", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.deviceUserId).toBe("1002");
   });
+
+  it("acepta timestamp unix en segundos", () => {
+    const epoch = 1_770_000_000;
+    const rows = parseAttlogBody(`1003\t${epoch}\t0\t1\n`, "America/Montevideo");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.deviceUserId).toBe("1003");
+    expect(rows[0]!.occurredAt.getTime()).toBe(epoch * 1000);
+  });
 });
 
 describe("buildIclockOptionsAllResponse", () => {

@@ -1,4 +1,7 @@
-import { vi } from 'vitest';
+import { vi } from "vitest";
+
+/** Evita que tests importen server.ts abran el puerto ADMS 8081 en el runner. */
+process.env.ZKTECO_ICLOCK_PORT = "0";
 
 /**
  * Silenciamos console.error y console.warn durante los tests.
