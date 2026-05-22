@@ -42,12 +42,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Deploy to Testing
-        uses: appleboy/ssh-action@v0.1.10
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST_TESTING }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
+          port: 22
+          timeout: 120s
           command_timeout: 40m
+          retry: 3
+          retry_interval: 15s
           script: |
             set -e
             compose() {
@@ -67,11 +71,8 @@ jobs:
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             # Red compartida con auth (MOODLE) y docker-compose.moodle.yml; debe existir antes de up
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
-            compose $CF down
-            docker rmi edutrack-web edutrack-auth 2>/dev/null || true
-            # NEXT_PUBLIC_* va en el build de Next: sin --no-cache web puede quedar imagen vieja sin Turnstile
-            compose $CF build --no-cache web
             compose $CF build auth
+            compose $CF build web
             compose $CF up -d --no-build
             echo "EduTrack actualizado en TESTING"
 
@@ -83,12 +84,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Deploy to Production
-        uses: appleboy/ssh-action@v0.1.10
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 120s
           command_timeout: 40m
+          retry: 3
+          retry_interval: 15s
           script: |
             set -e
             compose() {
@@ -121,12 +126,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Manual deploy to Testing (rollback/forward)
-        uses: appleboy/ssh-action@v0.1.10
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST_TESTING }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
+          port: 22
+          timeout: 120s
           command_timeout: 40m
+          retry: 3
+          retry_interval: 15s
           script: |
             set -e
             compose() {
@@ -144,10 +153,8 @@ jobs:
             git reset --hard "$TARGET_REF"
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
-            compose $CF down
-            docker rmi edutrack-web edutrack-auth 2>/dev/null || true
-            compose $CF build --no-cache web
             compose $CF build auth
+            compose $CF build web
             compose $CF up -d --no-build
             echo "EduTrack testing actualizado manualmente a $TARGET_REF"
 
@@ -158,12 +165,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Manual deploy to Production (rollback/forward)
-        uses: appleboy/ssh-action@v0.1.10
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 120s
           command_timeout: 40m
+          retry: 3
+          retry_interval: 15s
           script: |
             set -e
             compose() {
