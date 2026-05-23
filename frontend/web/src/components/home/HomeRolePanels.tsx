@@ -120,7 +120,7 @@ export function HomeAdminAttendanceFeed() {
         startDate: start.toISOString(),
         endDate: end.toISOString(),
         page: '1',
-        pageSize: '24',
+        pageSize: '8',
         includeIncidents: 'true',
       })
       const res = await api<AttendanceFeedResponse>(`/attendance/all?${params.toString()}`)
@@ -245,7 +245,7 @@ export function HomeAdminUpcomingEvents() {
         startDate: now.toISOString(),
         endDate: to.toISOString(),
         page: '1',
-        pageSize: '24',
+        pageSize: '8',
         status: 'SCHEDULED',
       })
       const res = await api<AdminEventsResponse>(`/events/all?${params.toString()}`)
@@ -270,7 +270,7 @@ export function HomeAdminUpcomingEvents() {
       const bTime = new Date(b.startTime || b.startDate).getTime()
       return aTime - bTime
     })
-    .slice(0, 8)
+    .slice(0, 6)
 
   const action = (
     <a
@@ -301,7 +301,7 @@ export function HomeAdminUpcomingEvents() {
           <EmptyState message="No hay eventos próximos en los próximos días. Cuando se programe actividad, aparecerá aquí." />
         )}
         {!loading && !error && visible.length > 0 && (
-          <ul className="grid gap-2 lg:grid-cols-2" role="list">
+          <ul className="grid gap-2 2xl:grid-cols-2" role="list">
             {visible.map((event) => (
               <li
                 key={event.id}

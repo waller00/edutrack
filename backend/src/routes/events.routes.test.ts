@@ -278,6 +278,40 @@ describe("events routes (prisma mock)", () => {
     expect(where.schoolYearId).toBe("sy-default");
   });
 
+  it("GET /events/all expande recurrentes y devuelve la próxima instancia del rango", async () => {
+    prismaMock.event.count.mockResolvedValue(1);
+    prismaMock.event.findMany.mockResolvedValue([
+      {
+        id: "rec-1",
+        title: "Sociología",
+        type: "CLASE",
+        status: "SCHEDULED",
+        isRecurring: true,
+        recurrenceType: "WEEKLY",
+        recurrenceEnd: new Date("2026-06-30T23:59:59.000Z"),
+        daysOfWeek: [1],
+        startDate: new Date("2026-03-03T00:00:00.000Z"),
+        startTime: new Date("2026-03-03T10:00:00.000Z"),
+        endTime: new Date("2026-03-03T11:30:00.000Z"),
+        user: {},
+        assignedUser: null,
+        childEvents: [],
+        _count: { attendances: 0 },
+      },
+    ]);
+    const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
+    const rangeStart = "2026-05-23T12:00:00.000Z";
+    const res = await request(app())
+      .get(`/events/all?startDate=${rangeStart}&endDate=2026-05-30T12:00:00.000Z&status=SCHEDULED`)
+      .set("Authorization", `Bearer ${tok}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].id).toContain("rec-1_");
+    expect(new Date(res.body.data[0].startDate).getTime()).toBeGreaterThanOrEqual(new Date(rangeStart).getTime());
+    expect(res.body.data[0].startDate).not.toContain("2026-03-03");
+  });
+
   it("GET /events/all aplica filtro courseId", async () => {
     prismaMock.event.count.mockResolvedValue(0);
     prismaMock.event.findMany.mockResolvedValue([]);
