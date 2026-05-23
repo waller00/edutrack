@@ -10,6 +10,7 @@ import {
   computeTopRiskPeople,
 } from '../services/analytics/metrics.js'
 import { prisma } from '../db/prisma.js'
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
 
@@ -22,6 +23,8 @@ const dashboardQuerySchema = z.object({
     .enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA'])
     .optional(),
   granularity: z.enum(['day', 'week', 'month']).optional(),
+  schoolYearId: z.string().uuid().optional(),
+  allYears: z.union([z.literal('1'), z.literal('true')]).optional(),
 })
 
 async function scopeUserIds(params: { role?: 'ADMIN' | 'STAFF' | 'TEACHER'; userId?: string }) {
@@ -44,7 +47,20 @@ async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
   }
 
   const userIds = await scopeUserIds({ role, userId })
-  const plannedInstances = await getPlannedInstances({ from, to, userId, userIds: userIds || undefined, eventType })
+  const schoolYearId = data.allYears
+    ? undefined
+    : await resolveSchoolYearIdForList(prisma, {
+        role: 'ADMIN',
+        requestedSchoolYearId: data.schoolYearId,
+      })
+  const plannedInstances = await getPlannedInstances({
+    from,
+    to,
+    userId,
+    userIds: userIds || undefined,
+    eventType,
+    schoolYearId: schoolYearId || undefined,
+  })
   const resolvedInstances = await resolveAttendanceAndJustification({ plannedInstances })
   const kpis = await computeDashboardKpis({ from, to, resolvedInstances })
 
@@ -64,6 +80,8 @@ async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
       rangeTo: data.to,
       roleFilter: role ?? null,
       eventTypeFilter: eventType ?? null,
+      schoolYearId: schoolYearId ?? null,
+      allYears: Boolean(data.allYears),
       generatedAt: new Date().toISOString(),
     },
     kpis,

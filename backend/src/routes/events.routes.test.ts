@@ -6,6 +6,7 @@ import { signAccessToken } from "../auth/jwt.js";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
+    $transaction: vi.fn(async (cb) => cb(prismaMock)),
     course: { findFirst: vi.fn() },
     courseOffering: { findFirst: vi.fn() },
     subject: { findFirst: vi.fn() },
@@ -399,9 +400,9 @@ describe("events routes (prisma mock)", () => {
     prismaMock.event.findUnique.mockResolvedValue({
       userId: "u1",
       assignedUserId: "00000000-0000-4000-8000-000000000010",
-      startDate: new Date("2025-12-15T10:00:00.000Z"),
-      startTime: new Date("2025-12-15T10:00:00.000Z"),
-      endTime: new Date("2025-12-15T11:00:00.000Z"),
+      startDate: new Date("2025-12-15T13:00:00.000Z"),
+      startTime: new Date("2025-12-15T13:00:00.000Z"),
+      endTime: new Date("2025-12-15T14:00:00.000Z"),
       isRecurring: false,
       recurrenceType: "NONE",
       recurrenceEnd: null,
@@ -423,6 +424,137 @@ describe("events routes (prisma mock)", () => {
           description: null,
           assignedUserId: null,
         }),
+      }),
+    );
+  });
+
+  it("PUT /events/:id reemplaza logicamente al mover de ciclo si tiene asistencias", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c1";
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: "e1",
+      title: "Clase",
+      description: null,
+      type: "CLASE",
+      userId: "u1",
+      assignedUserId: null,
+      location: null,
+      schoolYearId: "sy-2025",
+      courseOfferingId: "off-old",
+      courseOffering: { courseId: "00000000-0000-4000-8000-0000000000c0" },
+      subjectId: null,
+      _count: { attendances: 1 },
+      startDate: new Date("2025-12-15T13:00:00.000Z"),
+      startTime: new Date("2025-12-15T13:00:00.000Z"),
+      endTime: new Date("2025-12-15T14:00:00.000Z"),
+      isRecurring: false,
+      recurrenceType: "NONE",
+      recurrenceEnd: null,
+      daysOfWeek: [],
+      status: "SCHEDULED",
+    });
+    prismaMock.event.create.mockResolvedValueOnce({ id: "e2", title: "Clase", assignedUserId: null });
+    prismaMock.event.update.mockResolvedValueOnce({ id: "e1", status: "CANCELLED" });
+    prismaMock.courseOffering.findFirst.mockResolvedValueOnce({
+      id: "off-new",
+      courseId,
+      schoolYearId: "sy-2026",
+    });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+
+    const res = await request(app())
+      .put(`/events/e1?schoolYearId=sy-2026`)
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ courseId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.historicalReplacement).toBe(true);
+    expect(res.body.replacedEventId).toBe("e1");
+    expect(prismaMock.event.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ schoolYearId: "sy-2026", courseOfferingId: "off-new" }),
+      }),
+    );
+    expect(prismaMock.event.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "e1" },
+        data: expect.objectContaining({ status: "CANCELLED" }),
+      }),
+    );
+  });
+
+  it("PUT /events/:id reemplaza logicamente al cambiar horario si tiene asistencias", async () => {
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: "e1",
+      title: "Clase",
+      description: null,
+      type: "CLASE",
+      userId: "u1",
+      assignedUserId: null,
+      location: null,
+      schoolYearId: "sy-2026",
+      courseOfferingId: null,
+      courseOffering: null,
+      subjectId: null,
+      _count: { attendances: 1 },
+      startDate: new Date("2025-12-15T13:00:00.000Z"),
+      startTime: new Date("2025-12-15T13:00:00.000Z"),
+      endTime: new Date("2025-12-15T14:00:00.000Z"),
+      isRecurring: false,
+      recurrenceType: "NONE",
+      recurrenceEnd: null,
+      daysOfWeek: [],
+      status: "SCHEDULED",
+    });
+    prismaMock.event.create.mockResolvedValueOnce({ id: "e2", title: "Clase", assignedUserId: null });
+    prismaMock.event.update.mockResolvedValueOnce({ id: "e1", status: "CANCELLED" });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ startTime: "10:30" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.historicalReplacement).toBe(true);
+    expect(prismaMock.event.create).toHaveBeenCalled();
+    expect(prismaMock.event.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "e1" },
+        data: expect.objectContaining({ status: "CANCELLED" }),
+      }),
+    );
+  });
+
+  it("PUT /events/:id permite editar texto si tiene asistencias", async () => {
+    prismaMock.event.findUnique.mockResolvedValue({
+      userId: "u1",
+      assignedUserId: null,
+      schoolYearId: "sy-2026",
+      courseOfferingId: null,
+      courseOffering: null,
+      subjectId: null,
+      _count: { attendances: 1 },
+      startDate: new Date("2025-12-15T10:00:00.000Z"),
+      startTime: new Date("2025-12-15T10:00:00.000Z"),
+      endTime: new Date("2025-12-15T11:00:00.000Z"),
+      isRecurring: false,
+      recurrenceType: "NONE",
+      recurrenceEnd: null,
+      daysOfWeek: [],
+      status: "SCHEDULED",
+    });
+    prismaMock.event.update.mockResolvedValue({ id: "e1", title: "Titulo corregido" });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ title: "Titulo corregido", description: "Nota" });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.event.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ title: "Titulo corregido", description: "Nota" }),
       }),
     );
   });
@@ -517,7 +649,13 @@ describe("events routes (prisma mock)", () => {
   });
 
   it("DELETE /events/:id maneja errores internos", async () => {
-    prismaMock.event.delete.mockRejectedValueOnce(new Error("db"));
+    prismaMock.event.findUnique.mockResolvedValueOnce({
+      id: "e1",
+      title: "Evento",
+      status: "SCHEDULED",
+      description: null,
+    });
+    prismaMock.event.update.mockRejectedValueOnce(new Error("db"));
     const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
     const res = await request(app())
       .delete("/events/e1")
@@ -526,22 +664,13 @@ describe("events routes (prisma mock)", () => {
   });
 
   it("DELETE /events/:id responde 404 si no existe", async () => {
-    prismaMock.event.delete.mockRejectedValueOnce({ code: "P2025" });
+    prismaMock.event.findUnique.mockResolvedValueOnce(null);
     const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
     const res = await request(app())
       .delete("/events/e1")
       .set("Authorization", `Bearer ${tok}`);
     expect(res.status).toBe(404);
     expect(res.body.message).toMatch(/no encontrado/i);
-  });
-
-  it("DELETE /events/:id responde 409 si tiene registros asociados", async () => {
-    prismaMock.event.delete.mockRejectedValueOnce({ code: "P2003" });
-    const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
-    const res = await request(app())
-      .delete("/events/e1")
-      .set("Authorization", `Bearer ${tok}`);
-    expect(res.status).toBe(409);
   });
 
   it("PUT /events/:id/cancel ya cancelado 400", async () => {
@@ -560,11 +689,27 @@ describe("events routes (prisma mock)", () => {
   });
 
   it("DELETE /events/:id ADMIN", async () => {
-    prismaMock.event.delete.mockResolvedValue({});
+    prismaMock.event.findUnique.mockResolvedValueOnce({
+      id: "e1",
+      title: "Evento",
+      status: "SCHEDULED",
+      description: "Desc",
+    });
+    prismaMock.event.update.mockResolvedValueOnce({ id: "e1", status: "CANCELLED" });
     const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
     const res = await request(app())
       .delete("/events/e1")
       .set("Authorization", `Bearer ${tok}`);
     expect(res.status).toBe(200);
+    expect(res.body.softDeleted).toBe(true);
+    expect(prismaMock.event.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "CANCELLED",
+          description: expect.stringContaining("[Eliminado logicamente]"),
+        }),
+      }),
+    );
+    expect(prismaMock.event.delete).not.toHaveBeenCalled();
   });
 });

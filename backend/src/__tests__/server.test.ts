@@ -17,7 +17,7 @@ vi.mock("../app.js", () => ({
 }));
 
 vi.mock("../services/school-year-service.js", () => ({
-  ensureDefaultSchoolYearAndBackfill: vi.fn().mockResolvedValue(undefined),
+  ensureDefaultSchoolYear: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../config/system-settings.js", () => ({

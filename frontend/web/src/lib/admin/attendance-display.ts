@@ -1,6 +1,6 @@
 import { formatTimeInUruguay } from '@/lib/forms/datetime-uy'
 
-export type AdminAttendanceType = 'CHECK_IN' | 'CHECK_OUT'
+export type AdminAttendanceType = 'CHECK_IN' | 'CHECK_OUT' | 'INCIDENT'
 
 export type AdminAttendanceStatus =
   | 'PRESENT'
@@ -11,10 +11,12 @@ export type AdminAttendanceStatus =
   | 'EARLY_EXIT'
 
 export function getAdminAttendanceTypeStyle(type: AdminAttendanceType): string {
+  if (type === 'INCIDENT') return 'bg-red-100 text-red-800'
   return type === 'CHECK_IN' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
 }
 
 export function getAdminAttendanceTypeLabel(type: AdminAttendanceType): string {
+  if (type === 'INCIDENT') return 'Incidencia'
   return type === 'CHECK_IN' ? 'Entrada' : 'Salida'
 }
 
@@ -62,7 +64,7 @@ export type PlannedTimeSource = {
 /** Hora planificada del evento en hora civil de Uruguay. */
 export function getAdminAttendancePlannedTimeLabel(attendance: PlannedTimeSource): string {
   if (!attendance.event) return 'N/A'
-  if (attendance.type === 'CHECK_IN' && attendance.event.startTime) {
+  if ((attendance.type === 'CHECK_IN' || attendance.type === 'INCIDENT') && attendance.event.startTime) {
     return formatTimeInUruguay(attendance.event.startTime)
   }
   if (attendance.type === 'CHECK_OUT' && attendance.event.endTime) {

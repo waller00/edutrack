@@ -8,7 +8,6 @@ import {
   getRegisterVerificationMessageIcon,
   isValidRegisterEmail,
   isWarningRegisterVerificationMessage,
-  resolveRegisterUsernameStatus,
   getRegisterDocumentExpiryCapturedError,
   validateRegisterDniUploadInput,
   validateRegisterForm,
@@ -20,8 +19,6 @@ const baseForm = {
   email: 'a@b.co',
   password: 'Abcdef12',
   confirm: 'Abcdef12',
-  username: 'user_ok',
-  usernameStatus: 'ok' as const,
   nationalId: validCi,
   firstName: 'Juan',
   lastName: 'Pérez',
@@ -71,13 +68,6 @@ describe('icons y clases verificación', () => {
   it('warning message', () => {
     expect(isWarningRegisterVerificationMessage({ provided: '', message: '⚠️ Faltan apellidos' })).toBe(true)
     expect(isWarningRegisterVerificationMessage({ provided: '', message: '✓' })).toBe(false)
-  })
-})
-
-describe('resolveRegisterUsernameStatus', () => {
-  it('igual que onboarding', () => {
-    expect(resolveRegisterUsernameStatus(false, true)).toBe('invalid')
-    expect(resolveRegisterUsernameStatus(true, false)).toBe('taken')
   })
 })
 
@@ -144,16 +134,12 @@ describe('getRegisterBirthdateValidationError', () => {
 
 describe('getRegisterIdentityValidationError', () => {
   const b = {
-    username: 'good',
-    usernameStatus: 'ok' as const,
     nationalId: validCi,
     firstName: 'A',
     lastName: 'B',
     role: 'STAFF' as const,
   }
-  it('usuario rol cédula', () => {
-    expect(getRegisterIdentityValidationError({ ...b, username: 'ab' })).toContain('Usuario')
-    expect(getRegisterIdentityValidationError({ ...b, usernameStatus: 'taken' })).toContain('disponible')
+  it('rol cédula y nombres', () => {
     expect(getRegisterIdentityValidationError({ ...b, nationalId: '1' })).toContain('Cédula')
     expect(getRegisterIdentityValidationError({ ...b, firstName: '  ' })).toContain('obligatorios')
     expect(getRegisterIdentityValidationError({ ...b, role: '' })).toContain('perfil')

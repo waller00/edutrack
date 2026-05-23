@@ -30,6 +30,7 @@ export async function getPlannedInstances(params: {
   userId?: string
   userIds?: string[]
   eventType?: EventType
+  schoolYearId?: string
 }) {
   const { fromDate, toDate } = parseYmdToUtcRange(params.from, params.to)
   const { fromYmd, toYmd } = dateRangeToYmd(fromDate, toDate)
@@ -42,6 +43,7 @@ export async function getPlannedInstances(params: {
       ...(params.userIds ? { assignedUserId: { in: params.userIds } } : null),
       ...(!params.userIds && params.userId ? { assignedUserId: params.userId } : null),
       ...(params.eventType ? { type: params.eventType } : null),
+      ...(params.schoolYearId ? { schoolYearId: params.schoolYearId } : null),
     },
     select: {
       id: true,
@@ -121,4 +123,3 @@ export async function getPlannedInstances(params: {
 
   return instances
 }
-

@@ -1,7 +1,7 @@
 import http from "node:http";
 import app from "./app.js";
 import { prisma } from "./db/prisma.js";
-import { ensureDefaultSchoolYearAndBackfill } from "./services/school-year-service.js";
+import { ensureDefaultSchoolYear } from "./services/school-year-service.js";
 import { scanAndCreateTeacherNoShowIncidents } from "./services/attendance-incidents.js";
 import { getAttendanceOperationalSettings } from "./config/system-settings.js";
 
@@ -14,7 +14,7 @@ const iclockPort = Number(process.env.ZKTECO_ICLOCK_PORT || 8081);
  * El certificado SSL (HTTPS) lo gestiona Cloudflare o un Proxy externo.
  * Esto evita conflictos de certificados y errores de CORS en el 'preflight'.
  */
-ensureDefaultSchoolYearAndBackfill(prisma)
+ensureDefaultSchoolYear(prisma)
   .catch((e) => console.error("[school-year] bootstrap:", e))
   .finally(() => {
     const host = "0.0.0.0";

@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import type { Request } from 'express'
 import { z } from 'zod'
-import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { authGuard, requireAnyRoleOrPermission, requirePermission } from '../middlewares/auth.js'
 import { ensureCourseOffering, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
@@ -58,6 +57,25 @@ async function findCourseVisibleToUser(
     where.offerings = { some: { schoolYearId, ...(includeInactive ? {} : { isActive: true }) } }
   }
   return prisma.course.findFirst({ where, select: { id: true } })
+}
+
+async function resolveCourseOfferingIdFromQuery(
+  courseId: string,
+  user: { role: string },
+  query: Request['query'],
+): Promise<string | null> {
+  const schoolYearId = await resolveSchoolYearIdForList(prisma, {
+    role: user.role,
+    requestedSchoolYearId: typeof query.schoolYearId === 'string' ? query.schoolYearId : undefined,
+  })
+  if (!schoolYearId) return null
+  const courseOfferingDelegate = (prisma as any).courseOffering
+  if (!courseOfferingDelegate?.findFirst) return null
+  const offering = await courseOfferingDelegate.findFirst({
+    where: { courseId, schoolYearId },
+    select: { id: true },
+  })
+  return offering?.id ?? null
 }
 
 /** Cursos del ciclo lectivo seleccionado (query `schoolYearId` para ADMIN/STAFF; por defecto año activo). `?allYears=1` solo ADMIN ignora el ciclo. */
@@ -259,9 +277,11 @@ r.get('/:courseId/subjects', authGuard, requireAnyRoleOrPermission(['ADMIN', 'ST
     const course = await findCourseVisibleToUser(cid.data, user, req.query)
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
     const showInactive = req.query.all === '1' && user.role === 'ADMIN'
-    const where: Prisma.SubjectWhereInput = { courseId: course.id }
+    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, user, req.query)
+    const where: any = { courseId: course.id }
     if (!showInactive) where.isActive = true
-    const list = await prisma.subject.findMany({
+    if (courseOfferingId) where.OR = [{ courseOfferingId }, { courseOfferingId: null }]
+    const list = await (prisma.subject as any).findMany({
       where,
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
@@ -272,6 +292,7 @@ r.get('/:courseId/subjects', authGuard, requireAnyRoleOrPermission(['ADMIN', 'ST
         sortOrder: true,
         isActive: true,
         courseId: true,
+        courseOfferingId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -298,9 +319,11 @@ r.post('/:courseId/subjects', authGuard, requirePermission('courses.manage', 'al
         detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
       })
     }
-    const row = await prisma.subject.create({
+    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, user, req.query)
+    const row = await (prisma.subject as any).create({
       data: {
         courseId: course.id,
+        courseOfferingId,
         name: parsed.data.name,
         code: parsed.data.code ?? null,
         description: parsed.data.description ?? null,
@@ -315,6 +338,7 @@ r.post('/:courseId/subjects', authGuard, requirePermission('courses.manage', 'al
         sortOrder: true,
         isActive: true,
         courseId: true,
+        courseOfferingId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -342,13 +366,16 @@ r.put('/:courseId/subjects/:subjectId', authGuard, requirePermission('courses.ma
         detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
       })
     }
-    const existing = await prisma.subject.findFirst({
-      where: { id: sid.data, courseId: course.id },
+    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, user, req.query)
+    const subjectWhere: any = { id: sid.data, courseId: course.id }
+    if (courseOfferingId) subjectWhere.OR = [{ courseOfferingId }, { courseOfferingId: null }]
+    const existing = await (prisma.subject as any).findFirst({
+      where: subjectWhere,
       select: { id: true },
     })
     if (!existing) return res.status(404).json({ message: 'Asignatura no encontrada' })
     const data = parsed.data
-    const updated = await prisma.subject.update({
+    const updated = await (prisma.subject as any).update({
       where: { id: existing.id },
       data: {
         ...(data.name !== undefined ? { name: data.name } : {}),
@@ -365,6 +392,7 @@ r.put('/:courseId/subjects/:subjectId', authGuard, requirePermission('courses.ma
         sortOrder: true,
         isActive: true,
         courseId: true,
+        courseOfferingId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -385,7 +413,10 @@ r.delete('/:courseId/subjects/:subjectId', authGuard, requirePermission('courses
     if (!cid.success || !sid.success) return res.status(400).json({ message: 'Identificador inválido' })
     const course = await findCourseVisibleToUser(cid.data, user, req.query)
     if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
-    const del = await prisma.subject.deleteMany({ where: { id: sid.data, courseId: course.id } })
+    const courseOfferingId = await resolveCourseOfferingIdFromQuery(course.id, user, req.query)
+    const subjectWhere: any = { id: sid.data, courseId: course.id }
+    if (courseOfferingId) subjectWhere.OR = [{ courseOfferingId }, { courseOfferingId: null }]
+    const del = await (prisma.subject as any).deleteMany({ where: subjectWhere })
     if (del.count === 0) return res.status(404).json({ message: 'Asignatura no encontrada' })
     res.json({ ok: true })
   } catch (e) {

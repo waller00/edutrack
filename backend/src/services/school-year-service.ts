@@ -13,17 +13,35 @@ export async function getActiveSchoolYearId(prisma: PrismaClient): Promise<strin
 }
 
 /** Garantiza al menos un ciclo ACTIVE. Idempotente. */
-export async function ensureDefaultSchoolYearAndBackfill(prisma: PrismaClient): Promise<void> {
+export async function ensureDefaultSchoolYear(prisma: PrismaClient): Promise<void> {
   let active = await getActiveSchoolYear(prisma)
   if (!active) {
     const code = new Date().getUTCFullYear()
-    active = await prisma.schoolYear.create({
-      data: {
-        code,
-        label: `Ciclo lectivo ${code}`,
-        status: 'ACTIVE',
-      },
-    })
+    const existing = await prisma.schoolYear.findUnique({ where: { code } })
+    if (existing) {
+      active = await prisma.schoolYear.update({
+        where: { id: existing.id },
+        data: { status: 'ACTIVE' },
+      })
+    } else {
+      active = await prisma.schoolYear.create({
+        data: {
+          code,
+          label: `Ciclo lectivo ${code}`,
+          status: 'ACTIVE',
+        },
+      })
+    }
+  }
+}
+
+export const ensureDefaultSchoolYearAndBackfill = ensureDefaultSchoolYear
+
+export function assertValidSchoolYearDates(startsOn?: Date | null, endsOn?: Date | null): void {
+  if (startsOn && Number.isNaN(startsOn.getTime())) throw new Error('INVALID_SCHOOL_YEAR_DATE')
+  if (endsOn && Number.isNaN(endsOn.getTime())) throw new Error('INVALID_SCHOOL_YEAR_DATE')
+  if (startsOn && endsOn && startsOn.getTime() > endsOn.getTime()) {
+    throw new Error('SCHOOL_YEAR_DATES_OUT_OF_ORDER')
   }
 }
 
@@ -80,18 +98,33 @@ export async function copyCoursesBetweenSchoolYears(
     include: { course: true },
   })
   let created = 0
-  const subjectsCreated = 0
+  let subjectsCreated = 0
   await prisma.$transaction(async (tx) => {
     for (const offering of sourceOfferings) {
-      await (tx as any).courseOffering.create({
+      const targetOffering = await (tx as any).courseOffering.create({
         data: {
           courseId: offering.courseId,
           schoolYearId: targetSchoolYearId,
           isActive: offering.isActive,
           notes: `Oferta replicada desde ciclo ${source.code}`,
         },
+        select: { id: true },
       })
       created += 1
+      const versionedSubjects = await (tx as any).subject.findMany({
+        where: { courseId: offering.courseId, courseOfferingId: offering.id },
+        select: { name: true, code: true, description: true, sortOrder: true, isActive: true },
+      })
+      if (versionedSubjects.length) {
+        await (tx as any).subject.createMany({
+          data: versionedSubjects.map((subject: any) => ({
+            ...subject,
+            courseId: offering.courseId,
+            courseOfferingId: targetOffering.id,
+          })),
+        })
+        subjectsCreated += versionedSubjects.length
+      }
     }
   })
   return { created, subjectsCreated }

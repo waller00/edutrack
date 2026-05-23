@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
@@ -36,6 +37,8 @@ type DashboardMeta = {
   rangeTo: string
   roleFilter: OrgRoleFilter | null
   eventTypeFilter: string | null
+  schoolYearId?: string | null
+  allYears?: boolean
   generatedAt: string
 }
 
@@ -338,6 +341,7 @@ function roleChipLabel(role: string | undefined | null) {
 }
 
 export default function AdminAnalyticsPage() {
+  const syCtx = useOptionalAdminSchoolYear()
   const [from, setFrom] = useState(() => {
     const d = new Date()
     d.setUTCDate(d.getUTCDate() - 29)
@@ -355,6 +359,7 @@ export default function AdminAnalyticsPage() {
   const [exportNotice, setExportNotice] = useState<string>('')
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+  const analyticsSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
 
   const loadDashboard = useCallback(async () => {
     setLoading(true)
@@ -363,6 +368,8 @@ export default function AdminAnalyticsPage() {
       const params = new URLSearchParams({ from, to })
       if (roleFilter) params.set('role', roleFilter)
       if (eventType) params.set('eventType', eventType)
+      if (syCtx?.allYears) params.set('allYears', '1')
+      else if (analyticsSchoolYearId) params.set('schoolYearId', analyticsSchoolYearId)
 
       const data = await api<DashboardResponse>(`/analytics/dashboard?${params.toString()}`)
       setDashboard(data)
@@ -372,7 +379,7 @@ export default function AdminAnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [from, to, roleFilter, eventType])
+  }, [from, to, roleFilter, eventType, syCtx?.allYears, analyticsSchoolYearId])
 
   useEffect(() => {
     void loadDashboard()
@@ -401,7 +408,12 @@ export default function AdminAnalyticsPage() {
         format,
         from,
         to,
-        filters: { ...(roleFilter ? { role: roleFilter } : {}), ...(eventType ? { eventType } : {}) },
+        filters: {
+          ...(roleFilter ? { role: roleFilter } : {}),
+          ...(eventType ? { eventType } : {}),
+          ...(syCtx?.allYears ? { allYears: '1' } : {}),
+          ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
+        },
       }
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
       const exportId = res.exportId
@@ -451,7 +463,12 @@ export default function AdminAnalyticsPage() {
         format: 'PDF',
         from,
         to,
-        filters: { ...(roleFilter ? { role: roleFilter } : {}), ...(eventType ? { eventType } : {}) },
+        filters: {
+          ...(roleFilter ? { role: roleFilter } : {}),
+          ...(eventType ? { eventType } : {}),
+          ...(syCtx?.allYears ? { allYears: '1' } : {}),
+          ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
+        },
       }
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
       const exportId = res.exportId
