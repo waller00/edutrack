@@ -3,7 +3,12 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, Info, Loader2, Mail, PenLine } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
-import { HomeAdminAttendanceFeed, HomeGenericHint, HomeUpcomingSchedule } from '@/components/home/HomeRolePanels'
+import {
+  HomeAdminAttendanceFeed,
+  HomeAdminUpcomingEvents,
+  HomeGenericHint,
+  HomeUpcomingSchedule,
+} from '@/components/home/HomeRolePanels'
 import { api } from '@/lib/api/client'
 import type { HomeMe } from '@/lib/home/dashboard'
 import { getWelcomeMessage } from '@/lib/home/dashboard'
@@ -154,7 +159,12 @@ export default function Home() {
         </div>
       </header>
 
-      {canRoleDashboard && me.role === 'ADMIN' && <HomeAdminAttendanceFeed />}
+      {canRoleDashboard && me.role === 'ADMIN' && (
+        <>
+          <HomeAdminAttendanceFeed />
+          <HomeAdminUpcomingEvents />
+        </>
+      )}
 
       {canRoleDashboard && scheduleRole && me.id && <HomeUpcomingSchedule role={scheduleRole} userId={me.id} />}
 
