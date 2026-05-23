@@ -62,10 +62,11 @@ describe('MyAssignedEventsPage', () => {
   })
 
   it('reloads without week range when switching to all events', async () => {
-    mockedApi
-      .mockResolvedValueOnce({ id: 'user-1' } as never)
-      .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([] as never)
+    mockedApi.mockImplementation((path: string) => {
+      if (path === '/auth/me') return Promise.resolve({ id: 'user-1' } as never)
+      if (path.startsWith('/events/my-events')) return Promise.resolve([] as never)
+      return Promise.reject(new Error(`unexpected api call: ${path}`))
+    })
 
     render(<MyAssignedEventsPage role="STAFF" />)
     const allButton = await screen.findByRole('button', { name: 'Todos' })

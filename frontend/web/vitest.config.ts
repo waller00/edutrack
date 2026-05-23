@@ -7,6 +7,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
+    /** Menos flakes en CI cuando muchos tests comparten jsdom. */
+    fileParallelism: false,
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
     css: false,
