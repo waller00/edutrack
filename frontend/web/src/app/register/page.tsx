@@ -16,12 +16,9 @@ import {
   getRegisterVerificationMessageClass,
   getRegisterVerificationMessageIcon,
   isWarningRegisterVerificationMessage,
-  resolveRegisterUsernameStatus,
   validateRegisterIdentityBeforeVerification,
   validateRegisterForm,
-  REGISTER_USERNAME_REGEX,
   type RegisterRole,
-  type RegisterUsernameStatus,
   type RegisterVerificationResults,
 } from '@/lib/auth/register-form-validation'
 import {
@@ -47,8 +44,6 @@ export default function RegisterPage() {
   const [confirm, setConfirm] = useState('')
   const [showPwd, setShowPwd] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
-  const [username, setUsername] = useState('')
-  const [usernameStatus, setUsernameStatus] = useState<RegisterUsernameStatus>('idle')
   const [nationalId, setNationalId] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -125,7 +120,6 @@ export default function RegisterPage() {
     registerDraftRestoredRef.current = true
     setEmail(d.email)
     lastEmailForLivenessRef.current = d.email
-    setUsername(d.username)
     setNationalId(d.nationalId)
     setFirstName(d.firstName)
     setLastName(d.lastName)
@@ -373,82 +367,6 @@ export default function RegisterPage() {
     setNationalId(formatted)
   }
 
-  // Generate username automatically from firstName and lastName
-  useEffect(() => {
-    if (firstName.trim() && lastName.trim()) {
-      generateUsername(firstName.trim(), lastName.trim())
-    }
-  }, [firstName, lastName])
-
-  async function generateUsername(firstName: string, lastName: string) {
-    // Normalize names: remove accents, convert to lowercase, replace spaces with dots
-    const normalize = (str: string) => str
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove accents
-      .toLowerCase()
-      .replace(/\s+/g, '.') // Replace spaces with dots
-      .replace(/[^a-z.]/g, '') // Remove non-letters except dots
-
-    const normalizedFirst = normalize(firstName)
-    const normalizedLast = normalize(lastName)
-    
-    // Split lastName into parts
-    const lastParts = normalizedLast.split('.')
-    const firstLastName = lastParts[0]
-    const secondLastName = lastParts[1] || ''
-    
-    // Generate base username: firstname.lastname
-    let baseUsername = `${normalizedFirst}.${firstLastName}`
-    
-    // If second lastname exists, try: firstname.lastname.firstletterofsecondlastname
-    if (secondLastName) {
-      baseUsername = `${normalizedFirst}.${firstLastName}.${secondLastName.charAt(0)}`
-    }
-    
-    // Check if base username is available
-    try {
-      const res = await api<{available:boolean; valid:boolean}>(`/auth/check-username?u=${encodeURIComponent(baseUsername)}`)
-      if (res.available) {
-        setUsername(baseUsername)
-        return
-      }
-    } catch {}
-    
-    // If not available, try with numbers: 1, 2, 3, etc.
-    let counter = 1
-    while (counter <= 999) {
-      const usernameWithNumber = `${baseUsername}${counter}`
-      try {
-        const res = await api<{available:boolean; valid:boolean}>(`/auth/check-username?u=${encodeURIComponent(usernameWithNumber)}`)
-        if (res.available) {
-          setUsername(usernameWithNumber)
-          return
-        }
-      } catch {}
-      counter++
-    }
-    
-    // Fallback: use timestamp
-    const fallbackUsername = `${baseUsername}${Date.now().toString().slice(-4)}`
-    setUsername(fallbackUsername)
-  }
-
-  // check username availability with debounce
-  useEffect(() => {
-    if (!username) { setUsernameStatus('idle'); return }
-    const valid = REGISTER_USERNAME_REGEX.test(username)
-    if (!valid) { setUsernameStatus('invalid'); return }
-    setUsernameStatus('checking')
-    const t = setTimeout(async () => {
-      try {
-        const res = await api<{available:boolean; valid:boolean}>(`/auth/check-username?u=${encodeURIComponent(username)}`)
-        const nextStatus = resolveRegisterUsernameStatus(res.valid, res.available)
-        setUsernameStatus(nextStatus)
-      } catch { setUsernameStatus('invalid') }
-    }, 400)
-    return () => clearTimeout(t)
-  }, [username])
-
   function verificationHasIssues() {
     if (!verificationResults?.verification) return true
     return Object.values(verificationResults.verification).some((field: any) =>
@@ -461,8 +379,6 @@ export default function RegisterPage() {
       email,
       password,
       confirm,
-      username,
-      usernameStatus,
       nationalId,
       firstName,
       lastName,
@@ -515,7 +431,7 @@ export default function RegisterPage() {
       const draft: RegisterDraftSnapshot = {
         v: 1,
         email: email.trim(),
-        username,
+        username: '',
         nationalId,
         firstName,
         lastName,
@@ -543,7 +459,6 @@ export default function RegisterPage() {
     }
   }, [
     email,
-    username,
     nationalId,
     firstName,
     lastName,
@@ -568,7 +483,6 @@ export default function RegisterPage() {
       const payload: Record<string, unknown> = {
         email,
         password,
-        username,
         nationalId: onlyDigits(nationalId).length ? formatUruguayanCI(nationalId).replace(/\./g, '').replace('-', '') : undefined,
         firstName,
         lastName,
@@ -688,28 +602,7 @@ export default function RegisterPage() {
                   placeholder="tu@email.com"
                 />
               </div>
-              
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Usuario
-                  {usernameStatus === 'checking' && <span className="ml-2 text-xs text-gray-500">Verificando...</span>}
-                  {usernameStatus === 'ok' && <span className="ml-2 text-xs text-green-600">✓ Disponible</span>}
-                  {usernameStatus === 'taken' && <span className="ml-2 text-xs text-red-600">✗ No disponible</span>}
-                  {usernameStatus === 'invalid' && <span className="ml-2 text-xs text-red-600">✗ Inválido</span>}
-                </label>
-                <input 
-                  value={username} 
-                  onChange={e=>setUsername(e.target.value)} 
-                  type="text" 
-                  required 
-                  className="input-field"
-                  placeholder="nombre.apellido"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Se genera automáticamente, pero puedes editarlo (3-30 caracteres, letras, números, punto, guion)
-                </p>
-              </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
                 <div className="relative">

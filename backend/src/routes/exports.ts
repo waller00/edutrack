@@ -151,12 +151,21 @@ r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, r
         markFailed(exportId, 'Format not allowed for monthly_summary')
         return res.status(400).json({ message: 'Formato inválido para monthly_summary' })
       }
+      let resolvedPlannedSchoolYearId: string | undefined
+      if (!allYearsExport) {
+        const sy = await resolveSchoolYearIdForList(prisma, {
+          role: 'ADMIN',
+          requestedSchoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
+        })
+        if (sy) resolvedPlannedSchoolYearId = sy
+      }
       const plannedInstances = await getPlannedInstances({
         from,
         to,
         userId: filters?.userId,
         userIds: userIds || undefined,
         eventType: filters?.eventType,
+        schoolYearId: resolvedPlannedSchoolYearId,
       })
       const resolvedInstances = await resolveAttendanceAndJustification({ plannedInstances })
       const buffer = await generateMonthlySummaryPdf({

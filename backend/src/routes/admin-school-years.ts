@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import {
+  assertValidSchoolYearDates,
   activateSchoolYearById,
   copyCoursesBetweenSchoolYears,
 } from '../services/school-year-service.js'
@@ -51,6 +52,13 @@ async function countsBySchoolYear(schoolYearIds: string[]): Promise<Record<strin
     GROUP BY "schoolYearId"
   `
   return Object.fromEntries(rows.map((row) => [row.schoolYearId, Number(row.count)]))
+}
+
+function parseSchoolYearDate(raw: string | null | undefined): Date | null {
+  if (!raw) return null
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) throw new Error('INVALID_SCHOOL_YEAR_DATE')
+  return parsed
 }
 
 r.get('/', async (_req, res) => {
@@ -156,12 +164,15 @@ r.post('/', async (req, res) => {
     if (status === 'ACTIVE') {
       return res.status(400).json({ message: 'Para activar un ciclo usá POST /:id/activate' })
     }
+    const startsAt = parseSchoolYearDate(startsOn)
+    const endsAt = parseSchoolYearDate(endsOn)
+    assertValidSchoolYearDates(startsAt, endsAt)
     const row = await prisma.schoolYear.create({
       data: {
         code,
         label,
-        startsOn: startsOn ? new Date(startsOn) : null,
-        endsOn: endsOn ? new Date(endsOn) : null,
+        startsOn: startsAt,
+        endsOn: endsAt,
         status: status ?? 'PLANNED',
       },
     })
@@ -170,6 +181,11 @@ r.post('/', async (req, res) => {
     const codeP = (e as { code?: string }).code
     if (codeP === 'P2002') {
       return res.status(409).json({ message: 'Ya existe un ciclo con ese código (año)' })
+    }
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'INVALID_SCHOOL_YEAR_DATE') return res.status(400).json({ message: 'Fecha de ciclo lectivo inválida' })
+    if (msg === 'SCHOOL_YEAR_DATES_OUT_OF_ORDER') {
+      return res.status(400).json({ message: 'La fecha de inicio no puede ser posterior a la fecha de fin' })
     }
     console.error('[admin/school-years POST]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -195,11 +211,17 @@ r.patch('/:id', async (req, res) => {
     const data: Record<string, unknown> = {}
     if (parsed.data.label !== undefined) data.label = parsed.data.label
     if (parsed.data.startsOn !== undefined) {
-      data.startsOn = parsed.data.startsOn === null ? null : new Date(parsed.data.startsOn)
+      data.startsOn = parseSchoolYearDate(parsed.data.startsOn)
     }
     if (parsed.data.endsOn !== undefined) {
-      data.endsOn = parsed.data.endsOn === null ? null : new Date(parsed.data.endsOn)
+      data.endsOn = parseSchoolYearDate(parsed.data.endsOn)
     }
+    const current = await prisma.schoolYear.findUnique({ where: { id }, select: { startsOn: true, endsOn: true } })
+    if (!current) return res.status(404).json({ message: 'Ciclo no encontrado' })
+    assertValidSchoolYearDates(
+      data.startsOn !== undefined ? (data.startsOn as Date | null) : current.startsOn,
+      data.endsOn !== undefined ? (data.endsOn as Date | null) : current.endsOn,
+    )
     const row = await prisma.schoolYear.update({
       where: { id },
       data: data as { label?: string; startsOn?: Date | null; endsOn?: Date | null },
@@ -209,6 +231,11 @@ r.patch('/:id', async (req, res) => {
   } catch (e: unknown) {
     const codeP = (e as { code?: string }).code
     if (codeP === 'P2025') return res.status(404).json({ message: 'Ciclo no encontrado' })
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'INVALID_SCHOOL_YEAR_DATE') return res.status(400).json({ message: 'Fecha de ciclo lectivo inválida' })
+    if (msg === 'SCHOOL_YEAR_DATES_OUT_OF_ORDER') {
+      return res.status(400).json({ message: 'La fecha de inicio no puede ser posterior a la fecha de fin' })
+    }
     console.error('[admin/school-years PATCH]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }

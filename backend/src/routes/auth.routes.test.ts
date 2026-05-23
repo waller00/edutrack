@@ -248,7 +248,44 @@ describe("auth routes (mocks)", () => {
       });
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("uid-new");
+    expect(prismaMock.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ username: "n.n" }),
+      }),
+    );
     expect(res.headers["set-cookie"]).toBeDefined();
+  });
+
+  it("POST /auth/register genera usuario con segundo apellido y numeración si hay colisiones", async () => {
+    prismaMock.user.findUnique.mockImplementation(({ where }: any) => {
+      if (where.email || where.nationalId) return Promise.resolve(null);
+      if (where.username === "ana.perez") return Promise.resolve({ id: "u1" });
+      if (where.username === "ana.perez.a") return Promise.resolve({ id: "u2" });
+      if (where.username === "ana.perez.a1") return Promise.resolve({ id: "u3" });
+      return Promise.resolve(null);
+    });
+    prismaMock.user.create.mockResolvedValue({
+      id: "uid-auto",
+      email: "auto@n.com",
+      username: "ana.perez.a2",
+      roleId: "mock-org-role-id",
+    });
+    prismaMock.emailVerification.create.mockResolvedValue({});
+    prismaMock.refreshToken.create.mockResolvedValue({});
+    const res = await request(app())
+      .post("/auth/register")
+      .send({
+        email: "auto@n.com",
+        password: "Abcd1234!",
+        firstName: "Ana",
+        lastName: "Pérez Álvarez",
+      });
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ username: "ana.perez.a2" }),
+      }),
+    );
   });
 
   it("POST /auth/register tolera fallo SMTP al enviar verificación", async () => {
@@ -332,23 +369,6 @@ describe("auth routes (mocks)", () => {
         firstName: "A",
         lastName: "B",
     });
-    expect(res.status).toBe(409);
-  });
-
-  it("POST /auth/register 409 username duplicado", async () => {
-    prismaMock.user.findUnique.mockImplementation(({ where }: any) => {
-      if (where.username) return Promise.resolve({ id: "x" });
-      return Promise.resolve(null);
-    });
-    const res = await request(app())
-      .post("/auth/register")
-      .send({
-        email: "free@d.com",
-        username: "dupUser",
-        password: "Abcd1234!",
-        firstName: "A",
-        lastName: "B",
-      });
     expect(res.status).toBe(409);
   });
 

@@ -460,18 +460,20 @@ enum SchoolYearStatus {
 }
 
 model SchoolYear {
-  id                 String              @id @default(uuid())
+  id                 String                @id @default(uuid())
   /// Año calendario del ciclo (ej. 2026); único en la institución.
-  code               Int                 @unique
+  code               Int                   @unique
   label              String
   startsOn           DateTime?
   endsOn             DateTime?
-  status             SchoolYearStatus    @default(PLANNED)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  status             SchoolYearStatus      @default(PLANNED)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
   courseOfferings    CourseOffering[]
   events             Event[]
   studentEnrollments StudentEnrollment[]
+  tuitionYears       StudentTuitionYear[]
+  tuitionMonths      StudentTuitionMonth[]
   nonWorkingDays     NonWorkingDay[]
 
   @@index([status])
@@ -506,6 +508,7 @@ model CourseOffering {
   updatedAt          DateTime            @updatedAt
   events             Event[]
   studentEnrollments StudentEnrollment[]
+  subjects           Subject[]
 
   @@unique([courseId, schoolYearId])
   @@index([schoolYearId, isActive])
@@ -515,19 +518,22 @@ model CourseOffering {
 /// Asignatura de un curso. Sin jerarquía de “subcursos”: materias comunes vs orientación
 /// se modelan con cursos distintos y listas de asignaturas propias.
 model Subject {
-  id          String   @id @default(uuid())
-  name        String
-  code        String?
-  description String?  @db.Text
-  sortOrder   Int      @default(0)
-  isActive    Boolean  @default(true)
-  courseId    String
-  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  events      Event[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String          @id @default(uuid())
+  name             String
+  code             String?
+  description      String?         @db.Text
+  sortOrder        Int             @default(0)
+  isActive         Boolean         @default(true)
+  courseId         String
+  course           Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseOfferingId String?
+  courseOffering   CourseOffering? @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  events           Event[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   @@index([courseId])
+  @@index([courseOfferingId])
   @@map("asignaturas")
 }
 
@@ -593,39 +599,45 @@ model StudentEnrollment {
 
 /// Cuota por año calendario del ciclo (ej. 2025); permite consultar años anteriores.
 model StudentTuitionYear {
-  id          String    @id @default(uuid())
-  studentId   String
-  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  year        Int
-  paid        Boolean   @default(false)
-  paidAt      DateTime?
-  amountCents Int?
-  notes       String?
+  id           String      @id @default(uuid())
+  studentId    String
+  student      Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId String?
+  schoolYear   SchoolYear? @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  year         Int
+  paid         Boolean     @default(false)
+  paidAt       DateTime?
+  amountCents  Int?
+  notes        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([studentId, year])
   @@index([year])
+  @@index([schoolYearId])
 }
 
 /// Mensualidad por estudiante. El año permite conservar historial y filtrar ciclos anteriores.
 model StudentTuitionMonth {
-  id          String    @id @default(uuid())
-  studentId   String
-  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  year        Int
-  month       Int
-  paid        Boolean   @default(false)
-  paidAt      DateTime?
-  amountCents Int?
-  notes       String?
+  id           String      @id @default(uuid())
+  studentId    String
+  student      Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId String?
+  schoolYear   SchoolYear? @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  year         Int
+  month        Int
+  paid         Boolean     @default(false)
+  paidAt       DateTime?
+  amountCents  Int?
+  notes        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([studentId, year, month])
   @@index([year, month])
+  @@index([schoolYearId])
 }
 
 model Event {
@@ -643,8 +655,8 @@ model Event {
   user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   assignedUserId      String?
   assignedUser        User?                @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  schoolYearId        String?
-  schoolYear          SchoolYear?          @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  schoolYearId        String
+  schoolYear          SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
   courseOfferingId    String?
   courseOffering      CourseOffering?      @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
   subjectId           String?

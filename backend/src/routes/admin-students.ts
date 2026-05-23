@@ -113,6 +113,7 @@ const studentUpdateSchema = studentWriteBaseSchema.partial().extend({
 
 type TuitionMonthDbRow = {
   id: string
+  schoolYearId: string | null
   year: number
   month: number
   paid: boolean
@@ -123,17 +124,27 @@ type TuitionMonthDbRow = {
   updatedAt: Date
 }
 
+async function schoolYearIdsByCode(years: number[]): Promise<Map<number, string>> {
+  const uniqueYears = [...new Set(years)]
+  if (!uniqueYears.length) return new Map()
+  const rows = await prisma.schoolYear.findMany({
+    where: { code: { in: uniqueYears } },
+    select: { id: true, code: true },
+  })
+  return new Map(rows.map((row) => [row.code, row.id]))
+}
+
 async function findTuitionMonths(studentIds: string[], year?: number): Promise<Record<string, TuitionMonthDbRow[]>> {
   if (!studentIds.length) return {}
   const rows = year
     ? await prisma.$queryRaw<Array<TuitionMonthDbRow & { studentId: string }>>`
-        SELECT id, "studentId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt"
+        SELECT id, "studentId", "schoolYearId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt"
         FROM "StudentTuitionMonth"
         WHERE "studentId" IN (${Prisma.join(studentIds)}) AND year = ${year}
         ORDER BY year DESC, month ASC
       `
     : await prisma.$queryRaw<Array<TuitionMonthDbRow & { studentId: string }>>`
-        SELECT id, "studentId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt"
+        SELECT id, "studentId", "schoolYearId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt"
         FROM "StudentTuitionMonth"
         WHERE "studentId" IN (${Prisma.join(studentIds)})
         ORDER BY year DESC, month ASC
@@ -178,6 +189,7 @@ async function findStudentIdsByTuitionMonth(year: number, month?: number, paid?:
 
 function serializeTuitionRow(row: {
   id: string
+  schoolYearId?: string | null
   year: number
   paid: boolean
   paidAt: Date | null
@@ -188,6 +200,7 @@ function serializeTuitionRow(row: {
 }) {
   return {
     id: row.id,
+    schoolYearId: row.schoolYearId ?? null,
     year: row.year,
     paid: row.paid,
     paidAt: row.paidAt?.toISOString() ?? null,
@@ -200,6 +213,7 @@ function serializeTuitionRow(row: {
 
 function serializeTuitionMonthRow(row: {
   id: string
+  schoolYearId?: string | null
   year: number
   month: number
   paid: boolean
@@ -211,6 +225,7 @@ function serializeTuitionMonthRow(row: {
 }) {
   return {
     id: row.id,
+    schoolYearId: row.schoolYearId ?? null,
     year: row.year,
     month: row.month,
     paid: row.paid,
@@ -245,6 +260,7 @@ function serializeStudentDetail(row: {
   updatedAt: Date
   tuitionYears: Array<{
     id: string
+    schoolYearId?: string | null
     year: number
     paid: boolean
     paidAt: Date | null
@@ -255,6 +271,7 @@ function serializeStudentDetail(row: {
   }>
   tuitionMonths: Array<{
     id: string
+    schoolYearId?: string | null
     year: number
     month: number
     paid: boolean
@@ -591,6 +608,16 @@ r.post('/', async (req, res) => {
     if (new Set(monthKeys).size !== monthKeys.length) {
       return res.status(400).json({ message: 'Meses de mensualidad duplicados en el mismo estudiante' })
     }
+    const tuitionSchoolYears = await schoolYearIdsByCode([
+      ...tuitionYears.map((t) => t.year),
+      ...tuitionMonths.map((t) => t.year),
+    ])
+    const missingTuitionYears = [
+      ...new Set([...tuitionYears.map((t) => t.year), ...tuitionMonths.map((t) => t.year)]),
+    ].filter((year) => !tuitionSchoolYears.has(year))
+    if (missingTuitionYears.length) {
+      return res.status(400).json({ message: `No existe ciclo lectivo para cuota: ${missingTuitionYears.join(', ')}` })
+    }
 
     const created = await prisma.$transaction(async (tx) => {
       const s = await tx.student.create({
@@ -621,9 +648,10 @@ r.post('/', async (req, res) => {
         })
       }
       if (tuitionYears.length) {
-        await tx.studentTuitionYear.createMany({
+        await (tx as any).studentTuitionYear.createMany({
           data: tuitionYears.map((t) => ({
             studentId: s.id,
+            schoolYearId: tuitionSchoolYears.get(t.year) ?? null,
             year: t.year,
             paid: t.paid ?? false,
             paidAt: t.paidAt ? parseOptionalEndOfDayDate(t.paidAt) ?? null : null,
@@ -635,10 +663,11 @@ r.post('/', async (req, res) => {
       if (tuitionMonths.length) {
         for (const t of tuitionMonths) {
           await tx.$executeRaw`
-            INSERT INTO "StudentTuitionMonth" ("id", "studentId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt")
+            INSERT INTO "StudentTuitionMonth" ("id", "studentId", "schoolYearId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt")
             VALUES (
               ${randomUUID()},
               ${s.id},
+              ${tuitionSchoolYears.get(t.year) ?? null},
               ${t.year},
               ${t.month},
               ${t.paid ?? false},
@@ -729,6 +758,16 @@ r.put('/:id', async (req, res) => {
         return res.status(400).json({ message: 'Meses de mensualidad duplicados en el mismo estudiante' })
       }
     }
+    const tuitionSchoolYears = await schoolYearIdsByCode([
+      ...(tuitionYears?.map((t) => t.year) ?? []),
+      ...(tuitionMonths?.map((t) => t.year) ?? []),
+    ])
+    const missingTuitionYears = [
+      ...new Set([...(tuitionYears?.map((t) => t.year) ?? []), ...(tuitionMonths?.map((t) => t.year) ?? [])]),
+    ].filter((year) => !tuitionSchoolYears.has(year))
+    if (missingTuitionYears.length) {
+      return res.status(400).json({ message: `No existe ciclo lectivo para cuota: ${missingTuitionYears.join(', ')}` })
+    }
 
     const data: any = {}
     if (body.firstName !== undefined) data.firstName = body.firstName
@@ -792,9 +831,10 @@ r.put('/:id', async (req, res) => {
       if (tuitionYears) {
         await tx.studentTuitionYear.deleteMany({ where: { studentId: id } })
         if (tuitionYears.length) {
-          await tx.studentTuitionYear.createMany({
+          await (tx as any).studentTuitionYear.createMany({
             data: tuitionYears.map((t) => ({
               studentId: id,
+              schoolYearId: tuitionSchoolYears.get(t.year) ?? null,
               year: t.year,
               paid: t.paid ?? false,
               paidAt: t.paidAt ? parseOptionalEndOfDayDate(t.paidAt) ?? null : null,
@@ -809,10 +849,11 @@ r.put('/:id', async (req, res) => {
         if (tuitionMonths.length) {
           for (const t of tuitionMonths) {
             await tx.$executeRaw`
-              INSERT INTO "StudentTuitionMonth" ("id", "studentId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt")
+              INSERT INTO "StudentTuitionMonth" ("id", "studentId", "schoolYearId", year, month, paid, "paidAt", "amountCents", notes, "createdAt", "updatedAt")
               VALUES (
                 ${randomUUID()},
                 ${id},
+                ${tuitionSchoolYears.get(t.year) ?? null},
                 ${t.year},
                 ${t.month},
                 ${t.paid ?? false},

@@ -42,7 +42,6 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
 const registerSchema = z.object({
   email: z.string().email(),
   password: strongPasswordSchema,
-  username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_.-]+$/).optional(),
   nationalId: z.string().min(6).max(20).optional(),
   firstName: z.string().min(1).max(80),
   lastName: z.string().min(1).max(80),
@@ -240,6 +239,45 @@ async function validateUniqueUsername(userId: string, username?: string) {
   return username;
 }
 
+function usernamePart(input: string) {
+  return input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s.-]/g, "")
+    .trim()
+    .split(/[\s.-]+/)
+    .filter(Boolean);
+}
+
+function fitUsername(base: string, suffix = "") {
+  const maxBase = Math.max(3, 30 - suffix.length);
+  return `${base.slice(0, maxBase).replace(/[.-]+$/g, "")}${suffix}`;
+}
+
+async function generateUniqueUsername(firstName: string, lastName: string, client: any = prisma) {
+  const first = usernamePart(firstName)[0] || "usuario";
+  const lastParts = usernamePart(lastName);
+  const firstLast = lastParts[0] || "sinapellido";
+  const secondInitial = lastParts[1]?.charAt(0) || "";
+  const base = `${first}.${firstLast}`.slice(0, 30).replace(/[.-]+$/g, "");
+
+  const candidates = [base];
+  if (secondInitial) candidates.push(fitUsername(base, `.${secondInitial}`));
+  for (const candidate of candidates) {
+    const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
+    if (!existing) return candidate;
+  }
+
+  const numberedBase = secondInitial ? fitUsername(base, `.${secondInitial}`) : base;
+  for (let i = 1; i <= 9999; i += 1) {
+    const candidate = fitUsername(numberedBase, String(i));
+    const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
+    if (!existing) return candidate;
+  }
+  return fitUsername(base, `.${crypto.randomBytes(2).toString("hex")}`);
+}
+
 async function validateNationalIdUpdate(userId: string, nationalId: string | undefined, isAdmin: boolean, isSettingInitialNationalId: boolean) {
   if (!nationalId) return undefined;
   if (!isValidUruguayanCI(nationalId)) throw new Error('INVALID_CI');
@@ -351,11 +389,10 @@ r.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
 
-  const { email, password, username, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role, livenessToken } = parsed.data;
+  const { email, password, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role, livenessToken } = parsed.data;
 
-  const [byEmail, byUsername, byNational] = await Promise.all([
+  const [byEmail, byNational] = await Promise.all([
     prisma.user.findUnique({ where: { email } }),
-    username ? prisma.user.findUnique({ where: { username } }) : Promise.resolve(null),
     nationalId ? prisma.user.findUnique({ where: { nationalId: onlyDigits(nationalId) } }) : Promise.resolve(null),
   ]);
   const requireDidit = isLivenessRequiredForRegistration()
@@ -392,7 +429,6 @@ r.post("/register", async (req, res) => {
   }
 
   if (byEmail) return res.status(409).json({ message: "Email ya registrado" });
-  if (byUsername) return res.status(409).json({ message: "Nombre de usuario ya en uso" });
   if (byNational) return res.status(409).json({ message: "Cédula/Documento ya registrado" });
   if (nationalId && !isValidUruguayanCI(nationalId)) return res.status(400).json({ message: "Cédula inválida" });
 
@@ -423,11 +459,12 @@ r.post("/register", async (req, res) => {
   }
   const nowLv = livenessRequired && livenessRowId ? new Date() : null;
   const user = await prisma.$transaction(async (tx) => {
+    const generatedUsername = await generateUniqueUsername(firstName, lastName, tx);
     const u = await tx.user.create({
       data: {
         email,
         passwordHash,
-        username,
+        username: generatedUsername,
         nationalId: nationalId ? onlyDigits(nationalId) : null,
         firstName,
         lastName,

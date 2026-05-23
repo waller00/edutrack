@@ -159,17 +159,11 @@ export function getRegisterDocumentExpiryCapturedError(nationalIdDocumentExpires
 }
 
 export function getRegisterIdentityValidationError(params: {
-  username: string
-  usernameStatus: RegisterUsernameStatus
   nationalId: string
   firstName: string
   lastName: string
   role: RegisterRole
 }): string | null {
-  if (!REGISTER_USERNAME_REGEX.test(params.username)) {
-    return 'Usuario inválido (3-30, letras, números, punto, guion)'
-  }
-  if (params.usernameStatus === 'taken') return 'Nombre de usuario no disponible'
   if (!isValidUruguayanCI(params.nationalId)) return 'Cédula uruguaya inválida'
   if (params.firstName.trim().length === 0 || params.lastName.trim().length === 0) {
     return 'Nombres y apellidos son obligatorios'
@@ -182,8 +176,6 @@ export function validateRegisterForm(params: {
   email: string
   password: string
   confirm: string
-  username: string
-  usernameStatus: RegisterUsernameStatus
   nationalId: string
   firstName: string
   lastName: string

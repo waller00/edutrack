@@ -32,11 +32,13 @@ function withSchoolYear(path: string, schoolYearQuery: string): string {
 
 type AttendanceRecord = {
   id: string
-  type: 'CHECK_IN' | 'CHECK_OUT'
+  type: 'CHECK_IN' | 'CHECK_OUT' | 'INCIDENT'
   status: 'PRESENT' | 'LATE' | 'ABSENT_NOT_JUSTIFIED' | 'ABSENT_JUSTIFIED' | 'EXIT' | 'EARLY_EXIT'
   date: string
   time: string
   notes?: string
+  title?: string
+  description?: string
   user: {
     id: string
     name: string
@@ -72,7 +74,11 @@ type User = {
 }
 
 type AttendanceStatusOption = AttendanceRecord['status']
-type AttendanceTypeOption = AttendanceRecord['type']
+type AttendanceTypeOption = Exclude<AttendanceRecord['type'], 'INCIDENT'>
+
+function isIncidentRow(attendance: AttendanceRecord): boolean {
+  return attendance.type === 'INCIDENT' || attendance.id.startsWith('incident:')
+}
 
 function renderAttendancesTable(
   attendances: AttendanceRecord[],
@@ -111,14 +117,18 @@ function renderAttendancesTable(
         </thead>
         <tbody className="divide-y divide-gray-200">
           {attendances.map((attendance) => (
-            <tr key={attendance.id}>
+            <tr key={attendance.id} className={isIncidentRow(attendance) ? 'bg-red-50/20' : undefined}>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedAttendanceIds.includes(attendance.id)}
-                  onChange={() => onToggleSelect(attendance.id)}
-                  aria-label={`Seleccionar asistencia de ${attendance.user.name}`}
-                />
+                {isIncidentRow(attendance) ? (
+                  <span className="text-xs text-gray-400">—</span>
+                ) : (
+                  <input
+                    type="checkbox"
+                    checked={selectedAttendanceIds.includes(attendance.id)}
+                    onChange={() => onToggleSelect(attendance.id)}
+                    aria-label={`Seleccionar asistencia de ${attendance.user.name}`}
+                  />
+                )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 <div>
@@ -163,13 +173,17 @@ function renderAttendancesTable(
                 </span>
               </td>
               <td className="px-6 py-4 text-sm text-gray-900">
-                {attendance.notes || '-'}
+                {attendance.notes || attendance.description || '-'}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 <div className="flex gap-2">
-                  <button onClick={() => onEdit(attendance)} className="text-indigo-600 hover:text-indigo-900">
-                    Editar
-                  </button>
+                  {isIncidentRow(attendance) ? (
+                    <span className="text-xs text-gray-400">Solo lectura</span>
+                  ) : (
+                    <button onClick={() => onEdit(attendance)} className="text-indigo-600 hover:text-indigo-900">
+                      Editar
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -251,7 +265,8 @@ export default function AdminAttendance() {
     setLoading(true)
     try {
       const qs = buildAdminAttendanceAllQueryString(page, filters)
-      const url = withSchoolYear(`/attendance/all?${qs}`, schoolYearQuery)
+      const qsWithIncidents = qs ? `${qs}&includeIncidents=true` : 'includeIncidents=true'
+      const url = withSchoolYear(`/attendance/all?${qsWithIncidents}`, schoolYearQuery)
       const data = await api<{
         total: number
         page: number
@@ -280,6 +295,7 @@ export default function AdminAttendance() {
       if (filters.type) params.set('type', filters.type)
       if (filters.status) params.set('status', filters.status)
       if (filters.role) params.set('role', filters.role)
+      params.set('includeIncidents', 'true')
 
       const qs = params.toString()
       const base = qs ? `/attendance/stats?${qs}` : '/attendance/stats'
@@ -361,14 +377,16 @@ export default function AdminAttendance() {
   }
 
   function toggleAttendanceSelection(id: string) {
+    if (id.startsWith('incident:')) return
     setSelectedAttendanceIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
     )
   }
 
   function toggleAllAttendancesSelection() {
+    const selectableIds = attendances.filter((attendance) => !isIncidentRow(attendance)).map((attendance) => attendance.id)
     setSelectedAttendanceIds((prev) =>
-      prev.length === attendances.length ? [] : attendances.map((attendance) => attendance.id),
+      prev.length === selectableIds.length ? [] : selectableIds,
     )
   }
 
@@ -912,7 +930,8 @@ export default function AdminAttendance() {
               toggleAllAttendancesSelection,
               toggleAttendanceSelection,
               setEditing,
-              attendances.length > 0 && selectedAttendanceIds.length === attendances.length,
+              attendances.some((attendance) => !isIncidentRow(attendance)) &&
+                selectedAttendanceIds.length === attendances.filter((attendance) => !isIncidentRow(attendance)).length,
             )}
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />

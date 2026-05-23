@@ -630,6 +630,29 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendance.count.mock.calls[0][0].where.userId).toBe("other-user");
   });
 
+  it("GET /attendance/stats suma incidencias de ausencia cuando se pide feed mixto", async () => {
+    prismaMock.attendance.count
+      .mockResolvedValueOnce(10)
+      .mockResolvedValueOnce(7)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(0);
+    prismaMock.attendanceIncident.count.mockResolvedValueOnce(3);
+
+    const res = await request(app())
+      .get("/attendance/stats?includeIncidents=true")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.totalAttendances).toBe(13);
+    expect(res.body.absentCount).toBe(4);
+    expect(prismaMock.attendanceIncident.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ type: "TEACHER_NO_SHOW" }),
+      }),
+    );
+  });
+
   it("GET /attendance/stats 500 si falla el conteo", async () => {
     prismaMock.attendance.count.mockRejectedValueOnce(new Error("db"));
     const res = await request(app())

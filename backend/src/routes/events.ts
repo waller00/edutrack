@@ -74,9 +74,14 @@ async function assertCourseOfferedInSchoolYear(
 async function assertActiveSubjectInCourse(
   subjectId: string,
   courseId: string,
+  courseOfferingId?: string | null,
 ): Promise<{ id: string } | null> {
-  const s = await prisma.subject.findFirst({
-    where: { id: subjectId, courseId, isActive: true },
+  const where: any = { id: subjectId, courseId, isActive: true }
+  if (courseOfferingId) {
+    where.OR = [{ courseOfferingId }, { courseOfferingId: null }]
+  }
+  const s = await (prisma.subject as any).findFirst({
+    where,
     select: { id: true },
   })
   return s
@@ -153,6 +158,7 @@ const eventUpdateSchema = z.object({
   courseId: nullableOptionalUuidFromUpdateInput,
   subjectId: nullableOptionalUuidFromUpdateInput,
   status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED']).optional(),
+  recurrenceType: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']).optional(),
   isRecurring: boolish.optional(),
   daysOfWeek: z.preprocess(
     (v) => {
@@ -219,7 +225,7 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       if (!eventData.courseId) {
         return res.status(400).json({ message: 'Seleccioná un curso para asociar una asignatura' });
       }
-      const sub = await assertActiveSubjectInCourse(eventData.subjectId, eventData.courseId);
+      const sub = await assertActiveSubjectInCourse(eventData.subjectId, eventData.courseId, resolvedCourseOfferingId);
       if (!sub) {
         return res.status(400).json({ message: 'Asignatura no encontrada o no pertenece al curso' });
       }
@@ -629,12 +635,19 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       where: { id },
       select: {
         id: true,
+        title: true,
+        description: true,
+        type: true,
         userId: true,
         assignedUserId: true,
+        location: true,
+        courseOfferingId: true,
         courseOffering: { select: { courseId: true } },
         subjectId: true,
         schoolYearId: true,
+        _count: { select: { attendances: true } },
         startDate: true,
+        endDate: true,
         startTime: true,
         endTime: true,
         isRecurring: true,
@@ -657,10 +670,30 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
     const updateData: any = { ...parsed.data };
     delete updateData.courseId
 
+    const attendanceCount = existingEvent._count?.attendances ?? 0
+    const historySensitiveFields: Array<keyof typeof parsed.data | 'courseId'> = [
+      'type',
+      'startDate',
+      'startTime',
+      'endTime',
+      'assignedUserId',
+      'courseId',
+      'subjectId',
+      'isRecurring',
+      'daysOfWeek',
+      'recurrenceEnd',
+    ]
+    const attemptedHistoricalFields = historySensitiveFields.filter(
+      (field) => parsed.data[field as keyof typeof parsed.data] !== undefined,
+    )
+    const recurrenceTypeChanged =
+      parsed.data.recurrenceType !== undefined && parsed.data.recurrenceType !== existingEvent.recurrenceType
+    const requiresHistoricalReplacement =
+      attendanceCount > 0 && (attemptedHistoricalFields.length > 0 || recurrenceTypeChanged)
+
     if (parsed.data.courseId !== undefined) {
       if (parsed.data.courseId === null) {
-        const sy = await getActiveSchoolYearId(prisma)
-        if (sy) updateData.schoolYearId = sy
+        updateData.schoolYearId = existingEvent.schoolYearId ?? (await getActiveSchoolYearId(prisma))
         updateData.courseOfferingId = null
       } else {
         const requestedSchoolYearId =
@@ -683,6 +716,17 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       }
     }
 
+    if (
+      updateData.schoolYearId &&
+      existingEvent.schoolYearId &&
+      updateData.schoolYearId !== existingEvent.schoolYearId &&
+      attendanceCount > 0 && !requiresHistoricalReplacement
+    ) {
+      return res.status(409).json({
+        message: 'No se puede cambiar de ciclo un evento que ya tiene asistencias registradas',
+      })
+    }
+
     if (parsed.data.subjectId !== undefined && parsed.data.subjectId !== null) {
       if (parsed.data.courseId === undefined && !existingEvent.courseOffering?.courseId) {
         return res.status(400).json({ message: 'Seleccioná un curso para asociar una asignatura' });
@@ -701,6 +745,8 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
 
     const finalCourseId =
       parsed.data.courseId !== undefined ? parsed.data.courseId : existingEvent.courseOffering?.courseId
+    const finalCourseOfferingId =
+      updateData.courseOfferingId !== undefined ? updateData.courseOfferingId : existingEvent.courseOfferingId
     const finalSubjectId =
       updateData.subjectId !== undefined ? updateData.subjectId : existingEvent.subjectId
 
@@ -712,7 +758,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       if (!finalCourseId) {
         return res.status(400).json({ message: 'Asignatura requiere curso' })
       }
-      const okSub = await assertActiveSubjectInCourse(finalSubjectId, finalCourseId)
+      const okSub = await assertActiveSubjectInCourse(finalSubjectId, finalCourseId, finalCourseOfferingId)
       if (!okSub) {
         return res.status(400).json({ message: 'Asignatura no encontrada o no pertenece al curso' })
       }
@@ -796,6 +842,70 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       }
     }
 
+    if (requiresHistoricalReplacement) {
+      const replacement = await prisma.$transaction(async (tx) => {
+        const created = await (tx as any).event.create({
+          data: {
+            title: updateData.title ?? existingEvent.title,
+            description: updateData.description !== undefined ? updateData.description : existingEvent.description,
+            type: updateData.type ?? existingEvent.type,
+            status: updateData.status ?? 'SCHEDULED',
+            userId: existingEvent.userId,
+            assignedUserId:
+              updateData.assignedUserId !== undefined ? updateData.assignedUserId : existingEvent.assignedUserId,
+            location: existingEvent.location ?? null,
+            startDate: updateData.startDate ?? existingEvent.startDate,
+            endDate: updateData.endDate !== undefined ? updateData.endDate : existingEvent.endDate ?? null,
+            startTime: updateData.startTime ?? existingEvent.startTime ?? updateData.startDate ?? existingEvent.startDate,
+            endTime: updateData.endTime ?? existingEvent.endTime,
+            schoolYearId: updateData.schoolYearId ?? existingEvent.schoolYearId,
+            courseOfferingId:
+              updateData.courseOfferingId !== undefined ? updateData.courseOfferingId : existingEvent.courseOfferingId,
+            subjectId: updateData.subjectId !== undefined ? updateData.subjectId : existingEvent.subjectId,
+            recurrenceType: updateData.recurrenceType ?? existingEvent.recurrenceType,
+            recurrenceEnd:
+              updateData.recurrenceEnd !== undefined ? updateData.recurrenceEnd : existingEvent.recurrenceEnd,
+            isRecurring:
+              updateData.isRecurring !== undefined ? updateData.isRecurring : existingEvent.isRecurring,
+            daysOfWeek: updateData.daysOfWeek ?? existingEvent.daysOfWeek ?? [],
+          },
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+            },
+            assignedUser: {
+              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+            },
+            courseOffering: eventCourseOfferingInclude,
+            subject: eventSubjectInclude,
+          }
+        })
+
+        const marker = `[Reemplazado logicamente por edicion: ${created.id}]`
+        const description = existingEvent.description?.includes(marker)
+          ? existingEvent.description
+          : `${existingEvent.description || ''}\n\n${marker}`.trim()
+        await (tx as any).event.update({
+          where: { id },
+          data: { status: 'CANCELLED', description },
+        })
+        return created
+      })
+
+      if (replacement.assignedUserId) {
+        void ensureMoodleUserById(replacement.assignedUserId)
+      }
+
+      const mapped = mapNestedEventUsers(replacement as unknown as Record<string, unknown>)
+      return res.json({
+        ...mapped,
+        historicalReplacement: true,
+        replacedEventId: id,
+        message:
+          'El evento original tenia asistencias, por eso se cancelo logicamente y se creo un evento nuevo con los cambios.',
+      })
+    }
+
     const event = await (prisma.event as any).update({
       where: { id },
       data: updateData,
@@ -875,23 +985,45 @@ r.put('/:id/cancel', authGuard, requirePermission('events.cancel'), async (req, 
   }
 });
 
-// Eliminar evento (solo ADMIN)
+// Eliminación lógica de evento (solo ADMIN): conserva asistencias e historial.
 r.delete('/:id', authGuard, requirePermission('events.delete', 'all'), async (req, res) => {
   try {
     const { id } = req.params;
+    const user = req.user;
+    if (!user) return res.status(401).json({ message: 'No autorizado' });
 
-    await prisma.event.delete({
+    const existingEvent = await (prisma.event as any).findUnique({
       where: { id },
+      select: { id: true, title: true, status: true, description: true },
+    });
+    if (!existingEvent) return res.status(404).json({ message: 'Evento no encontrado' });
+
+    const marker = '[Eliminado logicamente]';
+    const description = existingEvent.description?.includes(marker)
+      ? existingEvent.description
+      : `${existingEvent.description || ''}\n\n${marker}`.trim();
+
+    if (existingEvent.status !== 'CANCELLED' || description !== existingEvent.description) {
+      await (prisma.event as any).update({
+        where: { id },
+        data: { status: 'CANCELLED', description },
+      });
+    }
+
+    recordAuditEvent({
+      action: AuditAction.EVENT_CREATED,
+      actorUserId: user.sub,
+      req,
+      entityType: 'Event',
+      entityId: id,
+      metadata: {
+        title: existingEvent.title,
+        softDeleted: true,
+      },
     });
 
-    res.json({ message: 'Evento eliminado correctamente' });
+    res.json({ message: 'Evento eliminado correctamente', softDeleted: true });
   } catch (error: any) {
-    if (error?.code === 'P2025') {
-      return res.status(404).json({ message: 'Evento no encontrado' });
-    }
-    if (error?.code === 'P2003') {
-      return res.status(409).json({ message: 'No se puede eliminar el evento porque tiene registros asociados' });
-    }
     console.error('Error eliminando evento:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }

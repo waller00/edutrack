@@ -148,9 +148,17 @@ function mapAttendanceIncidentAsFeedRow(row: any) {
     status: 'ABSENT_NOT_JUSTIFIED',
     date: when,
     time: when,
+    notes: row.description ?? null,
     user: row.user ? attachRoleCode(row.user) : row.user,
     event: row.event,
   }
+}
+
+function shouldCountIncidentAbsencesInStats(query: Record<string, unknown>) {
+  if (!wantsIncidentRows(query)) return false
+  if (query.type && query.type !== 'CHECK_IN') return false
+  if (query.status && query.status !== 'ABSENT_NOT_JUSTIFIED') return false
+  return true
 }
 
 // Registrar asistencia (CHECK_IN o CHECK_OUT)
@@ -481,7 +489,12 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
 
     const where = await buildAttendanceStatsWhereAsync(req.query as Record<string, unknown>, user)
 
-    const [totalAttendances, presentCount, absentCount, lateCount, medicalLeaveCount] = await Promise.all([
+    const includeIncidentAbsences = shouldCountIncidentAbsencesInStats(req.query as Record<string, unknown>)
+    const incidentWhere = includeIncidentAbsences
+      ? buildAdminAttendanceIncidentWhere(req.query as Record<string, unknown>, where)
+      : null
+
+    const [attendanceTotal, presentCount, attendanceAbsentCount, lateCount, medicalLeaveCount, incidentAbsentCount] = await Promise.all([
       prisma.attendance.count({ where }),
       prisma.attendance.count({ where: { ...where, status: 'PRESENT' } }),
       prisma.attendance.count({
@@ -492,8 +505,11 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       }),
       prisma.attendance.count({ where: { ...where, status: 'LATE' } }),
       prisma.attendance.count({ where: { ...where, status: 'ABSENT_JUSTIFIED' } }),
+      incidentWhere ? prisma.attendanceIncident.count({ where: incidentWhere }) : Promise.resolve(0),
     ])
 
+    const totalAttendances = attendanceTotal + incidentAbsentCount
+    const absentCount = attendanceAbsentCount + incidentAbsentCount
     const attendanceRate = totalAttendances > 0 ? (presentCount / totalAttendances) * 100 : 0
     const lateRate = totalAttendances > 0 ? (lateCount / totalAttendances) * 100 : 0
     const absenceRate = totalAttendances > 0 ? (absentCount / totalAttendances) * 100 : 0
