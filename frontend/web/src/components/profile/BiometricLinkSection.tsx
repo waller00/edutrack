@@ -185,7 +185,7 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
               PIN en el lector: <span className="font-mono font-semibold">{mapping.deviceUserId}</span>
             </p>
             <button type="button" className="btn-secondary mt-3" disabled={busy} onClick={() => void unlink()}>
-              <PendingButtonContent pending={busy} idle="Desvincular lector" pending="Procesando…" />
+              <PendingButtonContent pending={busy} pendingText="Procesando…" idle="Desvincular lector" />
             </button>
           </div>
         ) : (
@@ -225,7 +225,7 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
                 <p className="text-emerald-800 mt-1">¿Confirmar vínculo con tu cuenta?</p>
                 <div className="flex flex-wrap gap-2 mt-3">
                   <button type="button" className="btn-primary" disabled={busy} onClick={() => void confirmLink()}>
-                    <PendingButtonContent pending={busy} idle="Confirmar vínculo" pending="Confirmando…" />
+                    <PendingButtonContent pending={busy} pendingText="Confirmando…" idle="Confirmar vínculo" />
                   </button>
                   <button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelLink()}>
                     Cancelar
@@ -249,7 +249,7 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
                   disabled={busy || (devices.length > 1 && !selectedDeviceId)}
                   onClick={() => void startLink()}
                 >
-                  <PendingButtonContent pending={busy} idle="Vincular mi huella" pending="Iniciando…" />
+                  <PendingButtonContent pending={busy} pendingText="Iniciando…" idle="Vincular mi huella" />
                 </button>
               </div>
             )}
