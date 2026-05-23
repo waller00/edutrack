@@ -1,17 +1,17 @@
 import { Router } from "express";
 import { z } from "zod";
 import argon2 from "argon2";
-import { prisma } from "../prisma.js";
-import { signAccessToken, signTwoFactorLoginToken, verifyToken, verifyTwoFactorLoginToken } from "../jwt.js";
+import { prisma } from "../db/prisma.js";
+import { signAccessToken, signTwoFactorLoginToken, verifyToken, verifyTwoFactorLoginToken } from "../auth/jwt.js";
 import { recordAuditEvent } from "../services/audit-log.js";
 import { AuditAction } from "@prisma/client";
 import { authGuard } from "../middlewares/auth.js";
-import passport from "../passportGoogle.js";
+import passport from "../auth/passportGoogle.js";
 import crypto from "crypto";
 import qrcode from "qrcode";
 import { generateSecret, generateURI, verifySync } from "otplib";
-import { sendMail } from "../email.js";
-import { onlyDigits, isValidUruguayanCI } from "../uruguay-ci.js";
+import { sendMail } from "../notifications/email.js";
+import { onlyDigits, isValidUruguayanCI } from "../identity/uruguay-ci.js";
 import {
   normalizePhoneUY,
   buildProfileName,
@@ -20,11 +20,12 @@ import {
   validateBirthdateUpdate,
   validateNationalIdDocumentExpiresAtUpdate,
   mapProfileUpdateError,
-} from "../auth-profile-pure.js";
-import { firstZodIssueMessage, strongPasswordSchema } from "../password-policy.js";
-import { isDiditConfigured, isLivenessRequiredForRegistration } from "../system-settings.js";
-import { syncLivenessSessionFromDiditApi } from "../didit-sync-session.js";
-import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../org-role-service.js";
+} from "../auth/auth-profile-pure.js";
+import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
+import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/system-settings.js";
+import { syncLivenessSessionFromDiditApi } from "../integrations/didit/sync-session.js";
+import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
+import { ensureDefaultProfilePermissionsIfNeeded } from "../identity/profile-permissions-repository.js";
 
 const r = Router();
 
@@ -41,7 +42,6 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
 const registerSchema = z.object({
   email: z.string().email(),
   password: strongPasswordSchema,
-  username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_.-]+$/).optional(),
   nationalId: z.string().min(6).max(20).optional(),
   firstName: z.string().min(1).max(80),
   lastName: z.string().min(1).max(80),
@@ -151,21 +151,30 @@ function generateBackupCodes() {
   return Array.from({ length: 10 }, () => `${crypto.randomBytes(2).toString("hex").toUpperCase()}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`);
 }
 
-function serializePlainBackupCodes(codes: string[]) {
-  return JSON.stringify({ v: 1, codes: codes.map((code) => hashToken(code.toUpperCase())) });
+function hashBackupCode(code: string) {
+  return hashToken(code.trim().toUpperCase());
 }
 
-function consumeBackupCode(stored: string | null | undefined, code: string) {
-  if (!stored) return { ok: false, next: stored ?? null };
-  const normalized = code.trim().toUpperCase();
-  const parsed = JSON.parse(stored) as { codes: string[] };
-  const hashed = hashToken(normalized);
-  if (!parsed.codes.includes(hashed)) return { ok: false, next: stored };
-  return { ok: true, next: serializeBackupCodes(parsed.codes.filter((existing) => existing !== hashed)) };
+async function replaceBackupCodesForUser(userId: string, client: any = prisma) {
+  const backupCodes = generateBackupCodes();
+  await client.twoFactorBackupCode.deleteMany({ where: { userId } });
+  await client.twoFactorBackupCode.createMany({
+    data: backupCodes.map((code) => ({ userId, codeHash: hashBackupCode(code) })),
+  });
+  return backupCodes;
 }
 
-function serializeBackupCodes(hashedCodes: string[]) {
-  return JSON.stringify({ v: 1, codes: hashedCodes });
+async function consumeBackupCodeForUser(userId: string, code: string, client: any = prisma) {
+  const existing = await client.twoFactorBackupCode.findFirst({
+    where: { userId, codeHash: hashBackupCode(code), usedAt: null },
+    select: { id: true },
+  });
+  if (!existing) return false;
+  const consumed = await client.twoFactorBackupCode.updateMany({
+    where: { id: existing.id, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+  return consumed.count === 1;
 }
 
 function issueSessionCookies(res: any, req: any, user: { id: string; email: string; role: string }) {
@@ -184,6 +193,30 @@ function issueSessionCookies(res: any, req: any, user: { id: string; email: stri
   });
 }
 
+async function enabledPermissionsForRole(roleCode: string) {
+  if (!roleCode) return []
+  try {
+    const rows = await prisma.rolePermission.findMany({
+      where: {
+        enabled: true,
+        orgRole: { code: roleCode, active: true },
+      },
+      select: {
+        permission: { select: { code: true } },
+        scope: true,
+      },
+      orderBy: { permission: { code: "asc" } },
+    });
+    return rows.map((row) => ({
+      id: row.permission.code,
+      scope: row.scope === "ALL" ? "all" : "own",
+    }));
+  } catch (error) {
+    console.warn("[auth/me] permissions lookup skipped", error);
+    return [];
+  }
+}
+
 function verifyTotpCode(code: string, secret: string) {
   return verifySync({ secret, token: code, epochTolerance: 30 }).valid;
 }
@@ -191,12 +224,58 @@ function verifyTotpCode(code: string, secret: string) {
 // helpers comunes
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
+const turnstileDebugEnabled = process.env.TURNSTILE_DEBUG === "true";
+
+function logTurnstileDebug(message: string, metadata: Record<string, unknown>) {
+  if (turnstileDebugEnabled) {
+    console.log(message, metadata);
+  }
+}
 
 async function validateUniqueUsername(userId: string, username?: string) {
-  if (!username) return null;
+  if (!username) return undefined;
   const exist = await prisma.user.findUnique({ where: { username } });
   if (exist && exist.id !== userId) throw new Error('USERNAME_CONFLICT');
   return username;
+}
+
+function usernamePart(input: string) {
+  return input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s.-]/g, "")
+    .trim()
+    .split(/[\s.-]+/)
+    .filter(Boolean);
+}
+
+function fitUsername(base: string, suffix = "") {
+  const maxBase = Math.max(3, 30 - suffix.length);
+  return `${base.slice(0, maxBase).replace(/[.-]+$/g, "")}${suffix}`;
+}
+
+async function generateUniqueUsername(firstName: string, lastName: string, client: any = prisma) {
+  const first = usernamePart(firstName)[0] || "usuario";
+  const lastParts = usernamePart(lastName);
+  const firstLast = lastParts[0] || "sinapellido";
+  const secondInitial = lastParts[1]?.charAt(0) || "";
+  const base = `${first}.${firstLast}`.slice(0, 30).replace(/[.-]+$/g, "");
+
+  const candidates = [base];
+  if (secondInitial) candidates.push(fitUsername(base, `.${secondInitial}`));
+  for (const candidate of candidates) {
+    const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
+    if (!existing) return candidate;
+  }
+
+  const numberedBase = secondInitial ? fitUsername(base, `.${secondInitial}`) : base;
+  for (let i = 1; i <= 9999; i += 1) {
+    const candidate = fitUsername(numberedBase, String(i));
+    const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
+    if (!existing) return candidate;
+  }
+  return fitUsername(base, `.${crypto.randomBytes(2).toString("hex")}`);
 }
 
 async function validateNationalIdUpdate(userId: string, nationalId: string | undefined, isAdmin: boolean, isSettingInitialNationalId: boolean) {
@@ -223,20 +302,33 @@ async function validateAndBuildProfileUpdate(data: {
 }) {
   const update: any = {};
   const me = await prisma.user.findUnique({ where: { id: data.userId } });
+  if (!me) throw new Error('NOT_FOUND');
   const isAdmin = data.userRole === 'ADMIN';
   const isSettingInitialNationalId = !me?.nationalId;
 
-  update.username = await validateUniqueUsername(data.userId, data.username);
-  update.nationalId = await validateNationalIdUpdate(data.userId, data.nationalId, isAdmin, isSettingInitialNationalId);
-  update.role = validateRoleUpdate(data.role, isAdmin, me);
+  const username = await validateUniqueUsername(data.userId, data.username);
+  if (username !== undefined) update.username = username;
+
+  const nationalId = await validateNationalIdUpdate(data.userId, data.nationalId, isAdmin, isSettingInitialNationalId);
+  if (nationalId !== undefined) update.nationalId = nationalId;
+
+  const role = validateRoleUpdate(data.role, isAdmin, me);
+  if (role !== undefined) update.role = role;
 
   if (data.firstName) update.firstName = data.firstName;
   if (data.lastName) update.lastName = data.lastName;
-  if (data.firstName || data.lastName) update.name = buildProfileName(data.firstName, data.lastName);
+  if (data.firstName || data.lastName) {
+    update.name = buildProfileName(data.firstName ?? me.firstName ?? undefined, data.lastName ?? me.lastName ?? undefined);
+  }
 
-  update.phone = validatePhoneUpdate(data.phone);
-  update.birthdate = validateBirthdateUpdate(data.birthdate);
-  update.nationalIdDocumentExpiresAt = validateNationalIdDocumentExpiresAtUpdate(data.nationalIdDocumentExpiresAt);
+  const phone = validatePhoneUpdate(data.phone);
+  if (phone !== undefined) update.phone = phone;
+
+  const birthdate = validateBirthdateUpdate(data.birthdate);
+  if (birthdate !== undefined) update.birthdate = birthdate;
+
+  const nationalIdDocumentExpiresAt = validateNationalIdDocumentExpiresAtUpdate(data.nationalIdDocumentExpiresAt);
+  if (nationalIdDocumentExpiresAt !== undefined) update.nationalIdDocumentExpiresAt = nationalIdDocumentExpiresAt;
 
   return update;
 }
@@ -297,11 +389,10 @@ r.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
 
-  const { email, password, username, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role, livenessToken } = parsed.data;
+  const { email, password, nationalId, firstName, lastName, phone, birthdate, nationalIdDocumentExpiresAt, role, livenessToken } = parsed.data;
 
-  const [byEmail, byUsername, byNational] = await Promise.all([
+  const [byEmail, byNational] = await Promise.all([
     prisma.user.findUnique({ where: { email } }),
-    username ? prisma.user.findUnique({ where: { username } }) : Promise.resolve(null),
     nationalId ? prisma.user.findUnique({ where: { nationalId: onlyDigits(nationalId) } }) : Promise.resolve(null),
   ]);
   const requireDidit = isLivenessRequiredForRegistration()
@@ -338,7 +429,6 @@ r.post("/register", async (req, res) => {
   }
 
   if (byEmail) return res.status(409).json({ message: "Email ya registrado" });
-  if (byUsername) return res.status(409).json({ message: "Nombre de usuario ya en uso" });
   if (byNational) return res.status(409).json({ message: "Cédula/Documento ya registrado" });
   if (nationalId && !isValidUruguayanCI(nationalId)) return res.status(400).json({ message: "Cédula inválida" });
 
@@ -369,11 +459,12 @@ r.post("/register", async (req, res) => {
   }
   const nowLv = livenessRequired && livenessRowId ? new Date() : null;
   const user = await prisma.$transaction(async (tx) => {
+    const generatedUsername = await generateUniqueUsername(firstName, lastName, tx);
     const u = await tx.user.create({
       data: {
         email,
         passwordHash,
-        username,
+        username: generatedUsername,
         nationalId: nationalId ? onlyDigits(nationalId) : null,
         firstName,
         lastName,
@@ -541,11 +632,14 @@ r.post("/2fa/setup", authGuard, async (req, res) => {
   const issuer = process.env.TWO_FACTOR_ISSUER || "EduTrack";
   const otpauthUrl = generateURI({ issuer, label: me.email, secret });
   const qrCodeDataUrl = await qrcode.toDataURL(otpauthUrl, { margin: 1, width: 240 });
-  await prisma.user.update({
-    where: { id: me.id },
-    data: { twoFactorSecret: encryptTwoFactorSecret(secret), twoFactorConfirmedAt: null, twoFactorBackupCodes: null },
+  await prisma.$transaction(async (tx: any) => {
+    await tx.user.update({
+      where: { id: me.id },
+      data: { twoFactorSecret: encryptTwoFactorSecret(secret), twoFactorConfirmedAt: null },
+    });
+    await tx.twoFactorBackupCode.deleteMany({ where: { userId: me.id } });
   });
-  return res.json({ qrCodeDataUrl, otpauthUrl });
+  return res.json({ qrCodeDataUrl, otpauthUrl, manualEntryKey: secret, issuer, accountName: me.email });
 });
 
 r.post("/2fa/confirm", authGuard, async (req, res) => {
@@ -564,14 +658,15 @@ r.post("/2fa/confirm", authGuard, async (req, res) => {
   const secret = decryptTwoFactorSecret(me.twoFactorSecret);
   if (!verifyTotpCode(parsed.data.code, secret)) return res.status(401).json({ message: "Código inválido" });
 
-  const backupCodes = generateBackupCodes();
-  await prisma.user.update({
-    where: { id: me.id },
-    data: {
-      twoFactorEnabled: true,
-      twoFactorConfirmedAt: new Date(),
-      twoFactorBackupCodes: serializePlainBackupCodes(backupCodes),
-    },
+  const backupCodes = await prisma.$transaction(async (tx: any) => {
+    await tx.user.update({
+      where: { id: me.id },
+      data: {
+        twoFactorEnabled: true,
+        twoFactorConfirmedAt: new Date(),
+      },
+    });
+    return replaceBackupCodesForUser(me.id, tx);
   });
   return res.json({ ok: true, backupCodes });
 });
@@ -583,7 +678,7 @@ r.post("/2fa/disable", authGuard, async (req, res) => {
 
   const me = await prisma.user.findUnique({
     where: { id: u.sub },
-    select: { id: true, passwordHash: true, twoFactorEnabled: true, twoFactorSecret: true, twoFactorBackupCodes: true },
+    select: { id: true, passwordHash: true, twoFactorEnabled: true, twoFactorSecret: true },
   });
   if (!me) return res.status(401).json({ message: "No autorizado" });
   if (!me.twoFactorEnabled) return res.status(409).json({ message: "La autenticación en dos pasos no está activa" });
@@ -593,13 +688,16 @@ r.post("/2fa/disable", authGuard, async (req, res) => {
   if (!verified && parsed.data.code && me.twoFactorSecret) {
     const code = parsed.data.code.trim();
     if (/^\d{6}$/.test(code)) verified = verifyTotpCode(code, decryptTwoFactorSecret(me.twoFactorSecret));
-    else if (/^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(code)) verified = consumeBackupCode(me.twoFactorBackupCodes, code).ok;
+    else if (/^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(code)) verified = await consumeBackupCodeForUser(me.id, code);
   }
   if (!verified) return res.status(401).json({ message: "Verificación inválida" });
 
-  await prisma.user.update({
-    where: { id: me.id },
-    data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorConfirmedAt: null, twoFactorBackupCodes: null },
+  await prisma.$transaction(async (tx: any) => {
+    await tx.user.update({
+      where: { id: me.id },
+      data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorConfirmedAt: null },
+    });
+    await tx.twoFactorBackupCode.deleteMany({ where: { userId: me.id } });
   });
   return res.json({ ok: true });
 });
@@ -612,13 +710,13 @@ r.post("/2fa/backup-codes/regenerate", authGuard, async (req, res) => {
   if (!me) return res.status(401).json({ message: "No autorizado" });
   if (!me.twoFactorEnabled || !me.twoFactorSecret) return res.status(409).json({ message: "La autenticación en dos pasos no está activa" });
   if (!verifyTotpCode(parsed.data.code, decryptTwoFactorSecret(me.twoFactorSecret))) return res.status(401).json({ message: "Código inválido" });
-  const backupCodes = generateBackupCodes();
-  await prisma.user.update({ where: { id: me.id }, data: { twoFactorBackupCodes: serializePlainBackupCodes(backupCodes) } });
+  const backupCodes = await replaceBackupCodesForUser(me.id);
   return res.json({ backupCodes });
 });
 
 // Login
 r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
+  clearAuthCookies(res);
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
 
@@ -700,6 +798,7 @@ r.post("/login", createIpRateLimit(60 * 1000, 10), async (req, res) => {
 });
 
 r.post("/login/2fa", createIpRateLimit(60 * 1000, 10), async (req, res) => {
+  clearAuthCookies(res);
   const parsed = z.object({ twoFactorToken: z.string().min(20), code: twoFactorCodeSchema }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Datos inválidos" });
 
@@ -719,13 +818,10 @@ r.post("/login/2fa", createIpRateLimit(60 * 1000, 10), async (req, res) => {
 
   const code = parsed.data.code.trim();
   let ok = false;
-  let backupCodesUpdate: string | null | undefined;
   if (/^\d{6}$/.test(code)) {
     ok = verifyTotpCode(code, decryptTwoFactorSecret(user.twoFactorSecret));
   } else {
-    const consumed = consumeBackupCode(user.twoFactorBackupCodes, code);
-    ok = consumed.ok;
-    backupCodesUpdate = consumed.next;
+    ok = await consumeBackupCodeForUser(user.id, code);
   }
   if (!ok) {
     recordAuditEvent({
@@ -743,7 +839,6 @@ r.post("/login/2fa", createIpRateLimit(60 * 1000, 10), async (req, res) => {
       data: {
         failedLoginAttempts: 0,
         lockUntil: null,
-        ...(backupCodesUpdate !== undefined ? { twoFactorBackupCodes: backupCodesUpdate } : {}),
       },
     }),
   ]);
@@ -765,14 +860,14 @@ r.post("/forgot", createIpRateLimit(15 * 60 * 1000, 5), async (req, res) => {
       return res.status(400).json({ message: "captcha" });
     }
     try {
-      console.log("[TURNSTILE] verifying", { host: req.headers.host, origin: req.headers.origin });
+      logTurnstileDebug("[TURNSTILE] verifying", { host: req.headers.host, origin: req.headers.origin });
       const resp = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET, response: captchaToken }),
       });
       const data = await resp.json();
-      console.log("[TURNSTILE] verify response", { status: resp.status, success: data?.success, "error-codes": data?.["error-codes"], hostname: data?.hostname });
+      logTurnstileDebug("[TURNSTILE] verify response", { status: resp.status, success: data?.success, "error-codes": data?.["error-codes"], hostname: data?.hostname });
       if (!data.success) return res.status(400).json({ message: "captcha" });
     } catch (e) {
       console.error("[TURNSTILE] verify error", e);
@@ -882,13 +977,27 @@ r.get("/me", authGuard, async (req, res) => {
   const roleCode = raw.orgRole?.code ?? "";
   const needsProfileCompletion = !raw.firstName || !raw.lastName || !raw.nationalId || !raw.birthdate || !raw.username;
   const hasPassword = !!raw.passwordHash;
+  try {
+    await ensureDefaultProfilePermissionsIfNeeded();
+  } catch (error) {
+    console.warn("[auth/me] permissions bootstrap skipped", error);
+  }
+  const permissions = await enabledPermissionsForRole(roleCode);
   const canShowNav =
     Boolean(raw.isApproved && raw.isActive && !needsProfileCompletion);
   const navLinks = canShowNav
     ? NAV_LINKS_BY_ROLE[roleCode] || []
     : [];
   const { passwordHash, orgRole, ...safe } = raw as any;
-  res.json({ ...safe, role: roleCode, needsProfileCompletion, hasPassword, navLinks });
+  res.json({
+    ...safe,
+    role: roleCode,
+    needsProfileCompletion,
+    hasPassword,
+    navLinks,
+    permissions,
+    permissionIds: permissions.map((permission) => permission.id),
+  });
 });
 
 r.post("/logout", async (req, res) => {

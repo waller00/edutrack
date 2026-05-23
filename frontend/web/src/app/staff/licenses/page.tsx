@@ -1,5 +1,5 @@
-import MyLicensesPage from '@/components/MyLicensesPage'
+import MyLicensesPage from '@/components/personal/MyLicensesPage'
 
 export default function StaffLicenses() {
-  return <MyLicensesPage role="STAFF" />
+  return <MyLicensesPage />
 }

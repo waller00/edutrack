@@ -35,18 +35,23 @@ enum AuditAction {
   MEDICAL_LEAVE_DEACTIVATED
   SYSTEM_SETTINGS_UPDATED
   EVENT_CREATED
+  BIOMETRIC_LINK_STARTED
+  BIOMETRIC_LINK_DETECTED
+  BIOMETRIC_LINK_CONFIRMED
+  BIOMETRIC_LINK_CANCELLED
+  BIOMETRIC_MAPPING_REMOVED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
 model OrgRole {
-  id        String   @id @default(uuid())
-  code      String   @unique
+  id        String           @id @default(uuid())
+  code      String           @unique
   label     String
-  builtIn   Boolean  @default(false)
-  active    Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  builtIn   Boolean          @default(false)
+  active    Boolean          @default(true)
+  sortOrder Int              @default(0)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
   users     User[]
   grants    RolePermission[]
 
@@ -54,89 +59,102 @@ model OrgRole {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  username     String?  @unique
-  nationalId   String?  @unique
+  id                          String                 @id @default(uuid())
+  email                       String                 @unique
+  username                    String?                @unique
+  nationalId                  String?                @unique
   /// Vencimiento de la cédula de identidad (según DNI / OCR).
   nationalIdDocumentExpiresAt DateTime?
-  firstName    String?
-  lastName     String?
-  name         String?
-  phone        String?
-  birthdate    DateTime?
-  passwordHash String?
-  googleId     String?  @unique
-  roleId       String
-  orgRole      OrgRole   @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  firstName                   String?
+  lastName                    String?
+  name                        String?
+  phone                       String?
+  birthdate                   DateTime?
+  passwordHash                String?
+  googleId                    String?                @unique
+  roleId                      String
+  orgRole                     OrgRole                @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+  // relations
+  passwordResets              PasswordReset[]
+  emailVerifications          EmailVerification[]
+  refreshTokens               RefreshToken[]
+  attendances                 Attendance[]
+  events                      Event[]
+  assignedEvents              Event[]                @relation("EventAssignment")
+  medicalLeaves               MedicalLeave[]
+  webPushSubscriptions        WebPushSubscription[]
+  inAppNotifications          InAppNotification[]
+  biometricMappings           BiometricUserMapping[]
+  biometricLinkRequests       BiometricLinkRequest[]
+  biometricPunches            BiometricPunch[]
+  attendanceIncidents         AttendanceIncident[]
+  auditEvents                 AuditLog[]
+  // security
+  emailVerifiedAt             DateTime?
+  failedLoginAttempts         Int                    @default(0)
+  lockUntil                   DateTime?
+  isApproved                  Boolean                @default(true)
+  approvedAt                  DateTime?
+  isActive                    Boolean                @default(true)
+  twoFactorEnabled            Boolean                @default(false)
+  twoFactorSecret             String?
+  twoFactorConfirmedAt        DateTime?
+  twoFactorBackupCodes        TwoFactorBackupCode[]
+  /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
+  livenessVerifiedAt          DateTime?
 
   @@index([roleId])
-  // relations
-  passwordResets     PasswordReset[]
-  emailVerifications EmailVerification[]
-  refreshTokens      RefreshToken[]
-  attendances        Attendance[]
-  events             Event[]
-  assignedEvents     Event[]       @relation("EventAssignment")
-  medicalLeaves      MedicalLeave[]
-  webPushSubscriptions WebPushSubscription[]
-  inAppNotifications InAppNotification[]
-  biometricMappings  BiometricUserMapping[]
-  biometricPunches   BiometricPunch[]
-  attendanceIncidents AttendanceIncident[]
-  auditEvents         AuditLog[]
-  // security
-  emailVerifiedAt     DateTime?
-  failedLoginAttempts Int       @default(0)
-  lockUntil           DateTime?
-  isApproved          Boolean   @default(true)
-  approvedAt          DateTime?
-  isActive            Boolean   @default(true)
-  twoFactorEnabled    Boolean   @default(false)
-  twoFactorSecret     String?
-  twoFactorConfirmedAt DateTime?
-  twoFactorBackupCodes String?
-  /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
-  livenessVerifiedAt  DateTime?
+}
+
+model TwoFactorBackupCode {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, codeHash])
+  @@index([userId, usedAt])
 }
 
 model PasswordReset {
-  id        String   @id @default(uuid())
-  token     String   @unique
+  id        String    @id @default(uuid())
+  token     String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }
 
 model EmailVerification {
-  id        String   @id @default(uuid())
-  token     String   @unique
+  id        String    @id @default(uuid())
+  token     String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }
 
 /// Avisos dentro de la app (persisten aunque el push se pierda).
 model InAppNotification {
-  id        String                 @id @default(uuid())
+  id        String                @id @default(uuid())
   userId    String
-  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      InAppNotificationType
   title     String
   body      String
   actionUrl String?
   readAt    DateTime?
-  createdAt DateTime               @default(now())
+  createdAt DateTime              @default(now())
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
@@ -162,17 +180,17 @@ model AuditLog {
 
 /// Configuración global (fila única `default`).
 model SystemSettings {
-  id                    String   @id @default("default")
-  livenessCheckEnabled  Boolean  @default(false)
-  attendanceNoShowGraceMinutes Int @default(15)
-  attendanceLateToleranceMinutes Int @default(5)
+  id                              String   @id @default("default")
+  livenessCheckEnabled            Boolean  @default(false)
+  attendanceNoShowGraceMinutes    Int      @default(15)
+  attendanceLateToleranceMinutes  Int      @default(5)
   /// Si el hueco entre el fin de una clase y el inicio de la siguiente es >= este valor (minutos), se exige nueva entrada biométrica.
-  attendanceClassBridgeGapMinutes Int @default(60)
-  attendanceMonitorEnabled Boolean @default(true)
-  attendanceMonitorIntervalMs Int @default(120000)
-  biometricLateHour Int @default(8)
-  biometricLateMinute Int @default(30)
-  updatedAt             DateTime @updatedAt
+  attendanceClassBridgeGapMinutes Int      @default(60)
+  attendanceMonitorEnabled        Boolean  @default(true)
+  attendanceMonitorIntervalMs     Int      @default(120000)
+  biometricLateHour               Int      @default(8)
+  biometricLateMinute             Int      @default(30)
+  updatedAt                       DateTime @updatedAt
 }
 
 enum LivenessSessionStatus {
@@ -187,15 +205,15 @@ enum LivenessSessionStatus {
 
 /// Sesión de prueba de vida Didit (pre-registro). `id` se envía como `vendor_data`.
 model LivenessSession {
-  id              String                 @id @default(uuid())
-  diditSessionId  String?                @unique
-  status          LivenessSessionStatus  @default(PENDING)
-  diditStatusRaw  String?
-  createdAt       DateTime               @default(now())
-  expiresAt       DateTime
-  consumedAt      DateTime?
+  id             String                @id @default(uuid())
+  diditSessionId String?               @unique
+  status         LivenessSessionStatus @default(PENDING)
+  diditStatusRaw String?
+  createdAt      DateTime              @default(now())
+  expiresAt      DateTime
+  consumedAt     DateTime?
   /// Email vinculado (si al crear la sesión se envió); debe coincidir con el registro.
-  email           String?
+  email          String?
 }
 
 /// Suscripciones Web Push (navegador); una por endpoint (dispositivo).
@@ -214,16 +232,16 @@ model WebPushSubscription {
 }
 
 model RefreshToken {
-  id             String   @id @default(uuid())
-  tokenHash      String
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt      DateTime
-  revokedAt      DateTime?
-  replacedById   String?
-  createdAt      DateTime @default(now())
-  userAgent      String?
-  ipAddress      String?
+  id           String    @id @default(uuid())
+  tokenHash    String
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  createdAt    DateTime  @default(now())
+  userAgent    String?
+  ipAddress    String?
 
   @@index([userId])
 }
@@ -245,6 +263,16 @@ enum BiometricPunchProcessStatus {
   PROCESSED
   FAILED
   DUPLICATE
+  /// Marca capturada durante vinculación pendiente de confirmación en EduTrack.
+  LINK_CAPTURED
+}
+
+enum BiometricLinkRequestStatus {
+  WAITING_PUNCH
+  PENDING_CONFIRM
+  CONFIRMED
+  EXPIRED
+  CANCELLED
 }
 
 enum AttendanceStatus {
@@ -253,27 +281,27 @@ enum AttendanceStatus {
   LATE
   ABSENT_NOT_JUSTIFIED
   ABSENT_JUSTIFIED
-  
+
   // Estados para CHECK_OUT
   EXIT
   EARLY_EXIT
 }
 
 model Attendance {
-  id          String           @id @default(uuid())
-  userId      String
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        AttendanceType
-  status      AttendanceStatus @default(PRESENT)
-  date        DateTime
-  time        DateTime
-  notes       String?
-  eventId     String?
-  event       Event?           @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  id             String               @id @default(uuid())
+  userId         String
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           AttendanceType
+  status         AttendanceStatus     @default(PRESENT)
+  date           DateTime
+  time           DateTime
+  notes          String?
+  eventId        String?
+  event          Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
   biometricPunch BiometricPunch?
-  incidents   AttendanceIncident[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  incidents      AttendanceIncident[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@index([userId])
   @@index([date])
@@ -293,26 +321,26 @@ enum AttendanceIncidentStatus {
 }
 
 model AttendanceIncident {
-  id              String                   @id @default(uuid())
-  type            AttendanceIncidentType
-  status          AttendanceIncidentStatus @default(OPEN)
-  title           String
-  description     String?
-  severity        String                   @default("HIGH")
-  userId          String
-  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  eventId         String?
-  event           Event?                   @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  attendanceId    String?
-  attendance      Attendance?              @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  id               String                   @id @default(uuid())
+  type             AttendanceIncidentType
+  status           AttendanceIncidentStatus @default(OPEN)
+  title            String
+  description      String?
+  severity         String                   @default("HIGH")
+  userId           String
+  user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId          String?
+  event            Event?                   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  attendanceId     String?
+  attendance       Attendance?              @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
   biometricPunchId String?
-  biometricPunch  BiometricPunch?          @relation(fields: [biometricPunchId], references: [id], onDelete: SetNull)
-  detectedAt      DateTime                 @default(now())
-  acknowledgedAt  DateTime?
-  resolvedAt      DateTime?
-  resolvedBy      String?
-  createdAt       DateTime                 @default(now())
-  updatedAt       DateTime                 @updatedAt
+  biometricPunch   BiometricPunch?          @relation(fields: [biometricPunchId], references: [id], onDelete: SetNull)
+  detectedAt       DateTime                 @default(now())
+  acknowledgedAt   DateTime?
+  resolvedAt       DateTime?
+  resolvedBy       String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 
   @@index([status, type])
   @@index([eventId])
@@ -321,60 +349,84 @@ model AttendanceIncident {
 }
 
 model BiometricDevice {
-  id         String   @id @default(uuid())
-  code       String   @unique
+  id         String                 @id @default(uuid())
+  code       String                 @unique
+  /// Número de serie ADMS del terminal (query `SN`); si no se define, se usa `code`.
+  admsSerial String?                @unique
   name       String
   secretHash String
-  timezone   String   @default("America/Montevideo")
-  isActive   Boolean  @default(true)
-  allowedIps String[] @default([])
+  timezone   String                 @default("America/Montevideo")
+  isActive   Boolean                @default(true)
+  allowedIps String[]               @default([])
   lastSeenAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  punches    BiometricPunch[]
-  mappings   BiometricUserMapping[]
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  punches       BiometricPunch[]
+  mappings      BiometricUserMapping[]
+  linkRequests  BiometricLinkRequest[]
 
   @@index([isActive])
 }
 
+model BiometricLinkRequest {
+  id                    String                     @id @default(uuid())
+  userId                String
+  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId              String
+  device                BiometricDevice            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  status                BiometricLinkRequestStatus @default(WAITING_PUNCH)
+  candidateDeviceUserId String?
+  candidatePunchId      String?
+  expiresAt             DateTime
+  confirmedAt           DateTime?
+  createdByIp           String?                    @db.VarChar(45)
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  @@index([deviceId, status])
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
 model BiometricUserMapping {
-  id           String          @id @default(uuid())
+  id           String           @id @default(uuid())
   deviceId     String
-  device       BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  device       BiometricDevice  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   userId       String
-  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   deviceUserId String
-  isActive     Boolean         @default(true)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
   punches      BiometricPunch[]
 
   @@unique([deviceId, deviceUserId])
+  @@unique([deviceId, userId])
   @@index([userId])
   @@index([isActive])
 }
 
 model BiometricPunch {
-  id            String                     @id @default(uuid())
+  id            String                      @id @default(uuid())
   deviceId      String
-  device        BiometricDevice            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  device        BiometricDevice             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   mappingId     String?
-  mapping       BiometricUserMapping?      @relation(fields: [mappingId], references: [id], onDelete: SetNull)
+  mapping       BiometricUserMapping?       @relation(fields: [mappingId], references: [id], onDelete: SetNull)
   userId        String?
-  user          User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
-  attendanceId  String?                    @unique
-  attendance    Attendance?                @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  user          User?                       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attendanceId  String?                     @unique
+  attendance    Attendance?                 @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
   externalId    String?
   deviceUserId  String
   occurredAt    DateTime
-  receivedAt    DateTime                   @default(now())
-  punchType     BiometricPunchType         @default(UNKNOWN)
+  receivedAt    DateTime                    @default(now())
+  punchType     BiometricPunchType          @default(UNKNOWN)
   processStatus BiometricPunchProcessStatus @default(PENDING)
   processError  String?
   payload       Json
   incidents     AttendanceIncident[]
-  createdAt     DateTime                   @default(now())
-  updatedAt     DateTime                   @updatedAt
+  createdAt     DateTime                    @default(now())
+  updatedAt     DateTime                    @updatedAt
 
   @@unique([deviceId, deviceUserId, occurredAt])
   @@unique([deviceId, externalId])
@@ -412,78 +464,258 @@ enum RecurrenceType {
 
 /// Catálogo global de permisos (código único, p. ej. `events.read`).
 model Permission {
-  id           String           @id @default(uuid())
-  code         String           @unique
-  module       String
-  action       String
-  isSystem     Boolean          @default(true)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  roleGrants   RolePermission[]
+  id         String           @id @default(uuid())
+  code       String           @unique
+  module     String
+  action     String
+  isSystem   Boolean          @default(true)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  roleGrants RolePermission[]
 
   @@index([module])
 }
 
 /// Asignación por rol (FK a OrgRole): labels por rol para un mismo permiso catálogo.
 model RolePermission {
-  roleId        String
-  orgRole       OrgRole        @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permissionId  String
-  permission    Permission     @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-  enabled       Boolean        @default(true)
-  scope         PermissionScope @default(OWN)
-  label         String
+  roleId       String
+  orgRole      OrgRole         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission      @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  enabled      Boolean         @default(true)
+  scope        PermissionScope @default(OWN)
+  label        String
 
   @@id([roleId, permissionId])
   @@index([permissionId])
 }
 
+/// Ciclo lectivo (segmentación global de datos operativos del liceo).
+enum SchoolYearStatus {
+  PLANNED
+  ACTIVE
+  CLOSED
+}
+
+model SchoolYear {
+  id                 String                @id @default(uuid())
+  /// Año calendario del ciclo (ej. 2026); único en la institución.
+  code               Int                   @unique
+  label              String
+  startsOn           DateTime?
+  endsOn             DateTime?
+  status             SchoolYearStatus      @default(PLANNED)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  courseOfferings    CourseOffering[]
+  events             Event[]
+  studentEnrollments StudentEnrollment[]
+  tuitionYears       StudentTuitionYear[]
+  tuitionMonths      StudentTuitionMonth[]
+  nonWorkingDays     NonWorkingDay[]
+
+  @@index([status])
+}
+
 /// Cursos para asociar eventos (clases / grupos).
 model Course {
-  id          String   @id @default(uuid())
+  id          String           @id @default(uuid())
   name        String
-  code        String?  @unique
+  code        String?          @unique
   description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  events      Event[]
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  subjects    Subject[]
+  offerings   CourseOffering[]
 
   @@index([isActive])
 }
 
+/// Oferta anual de un curso del catálogo dentro de un ciclo lectivo.
+/// Permite cerrar/abrir años sin duplicar Course ni sus Subject.
+model CourseOffering {
+  id                 String              @id @default(uuid())
+  courseId           String
+  course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  schoolYearId       String
+  schoolYear         SchoolYear          @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  isActive           Boolean             @default(true)
+  notes              String?             @db.Text
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  events             Event[]
+  studentEnrollments StudentEnrollment[]
+  subjects           Subject[]
+
+  @@unique([courseId, schoolYearId])
+  @@index([schoolYearId, isActive])
+  @@index([courseId])
+}
+
+/// Asignatura de un curso. Sin jerarquía de “subcursos”: materias comunes vs orientación
+/// se modelan con cursos distintos y listas de asignaturas propias.
+model Subject {
+  id               String          @id @default(uuid())
+  name             String
+  code             String?
+  description      String?         @db.Text
+  sortOrder        Int             @default(0)
+  isActive         Boolean         @default(true)
+  courseId         String
+  course           Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseOfferingId String?
+  courseOffering   CourseOffering? @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  events           Event[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([courseId])
+  @@index([courseOfferingId])
+  @@map("asignaturas")
+}
+
+/// Estado de matrícula para informes de abandono y seguimiento administrativo.
+enum StudentEnrollmentStatus {
+  ACTIVE
+  WITHDRAWN
+  GRADUATED
+  TRANSFERRED
+}
+
+/// Registro de estudiante solo para gestión (sin cuenta ni login en el sistema).
+model Student {
+  id         String  @id @default(uuid())
+  firstName  String
+  lastName   String
+  /// Documento identificatorio (opcional; no implica usuario del sistema).
+  documentId String?
+
+  contactPhone String?
+  tutorPhone   String?
+  contactEmail String?
+  address      String?
+
+  healthCardExpiresAt DateTime?
+
+  /// Acceso al portal del liceo u otras notas sensibles (opcional).
+  liceoAccessNotes String? @db.Text
+
+  internalNotes String? @db.Text
+
+  tuitionYears  StudentTuitionYear[]
+  tuitionMonths StudentTuitionMonth[]
+  enrollments   StudentEnrollment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lastName, firstName])
+}
+
+/// Historial de matrícula por ciclo. Es la fuente nueva para progreso académico:
+/// curso/oferta, estado, fechas de salida y resultado quedan versionados por año.
+model StudentEnrollment {
+  id                     String                  @id @default(uuid())
+  studentId              String
+  student                Student                 @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId           String
+  schoolYear             SchoolYear              @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  courseOfferingId       String
+  courseOffering         CourseOffering          @relation(fields: [courseOfferingId], references: [id], onDelete: Restrict)
+  enrollmentStatus       StudentEnrollmentStatus @default(ACTIVE)
+  withdrawnAt            DateTime?
+  withdrawalAcademicYear Int?
+  notes                  String?                 @db.Text
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([studentId, schoolYearId])
+  @@index([schoolYearId, enrollmentStatus])
+  @@index([courseOfferingId])
+}
+
+/// Cuota por año calendario del ciclo (ej. 2025); permite consultar años anteriores.
+model StudentTuitionYear {
+  id           String      @id @default(uuid())
+  studentId    String
+  student      Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId String?
+  schoolYear   SchoolYear? @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  year         Int
+  paid         Boolean     @default(false)
+  paidAt       DateTime?
+  amountCents  Int?
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, year])
+  @@index([year])
+  @@index([schoolYearId])
+}
+
+/// Mensualidad por estudiante. El año permite conservar historial y filtrar ciclos anteriores.
+model StudentTuitionMonth {
+  id           String      @id @default(uuid())
+  studentId    String
+  student      Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId String?
+  schoolYear   SchoolYear? @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  year         Int
+  month        Int
+  paid         Boolean     @default(false)
+  paidAt       DateTime?
+  amountCents  Int?
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, year, month])
+  @@index([year, month])
+  @@index([schoolYearId])
+}
+
 model Event {
-  id              String         @id @default(uuid())
-  title           String
-  description     String?
-  type            EventType
-  status          EventStatus    @default(SCHEDULED)
-  startDate       DateTime
-  endDate         DateTime?
-  startTime       DateTime?
-  endTime         DateTime?
-  location        String?
-  userId          String
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedUserId  String?
-  assignedUser    User?          @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  courseId        String?
-  course          Course?        @relation(fields: [courseId], references: [id], onDelete: SetNull)
-  recurrenceType  RecurrenceType @default(NONE)
-  recurrenceEnd   DateTime?
-  isRecurring     Boolean        @default(false)
-  daysOfWeek      Int[]          @default([]) // Array de días de la semana (0=Domingo, 1=Lunes, etc.)
-  parentEventId   String?
-  parentEvent     Event?         @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
-  childEvents     Event[]        @relation("EventRecurrence")
-  attendances     Attendance[]
+  id                  String               @id @default(uuid())
+  title               String
+  description         String?
+  type                EventType
+  status              EventStatus          @default(SCHEDULED)
+  startDate           DateTime
+  endDate             DateTime?
+  startTime           DateTime?
+  endTime             DateTime?
+  location            String?
+  userId              String
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedUserId      String?
+  assignedUser        User?                @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  schoolYearId        String
+  schoolYear          SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  courseOfferingId    String?
+  courseOffering      CourseOffering?      @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  subjectId           String?
+  subject             Subject?             @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  recurrenceType      RecurrenceType       @default(NONE)
+  recurrenceEnd       DateTime?
+  isRecurring         Boolean              @default(false)
+  daysOfWeek          Int[]                @default([]) // Array de días de la semana (0=Domingo, 1=Lunes, etc.)
+  parentEventId       String?
+  parentEvent         Event?               @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
+  childEvents         Event[]              @relation("EventRecurrence")
+  attendances         Attendance[]
   attendanceIncidents AttendanceIncident[]
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   @@index([userId])
   @@index([assignedUserId])
-  @@index([courseId])
+  @@index([schoolYearId])
+  @@index([courseOfferingId])
+  @@index([subjectId])
   @@index([startDate])
   @@index([type])
 }
@@ -500,25 +732,45 @@ enum MedicalLeaveStatus {
   INACTIVE
 }
 
+enum NonWorkingDayType {
+  HOLIDAY
+  NON_WORKING_DAY
+}
+
+model NonWorkingDay {
+  id           String            @id @default(uuid())
+  date         DateTime          @unique
+  type         NonWorkingDayType @default(NON_WORKING_DAY)
+  reason       String
+  notes        String?
+  schoolYearId String?
+  schoolYear   SchoolYear?       @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([date])
+  @@index([schoolYearId])
+}
+
 model MedicalLeave {
-  id          String              @id @default(uuid())
-  userId      String
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        MedicalLeaveType
-  status      MedicalLeaveStatus  @default(ACTIVE)
-  startDate   DateTime
-  endDate     DateTime
-  reason      String
-  doctorName  String?
-  doctorPhone String?
-  certificate String? // URL del certificado médico
-  approvedBy  String?
-  approvedAt  DateTime?
+  id            String             @id @default(uuid())
+  userId        String
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          MedicalLeaveType
+  status        MedicalLeaveStatus @default(ACTIVE)
+  startDate     DateTime
+  endDate       DateTime
+  reason        String
+  doctorName    String?
+  doctorPhone   String?
+  certificate   String? // URL del certificado médico
+  approvedBy    String?
+  approvedAt    DateTime?
   deactivatedBy String?
   deactivatedAt DateTime?
-  notes       String?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  notes         String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@index([userId])
   @@index([startDate])

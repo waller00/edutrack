@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginPage from './page'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 
 
 const replace = vi.fn()
@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace, push }),
 }))
 
-vi.mock('@/lib/api', () => ({
+vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 

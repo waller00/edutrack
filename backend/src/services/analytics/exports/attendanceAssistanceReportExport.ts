@@ -1,8 +1,9 @@
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 import type { AttendanceStatus, AttendanceType, EventType } from '@prisma/client'
-import { prisma } from '../../../prisma.js'
-import { selectOrgRoleCode } from '../../../user-role-prisma.js'
+import { prisma } from '../../../db/prisma.js'
+import { mergeSchoolYearIntoAttendanceEventWhere } from '../../../attendance/attendance-school-year.js'
+import { selectOrgRoleCode } from '../../../identity/user-role-prisma.js'
 
 type AttendanceDetailReportFilters = {
   from: string
@@ -13,6 +14,7 @@ type AttendanceDetailReportFilters = {
   type?: AttendanceType | undefined
   status?: AttendanceStatus | undefined
   role?: string | undefined
+  schoolYearId?: string | undefined
 }
 
 type AttendanceDetailReportRow = {
@@ -136,6 +138,9 @@ async function buildAttendanceDetailReport(params: { filters: AttendanceDetailRe
     baseWhere.eventId = { not: null }
   }
   if (params.filters.role) baseWhere.user = { orgRole: { code: params.filters.role } }
+  if (params.filters.schoolYearId) {
+    mergeSchoolYearIntoAttendanceEventWhere(baseWhere, params.filters.schoolYearId)
+  }
 
   // Selección “por filtros”: definimos qué instancias entran al reporte
   // usando tipo/estado a nivel de registro, y luego completamos las filas con
@@ -594,6 +599,16 @@ function pdfTruncateForWidth(text: string, colWidth: number, fontSize: number, p
   return truncateAscii(text, maxChars)
 }
 
+async function finalizePdf(doc: PDFKit.PDFDocument, chunks: Buffer[]) {
+  const finished = new Promise<void>((resolve, reject) => {
+    doc.on('end', () => resolve())
+    doc.on('error', (e) => reject(e))
+  })
+  doc.end()
+  await finished
+  return Buffer.concat(chunks)
+}
+
 export async function generateAttendanceAssistanceReportPdfFromAttendances(params: { filters: AttendanceDetailReportFilters }) {
   const { rows, metrics } = await buildAttendanceDetailReport({ filters: params.filters })
 
@@ -772,8 +787,7 @@ export async function generateAttendanceAssistanceReportPdfFromAttendances(param
 
   if (rows.length === 0) {
     doc.font('Helvetica').fontSize(10).fillColor('#374151').text('No hay datos para los filtros seleccionados.', { width: usableWidth })
-    doc.end()
-    return Buffer.concat(chunks)
+    return finalizePdf(doc, chunks)
   }
 
   let tableY = doc.y
@@ -797,12 +811,5 @@ export async function generateAttendanceAssistanceReportPdfFromAttendances(param
     tableY += rowH
   }
 
-  doc.end()
-
-  await new Promise<void>((resolve, reject) => {
-    doc.on('end', () => resolve())
-    doc.on('error', (e) => reject(e))
-  })
-
-  return Buffer.concat(chunks)
+  return finalizePdf(doc, chunks)
 }

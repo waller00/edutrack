@@ -7,6 +7,8 @@ const prisma = new PrismaClient();
 const DEVICE_CODE = process.env.BIOMETRIC_DEVICE_CODE || "F22-LOCAL-01";
 const DEVICE_NAME = process.env.BIOMETRIC_DEVICE_NAME || "ZKTeco F22 Local";
 const DEVICE_SECRET = process.env.BIOMETRIC_DEVICE_SECRET || "local-f22-secret";
+/** Número de serie del terminal (menú del F22 / ADMS SN). Obligatorio para push directo iClock. */
+const DEVICE_ADMS_SERIAL = process.env.BIOMETRIC_ADMS_SERIAL || "";
 const DEVICE_TIMEZONE = process.env.BIOMETRIC_DEVICE_TZ || "America/Montevideo";
 const MAX_MAPPINGS = Number(process.env.BIOMETRIC_SEED_MAX_USERS || 5);
 
@@ -31,6 +33,7 @@ async function main() {
     where: { code: DEVICE_CODE },
     create: {
       code: DEVICE_CODE,
+      admsSerial: DEVICE_ADMS_SERIAL || null,
       name: DEVICE_NAME,
       secretHash: sha256(DEVICE_SECRET),
       timezone: DEVICE_TIMEZONE,
@@ -38,6 +41,7 @@ async function main() {
     },
     update: {
       name: DEVICE_NAME,
+      admsSerial: DEVICE_ADMS_SERIAL || null,
       secretHash: sha256(DEVICE_SECRET),
       timezone: DEVICE_TIMEZONE,
       isActive: true,
@@ -73,6 +77,8 @@ async function main() {
   console.log("");
   console.log("[biometric-seed] Dispositivo ADMS listo:");
   console.log(`- code: ${device.code}`);
+  if (DEVICE_ADMS_SERIAL) console.log(`- admsSerial (SN): ${DEVICE_ADMS_SERIAL}`);
+  else console.log("- admsSerial: (no definido — configurar BIOMETRIC_ADMS_SERIAL con el SN del F22)");
   console.log(`- name: ${device.name}`);
   console.log(`- timezone: ${device.timezone}`);
   console.log(`- secret (plain): ${DEVICE_SECRET}`);

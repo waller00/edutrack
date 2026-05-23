@@ -1,20 +1,20 @@
 'use client'
-import PaginationControls from '@/components/PaginationControls'
-import RoleGuard from '@/components/RoleGuard'
+import PaginationControls from '@/components/common/PaginationControls'
+import RoleGuard from '@/components/auth/RoleGuard'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   buildAdminAttendanceAllQueryString,
   buildAttendanceExportReportQueryString,
-  getAdminAttendanceDefaultStartDate,
   getAdminAttendancePlannedTimeLabel,
   getAdminAttendanceStatusLabel,
   getAdminAttendanceStatusStyle,
   getAdminAttendanceTypeLabel,
   getAdminAttendanceTypeStyle,
-} from '@/lib/admin-attendance-display'
-import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/datetime-uy'
-import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+} from '@/lib/admin/attendance-display'
+import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
+import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   BarChart3,
   Calendar,
@@ -25,13 +25,20 @@ import {
   Trash2,
 } from 'lucide-react'
 
+function withSchoolYear(path: string, schoolYearQuery: string): string {
+  if (!schoolYearQuery) return path
+  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
+}
+
 type AttendanceRecord = {
   id: string
-  type: 'CHECK_IN' | 'CHECK_OUT'
+  type: 'CHECK_IN' | 'CHECK_OUT' | 'INCIDENT'
   status: 'PRESENT' | 'LATE' | 'ABSENT_NOT_JUSTIFIED' | 'ABSENT_JUSTIFIED' | 'EXIT' | 'EARLY_EXIT'
   date: string
   time: string
   notes?: string
+  title?: string
+  description?: string
   user: {
     id: string
     name: string
@@ -67,7 +74,11 @@ type User = {
 }
 
 type AttendanceStatusOption = AttendanceRecord['status']
-type AttendanceTypeOption = AttendanceRecord['type']
+type AttendanceTypeOption = Exclude<AttendanceRecord['type'], 'INCIDENT'>
+
+function isIncidentRow(attendance: AttendanceRecord): boolean {
+  return attendance.type === 'INCIDENT' || attendance.id.startsWith('incident:')
+}
 
 function renderAttendancesTable(
   attendances: AttendanceRecord[],
@@ -106,14 +117,18 @@ function renderAttendancesTable(
         </thead>
         <tbody className="divide-y divide-gray-200">
           {attendances.map((attendance) => (
-            <tr key={attendance.id}>
+            <tr key={attendance.id} className={isIncidentRow(attendance) ? 'bg-red-50/20' : undefined}>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedAttendanceIds.includes(attendance.id)}
-                  onChange={() => onToggleSelect(attendance.id)}
-                  aria-label={`Seleccionar asistencia de ${attendance.user.name}`}
-                />
+                {isIncidentRow(attendance) ? (
+                  <span className="text-xs text-gray-400">—</span>
+                ) : (
+                  <input
+                    type="checkbox"
+                    checked={selectedAttendanceIds.includes(attendance.id)}
+                    onChange={() => onToggleSelect(attendance.id)}
+                    aria-label={`Seleccionar asistencia de ${attendance.user.name}`}
+                  />
+                )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 <div>
@@ -158,13 +173,17 @@ function renderAttendancesTable(
                 </span>
               </td>
               <td className="px-6 py-4 text-sm text-gray-900">
-                {attendance.notes || '-'}
+                {attendance.notes || attendance.description || '-'}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 <div className="flex gap-2">
-                  <button onClick={() => onEdit(attendance)} className="text-indigo-600 hover:text-indigo-900">
-                    Editar
-                  </button>
+                  {isIncidentRow(attendance) ? (
+                    <span className="text-xs text-gray-400">Solo lectura</span>
+                  ) : (
+                    <button onClick={() => onEdit(attendance)} className="text-indigo-600 hover:text-indigo-900">
+                      Editar
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -181,7 +200,7 @@ export default function AdminAttendance() {
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<AttendanceRecord | null>(null)
   const [filters, setFilters] = useState({
-    startDate: getAdminAttendanceDefaultStartDate(),
+    startDate: '',
     endDate: '',
     userId: '',
     eventId: '',
@@ -205,10 +224,13 @@ export default function AdminAttendance() {
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
 
+  const syCtx = useOptionalAdminSchoolYear()
+  const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+
   useEffect(() => {
     loadAttendances()
     loadUsers()
-  }, [page, filters])
+  }, [page, filters, schoolYearQuery])
 
   useEffect(() => {
     if (filters.userId) {
@@ -218,12 +240,22 @@ export default function AdminAttendance() {
       setSelectedEventName('')
       setFilters(prev => ({ ...prev, eventId: '' }))
     }
-  }, [filters.userId, filters.startDate, filters.endDate])
+  }, [filters.userId, filters.startDate, filters.endDate, schoolYearQuery])
 
   useEffect(() => {
     loadStats()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.startDate, filters.endDate, filters.userId, filters.eventType, filters.eventId, filters.type, filters.status, filters.role])
+  }, [
+    filters.startDate,
+    filters.endDate,
+    filters.userId,
+    filters.eventType,
+    filters.eventId,
+    filters.type,
+    filters.status,
+    filters.role,
+    schoolYearQuery,
+  ])
 
   useEffect(() => {
     setSelectedAttendanceIds([])
@@ -233,12 +265,14 @@ export default function AdminAttendance() {
     setLoading(true)
     try {
       const qs = buildAdminAttendanceAllQueryString(page, filters)
+      const qsWithIncidents = qs ? `${qs}&includeIncidents=true` : 'includeIncidents=true'
+      const url = withSchoolYear(`/attendance/all?${qsWithIncidents}`, schoolYearQuery)
       const data = await api<{
         total: number
         page: number
         pageSize: number
         data: AttendanceRecord[]
-      }>(`/attendance/all?${qs}`)
+      }>(url)
       
       setAttendances(data.data)
       setTotal(data.total)
@@ -261,9 +295,11 @@ export default function AdminAttendance() {
       if (filters.type) params.set('type', filters.type)
       if (filters.status) params.set('status', filters.status)
       if (filters.role) params.set('role', filters.role)
+      params.set('includeIncidents', 'true')
 
       const qs = params.toString()
-      const url = qs ? `/attendance/stats?${qs}` : '/attendance/stats'
+      const base = qs ? `/attendance/stats?${qs}` : '/attendance/stats'
+      const url = withSchoolYear(base, schoolYearQuery)
       const data = await api<AttendanceStats>(url)
       setStats(data)
     } catch (error) {
@@ -296,7 +332,10 @@ export default function AdminAttendance() {
       if (filters.startDate) params.set('startDate', filters.startDate)
       if (filters.endDate) params.set('endDate', filters.endDate)
       
-      const data = await api<any[]>(`/reports/user-events/${userId}?${params.toString()}`)
+      const q = params.toString()
+      const base = q ? `/reports/user-events/${userId}?${q}` : `/reports/user-events/${userId}`
+      const url = withSchoolYear(base, schoolYearQuery)
+      const data = await api<any[]>(url)
       setUserEvents(data)
     } catch (error) {
       console.error('Error cargando eventos del usuario:', error)
@@ -338,14 +377,16 @@ export default function AdminAttendance() {
   }
 
   function toggleAttendanceSelection(id: string) {
+    if (id.startsWith('incident:')) return
     setSelectedAttendanceIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
     )
   }
 
   function toggleAllAttendancesSelection() {
+    const selectableIds = attendances.filter((attendance) => !isIncidentRow(attendance)).map((attendance) => attendance.id)
     setSelectedAttendanceIds((prev) =>
-      prev.length === attendances.length ? [] : attendances.map((attendance) => attendance.id),
+      prev.length === selectableIds.length ? [] : selectableIds,
     )
   }
 
@@ -391,17 +432,27 @@ export default function AdminAttendance() {
           eventType: filters.eventType || undefined,
           type: filters.type || undefined,
           status: filters.status || undefined,
+          ...(syCtx?.allYears ? { allYears: true } : {}),
+          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
+            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
+            : {}),
         },
       }
 
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(payload) })
       const exportId = res.exportId
 
+      let exportDone = false
       for (let i = 0; i < 40; i++) {
-        const st = await api<{ status: string; downloadUrl: string | null }>(`/exports/${exportId}`)
-        if (st.status === 'DONE') break
+        const st = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        if (st.status === 'DONE') {
+          exportDone = true
+          break
+        }
+        if (st.status === 'FAILED') throw new Error(st.errorMessage || 'Error generando export')
         await new Promise((r) => setTimeout(r, 250))
       }
+      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
       if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
@@ -441,7 +492,11 @@ export default function AdminAttendance() {
         body: JSON.stringify({
           startDate,
           endDate,
-          userId: filters.userId || undefined
+          userId: filters.userId || undefined,
+          ...(syCtx?.allYears ? { allYears: '1' } : {}),
+          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
+            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
+            : {}),
         })
       })
 
@@ -458,7 +513,7 @@ export default function AdminAttendance() {
   }
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="attendance.read" permissionScope="all">
       <main className="mx-auto max-w-7xl p-6 space-y-8">
         {/* Header moderno */}
         <div className="flex justify-between items-center">
@@ -512,7 +567,7 @@ export default function AdminAttendance() {
                 <button
                   onClick={() => {
                     setFilters({
-                      startDate: getAdminAttendanceDefaultStartDate(),
+                      startDate: '',
                       endDate: '',
                       userId: '',
                       eventId: '',
@@ -757,7 +812,7 @@ export default function AdminAttendance() {
             <div className="text-2xl font-bold text-emerald-600">
               {statsLoading || !stats || typeof stats.attendanceRate !== 'number' ? '—' : `${stats.attendanceRate}%`}
             </div>
-            <div className="text-xs text-gray-500">Sobre el rango filtrado</div>
+            <div className="text-xs text-gray-500">Solo entradas (CHECK_IN) en el rango filtrado</div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
@@ -765,7 +820,7 @@ export default function AdminAttendance() {
             <div className="text-2xl font-bold text-emerald-600">
               {statsLoading || !stats || typeof stats.presentCount !== 'number' ? '—' : stats.presentCount}
             </div>
-            <div className="text-xs text-gray-500">Cantidad de registros</div>
+            <div className="text-xs text-gray-500">Entradas presentes</div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
@@ -794,7 +849,7 @@ export default function AdminAttendance() {
           <div className="flex items-center justify-between gap-4 mb-4">
             <h3 className="text-lg font-semibold">Distribución de Estados</h3>
             <div className="text-sm text-gray-500">
-              {statsLoading ? 'Cargando…' : stats ? `Total: ${stats.totalAttendances}` : ''}
+              {statsLoading ? 'Cargando…' : stats ? `Entradas: ${stats.totalAttendances}` : ''}
             </div>
           </div>
           {statsLoading || !stats ? (
@@ -875,7 +930,8 @@ export default function AdminAttendance() {
               toggleAllAttendancesSelection,
               toggleAttendanceSelection,
               setEditing,
-              attendances.length > 0 && selectedAttendanceIds.length === attendances.length,
+              attendances.some((attendance) => !isIncidentRow(attendance)) &&
+                selectedAttendanceIds.length === attendances.filter((attendance) => !isIncidentRow(attendance)).length,
             )}
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />

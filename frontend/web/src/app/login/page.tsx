@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { PendingButtonContent } from '@/components/PendingButtonContent'
-import { api } from '@/lib/api'
-import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
+import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import { api } from '@/lib/api/client'
+import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
 
 export default function LoginPage() {
   const router = useRouter()

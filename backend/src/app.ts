@@ -10,19 +10,21 @@ import helmet from "helmet";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.js";
-import passport from "./passportGoogle.js";
+import passport from "./auth/passportGoogle.js";
 import adminRoutes from "./routes/admin.js";
 import attendanceRoutes from "./routes/attendance.js";
 import eventsRoutes from "./routes/events.js";
 import coursesRoutes from "./routes/courses.js";
 import medicalLeavesRoutes from "./routes/medical-leaves.js";
+import nonWorkingDaysRoutes from "./routes/non-working-days.js";
 import reportsRoutes from "./routes/reports.js";
-import dniProcessorRoutes from "./routes/dni-processor.js";
 import analyticsRoutes from "./routes/analytics.js";
 import exportsRoutes from "./routes/exports.js";
 import webPushRoutes from "./routes/web-push.js";
 import inAppNotificationRoutes from "./routes/in-app-notifications.js";
 import biometricAdmsRoutes from "./routes/biometric-adms.js";
+import biometricLinkRoutes from "./routes/biometric-link.js";
+import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 
 dns.setDefaultResultOrder("ipv4first");
@@ -83,6 +85,22 @@ app.use(
   }),
 );
 app.use(morgan("dev"));
+
+const iclockTextParser = express.text({
+  limit: "10mb",
+  type: (req) => !String(req.headers["content-type"] || "").includes("application/json"),
+});
+
+// Protocolo push ZKTeco (F22 ADMS): cuerpo texto plano en /iclock/*
+// Algunos F22 llaman /cdata o /getrequest sin prefijo → reescritura interna a /iclock/*
+app.use((req, _res, next) => {
+  const base = req.path.split("?")[0] ?? "";
+  if (base === "/cdata" || base === "/getrequest" || base === "/registry" || base === "/devicecmd") {
+    req.url = `/iclock${req.url}`;
+  }
+  next();
+});
+app.use("/iclock", iclockTextParser, zktecoIclockRoutes);
 // Webhook Didit: cuerpo raw para validar HMAC
 app.post(
   "/webhooks/didit",
@@ -101,12 +119,13 @@ app.use("/attendance", attendanceRoutes);
 app.use("/events", eventsRoutes);
 app.use("/courses", coursesRoutes);
 app.use("/medical-leaves", medicalLeavesRoutes);
+app.use("/non-working-days", nonWorkingDaysRoutes);
 app.use("/reports", reportsRoutes);
-app.use("/auth", dniProcessorRoutes);
 app.use("/analytics", analyticsRoutes);
 app.use("/exports", exportsRoutes);
 app.use("/notifications/web-push", webPushRoutes);
 app.use("/notifications/in-app", inAppNotificationRoutes);
+app.use("/biometric", biometricLinkRoutes);
 app.use("/biometric", biometricAdmsRoutes);
 app.use("/attendance-incidents", attendanceIncidentsRoutes);
 

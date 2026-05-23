@@ -1,26 +1,26 @@
 'use client'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   formatLocalMobileInputFromE164,
   formatUruguayanCI,
   isValidUruguayanCI,
   isValidLocalPhoneUY,
   normalizeLocalPhoneUY,
-} from '@/lib/uruguay-forms'
-import { PasswordVisibilityToggle } from '@/components/PasswordVisibilityToggle'
-import { PendingButtonContent } from '@/components/PendingButtonContent'
+} from '@/lib/forms/uruguay-forms'
+import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
+import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import {
   isStrongPassword,
   STRONG_PASSWORD_MESSAGE,
   getPasswordStrength,
   getStrengthBarClass,
-} from '@/lib/password-strength'
+} from '@/lib/auth/password-strength'
 import {
   getOnboardingUsernameStatusDisplay,
   resolveOnboardingUsernameStatus,
   type OnboardingUsernameStatus,
-} from '@/lib/onboarding-form-helpers'
+} from '@/lib/auth/onboarding-form-helpers'
 import {
   getRegisterBirthdateValidationError,
   getRegisterDocumentExpiryCapturedError,
@@ -31,13 +31,13 @@ import {
   validateRegisterIdentityBeforeVerification,
   REGISTER_USERNAME_REGEX,
   type RegisterVerificationResults,
-} from '@/lib/register-form-validation'
+} from '@/lib/auth/register-form-validation'
 import {
   clearOnboardingDraft,
   loadOnboardingDraft,
   saveOnboardingDraft,
   type RegisterDraftSnapshot,
-} from '@/lib/register-draft'
+} from '@/lib/auth/register-draft'
 
 type DiditFieldVerifyApiResponse = {
   success?: boolean

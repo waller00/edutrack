@@ -38,8 +38,8 @@ const { prismaMock, passportState } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../prisma.js", () => ({ prisma: prismaMock }));
-vi.mock("../email.js", () => ({ sendMail: vi.fn() }));
+vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../notifications/email.js", () => ({ sendMail: vi.fn() }));
 vi.mock("@prisma/client", () => ({
   AuditAction: {
     AUTH_GOOGLE_LOGIN_SUCCESS: "AUTH_GOOGLE_LOGIN_SUCCESS",
@@ -55,7 +55,7 @@ vi.mock("argon2", () => ({
     argon2id: "argon2id",
   },
 }));
-vi.mock("../passportGoogle.js", () => ({
+vi.mock("../auth/passportGoogle.js", () => ({
   default: {
     authenticate: vi.fn((_strategy: string, options: any) => {
       if (options?.scope) {

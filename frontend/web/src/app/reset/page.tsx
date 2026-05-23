@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
-import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from '@/lib/password-strength'
+import { api } from '@/lib/api/client'
+import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from '@/lib/auth/password-strength'
 
 export default function ResetPage() {
 	const [token, setToken] = useState('')

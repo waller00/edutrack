@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OnboardingPage from './page'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 
-vi.mock('@/lib/api', () => ({ api: vi.fn() }))
+vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 
 const mockedApi = vi.mocked(api)
 

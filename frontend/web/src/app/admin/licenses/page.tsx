@@ -1,23 +1,22 @@
 'use client'
-import MedicalLeaveCertificateLink from '@/components/MedicalLeaveCertificateLink'
-import RoleGuard from '@/components/RoleGuard'
+import MedicalLeaveCertificateLink from '@/components/personal/MedicalLeaveCertificateLink'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   buildMedicalLeavesQueryString,
   formatLicenseAdminUserDisplayName,
-  getLicenseAdminDefaultStartDate,
   getLicenseStatusBadgeClass,
   getLicenseStatusLabel,
   getLicenseTypeLabel,
-} from '@/lib/admin-licenses-display'
+} from '@/lib/admin/licenses-display'
 import {
   medicalLeaveCertificateAcceptAttr,
   readMedicalLeaveCertificateFile,
   certificateHasValue,
-} from '@/lib/medical-leave-certificate-client'
-import { formatValidationErrorFromApi } from '@/lib/api-validation-message'
-import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+} from '@/lib/medical-leaves/certificate-client'
+import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
+import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { Calendar, FileText, Loader2, Plus, Search, Trash2 } from 'lucide-react'
 
 type License = {
@@ -53,6 +52,14 @@ type User = {
   username?: string
 }
 
+type NonWorkingDay = {
+  id: string
+  date: string
+  type: 'HOLIDAY' | 'NON_WORKING_DAY'
+  reason: string
+  notes?: string | null
+}
+
 function datePartsToIsoUtcNoon(dateYmd: string): string {
   if (!dateYmd) return ''
   const day = dateYmd.includes('T') ? dateYmd.slice(0, 10) : dateYmd
@@ -60,9 +67,12 @@ function datePartsToIsoUtcNoon(dateYmd: string): string {
 }
 
 export default function LicensesPage() {
+  const [activeSection, setActiveSection] = useState<'licenses' | 'non-working'>('licenses')
   const [licenses, setLicenses] = useState<License[]>([])
+  const [nonWorkingDays, setNonWorkingDays] = useState<NonWorkingDay[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingNonWorkingDays, setLoadingNonWorkingDays] = useState(true)
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<License | null>(null)
   /** Errores de validación/API solo dentro del modal de alta (no detrás del overlay). */
@@ -75,7 +85,7 @@ export default function LicensesPage() {
     userId: '',
     type: '',
     status: '',
-    startDate: getLicenseAdminDefaultStartDate(),
+    startDate: '',
     endDate: ''
   })
 
@@ -92,9 +102,21 @@ export default function LicensesPage() {
     certificateFileLabel: '' as string,
   })
   const [newCertificateUrl, setNewCertificateUrl] = useState('')
+  const currentYear = new Date().getFullYear()
+  const [nonWorkingFilters, setNonWorkingFilters] = useState({
+    from: `${currentYear}-01-01`,
+    to: `${currentYear}-12-31`,
+  })
+  const [newNonWorkingDay, setNewNonWorkingDay] = useState({
+    date: '',
+    type: 'NON_WORKING_DAY' as NonWorkingDay['type'],
+    reason: '',
+    notes: '',
+  })
 
   useEffect(() => {
     loadLicenses()
+    loadNonWorkingDays()
     loadUsers()
   }, [])
 
@@ -131,6 +153,54 @@ export default function LicensesPage() {
       setUsers(processedUsers)
     } catch (error) {
       console.error('Error cargando usuarios:', error)
+    }
+  }
+
+  async function loadNonWorkingDays() {
+    setLoadingNonWorkingDays(true)
+    try {
+      const qs = new URLSearchParams(nonWorkingFilters).toString()
+      const data = await api<{ data: NonWorkingDay[] }>(`/non-working-days?${qs}`)
+      setNonWorkingDays(data.data)
+    } catch (error) {
+      console.error('Error cargando días no laborables:', error)
+    } finally {
+      setLoadingNonWorkingDays(false)
+    }
+  }
+
+  async function createNonWorkingDay() {
+    setMessage('')
+    if (!newNonWorkingDay.date || !newNonWorkingDay.reason.trim()) {
+      setMessage('❌ Completá fecha y motivo para marcar el día no laborable.')
+      return
+    }
+    try {
+      await api('/non-working-days', {
+        method: 'POST',
+        body: JSON.stringify({
+          date: newNonWorkingDay.date,
+          type: newNonWorkingDay.type,
+          reason: newNonWorkingDay.reason.trim(),
+          notes: newNonWorkingDay.notes.trim() || undefined,
+        }),
+      })
+      setMessage('✅ Día no laborable guardado correctamente')
+      setNewNonWorkingDay({ date: '', type: 'NON_WORKING_DAY', reason: '', notes: '' })
+      await loadNonWorkingDays()
+    } catch (error: unknown) {
+      setMessage(formatValidationErrorFromApi(error) || '❌ Error al guardar día no laborable')
+    }
+  }
+
+  async function deleteNonWorkingDay(id: string) {
+    if (!confirm('¿Eliminar este día no laborable?')) return
+    try {
+      await api(`/non-working-days/${id}`, { method: 'DELETE' })
+      setMessage('✅ Día no laborable eliminado')
+      await loadNonWorkingDays()
+    } catch (error: any) {
+      setMessage(`❌ Error: ${error.message || 'No se pudo eliminar el día'}`)
     }
   }
 
@@ -342,7 +412,7 @@ export default function LicensesPage() {
   }
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="licenses.read" permissionScope="all">
       <main className="mx-auto max-w-7xl p-6 space-y-8">
         {/* Header alineado a otros módulos admin */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
@@ -377,6 +447,27 @@ export default function LicensesPage() {
           </div>
         </div>
 
+        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setActiveSection('licenses')}
+            className={`rounded-md px-4 py-2 text-sm font-medium ${
+              activeSection === 'licenses' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            Licencias
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection('non-working')}
+            className={`rounded-md px-4 py-2 text-sm font-medium ${
+              activeSection === 'non-working' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            Días no laborables
+          </button>
+        </div>
+
         {message && !creating && !editing && (
           <div
             className={`whitespace-pre-line p-4 border rounded ${getAdminFlashMessageClass(message)}`}
@@ -386,6 +477,129 @@ export default function LicensesPage() {
           </div>
         )}
 
+        {activeSection === 'non-working' && (
+          <section className="space-y-6">
+            <div className="card">
+              <div className="card-header">
+                <h2 className="text-lg font-semibold text-gray-900">Marcar feriado o día no laborable</h2>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">Fecha</label>
+                  <input
+                    type="date"
+                    value={newNonWorkingDay.date}
+                    onChange={(e) => setNewNonWorkingDay({ ...newNonWorkingDay, date: e.target.value })}
+                    className="input-field"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">Tipo</label>
+                  <select
+                    value={newNonWorkingDay.type}
+                    onChange={(e) => setNewNonWorkingDay({ ...newNonWorkingDay, type: e.target.value as NonWorkingDay['type'] })}
+                    className="select-field"
+                  >
+                    <option value="NON_WORKING_DAY">Día no laborable</option>
+                    <option value="HOLIDAY">Feriado</option>
+                  </select>
+                </div>
+                <div className="lg:col-span-2">
+                  <label className="mb-2 block text-sm font-medium text-gray-700">Motivo</label>
+                  <input
+                    type="text"
+                    value={newNonWorkingDay.reason}
+                    onChange={(e) => setNewNonWorkingDay({ ...newNonWorkingDay, reason: e.target.value })}
+                    className="input-field"
+                    placeholder="Ej: Feriado nacional"
+                  />
+                </div>
+                <div className="md:col-span-2 lg:col-span-4">
+                  <label className="mb-2 block text-sm font-medium text-gray-700">Notas</label>
+                  <textarea
+                    value={newNonWorkingDay.notes}
+                    onChange={(e) => setNewNonWorkingDay({ ...newNonWorkingDay, notes: e.target.value })}
+                    className="input-field"
+                    rows={2}
+                  />
+                </div>
+              </div>
+              <div className="mt-5">
+                <button type="button" onClick={() => void createNonWorkingDay()} className="btn-primary">
+                  Guardar día
+                </button>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-lg font-semibold text-gray-900">Calendario no laborable</h2>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600">Desde</label>
+                      <input
+                        type="date"
+                        value={nonWorkingFilters.from}
+                        onChange={(e) => setNonWorkingFilters({ ...nonWorkingFilters, from: e.target.value })}
+                        className="input-field h-10 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600">Hasta</label>
+                      <input
+                        type="date"
+                        value={nonWorkingFilters.to}
+                        onChange={(e) => setNonWorkingFilters({ ...nonWorkingFilters, to: e.target.value })}
+                        className="input-field h-10 text-sm"
+                      />
+                    </div>
+                    <button type="button" onClick={() => void loadNonWorkingDays()} className="btn-secondary h-10">
+                      Buscar
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Fecha</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Tipo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Motivo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Notas</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {loadingNonWorkingDays ? (
+                      <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">Cargando…</td></tr>
+                    ) : nonWorkingDays.length === 0 ? (
+                      <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">No hay días marcados</td></tr>
+                    ) : (
+                      nonWorkingDays.map((day) => (
+                        <tr key={day.id}>
+                          <td className="px-6 py-4 text-sm text-gray-900">{new Date(day.date).toLocaleDateString('es-ES')}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{day.type === 'HOLIDAY' ? 'Feriado' : 'No laborable'}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{day.reason}</td>
+                          <td className="px-6 py-4 text-sm text-gray-600">{day.notes || '-'}</td>
+                          <td className="px-6 py-4 text-sm">
+                            <button type="button" onClick={() => void deleteNonWorkingDay(day.id)} className="font-medium text-red-700 hover:text-red-900">
+                              Eliminar
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeSection === 'licenses' && (
+          <>
         {/* Filtros (mismo patrón que Control y seguimiento del personal) */}
         <div className="card">
           <div className="card-header">
@@ -403,7 +617,7 @@ export default function LicensesPage() {
                     userId: '',
                     type: '',
                     status: '',
-                    startDate: getLicenseAdminDefaultStartDate(),
+                    startDate: '',
                     endDate: ''
                   })
                 }}
@@ -574,6 +788,8 @@ export default function LicensesPage() {
             </table>
           </div>
         </div>
+          </>
+        )}
 
         {/* Modal para crear licencia */}
         {creating && (

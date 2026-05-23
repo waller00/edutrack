@@ -1,42 +1,41 @@
 'use client'
 
-import AdminAuditPanel from '@/components/AdminAuditPanel'
 import AdminOperationalSettingsPanel, {
+  type OperationalSettingsSection,
   type OperationalSettingsData,
-} from '@/components/AdminOperationalSettingsPanel'
-import AdminProfilesPanel from '@/components/AdminProfilesPanel'
-import RoleGuard from '@/components/RoleGuard'
-import { api } from '@/lib/api'
-import { ClipboardList, Loader2, Shield, UserCog } from 'lucide-react'
+} from '@/components/admin/AdminOperationalSettingsPanel'
+import RoleGuard from '@/components/auth/RoleGuard'
+import { api } from '@/lib/api/client'
+import { Fingerprint, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 type SettingsResponse = OperationalSettingsData
 
-type SettingsSection = 'operational' | 'profiles' | 'audit'
+type SettingsSection = OperationalSettingsSection
 
 const SETTINGS_SECTIONS: {
   id: SettingsSection
   label: string
   desc: string
-  Icon: typeof Shield
+  Icon: typeof Settings
 }[] = [
   {
-    id: 'operational',
-    label: 'Registro y asistencia',
-    desc: 'Didit, liveness y parámetros operativos.',
-    Icon: Shield,
+    id: 'system',
+    label: 'Sistema',
+    desc: 'Estado general y monitor automático.',
+    Icon: Settings,
   },
   {
-    id: 'profiles',
-    label: 'Perfiles y permisos',
-    desc: 'Roles, perfiles y matriz de permisos por módulo.',
-    Icon: UserCog,
+    id: 'attendance',
+    label: 'Asistencia',
+    desc: 'Tolerancias, tardanzas y reloj biométrico.',
+    Icon: Timer,
   },
   {
-    id: 'audit',
-    label: 'Auditoría',
-    desc: 'Registro de acciones del sistema para trazabilidad y cumplimiento.',
-    Icon: ClipboardList,
+    id: 'identity',
+    label: 'Identidad',
+    desc: 'Verificación Didit y prueba de vida.',
+    Icon: Fingerprint,
   },
 ]
 
@@ -44,7 +43,7 @@ export default function AdminSystemSettingsPage() {
   const [data, setData] = useState<SettingsResponse | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
-  const [section, setSection] = useState<SettingsSection>('operational')
+  const [section, setSection] = useState<SettingsSection>('system')
 
   const load = useCallback(async () => {
     try {
@@ -62,13 +61,13 @@ export default function AdminSystemSettingsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const s = params.get('section')
-    if (s === 'profiles' || s === 'audit') setSection(s)
+    if (s === 'attendance' || s === 'identity' || s === 'system') setSection(s)
   }, [])
 
   function selectSection(nextSection: SettingsSection) {
     setSection(nextSection)
     const url =
-      nextSection === 'operational' ? '/admin/settings' : `/admin/settings?section=${nextSection}`
+      nextSection === 'system' ? '/admin/settings' : `/admin/settings?section=${nextSection}`
     window.history.replaceState(null, '', url)
   }
 
@@ -100,7 +99,7 @@ export default function AdminSystemSettingsPage() {
   }
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="settings.manage">
       <main className="mx-auto max-w-7xl p-6 space-y-6">
         <div className="flex flex-col gap-2">
           <p className="text-sm font-semibold uppercase text-emerald-700">Solo administradores</p>
@@ -133,26 +132,21 @@ export default function AdminSystemSettingsPage() {
           </aside>
 
           <div className="min-w-0">
-            {section === 'operational' ? (
-              !data ? (
-                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
-                  <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
-                  <p className="text-sm text-gray-500">Cargando configuración…</p>
-                </div>
-              ) : (
-                <AdminOperationalSettingsPanel
-                  data={data}
-                  setData={setData}
-                  saving={saving}
-                  msg={msg}
-                  onSave={save}
-                  onReload={load}
-                />
-              )
-            ) : section === 'profiles' ? (
-              <AdminProfilesPanel compact />
+            {!data ? (
+              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
+                <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
+                <p className="text-sm text-gray-500">Cargando configuración…</p>
+              </div>
             ) : (
-              <AdminAuditPanel compact />
+              <AdminOperationalSettingsPanel
+                section={section}
+                data={data}
+                setData={setData}
+                saving={saving}
+                msg={msg}
+                onSave={save}
+                onReload={load}
+              />
             )}
           </div>
         </div>

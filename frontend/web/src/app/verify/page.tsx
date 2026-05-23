@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 
 export default function VerifyPage() {
   const [status, setStatus] = useState<'loading'|'ok'|'error'>('loading')

@@ -318,6 +318,17 @@ function getUserSeedProfile(user) {
   return BASE_USERS.find((spec) => spec.username === user.username || spec.email === user.email)?.seedProfile || null
 }
 
+async function ensureSchoolYearBackfill() {
+  let active = await prisma.schoolYear.findFirst({ where: { status: 'ACTIVE' }, orderBy: { code: 'desc' } })
+  if (!active) {
+    const code = new Date().getUTCFullYear()
+    active = await prisma.schoolYear.create({
+      data: { code, label: `Ciclo lectivo ${code}`, status: 'ACTIVE' },
+    })
+  }
+  await prisma.event.updateMany({ where: { schoolYearId: null }, data: { schoolYearId: active.id } })
+}
+
 async function cleanupManagedArtifacts() {
   await prisma.attendance.deleteMany({
     where: {
@@ -776,6 +787,9 @@ async function main() {
     where: { userId: { in: managedUsers.map((user) => user.id) } },
     _count: { _all: true },
   })
+
+  console.log('Asegurando ciclos lectivos (schoolYearId en datos semilla)…')
+  await ensureSchoolYearBackfill()
 
   console.log('')
   console.log('Seed EduTrack persistente completado')

@@ -26,8 +26,12 @@ services:
       TWO_FACTOR_ISSUER: ${TWO_FACTOR_ISSUER:-EduTrack}
       ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-2h}
       REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-7d}
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      COOKIE_AUTO_DOMAIN: ${COOKIE_AUTO_DOMAIN:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
-      PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
+      PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
       # Correo (recuperación de contraseña, verificación): definir en .env del servidor
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -49,6 +53,12 @@ services:
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-https://165.22.34.95:4000/auth/google/callback}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      # Moodle (misma red Docker que docker-compose.moodle.yml; ver MOODLE_HOST en ese archivo)
+      MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
+      MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
+      MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
+      # ADMS ZKTeco: 0 = mismo puerto que PORT (4000). El reloj usa la URL pública HTTPS del API.
+      ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-0}
     volumes:
       - /etc/ssl/cloudflare:/etc/ssl/cloudflare:ro
     ports:
@@ -56,7 +66,9 @@ services:
     depends_on:
       pg:
         condition: service_healthy
-    networks: [net]
+    networks:
+      - net
+      - moodle-net
 
   web:
     build:
@@ -83,3 +95,6 @@ volumes:
 
 networks:
   net:
+  moodle-net:
+    name: edutrack_moodle-net
+    external: true

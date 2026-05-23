@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { authGuard, requireRole } from '../middlewares/auth.js'
+import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { createPendingExport, getDownloadUrl, getExport, markDone, markFailed } from '../services/exports/exportStore.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
@@ -15,7 +15,8 @@ import {
   generateAttendanceAssistanceReportXlsxFromAttendances,
 } from '../services/analytics/exports/attendanceAssistanceReportExport.js'
 import { generateMonthlySummaryPdf } from '../services/analytics/exports/monthlySummaryPdf.js'
-import { prisma } from '../prisma.js'
+import { prisma } from '../db/prisma.js'
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
 
@@ -37,6 +38,9 @@ const exportBodySchema = z.object({
       status: z
         .enum(['PRESENT', 'LATE', 'ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'EXIT', 'EARLY_EXIT'])
         .optional(),
+      schoolYearId: z.string().uuid().optional(),
+      /** Si es true / "1", el export incluye todos los ciclos (sin filtro por event.schoolYearId). */
+      allYears: z.union([z.boolean(), z.literal('1'), z.literal('0')]).optional(),
     })
     .optional(),
   page: z
@@ -47,7 +51,7 @@ const exportBodySchema = z.object({
     .optional(),
 })
 
-r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, res) => {
   try {
     const parsed = exportBodySchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
@@ -64,6 +68,9 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
     const eventId = filters && 'eventId' in filters ? (filters as any).eventId : undefined
     const type = filters && 'type' in filters ? (filters as any).type : undefined
     const status = filters && 'status' in filters ? (filters as any).status : undefined
+    const allYearsExport =
+      (filters as { allYears?: unknown } | undefined)?.allYears === true ||
+      (filters as { allYears?: unknown } | undefined)?.allYears === '1'
 
     if (role) filterSuffixParts.push(`role-${sanitizePart(role)}`)
     if (userId) filterSuffixParts.push(`user-${shortUuid(userId)}`)
@@ -103,6 +110,15 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
     const userIds = await scopeUserIds()
 
     if (reportKey === 'attendance_detail') {
+      let resolvedAttendanceSchoolYearId: string | undefined
+      if (!allYearsExport) {
+        const sy = await resolveSchoolYearIdForList(prisma, {
+          role: 'ADMIN',
+          requestedSchoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
+        })
+        if (sy) resolvedAttendanceSchoolYearId = sy
+      }
+
       const attendanceFiltersForBackend = {
         from,
         to,
@@ -112,6 +128,7 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
         eventType: filters?.eventType,
         type: filters?.type,
         status: filters?.status,
+        ...(resolvedAttendanceSchoolYearId ? { schoolYearId: resolvedAttendanceSchoolYearId } : {}),
       }
 
       if (format === 'XLSX') {
@@ -134,12 +151,21 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
         markFailed(exportId, 'Format not allowed for monthly_summary')
         return res.status(400).json({ message: 'Formato inválido para monthly_summary' })
       }
+      let resolvedPlannedSchoolYearId: string | undefined
+      if (!allYearsExport) {
+        const sy = await resolveSchoolYearIdForList(prisma, {
+          role: 'ADMIN',
+          requestedSchoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
+        })
+        if (sy) resolvedPlannedSchoolYearId = sy
+      }
       const plannedInstances = await getPlannedInstances({
         from,
         to,
         userId: filters?.userId,
         userIds: userIds || undefined,
         eventType: filters?.eventType,
+        schoolYearId: resolvedPlannedSchoolYearId,
       })
       const resolvedInstances = await resolveAttendanceAndJustification({ plannedInstances })
       const buffer = await generateMonthlySummaryPdf({
@@ -161,15 +187,15 @@ r.post('/', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 })
 
-r.get('/:exportId', authGuard, requireRole('ADMIN'), (req, res) => {
+r.get('/:exportId', authGuard, requirePermission('exports.create', 'all'), (req, res) => {
   const exportId = req.params.exportId
   const e = getExport(exportId)
   if (!e) return res.status(404).json({ message: 'Export no encontrada' })
   const downloadUrl = e.status === 'DONE' ? getDownloadUrl(exportId) : null
-  res.json({ exportId: e.exportId, status: e.status, downloadUrl })
+  res.json({ exportId: e.exportId, status: e.status, downloadUrl, errorMessage: e.errorMessage })
 })
 
-r.get('/:exportId/download', authGuard, requireRole('ADMIN'), (req, res) => {
+r.get('/:exportId/download', authGuard, requirePermission('exports.create', 'all'), (req, res) => {
   const exportId = req.params.exportId
   const e = getExport(exportId)
   if (!e) return res.status(404).json({ message: 'Export no encontrada' })
@@ -180,4 +206,3 @@ r.get('/:exportId/download', authGuard, requireRole('ADMIN'), (req, res) => {
 })
 
 export default r
-

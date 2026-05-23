@@ -1,10 +1,10 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { prisma } from '../prisma.js'
-import { firstZodIssueMessage } from '../password-policy.js'
-import { isDiditConfigured } from '../system-settings.js'
-import { syncLivenessSessionFromDiditApi, fetchDiditDecisionJson } from '../didit-sync-session.js'
-import { buildRegisterVerificationComparison } from '../didit-register-verification-from-decision.js'
+import { prisma } from '../db/prisma.js'
+import { firstZodIssueMessage } from '../auth/password-policy.js'
+import { isDiditConfigured } from '../config/system-settings.js'
+import { syncLivenessSessionFromDiditApi, fetchDiditDecisionJson } from '../integrations/didit/sync-session.js'
+import { buildRegisterVerificationComparison } from '../integrations/didit/register-verification-from-decision.js'
 
 const r = Router()
 

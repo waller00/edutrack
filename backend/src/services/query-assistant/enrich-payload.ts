@@ -51,13 +51,21 @@ export function enrichPayloadFromQuestion(parsed: LlmIntentPayload, question: st
 }
 
 function normQuestion(q: string) {
-  return q
+  const normalized = q
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
-    .replace(/^[¿¡"'«»]+/gu, '')
-    .replace(/["'«»]+$/gu, '')
     .trim()
+  return trimQuestionPunctuation(normalized)
+}
+
+function trimQuestionPunctuation(value: string) {
+  const chars = new Set(['¿', '¡', '"', "'", '«', '»'])
+  let start = 0
+  let end = value.length
+  while (start < end && chars.has(value[start])) start += 1
+  while (end > start && chars.has(value[end - 1])) end -= 1
+  return value.slice(start, end).trim()
 }
 
 /** Refina params según palabras en la pregunta (sin LLM). */

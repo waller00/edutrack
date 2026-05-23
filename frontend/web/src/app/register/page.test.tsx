@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import RegisterPage from './page'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 
-vi.mock('@/lib/api', () => ({ api: vi.fn() }))
-vi.mock('@/components/PhoneBirthdateFields', () => ({
+vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
+vi.mock('@/components/forms/PhoneBirthdateFields', () => ({
   default: ({
     birthdate,
     onBirthdateChange,

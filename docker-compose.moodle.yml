@@ -1,0 +1,132 @@
+# Moodle local para integrar EduTrack (solo desarrollo).
+#
+# Arranque (en la raíz del repo):
+#   La red debe existir (la crea el deploy a testing/prod o el primer uso):
+#     docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
+#   docker compose -f docker-compose.moodle.yml up -d
+#
+# Primera vez: la instalación de Moodle en el contenedor suele tardar ~4–8 min (CLI + tablas);
+# hasta que no aparezca "Starting Apache" en los logs, http://localhost:8080 puede rechazar la conexión.
+# Si el contenedor moodle reinicia en bucle o ERR_EMPTY_RESPONSE:
+# • Volumen MariaDB sin utf8mb4: recreá con down -v (borra datos de ese Moodle).
+# • BD ya con tablas Moodle pero contenedor recreado sin persistir PHP/archivos: Bitnami intenta
+#   reinstalar y falla. Solución: volúmenes moodle_app_data + moodle_moodledata (abajo) y UN arranque
+#   con variable MOODLE_RECOVER_EXISTING_DB=yes (luego normal sin esa variable). Ver bloque "Persistencia".
+# Si el arranque falló a mitad, no uses solo restart: queda un config.php a medias y el contenedor entra en bucle.
+#   docker compose -f docker-compose.moodle.yml down -v && docker compose -f docker-compose.moodle.yml up -d
+# Imágenes: Bitnami publicó muchos charts como `bitnamilegacy/*` en Docker Hub;
+# los tags `bitnami/moodle:latest` y similares suelen fallar al hacer pull.
+# UI: http://localhost:8080
+#   Cambiar nombre del sitio en una instancia ya instalada: Administración del sitio → General →
+#   Página principal del sitio → "Nombre completo del sitio" (no se relee MOODLE_SITE_NAME al existir BD).
+#   Usuario admin: ver MOODLE_USERNAME abajo
+#   Contraseña:     ver MOODLE_PASSWORD abajo (cambiá en producción; esto es solo local)
+#
+# --- EduTrack: MOODLE_BASE_URL ---
+# • Backend con `npm run dev` en tu Windows:
+#     MOODLE_BASE_URL=http://localhost:8080
+# • Servicio `auth` dentro del compose principal (misma máquina + Docker Desktop):
+#     MOODLE_BASE_URL=http://host.docker.internal:8080
+#
+# MOODLE_WS_TOKEN: token REST (servicios web). En Moodle:
+#   1) Administración > Funciones avanzadas > activar "Servicios web"
+#   2) Administración > Servidor > Servicios web > Gestionar protocolos > activar **REST** (sin esto, server.php responde 403 vacío)
+#   3) Administración > Servidor > Servicios web > Servicios externos > Agregar servicio custom (ej. "EduTrack")
+#   4) En el servicio, añadir funciones: core_user_get_users_by_field, core_user_create_users
+#   5) Administración > Servidor > Servicios web > Tokens > Crear token: usuario (p. ej. admin), servicio = el de EduTrack
+#   Poner el token en .env del backend como MOODLE_WS_TOKEN=...
+#
+# Contraseñas por defecto SOLO para local — rotá si exponés el puerto 8080.
+#
+# --- Persistencia (que no se “borre solo” el Moodle local) ---
+# • Además, el servicio `moodle` guarda archivos en los volúmenes `moodle_app_data` y
+#   `moodle_moodledata` (código/config enlazados por Bitnami). Sin eso, al recrear solo el
+#   contenedor `moodle` perdés config.php aunque MariaDB siga intacta → bucle de instalación.
+# • Recuperación (BD ya poblada, bucle): en PowerShell, una vez:
+#     $env:MOODLE_RECOVER_EXISTING_DB='yes'
+#     docker compose -f docker-compose.moodle.yml up -d
+#     Remove-Item Env:MOODLE_RECOVER_EXISTING_DB
+#   Cuando en logs aparezca "Moodle setup finished" / "Starting Apache", http://localhost:8080 debe responder.
+# • Conviene parar sin borrar: `docker compose -f docker-compose.moodle.yml stop`
+#   o `down` sin `-v`. Luego `up -d` levanta con la misma base.
+# • Evitá en Docker Desktop: “Clean / Purge data”, `docker volume prune`, `docker system prune --volumes`
+#   si no sabés qué vas a borrar.
+# • El `.env` con MOODLE_WS_TOKEN no sustituye la BD: guardá copia de `.env` aparte y no lo subas
+#   a git. Si solo borrás el volumen, el token viejo en Moodle ya no existe; el de .env queda obsoleto.
+# • Backup rápido de la base (PowerShell, contenedor MariaDB arriba):
+#   Ejecutá desde una carpeta donde tengas permiso (ej. cd al repo); no desde System32.
+#   docker exec edutrack-moodle-db-1 /opt/bitnami/mariadb/bin/mariadb-dump -uroot -pmoodle_root_local bitnami_moodle > moodle-local-backup.sql
+#   O con ruta explícita: ... > C:\Users\tuusuario\Documents\GIT\edutrack\moodle-local-backup.sql
+#   (ajustá el nombre del contenedor si `docker ps` muestra otro).
+
+services:
+  moodle-db:
+    # MariaDB 11.x suele encajar mejor con Moodle que 12.x en imágenes Bitnami legacy.
+    image: docker.io/bitnamilegacy/mariadb:11.8.3
+    restart: unless-stopped
+    environment:
+      ALLOW_EMPTY_PASSWORD: "no"
+      MARIADB_ROOT_PASSWORD: moodle_root_local
+      MARIADB_USER: bn_moodle
+      MARIADB_PASSWORD: moodle_db_local
+      MARIADB_DATABASE: bitnami_moodle
+      # Moodle 5 exige BD Unicode completa; sin utf8mb4 el CLI install falla al instante.
+      MARIADB_CHARACTER_SET: utf8mb4
+      MARIADB_COLLATE: utf8mb4_unicode_ci
+    volumes:
+      - moodle_mariadb_data:/bitnami/mariadb
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/bitnami/mariadb/bin/mariadb-admin ping -h 127.0.0.1 -uroot -pmoodle_root_local --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - moodle-net
+
+  moodle:
+    image: docker.io/bitnamilegacy/moodle:5.0.2
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      MOODLE_DATABASE_HOST: moodle-db
+      MOODLE_DATABASE_PORT_NUMBER: "3306"
+      MOODLE_DATABASE_USER: bn_moodle
+      MOODLE_DATABASE_PASSWORD: moodle_db_local
+      MOODLE_DATABASE_NAME: bitnami_moodle
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: "admin123"
+      MOODLE_EMAIL: admin@edutrack.local
+      # Nombre del sitio en la primera instalación (default Bitnami: "New Site").
+      MOODLE_SITE_NAME: "Los Olivos"
+      # Host público con puerto (ej. en servidor: MOODLE_HOST=138.197.35.2.nip.io:8080 en .env junto a este compose)
+      MOODLE_HOST: ${MOODLE_HOST:-localhost:8080}
+      # "yes" solo recuperación: BD ya tiene Moodle pero faltan archivos persistidos (ver comentarios arriba).
+      # Por defecto "no"; instalación nueva con BD vacía debe dejar esto en no.
+      MOODLE_SKIP_BOOTSTRAP: ${MOODLE_RECOVER_EXISTING_DB:-no}
+    volumes:
+      # Bitnami inicializa directorios vacíos en el primer arranque (no uses carpeta host vacía manual).
+      - moodle_app_data:/bitnami/moodle
+      - moodle_moodledata:/bitnami/moodledata
+    depends_on:
+      moodle-db:
+        condition: service_healthy
+    networks:
+      - moodle-net
+
+volumes:
+  moodle_mariadb_data:
+  moodle_app_data:
+  moodle_moodledata:
+
+networks:
+  # Misma red que auth en docker-compose.cloud.yml / docker-compose.yml (external).
+  moodle-net:
+    name: edutrack_moodle-net
+    external: true

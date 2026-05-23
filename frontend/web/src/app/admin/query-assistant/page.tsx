@@ -1,7 +1,7 @@
 'use client'
 
-import RoleGuard from '@/components/RoleGuard'
-import { api } from '@/lib/api'
+import RoleGuard from '@/components/auth/RoleGuard'
+import { api } from '@/lib/api/client'
 import { ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
 import { useCallback, useState } from 'react'
 
@@ -77,7 +77,7 @@ export default function AdminQueryAssistantPage() {
   }
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="query-assistant.use">
       <main className="mx-auto max-w-4xl p-6 space-y-6">
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
