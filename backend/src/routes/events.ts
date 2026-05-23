@@ -536,21 +536,54 @@ r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, re
           },
           courseOffering: eventCourseOfferingInclude,
           subject: eventSubjectInclude,
+          childEvents: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              type: true,
+              status: true,
+              startDate: true,
+              startTime: true,
+              endTime: true,
+              endDate: true,
+              recurrenceType: true,
+              isRecurring: true,
+              daysOfWeek: true,
+              parentEventId: true,
+              subjectId: true,
+              courseOffering: eventCourseOfferingInclude,
+              subject: eventSubjectInclude,
+            },
+          },
           _count: {
             select: { attendances: true }
           }
         },
-        orderBy: { startDate: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        orderBy: { startDate: startDate || endDate ? 'asc' : 'desc' },
+        skip: startDate || endDate ? undefined : (page - 1) * pageSize,
+        take: startDate || endDate ? undefined : pageSize,
       }),
     ]);
 
+    const expandedEvents = (startDate || endDate)
+      ? events
+          .flatMap((event: any) => expandRecurringEvent(event, startDate, endDate))
+          .sort((a: any, b: any) => {
+            const aTime = new Date(a.startTime || a.startDate).getTime()
+            const bTime = new Date(b.startTime || b.startDate).getTime()
+            return aTime - bTime
+          })
+      : events
+    const pagedEvents = startDate || endDate
+      ? expandedEvents.slice((page - 1) * pageSize, page * pageSize)
+      : expandedEvents
+
     res.json({
-      total,
+      total: startDate || endDate ? expandedEvents.length : total,
       page,
       pageSize,
-      data: events.map((e) => mapNestedEventUsers(e as unknown as Record<string, unknown>)),
+      data: pagedEvents.map((e: any) => mapNestedEventUsers(e as unknown as Record<string, unknown>)),
     });
   } catch (error) {
     console.error('Error obteniendo todos los eventos:', error);

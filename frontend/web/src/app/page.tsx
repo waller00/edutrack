@@ -46,7 +46,11 @@ export default function Home() {
   const scheduleRole = me.role === 'TEACHER' || me.role === 'STAFF' ? me.role : null
 
   return (
-    <main className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:max-w-4xl sm:px-6 lg:max-w-5xl">
+    <main
+      className={`mx-auto max-w-3xl space-y-8 px-4 py-6 sm:max-w-4xl sm:px-6 ${
+        me.role === 'ADMIN' ? 'lg:max-w-7xl' : 'lg:max-w-5xl'
+      }`}
+    >
       {notVerified && (
         <div className="card border-l-4 border-l-yellow-400 bg-yellow-50">
           <div className="flex items-center gap-3">
@@ -160,10 +164,10 @@ export default function Home() {
       </header>
 
       {canRoleDashboard && me.role === 'ADMIN' && (
-        <>
+        <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
           <HomeAdminAttendanceFeed />
           <HomeAdminUpcomingEvents />
-        </>
+        </div>
       )}
 
       {canRoleDashboard && scheduleRole && me.id && <HomeUpcomingSchedule role={scheduleRole} userId={me.id} />}
