@@ -35,6 +35,11 @@ enum AuditAction {
   MEDICAL_LEAVE_DEACTIVATED
   SYSTEM_SETTINGS_UPDATED
   EVENT_CREATED
+  BIOMETRIC_LINK_STARTED
+  BIOMETRIC_LINK_DETECTED
+  BIOMETRIC_LINK_CONFIRMED
+  BIOMETRIC_LINK_CANCELLED
+  BIOMETRIC_MAPPING_REMOVED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
@@ -82,6 +87,7 @@ model User {
   webPushSubscriptions        WebPushSubscription[]
   inAppNotifications          InAppNotification[]
   biometricMappings           BiometricUserMapping[]
+  biometricLinkRequests       BiometricLinkRequest[]
   biometricPunches            BiometricPunch[]
   attendanceIncidents         AttendanceIncident[]
   auditEvents                 AuditLog[]
@@ -257,6 +263,16 @@ enum BiometricPunchProcessStatus {
   PROCESSED
   FAILED
   DUPLICATE
+  /// Marca capturada durante vinculación pendiente de confirmación en EduTrack.
+  LINK_CAPTURED
+}
+
+enum BiometricLinkRequestStatus {
+  WAITING_PUNCH
+  PENDING_CONFIRM
+  CONFIRMED
+  EXPIRED
+  CANCELLED
 }
 
 enum AttendanceStatus {
@@ -345,10 +361,31 @@ model BiometricDevice {
   lastSeenAt DateTime?
   createdAt  DateTime               @default(now())
   updatedAt  DateTime               @updatedAt
-  punches    BiometricPunch[]
-  mappings   BiometricUserMapping[]
+  punches       BiometricPunch[]
+  mappings      BiometricUserMapping[]
+  linkRequests  BiometricLinkRequest[]
 
   @@index([isActive])
+}
+
+model BiometricLinkRequest {
+  id                    String                     @id @default(uuid())
+  userId                String
+  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId              String
+  device                BiometricDevice            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  status                BiometricLinkRequestStatus @default(WAITING_PUNCH)
+  candidateDeviceUserId String?
+  candidatePunchId      String?
+  expiresAt             DateTime
+  confirmedAt           DateTime?
+  createdByIp           String?                    @db.VarChar(45)
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  @@index([deviceId, status])
+  @@index([userId, status])
+  @@index([expiresAt])
 }
 
 model BiometricUserMapping {
@@ -364,6 +401,7 @@ model BiometricUserMapping {
   punches      BiometricPunch[]
 
   @@unique([deviceId, deviceUserId])
+  @@unique([deviceId, userId])
   @@index([userId])
   @@index([isActive])
 }

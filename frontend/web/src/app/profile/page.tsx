@@ -5,6 +5,7 @@ import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
 import PhoneBirthdateFields from '@/components/forms/PhoneBirthdateFields'
 import WebPushSection from '@/components/notifications/WebPushSection'
+import BiometricLinkSection from '@/components/profile/BiometricLinkSection'
 import { formatLocalMobileInputFromE164 } from '@/lib/forms/uruguay-forms'
 import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
 import {
@@ -556,6 +557,8 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
           )}
         </div>
       </section>
+
+      <BiometricLinkSection role={me.role} />
 
       <WebPushSection />
     </main>
