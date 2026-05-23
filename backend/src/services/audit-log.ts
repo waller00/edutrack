@@ -19,6 +19,11 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   MEDICAL_LEAVE_DEACTIVATED: "Licencia / permiso desactivado",
   SYSTEM_SETTINGS_UPDATED: "Parámetros del sistema actualizados",
   EVENT_CREATED: "Evento creado",
+  BIOMETRIC_LINK_STARTED: "Vinculación biométrica iniciada",
+  BIOMETRIC_LINK_DETECTED: "Marca detectada para vinculación biométrica",
+  BIOMETRIC_LINK_CONFIRMED: "Vinculación biométrica confirmada",
+  BIOMETRIC_LINK_CANCELLED: "Vinculación biométrica cancelada",
+  BIOMETRIC_MAPPING_REMOVED: "Vínculo biométrico eliminado",
 };
 
 export function parseAuditActionFilter(raw: string | undefined): AuditAction | undefined {

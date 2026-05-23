@@ -3,20 +3,27 @@ import request from "supertest";
 import express from "express";
 import zktecoIclockRoutes from "./zkteco-iclock.js";
 
-const { prismaMock, processMock } = vi.hoisted(() => ({
+const { prismaMock, processMock, captureMock } = vi.hoisted(() => ({
   prismaMock: {
     biometricDevice: {
       findFirst: vi.fn(),
       update: vi.fn(),
     },
+    biometricUserMapping: {
+      findFirst: vi.fn(),
+    },
   },
   processMock: vi.fn(),
+  captureMock: vi.fn(),
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../services/biometric-ingest-core.js", () => ({
   findBiometricDeviceByAdmsSn: vi.fn(),
   processBiometricIngest: processMock,
+}));
+vi.mock("../services/biometric-link.js", () => ({
+  tryCaptureBiometricLinkPunch: captureMock,
 }));
 
 import { findBiometricDeviceByAdmsSn } from "../services/biometric-ingest-core.js";
@@ -34,6 +41,8 @@ describe("zkteco iclock routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.biometricDevice.update.mockResolvedValue({});
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1" });
+    captureMock.mockResolvedValue({ handled: false });
     findDeviceMock.mockResolvedValue({
       id: "dev-1",
       code: "F22-LOCAL-01",

@@ -105,6 +105,18 @@ curl.exe -X POST "http://192.168.1.2:8081/iclock/cdata?SN=SRN5260500102&table=AT
 
 **Asistencias** → **Ver todos los ciclos** → fecha del día.
 
+## Vincular huella con cuenta EduTrack (self-service)
+
+La huella se registra **en el F22** (menú del equipo). EduTrack solo vincula el **PIN del lector** (`deviceUserId`) con la cuenta:
+
+1. **Mi perfil** → **Vincular mi huella**.
+2. Marcar en el lector dentro de ~2 minutos.
+3. Confirmar el PIN detectado en pantalla.
+
+API (usuario autenticado): `POST /biometric/link-requests`, polling `GET /biometric/link-requests/active`, `POST .../confirm`.
+
+Variables opcionales: `BIOMETRIC_LINK_TTL_SECONDS` (default 120), `BIOMETRIC_LINK_MAX_PER_DAY` (default 20).
+
 ## API alternativa
 
 `POST /biometric/adms-ingest` con `x-biometric-secret` (integraciones custom).

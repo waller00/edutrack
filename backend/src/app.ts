@@ -23,6 +23,7 @@ import exportsRoutes from "./routes/exports.js";
 import webPushRoutes from "./routes/web-push.js";
 import inAppNotificationRoutes from "./routes/in-app-notifications.js";
 import biometricAdmsRoutes from "./routes/biometric-adms.js";
+import biometricLinkRoutes from "./routes/biometric-link.js";
 import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 
@@ -124,6 +125,7 @@ app.use("/analytics", analyticsRoutes);
 app.use("/exports", exportsRoutes);
 app.use("/notifications/web-push", webPushRoutes);
 app.use("/notifications/in-app", inAppNotificationRoutes);
+app.use("/biometric", biometricLinkRoutes);
 app.use("/biometric", biometricAdmsRoutes);
 app.use("/attendance-incidents", attendanceIncidentsRoutes);
 
