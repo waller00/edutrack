@@ -1,5 +1,5 @@
-import MyAssignedEventsPage from '@/components/MyAssignedEventsPage'
+import MyAssignedEventsPage from '@/components/personal/MyAssignedEventsPage'
 
 export default function StaffEvents() {
-  return <MyAssignedEventsPage role="STAFF" />
+  return <MyAssignedEventsPage />
 }

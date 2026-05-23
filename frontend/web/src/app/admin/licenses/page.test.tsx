@@ -1,12 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LicensesPage from './page'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 
-vi.mock('@/components/RoleGuard', () => ({
+vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
 }))
-vi.mock('@/lib/api', () => ({ api: vi.fn() }))
+vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 
 const activeLicense = {

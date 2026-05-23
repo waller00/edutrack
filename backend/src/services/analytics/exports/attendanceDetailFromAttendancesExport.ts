@@ -1,8 +1,9 @@
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 import type { AttendanceStatus, AttendanceType, EventType } from '@prisma/client'
-import { prisma } from '../../../prisma.js'
-import { selectOrgRoleCode } from '../../../user-role-prisma.js'
+import { prisma } from '../../../db/prisma.js'
+import { mergeSchoolYearIntoAttendanceEventWhere } from '../../../attendance/attendance-school-year.js'
+import { selectOrgRoleCode } from '../../../identity/user-role-prisma.js'
 import type { ResolvedAttendanceByInstance } from '../models.js'
 
 const COLUMNS = [
@@ -96,7 +97,17 @@ function isAbsenceStatus(status: AttendanceStatus) {
 }
 
 export async function buildAttendanceDetailRowsFromAttendances(params: {
-  filters: { from: string; to: string; userId?: string | undefined; eventId?: string | undefined; eventType?: EventType | undefined; type?: AttendanceType | undefined; status?: AttendanceStatus | undefined; role?: string | undefined }
+  filters: {
+    from: string
+    to: string
+    userId?: string
+    eventId?: string
+    eventType?: EventType
+    type?: AttendanceType
+    status?: AttendanceStatus
+    role?: string
+    schoolYearId?: string
+  }
 }) {
   const { from, to } = params.filters
 
@@ -115,6 +126,9 @@ export async function buildAttendanceDetailRowsFromAttendances(params: {
   if (params.filters.type) where.type = params.filters.type
   if (params.filters.status) where.status = params.filters.status
   if (params.filters.role) where.user = { orgRole: { code: params.filters.role } }
+  if (params.filters.schoolYearId) {
+    mergeSchoolYearIntoAttendanceEventWhere(where, params.filters.schoolYearId)
+  }
 
   const attendances = await prisma.attendance.findMany({
     where,
@@ -232,7 +246,17 @@ export async function buildAttendanceDetailRowsFromAttendances(params: {
 }
 
 export async function generateAttendanceDetailXlsxFromAttendances(params: {
-  filters: { from: string; to: string; userId?: string; eventId?: string; eventType?: EventType; type?: AttendanceType; status?: AttendanceStatus; role?: string }
+  filters: {
+    from: string
+    to: string
+    userId?: string
+    eventId?: string
+    eventType?: EventType
+    type?: AttendanceType
+    status?: AttendanceStatus
+    role?: string
+    schoolYearId?: string
+  }
 }) {
   const rows = await buildAttendanceDetailRowsFromAttendances({ filters: params.filters })
   const workbook = new ExcelJS.Workbook()
@@ -247,7 +271,17 @@ export async function generateAttendanceDetailXlsxFromAttendances(params: {
 }
 
 export async function generateAttendanceDetailCsvFromAttendances(params: {
-  filters: { from: string; to: string; userId?: string; eventId?: string; eventType?: EventType; type?: AttendanceType; status?: AttendanceStatus; role?: string }
+  filters: {
+    from: string
+    to: string
+    userId?: string
+    eventId?: string
+    eventType?: EventType
+    type?: AttendanceType
+    status?: AttendanceStatus
+    role?: string
+    schoolYearId?: string
+  }
 }) {
   const rows = await buildAttendanceDetailRowsFromAttendances({ filters: params.filters })
   const header = COLUMNS.map((c) => c).join(',')
@@ -256,7 +290,17 @@ export async function generateAttendanceDetailCsvFromAttendances(params: {
 }
 
 export async function generateAttendanceDetailPdfFromAttendances(params: {
-  filters: { from: string; to: string; userId?: string; eventId?: string; eventType?: EventType; type?: AttendanceType; status?: AttendanceStatus; role?: string }
+  filters: {
+    from: string
+    to: string
+    userId?: string
+    eventId?: string
+    eventType?: EventType
+    type?: AttendanceType
+    status?: AttendanceStatus
+    role?: string
+    schoolYearId?: string
+  }
 }) {
   const rows = await buildAttendanceDetailRowsFromAttendances({ filters: params.filters })
   const doc = new PDFDocument({ size: 'A4', margin: 40 })

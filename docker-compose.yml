@@ -59,8 +59,20 @@ services:
       # RF-10 asistente (OpenAI): definir en .env del host; sin esto el endpoint responde 503
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      # Moodle: en local con Docker, MOODLE_BASE_URL=http://moodle:8080 (red moodle-net) y patch de wwwroot; ver scripts/patch-moodle-wwwroot-dynamic.php
+      MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
+      MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
+      MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
+      ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-8081}
     ports:
       - "4000:4000"
+      - "8081:8081"
+      - "80:8081"
+      - "8080:8081"
+      - "8088:8081"
+    # Moodle en el host (puerto 8080): fuerza IPv4; sin esto Node puede resolver host.docker.internal solo a IPv6 y fallar.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       pg:
         condition: service_healthy
@@ -72,6 +84,7 @@ services:
       start_period: 20s
     networks:
       - appnet
+      - moodle-net
 
   web:
     build:
@@ -100,3 +113,6 @@ volumes:
 
 networks:
   appnet:
+  moodle-net:
+    name: edutrack_moodle-net
+    external: true

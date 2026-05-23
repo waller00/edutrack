@@ -1,5 +1,5 @@
-import MyAttendancePage from '@/components/MyAttendancePage'
+import MyAttendancePage from '@/components/personal/MyAttendancePage'
 
 export default function StaffAttendance() {
-  return <MyAttendancePage role="STAFF" />
+  return <MyAttendancePage />
 }

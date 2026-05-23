@@ -1,6 +1,6 @@
 import './globals.css'
 import type { Metadata } from 'next'
-import UserNav from '@/components/UserNav'
+import UserNav from '@/components/navigation/UserNav'
 
 export const metadata: Metadata = {
   title: 'EduTrack',
@@ -16,8 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es">
       <body>
-        <UserNav />
-        {children}
+        <UserNav>{children}</UserNav>
       </body>
     </html>
   )

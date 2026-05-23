@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { authGuard, requireRole } from '../middlewares/auth.js'
+import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
 import {
@@ -9,7 +9,8 @@ import {
   computeTopRiskEvents,
   computeTopRiskPeople,
 } from '../services/analytics/metrics.js'
-import { prisma } from '../prisma.js'
+import { prisma } from '../db/prisma.js'
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
 
@@ -22,6 +23,8 @@ const dashboardQuerySchema = z.object({
     .enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA'])
     .optional(),
   granularity: z.enum(['day', 'week', 'month']).optional(),
+  schoolYearId: z.string().uuid().optional(),
+  allYears: z.union([z.literal('1'), z.literal('true')]).optional(),
 })
 
 async function scopeUserIds(params: { role?: 'ADMIN' | 'STAFF' | 'TEACHER'; userId?: string }) {
@@ -44,7 +47,20 @@ async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
   }
 
   const userIds = await scopeUserIds({ role, userId })
-  const plannedInstances = await getPlannedInstances({ from, to, userId, userIds: userIds || undefined, eventType })
+  const schoolYearId = data.allYears
+    ? undefined
+    : await resolveSchoolYearIdForList(prisma, {
+        role: 'ADMIN',
+        requestedSchoolYearId: data.schoolYearId,
+      })
+  const plannedInstances = await getPlannedInstances({
+    from,
+    to,
+    userId,
+    userIds: userIds || undefined,
+    eventType,
+    schoolYearId: schoolYearId || undefined,
+  })
   const resolvedInstances = await resolveAttendanceAndJustification({ plannedInstances })
   const kpis = await computeDashboardKpis({ from, to, resolvedInstances })
 
@@ -64,6 +80,8 @@ async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
       rangeTo: data.to,
       roleFilter: role ?? null,
       eventTypeFilter: eventType ?? null,
+      schoolYearId: schoolYearId ?? null,
+      allYears: Boolean(data.allYears),
       generatedAt: new Date().toISOString(),
     },
     kpis,
@@ -72,7 +90,7 @@ async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
   }
 }
 
-r.get('/dashboard', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/dashboard', authGuard, requirePermission('analytics.read', 'all'), async (req, res) => {
   try {
     const parsed = dashboardQuerySchema.safeParse(req.query)
     if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
@@ -86,10 +104,10 @@ r.get('/dashboard', authGuard, requireRole('ADMIN'), async (req, res) => {
 })
 
 // Fase 1: endpoints con retorno vacío para mantener contrato en UI (se completan en Fase 2).
-r.get('/metrics', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/metrics', authGuard, requirePermission('analytics.read', 'all'), async (req, res) => {
   return res.json({ ok: true, message: 'metrics endpoint (Fase 2: expandir agregaciones)' })
 })
-r.get('/rankings', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/rankings', authGuard, requirePermission('analytics.read', 'all'), async (req, res) => {
   try {
     const parsed = dashboardQuerySchema.safeParse(req.query)
     if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
@@ -100,12 +118,11 @@ r.get('/rankings', authGuard, requireRole('ADMIN'), async (req, res) => {
     return res.status(500).json({ message: 'Error interno del servidor', error: error?.message || String(error) })
   }
 })
-r.get('/alerts/critical', authGuard, requireRole('ADMIN'), async (_req, res) => {
+r.get('/alerts/critical', authGuard, requirePermission('analytics.read', 'all'), async (_req, res) => {
   return res.json({ alerts: [] })
 })
-r.get('/anomalies', authGuard, requireRole('ADMIN'), async (_req, res) => {
+r.get('/anomalies', authGuard, requirePermission('analytics.read', 'all'), async (_req, res) => {
   return res.json({ anomalies: [] })
 })
 
 export default r
-

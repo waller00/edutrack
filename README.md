@@ -114,9 +114,11 @@ docker run --rm \
 Notas:
 - El análisis toma como código fuente `backend/src` y `frontend/web/src`; tests y LCOV ya están enlazados en `sonar-project.properties`.
 - Se excluyen artefactos generados como `dist`, `.next`, `node_modules` y definiciones `*.d.ts`.
-- **Cobertura global (Sonar):** objetivo **≥70%** mezclando `backend/coverage/lcov.info` + `frontend/web/coverage/lcov.info`. El archivo `backend/src/routes/dni-processor.ts` (~2.3k líneas, pipeline OCR/Tesseract) está en **`sonar.coverage.exclusions`** para no hundir el %; el resto del backend queda ~**96%** de líneas cubiertas al correr `npm run test:coverage` en `backend/`.
+- **Cobertura global (Sonar):** objetivo **≥70%** mezclando `backend/coverage/lcov.info` + `frontend/web/coverage/lcov.info` (ver umbrales en `backend/vitest.config.ts` y el workflow de CI).
 
 ## Estructura
+Ver el mapa completo en **[docs/ESTRUCTURA_PROYECTO.md](docs/ESTRUCTURA_PROYECTO.md)**.
+
 ```
 backend/      # auth-service
 frontend/web/ # Next.js

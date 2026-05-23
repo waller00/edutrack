@@ -31,7 +31,7 @@ Los datos deben ser accesibles solo por usuarios autorizados. Para eso el sistem
 - Cookies HTTP-only para tokens, reduciendo exposicion ante XSS.
 - Variables de entorno para secretos como `JWT_SECRET`, credenciales SMTP, Google OAuth, Didit, VAPID y claves de IA.
 - Separacion de permisos por roles institucionales.
-- Validacion de identidad durante el registro mediante Didit y/o OCR de cedula.
+- Validacion de identidad durante el registro mediante Didit (verificacion de documento y prueba de vida).
 
 ### Integridad
 
@@ -64,7 +64,7 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 | Sesiones | Tokens en cookies HTTP-only | Backend Express |
 | Contrasenas | Hash seguro | Argon2id |
 | Autorizacion | Roles y permisos | `OrgRole`, `Permission`, `RolePermission` |
-| Datos personales | Validacion de cedula e identidad | OCR/Tesseract y Didit |
+| Datos personales | Validacion de cedula e identidad | Didit |
 | Auditoria | Registro de acciones criticas | Modelo `AuditLog` |
 | Notificaciones | In-app, email y web push | PostgreSQL, SMTP/SendGrid, VAPID |
 | Seguridad HTTP | Headers y CORS | Helmet, CORS configurable |

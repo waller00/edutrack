@@ -1,5 +1,10 @@
-import { redirect } from 'next/navigation'
+import AdminProfilesPanel from '@/components/admin/AdminProfilesPanel'
+import RoleGuard from '@/components/auth/RoleGuard'
 
 export default function AdminProfilesPage() {
-  redirect('/admin/settings?section=profiles')
+  return (
+    <RoleGuard permission="profiles.manage">
+      <AdminProfilesPanel />
+    </RoleGuard>
+  )
 }

@@ -1,0 +1,798 @@
+{
+  "collection": "EduTrack API Testing - DEV-T7029 a DEV-T7126",
+  "baseUrl": "http://127.0.0.1:4000",
+  "startedWith": {
+    "adminLoginStatus": 200,
+    "noPermissionLoginStatus": 200,
+    "teacherLoginStatus": 200
+  },
+  "total": 98,
+  "passed": 92,
+  "failed": 6,
+  "results": [
+    {
+      "name": "DEV-T7029 - API-AUTH-001 [Postman] Login correcto con email",
+      "folder": "01 - Autenticación",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7030 - API-AUTH-002 [Postman] Login correcto con nombre de usuario",
+      "folder": "01 - Autenticación",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7031 - API-AUTH-003 [Postman] Login con contraseña incorrecta",
+      "folder": "01 - Autenticación",
+      "expected": "401",
+      "status": 401,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7032 - API-AUTH-004 [Postman] Login de cuenta desactivada",
+      "folder": "01 - Autenticación",
+      "expected": "403",
+      "status": 403,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7033 - API-AUTH-005 [Postman] Consultar usuario actual",
+      "folder": "01 - Autenticación",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7034 - API-AUTH-006 [Postman] Usuario actual sin sesión",
+      "folder": "01 - Autenticación",
+      "expected": "401",
+      "status": 401,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7035 - API-AUTH-007 [Postman] Renovar sesión",
+      "folder": "01 - Autenticación",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7036 - API-AUTH-008 [Postman] Cerrar sesión",
+      "folder": "01 - Autenticación",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7037 - API-REG-001 [Postman] Opciones de registro",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7038 - API-REG-002 [Postman] Consultar nombre de usuario disponible",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7039 - API-REG-003 [Postman] Registrar usuario válido",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "201,200",
+      "status": 400,
+      "ok": false,
+      "detail": "{\"message\":\"Falta completar la prueba de vida (Didit).\"}"
+    },
+    {
+      "name": "DEV-T7040 - API-REG-004 [Postman] Registro con email duplicado",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "409",
+      "status": 400,
+      "ok": false,
+      "detail": "{\"message\":\"Falta completar la prueba de vida (Didit).\"}"
+    },
+    {
+      "name": "DEV-T7041 - API-REG-005 [Postman] Registro con contraseña débil",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "400",
+      "status": 400,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7042 - API-REG-006 [Postman] Registro sin prueba de vida requerida",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "400,503",
+      "status": 400,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7043 - API-EMAIL-001 [Postman] Verificar correo",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "200,400",
+      "status": 400,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7044 - API-EMAIL-002 [Postman] Reenviar verificación",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7045 - API-PASS-001 [Postman] Solicitar recuperación",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "200",
+      "status": 400,
+      "ok": false,
+      "detail": "{\"message\":\"captcha\"}"
+    },
+    {
+      "name": "DEV-T7046 - API-PASS-002 [Postman] Restablecer contraseña",
+      "folder": "02 - Registro, Email y Contraseña",
+      "expected": "200,400",
+      "status": 400,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7047 - API-PROF-001 [Postman] Actualizar perfil",
+      "folder": "03 - Perfil y 2FA",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7048 - API-PROF-002 [Postman] Cambiar contraseña",
+      "folder": "03 - Perfil y 2FA",
+      "expected": "200,400",
+      "status": 400,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7049 - API-2FA-001 [Postman] Iniciar doble verificación",
+      "folder": "03 - Perfil y 2FA",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7050 - API-2FA-002 [Postman] Confirmar doble verificación",
+      "folder": "03 - Perfil y 2FA",
+      "expected": "200,400",
+      "status": 401,
+      "ok": false,
+      "detail": "{\"message\":\"Código inválido\"}"
+    },
+    {
+      "name": "DEV-T7051 - API-2FA-003 [Postman] Login con doble verificación",
+      "folder": "03 - Perfil y 2FA",
+      "expected": "200,401",
+      "status": 400,
+      "ok": false,
+      "detail": "{\"message\":\"Datos inválidos\"}"
+    },
+    {
+      "name": "DEV-T7052 - API-2FA-004 [Postman] Desactivar doble verificación",
+      "folder": "03 - Perfil y 2FA",
+      "expected": "200,400",
+      "status": 409,
+      "ok": false,
+      "detail": "{\"message\":\"La autenticación en dos pasos no está activa\"}"
+    },
+    {
+      "name": "DEV-T7053 - API-DIDIT-001 [Postman] Crear sesión Didit",
+      "folder": "04 - Didit",
+      "expected": "200,503",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7054 - API-DIDIT-002 [Postman] Verificar campos Didit",
+      "folder": "04 - Didit",
+      "expected": "200,400",
+      "status": 400,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7055 - API-DIDIT-003 [Postman] Consultar estado Didit",
+      "folder": "04 - Didit",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7056 - API-USR-001 [Postman] Listar usuarios",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7057 - API-USR-002 [Postman] Crear usuario",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7058 - API-USR-003 [Postman] Editar usuario",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7059 - API-USR-004 [Postman] Bloquear usuario",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200,403,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7060 - API-USR-005 [Postman] Resetear contraseña de usuario",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200,403,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7061 - API-PERM-001 [Postman] Listar perfiles",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7062 - API-PERM-002 [Postman] Crear perfil",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "201,409",
+      "status": 409,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7063 - API-PERM-003 [Postman] Actualizar permisos de perfil",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7064 - API-SET-001 [Postman] Consultar configuración",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7065 - API-SET-002 [Postman] Actualizar configuración",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7066 - API-AUD-001 [Postman] Listar auditoría",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7067 - API-QA-001 [Postman] Enviar pregunta al asistente",
+      "folder": "05 - Administración, Usuarios, Perfiles y Configuración",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7068 - API-STU-001 [Postman] Listar estudiantes",
+      "folder": "06 - Estudiantes",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7069 - API-STU-002 [Postman] Resumen de estudiantes",
+      "folder": "06 - Estudiantes",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7070 - API-STU-003 [Postman] Crear estudiante",
+      "folder": "06 - Estudiantes",
+      "expected": "201,200",
+      "status": 201,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7071 - API-STU-004 [Postman] Editar estudiante",
+      "folder": "06 - Estudiantes",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7072 - API-STU-005 [Postman] Eliminar estudiante",
+      "folder": "06 - Estudiantes",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7073 - API-COURSE-001 [Postman] Listar cursos",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7074 - API-COURSE-002 [Postman] Crear curso",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "201,409",
+      "status": 201,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7075 - API-COURSE-003 [Postman] Editar curso",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7076 - API-COURSE-004 [Postman] Eliminar curso",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "200,404",
+      "status": 404,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7077 - API-SUBJ-001 [Postman] Listar asignaturas",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7078 - API-SUBJ-002 [Postman] Crear asignatura",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "201,409",
+      "status": 201,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7079 - API-SY-001 [Postman] Listar ciclos",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7080 - API-SY-002 [Postman] Consultar ciclo activo",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7081 - API-SY-003 [Postman] Crear ciclo",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "201,409",
+      "status": 409,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7082 - API-SY-004 [Postman] Activar ciclo",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7083 - API-SY-005 [Postman] Copiar cursos entre ciclos",
+      "folder": "07 - Cursos, Asignaturas y Ciclos",
+      "expected": "201,200,404",
+      "status": 404,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7084 - API-EVT-001 [Postman] Crear evento",
+      "folder": "08 - Eventos",
+      "expected": "201,200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7085 - API-EVT-002 [Postman] Listar mis eventos",
+      "folder": "08 - Eventos",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7086 - API-EVT-003 [Postman] Listar eventos administrativos",
+      "folder": "08 - Eventos",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7087 - API-EVT-004 [Postman] Ver evento",
+      "folder": "08 - Eventos",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7088 - API-EVT-005 [Postman] Editar evento",
+      "folder": "08 - Eventos",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7089 - API-EVT-006 [Postman] Eliminar evento",
+      "folder": "08 - Eventos",
+      "expected": "200,404",
+      "status": 404,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7090 - API-ATT-001 [Postman] Registrar entrada",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200,201,409",
+      "status": 409,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7091 - API-ATT-002 [Postman] Registrar salida",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200,201,409",
+      "status": 409,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7092 - API-ATT-003 [Postman] Listar mis asistencias",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7093 - API-ATT-004 [Postman] Listar todas las asistencias",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7094 - API-ATT-005 [Postman] Editar asistencia",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7095 - API-ATT-006 [Postman] Eliminar asistencia",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7096 - API-ATT-007 [Postman] Consultar estadísticas",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7097 - API-BIO-001 [Postman] Marcación biométrica simple",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200,201,400,409",
+      "status": 400,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7098 - API-ADMS-001 [Postman] Ingesta ADMS correcta",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200,201",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7099 - API-ADMS-002 [Postman] Ingesta ADMS sin secreto",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "401,403",
+      "status": 401,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7100 - API-ADMS-003 [Postman] Ingesta ADMS duplicada",
+      "folder": "09 - Asistencias, Biométrico y ADMS",
+      "expected": "200,409",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7101 - API-LIC-001 [Postman] Listar licencias",
+      "folder": "10 - Licencias y Días No Laborables",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7102 - API-LIC-002 [Postman] Listar mis licencias",
+      "folder": "10 - Licencias y Días No Laborables",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7103 - API-LIC-003 [Postman] Crear licencia",
+      "folder": "10 - Licencias y Días No Laborables",
+      "expected": "201,200",
+      "status": 201,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7104 - API-LIC-004 [Postman] Editar licencia",
+      "folder": "10 - Licencias y Días No Laborables",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7105 - API-LIC-005 [Postman] Desactivar licencia",
+      "folder": "10 - Licencias y Días No Laborables",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7106 - API-NWD-001 [Postman] Listar días no laborables",
+      "folder": "10 - Licencias y Días No Laborables",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7107 - API-NWD-002 [Postman] Crear día no laborable",
+      "folder": "10 - Licencias y Días No Laborables",
+      "expected": "201,200,409",
+      "status": 201,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7108 - API-NWD-003 [Postman] Eliminar día no laborable",
+      "folder": "10 - Licencias y Días No Laborables",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7109 - API-AN-001 [Postman] Consultar dashboard",
+      "folder": "11 - Analíticas, Exportaciones y Reportes",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7110 - API-AN-002 [Postman] Consultar rankings",
+      "folder": "11 - Analíticas, Exportaciones y Reportes",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7111 - API-EXP-001 [Postman] Crear exportación detalle asistencia",
+      "folder": "11 - Analíticas, Exportaciones y Reportes",
+      "expected": "201",
+      "status": 201,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7112 - API-EXP-002 [Postman] Consultar exportación",
+      "folder": "11 - Analíticas, Exportaciones y Reportes",
+      "expected": "200,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7113 - API-EXP-003 [Postman] Descargar exportación",
+      "folder": "11 - Analíticas, Exportaciones y Reportes",
+      "expected": "200,404,409",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7114 - API-REP-001 [Postman] Descargar reporte Excel",
+      "folder": "11 - Analíticas, Exportaciones y Reportes",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7115 - API-REP-002 [Postman] Descargar reporte PDF",
+      "folder": "11 - Analíticas, Exportaciones y Reportes",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7116 - API-NOT-001 [Postman] Listar notificaciones",
+      "folder": "12 - Notificaciones y Push",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7117 - API-NOT-002 [Postman] Contar no leídas",
+      "folder": "12 - Notificaciones y Push",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7118 - API-NOT-003 [Postman] Marcar aviso leído",
+      "folder": "12 - Notificaciones y Push",
+      "expected": "200,404",
+      "status": 404,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7119 - API-PUSH-001 [Postman] Consultar clave pública push",
+      "folder": "12 - Notificaciones y Push",
+      "expected": "200",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7120 - API-PUSH-002 [Postman] Registrar suscripción push",
+      "folder": "12 - Notificaciones y Push",
+      "expected": "200,201,400",
+      "status": 400,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7121 - API-PUSH-003 [Postman] Probar notificación push",
+      "folder": "12 - Notificaciones y Push",
+      "expected": "200,400,404",
+      "status": 200,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7122 - API-PERM-001 [Postman] Bloquear acceso admin sin sesión",
+      "folder": "13 - Permisos Negativos",
+      "expected": "401",
+      "status": 401,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7123 - API-PERM-002 [Postman] Bloquear acceso admin sin permiso",
+      "folder": "13 - Permisos Negativos",
+      "expected": "403",
+      "status": 403,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7124 - API-PERM-003 [Postman] Bloquear edición de asistencia sin permiso",
+      "folder": "13 - Permisos Negativos",
+      "expected": "403",
+      "status": 403,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7125 - API-PERM-004 [Postman] Bloquear creación de exportación sin permiso",
+      "folder": "13 - Permisos Negativos",
+      "expected": "403",
+      "status": 403,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "DEV-T7126 - API-PERM-005 [Postman] Bloquear creación de licencia sin permiso",
+      "folder": "13 - Permisos Negativos",
+      "expected": "403",
+      "status": 403,
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

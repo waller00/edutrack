@@ -1,9 +1,10 @@
 'use client'
 
-import RoleGuard from '@/components/RoleGuard'
-import { api } from '@/lib/api'
-import { getAdminEventTypeLabel } from '@/lib/admin-events-display'
-import { getAdminFlashMessageClass } from '@/lib/admin-ui-helpers'
+import RoleGuard from '@/components/auth/RoleGuard'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
+import { api } from '@/lib/api/client'
+import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
+import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   ArrowRight,
   BarChart3,
@@ -36,6 +37,8 @@ type DashboardMeta = {
   rangeTo: string
   roleFilter: OrgRoleFilter | null
   eventTypeFilter: string | null
+  schoolYearId?: string | null
+  allYears?: boolean
   generatedAt: string
 }
 
@@ -338,6 +341,7 @@ function roleChipLabel(role: string | undefined | null) {
 }
 
 export default function AdminAnalyticsPage() {
+  const syCtx = useOptionalAdminSchoolYear()
   const [from, setFrom] = useState(() => {
     const d = new Date()
     d.setUTCDate(d.getUTCDate() - 29)
@@ -355,6 +359,7 @@ export default function AdminAnalyticsPage() {
   const [exportNotice, setExportNotice] = useState<string>('')
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+  const analyticsSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
 
   const loadDashboard = useCallback(async () => {
     setLoading(true)
@@ -363,6 +368,8 @@ export default function AdminAnalyticsPage() {
       const params = new URLSearchParams({ from, to })
       if (roleFilter) params.set('role', roleFilter)
       if (eventType) params.set('eventType', eventType)
+      if (syCtx?.allYears) params.set('allYears', '1')
+      else if (analyticsSchoolYearId) params.set('schoolYearId', analyticsSchoolYearId)
 
       const data = await api<DashboardResponse>(`/analytics/dashboard?${params.toString()}`)
       setDashboard(data)
@@ -372,7 +379,7 @@ export default function AdminAnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [from, to, roleFilter, eventType])
+  }, [from, to, roleFilter, eventType, syCtx?.allYears, analyticsSchoolYearId])
 
   useEffect(() => {
     void loadDashboard()
@@ -401,18 +408,30 @@ export default function AdminAnalyticsPage() {
         format,
         from,
         to,
-        filters: { ...(roleFilter ? { role: roleFilter } : {}), ...(eventType ? { eventType } : {}) },
+        filters: {
+          ...(roleFilter ? { role: roleFilter } : {}),
+          ...(eventType ? { eventType } : {}),
+          ...(syCtx?.allYears ? { allYears: '1' } : {}),
+          ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
+        },
       }
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
       const exportId = res.exportId
 
+      let exportDone = false
       for (let i = 0; i < 30; i++) {
-        const statusRes = await api<{ status: string; downloadUrl: string | null }>(`/exports/${exportId}`)
-        if (statusRes.status === 'DONE') break
+        const statusRes = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        if (statusRes.status === 'DONE') {
+          exportDone = true
+          break
+        }
+        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando export')
         await new Promise((r) => setTimeout(r, 250))
       }
+      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
+      if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
       const blob = await dl.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -444,18 +463,30 @@ export default function AdminAnalyticsPage() {
         format: 'PDF',
         from,
         to,
-        filters: { ...(roleFilter ? { role: roleFilter } : {}), ...(eventType ? { eventType } : {}) },
+        filters: {
+          ...(roleFilter ? { role: roleFilter } : {}),
+          ...(eventType ? { eventType } : {}),
+          ...(syCtx?.allYears ? { allYears: '1' } : {}),
+          ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
+        },
       }
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
       const exportId = res.exportId
 
+      let exportDone = false
       for (let i = 0; i < 30; i++) {
-        const statusRes = await api<{ status: string; downloadUrl: string | null }>(`/exports/${exportId}`)
-        if (statusRes.status === 'DONE') break
+        const statusRes = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        if (statusRes.status === 'DONE') {
+          exportDone = true
+          break
+        }
+        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando export')
         await new Promise((r) => setTimeout(r, 250))
       }
+      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
+      if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
       const blob = await dl.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -490,7 +521,7 @@ export default function AdminAnalyticsPage() {
   const eventsRank = dashboard?.topLists?.topRiskEvents ?? []
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="analytics.read" permissionScope="all">
       <main className="mx-auto max-w-7xl space-y-8 p-6">
         <header className="flex flex-col justify-between gap-6 lg:flex-row lg:items-start">
           <div className="flex items-start gap-4">

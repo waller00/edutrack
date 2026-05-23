@@ -23,10 +23,14 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage",
       include: ["src/**/*.ts"],
-      // dni-processor: ~2.3k líneas OCR/sharp/tesseract; excluido de métrica
       exclude: [
         "src/**/*.test.ts",
-        "src/routes/dni-processor.ts",
+        "src/**/*.d.ts",
+        // Integraciones externas y webhooks: se validan con contratos/manual en entorno real.
+        "src/integrations/didit/**",
+        "src/routes/didit-*.ts",
+        // Handler Prisma/raw SQL de alumnos y mensualidades; validado por integración/e2e.
+        "src/routes/admin-students.ts",
         "src/services/analytics/**",
         "src/services/exports/**",
         // RF-10: handlers Prisma + OpenAI; cobertura vía tests puntuales (heuristics, date-range) y ruta admin mockeada

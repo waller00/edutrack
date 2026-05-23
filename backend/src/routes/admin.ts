@@ -1,14 +1,14 @@
 import { Router } from 'express'
 import { Prisma, AuditAction } from '@prisma/client'
-import { prisma } from '../prisma.js'
-import { authGuard, requireRole } from '../middlewares/auth.js'
+import { prisma } from '../db/prisma.js'
+import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
-import { onlyDigits, isValidUruguayanCI } from '../uruguay-ci.js'
-import { validateNationalIdDocumentExpiresAtUpdate } from '../auth-profile-pure.js'
-import { isDiditConfigured } from '../system-settings.js'
-import { getOrCreateSystemSettings } from '../system-settings.js'
-import { normalizePermissionId } from '../profile-permissions-defaults.js'
+import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
+import { validateNationalIdDocumentExpiresAtUpdate } from '../auth/auth-profile-pure.js'
+import { isDiditConfigured } from '../config/system-settings.js'
+import { getOrCreateSystemSettings } from '../config/system-settings.js'
+import { normalizePermissionId } from '../identity/profile-permissions-defaults.js'
 import {
   createProfileRoleWithPermissions,
   createCustomPermissionForRole,
@@ -20,9 +20,9 @@ import {
   replaceRolePermissionGrants,
   roleHasPermissionAssignment,
   updateRolePermissionGrant,
-} from '../profile-permissions-repository.js'
-import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js'
-import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../org-role-service.js'
+} from '../identity/profile-permissions-repository.js'
+import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
+import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../identity/org-role-service.js'
 import {
   AUDIT_ACTION_LABELS,
   getAuditActionCatalog,
@@ -30,9 +30,12 @@ import {
   recordAuditEvent,
 } from '../services/audit-log.js'
 import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
+import { ensureMoodleUserById } from '../services/moodle.js'
+import adminStudentsRoutes from './admin-students.js'
+import adminSchoolYearsRoutes from './admin-school-years.js'
 
 const r = Router()
-r.use(authGuard, requireRole('ADMIN'))
+r.use(authGuard)
 
 async function resolveActiveOrgRole(roleCodeRaw: string) {
   const code = roleCodeRaw.trim().toUpperCase()
@@ -160,7 +163,9 @@ function computeAuditUserFieldsChanged(
 
 function messageForUniqueViolation(err: Prisma.PrismaClientKnownRequestError): string {
   const raw = err.meta?.target as string | string[] | undefined
-  const parts = Array.isArray(raw) ? raw.map(String) : raw != null ? [String(raw)] : []
+  let parts: string[] = []
+  if (Array.isArray(raw)) parts = raw.map(String)
+  else if (raw != null) parts = [String(raw)]
   const joined = parts.join(' ')
   if (joined.includes('nationalId')) {
     return 'Esa cédula ya está asignada a otro usuario. Quitá la cédula del otro usuario primero o usá una cédula distinta.'
@@ -186,7 +191,7 @@ async function replyProfilePayload(res: { json: (b: unknown) => void }) {
 }
 
 // --- Roles de organización (CRUD liviano para roles custom) ---
-r.get('/org-roles', async (_req, res) => {
+r.get('/org-roles', requirePermission('profiles.manage', 'all'), async (_req, res) => {
   const rows = await prisma.orgRole.findMany({
     orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
     select: { id: true, code: true, label: true, builtIn: true, active: true, sortOrder: true },
@@ -194,7 +199,7 @@ r.get('/org-roles', async (_req, res) => {
   res.json(rows)
 })
 
-r.post('/org-roles', async (req, res) => {
+r.post('/org-roles', requirePermission('profiles.manage', 'all'), async (req, res) => {
   const parsed = z.object({
     code: z.string().min(2).max(48),
     label: z.string().min(2).max(80),
@@ -224,7 +229,7 @@ r.post('/org-roles', async (req, res) => {
   }
 })
 
-r.patch('/org-roles/:code', async (req, res) => {
+r.patch('/org-roles/:code', requirePermission('profiles.manage', 'all'), async (req, res) => {
   const code = normalizeOrgRoleCode(req.params.code)
   const parsed = z.object({
     label: z.string().min(2).max(80).optional(),
@@ -250,7 +255,7 @@ r.patch('/org-roles/:code', async (req, res) => {
   }
 })
 
-r.delete('/org-roles/:code', async (req, res) => {
+r.delete('/org-roles/:code', requirePermission('profiles.manage', 'all'), async (req, res) => {
   const code = normalizeOrgRoleCode(req.params.code)
   const existing = await prisma.orgRole.findUnique({ where: { code } })
   if (!existing) return res.status(404).json({ message: 'Rol no encontrado' })
@@ -262,7 +267,7 @@ r.delete('/org-roles/:code', async (req, res) => {
 })
 
 // Listar usuarios (paginado + filtro + búsqueda)
-r.get('/users', async (req, res) => {
+r.get('/users', requirePermission('users.read', 'all'), async (req, res) => {
   const page = Number((req.query.page as string) || 1)
   const pageSize = Math.min(Number((req.query.pageSize as string) || 20), 100)
   const role = ((req.query.role as string) || '').trim().toUpperCase() || undefined
@@ -345,7 +350,7 @@ r.get('/users', async (req, res) => {
 })
 
 // Gestión de perfiles: tabla Permission + RolePermission (por código de OrgRole en la URL).
-r.get('/profiles', async (_req, res) => {
+r.get('/profiles', requirePermission('profiles.manage', 'all'), async (_req, res) => {
   await ensureDefaultProfilePermissionsIfNeeded()
   return replyProfilePayload(res)
 })
@@ -373,7 +378,7 @@ function profileGrantsFromBody(grants: Array<z.infer<typeof profileGrantSchema>>
   }))
 }
 
-r.post('/profiles', async (req, res) => {
+r.post('/profiles', requirePermission('profiles.manage', 'all'), async (req, res) => {
   await ensureDefaultProfilePermissionsIfNeeded()
   const parsed = z.object({
     code: z.string().min(2).max(48),
@@ -408,7 +413,7 @@ r.post('/profiles', async (req, res) => {
   return res.status(201).json(await buildProfilePayload())
 })
 
-r.put('/profiles/:role/permissions', async (req, res) => {
+r.put('/profiles/:role/permissions', requirePermission('profiles.manage', 'all'), async (req, res) => {
   await ensureDefaultProfilePermissionsIfNeeded()
   const exists = await resolveActiveOrgRole(req.params.role)
   if (!exists) return res.status(404).json({ message: 'Rol no encontrado' })
@@ -429,7 +434,7 @@ r.put('/profiles/:role/permissions', async (req, res) => {
   return replyProfilePayload(res)
 })
 
-r.put('/profiles/:role/permissions/:permissionId', async (req, res) => {
+r.put('/profiles/:role/permissions/:permissionId', requirePermission('profiles.manage', 'all'), async (req, res) => {
   const exists = await resolveActiveOrgRole(req.params.role)
   if (!exists) return res.status(404).json({ message: 'Rol no encontrado' })
 
@@ -446,7 +451,7 @@ r.put('/profiles/:role/permissions/:permissionId', async (req, res) => {
   return replyProfilePayload(res)
 })
 
-r.post('/profiles/:role/permissions', async (req, res) => {
+r.post('/profiles/:role/permissions', requirePermission('profiles.manage', 'all'), async (req, res) => {
   const exists = await resolveActiveOrgRole(req.params.role)
   if (!exists) return res.status(404).json({ message: 'Rol no encontrado' })
 
@@ -483,7 +488,7 @@ r.post('/profiles/:role/permissions', async (req, res) => {
 })
 
 // Crear usuario
-r.post('/users', async (req, res) => {
+r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
   const parsed = z
     .object({
       email: z.string().email(),
@@ -525,11 +530,12 @@ r.post('/users', async (req, res) => {
     entityId: user.id,
     metadata: { email: user.email },
   })
+  void ensureMoodleUserById(user.id)
   res.json({ id: user.id })
 })
 
 // Editar datos sensibles
-r.put('/users/:id', async (req, res) => {
+r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) => {
   const id = req.params.id
   const parsed = z
     .object({
@@ -651,10 +657,16 @@ r.put('/users/:id', async (req, res) => {
     entityId: id,
     metadata: { fieldsChanged: fieldsChangedSemantic },
   })
+  if (
+    beforeSnapshot.isApproved === false &&
+    parsed.data.isApproved === true
+  ) {
+    void ensureMoodleUserById(id)
+  }
   res.json({ ok: true })
 })
 
-r.put('/users/:id/lock', async (req, res) => {
+r.put('/users/:id/lock', requirePermission('users.security', 'all'), async (req, res) => {
   const id = req.params.id
   const lock = req.query.lock === 'true'
   const u = await prisma.user.findUnique({
@@ -681,7 +693,7 @@ r.put('/users/:id/lock', async (req, res) => {
   res.json({ ok: true })
 })
 
-r.post('/users/:id/password/reset', async (req, res) => {
+r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), async (req, res) => {
   const id = req.params.id
   const u = await prisma.user.findUnique({
     where: { id },
@@ -705,7 +717,7 @@ r.post('/users/:id/password/reset', async (req, res) => {
   res.json({ token, expiresAt })
 })
 
-r.get('/system-settings', async (_req, res) => {
+r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_req, res) => {
   const row = await getOrCreateSystemSettings()
   return res.json({
     diditConfigured: isDiditConfigured(),
@@ -720,7 +732,7 @@ r.get('/system-settings', async (_req, res) => {
   })
 })
 
-r.put('/system-settings', async (req, res) => {
+r.put('/system-settings', requirePermission('settings.manage', 'all'), async (req, res) => {
   const parsed = z
     .object({
       livenessCheckEnabled: z.boolean().optional(),
@@ -774,7 +786,7 @@ r.put('/system-settings', async (req, res) => {
   })
 })
 
-r.get('/audit-logs', async (req, res) => {
+r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) => {
   const parsed = z
     .object({
       page: z.coerce.number().int().min(1).optional().default(1),
@@ -847,8 +859,11 @@ r.get('/audit-logs', async (req, res) => {
   })
 })
 
+r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRoutes)
+r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSchoolYearsRoutes)
+
 /** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
-r.post('/query-assistant', async (req, res) => {
+r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), async (req, res) => {
   const parsed = z.object({ question: z.string().min(1).max(2000) }).safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ message: 'Pregunta inválida', errors: parsed.error.errors })

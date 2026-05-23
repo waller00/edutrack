@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { authGuard } from "../middlewares/auth.js";
-import { prisma } from "../prisma.js";
+import { prisma } from "../db/prisma.js";
 
 const r = Router();
 

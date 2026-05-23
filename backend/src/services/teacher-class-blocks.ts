@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../app-timezone.js'
+import { APP_TIMEZONE, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../config/app-timezone.js'
 
 export type ClassEventSlot = {
   id: string

@@ -1,8 +1,8 @@
 'use client'
 
-import RoleGuard from '@/components/RoleGuard'
+import RoleGuard from '@/components/auth/RoleGuard'
 import { useCallback, useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   ADMIN_USERS_PAGE_SIZE,
   buildAdminUserEditChanges,
@@ -23,7 +23,7 @@ import {
   type AdminUserRow,
   type AdminUsersListFilters,
   type TriState,
-} from '@/lib/admin-users-display'
+} from '@/lib/admin/users-display'
 import { ChevronLeft, ChevronRight, Loader2, Search, Users } from 'lucide-react'
 
 type OrgRoleRow = { code: string; label: string; active: boolean }
@@ -289,7 +289,7 @@ export default function AdminUsersPage() {
     'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40'
 
   return (
-    <RoleGuard allow={['ADMIN']}>
+    <RoleGuard permission="users.read" permissionScope="all">
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">

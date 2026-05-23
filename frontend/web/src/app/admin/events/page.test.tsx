@@ -1,19 +1,19 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminEvents from './page'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 
-vi.mock('@/components/RoleGuard', () => ({
+vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
 }))
-vi.mock('@/components/DateRangeFields', () => ({
+vi.mock('@/components/forms/DateRangeFields', () => ({
   default: () => <div data-testid="dr" />,
 }))
-vi.mock('@/components/PaginationControls', () => ({
+vi.mock('@/components/common/PaginationControls', () => ({
   default: () => <nav data-testid="pagination" />,
 }))
 
-vi.mock('@/lib/api', () => ({ api: vi.fn() }))
+vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 
 const baseEvent = {
@@ -53,6 +53,24 @@ describe('AdminEvents', () => {
 
     expect(await screen.findByText('Gestión de Eventos')).toBeInTheDocument()
     expect(await screen.findByText('No hay eventos')).toBeInTheDocument()
+  })
+
+  it('carga solo cursos activos para crear o filtrar eventos', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('events/all')) {
+        return { total: 0, page: 1, pageSize: 20, data: [] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).startsWith('/courses')) return []
+      return {}
+    })
+
+    render(<AdminEvents />)
+    await screen.findByText('No hay eventos')
+
+    const courseCalls = mockedApi.mock.calls.map((call) => String(call[0])).filter((url) => url.startsWith('/courses'))
+    expect(courseCalls).toContain('/courses')
+    expect(courseCalls.some((url) => url.includes('all=1'))).toBe(false)
   })
 
   it('cancela evento vía API', async () => {

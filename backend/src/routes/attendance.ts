@@ -1,15 +1,18 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../prisma.js';
-import { authGuard, requireRole, requireAnyRole } from '../middlewares/auth.js';
+import { prisma } from '../db/prisma.js';
+import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js';
 import {
   getDuplicateAttendanceMessage,
   getAttendanceStatus,
   buildBiometricAttendancePayload,
-  isBiometricLate,
-} from '../attendance-logic.js';
+} from '../attendance/attendance-logic.js';
 import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveReconciliation.js';
-import { attachRoleCode, selectOrgRoleCode } from '../user-role-prisma.js';
+import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
+import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attendance-school-year.js';
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
+import { findNonWorkingDayForDate } from '../services/non-working-days.js';
+import { getAttendanceOperationalSettings, isBiometricLateBySettings } from '../config/system-settings.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -91,8 +94,75 @@ function buildAdminAttendanceWhere(query: Record<string, unknown>) {
   return where
 }
 
+function wantsIncidentRows(query: Record<string, unknown>) {
+  return query.includeIncidents === '1' || query.includeIncidents === 'true'
+}
+
+function buildAdminAttendanceIncidentWhere(query: Record<string, unknown>, attendanceWhere: any) {
+  const { startDate, endDate, userId, eventId, eventType, role } = query
+  const where: any = {
+    type: 'TEACHER_NO_SHOW',
+  }
+
+  if (startDate || endDate) {
+    where.detectedAt = {}
+    if (startDate) where.detectedAt.gte = new Date(startDate as string)
+    if (endDate) where.detectedAt.lte = new Date(endDate as string)
+  }
+
+  if (userId) where.userId = userId
+  if (eventId) where.eventId = eventId
+
+  if (eventType || attendanceWhere.event) {
+    where.event = {
+      ...(attendanceWhere.event && typeof attendanceWhere.event === 'object' ? attendanceWhere.event : {}),
+      ...(eventType ? { type: eventType as any } : {}),
+    }
+    where.eventId = {
+      ...(where.eventId ? { equals: where.eventId } : {}),
+      not: null,
+    }
+  }
+
+  if (role) {
+    where.user = {
+      orgRole: { code: String(role).toUpperCase() },
+    }
+  }
+
+  return where
+}
+
+function mapAttendanceIncidentAsFeedRow(row: any) {
+  const when = row.detectedAt ?? row.createdAt
+  return {
+    id: `incident:${row.id}`,
+    kind: 'INCIDENT',
+    incidentId: row.id,
+    incidentType: row.type,
+    incidentStatus: row.status,
+    severity: row.severity,
+    title: row.title,
+    description: row.description,
+    type: 'INCIDENT',
+    status: 'ABSENT_NOT_JUSTIFIED',
+    date: when,
+    time: when,
+    notes: row.description ?? null,
+    user: row.user ? attachRoleCode(row.user) : row.user,
+    event: row.event,
+  }
+}
+
+function shouldCountIncidentAbsencesInStats(query: Record<string, unknown>) {
+  if (!wantsIncidentRows(query)) return false
+  if (query.type && query.type !== 'CHECK_IN') return false
+  if (query.status && query.status !== 'ABSENT_NOT_JUSTIFIED') return false
+  return true
+}
+
 // Registrar asistencia (CHECK_IN o CHECK_OUT)
-r.post('/register', authGuard, async (req, res) => {
+r.post('/register', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
@@ -142,6 +212,15 @@ r.post('/register', authGuard, async (req, res) => {
 
     const evStart = event.startTime ? new Date(event.startTime) : new Date(event.startDate)
     const evEnd = event.endTime ? new Date(event.endTime) : evStart
+    const nonWorkingDay = await findNonWorkingDayForDate(evStart)
+    if (nonWorkingDay) {
+      return res.status(403).json({
+        message: `No se puede registrar asistencia: ${nonWorkingDay.reason}`,
+        code: 'ATTENDANCE_BLOCKED_BY_NON_WORKING_DAY',
+        nonWorkingDayId: nonWorkingDay.id,
+      })
+    }
+
     const blockingLicense = await findApprovedLicenseCoveringEventTime(user.sub, evStart, evEnd)
     if (blockingLicense) {
       return res.status(403).json({
@@ -153,12 +232,14 @@ r.post('/register', authGuard, async (req, res) => {
     }
 
     const actualTime = new Date(time);
+    const runtimeSettings = await getAttendanceOperationalSettings();
     const status = getAttendanceStatus({
       type,
       actualTime,
       startTime: event.startTime,
       endTime: event.endTime,
       hasApprovedLicense: false,
+      lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
     });
 
     const attendance = await prisma.attendance.create({
@@ -189,7 +270,7 @@ r.post('/register', authGuard, async (req, res) => {
 });
 
 // Obtener asistencias del usuario actual
-r.get('/my-attendances', authGuard, async (req, res) => {
+r.get('/my-attendances', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
@@ -228,11 +309,58 @@ r.get('/my-attendances', authGuard, async (req, res) => {
 });
 
 // Obtener todas las asistencias (solo ADMIN)
-r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req, res) => {
   try {
     const page = Number(req.query.page) || 1;
     const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
-    const where = buildAdminAttendanceWhere(req.query as Record<string, unknown>)
+    const q = req.query as Record<string, unknown>;
+    const where = buildAdminAttendanceWhere(q)
+    await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, req.user?.role ?? 'ADMIN')
+
+    if (wantsIncidentRows(q)) {
+      const incidentWhere = buildAdminAttendanceIncidentWhere(q, where)
+      const fetchForMerge = page * pageSize
+      const [attendanceTotal, incidentTotal, attendanceRows, incidentRows] = await Promise.all([
+        prisma.attendance.count({ where }),
+        prisma.attendanceIncident.count({ where: incidentWhere }),
+        prisma.attendance.findMany({
+          where,
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+            },
+            event: {
+              select: { id: true, title: true, type: true, startTime: true, endTime: true }
+            }
+          },
+          orderBy: [{ date: 'desc' }, { time: 'desc' }],
+          take: fetchForMerge,
+        }),
+        prisma.attendanceIncident.findMany({
+          where: incidentWhere,
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
+            },
+            event: {
+              select: { id: true, title: true, type: true, startTime: true, endTime: true }
+            },
+          },
+          orderBy: { detectedAt: 'desc' },
+          take: fetchForMerge,
+        }),
+      ]);
+
+      const merged = [...attendanceRows.map(mapAttendanceUser), ...incidentRows.map(mapAttendanceIncidentAsFeedRow)]
+        .sort((a: any, b: any) => {
+          const aTime = new Date(a.time ?? a.date).getTime()
+          const bTime = new Date(b.time ?? b.date).getTime()
+          return bTime - aTime
+        })
+        .slice((page - 1) * pageSize, page * pageSize)
+
+      return res.json({ total: attendanceTotal + incidentTotal, page, pageSize, data: merged });
+    }
 
     const [total, attendances] = await Promise.all([
       prisma.attendance.count({ where }),
@@ -260,7 +388,7 @@ r.get('/all', authGuard, requireRole('ADMIN'), async (req, res) => {
 })
 
 // Actualizar asistencia (solo ADMIN)
-r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.put('/:id', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
   try {
     const { id } = req.params;
     const parsed = attendanceUpdateSchema.safeParse(req.body);
@@ -290,9 +418,11 @@ r.put('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
 });
 
 // Eliminar todas las asistencias (solo ADMIN)
-r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
+r.delete('/purge-all', authGuard, requirePermission('attendance.delete', 'all'), async (_req, res) => {
   try {
-    const where = buildAdminAttendanceWhere(_req.query as Record<string, unknown>)
+    const q = _req.query as Record<string, unknown>
+    const where = buildAdminAttendanceWhere(q)
+    await attachResolvedSchoolYearToAttendanceWhere(prisma, where, q, _req.user?.role ?? 'ADMIN')
     const matches = await prisma.attendance.findMany({
       where,
       select: { id: true },
@@ -322,7 +452,7 @@ r.delete('/purge-all', authGuard, requireRole('ADMIN'), async (_req, res) => {
 });
 
 // Eliminar asistencia (solo ADMIN)
-r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.delete('/:id', authGuard, requirePermission('attendance.delete', 'all'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -337,45 +467,34 @@ r.delete('/:id', authGuard, requireRole('ADMIN'), async (req, res) => {
   }
 });
 
+async function buildAttendanceStatsWhereAsync(query: Record<string, unknown>, user: { role: string; sub: string }) {
+  const where = buildAdminAttendanceWhere(query)
+  await attachResolvedSchoolYearToAttendanceWhere(prisma, where, query, user.role)
+  const scope = await userPermissionScope(user.sub, 'attendance.read', user.role)
+  if (scope !== 'all') {
+    where.userId = user.sub
+  }
+  /** Tasas de presencia/ausencia/tarde solo aplican a entradas; las salidas (EXIT) no deben inflar el total. */
+  if (!query.type) {
+    where.type = 'CHECK_IN'
+  }
+  return where
+}
+
 // Obtener estadísticas de asistencias
-r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res) => {
+r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
-    const { startDate, endDate, userId, eventType, eventId, type, status, role } = req.query;
-    
-    const where: any = {};
-    
-    applyDateRangeFilter(where, startDate, endDate)
+    const where = await buildAttendanceStatsWhereAsync(req.query as Record<string, unknown>, user)
 
-    // Si no es ADMIN, solo puede ver sus propias estadísticas
-    if (user.role !== 'ADMIN') {
-      where.userId = user.sub;
-    } else if (userId) {
-      where.userId = userId;
-    }
+    const includeIncidentAbsences = shouldCountIncidentAbsencesInStats(req.query as Record<string, unknown>)
+    const incidentWhere = includeIncidentAbsences
+      ? buildAdminAttendanceIncidentWhere(req.query as Record<string, unknown>, where)
+      : null
 
-    // Filtros equivalentes a los usados para el listado
-    if (user.role === 'ADMIN' && role) {
-      where.user = { role: role as any };
-    }
-    if (eventType) {
-      where.event = { type: eventType as any };
-      // Asegura que eventId no sea null cuando filtramos por tipo de evento
-      where.eventId = { not: null };
-    }
-    if (eventId) {
-      where.eventId = eventId as string;
-    }
-    if (type) {
-      where.type = type as any;
-    }
-    if (status) {
-      where.status = status as any;
-    }
-
-    const [totalAttendances, presentCount, absentCount, lateCount, medicalLeaveCount] = await Promise.all([
+    const [attendanceTotal, presentCount, attendanceAbsentCount, lateCount, medicalLeaveCount, incidentAbsentCount] = await Promise.all([
       prisma.attendance.count({ where }),
       prisma.attendance.count({ where: { ...where, status: 'PRESENT' } }),
       prisma.attendance.count({
@@ -385,13 +504,15 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
         },
       }),
       prisma.attendance.count({ where: { ...where, status: 'LATE' } }),
-      // Para el panel de asistencias, "médica" se refleja como ausencia justificada.
       prisma.attendance.count({ where: { ...where, status: 'ABSENT_JUSTIFIED' } }),
+      incidentWhere ? prisma.attendanceIncident.count({ where: incidentWhere }) : Promise.resolve(0),
     ])
 
-    const attendanceRate = totalAttendances > 0 ? (presentCount / totalAttendances) * 100 : 0;
-    const lateRate = totalAttendances > 0 ? (lateCount / totalAttendances) * 100 : 0;
-    const absenceRate = totalAttendances > 0 ? (absentCount / totalAttendances) * 100 : 0;
+    const totalAttendances = attendanceTotal + incidentAbsentCount
+    const absentCount = attendanceAbsentCount + incidentAbsentCount
+    const attendanceRate = totalAttendances > 0 ? (presentCount / totalAttendances) * 100 : 0
+    const lateRate = totalAttendances > 0 ? (lateCount / totalAttendances) * 100 : 0
+    const absenceRate = totalAttendances > 0 ? (absentCount / totalAttendances) * 100 : 0
 
     res.json({
       totalAttendances,
@@ -410,7 +531,7 @@ r.get('/stats', authGuard, requireAnyRole(['ADMIN', 'TEACHER']), async (req, res
 });
 
 // Registrar asistencia automática (desde sistema biométrico)
-r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all'), async (req, res) => {
   try {
     const { userId, timestamp, deviceId } = req.body;
     
@@ -429,6 +550,15 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
           'Marcación biométrica no permitida: instante cubierto por licencia médica aprobada. Debe figurar como inasistencia justificada.',
         code: 'BIOMETRIC_BLOCKED_BY_LICENSE',
         licenseId: licBio.id,
+      });
+    }
+
+    const nonWorkingDay = await findNonWorkingDayForDate(attendanceTime)
+    if (nonWorkingDay) {
+      return res.status(403).json({
+        message: `Marcación biométrica no permitida: ${nonWorkingDay.reason}`,
+        code: 'BIOMETRIC_BLOCKED_BY_NON_WORKING_DAY',
+        nonWorkingDayId: nonWorkingDay.id,
       });
     }
 
@@ -470,7 +600,8 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
       });
     }
 
-    const isLate = isBiometricLate(attendanceTime)
+    const runtimeSettings = await getAttendanceOperationalSettings()
+    const isLate = isBiometricLateBySettings(attendanceTime, runtimeSettings)
     
     const entryAttendance = await prisma.attendance.create({
       data: buildBiometricAttendancePayload({ userId, attendanceDate, attendanceTime, deviceId, isLate, type: 'CHECK_IN' }),
@@ -492,7 +623,7 @@ r.post('/biometric', authGuard, requireRole('ADMIN'), async (req, res) => {
 });
 
 // Agregar nota a asistencia existente (para retrasos o salidas anticipadas)
-r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), async (req, res) => {
+r.post('/:id/note', authGuard, requirePermission('attendance.update'), async (req, res) => {
   try {
     const { id } = req.params;
     const { note, markLate, markEarlyExit } = req.body;
@@ -507,7 +638,8 @@ r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), as
     }
 
     // Verificar permisos
-    if (req.user.role !== 'ADMIN' && existingAttendance.userId !== req.user.sub) {
+    const attendanceUpdateScope = await userPermissionScope(req.user.sub, 'attendance.update', req.user.role)
+    if (attendanceUpdateScope !== 'all' && existingAttendance.userId !== req.user.sub) {
       return res.status(403).json({ message: 'No tienes permisos para modificar este registro' });
     }
 
@@ -544,9 +676,9 @@ r.post('/:id/note', authGuard, requireAnyRole(['ADMIN', 'TEACHER', 'STAFF']), as
 });
 
 // Marcar ausencias automáticamente basadas en eventos y licencias médicas (solo admin)
-r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
   try {
-    const { startDate, endDate, userId } = req.body;
+    const { startDate, endDate, userId, schoolYearId: bodySchoolYearId, allYears: bodyAllYears } = req.body ?? {};
 
     if (!startDate || !endDate) {
       return res.status(400).json({ message: 'startDate y endDate son requeridos' });
@@ -555,6 +687,14 @@ r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
+    const allYears = bodyAllYears === true || bodyAllYears === '1';
+    const resolvedSchoolYearId = allYears
+      ? undefined
+      : await resolveSchoolYearIdForList(prisma, {
+          role: 'ADMIN',
+          requestedSchoolYearId: typeof bodySchoolYearId === 'string' ? bodySchoolYearId : undefined,
+        });
+
     // Obtener todos los eventos en el rango de fechas
     const events = await prisma.event.findMany({
       where: {
@@ -562,7 +702,8 @@ r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
           gte: start,
           lte: end
         },
-        ...(userId && { assignedUserId: userId })
+        ...(userId && { assignedUserId: userId }),
+        ...(resolvedSchoolYearId && { schoolYearId: resolvedSchoolYearId }),
       },
       include: {
         assignedUser: {
@@ -576,6 +717,11 @@ r.post('/mark-absences', authGuard, requireRole('ADMIN'), async (req, res) => {
     for (const event of events) {
       const eventDate = new Date(event.startDate);
       eventDate.setHours(0, 0, 0, 0);
+
+      const nonWorkingDay = await findNonWorkingDayForDate(new Date(event.startTime || event.startDate));
+      if (nonWorkingDay) {
+        continue;
+      }
 
       // Verificar si ya existe una asistencia para este evento en esta fecha
       const existingAttendance = await prisma.attendance.findFirst({

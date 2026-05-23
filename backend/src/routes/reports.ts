@@ -1,7 +1,8 @@
 import { Router } from 'express'
-import { authGuard, requireRole } from '../middlewares/auth.js'
-import { prisma } from '../prisma.js'
-import { selectOrgRoleCode } from '../user-role-prisma.js'
+import { authGuard, requirePermission } from '../middlewares/auth.js'
+import { prisma } from '../db/prisma.js'
+import { selectOrgRoleCode } from '../identity/user-role-prisma.js'
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 
@@ -118,7 +119,7 @@ export function getTruncatedText(value: string | undefined, maxLength: number, f
 }
 
 // Generar reporte de asistencias
-r.get('/report', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/report', authGuard, requirePermission('reports.read', 'all'), async (req, res) => {
   try {
     const { format = 'excel' } = req.query
 
@@ -647,16 +648,28 @@ export async function generatePDFReport(data: any, res: any, filters: any) { // 
 }
 
 // Obtener eventos asignados a un usuario específico
-r.get('/user-events/:userId', authGuard, requireRole('ADMIN'), async (req, res) => {
+r.get('/user-events/:userId', authGuard, requirePermission('reports.read', 'all'), async (req, res) => {
   try {
     const { userId } = req.params
     const { startDate, endDate } = req.query
+
+    const allYears = req.query.allYears === '1'
+    const schoolYearId = allYears
+      ? undefined
+      : await resolveSchoolYearIdForList(prisma, {
+          role: req.user?.role,
+          requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
+        })
 
     const where: any = {
       OR: [
         { userId: userId },
         { assignedUserId: userId }
       ]
+    }
+
+    if (schoolYearId) {
+      where.schoolYearId = schoolYearId
     }
 
     if (startDate || endDate) {

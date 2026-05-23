@@ -1,5 +1,5 @@
 import webpush from "web-push";
-import { prisma } from "../prisma.js";
+import { prisma } from "../db/prisma.js";
 
 let vapidApplied = false;
 

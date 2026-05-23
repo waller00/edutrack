@@ -4,7 +4,12 @@ export const DATABASE_CONTEXT = `Contexto de base de datos disponible (estructur
 - Tabla "Attendance": marcas de asistencia. Campos: "id", "userId", "eventId", "type", "status", "date", "time", "notes". "type": CHECK_IN/CHECK_OUT. "status" incluye PRESENT, LATE, ABSENT_NOT_JUSTIFIED, ABSENT_JUSTIFIED, EXIT, EARLY_EXIT.
 - Tabla "AttendanceIncident": incidencias derivadas de asistencia. Campos: "id", "userId", "eventId", "attendanceId", "type", "status", "title", "description", "detectedAt". "type": LATE_ARRIVAL (llegada tarde), TEACHER_NO_SHOW (falta/ausencia docente), EARLY_EXIT (salida anticipada). "status": OPEN, ACKNOWLEDGED, RESOLVED.
 - Tabla "Event": clases, jornadas, reuniones y turnos. Campos: "id", "title", "type", "status", "startDate", "endDate", "startTime", "endTime", "userId", "assignedUserId", "courseId". Para eventos asignados a docentes/personal, "assignedUserId" es la persona asignada.
-- Tabla "Course": cursos/grupos asociados a eventos. Campos: "id", "name", "code", "isActive".
+- Tabla "SchoolYear": ciclo lectivo (PLANNED/ACTIVE/CLOSED). Campos: "id", "code" (año entero, ej. 2026), "label", "startsOn", "endsOn", "status". Solo uno debería estar ACTIVE.
+- Tabla "Course": incluye "schoolYearId" (FK opcional tras migración; el listado filtra por ciclo).
+- Tabla "Event": incluye "schoolYearId" (FK opcional; turnos del ciclo).
+- Tabla "Student": incluye "schoolYearId" (matrícula administrativa por ciclo).
+- Tabla "Student": estudiante administrativo (sin cuenta de login). Campos: "firstName", "lastName", "documentId", "courseId", "contactPhone", "tutorPhone", "contactEmail", "address", "healthCardExpiresAt", "liceoAccessNotes", "enrollmentStatus" (ACTIVE/WITHDRAWN/GRADUATED/TRANSFERRED), "withdrawnAt", "withdrawalAcademicYear", "internalNotes", "createdAt".
+- Tabla "StudentTuitionYear": cuota anual por estudiante. Campos: "studentId", "year", "paid", "paidAt", "amountCents", "notes". Un registro por par (studentId, year).
 - Tabla "MedicalLeave": licencias o permisos. Campos: "id", "userId", "type", "status", "startDate", "endDate", "reason", "doctorName". "status": ACTIVE/INACTIVE. El período de licencia se interpreta por solapamiento con el rango pedido.
 - Tabla "BiometricPunch": marcas crudas del reloj biométrico. Campos: "id", "userId", "deviceUserId", "occurredAt", "punchType", "processStatus", "processError". "processStatus": PENDING, PROCESSED, FAILED, DUPLICATE.
 - Tabla "AuditLog": auditoría del sistema. Campos: "id", "occurredAt", "action", "actorUserId", "actorIp", "source", "entityType", "entityId", "metadata".
