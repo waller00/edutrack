@@ -12,6 +12,10 @@ vi.mock('@/components/notifications/WebPushSection', () => ({
   default: () => null,
 }))
 
+vi.mock('@/components/profile/BiometricLinkSection', () => ({
+  default: () => null,
+}))
+
 vi.mock('@/components/forms/PhoneBirthdateFields', () => ({
   default({
     phoneLocal,
