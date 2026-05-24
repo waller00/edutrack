@@ -3,7 +3,7 @@
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
-import { ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
+import { CalendarDays, ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
 import { useCallback, useState } from 'react'
 
 type Column = { key: string; label: string }
@@ -104,6 +104,64 @@ export default function AdminQueryAssistantPage() {
             </p>
           </div>
         </div>
+
+        {syCtx && (
+          <section className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                  <CalendarDays className="h-5 w-5" aria-hidden />
+                </span>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Filtro de ciclo lectivo</h2>
+                  <p className="mt-1 text-xs text-gray-500">
+                    El asistente consulta este ciclo salvo que marques todos los ciclos.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label htmlFor="qa-school-year" className="sr-only">
+                  Ciclo lectivo
+                </label>
+                <select
+                  id="qa-school-year"
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[240px] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={syCtx.loading || syCtx.allYears}
+                  value={syCtx.selectedId ?? syCtx.activeId ?? ''}
+                  onChange={(e) => {
+                    syCtx.setAllYears(false)
+                    syCtx.setSelectedId(e.target.value || null)
+                    setResult(null)
+                    setError(null)
+                  }}
+                >
+                  {syCtx.loading ? (
+                    <option value="">Cargando ciclos...</option>
+                  ) : (
+                    syCtx.years.map((year) => (
+                      <option key={year.id} value={year.id}>
+                        {year.code} — {year.label}
+                        {year.status === 'ACTIVE' ? ' (actual)' : ''}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={syCtx.allYears}
+                    onChange={(e) => {
+                      syCtx.setAllYears(e.target.checked)
+                      setResult(null)
+                      setError(null)
+                    }}
+                  />
+                  Todos los ciclos
+                </label>
+              </div>
+            </div>
+          </section>
+        )}
 
         <details className="group rounded-xl border border-slate-200 bg-slate-50/80 open:bg-white open:shadow-sm">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-slate-800 [&::-webkit-details-marker]:hidden">
