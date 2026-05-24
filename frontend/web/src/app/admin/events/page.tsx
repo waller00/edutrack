@@ -528,7 +528,7 @@ export default function AdminEvents() {
 
   return (
     <RoleGuard permission="events.read" permissionScope="all">
-      <main className="mx-auto max-w-7xl p-6 space-y-6">
+      <main className="mx-auto w-full max-w-[1600px] p-6 space-y-6">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
@@ -686,11 +686,19 @@ export default function AdminEvents() {
           {loading ? (
             <div className="p-6 text-center text-gray-500">Cargando...</div>
           ) : renderEventsEmptyState(events) || (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-hidden">
+              <table className="w-full table-fixed">
+                <colgroup>
+                  <col className="w-10" />
+                  <col className="w-[32%]" />
+                  <col className="w-[24%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[12%]" />
+                </colgroup>
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                       <input
                         type="checkbox"
                         checked={events.length > 0 && selectedEventIds.length === events.length}
@@ -698,22 +706,17 @@ export default function AdminEvents() {
                         aria-label="Seleccionar todos los eventos"
                       />
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Título</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Curso</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Asignatura</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Inicio</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Fin</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Curso y asignatura</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Horario</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Asignado</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Asistencias</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {events.map((event) => (
                     <tr key={event.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <td className="px-4 py-4 align-top text-sm">
                         <input
                           type="checkbox"
                           checked={selectedEventIds.includes(event.id)}
@@ -721,89 +724,83 @@ export default function AdminEvents() {
                           aria-label={`Seleccionar evento ${event.title}`}
                         />
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div>
-                          <div className="font-medium text-gray-900">{event.title}</div>
+                      <td className="px-4 py-4 align-top text-sm">
+                        <div className="min-w-0 space-y-2">
+                          <div className="font-medium text-gray-900 break-words">{event.title}</div>
                           {event.description && (
-                            <div className="text-gray-500 text-xs">{event.description}</div>
+                            <div className="line-clamp-2 text-gray-500 text-xs break-words">{event.description}</div>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {getAdminEventTypeLabel(event.type)}
+                            </span>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminEventStatusStyle(event.status)}`}>
+                              {getAdminEventStatusLabel(event.status)}
+                            </span>
+                            <span className="text-xs text-gray-500">{event._count.attendances} asist.</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 align-top text-sm text-gray-900">
+                        <div className="min-w-0 space-y-2">
+                          {event.course ? (
+                            <div>
+                              <div className="font-medium break-words">{event.course.name}</div>
+                              {event.course.code ? (
+                                <div className="text-xs text-gray-500 break-words">{event.course.code}</div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">Sin curso</span>
+                          )}
+                          {event.subject ? (
+                            <div className="border-t border-gray-100 pt-2">
+                              <div className="break-words">{event.subject.name}</div>
+                              {event.subject.code ? (
+                                <div className="text-xs text-gray-500 break-words">{event.subject.code}</div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-gray-400">Sin asignatura</div>
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {getAdminEventTypeLabel(event.type)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {event.course ? (
-                          <div>
-                            <div className="font-medium">{event.course.name}</div>
-                            {event.course.code ? (
-                              <div className="text-xs text-gray-500">{event.course.code}</div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {event.subject ? (
-                          <div>
-                            <div className="font-medium">{event.subject.name}</div>
-                            {event.subject.code ? (
-                              <div className="text-xs text-gray-500">{event.subject.code}</div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <div>
+                      <td className="px-4 py-4 align-top text-sm text-gray-900">
+                        <div className="space-y-1">
                           <div>{formatDateInUruguay(event.startDate)}</div>
                           {event.startTime && (
                             <div className="text-xs text-gray-500">
-                              {formatTimeInUruguay(event.startTime)}
+                              Inicio {formatTimeInUruguay(event.startTime)}
                             </div>
                           )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <div>
                           {event.endDate ? (
                             <>
-                              <div>{formatDateInUruguay(event.endDate)}</div>
+                              {event.endDate !== event.startDate && (
+                                <div className="text-xs text-gray-500">Fin {formatDateInUruguay(event.endDate)}</div>
+                              )}
                               {event.endTime && (
                                 <div className="text-xs text-gray-500">
-                                  {formatTimeInUruguay(event.endTime)}
+                                  Fin {formatTimeInUruguay(event.endTime)}
                                 </div>
                               )}
                             </>
                           ) : (
-                            <span className="text-gray-400">Sin fecha fin</span>
+                            <span className="text-xs text-gray-400">Sin fecha fin</span>
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <td className="px-6 py-4 align-top text-sm">
                         {event.assignedUser ? (
-                          <div>
-                            <div className="font-medium text-gray-900">{event.assignedUser.username || event.assignedUser.name}</div>
+                          <div className="min-w-0">
+                            <div className="font-medium text-gray-900 break-words">{event.assignedUser.username || event.assignedUser.name}</div>
                             <div className="text-xs text-gray-500">{event.assignedUser.role}</div>
                           </div>
                         ) : (
                           <span className="text-gray-400">Sin asignar</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminEventStatusStyle(event.status)}`}>
-                          {getAdminEventStatusLabel(event.status)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {event._count.attendances}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div className="flex gap-2">
+                      <td className="px-4 py-4 align-top text-sm">
+                        <div className="flex flex-col items-start gap-2">
                           <button
                             onClick={() => setEditingEvent(event)}
                             className="text-indigo-600 hover:text-indigo-900"
