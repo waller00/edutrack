@@ -83,8 +83,99 @@ type User = {
 type AttendanceStatusOption = AttendanceRecord['status']
 type AttendanceTypeOption = Exclude<AttendanceRecord['type'], 'INCIDENT'>
 
+type AttendancePairRow = {
+  key: string
+  user: AttendanceRecord['user']
+  event?: AttendanceRecord['event']
+  dateTime: string
+  checkIn?: AttendanceRecord
+  checkOut?: AttendanceRecord
+  incident?: AttendanceRecord
+}
+
 function isIncidentRow(attendance: AttendanceRecord): boolean {
   return attendance.type === 'INCIDENT' || attendance.id.startsWith('incident:')
+}
+
+function getAttendanceGroupKey(attendance: AttendanceRecord): string {
+  const eventKey = attendance.event?.id ?? 'sin-evento'
+  const dateKey = attendance.date ? attendance.date.slice(0, 10) : attendance.time.slice(0, 10)
+  return `${attendance.user.id}:${eventKey}:${dateKey}`
+}
+
+function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePairRow[] {
+  const rows = new Map<string, AttendancePairRow>()
+
+  for (const attendance of attendances) {
+    if (isIncidentRow(attendance)) {
+      rows.set(attendance.id, {
+        key: attendance.id,
+        user: attendance.user,
+        event: attendance.event,
+        dateTime: attendance.time,
+        incident: attendance,
+      })
+      continue
+    }
+
+    const key = getAttendanceGroupKey(attendance)
+    const existing = rows.get(key)
+    const row = existing ?? {
+      key,
+      user: attendance.user,
+      event: attendance.event,
+      dateTime: attendance.time,
+    }
+
+    if (new Date(attendance.time).getTime() > new Date(row.dateTime).getTime()) {
+      row.dateTime = attendance.time
+    }
+
+    if (attendance.type === 'CHECK_IN') {
+      if (!row.checkIn || new Date(attendance.time).getTime() < new Date(row.checkIn.time).getTime()) {
+        row.checkIn = attendance
+      }
+    } else if (attendance.type === 'CHECK_OUT') {
+      if (!row.checkOut || new Date(attendance.time).getTime() > new Date(row.checkOut.time).getTime()) {
+        row.checkOut = attendance
+      }
+    }
+
+    rows.set(key, row)
+  }
+
+  return Array.from(rows.values()).sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+}
+
+function renderAttendanceMark(
+  attendance: AttendanceRecord | undefined,
+  fallback: string,
+  onEdit: (attendance: AttendanceRecord) => void,
+) {
+  if (!attendance) {
+    return <span className="text-sm text-gray-400">{fallback}</span>
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <div className="font-medium text-gray-900">{formatTimeInUruguay(attendance.time)}</div>
+        {attendance.event && (
+          <div className="text-xs text-gray-500">
+            Planificado: {getAdminAttendancePlannedTimeLabel(attendance)}
+          </div>
+        )}
+      </div>
+      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
+        {getAttendanceRowStatusLabel(attendance)}
+      </span>
+      <div>
+        <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
+          Editar
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function renderAttendancesTable(
@@ -98,6 +189,8 @@ function renderAttendancesTable(
   if (attendances.length === 0) {
     return <div className="p-6 text-center text-gray-500">No hay registros de asistencia</div>
   }
+
+  const rows = buildAttendancePairRows(attendances)
 
   return (
     <div className="overflow-x-auto">
@@ -114,87 +207,81 @@ function renderAttendancesTable(
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hora</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entrada</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Salida</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
-          {attendances.map((attendance) => (
-            <tr key={attendance.id} className={isIncidentRow(attendance) ? 'bg-red-50/20' : undefined}>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                {isIncidentRow(attendance) ? (
-                  <span className="text-xs text-gray-400">—</span>
-                ) : (
-                  <input
-                    type="checkbox"
-                    checked={selectedAttendanceIds.includes(attendance.id)}
-                    onChange={() => onToggleSelect(attendance.id)}
-                    aria-label={`Seleccionar asistencia de ${attendance.user.name}`}
-                  />
-                )}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <div>
-                  <div className="font-medium text-gray-900">{attendance.user.name}</div>
-                  <div className="text-gray-500">{attendance.user.email}</div>
-                  <div className="text-xs text-gray-400">{attendance.user.role}</div>
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {formatDateInUruguay(attendance.time)}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                <div className="flex flex-col">
-                  <div className="font-medium">
-                    {formatTimeInUruguay(attendance.time)}
-                  </div>
-                  {attendance.event && (
-                    <div className="text-xs text-gray-500">
-                      Planificado: {getAdminAttendancePlannedTimeLabel(attendance)}
-                    </div>
-                  )}
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {attendance.event ? (
-                  <div>
-                    <div className="font-medium">{attendance.event.title}</div>
-                    <div className="text-xs text-gray-500">{attendance.event.type}</div>
-                  </div>
-                ) : (
-                  <span className="text-gray-400">Sin evento</span>
-                )}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceTypeStyle(attendance.type)}`}>
-                  {getAdminAttendanceTypeLabel(attendance.type)}
-                </span>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
-                  {getAttendanceRowStatusLabel(attendance)}
-                </span>
-              </td>
-              <td className="px-6 py-4 text-sm text-gray-900">
-                {attendance.notes || attendance.description || '-'}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <div className="flex gap-2">
-                  {isIncidentRow(attendance) ? (
-                    <span className="text-xs text-gray-400">Solo lectura</span>
+          {rows.map((row) => {
+            const ids = [row.checkIn?.id, row.checkOut?.id].filter(Boolean) as string[]
+            const selected = ids.length > 0 && ids.every((id) => selectedAttendanceIds.includes(id))
+            const primaryAttendance = row.incident ?? row.checkIn ?? row.checkOut
+
+            if (!primaryAttendance) return null
+
+            return (
+              <tr key={row.key} className={row.incident ? 'bg-red-50/20' : undefined}>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  {row.incident ? (
+                    <span className="text-xs text-gray-400">—</span>
                   ) : (
-                    <button onClick={() => onEdit(attendance)} className="text-indigo-600 hover:text-indigo-900">
-                      Editar
-                    </button>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => {
+                        const idsToToggle = selected
+                          ? ids.filter((id) => selectedAttendanceIds.includes(id))
+                          : ids.filter((id) => !selectedAttendanceIds.includes(id))
+                        idsToToggle.forEach(onToggleSelect)
+                      }}
+                      aria-label={`Seleccionar asistencia de ${row.user.name}`}
+                    />
                   )}
-                </div>
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <div>
+                    <div className="font-medium text-gray-900">{row.user.name}</div>
+                    <div className="text-gray-500">{row.user.email}</div>
+                    <div className="text-xs text-gray-400">{row.user.role}</div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {formatDateInUruguay(primaryAttendance.time)}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {row.incident ? (
+                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceTypeStyle('INCIDENT')}`}>
+                      {getAdminAttendanceTypeLabel('INCIDENT')}
+                    </span>
+                  ) : renderAttendanceMark(row.checkIn, 'Sin entrada', onEdit)}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {row.incident ? (
+                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(row.incident.status)}`}>
+                      {getAttendanceRowStatusLabel(row.incident)}
+                    </span>
+                  ) : renderAttendanceMark(row.checkOut, 'Sin salida', onEdit)}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {row.event ? (
+                    <div>
+                      <div className="font-medium">{row.event.title}</div>
+                      <div className="text-xs text-gray-500">{row.event.type}</div>
+                    </div>
+                  ) : (
+                    <span className="text-gray-400">Sin evento</span>
+                  )}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  {row.incident
+                    ? row.incident.notes || row.incident.description || '-'
+                    : [row.checkIn?.notes, row.checkOut?.notes].filter(Boolean).join(' / ') || '-'}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -393,7 +480,7 @@ export default function AdminAttendance() {
   function toggleAllAttendancesSelection() {
     const selectableIds = attendances.filter((attendance) => !isIncidentRow(attendance)).map((attendance) => attendance.id)
     setSelectedAttendanceIds((prev) =>
-      prev.length === selectableIds.length ? [] : selectableIds,
+      selectableIds.every((id) => prev.includes(id)) ? [] : selectableIds,
     )
   }
 

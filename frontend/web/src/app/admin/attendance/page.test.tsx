@@ -62,8 +62,54 @@ describe('AdminAttendance', () => {
 
     expect(await screen.findByText('Turno mañana')).toBeInTheDocument()
     const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Pedro'))
-    expect(row?.textContent).toMatch(/Entrada/)
     expect(row?.textContent).toMatch(/Presente/)
+    expect(row?.textContent).toMatch(/Sin salida/)
+  })
+
+  it('agrupa entrada y salida de una misma asistencia en una fila', async () => {
+    const entry = {
+      id: 'a1',
+      type: 'CHECK_IN' as const,
+      status: 'PRESENT' as const,
+      date: '2025-06-01',
+      time: '2025-06-01T08:00:00.000Z',
+      notes: 'Ingreso registrado',
+      user: { id: 'u1', name: 'Pedro', email: 'p@b.com', role: 'STAFF' },
+      event: {
+        id: 'e1',
+        title: 'Turno mañana',
+        type: 'JORNADA_LABORAL',
+        startTime: '2025-06-01T08:00:00.000Z',
+        endTime: '2025-06-01T12:00:00.000Z',
+      },
+    }
+    const exit = {
+      ...entry,
+      id: 'a2',
+      type: 'CHECK_OUT' as const,
+      status: 'EXIT' as const,
+      time: '2025-06-01T12:00:00.000Z',
+      notes: 'Salida registrada',
+    }
+
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('attendance/all')) {
+        return { total: 2, page: 1, pageSize: 20, data: [exit, entry] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 1, presentCount: 1, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 100, lateRate: 0, absenceRate: 0 }
+      return {}
+    })
+
+    render(<AdminAttendance />)
+
+    expect(await screen.findByText('Turno mañana')).toBeInTheDocument()
+    const rows = screen.getAllByRole('row').filter((r) => r.textContent?.includes('Pedro'))
+    expect(rows).toHaveLength(1)
+    expect(rows[0].textContent).toMatch(/Presente/)
+    expect(rows[0].textContent).toMatch(/Salida/)
+    expect(rows[0].textContent).toMatch(/Ingreso registrado \/ Salida registrada/)
   })
 
   it('exporta Excel vía fetch al backend', async () => {
