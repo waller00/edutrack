@@ -31,6 +31,9 @@ function withSchoolYear(path: string, schoolYearQuery: string): string {
 }
 
 function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
+  if (attendance.type === 'CHECK_OUT' && attendance.status === 'PRESENT') {
+    return 'Salida'
+  }
   if (attendance.status === 'LATE' && attendance.notes?.toLowerCase().includes('llegada muy tarde')) {
     return 'Llegada muy tarde'
   }

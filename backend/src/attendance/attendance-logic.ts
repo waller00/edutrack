@@ -33,7 +33,7 @@ export function getAttendanceStatus(params: {
     )
     return minutesLate > toleranceMinutes ? 'LATE' : 'PRESENT'
   }
-  if (!params.endTime) return 'PRESENT'
+  if (!params.endTime) return 'EXIT'
   const expectedTime = new Date(params.endTime)
   const minutesEarly = Math.floor(
     (expectedTime.getTime() - params.actualTime.getTime()) / (1000 * 60)
@@ -42,7 +42,7 @@ export function getAttendanceStatus(params: {
 }
 
 export function getBiometricStatus(type: 'CHECK_IN' | 'CHECK_OUT', isLate?: boolean) {
-  if (type !== 'CHECK_IN') return 'PRESENT'
+  if (type !== 'CHECK_IN') return 'EXIT'
   return isLate ? 'LATE' : 'PRESENT'
 }
 
