@@ -186,11 +186,20 @@ describe("admin routes (prisma mock)", () => {
 
   it("GET /admin/users paginado", async () => {
     prismaMock.user.count.mockResolvedValue(2);
-    prismaMock.user.findMany.mockResolvedValue([{ id: "1", email: "a@a.com", orgRole: { code: "TEACHER" } }]);
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: "1", email: "a@a.com", orgRole: { code: "TEACHER" }, biometricMappings: [{ id: "bm-1" }] },
+    ]);
     const res = await request(app()).get("/admin/users?page=1&pageSize=10").set(adminHdr());
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(2);
     expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0]).toMatchObject({ id: "1", role: "TEACHER", biometricLinked: true });
+    expect(res.body.data[0]).not.toHaveProperty("biometricMappings");
+    expect(prismaMock.user.findMany.mock.calls[0][0].select.biometricMappings).toEqual({
+      where: { isActive: true },
+      select: { id: true },
+      take: 1,
+    });
   });
 
   it("GET /admin/users con filtro q arma OR", async () => {

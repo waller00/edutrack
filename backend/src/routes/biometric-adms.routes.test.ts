@@ -51,6 +51,7 @@ vi.mock("../services/medicalLeaveReconciliation.js", () => ({
 vi.mock("../services/attendance-incidents.js", () => ({
   findOpenNoShowIncidentForEvents: vi.fn(),
   findAssignedEventForAttendanceInstant: vi.fn(),
+  findAssignedEventNearAttendanceInstant: vi.fn(),
   maybeCreateLateArrivalIncident: vi.fn(),
   resolveNoShowIncidentsForEvents: vi.fn(),
 }));
@@ -59,12 +60,14 @@ import { findApprovedLicenseCoveringEventTime } from "../services/medicalLeaveRe
 import {
   findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
+  findAssignedEventNearAttendanceInstant,
   maybeCreateLateArrivalIncident,
   resolveNoShowIncidentsForEvents,
 } from "../services/attendance-incidents.js";
 const findLicenseMock = vi.mocked(findApprovedLicenseCoveringEventTime);
 const findOpenNoShowMock = vi.mocked(findOpenNoShowIncidentForEvents);
 const findAssignedEventMock = vi.mocked(findAssignedEventForAttendanceInstant);
+const findAssignedEventNearMock = vi.mocked(findAssignedEventNearAttendanceInstant);
 const lateIncidentMock = vi.mocked(maybeCreateLateArrivalIncident);
 const resolveNoShowMock = vi.mocked(resolveNoShowIncidentsForEvents);
 
@@ -92,6 +95,7 @@ describe("biometric ADMS ingest", () => {
     findLicenseMock.mockResolvedValue(null);
     findOpenNoShowMock.mockResolvedValue(null);
     findAssignedEventMock.mockResolvedValue(null);
+    findAssignedEventNearMock.mockResolvedValue(null);
     lateIncidentMock.mockResolvedValue(null);
     resolveNoShowMock.mockResolvedValue(0);
     prismaMock.systemSettings.upsert.mockResolvedValue({
@@ -135,7 +139,7 @@ describe("biometric ADMS ingest", () => {
     expect(res.body.punchId).toBe("p-rejected");
   });
 
-  it("201 procesa marcación y crea attendance", async () => {
+  it("201 procesa marcación sin evento como presente", async () => {
     prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
     prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
     prismaMock.attendance.findFirst.mockResolvedValue(null);
@@ -143,7 +147,7 @@ describe("biometric ADMS ingest", () => {
     prismaMock.attendance.create.mockResolvedValue({
       id: "att-1",
       type: "CHECK_IN",
-      status: "LATE",
+      status: "PRESENT",
       date: new Date("2026-05-05T00:00:00.000Z"),
       time: new Date(payload.timestamp),
     });
@@ -158,6 +162,41 @@ describe("biometric ADMS ingest", () => {
     expect(res.status).toBe(201);
     expect(res.body.duplicate).toBe(false);
     expect(res.body.attendance.id).toBe("att-1");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBeUndefined();
+  });
+
+  it("vincula evento cercano y deja presente si la marca fue antes del inicio", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    findAssignedEventNearMock.mockResolvedValue({
+      id: "event-1",
+      title: "Clase Natalia",
+      type: "REUNION",
+      startTime: new Date("2026-05-05T13:11:00.000Z"),
+      endTime: new Date("2026-05-05T14:11:00.000Z"),
+    });
+    prismaMock.attendance.create.mockResolvedValue({
+      id: "att-1",
+      type: "CHECK_IN",
+      status: "PRESENT",
+      date: new Date("2026-05-05T00:00:00.000Z"),
+      time: new Date(payload.timestamp),
+      eventId: "event-1",
+    });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-1" });
+    prismaMock.biometricDevice.update.mockResolvedValue({});
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send(payload);
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBe("event-1");
   });
 
   it("marca como llegada muy tarde cuando ya había no-show abierto para el evento", async () => {

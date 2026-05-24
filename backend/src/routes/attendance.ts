@@ -12,7 +12,11 @@ import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.
 import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attendance-school-year.js';
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
-import { getAttendanceOperationalSettings, isBiometricLateBySettings } from '../config/system-settings.js';
+import { getAttendanceOperationalSettings } from '../config/system-settings.js';
+import {
+  isLateAgainstEventStart,
+  resolveBiometricAttendanceLinkage,
+} from '../services/biometric-ingest-core.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -587,10 +591,26 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
         });
       }
 
+      const runtimeSettings = await getAttendanceOperationalSettings()
+      const linkage = await resolveBiometricAttendanceLinkage(prisma, {
+        userId,
+        occurredAt: attendanceTime,
+        punchType: 'CHECK_OUT',
+        attendanceDate,
+        bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+      })
       const exitAttendance = await prisma.attendance.create({
-        data: buildBiometricAttendancePayload({ userId, attendanceDate, attendanceTime, deviceId, type: 'CHECK_OUT' }),
+        data: buildBiometricAttendancePayload({
+          userId,
+          attendanceDate,
+          attendanceTime,
+          deviceId,
+          eventId: linkage.attendanceEventId || undefined,
+          type: 'CHECK_OUT',
+        }),
         include: {
-          user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } }
+          user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+          event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
         }
       });
 
@@ -602,12 +622,30 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
     }
 
     const runtimeSettings = await getAttendanceOperationalSettings()
-    const isLate = isBiometricLateBySettings(attendanceTime, runtimeSettings)
+    const linkage = await resolveBiometricAttendanceLinkage(prisma, {
+      userId,
+      occurredAt: attendanceTime,
+      punchType: 'CHECK_IN',
+      attendanceDate,
+      bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+    })
+    const isLate = linkage.lateReference?.startTime
+      ? isLateAgainstEventStart(attendanceTime, linkage.lateReference.startTime, runtimeSettings.lateToleranceMinutes)
+      : false
     
     const entryAttendance = await prisma.attendance.create({
-      data: buildBiometricAttendancePayload({ userId, attendanceDate, attendanceTime, deviceId, isLate, type: 'CHECK_IN' }),
+      data: buildBiometricAttendancePayload({
+        userId,
+        attendanceDate,
+        attendanceTime,
+        deviceId,
+        eventId: linkage.attendanceEventId || undefined,
+        isLate,
+        type: 'CHECK_IN',
+      }),
       include: {
-        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } }
+        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+        event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
       }
     });
 

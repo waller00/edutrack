@@ -343,10 +343,20 @@ r.get('/users', requirePermission('users.read', 'all'), async (req, res) => {
         isApproved: true,
         approvedAt: true,
         isActive: true,
+        biometricMappings: {
+          where: { isActive: true },
+          select: { id: true },
+          take: 1,
+        },
       },
     }),
   ])
-  const data = raw.map((row) => attachRoleCode(row as Parameters<typeof attachRoleCode>[0]))
+  const data = raw.map((row) => {
+    const withRole = attachRoleCode(row as Parameters<typeof attachRoleCode>[0])
+    const biometricLinked = Array.isArray(withRole.biometricMappings) && withRole.biometricMappings.length > 0
+    const { biometricMappings: _biometricMappings, ...rest } = withRole
+    return { ...rest, biometricLinked }
+  })
   res.json({ total, page, pageSize, data })
 })
 
