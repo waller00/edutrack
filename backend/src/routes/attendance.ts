@@ -599,6 +599,13 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
         attendanceDate,
         bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
       })
+      const status = getAttendanceStatus({
+        type: 'CHECK_OUT',
+        actualTime: attendanceTime,
+        endTime: linkage.exitReference?.endTime,
+        hasApprovedLicense: false,
+        lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
+      })
       const exitAttendance = await prisma.attendance.create({
         data: buildBiometricAttendancePayload({
           userId,
@@ -606,6 +613,7 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
           attendanceTime,
           deviceId,
           eventId: linkage.attendanceEventId || undefined,
+          status,
           type: 'CHECK_OUT',
         }),
         include: {
@@ -617,7 +625,7 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
       return res.status(201).json({
         type: 'CHECK_OUT',
         attendance: mapAttendanceUser(exitAttendance),
-        message: 'Salida registrada automáticamente'
+        message: status === 'EARLY_EXIT' ? 'Salida anticipada registrada automáticamente' : 'Salida registrada automáticamente'
       });
     }
 
@@ -632,17 +640,26 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
     const isLate = linkage.lateReference?.startTime
       ? isLateAgainstEventStart(attendanceTime, linkage.lateReference.startTime, runtimeSettings.lateToleranceMinutes)
       : false
+    const minutesLate = linkage.lateReference?.startTime
+      ? Math.max(0, Math.floor((attendanceTime.getTime() - new Date(linkage.lateReference.startTime).getTime()) / (1000 * 60)))
+      : null
+    const isVeryLate = isLate && minutesLate !== null && minutesLate >= Math.max(1, runtimeSettings.noShowGraceMinutes)
     
     const entryAttendance = await prisma.attendance.create({
-      data: buildBiometricAttendancePayload({
-        userId,
-        attendanceDate,
-        attendanceTime,
-        deviceId,
-        eventId: linkage.attendanceEventId || undefined,
-        isLate,
-        type: 'CHECK_IN',
-      }),
+      data: {
+        ...buildBiometricAttendancePayload({
+          userId,
+          attendanceDate,
+          attendanceTime,
+          deviceId,
+          eventId: linkage.attendanceEventId || undefined,
+          isLate,
+          type: 'CHECK_IN',
+        }),
+        ...(isVeryLate && minutesLate !== null
+          ? { notes: `Llegada muy tarde: ${minutesLate} min tarde - Dispositivo: ${deviceId || 'N/A'}` }
+          : {}),
+      },
       include: {
         user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
         event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },

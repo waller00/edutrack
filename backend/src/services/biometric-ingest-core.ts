@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "../db/prisma.js";
-import { buildBiometricAttendancePayload } from "../attendance/attendance-logic.js";
+import { buildBiometricAttendancePayload, getAttendanceStatus } from "../attendance/attendance-logic.js";
 import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
 import { getAttendanceOperationalSettings } from "../config/system-settings.js";
 import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
@@ -46,6 +46,10 @@ function minutesLateAgainstEventStart(attendanceTime: Date, eventStartTime: Date
   return Math.max(0, Math.floor((attendanceTime.getTime() - new Date(eventStartTime).getTime()) / (1000 * 60)));
 }
 
+function isVeryLateArrival(minutesLate: number | null, noShowGraceMinutes: number) {
+  return minutesLate !== null && minutesLate >= Math.max(1, noShowGraceMinutes);
+}
+
 async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDate: Date): Promise<string | null> {
   const rows = await tx.attendance.findMany({
     where: { userId, date: attendanceDate },
@@ -82,6 +86,7 @@ export async function resolveBiometricAttendanceLinkage(
       return {
         attendanceEventId: first.id,
         lateReference: first,
+        exitReference: null,
         blockEventIds: block.map((e) => e.id),
       };
     }
@@ -90,6 +95,7 @@ export async function resolveBiometricAttendanceLinkage(
       return {
         attendanceEventId: near.id,
         lateReference: near,
+        exitReference: null,
         blockEventIds: [near.id],
       };
     }
@@ -97,6 +103,7 @@ export async function resolveBiometricAttendanceLinkage(
     return {
       attendanceEventId: fb?.id,
       lateReference: fb,
+      exitReference: null,
       blockEventIds: fb?.id ? [fb.id] : [],
     };
   }
@@ -109,6 +116,7 @@ export async function resolveBiometricAttendanceLinkage(
       return {
         attendanceEventId: last.id,
         lateReference: null,
+        exitReference: last,
         blockEventIds: block.map((e) => e.id),
       };
     }
@@ -119,6 +127,7 @@ export async function resolveBiometricAttendanceLinkage(
   return {
     attendanceEventId: fb?.id,
     lateReference: null,
+    exitReference: fb,
     blockEventIds: fb?.id ? [fb.id] : [],
   };
 }
@@ -267,6 +276,20 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
           ? await findOpenNoShowIncidentForEvents(tx, mapping.userId, linkage.blockEventIds)
           : null;
       const minutesLate = resolvedType === "CHECK_IN" ? minutesLateAgainstEventStart(occurredAt, lateRef?.startTime) : null;
+      const isVeryLate =
+        resolvedType === "CHECK_IN" &&
+        isLate &&
+        (Boolean(openNoShow) || isVeryLateArrival(minutesLate, runtimeSettings.noShowGraceMinutes));
+      const status =
+        resolvedType === "CHECK_OUT"
+          ? getAttendanceStatus({
+              type: "CHECK_OUT",
+              actualTime: occurredAt,
+              endTime: linkage.exitReference?.endTime,
+              hasApprovedLicense: false,
+              lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
+            })
+          : undefined;
 
       const attendance = await tx.attendance.create({
         data: {
@@ -277,9 +300,10 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
             deviceId: deviceCode,
             eventId: linkage.attendanceEventId || undefined,
             isLate,
+            status,
             type: resolvedType,
           }),
-          ...(openNoShow && minutesLate !== null
+          ...(isVeryLate && minutesLate !== null
             ? { notes: `Llegada muy tarde: ${minutesLate} min tarde - Dispositivo: ${deviceCode || "N/A"}` }
             : {}),
         },
