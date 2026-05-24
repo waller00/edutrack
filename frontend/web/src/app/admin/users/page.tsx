@@ -205,6 +205,11 @@ export default function AdminUsersPage() {
 
   function renderUserRow(u: AdminUserRow) {
     if (u.role === 'ADMIN') return null
+    const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
+    const biometricButtonClass = u.biometricLinked
+      ? 'inline-grid h-9 w-9 place-items-center rounded-lg border border-emerald-500 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400'
+      : 'inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400'
+
     return (
       <tr key={u.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
         <td className="px-3 py-3 align-middle font-mono text-xs text-slate-700">{u.username || '—'}</td>
@@ -254,9 +259,9 @@ export default function AdminUsersPage() {
             <button
               type="button"
               onClick={() => setBiometricUser(u)}
-              className="inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              aria-label="Vincular huella"
-              title="Vincular huella"
+              className={biometricButtonClass}
+              aria-label={biometricLabel}
+              title={biometricLabel}
             >
               <Fingerprint className="h-4 w-4" aria-hidden />
             </button>

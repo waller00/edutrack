@@ -57,6 +57,39 @@ export async function findAssignedEventForAttendanceInstant(tx: any, userId: str
   });
 }
 
+export async function findAssignedEventNearAttendanceInstant(
+  tx: any,
+  userId: string,
+  at: Date,
+  earlyWindowMinutes: number,
+) {
+  const latestStart = new Date(at.getTime() + earlyWindowMinutes * 60 * 1000);
+  const rows = await tx.event.findMany({
+    where: {
+      assignedUserId: userId,
+      status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+      startTime: { not: null, lte: latestStart },
+      endTime: { not: null, gte: at },
+    },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      startTime: true,
+      endTime: true,
+      assignedUser: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: { startTime: "asc" },
+  });
+  if (!rows.length) return null;
+
+  const atMs = at.getTime();
+  const active = rows
+    .filter((event: { startTime: Date }) => new Date(event.startTime).getTime() <= atMs)
+    .sort((a: { startTime: Date }, b: { startTime: Date }) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  return active[0] ?? rows[0] ?? null;
+}
+
 export async function maybeCreateLateArrivalIncident(params: {
   tx: any;
   userId: string;

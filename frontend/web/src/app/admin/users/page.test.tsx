@@ -51,6 +51,18 @@ describe('AdminUsersPage', () => {
     expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/admin/users?'))
   })
 
+  it('marca en verde el botón cuando el usuario tiene huella vinculada', async () => {
+    mockedApi
+      .mockResolvedValueOnce(orgRoles)
+      .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [{ ...row, biometricLinked: true }] })
+
+    render(<AdminUsersPage />)
+
+    const button = await screen.findByRole('button', { name: 'Huella vinculada' })
+    expect(button).toHaveClass('bg-emerald-600')
+    expect(button).toHaveClass('text-white')
+  })
+
   it('aplicar filtros actualiza query', async () => {
     mockedApi
       .mockResolvedValueOnce(orgRoles)

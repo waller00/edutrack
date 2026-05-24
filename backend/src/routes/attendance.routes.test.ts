@@ -8,7 +8,7 @@ const eid = "00000000-0000-4000-8000-0000000000e1";
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     schoolYear: { findUnique: vi.fn(), findFirst: vi.fn() },
-    event: { findUnique: vi.fn(), findMany: vi.fn() },
+    event: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     attendance: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -26,6 +26,7 @@ const { prismaMock } = vi.hoisted(() => ({
     medicalLeave: { findFirst: vi.fn(), findMany: vi.fn() },
     systemSettings: { upsert: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    $queryRaw: vi.fn(),
   },
 }));
 
@@ -56,6 +57,11 @@ describe("attendance /register (prisma mock)", () => {
     vi.clearAllMocks();
     prismaMock.schoolYear.findFirst.mockResolvedValue(null);
     prismaMock.schoolYear.findUnique.mockResolvedValue(null);
+    prismaMock.$queryRaw.mockResolvedValue([]);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.event.findFirst.mockResolvedValue(null);
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     prismaMock.systemSettings.upsert.mockResolvedValue({
       id: "default",
       attendanceNoShowGraceMinutes: 15,
@@ -442,7 +448,7 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("EXIT");
   });
 
-  it("POST /attendance/biometric crea entrada y detecta retraso", async () => {
+  it("POST /attendance/biometric crea entrada presente si no hay evento asignado", async () => {
     prismaMock.attendance.findFirst.mockResolvedValueOnce(null);
     prismaMock.attendance.create.mockResolvedValue({ id: "in-1" });
     const res = await request(app())
@@ -451,21 +457,22 @@ describe("attendance /register (prisma mock)", () => {
       .send({ userId: "user-1", timestamp: "2025-06-01T09:10:00.000Z", deviceId: "dev-1" });
     expect(res.status).toBe(201);
     expect(res.body.type).toBe("CHECK_IN");
-    expect(res.body).toHaveProperty("isLate");
+    expect(res.body.isLate).toBe(false);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBeUndefined();
   });
 
-  it("POST /attendance/biometric respeta hora/minuto configurados", async () => {
-    prismaMock.systemSettings.upsert.mockResolvedValueOnce({
-      id: "default",
-      attendanceNoShowGraceMinutes: 15,
-      attendanceLateToleranceMinutes: 5,
-      attendanceClassBridgeGapMinutes: 60,
-      attendanceMonitorEnabled: true,
-      attendanceMonitorIntervalMs: 120000,
-      biometricLateHour: 9,
-      biometricLateMinute: 30,
-    });
+  it("POST /attendance/biometric vincula evento cercano y no marca tarde si llegó antes", async () => {
     prismaMock.attendance.findFirst.mockResolvedValueOnce(null);
+    prismaMock.event.findMany.mockResolvedValueOnce([
+      {
+        id: "event-1",
+        title: "Clase Natalia",
+        type: "REUNION",
+        startTime: new Date("2025-06-01T09:11:00.000Z"),
+        endTime: new Date("2025-06-01T10:11:00.000Z"),
+      },
+    ]);
     prismaMock.attendance.create.mockResolvedValue({ id: "in-1" });
     const res = await request(app())
       .post("/attendance/biometric")
@@ -474,6 +481,7 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.status).toBe(201);
     expect(res.body.isLate).toBe(false);
     expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBe("event-1");
   });
 
   it("POST /attendance/biometric 500 si falla create", async () => {

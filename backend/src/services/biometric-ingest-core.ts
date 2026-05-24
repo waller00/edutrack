@@ -2,11 +2,12 @@ import crypto from "crypto";
 import { prisma } from "../db/prisma.js";
 import { buildBiometricAttendancePayload } from "../attendance/attendance-logic.js";
 import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
-import { getAttendanceOperationalSettings, isBiometricLateBySettings } from "../config/system-settings.js";
+import { getAttendanceOperationalSettings } from "../config/system-settings.js";
 import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
 import {
   findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
+  findAssignedEventNearAttendanceInstant,
   maybeCreateLateArrivalIncident,
   resolveNoShowIncidentsForEvents,
 } from "./attendance-incidents.js";
@@ -30,7 +31,7 @@ export function isBiometricSecretValid(storedHash: string, providedRaw: string) 
   return crypto.timingSafeEqual(a, b);
 }
 
-function isLateAgainstEventStart(
+export function isLateAgainstEventStart(
   attendanceTime: Date,
   eventStartTime: Date | null | undefined,
   toleranceMinutes: number,
@@ -59,7 +60,7 @@ async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDa
   return openAnchor;
 }
 
-async function resolveBiometricAttendanceLinkage(
+export async function resolveBiometricAttendanceLinkage(
   tx: any,
   params: {
     userId: string;
@@ -84,6 +85,14 @@ async function resolveBiometricAttendanceLinkage(
         blockEventIds: block.map((e) => e.id),
       };
     }
+    const near = await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, early);
+    if (near?.id) {
+      return {
+        attendanceEventId: near.id,
+        lateReference: near,
+        blockEventIds: [near.id],
+      };
+    }
     const fb = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
     return {
       attendanceEventId: fb?.id,
@@ -104,7 +113,9 @@ async function resolveBiometricAttendanceLinkage(
       };
     }
   }
-  const fb = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
+  const fb =
+    (await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, early)) ??
+    (await findAssignedEventForAttendanceInstant(tx, userId, occurredAt));
   return {
     attendanceEventId: fb?.id,
     lateReference: null,
@@ -249,7 +260,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
         resolvedType === "CHECK_IN"
           ? lateRef?.startTime
             ? isLateAgainstEventStart(occurredAt, lateRef.startTime, runtimeSettings.lateToleranceMinutes)
-            : isBiometricLateBySettings(occurredAt, runtimeSettings)
+            : false
           : false;
       const openNoShow =
         resolvedType === "CHECK_IN"

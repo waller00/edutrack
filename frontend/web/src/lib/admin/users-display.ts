@@ -15,6 +15,7 @@ export type AdminUserRow = {
   isApproved: boolean
   approvedAt?: string | null
   isActive: boolean
+  biometricLinked?: boolean
 }
 
 export type TriState = '' | 'true' | 'false'
