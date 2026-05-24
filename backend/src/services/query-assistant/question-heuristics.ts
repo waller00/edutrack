@@ -72,13 +72,13 @@ function payload(
  * Clasificación local (sin LLM) para frases cortas o cuando el modelo falla.
  * Devuelve null si no hay patrón claro.
  */
-export function heuristicIntentFromQuestion(question: string): LlmIntentPayload | null {
+export function heuristicIntentFromQuestion(question: string, defaultYear = DateTime.utc().year): LlmIntentPayload | null {
   const t = norm(question)
   if (t.length < 2) return null
 
   const month = spanishMonthFromQuestion(question)
   const year = yearFromQuestion(question)
-  const nowY = DateTime.utc().year
+  const nowY = defaultYear
 
   const hoursCue =
     /\bhoras?\b/.test(t) &&

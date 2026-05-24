@@ -883,7 +883,14 @@ r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), asyn
           requestedSchoolYearId: parsed.data.schoolYearId,
           role: req.user?.role ?? 'ADMIN',
         })
-    const result = await runAdminQueryAssistant(parsed.data.question, { allYears, schoolYearId })
+    const schoolYear = schoolYearId
+      ? await prisma.schoolYear.findUnique({ where: { id: schoolYearId }, select: { id: true, code: true } })
+      : null
+    const result = await runAdminQueryAssistant(parsed.data.question, {
+      allYears,
+      schoolYearId: schoolYear?.id ?? schoolYearId,
+      schoolYearCode: schoolYear?.code,
+    })
     return res.json(result)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

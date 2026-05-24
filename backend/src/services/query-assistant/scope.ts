@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 
 export type QueryAssistantScope = {
   schoolYearId?: string
+  schoolYearCode?: number
   allYears?: boolean
 }
 

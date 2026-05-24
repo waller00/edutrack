@@ -68,6 +68,27 @@ describe('AdminQueryAssistantPage', () => {
     expect(screen.getByLabelText('Todos los ciclos')).not.toBeChecked()
   })
 
+  it('no trae una pregunta escrita por defecto', () => {
+    render(<AdminQueryAssistantPage />)
+
+    expect(screen.getByLabelText('Tu pregunta')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Consultar' })).toBeDisabled()
+  })
+
+  it('arranca en el ciclo activo aunque el contexto global tenga otro ciclo seleccionado', () => {
+    schoolYearCtx.value = {
+      ...schoolYearCtx.value,
+      allYears: true,
+      selectedId: '00000000-0000-4000-8000-000000000025',
+      activeId: '00000000-0000-4000-8000-000000000026',
+    } as any
+
+    render(<AdminQueryAssistantPage />)
+
+    expect(screen.getByLabelText('Ciclo lectivo')).toHaveValue('00000000-0000-4000-8000-000000000026')
+    expect(screen.getByLabelText('Todos los ciclos')).not.toBeChecked()
+  })
+
   it('permite cambiar el ciclo desde la pantalla', () => {
     render(<AdminQueryAssistantPage />)
 
@@ -75,8 +96,7 @@ describe('AdminQueryAssistantPage', () => {
       target: { value: '00000000-0000-4000-8000-000000000025' },
     })
 
-    expect(schoolYearCtx.value.setAllYears).toHaveBeenCalledWith(false)
-    expect(schoolYearCtx.value.setSelectedId).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000025')
+    expect(screen.getByLabelText('Ciclo lectivo')).toHaveValue('00000000-0000-4000-8000-000000000025')
   })
 
   it('envía el ciclo lectivo seleccionado al consultar', async () => {
@@ -88,6 +108,7 @@ describe('AdminQueryAssistantPage', () => {
     })
 
     render(<AdminQueryAssistantPage />)
+    fireEvent.change(screen.getByLabelText('Tu pregunta'), { target: { value: 'Horas trabajadas en octubre' } })
     fireEvent.click(screen.getByRole('button', { name: 'Consultar' }))
 
     await waitFor(() =>
@@ -102,12 +123,6 @@ describe('AdminQueryAssistantPage', () => {
   })
 
   it('envía allYears cuando el selector está en todos los ciclos', async () => {
-    schoolYearCtx.value = {
-      ...schoolYearCtx.value,
-      allYears: true,
-      selectedId: null,
-      activeId: '00000000-0000-4000-8000-000000000026',
-    } as any
     mockedApi.mockResolvedValue({
       intent: 'HOURS_WORKED_SUMMARY',
       summary: 'ok',
@@ -116,6 +131,8 @@ describe('AdminQueryAssistantPage', () => {
     })
 
     render(<AdminQueryAssistantPage />)
+    fireEvent.change(screen.getByLabelText('Tu pregunta'), { target: { value: 'Horas trabajadas en octubre' } })
+    fireEvent.click(screen.getByLabelText('Todos los ciclos'))
     fireEvent.click(screen.getByRole('button', { name: 'Consultar' }))
 
     await waitFor(() => {
