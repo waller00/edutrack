@@ -4,7 +4,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { CalendarDays, ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 type Column = { key: string; label: string }
 
@@ -47,10 +47,18 @@ function intentTitle(intent: string): string {
 
 export default function AdminQueryAssistantPage() {
   const syCtx = useOptionalAdminSchoolYear()
-  const [question, setQuestion] = useState('Horas trabajadas en octubre')
+  const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<AssistantResponse | null>(null)
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string | null>(null)
+  const [allYears, setAllYears] = useState(false)
+
+  useEffect(() => {
+    if (!syCtx || syCtx.loading) return
+    setSelectedSchoolYearId(syCtx.activeId ?? syCtx.years[0]?.id ?? null)
+    setAllYears(false)
+  }, [syCtx?.activeId, syCtx?.loading, syCtx?.years])
 
   const submit = useCallback(async () => {
     const q = question.trim()
@@ -63,9 +71,9 @@ export default function AdminQueryAssistantPage() {
         method: 'POST',
         body: JSON.stringify({
           question: q,
-          ...(syCtx?.allYears ? { allYears: true } : {}),
-          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
-            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
+          ...(allYears ? { allYears: true } : {}),
+          ...(!allYears && selectedSchoolYearId
+            ? { schoolYearId: selectedSchoolYearId }
             : {}),
         }),
       })
@@ -76,7 +84,7 @@ export default function AdminQueryAssistantPage() {
     } finally {
       setLoading(false)
     }
-  }, [question, syCtx?.activeId, syCtx?.allYears, syCtx?.selectedId])
+  }, [allYears, question, selectedSchoolYearId])
 
   function applyExample(text: string) {
     setQuestion(text)
@@ -99,8 +107,8 @@ export default function AdminQueryAssistantPage() {
             </p>
             <p className="mt-2 text-xs font-medium text-emerald-700">
               {syCtx?.allYears
-                ? 'Consultando todos los ciclos lectivos.'
-                : `Consultando el ciclo lectivo actual${syCtx?.selectedId && syCtx.selectedId !== syCtx.activeId ? ' seleccionado' : ''}.`}
+                ? 'El selector global puede estar en todos los ciclos; este asistente arranca filtrado por el ciclo actual.'
+                : 'Consultando el ciclo lectivo actual por defecto.'}
             </p>
           </div>
         </div>
@@ -126,11 +134,11 @@ export default function AdminQueryAssistantPage() {
                 <select
                   id="qa-school-year"
                   className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[240px] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={syCtx.loading || syCtx.allYears}
-                  value={syCtx.selectedId ?? syCtx.activeId ?? ''}
+                  disabled={syCtx.loading || allYears}
+                  value={selectedSchoolYearId ?? syCtx.activeId ?? ''}
                   onChange={(e) => {
-                    syCtx.setAllYears(false)
-                    syCtx.setSelectedId(e.target.value || null)
+                    setAllYears(false)
+                    setSelectedSchoolYearId(e.target.value || null)
                     setResult(null)
                     setError(null)
                   }}
@@ -149,9 +157,9 @@ export default function AdminQueryAssistantPage() {
                 <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
                   <input
                     type="checkbox"
-                    checked={syCtx.allYears}
+                    checked={allYears}
                     onChange={(e) => {
-                      syCtx.setAllYears(e.target.checked)
+                      setAllYears(e.target.checked)
                       setResult(null)
                       setError(null)
                     }}

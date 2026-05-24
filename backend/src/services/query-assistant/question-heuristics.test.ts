@@ -9,6 +9,13 @@ describe("heuristicIntentFromQuestion", () => {
     expect(r?.params.year).toBeDefined();
   });
 
+  it("usa el año por defecto del ciclo seleccionado", () => {
+    const r = heuristicIntentFromQuestion("horas trabajadas octubre", 2025);
+    expect(r?.intent).toBe("HOURS_WORKED_SUMMARY");
+    expect(r?.params.month).toBe(10);
+    expect(r?.params.year).toBe(2025);
+  });
+
   it("horas + mes sin 'trabajadas'", () => {
     const r = heuristicIntentFromQuestion("horas mayo");
     expect(r?.intent).toBe("HOURS_WORKED_SUMMARY");

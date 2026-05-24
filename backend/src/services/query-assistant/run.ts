@@ -19,7 +19,7 @@ export async function runAdminQueryAssistant(
     return runNaturalLanguageSqlQuery(question, scope)
   }
 
-  const parsed = await parseQuestionWithLlm(question)
+  const parsed = await parseQuestionWithLlm(question, { defaultYear: scope?.schoolYearCode })
 
   switch (parsed.intent) {
     case 'HOURS_WORKED_SUMMARY':

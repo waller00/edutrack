@@ -22,13 +22,18 @@ const LATE_WORD = String.raw`tard|atras|retras|llegada\s+tarde|entrada\s+tarde`
 const EARLY_EXIT_WORD = String.raw`salidas?\s+anticipad[ao]s?|retiros?\s+tempran[ao]s?|se\s+retir[oó]\s+antes|se\s+fue\s+antes`
 
 /** Si el modelo devolvió UNKNOWN o faltan mes/año detectables en el texto, completamos o reemplazamos con heurística local. */
-export function enrichPayloadFromQuestion(parsed: LlmIntentPayload, question: string): LlmIntentPayload {
+export function enrichPayloadFromQuestion(
+  parsed: LlmIntentPayload,
+  question: string,
+  options?: { defaultYear?: number },
+): LlmIntentPayload {
+  const defaultYear = options?.defaultYear ?? DateTime.utc().year
   if (parsed.intent === 'UNKNOWN') {
-    const h = heuristicIntentFromQuestion(question)
+    const h = heuristicIntentFromQuestion(question, defaultYear)
     return applyQuestionKeywordEnrichments(h ?? parsed, question)
   }
 
-  const nowY = DateTime.utc().year
+  const nowY = defaultYear
   const monthFromText = spanishMonthFromQuestion(question)
   const yearFromText = yearFromQuestion(question)
 

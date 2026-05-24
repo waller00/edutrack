@@ -590,6 +590,7 @@ describe("admin routes (prisma mock)", () => {
 
   it("POST /admin/query-assistant devuelve resultado del servicio", async () => {
     prismaMock.schoolYear.findFirst.mockResolvedValue({ id: "sy-active" });
+    prismaMock.schoolYear.findUnique.mockResolvedValue({ id: "sy-active", code: 2026 });
     runAdminQueryAssistantMock.mockResolvedValue({
       intent: "HOURS_WORKED_SUMMARY",
       summary: "Resumen de prueba",
@@ -607,12 +608,13 @@ describe("admin routes (prisma mock)", () => {
     expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("horas en octubre", {
       allYears: false,
       schoolYearId: "sy-active",
+      schoolYearCode: 2026,
     });
   });
 
   it("POST /admin/query-assistant respeta schoolYearId enviado", async () => {
     const sy = "00000000-0000-4000-8000-0000000000aa";
-    prismaMock.schoolYear.findUnique.mockResolvedValue({ id: sy });
+    prismaMock.schoolYear.findUnique.mockResolvedValue({ id: sy, code: 2025 });
     runAdminQueryAssistantMock.mockResolvedValue({
       intent: "ASSIGNED_EVENTS_SUMMARY",
       summary: "ok",
@@ -628,6 +630,7 @@ describe("admin routes (prisma mock)", () => {
     expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("eventos asignados", {
       allYears: false,
       schoolYearId: sy,
+      schoolYearCode: 2025,
     });
   });
 
@@ -647,6 +650,7 @@ describe("admin routes (prisma mock)", () => {
     expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("eventos asignados", {
       allYears: true,
       schoolYearId: undefined,
+      schoolYearCode: undefined,
     });
   });
 
