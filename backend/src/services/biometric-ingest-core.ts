@@ -5,6 +5,7 @@ import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
 import { getAttendanceOperationalSettings, isBiometricLateBySettings } from "../config/system-settings.js";
 import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
 import {
+  findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
   maybeCreateLateArrivalIncident,
   resolveNoShowIncidentsForEvents,
@@ -37,6 +38,11 @@ function isLateAgainstEventStart(
   if (!eventStartTime) return false;
   const minsLate = Math.floor((attendanceTime.getTime() - new Date(eventStartTime).getTime()) / (1000 * 60));
   return minsLate > toleranceMinutes;
+}
+
+function minutesLateAgainstEventStart(attendanceTime: Date, eventStartTime: Date | null | undefined) {
+  if (!eventStartTime) return null;
+  return Math.max(0, Math.floor((attendanceTime.getTime() - new Date(eventStartTime).getTime()) / (1000 * 60)));
 }
 
 async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDate: Date): Promise<string | null> {
@@ -245,18 +251,28 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
             ? isLateAgainstEventStart(occurredAt, lateRef.startTime, runtimeSettings.lateToleranceMinutes)
             : isBiometricLateBySettings(occurredAt, runtimeSettings)
           : false;
+      const openNoShow =
+        resolvedType === "CHECK_IN"
+          ? await findOpenNoShowIncidentForEvents(tx, mapping.userId, linkage.blockEventIds)
+          : null;
+      const minutesLate = resolvedType === "CHECK_IN" ? minutesLateAgainstEventStart(occurredAt, lateRef?.startTime) : null;
 
       const attendance = await tx.attendance.create({
-        data: buildBiometricAttendancePayload({
-          userId: mapping.userId,
-          attendanceDate,
-          attendanceTime: occurredAt,
-          deviceId: deviceCode,
-          eventId: linkage.attendanceEventId || undefined,
-          isLate,
-          type: resolvedType,
-        }),
-        select: { id: true, type: true, status: true, date: true, time: true, eventId: true },
+        data: {
+          ...buildBiometricAttendancePayload({
+            userId: mapping.userId,
+            attendanceDate,
+            attendanceTime: occurredAt,
+            deviceId: deviceCode,
+            eventId: linkage.attendanceEventId || undefined,
+            isLate,
+            type: resolvedType,
+          }),
+          ...(openNoShow && minutesLate !== null
+            ? { notes: `Llegada muy tarde: ${minutesLate} min tarde - Dispositivo: ${deviceCode || "N/A"}` }
+            : {}),
+        },
+        select: { id: true, type: true, status: true, date: true, time: true, eventId: true, notes: true },
       });
 
       const punch = await tx.biometricPunch.create({

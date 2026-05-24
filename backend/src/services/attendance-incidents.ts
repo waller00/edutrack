@@ -126,6 +126,24 @@ export async function resolveNoShowIncidentsForEvents(
   return n;
 }
 
+export async function findOpenNoShowIncidentForEvents(
+  tx: any,
+  userId: string,
+  eventIds: (string | null | undefined)[],
+) {
+  const ids = Array.from(new Set(eventIds.filter((id): id is string => Boolean(id))));
+  if (ids.length === 0) return null;
+  return tx.attendanceIncident.findFirst({
+    where: {
+      userId,
+      eventId: { in: ids },
+      type: "TEACHER_NO_SHOW",
+      status: "OPEN",
+    },
+    select: { id: true, eventId: true },
+  });
+}
+
 export async function resolveNoShowIncidentIfAny(tx: any, userId: string, eventId?: string | null) {
   if (!eventId) return 0;
   const openIncident = await tx.attendanceIncident.findFirst({

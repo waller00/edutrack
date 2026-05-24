@@ -89,6 +89,30 @@ describe("zkteco iclock routes", () => {
     });
   });
 
+  it("POST cdata ATTLOG no registra asistencia si la marca se captura para vinculación", async () => {
+    captureMock.mockResolvedValue({ handled: true, linkRequestId: "lr1" });
+    const res = await request(app())
+      .post("/iclock/cdata?SN=SN123&table=ATTLOG")
+      .set("Content-Type", "text/plain")
+      .send("1001\t2026-05-21 10:00:00\t0\t1\n");
+
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("OK:0");
+    expect(processMock).not.toHaveBeenCalled();
+  });
+
+  it("POST cdata ATTLOG ignora marcas de PIN tomado durante vinculación", async () => {
+    captureMock.mockResolvedValue({ handled: false, reason: "PIN_TAKEN" });
+    const res = await request(app())
+      .post("/iclock/cdata?SN=SN123&table=ATTLOG")
+      .set("Content-Type", "text/plain")
+      .send("1001\t2026-05-21 10:00:00\t0\t1\n");
+
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("OK:0");
+    expect(processMock).not.toHaveBeenCalled();
+  });
+
   it("GET getrequest sin SN devuelve 400", async () => {
     const res = await request(app()).get("/iclock/getrequest");
     expect(res.status).toBe(400);
