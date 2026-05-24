@@ -48,6 +48,10 @@ const { prismaMock, runAdminQueryAssistantMock } = vi.hoisted(() => ({
       count: vi.fn(),
       create: vi.fn().mockResolvedValue({ id: "a1" }),
     },
+    schoolYear: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -154,6 +158,8 @@ describe("admin routes (prisma mock)", () => {
     );
     prismaMock.rolePermission.count.mockResolvedValue(1);
     prismaMock.permission.findMany.mockResolvedValue(permissionCatalogRows());
+    prismaMock.schoolYear.findFirst.mockResolvedValue(null);
+    prismaMock.schoolYear.findUnique.mockResolvedValue(null);
     prismaMock.$transaction.mockImplementation(async (input: any) => {
       if (typeof input === "function") return input(prismaMock);
       return Promise.all(input);
@@ -583,6 +589,7 @@ describe("admin routes (prisma mock)", () => {
   });
 
   it("POST /admin/query-assistant devuelve resultado del servicio", async () => {
+    prismaMock.schoolYear.findFirst.mockResolvedValue({ id: "sy-active" });
     runAdminQueryAssistantMock.mockResolvedValue({
       intent: "HOURS_WORKED_SUMMARY",
       summary: "Resumen de prueba",
@@ -597,7 +604,50 @@ describe("admin routes (prisma mock)", () => {
     expect(res.body.intent).toBe("HOURS_WORKED_SUMMARY");
     expect(res.body.summary).toBe("Resumen de prueba");
     expect(res.body.rows).toHaveLength(1);
-    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("horas en octubre");
+    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("horas en octubre", {
+      allYears: false,
+      schoolYearId: "sy-active",
+    });
+  });
+
+  it("POST /admin/query-assistant respeta schoolYearId enviado", async () => {
+    const sy = "00000000-0000-4000-8000-0000000000aa";
+    prismaMock.schoolYear.findUnique.mockResolvedValue({ id: sy });
+    runAdminQueryAssistantMock.mockResolvedValue({
+      intent: "ASSIGNED_EVENTS_SUMMARY",
+      summary: "ok",
+      columns: [],
+      rows: [],
+    });
+    const res = await request(app())
+      .post("/admin/query-assistant")
+      .set(adminHdr())
+      .send({ question: "eventos asignados", schoolYearId: sy });
+
+    expect(res.status).toBe(200);
+    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("eventos asignados", {
+      allYears: false,
+      schoolYearId: sy,
+    });
+  });
+
+  it("POST /admin/query-assistant permite todos los ciclos", async () => {
+    runAdminQueryAssistantMock.mockResolvedValue({
+      intent: "ASSIGNED_EVENTS_SUMMARY",
+      summary: "ok",
+      columns: [],
+      rows: [],
+    });
+    const res = await request(app())
+      .post("/admin/query-assistant")
+      .set(adminHdr())
+      .send({ question: "eventos asignados", allYears: true });
+
+    expect(res.status).toBe(200);
+    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("eventos asignados", {
+      allYears: true,
+      schoolYearId: undefined,
+    });
   });
 
   it("POST /admin/query-assistant 503 si falta OPENAI_API_KEY", async () => {

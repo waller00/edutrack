@@ -206,6 +206,7 @@ export default function AdminBiometricDevicesPanel() {
 
   const canSave = form.code.trim().length >= 2 && form.name.trim().length >= 2 && (mode === 'edit' || form.secret.length >= 8)
   const showForm = mode === 'edit' || mode === 'create'
+  const isRowSelectionEnabled = !showForm
 
   return (
     <div className="space-y-4">
@@ -257,8 +258,23 @@ export default function AdminBiometricDevicesPanel() {
               {devices.map((device) => (
                 <article
                   key={device.id}
-                  className={`grid gap-3 px-4 py-3 transition hover:bg-slate-50 lg:grid-cols-[minmax(170px,1.4fr)_120px_120px_120px_110px] lg:items-center ${
-                    selectedId === device.id ? 'bg-emerald-50/40' : ''
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedId === device.id}
+                  onClick={() => {
+                    if (isRowSelectionEnabled) openView(device)
+                  }}
+                  onKeyDown={(event) => {
+                    if (!isRowSelectionEnabled) return
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openView(device)
+                    }
+                  }}
+                  className={`grid cursor-pointer gap-3 border-l-4 px-4 py-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 lg:grid-cols-[minmax(170px,1.4fr)_120px_120px_120px_110px] lg:items-center ${
+                    selectedId === device.id
+                      ? 'border-l-emerald-500 bg-emerald-50 shadow-inner'
+                      : 'border-l-transparent hover:bg-slate-50'
                   }`}
                 >
                   <div className="min-w-0">
@@ -283,15 +299,34 @@ export default function AdminBiometricDevicesPanel() {
                   </p>
 
                   <div className="flex items-center gap-1.5 lg:justify-end">
-                    <button type="button" onClick={() => openView(device)} className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-50" title="Ver información">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openView(device)
+                      }}
+                      className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-50"
+                      title="Ver información"
+                    >
                       <Eye className="h-4 w-4" aria-hidden />
                     </button>
-                    <button type="button" onClick={() => openEdit(device)} className="rounded-lg border border-emerald-200 bg-white p-2 text-emerald-700 shadow-sm transition hover:bg-emerald-50" title="Editar lector">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openEdit(device)
+                      }}
+                      className="rounded-lg border border-emerald-200 bg-white p-2 text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+                      title="Editar lector"
+                    >
                       <Pencil className="h-4 w-4" aria-hidden />
                     </button>
                     <button
                       type="button"
-                      onClick={() => void toggleActive(device)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void toggleActive(device)
+                      }}
                       disabled={saving}
                       className={`rounded-lg border bg-white p-2 shadow-sm transition disabled:opacity-60 ${
                         device.isActive ? 'border-red-200 text-red-700 hover:bg-red-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'

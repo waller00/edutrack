@@ -41,6 +41,7 @@ Ejemplos (mapeá intent + params; userSearch en minúsculas o tal cual el nombre
 - "Eventos asignados al docente López en septiembre" → ASSIGNED_EVENTS_SUMMARY, userSearch "López", month 9.
 
 Reglas:
+- Interpretá sinónimos: docente/profesor/profe/maestro/tutor → TEACHER o persona asignada; funcionario/personal/staff/administrativo/adscripto/bedel → personal; alumno/estudiante → Student si pregunta matrícula/cursos. Asistencia/marca/marcación/fichada/registro son equivalentes según contexto. Atraso/retraso/tardanza/llegada tarde son LATE. Retiro temprano/se fue antes/salida anticipada son EARLY_EXIT.
 - Frases cortas válidas: "horas trabajadas mayo", "lista de usuarios", "incidencias abiertas octubre", "tardanzas en mayo" → rellená intent y params (mes en número 1-12).
 - Para mes sin año explícito: inferí year desde el Contexto (fecha UTC).
 - year y month en JSON deben ser números, no strings.

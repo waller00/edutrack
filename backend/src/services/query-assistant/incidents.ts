@@ -3,6 +3,7 @@ import { prisma } from '../../db/prisma.js'
 import { resolveYmdRangeFromPayload, ymdBoundsUtc } from './date-range.js'
 import { resolveUserIdsFromSearch, userDisplayName } from './helpers.js'
 import type { LlmIntentPayload, QueryAssistantTableResult } from './schemas.js'
+import { relatedEventSchoolYearWhere, schoolYearSummarySuffix, type QueryAssistantScope } from './scope.js'
 
 const TYPE_LABEL: Record<AttendanceIncidentType, string> = {
   LATE_ARRIVAL: 'Llegada tarde',
@@ -18,6 +19,7 @@ const STATUS_LABEL: Record<AttendanceIncidentStatus, string> = {
 
 export async function executeAttendanceIncidentsSummary(
   payload: LlmIntentPayload,
+  scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
   const range = resolveYmdRangeFromPayload(payload.params)
   if (!range) {
@@ -50,6 +52,7 @@ export async function executeAttendanceIncidentsSummary(
     ...(openOnly ? { status: 'OPEN' as const } : {}),
     ...(typeFilter ? { type: typeFilter } : {}),
     ...(userIds ? { userId: { in: userIds } } : {}),
+    ...relatedEventSchoolYearWhere(scope),
   }
 
   if (viewMode === 'COUNT_BY_USER') {
@@ -71,7 +74,7 @@ export async function executeAttendanceIncidentsSummary(
       intent: 'ATTENDANCE_INCIDENTS_SUMMARY',
       summary:
         payload.reply ||
-        `Incidencias por persona (${typeNote}) entre ${range.from} y ${range.to}${openOnly ? ', solo abiertas' : ''}.`,
+        `Incidencias por persona (${typeNote}) entre ${range.from} y ${range.to}${openOnly ? ', solo abiertas' : ''}${schoolYearSummarySuffix(scope)}.`,
       columns: [
         { key: 'persona', label: 'Persona' },
         { key: 'rol', label: 'Rol' },
@@ -101,7 +104,7 @@ export async function executeAttendanceIncidentsSummary(
     intent: 'ATTENDANCE_INCIDENTS_SUMMARY',
     summary:
       payload.reply ||
-      `Incidencias entre ${range.from} y ${range.to}${openOnly ? ' (solo abiertas)' : ''}.`,
+      `Incidencias entre ${range.from} y ${range.to}${openOnly ? ' (solo abiertas)' : ''}${schoolYearSummarySuffix(scope)}.`,
     columns: [
       { key: 'fecha', label: 'Detectada' },
       { key: 'tipo', label: 'Tipo' },

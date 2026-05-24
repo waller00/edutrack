@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
 import { useCallback, useState } from 'react'
@@ -45,6 +46,7 @@ function intentTitle(intent: string): string {
 }
 
 export default function AdminQueryAssistantPage() {
+  const syCtx = useOptionalAdminSchoolYear()
   const [question, setQuestion] = useState('Horas trabajadas en octubre')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,7 +61,13 @@ export default function AdminQueryAssistantPage() {
     try {
       const r = await api<AssistantResponse>('/admin/query-assistant', {
         method: 'POST',
-        body: JSON.stringify({ question: q }),
+        body: JSON.stringify({
+          question: q,
+          ...(syCtx?.allYears ? { allYears: true } : {}),
+          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
+            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
+            : {}),
+        }),
       })
       setResult(r)
     } catch (e: unknown) {
@@ -68,7 +76,7 @@ export default function AdminQueryAssistantPage() {
     } finally {
       setLoading(false)
     }
-  }, [question])
+  }, [question, syCtx?.activeId, syCtx?.allYears, syCtx?.selectedId])
 
   function applyExample(text: string) {
     setQuestion(text)
@@ -89,6 +97,11 @@ export default function AdminQueryAssistantPage() {
               Escribí en español lo que necesitás revisar; el sistema interpreta la pregunta y arma una tabla con datos
               reales (solo lectura).
             </p>
+            <p className="mt-2 text-xs font-medium text-emerald-700">
+              {syCtx?.allYears
+                ? 'Consultando todos los ciclos lectivos.'
+                : `Consultando el ciclo lectivo actual${syCtx?.selectedId && syCtx.selectedId !== syCtx.activeId ? ' seleccionado' : ''}.`}
+            </p>
           </div>
         </div>
 
@@ -108,6 +121,14 @@ export default function AdminQueryAssistantPage() {
               </li>
               <li>
                 Incluí <strong>mes</strong> (y año si no es el actual): «licencias de marzo», «horas en junio 2025».
+              </li>
+              <li>
+                Entiende palabras parecidas: «profesor», «docente», «profe», «atrasos», «tardanzas»,
+                «retiro temprano», «salida anticipada», «marcas» o «fichadas».
+              </li>
+              <li>
+                Por defecto consulta el ciclo lectivo seleccionado arriba; cambiá a «todos los ciclos» solo para
+                búsquedas históricas.
               </li>
               <li>
                 Si la tabla sale vacía, puede que no haya registros en ese período; probá otro mes o revisá la carga en
