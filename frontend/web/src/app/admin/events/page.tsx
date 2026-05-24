@@ -215,6 +215,14 @@ function renderEventsEmptyState(events: Event[]) {
   return null
 }
 
+function getEventDateInputValue(value?: string | null) {
+  return value ? value.split('T')[0] : ''
+}
+
+function getEventEndDateInputValue(event: Event) {
+  return getEventDateInputValue(event.endDate) || getEventDateInputValue(event.startDate)
+}
+
 export default function AdminEvents() {
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
@@ -773,19 +781,14 @@ export default function AdminEvents() {
                               Inicio {formatTimeInUruguay(event.startTime)}
                             </div>
                           )}
-                          {event.endDate ? (
-                            <>
-                              {event.endDate !== event.startDate && (
-                                <div className="text-xs text-gray-500">Fin {formatDateInUruguay(event.endDate)}</div>
-                              )}
-                              {event.endTime && (
-                                <div className="text-xs text-gray-500">
-                                  Fin {formatTimeInUruguay(event.endTime)}
-                                </div>
-                              )}
-                            </>
+                          {event.endTime ? (
+                            <div className="text-xs text-gray-500">
+                              {event.endDate && event.endDate !== event.startDate
+                                ? `Fin ${formatDateInUruguay(event.endDate)} ${formatTimeInUruguay(event.endTime)}`
+                                : `Fin ${formatTimeInUruguay(event.endTime)}`}
+                            </div>
                           ) : (
-                            <span className="text-xs text-gray-400">Sin fecha fin</span>
+                            <span className="text-xs text-gray-400">Sin hora fin</span>
                           )}
                         </div>
                       </td>
@@ -1198,20 +1201,23 @@ export default function AdminEvents() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
                   <input
                     type="date"
-                    value={editingEvent.startDate.split('T')[0]}
+                    value={getEventDateInputValue(editingEvent.startDate)}
                     onChange={(e) => setEditingEvent({ ...editingEvent, startDate: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha Fin</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
                   <input
                     type="date"
-                    value={editingEvent.endDate ? editingEvent.endDate.split('T')[0] : ''}
+                    value={getEventEndDateInputValue(editingEvent)}
                     onChange={(e) => setEditingEvent({ ...editingEvent, endDate: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
+                  {!editingEvent.endDate && (
+                    <p className="mt-1 text-xs text-gray-500">Mismo día que la fecha del evento.</p>
+                  )}
                 </div>
                 
                 <AdminTime24Selects
