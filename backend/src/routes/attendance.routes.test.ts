@@ -291,7 +291,7 @@ describe("attendance /register (prisma mock)", () => {
     });
     expect(prismaMock.attendanceIncident.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ type: "TEACHER_NO_SHOW" }),
+        where: expect.objectContaining({ type: "TEACHER_NO_SHOW", status: "OPEN" }),
       }),
     );
   });
@@ -648,7 +648,7 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.body.absentCount).toBe(4);
     expect(prismaMock.attendanceIncident.count).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ type: "TEACHER_NO_SHOW" }),
+        where: expect.objectContaining({ type: "TEACHER_NO_SHOW", status: "OPEN" }),
       }),
     );
   });

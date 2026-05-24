@@ -2,7 +2,6 @@ import type { Request } from "express";
 import { BiometricLinkRequestStatus } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { recordAuditEvent } from "./audit-log.js";
-import { processBiometricIngest } from "./biometric-ingest-core.js";
 
 const ACTIVE_STATUSES: BiometricLinkRequestStatus[] = ["WAITING_PUNCH", "PENDING_CONFIRM"];
 
@@ -413,33 +412,8 @@ export async function confirmBiometricLinkRequest(params: {
     },
   });
 
-  let attendance: unknown;
   if (linkRequest.candidatePunchId) {
-    const punch = await prisma.biometricPunch.findUnique({
-      where: { id: linkRequest.candidatePunchId },
-      select: {
-        deviceUserId: true,
-        occurredAt: true,
-        externalId: true,
-        punchType: true,
-        payload: true,
-      },
-    });
-    if (punch) {
-      await prisma.biometricPunch.delete({ where: { id: linkRequest.candidatePunchId } }).catch(() => undefined);
-      const ingest = await processBiometricIngest({
-        deviceDbId: deviceId,
-        deviceCode: linkRequest.device.code,
-        deviceUserId: punch.deviceUserId,
-        occurredAt: punch.occurredAt,
-        externalId: punch.externalId ?? undefined,
-        punchType: punch.punchType === "UNKNOWN" ? undefined : punch.punchType,
-        payload: punch.payload,
-      });
-      if (ingest.ok) {
-        attendance = ingest.attendance;
-      }
-    }
+    await prisma.biometricPunch.delete({ where: { id: linkRequest.candidatePunchId } }).catch(() => undefined);
   }
 
   return {
@@ -449,7 +423,6 @@ export async function confirmBiometricLinkRequest(params: {
       deviceUserId: mapping.deviceUserId,
       device: linkRequest.device,
     },
-    attendance,
   };
 }
 

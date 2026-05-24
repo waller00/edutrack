@@ -5,9 +5,10 @@ import biometricLinkRoutes from "./biometric-link.js";
 
 vi.mock("../middlewares/auth.js", () => ({
   authGuard: (req: any, _res: any, next: () => void) => {
-    req.user = { sub: "user-1", id: "user-1", role: "TEACHER" };
+    req.user = { sub: "admin-1", id: "admin-1", role: "ADMIN" };
     next();
   },
+  requirePermission: () => (_req: any, _res: any, next: () => void) => next(),
 }));
 
 const linkMock = vi.hoisted(() => ({
@@ -53,6 +54,18 @@ describe("biometric-link routes", () => {
     const res = await request(app()).post("/biometric/link-requests").send({});
     expect(res.status).toBe(201);
     expect(res.body.linkRequest.id).toBe("lr1");
+  });
+
+  it("POST /biometric/admin/users/:userId/biometric/link-requests crea solicitud para usuario", async () => {
+    linkMock.createBiometricLinkRequest.mockResolvedValue({
+      ok: true,
+      linkRequest: { id: "lr1", status: "WAITING_PUNCH" },
+    });
+    const res = await request(app()).post("/biometric/admin/users/user-2/biometric/link-requests").send({});
+    expect(res.status).toBe(201);
+    expect(linkMock.createBiometricLinkRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user-2" }),
+    );
   });
 
   it("POST confirm devuelve mapping", async () => {

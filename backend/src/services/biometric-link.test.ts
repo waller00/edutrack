@@ -34,9 +34,6 @@ const { prismaMock } = vi.hoisted(() => ({
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("./audit-log.js", () => ({ recordAuditEvent: vi.fn() }));
-vi.mock("./biometric-ingest-core.js", () => ({
-  processBiometricIngest: vi.fn(),
-}));
 
 import {
   biometricLinkTtlSeconds,
@@ -45,7 +42,6 @@ import {
   tryCaptureBiometricLinkPunch,
   confirmBiometricLinkRequest,
 } from "./biometric-link.js";
-import { processBiometricIngest } from "./biometric-ingest-core.js";
 
 describe("biometric-link service", () => {
   beforeEach(() => {
@@ -264,7 +260,7 @@ describe("biometric-link service", () => {
     expect(taken).toEqual({ handled: false, reason: "PIN_TAKEN" });
   });
 
-  it("confirma y reprocesa marca capturada", async () => {
+  it("confirma y descarta la marca capturada sin registrarla como asistencia", async () => {
     const future = new Date(Date.now() + 60000);
     prismaMock.biometricLinkRequest.findUnique.mockResolvedValue({
       id: "lr1",
@@ -289,24 +285,12 @@ describe("biometric-link service", () => {
       };
       return fn(tx);
     });
-    prismaMock.biometricPunch.findUnique.mockResolvedValue({
-      deviceUserId: "1007",
-      occurredAt: new Date("2026-05-22T16:00:00Z"),
-      externalId: "ext-1",
-      punchType: "CHECK_IN",
-      payload: {},
-    });
     prismaMock.biometricPunch.delete.mockResolvedValue({});
-    vi.mocked(processBiometricIngest).mockResolvedValue({
-      ok: true,
-      duplicate: false,
-      punchId: "p2",
-      attendance: { id: "att1" },
-    });
 
     const result = await confirmBiometricLinkRequest({ userId: "u1", linkRequestId: "lr1" });
     expect(result.ok).toBe(true);
-    expect(processBiometricIngest).toHaveBeenCalled();
+    expect(prismaMock.biometricPunch.delete).toHaveBeenCalledWith({ where: { id: "p1" } });
+    expect(prismaMock.biometricPunch.findUnique).not.toHaveBeenCalled();
   });
 
   it("rechaza confirmación inválida, expirada, sin candidato o con PIN tomado", async () => {

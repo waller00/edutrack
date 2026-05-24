@@ -102,6 +102,7 @@ function buildAdminAttendanceIncidentWhere(query: Record<string, unknown>, atten
   const { startDate, endDate, userId, eventId, eventType, role } = query
   const where: any = {
     type: 'TEACHER_NO_SHOW',
+    status: 'OPEN',
   }
 
   if (startDate || endDate) {

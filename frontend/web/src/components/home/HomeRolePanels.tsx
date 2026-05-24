@@ -21,6 +21,7 @@ type AttendanceFeedRow = {
   kind?: 'INCIDENT'
   title?: string
   description?: string | null
+  notes?: string | null
   incidentType?: string
   user?: { id: string; name?: string | null; email: string; role?: string }
   event?: { id: string; title: string; type: string } | null
@@ -50,6 +51,7 @@ function labelAttendanceStatus(status: string): string {
 
 function labelAttendanceFeedRow(row: AttendanceFeedRow): string {
   if (row.kind === 'INCIDENT' || row.type === 'INCIDENT') return 'Falta'
+  if (row.status === 'LATE' && row.notes?.toLowerCase().includes('llegada muy tarde')) return 'Llegada muy tarde'
   return labelAttendanceStatus(row.status)
 }
 

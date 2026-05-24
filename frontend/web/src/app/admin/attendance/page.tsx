@@ -30,6 +30,13 @@ function withSchoolYear(path: string, schoolYearQuery: string): string {
   return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
 }
 
+function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
+  if (attendance.status === 'LATE' && attendance.notes?.toLowerCase().includes('llegada muy tarde')) {
+    return 'Llegada muy tarde'
+  }
+  return getAdminAttendanceStatusLabel(attendance.status)
+}
+
 type AttendanceRecord = {
   id: string
   type: 'CHECK_IN' | 'CHECK_OUT' | 'INCIDENT'
@@ -169,7 +176,7 @@ function renderAttendancesTable(
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
-                  {getAdminAttendanceStatusLabel(attendance.status)}
+                  {getAttendanceRowStatusLabel(attendance)}
                 </span>
               </td>
               <td className="px-6 py-4 text-sm text-gray-900">
