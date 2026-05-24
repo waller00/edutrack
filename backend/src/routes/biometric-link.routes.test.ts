@@ -13,6 +13,9 @@ vi.mock("../middlewares/auth.js", () => ({
 
 const linkMock = vi.hoisted(() => ({
   listActiveBiometricDevices: vi.fn(),
+  listAdminBiometricDevices: vi.fn(),
+  createAdminBiometricDevice: vi.fn(),
+  updateAdminBiometricDevice: vi.fn(),
   getUserBiometricMapping: vi.fn(),
   getActiveBiometricLinkRequest: vi.fn(),
   createBiometricLinkRequest: vi.fn(),
@@ -37,6 +40,7 @@ describe("biometric-link routes", () => {
     linkMock.getUserBiometricMapping.mockResolvedValue(null);
     linkMock.getActiveBiometricLinkRequest.mockResolvedValue(null);
     linkMock.listActiveBiometricDevices.mockResolvedValue([]);
+    linkMock.listAdminBiometricDevices.mockResolvedValue([]);
   });
 
   it("GET /biometric/devices lista lectores", async () => {
@@ -44,6 +48,42 @@ describe("biometric-link routes", () => {
     const res = await request(app()).get("/biometric/devices");
     expect(res.status).toBe(200);
     expect(res.body.devices).toHaveLength(1);
+  });
+
+  it("GET /biometric/admin/devices lista lectores para configuración", async () => {
+    linkMock.listAdminBiometricDevices.mockResolvedValue([
+      { id: "d1", code: "F22", name: "Entrada", isActive: true, _count: { mappings: 2, punches: 10, linkRequests: 1 } },
+    ]);
+    const res = await request(app()).get("/biometric/admin/devices");
+    expect(res.status).toBe(200);
+    expect(res.body.devices[0].name).toBe("Entrada");
+  });
+
+  it("POST /biometric/admin/devices crea lector", async () => {
+    linkMock.createAdminBiometricDevice.mockResolvedValue({ id: "d1", code: "F22", name: "Entrada" });
+    const res = await request(app()).post("/biometric/admin/devices").send({
+      code: "F22",
+      name: "Entrada",
+      secret: "secret-local",
+      allowedIps: ["10.0.0.5"],
+    });
+    expect(res.status).toBe(201);
+    expect(linkMock.createAdminBiometricDevice).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "F22", allowedIps: ["10.0.0.5"] }),
+    );
+  });
+
+  it("PUT /biometric/admin/devices/:id actualiza lector", async () => {
+    linkMock.updateAdminBiometricDevice.mockResolvedValue({ id: "d1", code: "F22", name: "Entrada 2" });
+    const res = await request(app()).put("/biometric/admin/devices/d1").send({
+      name: "Entrada 2",
+      isActive: false,
+    });
+    expect(res.status).toBe(200);
+    expect(linkMock.updateAdminBiometricDevice).toHaveBeenCalledWith(
+      "d1",
+      expect.objectContaining({ name: "Entrada 2", isActive: false }),
+    );
   });
 
   it("POST /biometric/link-requests crea solicitud", async () => {
