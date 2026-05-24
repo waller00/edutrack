@@ -41,8 +41,8 @@ export function getAttendanceStatus(params: {
   return minutesEarly > toleranceMinutes ? 'EARLY_EXIT' : 'EXIT'
 }
 
-export function getBiometricStatus(type: 'CHECK_IN' | 'CHECK_OUT', isLate?: boolean) {
-  if (type !== 'CHECK_IN') return 'EXIT'
+export function getBiometricStatus(type: 'CHECK_IN' | 'CHECK_OUT', isLate?: boolean, isEarlyExit?: boolean) {
+  if (type !== 'CHECK_IN') return isEarlyExit ? 'EARLY_EXIT' : 'EXIT'
   return isLate ? 'LATE' : 'PRESENT'
 }
 
@@ -60,17 +60,21 @@ export function buildBiometricAttendancePayload(params: {
   deviceId?: string
   eventId?: string
   isLate?: boolean
+  isEarlyExit?: boolean
+  status?: RegisterStatus
   type: 'CHECK_IN' | 'CHECK_OUT'
 }): Prisma.AttendanceUncheckedCreateInput {
+  const status = params.status ?? getBiometricStatus(params.type, params.isLate, params.isEarlyExit)
   const baseNote = params.type === 'CHECK_OUT' ? 'Salida automática' : 'Entrada automática'
-  const lateNote = params.type === 'CHECK_IN' && params.isLate ? ' - RETRASO' : ''
+  const lateNote = params.type === 'CHECK_IN' && status === 'LATE' ? ' - RETRASO' : ''
+  const earlyExitNote = params.type === 'CHECK_OUT' && status === 'EARLY_EXIT' ? ' - SALIDA ANTICIPADA' : ''
   return {
     userId: params.userId,
     type: params.type,
-    status: getBiometricStatus(params.type, params.isLate),
+    status,
     date: params.attendanceDate,
     time: params.attendanceTime,
     eventId: params.eventId,
-    notes: `${baseNote}${lateNote} - Dispositivo: ${params.deviceId || 'N/A'}`,
+    notes: `${baseNote}${lateNote}${earlyExitNote} - Dispositivo: ${params.deviceId || 'N/A'}`,
   }
 }

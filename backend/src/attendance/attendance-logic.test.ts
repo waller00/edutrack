@@ -122,9 +122,10 @@ describe("getAttendanceStatus", () => {
 });
 
 describe("getBiometricStatus", () => {
-  it("CHECK_OUT siempre EXIT en status biométrico", () => {
+  it("CHECK_OUT por defecto es EXIT y puede ser EARLY_EXIT", () => {
     expect(getBiometricStatus("CHECK_OUT", true)).toBe("EXIT");
     expect(getBiometricStatus("CHECK_OUT", false)).toBe("EXIT");
+    expect(getBiometricStatus("CHECK_OUT", false, true)).toBe("EARLY_EXIT");
   });
 
   it("CHECK_IN tarde → LATE", () => {
@@ -189,5 +190,17 @@ describe("buildBiometricAttendancePayload", () => {
     });
     expect(String(p.notes)).toContain("N/A");
     expect(p.status).toBe("EXIT");
+  });
+
+  it("CHECK_OUT anticipado añade estado y nota", () => {
+    const p = buildBiometricAttendancePayload({
+      userId: uid,
+      attendanceDate: d,
+      attendanceTime: t,
+      type: "CHECK_OUT",
+      status: "EARLY_EXIT",
+    });
+    expect(p.status).toBe("EARLY_EXIT");
+    expect(String(p.notes)).toContain("SALIDA ANTICIPADA");
   });
 });

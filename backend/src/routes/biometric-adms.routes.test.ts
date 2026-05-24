@@ -199,6 +199,72 @@ describe("biometric ADMS ingest", () => {
     expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBe("event-1");
   });
 
+  it("marca llegada muy tarde por minutos reales aunque no exista no-show abierto", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    findAssignedEventNearMock.mockResolvedValue({
+      id: "event-1",
+      title: "Clase Natalia",
+      type: "REUNION",
+      startTime: new Date("2026-05-05T12:52:00.000Z"),
+      endTime: new Date("2026-05-05T14:00:00.000Z"),
+    });
+    prismaMock.attendance.create.mockResolvedValue({
+      id: "att-1",
+      type: "CHECK_IN",
+      status: "LATE",
+      date: new Date("2026-05-05T00:00:00.000Z"),
+      time: new Date(payload.timestamp),
+      notes: "Llegada muy tarde: 18 min tarde - Dispositivo: F22-TEST-01",
+    });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-1" });
+    prismaMock.biometricDevice.update.mockResolvedValue({});
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send(payload);
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("LATE");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.notes).toContain("Llegada muy tarde: 18 min tarde");
+  });
+
+  it("marca salida anticipada contra fin planificado del evento", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    findAssignedEventNearMock.mockResolvedValue({
+      id: "event-1",
+      title: "Clase Natalia",
+      type: "REUNION",
+      startTime: new Date("2026-05-05T13:00:00.000Z"),
+      endTime: new Date("2026-05-05T14:00:00.000Z"),
+    });
+    prismaMock.attendance.create.mockResolvedValue({
+      id: "att-1",
+      type: "CHECK_OUT",
+      status: "EARLY_EXIT",
+      date: new Date("2026-05-05T00:00:00.000Z"),
+      time: new Date(payload.timestamp),
+      eventId: "event-1",
+    });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-1" });
+    prismaMock.biometricDevice.update.mockResolvedValue({});
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send({ ...payload, punchType: "CHECK_OUT" });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("EARLY_EXIT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.notes).toContain("SALIDA ANTICIPADA");
+  });
+
   it("marca como llegada muy tarde cuando ya había no-show abierto para el evento", async () => {
     prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
     prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
