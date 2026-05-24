@@ -4,9 +4,11 @@ import { resolveAttendanceAndJustification } from '../analytics/resolveInstances
 import { resolveYmdRangeFromPayload } from './date-range.js'
 import { resolveUserIdsFromSearch, userDisplayName } from './helpers.js'
 import type { LlmIntentPayload, QueryAssistantTableResult } from './schemas.js'
+import { schoolYearSummarySuffix, type QueryAssistantScope } from './scope.js'
 
 export async function executeHoursWorkedSummary(
   payload: LlmIntentPayload,
+  scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
   const range = resolveYmdRangeFromPayload(payload.params)
   if (!range) {
@@ -34,6 +36,7 @@ export async function executeHoursWorkedSummary(
     from,
     to,
     ...(userIds ? { userIds } : {}),
+    ...(scope?.schoolYearId && !scope.allYears ? { schoolYearId: scope.schoolYearId } : {}),
   })
   const resolved = await resolveAttendanceAndJustification({ plannedInstances: planned })
 
@@ -68,7 +71,7 @@ export async function executeHoursWorkedSummary(
     intent: 'HOURS_WORKED_SUMMARY',
     summary:
       payload.reply ||
-      `Horas registradas (entrada/salida sobre eventos asignados) entre ${from} y ${to}.`,
+      `Horas registradas (entrada/salida sobre eventos asignados) entre ${from} y ${to}${schoolYearSummarySuffix(scope)}.`,
     columns: [
       { key: 'nombre', label: 'Persona' },
       { key: 'rol', label: 'Rol' },

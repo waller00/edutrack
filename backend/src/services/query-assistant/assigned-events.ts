@@ -3,6 +3,7 @@ import { prisma } from '../../db/prisma.js'
 import { resolveYmdRangeFromPayload, ymdBoundsUtc } from './date-range.js'
 import { resolveUserIdsFromSearch, userDisplayName } from './helpers.js'
 import type { LlmIntentPayload, QueryAssistantTableResult } from './schemas.js'
+import { eventSchoolYearWhere, schoolYearSummarySuffix, type QueryAssistantScope } from './scope.js'
 
 const TYPE_LABEL: Record<EventType, string> = {
   JORNADA_LABORAL: 'Jornada',
@@ -29,6 +30,7 @@ function minutesBetween(start: Date, end: Date | null): number | null {
 
 export async function executeAssignedEventsSummary(
   payload: LlmIntentPayload,
+  scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
   const range = resolveYmdRangeFromPayload(payload.params)
   if (!range) {
@@ -55,6 +57,7 @@ export async function executeAssignedEventsSummary(
       assignedUserId: { not: null },
       startDate: { gte: start, lte: end },
       ...(userIds ? { assignedUserId: { in: userIds } } : {}),
+      ...eventSchoolYearWhere(scope),
     },
     orderBy: { startDate: 'asc' },
     take: 800,
@@ -111,8 +114,8 @@ export async function executeAssignedEventsSummary(
     summary:
       payload.reply ||
       (useDetail
-        ? `Eventos asignados entre ${range.from} y ${range.to} (detalle, hasta 200 filas).`
-        : `Resumen de eventos asignados por persona entre ${range.from} y ${range.to}.`),
+        ? `Eventos asignados entre ${range.from} y ${range.to}${schoolYearSummarySuffix(scope)} (detalle, hasta 200 filas).`
+        : `Resumen de eventos asignados por persona entre ${range.from} y ${range.to}${schoolYearSummarySuffix(scope)}.`),
     columns: useDetail
       ? [
           { key: 'inicio', label: 'Inicio' },

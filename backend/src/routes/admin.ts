@@ -30,6 +30,7 @@ import {
   recordAuditEvent,
 } from '../services/audit-log.js'
 import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
+import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { ensureMoodleUserById } from '../services/moodle.js'
 import adminStudentsRoutes from './admin-students.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
@@ -864,12 +865,25 @@ r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSch
 
 /** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
 r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), async (req, res) => {
-  const parsed = z.object({ question: z.string().min(1).max(2000) }).safeParse(req.body)
+  const parsed = z
+    .object({
+      question: z.string().min(1).max(2000),
+      schoolYearId: z.string().uuid().optional(),
+      allYears: z.union([z.boolean(), z.literal('1'), z.literal('0')]).optional(),
+    })
+    .safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ message: 'Pregunta inválida', errors: parsed.error.errors })
   }
   try {
-    const result = await runAdminQueryAssistant(parsed.data.question)
+    const allYears = parsed.data.allYears === true || parsed.data.allYears === '1'
+    const schoolYearId = allYears
+      ? undefined
+      : await resolveSchoolYearIdForList(prisma, {
+          requestedSchoolYearId: parsed.data.schoolYearId,
+          role: req.user?.role ?? 'ADMIN',
+        })
+    const result = await runAdminQueryAssistant(parsed.data.question, { allYears, schoolYearId })
     return res.json(result)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

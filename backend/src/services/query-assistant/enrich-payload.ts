@@ -16,6 +16,11 @@ const NEEDS_RANGE: LlmIntentPayload['intent'][] = [
   'AUDIT_LOG_SUMMARY',
 ]
 
+const ROLE_PERSON_WORD = String.raw`docentes?|profesor(?:es)?|profesora(?:s)?|profes?|maestros?|maestras?|educadores?|tutores?|funcionarios?|personal|staff|administrativos?|adscriptos?|bedeles?`
+const ABSENCE_WORD = String.raw`falt|ausen|ausencias?|no\s+show|no\s+lleg[oó]|inasisten|no\s+vino`
+const LATE_WORD = String.raw`tard|atras|retras|llegada\s+tarde|entrada\s+tarde`
+const EARLY_EXIT_WORD = String.raw`salidas?\s+anticipad[ao]s?|retiros?\s+tempran[ao]s?|se\s+retir[oó]\s+antes|se\s+fue\s+antes`
+
 /** Si el modelo devolvió UNKNOWN o faltan mes/año detectables en el texto, completamos o reemplazamos con heurística local. */
 export function enrichPayloadFromQuestion(parsed: LlmIntentPayload, question: string): LlmIntentPayload {
   if (parsed.intent === 'UNKNOWN') {
@@ -82,21 +87,21 @@ function applyQuestionKeywordEnrichments(parsed: LlmIntentPayload, question: str
   }
 
   if (parsed.intent === 'ATTENDANCE_INCIDENTS_SUMMARY') {
-    if (/\bsalida\s+anticipad/.test(t)) {
+    if (new RegExp(`\\b(?:${EARLY_EXIT_WORD})\\b`).test(t)) {
       params.incidentTypeScope = 'EARLY_EXIT'
     }
     const wantsCount =
-      /\b(por\s+persona|por\s+docente|conteo|ranking|\btop\s+\d+)\b/.test(t) ||
+      new RegExp(`\\b(por\\s+persona|por\\s+(?:${ROLE_PERSON_WORD})|conteo|ranking|top\\s+\\d+)\\b`).test(t) ||
       (/\branking\b/.test(t) && /\bausencias?\b/.test(t)) ||
-      (/\b(quien|que\s+docente|docente\s+que|el\s+docente)\b/.test(t) && /\b(mas|m[aá]s|mayor|mayores)\b/.test(t)) ||
+      (new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) && /\b(mas|m[aá]s|mayor|mayores)\b/.test(t)) ||
       /\bcuantas\s+incidencias?\s+(tiene|cada)\b/.test(t)
     if (wantsCount && params.incidentViewMode == null) {
       params.incidentViewMode = 'COUNT_BY_USER'
     }
     if (params.incidentViewMode === 'COUNT_BY_USER' && params.incidentTypeScope == null) {
-      if (/\b(falt|ausen|ausencias?|no\s+show|no\s+lleg[oó]|inasisten)\b/.test(t)) {
+      if (new RegExp(`\\b(?:${ABSENCE_WORD})\\b`).test(t)) {
         params.incidentTypeScope = 'TEACHER_NO_SHOW'
-      } else if (/\b(tard|llegada\s+tarde)\b/.test(t)) {
+      } else if (new RegExp(`\\b(?:${LATE_WORD})\\b`).test(t)) {
         params.incidentTypeScope = 'LATE_ARRIVAL'
       }
     }
@@ -112,7 +117,7 @@ function applyQuestionKeywordEnrichments(parsed: LlmIntentPayload, question: str
   ]
   if (intentsWithUserSearch.includes(parsed.intent) && !params.userSearch?.trim()) {
     const doc = t.match(
-      /\b(?:docente|profesor|profesora)\s+([a-záéíóúñ]+(?:\s+[a-záéíóúñ]+)?)(?=\s+en\s+|\s+del\s+|\s+durante\s+|$)/,
+      new RegExp(`\\b(?:${ROLE_PERSON_WORD})\\s+([a-záéíóúñ]+(?:\\s+[a-záéíóúñ]+)?)(?=\\s+en\\s+|\\s+del\\s+|\\s+durante\\s+|$)`),
     )
     if (doc?.[1]) {
       const name = doc[1].trim()
