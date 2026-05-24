@@ -2,6 +2,7 @@ import type { Request } from "express";
 import { BiometricLinkRequestStatus } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { recordAuditEvent } from "./audit-log.js";
+import { hashBiometricSecret } from "./biometric-ingest-core.js";
 
 const ACTIVE_STATUSES: BiometricLinkRequestStatus[] = ["WAITING_PUNCH", "PENDING_CONFIRM"];
 
@@ -31,6 +32,78 @@ export async function listActiveBiometricDevices() {
     where: { isActive: true },
     orderBy: { name: "asc" },
     select: { id: true, code: true, name: true, admsSerial: true },
+  });
+}
+
+const biometricDeviceSelect = {
+  id: true,
+  code: true,
+  name: true,
+  admsSerial: true,
+  timezone: true,
+  isActive: true,
+  allowedIps: true,
+  lastSeenAt: true,
+  createdAt: true,
+  updatedAt: true,
+  _count: { select: { mappings: true, punches: true, linkRequests: true } },
+} as const;
+
+export async function listAdminBiometricDevices() {
+  return prisma.biometricDevice.findMany({
+    orderBy: [{ isActive: "desc" }, { name: "asc" }],
+    select: biometricDeviceSelect,
+  });
+}
+
+export async function createAdminBiometricDevice(data: {
+  code: string;
+  name: string;
+  secret: string;
+  admsSerial?: string | null;
+  timezone?: string;
+  isActive?: boolean;
+  allowedIps?: string[];
+}) {
+  return prisma.biometricDevice.create({
+    data: {
+      code: data.code,
+      name: data.name,
+      admsSerial: data.admsSerial || null,
+      timezone: data.timezone || "America/Montevideo",
+      isActive: data.isActive ?? true,
+      allowedIps: data.allowedIps ?? [],
+      secretHash: hashBiometricSecret(data.secret),
+    },
+    select: biometricDeviceSelect,
+  });
+}
+
+export async function updateAdminBiometricDevice(
+  id: string,
+  data: {
+    code?: string;
+    name?: string;
+    secret?: string;
+    admsSerial?: string | null;
+    timezone?: string;
+    isActive?: boolean;
+    allowedIps?: string[];
+  },
+) {
+  const updateData: Record<string, unknown> = {};
+  if (data.code !== undefined) updateData.code = data.code;
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.admsSerial !== undefined) updateData.admsSerial = data.admsSerial || null;
+  if (data.timezone !== undefined) updateData.timezone = data.timezone;
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+  if (data.allowedIps !== undefined) updateData.allowedIps = data.allowedIps;
+  if (data.secret) updateData.secretHash = hashBiometricSecret(data.secret);
+
+  return prisma.biometricDevice.update({
+    where: { id },
+    data: updateData,
+    select: biometricDeviceSelect,
   });
 }
 

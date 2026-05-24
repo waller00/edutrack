@@ -6,11 +6,14 @@ import {
   biometricLinkTtlSeconds,
   cancelBiometricLinkRequest,
   confirmBiometricLinkRequest,
+  createAdminBiometricDevice,
   createBiometricLinkRequest,
   deactivateUserBiometricMapping,
   getActiveBiometricLinkRequest,
   getUserBiometricMapping,
+  listAdminBiometricDevices,
   listActiveBiometricDevices,
+  updateAdminBiometricDevice,
 } from "../services/biometric-link.js";
 
 const r = Router();
@@ -21,6 +24,28 @@ const createLinkSchema = z.object({
   deviceCode: z.string().min(2).max(100).optional(),
 });
 
+const allowedIpsSchema = z.array(z.string().trim().min(1).max(45)).max(20).optional();
+
+const createDeviceSchema = z.object({
+  code: z.string().trim().min(2).max(100),
+  name: z.string().trim().min(2).max(120),
+  secret: z.string().min(8).max(200),
+  admsSerial: z.string().trim().min(2).max(100).nullable().optional(),
+  timezone: z.string().trim().min(3).max(80).optional(),
+  isActive: z.boolean().optional(),
+  allowedIps: allowedIpsSchema,
+});
+
+const updateDeviceSchema = z.object({
+  code: z.string().trim().min(2).max(100).optional(),
+  name: z.string().trim().min(2).max(120).optional(),
+  secret: z.string().min(8).max(200).optional(),
+  admsSerial: z.string().trim().min(2).max(100).nullable().optional(),
+  timezone: z.string().trim().min(3).max(80).optional(),
+  isActive: z.boolean().optional(),
+  allowedIps: allowedIpsSchema,
+});
+
 function getUserId(req: { user?: { sub?: string; id?: string } }) {
   return req.user?.id ?? req.user?.sub ?? "";
 }
@@ -28,6 +53,58 @@ function getUserId(req: { user?: { sub?: string; id?: string } }) {
 r.get("/devices", requirePermission("users.update", "all"), async (_req, res) => {
   const devices = await listActiveBiometricDevices();
   return res.json({ devices });
+});
+
+function biometricDeviceError(res: any, error: any) {
+  if (error?.code === "P2025") {
+    return res.status(404).json({ message: "Lector no encontrado" });
+  }
+  if (error?.code === "P2002") {
+    return res.status(409).json({ message: "Ya existe un lector con ese código o serial" });
+  }
+  console.error("Error administrando lector biométrico:", error);
+  return res.status(500).json({ message: "Error interno administrando lector" });
+}
+
+r.get("/admin/devices", requirePermission("settings.manage", "all"), async (_req, res) => {
+  const devices = await listAdminBiometricDevices();
+  return res.json({ devices });
+});
+
+r.post("/admin/devices", requirePermission("settings.manage", "all"), async (req, res) => {
+  const parsed = createDeviceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Datos inválidos", errors: parsed.error.errors });
+  }
+
+  try {
+    const device = await createAdminBiometricDevice({
+      code: parsed.data.code!,
+      name: parsed.data.name!,
+      secret: parsed.data.secret!,
+      admsSerial: parsed.data.admsSerial,
+      timezone: parsed.data.timezone,
+      isActive: parsed.data.isActive,
+      allowedIps: parsed.data.allowedIps,
+    });
+    return res.status(201).json({ device });
+  } catch (error) {
+    return biometricDeviceError(res, error);
+  }
+});
+
+r.put("/admin/devices/:id", requirePermission("settings.manage", "all"), async (req, res) => {
+  const parsed = updateDeviceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Datos inválidos", errors: parsed.error.errors });
+  }
+
+  try {
+    const device = await updateAdminBiometricDevice(req.params.id, parsed.data);
+    return res.json({ device });
+  } catch (error) {
+    return biometricDeviceError(res, error);
+  }
 });
 
 r.get("/me/mapping", async (req, res) => {
