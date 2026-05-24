@@ -439,6 +439,7 @@ describe("attendance /register (prisma mock)", () => {
       .send({ userId: "user-1", timestamp: "2025-06-01T12:00:00.000Z", deviceId: "dev-1" });
     expect(res.status).toBe(201);
     expect(res.body.type).toBe("CHECK_OUT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("EXIT");
   });
 
   it("POST /attendance/biometric crea entrada y detecta retraso", async () => {

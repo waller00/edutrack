@@ -85,7 +85,7 @@ describe("getAttendanceStatus", () => {
     ).toBe("LATE");
   });
 
-  it("CHECK_OUT sin hora fin → PRESENT", () => {
+  it("CHECK_OUT sin hora fin → EXIT", () => {
     expect(
       getAttendanceStatus({
         type: "CHECK_OUT",
@@ -93,7 +93,7 @@ describe("getAttendanceStatus", () => {
         endTime: null,
         hasApprovedLicense: false,
       })
-    ).toBe("PRESENT");
+    ).toBe("EXIT");
   });
 
   it("CHECK_OUT hasta 5 min antes del fin → EXIT", () => {
@@ -122,9 +122,9 @@ describe("getAttendanceStatus", () => {
 });
 
 describe("getBiometricStatus", () => {
-  it("CHECK_OUT siempre PRESENT en status biométrico", () => {
-    expect(getBiometricStatus("CHECK_OUT", true)).toBe("PRESENT");
-    expect(getBiometricStatus("CHECK_OUT", false)).toBe("PRESENT");
+  it("CHECK_OUT siempre EXIT en status biométrico", () => {
+    expect(getBiometricStatus("CHECK_OUT", true)).toBe("EXIT");
+    expect(getBiometricStatus("CHECK_OUT", false)).toBe("EXIT");
   });
 
   it("CHECK_IN tarde → LATE", () => {
@@ -188,6 +188,6 @@ describe("buildBiometricAttendancePayload", () => {
       type: "CHECK_OUT",
     });
     expect(String(p.notes)).toContain("N/A");
-    expect(p.status).toBe("PRESENT");
+    expect(p.status).toBe("EXIT");
   });
 });
