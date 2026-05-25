@@ -224,9 +224,9 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
   const isAdmin = me.role === 'ADMIN'
 
   return (
-    <main className="mx-auto max-w-7xl p-6 space-y-8">
+    <main className="responsive-page max-w-7xl space-y-8">
       {/* Header moderno */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
             <User className="h-7 w-7 text-emerald-600" aria-hidden />
@@ -236,7 +236,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
             <p className="text-gray-600">Gestiona tu información personal y seguridad</p>
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-left sm:text-right">
           <div className="text-lg font-semibold text-emerald-600">{me.name || me.email}</div>
           <div className="text-sm text-gray-600">{me.role}</div>
         </div>
@@ -419,7 +419,7 @@ export default function ProfilePage(){ // NOSONAR preserve current profile UI fl
             </div>
           </div>
         ) : (
-          <div className="p-6 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 sm:p-6">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
                 <Info className="h-4 w-4 text-blue-600" aria-hidden />

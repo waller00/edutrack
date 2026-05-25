@@ -52,7 +52,7 @@ export default function Home() {
     >
       {notVerified && (
         <div className="card border-l-4 border-l-yellow-400 bg-yellow-50">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-400">
               <AlertTriangle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} aria-hidden />
             </div>
@@ -89,7 +89,7 @@ export default function Home() {
 
       {needsProfile && (
         <div className="card border-l-4 border-l-blue-400 bg-blue-50">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-400">
               <Info className="h-3.5 w-3.5 text-white" strokeWidth={2.5} aria-hidden />
             </div>
@@ -107,7 +107,7 @@ export default function Home() {
 
       {pendingApproval && !needsProfile && (
         <div className="card border-l-4 border-l-amber-400 bg-amber-50">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-white" aria-hidden />
             </div>

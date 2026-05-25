@@ -207,7 +207,7 @@ export default function LoginPage() {
           </form>
           )}
           
-          <div className="flex justify-between mt-6 text-sm">
+          <div className="mt-6 flex flex-col gap-2 text-sm sm:flex-row sm:justify-between">
             <a href="/forgot" className="text-emerald-600 hover:text-emerald-700 font-medium">
               ¿Olvidaste tu contraseña?
             </a>

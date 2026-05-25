@@ -215,7 +215,7 @@ export default function AdminSchoolYearsPage() {
 
   return (
     <RoleGuard permission="school-years.manage">
-      <main className="mx-auto max-w-6xl space-y-8 p-4 sm:p-6">
+      <main className="responsive-page max-w-6xl space-y-8">
         <header className="space-y-2 border-b border-gray-200 pb-6">
           <div className="flex flex-wrap items-center gap-2 text-emerald-800">
             <CalendarRange className="h-6 w-6" aria-hidden />
@@ -255,7 +255,7 @@ export default function AdminSchoolYearsPage() {
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="min-w-[820px] text-left text-sm">
               <thead className="border-b border-gray-100 bg-gray-50/80 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-4 py-3 sm:px-5">Año</th>
@@ -413,10 +413,10 @@ export default function AdminSchoolYearsPage() {
             Totales de estudiantes por estado de matrícula y cantidad de cursos ofertados. Útil para ver diferencias
             entre años antes de planificar el siguiente.
           </p>
-          <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo A</label>
-              <select className="select-field min-w-[220px] text-sm" value={cmpA} onChange={(e) => setCmpA(e.target.value)}>
+              <select className="select-field min-w-0 text-sm lg:min-w-[220px]" value={cmpA} onChange={(e) => setCmpA(e.target.value)}>
                 <option value="">—</option>
                 {sortedYears.map((y) => (
                   <option key={y.id} value={y.id}>
@@ -427,7 +427,7 @@ export default function AdminSchoolYearsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo B</label>
-              <select className="select-field min-w-[220px] text-sm" value={cmpB} onChange={(e) => setCmpB(e.target.value)}>
+              <select className="select-field min-w-0 text-sm lg:min-w-[220px]" value={cmpB} onChange={(e) => setCmpB(e.target.value)}>
                 <option value="">—</option>
                 {sortedYears.map((y) => (
                   <option key={y.id} value={y.id}>
@@ -476,7 +476,7 @@ export default function AdminSchoolYearsPage() {
             onClick={() => setEditing(null)}
           >
             <div
-              className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl"
+              className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
               role="dialog"
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
@@ -497,7 +497,7 @@ export default function AdminSchoolYearsPage() {
                   <input className="input-field text-sm" type="date" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
                 </div>
               </div>
-              <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <div className="mt-6 flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
                 <button type="button" className="btn-secondary text-sm" onClick={() => setEditing(null)}>
                   Cancelar
                 </button>
@@ -516,7 +516,7 @@ export default function AdminSchoolYearsPage() {
             onClick={() => setCopyTarget(null)}
           >
             <div
-              className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+              className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
               role="dialog"
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
@@ -537,7 +537,7 @@ export default function AdminSchoolYearsPage() {
                   ))}
                 </select>
               </div>
-              <div className="mt-6 flex justify-end gap-2">
+              <div className="mt-6 flex flex-col justify-end gap-2 sm:flex-row">
                 <button type="button" className="btn-secondary text-sm" onClick={() => setCopyTarget(null)}>
                   Cancelar
                 </button>

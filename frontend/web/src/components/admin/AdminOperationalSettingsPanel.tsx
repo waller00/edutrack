@@ -34,7 +34,7 @@ const labelCls = 'block text-xs font-medium uppercase tracking-wide text-gray-50
 
 function SaveBar({ saving, onSave, onReload }: Pick<Props, 'saving' | 'onSave' | 'onReload'>) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
       <button type="button" onClick={() => void onReload()} className="btn-secondary inline-flex items-center justify-center gap-2 text-sm">
         <RefreshCw className="h-4 w-4" aria-hidden />
         Recargar
@@ -98,7 +98,7 @@ export default function AdminOperationalSettingsPanel({
             <h3 className="text-sm font-semibold text-gray-900">Monitor automático</h3>
             <p className="text-xs text-gray-500">Controla la generación automática de incidencias operativas.</p>
           </div>
-          <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-gray-100 bg-slate-50/40 px-4 py-3.5 transition hover:border-emerald-100 hover:bg-emerald-50/20">
+          <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-gray-100 bg-slate-50/40 px-4 py-3.5 transition hover:border-emerald-100 hover:bg-emerald-50/20 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <span className="text-sm font-medium text-gray-800">Monitor automático de incidentes</span>
             <input
               type="checkbox"
@@ -228,7 +228,7 @@ export default function AdminOperationalSettingsPanel({
 
       {section === 'identity' && (
         <section className={`${shellCard} space-y-4`}>
-          <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-gray-100 bg-slate-50/40 px-4 py-3.5 transition hover:border-emerald-100 hover:bg-emerald-50/20">
+          <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-gray-100 bg-slate-50/40 px-4 py-3.5 transition hover:border-emerald-100 hover:bg-emerald-50/20 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div className="min-w-0 pr-2">
               <span className="text-sm font-medium text-gray-800">Preferencia “liveness”</span>
               <p className="mt-0.5 text-xs text-gray-500">Histórico; no sustituye la configuración Didit del servidor.</p>

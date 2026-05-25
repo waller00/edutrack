@@ -2,6 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  img,
+  video,
+  canvas,
+  svg {
+    max-width: 100%;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    max-width: 100%;
+    font: inherit;
+  }
+
+  textarea {
+    resize: vertical;
+  }
+}
+
 /* Variables CSS personalizadas para el esquema verde */
 :root {
   --primary-green: #10b981;
@@ -26,27 +61,27 @@ body {
 
 /* Componentes personalizados */
 .btn-primary {
-  @apply bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+  @apply inline-flex min-h-10 items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
 }
 
 .btn-secondary {
-  @apply bg-white hover:bg-gray-50 text-emerald-600 border border-emerald-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+  @apply inline-flex min-h-10 items-center justify-center gap-2 bg-white hover:bg-gray-50 text-emerald-600 border border-emerald-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
 }
 
 .btn-success {
-  @apply bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+  @apply inline-flex min-h-10 items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
 }
 
 .btn-warning {
-  @apply bg-yellow-500 hover:bg-yellow-600 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+  @apply inline-flex min-h-10 items-center justify-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
 }
 
 .btn-danger {
-  @apply bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
+  @apply inline-flex min-h-10 items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
 }
 
 .card {
-  @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6 transition-all duration-200 hover:shadow-md;
+  @apply bg-white rounded-xl shadow-sm border border-gray-100 p-4 transition-all duration-200 hover:shadow-md sm:p-6;
 }
 
 .card-header {
@@ -93,20 +128,96 @@ body {
 }
 
 .table-modern th {
-  @apply px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider bg-gray-50;
+  @apply px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider bg-gray-50 sm:px-6 sm:py-4;
 }
 
 .table-modern td {
-  @apply px-6 py-4 whitespace-nowrap text-sm text-gray-900;
+  @apply px-3 py-3 text-sm text-gray-900 sm:px-6 sm:py-4;
 }
 
 /* Modal moderno */
 .modal-overlay {
-  @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm;
+  @apply fixed inset-0 bg-black bg-opacity-50 flex items-end justify-center z-50 p-3 backdrop-blur-sm sm:items-center sm:p-4;
 }
 
 .modal-content {
-  @apply bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto;
+  @apply bg-white rounded-t-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto sm:rounded-2xl;
+}
+
+@layer utilities {
+  .responsive-page {
+    @apply mx-auto w-full px-4 py-5 sm:p-6;
+  }
+
+  .responsive-section {
+    @apply rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6;
+  }
+
+  .responsive-table {
+    @apply w-full overflow-x-auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .responsive-modal {
+    @apply fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 p-3 sm:items-center sm:p-4;
+  }
+
+  .responsive-modal-panel {
+    @apply w-full max-h-[90vh] overflow-y-auto rounded-t-2xl border border-gray-100 bg-white p-4 shadow-xl sm:rounded-2xl sm:p-6;
+  }
+}
+
+@media (max-width: 640px) {
+  main {
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  .responsive-page > .flex.justify-between,
+  .responsive-page > .flex.items-center {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .responsive-page .card-header > .flex,
+  .responsive-page .border-b > .flex.justify-between,
+  .responsive-page .border-b.flex.justify-between,
+  .responsive-page .border-b.flex.items-center {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .responsive-page .overflow-x-auto > table {
+    min-width: 44rem;
+  }
+
+  .responsive-page .overflow-x-auto {
+    max-width: calc(100vw - 2rem);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  h1 {
+    font-size: clamp(1.5rem, 8vw, 2rem);
+    line-height: 1.15;
+  }
+
+  h2 {
+    font-size: clamp(1.125rem, 6vw, 1.375rem);
+    line-height: 1.2;
+  }
+
+  th,
+  td {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    white-space: normal !important;
+  }
+
+  .mobile-full-width {
+    width: 100%;
+  }
 }
 
 /* Loader moderno */

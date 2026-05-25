@@ -143,7 +143,7 @@ export default function ForgotPage() {
 
 					{sent ? (
 						<div className="space-y-6">
-							<div className="p-6 bg-blue-50 border border-blue-200 rounded-lg">
+							<div className="rounded-lg border border-blue-200 bg-blue-50 p-4 sm:p-6">
 								<div className="flex items-center gap-3">
 									<div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
 										<Info className="h-4 w-4 text-blue-600" aria-hidden />

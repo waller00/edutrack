@@ -41,8 +41,8 @@ export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = 
 
   return (
     <RoleGuard permission="licenses.read" permissionScope="own">
-      <main className="mx-auto max-w-6xl p-6 space-y-8">
-        <div className="flex items-center gap-4">
+      <main className="responsive-page max-w-6xl space-y-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
             <span className="text-emerald-600 text-xl">📄</span>
           </div>
@@ -57,7 +57,7 @@ export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = 
 
         <div className="bg-white border rounded-lg shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="min-w-[760px] divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>

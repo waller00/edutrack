@@ -233,7 +233,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     <div className="relative">
       <button
         onClick={() => setUserMenuOpen(!userMenuOpen)}
-        className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 transition-all duration-200 hover:border-emerald-300 hover:shadow-sm"
+        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-2 transition-all duration-200 hover:border-emerald-300 hover:shadow-sm sm:gap-3 sm:px-3"
         aria-expanded={userMenuOpen}
       >
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100">
@@ -279,7 +279,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
   ) : null
 
   const sidebar = hasDashboardShell ? (
-    <aside className="sidebar-modern fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-white">
+    <aside className="sidebar-modern fixed inset-y-0 left-0 z-40 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-white lg:w-72">
       <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-5">
         <a href="/" className="flex min-w-0 items-center gap-2 text-xl font-bold text-emerald-600 transition-colors hover:text-emerald-700">
           <img src="/logo.svg" alt="EduTrack" className="h-8 w-8 shrink-0" />
@@ -354,20 +354,20 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     return (
       <>
         <header className="header-modern">
-          <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4">
-            <a href="/" className="flex shrink-0 items-center gap-2 text-xl font-bold text-emerald-600 transition-colors hover:text-emerald-700">
+          <div className="mx-auto flex min-h-16 max-w-6xl items-center justify-between gap-3 px-4 py-2">
+            <a href="/" className="flex min-w-0 shrink items-center gap-2 text-lg font-bold text-emerald-600 transition-colors hover:text-emerald-700 sm:text-xl">
               <img src="/logo.svg" alt="EduTrack" className="h-8 w-8" />
-              EduTrack
+              <span className="truncate">EduTrack</span>
             </a>
-            <div className="flex shrink-0 items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               {me ? (
                 accountButton
               ) : (
                 <>
-                  <a href="/login" className="btn-secondary text-sm">
+                  <a href="/login" className="btn-secondary px-3 text-sm">
                     Iniciar Sesión
                   </a>
-                  <a href="/register" className="btn-primary text-sm">
+                  <a href="/register" className="btn-primary px-3 text-sm">
                     Registrarse
                   </a>
                 </>
@@ -386,7 +386,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
       <div className={`lg:block ${mobileOpen ? 'block' : 'hidden'}`}>{sidebar}</div>
       <div className="min-h-screen lg:pl-72">
         <header className="header-modern sticky top-0 z-30 bg-white/90">
-          <div className="flex h-16 items-center justify-between gap-3 px-4 lg:px-6">
+          <div className="flex h-16 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
             <button
               type="button"
               className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 lg:hidden"

@@ -209,7 +209,7 @@ function AdminTime24Selects({
 
 function renderEventsEmptyState(events: Event[]) {
   if (events.length === 0) {
-    return <div className="p-6 text-center text-gray-500">No hay eventos</div>
+    return <div className="p-4 text-center text-gray-500 sm:p-6">No hay eventos</div>
   }
 
   return null
@@ -536,8 +536,8 @@ export default function AdminEvents() {
 
   return (
     <RoleGuard permission="events.read" permissionScope="all">
-      <main className="mx-auto w-full max-w-[1600px] p-6 space-y-6">
-        <div className="flex justify-between items-center">
+      <main className="responsive-page max-w-[1600px] space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
@@ -547,7 +547,7 @@ export default function AdminEvents() {
               <p className="text-gray-600">Crear y administrar eventos</p>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
             <button
               onClick={() => {
                 setMessage('')
@@ -565,8 +565,8 @@ export default function AdminEvents() {
         </div>
 
         {/* Filtros */}
-        <div className="bg-white border rounded-lg p-6 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
+        <div className="bg-white border rounded-lg p-4 shadow-sm sm:p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">Filtros</h2>
             <button
               onClick={() => setFilters({
@@ -672,7 +672,7 @@ export default function AdminEvents() {
 
         {/* Tabla de eventos */}
         <div className="bg-white border rounded-lg shadow-sm">
-          <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
             <h2 className="text-lg font-semibold">Eventos</h2>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
@@ -692,10 +692,10 @@ export default function AdminEvents() {
           </div>
           
           {loading ? (
-            <div className="p-6 text-center text-gray-500">Cargando...</div>
+            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando...</div>
           ) : renderEventsEmptyState(events) || (
-            <div className="overflow-hidden">
-              <table className="w-full table-fixed">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] table-fixed">
                 <colgroup>
                   <col className="w-10" />
                   <col className="w-[32%]" />
@@ -842,7 +842,7 @@ export default function AdminEvents() {
           creating &&
           createPortal(
             <div
-              className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+              className="fixed inset-0 flex items-end justify-center overflow-y-auto bg-black/70 p-3 sm:items-center sm:p-4"
               style={{ zIndex: 2147483647 }}
               role="dialog"
               aria-modal="true"
@@ -850,7 +850,7 @@ export default function AdminEvents() {
             >
             <div
               data-testid="create-event-modal"
-              className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative"
+              className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-lg sm:p-6"
             >
               <button
                 type="button"
@@ -1104,7 +1104,7 @@ export default function AdminEvents() {
                 )}
               </div>
               
-              <div className="flex gap-3 mt-6">
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <button
                   type="button"
                   onClick={createEvent}
@@ -1126,12 +1126,12 @@ export default function AdminEvents() {
           editingEvent &&
           createPortal(
             <div
-              className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+              className="fixed inset-0 flex items-end justify-center overflow-y-auto bg-black/70 p-3 sm:items-center sm:p-4"
               style={{ zIndex: 2147483647 }}
               role="dialog"
               aria-modal="true"
             >
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
+            <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-lg sm:p-6">
               <button
                 type="button"
                 onClick={() => setEditingEvent(null)}
@@ -1301,7 +1301,7 @@ export default function AdminEvents() {
                 </div>
               </div>
               
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
                 <button
                   onClick={() => updateEvent(editingEvent.id, editingEvent)}
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"

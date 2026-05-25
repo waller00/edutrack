@@ -306,7 +306,7 @@ export default function AdminUsersPage() {
 
   return (
     <RoleGuard permission="users.read" permissionScope="all">
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <main className="responsive-page max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
@@ -423,7 +423,7 @@ export default function AdminUsersPage() {
               </select>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <button
               type="button"
               onClick={applyFilters}
@@ -459,7 +459,7 @@ export default function AdminUsersPage() {
             )}
           </p>
           {data.total > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={loading || data.page <= 1}
@@ -485,7 +485,7 @@ export default function AdminUsersPage() {
 
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="whitespace-nowrap px-3 py-3">Usuario</th>
@@ -515,8 +515,8 @@ export default function AdminUsersPage() {
         </div>
 
         {edit && (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-            <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="responsive-modal bg-slate-900/40 backdrop-blur-[1px]">
+            <div className="responsive-modal-panel max-w-lg border-slate-200">
               <h2 className="text-lg font-semibold text-slate-900">Editar usuario</h2>
               <p className="mt-1 text-xs text-slate-500">{edit.email}</p>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -618,7 +618,7 @@ export default function AdminUsersPage() {
                 </div>
               </div>
               {msg && <p className="mt-3 text-sm text-red-600">{msg}</p>}
-              <div className="mt-6 flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <div className="mt-6 flex flex-col justify-end gap-2 border-t border-slate-100 pt-4 sm:flex-row">
                 <button
                   type="button"
                   onClick={closeEdit}
@@ -640,8 +640,8 @@ export default function AdminUsersPage() {
         )}
 
         {biometricUser && (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-            <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+          <div className="responsive-modal bg-slate-900/40 backdrop-blur-[1px]">
+            <div className="responsive-modal-panel max-w-xl border-slate-200">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-900">Vincular huella</h2>

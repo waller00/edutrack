@@ -94,7 +94,7 @@ export default function AdminQueryAssistantPage() {
 
   return (
     <RoleGuard permission="query-assistant.use">
-      <main className="mx-auto max-w-4xl p-6 space-y-6">
+      <main className="responsive-page max-w-4xl space-y-6">
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
             <MessageCircle className="h-6 w-6 text-emerald-700" aria-hidden />
@@ -133,7 +133,7 @@ export default function AdminQueryAssistantPage() {
                 </label>
                 <select
                   id="qa-school-year"
-                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[240px] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full min-w-0 rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[240px]"
                   disabled={syCtx.loading || allYears}
                   value={selectedSchoolYearId ?? syCtx.activeId ?? ''}
                   onChange={(e) => {
@@ -277,7 +277,7 @@ export default function AdminQueryAssistantPage() {
             </div>
             {result.columns.length > 0 && result.rows.length > 0 ? (
               <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-                <table className="min-w-full text-left text-sm">
+                <table className="min-w-[640px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-gray-200 bg-slate-50">
                       {result.columns.map((c) => (

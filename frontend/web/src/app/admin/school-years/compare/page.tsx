@@ -10,7 +10,7 @@ export default function CompareSchoolYearsRedirectPage() {
     router.replace('/admin/school-years')
   }, [router])
   return (
-    <main className="mx-auto max-w-lg p-8 text-center text-sm text-gray-600">
+    <main className="responsive-page max-w-lg text-center text-sm text-gray-600">
       Redirigiendo a ciclos lectivos…
     </main>
   )
