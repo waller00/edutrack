@@ -3,7 +3,22 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Calendar, ChevronRight, ClipboardList, Clock, Filter, Loader2, LogIn, LogOut, MapPin, User } from 'lucide-react'
+import {
+  AlertTriangle,
+  Calendar,
+  ChevronRight,
+  ClipboardList,
+  Clock,
+  Filter,
+  Loader2,
+  LogIn,
+  LogOut,
+  MapPin,
+  ShieldAlert,
+  User,
+  UserCheck,
+  UserX,
+} from 'lucide-react'
 import { api } from '@/lib/api/client'
 import type { AssignedEventRow } from '@/components/personal/MyAssignedEventsPage'
 import {
@@ -82,6 +97,7 @@ type AttendanceTimelineType =
 type AttendanceTimelineApiItem = {
   id: string
   time: string
+  endTime?: string | null
   type: AttendanceTimelineType
   status: AttendanceTimelineStatus
   statusLabel: string
@@ -99,6 +115,7 @@ type AttendanceTimelineResponse = {
     presentTeachers: number
     lateArrivals: number
     pendingAbsences: number
+    substitutions?: number
     suspendedClasses: number
     outOfSchedulePunches: number
     unidentifiedPunches: number
@@ -138,11 +155,12 @@ function badgeClassForStatus(status: string): string {
   if (status === 'EXIT' || status === 'EARLY_EXIT') return 'bg-sky-100 text-sky-900 ring-1 ring-sky-200/60'
   if (status === 'PENDING') return 'bg-red-100 text-red-800 ring-1 ring-red-200/60'
   if (status === 'FREE') return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/60'
-  if (status === 'SUSPENDED') return 'bg-violet-100 text-violet-900 ring-1 ring-violet-200/60'
+  if (status === 'SUSPENDED') return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/60'
   if (status === 'SUBSTITUTED') return 'bg-indigo-100 text-indigo-900 ring-1 ring-indigo-200/60'
   if (status === 'OUT_OF_SCHEDULE') return 'bg-orange-100 text-orange-900 ring-1 ring-orange-200/60'
   if (status === 'UNIDENTIFIED') return 'bg-rose-100 text-rose-900 ring-1 ring-rose-200/60'
   if (status === 'JUSTIFIED') return 'bg-blue-100 text-blue-900 ring-1 ring-blue-200/60'
+  if (status === 'REGISTERED') return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/60'
   return 'bg-gray-100 text-gray-800 ring-1 ring-gray-200/50'
 }
 
@@ -161,7 +179,7 @@ function iconToneForTimelineType(type: AttendanceTimelineType) {
   if (type === 'LATE_ARRIVAL') return 'border-amber-200 text-amber-700'
   if (type === 'PENDING_ABSENCE' || type === 'UNIDENTIFIED_PUNCH') return 'border-red-200 text-red-700'
   if (type === 'OUT_OF_SCHEDULE_PUNCH') return 'border-orange-200 text-orange-700'
-  if (type === 'SUSPENDED_CLASS') return 'border-violet-200 text-violet-700'
+  if (type === 'SUSPENDED_CLASS') return 'border-slate-200 text-slate-600'
   if (type === 'SUBSTITUTION') return 'border-indigo-200 text-indigo-700'
   return 'border-slate-200 text-slate-600'
 }
@@ -383,10 +401,105 @@ function buildEventTimelineItems(events: AssignedEventRow[], attendanceItems: Ti
     }))
 }
 
+type CompactTimelineItem = AttendanceTimelineApiItem & {
+  mergedCount?: number
+  mergedEndTime?: string | null
+}
+
+const INCIDENT_TIMELINE_TYPES = new Set<AttendanceTimelineType>([
+  'PENDING_ABSENCE',
+  'LATE_ARRIVAL',
+  'EARLY_EXIT',
+  'OUT_OF_SCHEDULE_PUNCH',
+  'UNIDENTIFIED_PUNCH',
+  'SUBSTITUTION',
+  'SUSPENDED_CLASS',
+])
+
+const CLASS_TIMELINE_TYPES = new Set<AttendanceTimelineType>([
+  'CLASS_ATTENDANCE',
+  'LATE_ARRIVAL',
+  'PENDING_ABSENCE',
+  'SUBSTITUTION',
+  'SUSPENDED_CLASS',
+])
+
+function timelineMinutes(item: Pick<AttendanceTimelineApiItem, 'time'>) {
+  const [hours, minutes] = item.time.split(':').map((value) => Number(value))
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return Number.MAX_SAFE_INTEGER
+  return hours * 60 + minutes
+}
+
+function timelineTeacherName(item: AttendanceTimelineApiItem) {
+  return item.teacher?.name || item.teacher?.email || 'Docente'
+}
+
+function timelineClassName(item: AttendanceTimelineApiItem) {
+  if (item.event?.title && item.group?.name) return `${item.event.title} ${item.group.name}`
+  return item.event?.title || item.group?.name || item.title
+}
+
+function compactTimelineItems(items: AttendanceTimelineApiItem[]): CompactTimelineItem[] {
+  const compacted: CompactTimelineItem[] = []
+  const seen = new Map<string, CompactTimelineItem>()
+
+  for (const item of items) {
+    const classKey =
+      item.type === 'CLASS_ATTENDANCE' && item.status === 'PRESENT'
+        ? `class:${item.teacher?.id || 'teacher'}:${item.event?.id || item.title}:${item.group?.id || 'group'}:${item.status}`
+        : null
+    const biometricKey =
+      item.type === 'BIOMETRIC_ENTRY' || item.type === 'BIOMETRIC_EXIT'
+        ? `biometric:${item.type}:${item.teacher?.id || 'teacher'}:${item.time}:${item.status}`
+        : null
+    const key = classKey || biometricKey
+
+    if (key && seen.has(key)) {
+      const existing = seen.get(key)!
+      existing.mergedCount = (existing.mergedCount || 1) + 1
+      if (classKey) existing.mergedEndTime = item.endTime || item.time
+      continue
+    }
+
+    const next = { ...item } as CompactTimelineItem
+    if (key) seen.set(key, next)
+    compacted.push(next)
+  }
+
+  return compacted
+}
+
+function timelineDisplayTime(item: CompactTimelineItem) {
+  const end = item.mergedEndTime || item.endTime
+  if (end && end !== item.time) return `${item.time} - ${end}`
+  return item.time
+}
+
+function humanTimelineTitle(item: AttendanceTimelineApiItem) {
+  const teacher = timelineTeacherName(item)
+  const className = timelineClassName(item)
+
+  if (item.type === 'BIOMETRIC_ENTRY') return `${teacher} registró entrada por huella`
+  if (item.type === 'BIOMETRIC_EXIT') return `${teacher} registró salida por huella`
+  if (item.type === 'LATE_ARRIVAL') return `${teacher} llegó tarde a ${className}`
+  if (item.type === 'PENDING_ABSENCE') return `Hay una ausencia pendiente de justificar: ${className}`
+  if (item.type === 'EARLY_EXIT') return `${teacher} registró retiro anticipado`
+  if (item.type === 'OUT_OF_SCHEDULE_PUNCH') return 'Se detectó una marcación fuera de horario'
+  if (item.type === 'UNIDENTIFIED_PUNCH') return 'Se detectó una marcación no identificada'
+  if (item.type === 'JUSTIFICATION') return `${teacher} tiene justificación registrada`
+  if (item.type === 'CLASS_ATTENDANCE' && item.status === 'PRESENT') return `${className} - Presente`
+  return item.title
+}
+
+function isBridgeVisible(filters: { teacherId: string; type: string }, showFreeBlocks: boolean) {
+  return showFreeBlocks || !!filters.teacherId || filters.type === 'FREE_BRIDGE'
+}
+
 export function HomeAdminTimeline() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<AttendanceTimelineResponse | null>(null)
+  const [showFreeBlocks, setShowFreeBlocks] = useState(false)
   const [filters, setFilters] = useState({
     date: todayInputValue(),
     teacherId: '',
@@ -407,7 +520,7 @@ export function HomeAdminTimeline() {
       const res = await api<AttendanceTimelineResponse>(`/analytics/attendance-timeline?${params.toString()}`)
       setData(res)
     } catch {
-      setError('No se pudo cargar la cronología del día.')
+      setError('No se pudo cargar el inicio operativo.')
       setData(null)
     } finally {
       setLoading(false)
@@ -418,15 +531,67 @@ export function HomeAdminTimeline() {
     void load()
   }, [load])
 
+  const visibleRawItems = data
+    ? data.items.filter((item) => item.type !== 'FREE_BRIDGE' || isBridgeVisible(filters, showFreeBlocks))
+    : []
+  const compactItems = compactTimelineItems(visibleRawItems).sort((a, b) => timelineMinutes(a) - timelineMinutes(b))
+  const incidentItems = compactItems.filter((item) => INCIDENT_TIMELINE_TYPES.has(item.type)).slice(0, 7)
+  const classItems = compactItems.filter((item) => CLASS_TIMELINE_TYPES.has(item.type)).slice(0, 7)
+  const activityItems = compactItems
+    .filter((item) => item.type !== 'CLASS_ATTENDANCE' || item.status !== 'PRESENT' || (item.mergedCount || 1) <= 1 || item.event?.id)
+    .slice(0, 14)
+  const substitutionsCount = data?.summary.substitutions ?? data?.items.filter((item) => item.type === 'SUBSTITUTION').length ?? 0
+
   const summaryCards = data
     ? [
-        ['Docentes esperados hoy', data.summary.expectedTeachers],
-        ['Docentes presentes', data.summary.presentTeachers],
-        ['Llegadas tarde', data.summary.lateArrivals],
-        ['Ausencias pendientes', data.summary.pendingAbsences],
-        ['Clases suspendidas', data.summary.suspendedClasses],
-        ['Fuera de horario', data.summary.outOfSchedulePunches],
-        ['No identificadas', data.summary.unidentifiedPunches],
+        {
+          label: 'Docentes esperados hoy',
+          value: data.summary.expectedTeachers,
+          tone: 'border-slate-200 bg-white text-slate-900',
+          icon: <User className="h-4 w-4 text-slate-500" aria-hidden />,
+        },
+        {
+          label: 'Docentes presentes',
+          value: data.summary.presentTeachers,
+          tone: 'border-emerald-200 bg-emerald-50/70 text-emerald-900',
+          icon: <UserCheck className="h-4 w-4 text-emerald-700" aria-hidden />,
+        },
+        {
+          label: 'Llegadas tarde',
+          value: data.summary.lateArrivals,
+          tone: 'border-amber-200 bg-amber-50/70 text-amber-900',
+          icon: <Clock className="h-4 w-4 text-amber-700" aria-hidden />,
+        },
+        {
+          label: 'Ausencias pendientes',
+          value: data.summary.pendingAbsences,
+          tone: 'border-red-200 bg-red-50/70 text-red-900',
+          icon: <UserX className="h-4 w-4 text-red-700" aria-hidden />,
+        },
+        {
+          label: 'Suplencias',
+          value: substitutionsCount,
+          tone: 'border-indigo-200 bg-indigo-50/70 text-indigo-900',
+          icon: <UserCheck className="h-4 w-4 text-indigo-700" aria-hidden />,
+        },
+        {
+          label: 'Clases suspendidas',
+          value: data.summary.suspendedClasses,
+          tone: 'border-slate-200 bg-slate-50/80 text-slate-800',
+          icon: <Calendar className="h-4 w-4 text-slate-500" aria-hidden />,
+        },
+        {
+          label: 'Fuera de horario',
+          value: data.summary.outOfSchedulePunches,
+          tone: 'border-orange-200 bg-orange-50/70 text-orange-900',
+          icon: <ShieldAlert className="h-4 w-4 text-orange-700" aria-hidden />,
+        },
+        {
+          label: 'No identificadas',
+          value: data.summary.unidentifiedPunches,
+          tone: 'border-rose-200 bg-rose-50/70 text-rose-900',
+          icon: <AlertTriangle className="h-4 w-4 text-rose-700" aria-hidden />,
+        },
       ]
     : []
 
@@ -451,159 +616,267 @@ export function HomeAdminTimeline() {
 
   return (
     <HomePanelShell
-      title="Cronología de asistencia"
-      subtitle="Resumen del día con marcaciones biométricas, bloques docentes, incidencias y suplencias."
-      icon={<Clock className="h-6 w-6" strokeWidth={2} aria-hidden />}
+      title="Inicio operativo"
+      subtitle="Estado del día, incidencias que requieren atención y actividad reciente de asistencia."
+      icon={<ClipboardList className="h-6 w-6" strokeWidth={2} aria-hidden />}
       action={action}
     >
-      <div className="space-y-4 p-4 sm:p-5">
+      <div className="space-y-5 p-4 sm:p-5">
         {data ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-            {summaryCards.map(([label, value]) => (
-              <div key={label} className="rounded-xl border border-slate-100 bg-white px-3 py-3 shadow-sm">
-                <div className="text-xl font-bold tabular-nums text-slate-900">{value}</div>
-                <div className="mt-1 text-[11px] font-medium leading-tight text-slate-500">{label}</div>
-              </div>
-            ))}
-          </div>
+          <section aria-labelledby="daily-summary-title" className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="daily-summary-title" className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Resumen del día
+              </h2>
+              <span className="text-xs font-medium tabular-nums text-slate-500">{data.date}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+              {summaryCards.map((card) => (
+                <div key={card.label} className={`rounded-lg border px-3 py-3 shadow-sm ${card.tone}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xl font-bold tabular-nums">{card.value}</div>
+                    {card.icon}
+                  </div>
+                  <div className="mt-1 text-[11px] font-medium leading-tight text-slate-600">{card.label}</div>
+                </div>
+              ))}
+            </div>
+          </section>
         ) : null}
-
-        <div className="rounded-xl border border-slate-100 bg-white p-3 shadow-sm">
-          <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <Filter className="h-4 w-4" aria-hidden />
-            Filtros
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            <input
-              type="date"
-              value={filters.date}
-              onChange={(e) => setFilters((prev) => ({ ...prev, date: e.target.value || todayInputValue() }))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-              aria-label="Fecha"
-            />
-            <select
-              value={filters.teacherId}
-              onChange={(e) => setFilters((prev) => ({ ...prev, teacherId: e.target.value }))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-              aria-label="Docente"
-            >
-              <option value="">Todos los docentes</option>
-              {(data?.filters.teachers ?? []).map((teacher) => (
-                <option key={teacher.id} value={teacher.id}>
-                  {teacher.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filters.groupId}
-              onChange={(e) => setFilters((prev) => ({ ...prev, groupId: e.target.value }))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-              aria-label="Grupo"
-            >
-              <option value="">Todos los grupos</option>
-              {(data?.filters.groups ?? []).map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filters.status}
-              onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-              aria-label="Estado"
-            >
-              <option value="">Todos los estados</option>
-              {(data?.filters.statuses ?? []).map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filters.type}
-              onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-              aria-label="Tipo de evento"
-            >
-              <option value="">Todos los tipos</option>
-              {(data?.filters.types ?? []).map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
 
         {loading && (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-500">
             <Loader2 className="h-9 w-9 animate-spin text-emerald-600" aria-hidden />
-            <span className="text-sm">Cargando cronología…</span>
+            <span className="text-sm">Cargando inicio…</span>
           </div>
         )}
         {!loading && error && <EmptyState message={error} />}
-        {!loading && !error && (data?.items.length ?? 0) === 0 && (
-          <EmptyState message="No hay eventos de asistencia para mostrar con esos filtros." />
-        )}
-        {!loading && !error && data && data.items.length > 0 && (
-          <ol className="relative space-y-3 before:absolute before:bottom-3 before:left-5 before:top-3 before:w-px before:bg-emerald-100" role="list">
-            {data.items.map((item) => (
-              <li key={item.id} className="relative flex gap-3">
-                <div
-                  className={`z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white shadow-sm ${iconToneForTimelineType(item.type)}`}
-                  title={item.statusLabel}
-                >
-                  {iconForTimelineType(item.type)}
+
+        {!loading && !error && data ? (
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+            <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="today-incidents-title">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                <div>
+                  <h2 id="today-incidents-title" className="text-base font-semibold text-slate-900">
+                    Incidencias de hoy
+                  </h2>
+                  <p className="text-xs text-slate-500">Primero lo que requiere acción administrativa.</p>
                 </div>
-                <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-white/90 px-4 py-3.5 shadow-sm transition hover:border-emerald-200/80 hover:bg-emerald-50/25">
-                  <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                    {item.type === 'SUBSTITUTION' ? (
-                      <Link href="/admin/events" className="font-medium text-indigo-700 hover:underline">
-                        Ver eventos
-                      </Link>
-                    ) : null}
-                    {item.status === 'PENDING' || item.type === 'PENDING_ABSENCE' ? (
-                      <Link href="/admin/attendance" className="font-medium text-emerald-700 hover:underline">
-                        Gestionar asistencias
-                      </Link>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1">
+                <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-red-700 ring-1 ring-red-100">
+                  {incidentItems.length}
+                </span>
+              </div>
+              {incidentItems.length === 0 ? (
+                <div className="px-4 py-8 text-sm text-slate-500">No hay incidencias relevantes para este día.</div>
+              ) : (
+                <ul className="divide-y divide-slate-100" role="list">
+                  {incidentItems.map((item) => (
+                    <li key={item.id} className="flex gap-3 px-4 py-3.5">
+                      <div
+                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white ${iconToneForTimelineType(item.type)}`}
+                        title={item.statusLabel}
+                      >
+                        {iconForTimelineType(item.type)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{humanTimelineTitle(item)}</p>
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
+                            {item.statusLabel}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                          <span className="font-medium tabular-nums text-slate-700">{timelineDisplayTime(item)}</span>
+                          {item.group ? <span>{item.group.name}</span> : null}
+                          {item.detail ? <span className="break-words">{item.detail}</span> : null}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="today-classes-title">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                <div>
+                  <h2 id="today-classes-title" className="text-base font-semibold text-slate-900">
+                    Clases en curso y próximas
+                  </h2>
+                  <p className="text-xs text-slate-500">Bloques docentes relevantes del día.</p>
+                </div>
+                <a href="/admin/events" className="text-xs font-semibold text-emerald-700 hover:underline">
+                  Ver agenda
+                </a>
+              </div>
+              {classItems.length === 0 ? (
+                <div className="px-4 py-8 text-sm text-slate-500">No hay clases para mostrar con estos filtros.</div>
+              ) : (
+                <ul className="divide-y divide-slate-100" role="list">
+                  {classItems.map((item) => (
+                    <li key={item.id} className="px-4 py-3.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="break-words text-sm font-semibold text-slate-900">{timelineClassName(item)}</h3>
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
+                              {item.statusLabel}
+                            </span>
+                          </div>
+                          <p className="truncate text-sm text-slate-600">
+                            <span className="text-slate-400">Docente · </span>
+                            {timelineTeacherName(item)}
+                          </p>
+                          <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                            {item.group ? <span>{item.group.name}</span> : null}
+                            {item.type === 'SUBSTITUTION' ? <span>Suplencia asignada</span> : null}
+                            {item.type === 'PENDING_ABSENCE' ? <span>Clase sin docente presente</span> : null}
+                          </div>
+                        </div>
+                        <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-right ring-1 ring-slate-100">
+                          <div className="text-sm font-semibold tabular-nums text-slate-800">{timelineDisplayTime(item)}</div>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        ) : null}
+
+        {!loading && !error && data ? (
+          <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="recent-activity-title">
+            <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 id="recent-activity-title" className="text-base font-semibold text-slate-900">
+                  Actividad reciente
+                </h2>
+                <p className="text-xs text-slate-500">Cronología resumida del día.</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <Filter className="h-4 w-4" aria-hidden />
+                Filtros
+              </div>
+            </div>
+
+            <div className="grid gap-2 border-b border-slate-100 px-4 py-3 sm:grid-cols-2 lg:grid-cols-5">
+              <input
+                type="date"
+                value={filters.date}
+                onChange={(e) => setFilters((prev) => ({ ...prev, date: e.target.value || todayInputValue() }))}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                aria-label="Fecha"
+              />
+              <select
+                value={filters.teacherId}
+                onChange={(e) => setFilters((prev) => ({ ...prev, teacherId: e.target.value }))}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                aria-label="Docente"
+              >
+                <option value="">Todos los docentes</option>
+                {data.filters.teachers.map((teacher) => (
+                  <option key={teacher.id} value={teacher.id}>
+                    {teacher.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filters.groupId}
+                onChange={(e) => setFilters((prev) => ({ ...prev, groupId: e.target.value }))}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                aria-label="Grupo"
+              >
+                <option value="">Todos los grupos</option>
+                {data.filters.groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                aria-label="Estado"
+              >
+                <option value="">Todos los estados</option>
+                {data.filters.statuses.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filters.type}
+                onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                aria-label="Tipo de evento"
+              >
+                <option value="">Todos los tipos</option>
+                {data.filters.types.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 lg:col-span-5">
+                <input
+                  type="checkbox"
+                  checked={showFreeBlocks}
+                  onChange={(e) => setShowFreeBlocks(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                Ver bloques libres
+              </label>
+            </div>
+
+            {activityItems.length === 0 ? (
+              <div className="px-4 py-8 text-sm text-slate-500">No hay actividad relevante para mostrar con esos filtros.</div>
+            ) : (
+              <ol className="divide-y divide-slate-100" role="list">
+                {activityItems.map((item) => (
+                  <li key={item.id} className="flex gap-3 px-4 py-3.5">
+                    <div
+                      className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white ${iconToneForTimelineType(item.type)}`}
+                      title={item.statusLabel}
+                    >
+                      {iconForTimelineType(item.type)}
+                    </div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="min-w-0 break-words text-sm font-semibold text-slate-900">{item.title}</h3>
+                        <h3 className="min-w-0 break-words text-sm font-semibold text-slate-900">{humanTimelineTitle(item)}</h3>
                         <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
                           {item.statusLabel}
                         </span>
-                        {item.group ? (
-                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
-                            {item.group.name}
+                        {item.mergedCount && item.mergedCount > 1 ? (
+                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                            {item.mergedCount} bloques agrupados
                           </span>
                         ) : null}
                       </div>
-                      {item.teacher ? (
-                        <p className="truncate text-sm text-slate-600">
-                          <span className="text-slate-400">Docente · </span>
-                          {item.teacher.name}
-                        </p>
-                      ) : null}
-                      {item.detail ? (
-                        <p className="flex min-w-0 items-center gap-1.5 truncate text-xs text-slate-500">
-                          <span className="truncate">{item.detail}</span>
-                        </p>
-                      ) : null}
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span className="font-medium tabular-nums text-slate-700">{timelineDisplayTime(item)}</span>
+                        {item.teacher ? <span>{timelineTeacherName(item)}</span> : null}
+                        {item.group ? <span>{item.group.name}</span> : null}
+                        {item.type === 'SUBSTITUTION' ? (
+                          <Link href="/admin/events" className="font-medium text-indigo-700 hover:underline">
+                            Ver eventos
+                          </Link>
+                        ) : null}
+                        {item.status === 'PENDING' || item.type === 'PENDING_ABSENCE' ? (
+                          <Link href="/admin/attendance" className="font-medium text-emerald-700 hover:underline">
+                            Gestionar asistencias
+                          </Link>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-left ring-1 ring-slate-100 sm:text-right">
-                      <div className="text-sm font-semibold tabular-nums text-slate-800">{item.time}</div>
-                      <div className="mt-1 text-xs text-slate-600">{item.event?.title || 'Resumen'}</div>
-                    </div>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        ) : null}
       </div>
     </HomePanelShell>
   )
