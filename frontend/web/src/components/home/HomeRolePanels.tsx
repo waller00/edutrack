@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Calendar, ChevronRight, ClipboardList, Clock, Loader2, LogIn, LogOut, MapPin, User } from 'lucide-react'
+import { AlertTriangle, Calendar, ChevronRight, ClipboardList, Clock, Filter, Loader2, LogIn, LogOut, MapPin, User } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import type { AssignedEventRow } from '@/components/personal/MyAssignedEventsPage'
 import {
@@ -51,6 +51,66 @@ type TimelineItem = {
   coveredEventKeys?: string[]
 }
 
+type AttendanceTimelineStatus =
+  | 'REGISTERED'
+  | 'PRESENT'
+  | 'LATE'
+  | 'PENDING'
+  | 'FREE'
+  | 'SUSPENDED'
+  | 'SUBSTITUTED'
+  | 'OUT_OF_SCHEDULE'
+  | 'UNIDENTIFIED'
+  | 'JUSTIFIED'
+  | 'EARLY_EXIT'
+
+type AttendanceTimelineType =
+  | 'BIOMETRIC_ENTRY'
+  | 'BIOMETRIC_EXIT'
+  | 'CLASS_ATTENDANCE'
+  | 'LATE_ARRIVAL'
+  | 'PENDING_ABSENCE'
+  | 'FREE_BRIDGE'
+  | 'SUSPENDED_CLASS'
+  | 'SUBSTITUTION'
+  | 'OUT_OF_SCHEDULE_PUNCH'
+  | 'UNIDENTIFIED_PUNCH'
+  | 'JUSTIFICATION'
+  | 'EARLY_EXIT'
+
+type AttendanceTimelineApiItem = {
+  id: string
+  time: string
+  type: AttendanceTimelineType
+  status: AttendanceTimelineStatus
+  statusLabel: string
+  title: string
+  detail?: string | null
+  teacher?: { id: string; name: string; email?: string | null } | null
+  group?: { id: string; name: string } | null
+  event?: { id: string; title: string } | null
+}
+
+type AttendanceTimelineResponse = {
+  date: string
+  summary: {
+    expectedTeachers: number
+    presentTeachers: number
+    lateArrivals: number
+    pendingAbsences: number
+    suspendedClasses: number
+    outOfSchedulePunches: number
+    unidentifiedPunches: number
+  }
+  items: AttendanceTimelineApiItem[]
+  filters: {
+    teachers: { id: string; name: string; email?: string | null }[]
+    groups: { id: string; name: string }[]
+    statuses: { value: AttendanceTimelineStatus; label: string }[]
+    types: { value: AttendanceTimelineType; label: string }[]
+  }
+}
+
 function labelAttendanceStatus(status: string): string {
   const m: Record<string, string> = {
     PRESENT: 'Presente',
@@ -75,7 +135,44 @@ function badgeClassForStatus(status: string): string {
   if (status === 'ABSENT_JUSTIFIED') return 'bg-slate-100 text-slate-800 ring-1 ring-slate-200/60'
   if (status === 'PRESENT') return 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200/60'
   if (status === 'EXIT' || status === 'EARLY_EXIT') return 'bg-sky-100 text-sky-900 ring-1 ring-sky-200/60'
+  if (status === 'PENDING') return 'bg-red-100 text-red-800 ring-1 ring-red-200/60'
+  if (status === 'FREE') return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/60'
+  if (status === 'SUSPENDED') return 'bg-violet-100 text-violet-900 ring-1 ring-violet-200/60'
+  if (status === 'SUBSTITUTED') return 'bg-indigo-100 text-indigo-900 ring-1 ring-indigo-200/60'
+  if (status === 'OUT_OF_SCHEDULE') return 'bg-orange-100 text-orange-900 ring-1 ring-orange-200/60'
+  if (status === 'UNIDENTIFIED') return 'bg-rose-100 text-rose-900 ring-1 ring-rose-200/60'
+  if (status === 'JUSTIFIED') return 'bg-blue-100 text-blue-900 ring-1 ring-blue-200/60'
   return 'bg-gray-100 text-gray-800 ring-1 ring-gray-200/50'
+}
+
+function todayInputValue() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Montevideo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+function iconToneForTimelineType(type: AttendanceTimelineType) {
+  if (type === 'BIOMETRIC_ENTRY') return 'border-emerald-200 text-emerald-700'
+  if (type === 'BIOMETRIC_EXIT') return 'border-sky-200 text-sky-700'
+  if (type === 'LATE_ARRIVAL') return 'border-amber-200 text-amber-700'
+  if (type === 'PENDING_ABSENCE' || type === 'UNIDENTIFIED_PUNCH') return 'border-red-200 text-red-700'
+  if (type === 'OUT_OF_SCHEDULE_PUNCH') return 'border-orange-200 text-orange-700'
+  if (type === 'SUSPENDED_CLASS') return 'border-violet-200 text-violet-700'
+  if (type === 'SUBSTITUTION') return 'border-indigo-200 text-indigo-700'
+  return 'border-slate-200 text-slate-600'
+}
+
+function iconForTimelineType(type: AttendanceTimelineType) {
+  if (type === 'BIOMETRIC_ENTRY') return <LogIn className="h-[18px] w-[18px]" aria-hidden />
+  if (type === 'BIOMETRIC_EXIT' || type === 'EARLY_EXIT') return <LogOut className="h-[18px] w-[18px]" aria-hidden />
+  if (type === 'PENDING_ABSENCE' || type === 'UNIDENTIFIED_PUNCH' || type === 'OUT_OF_SCHEDULE_PUNCH') {
+    return <AlertTriangle className="h-[18px] w-[18px]" aria-hidden />
+  }
+  if (type === 'FREE_BRIDGE') return <Clock className="h-[18px] w-[18px]" aria-hidden />
+  return <Calendar className="h-[18px] w-[18px]" aria-hidden />
 }
 
 function HomePanelShell({
@@ -288,63 +385,49 @@ function buildEventTimelineItems(events: AssignedEventRow[], attendanceItems: Ti
 export function HomeAdminTimeline() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [items, setItems] = useState<TimelineItem[]>([])
+  const [data, setData] = useState<AttendanceTimelineResponse | null>(null)
+  const [filters, setFilters] = useState({
+    date: todayInputValue(),
+    teacherId: '',
+    groupId: '',
+    status: '',
+    type: '',
+  })
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const now = new Date()
-      const attendanceStart = new Date(now)
-      attendanceStart.setDate(attendanceStart.getDate() - 7)
-      const eventEnd = new Date(now)
-      eventEnd.setDate(eventEnd.getDate() + 14)
-      const eventStart = new Date(now)
-      eventStart.setDate(eventStart.getDate() - 1)
-
-      const attendanceParams = new URLSearchParams({
-        startDate: attendanceStart.toISOString(),
-        endDate: now.toISOString(),
-        page: '1',
-        pageSize: '16',
-        includeIncidents: 'true',
-      })
-      const eventParams = new URLSearchParams({
-        startDate: eventStart.toISOString(),
-        endDate: eventEnd.toISOString(),
-        page: '1',
-        pageSize: '16',
-      })
-
-      const [attendanceRes, eventsRes] = await Promise.all([
-        api<AttendanceFeedResponse>(`/attendance/all?${attendanceParams.toString()}`),
-        api<AdminEventsResponse>(`/events/all?${eventParams.toString()}`),
-      ])
-      const attendanceItems = buildAttendanceTimelineItems(attendanceRes.data ?? [])
-      const eventItems = buildEventTimelineItems(eventsRes.data ?? [], attendanceItems)
-      const merged = [...attendanceItems, ...eventItems]
-        .sort((a, b) => {
-          const nowMs = now.getTime()
-          const aMs = new Date(a.at).getTime()
-          const bMs = new Date(b.at).getTime()
-          const aFuture = aMs >= nowMs
-          const bFuture = bMs >= nowMs
-          if (aFuture !== bFuture) return aFuture ? 1 : -1
-          return aFuture ? aMs - bMs : bMs - aMs
-        })
-        .slice(0, 10)
-      setItems(merged)
+      const params = new URLSearchParams({ date: filters.date })
+      if (filters.teacherId) params.set('teacherId', filters.teacherId)
+      if (filters.groupId) params.set('groupId', filters.groupId)
+      if (filters.status) params.set('status', filters.status)
+      if (filters.type) params.set('type', filters.type)
+      const res = await api<AttendanceTimelineResponse>(`/analytics/attendance-timeline?${params.toString()}`)
+      setData(res)
     } catch {
-      setError('No se pudo cargar la cronología operativa.')
-      setItems([])
+      setError('No se pudo cargar la cronología del día.')
+      setData(null)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [filters])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const summaryCards = data
+    ? [
+        ['Docentes esperados hoy', data.summary.expectedTeachers],
+        ['Docentes presentes', data.summary.presentTeachers],
+        ['Llegadas tarde', data.summary.lateArrivals],
+        ['Ausencias pendientes', data.summary.pendingAbsences],
+        ['Clases suspendidas', data.summary.suspendedClasses],
+        ['Fuera de horario', data.summary.outOfSchedulePunches],
+        ['No identificadas', data.summary.unidentifiedPunches],
+      ]
+    : []
 
   const action = (
     <div className="flex flex-wrap gap-2">
@@ -367,12 +450,91 @@ export function HomeAdminTimeline() {
 
   return (
     <HomePanelShell
-      title="Cronología operativa"
-      subtitle="Eventos próximos y actividad reciente en una sola línea, con entrada y salida cuando ya existen marcaciones."
+      title="Cronología de asistencia"
+      subtitle="Resumen del día con marcaciones biométricas, bloques docentes, incidencias y suplencias."
       icon={<Clock className="h-6 w-6" strokeWidth={2} aria-hidden />}
       action={action}
     >
-      <div className="p-4 sm:p-5">
+      <div className="space-y-4 p-4 sm:p-5">
+        {data ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            {summaryCards.map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-slate-100 bg-white px-3 py-3 shadow-sm">
+                <div className="text-xl font-bold tabular-nums text-slate-900">{value}</div>
+                <div className="mt-1 text-[11px] font-medium leading-tight text-slate-500">{label}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="rounded-xl border border-slate-100 bg-white p-3 shadow-sm">
+          <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <Filter className="h-4 w-4" aria-hidden />
+            Filtros
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <input
+              type="date"
+              value={filters.date}
+              onChange={(e) => setFilters((prev) => ({ ...prev, date: e.target.value || todayInputValue() }))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              aria-label="Fecha"
+            />
+            <select
+              value={filters.teacherId}
+              onChange={(e) => setFilters((prev) => ({ ...prev, teacherId: e.target.value }))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              aria-label="Docente"
+            >
+              <option value="">Todos los docentes</option>
+              {(data?.filters.teachers ?? []).map((teacher) => (
+                <option key={teacher.id} value={teacher.id}>
+                  {teacher.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filters.groupId}
+              onChange={(e) => setFilters((prev) => ({ ...prev, groupId: e.target.value }))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              aria-label="Grupo"
+            >
+              <option value="">Todos los grupos</option>
+              {(data?.filters.groups ?? []).map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filters.status}
+              onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              aria-label="Estado"
+            >
+              <option value="">Todos los estados</option>
+              {(data?.filters.statuses ?? []).map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filters.type}
+              onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              aria-label="Tipo de evento"
+            >
+              <option value="">Todos los tipos</option>
+              {(data?.filters.types ?? []).map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {loading && (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-500">
             <Loader2 className="h-9 w-9 animate-spin text-emerald-600" aria-hidden />
@@ -380,63 +542,48 @@ export function HomeAdminTimeline() {
           </div>
         )}
         {!loading && error && <EmptyState message={error} />}
-        {!loading && !error && items.length === 0 && (
-          <EmptyState message="No hay actividad reciente ni eventos próximos para mostrar." />
+        {!loading && !error && (data?.items.length ?? 0) === 0 && (
+          <EmptyState message="No hay eventos de asistencia para mostrar con esos filtros." />
         )}
-        {!loading && !error && items.length > 0 && (
+        {!loading && !error && data && data.items.length > 0 && (
           <ol className="relative space-y-3 before:absolute before:bottom-3 before:left-5 before:top-3 before:w-px before:bg-emerald-100" role="list">
-            {items.map((item) => (
+            {data.items.map((item) => (
               <li key={item.id} className="relative flex gap-3">
                 <div
-                  className={`z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white shadow-sm ${
-                    item.tone === 'entry'
-                      ? 'border-emerald-200 text-emerald-700'
-                      : item.tone === 'exit'
-                        ? 'border-sky-200 text-sky-700'
-                        : item.tone === 'incident'
-                          ? 'border-red-200 text-red-700'
-                          : 'border-slate-200 text-slate-600'
-                  }`}
-                  title={item.status}
+                  className={`z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white shadow-sm ${iconToneForTimelineType(item.type)}`}
+                  title={item.statusLabel}
                 >
-                  {item.tone === 'entry' ? (
-                    <LogIn className="h-[18px] w-[18px]" aria-hidden />
-                  ) : item.tone === 'exit' ? (
-                    <LogOut className="h-[18px] w-[18px]" aria-hidden />
-                  ) : item.tone === 'incident' ? (
-                    <AlertTriangle className="h-[18px] w-[18px]" aria-hidden />
-                  ) : (
-                    <Calendar className="h-[18px] w-[18px]" aria-hidden />
-                  )}
+                  {iconForTimelineType(item.type)}
                 </div>
                 <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-white/90 px-4 py-3.5 shadow-sm transition hover:border-emerald-200/80 hover:bg-emerald-50/25">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-sm font-semibold text-slate-900">{item.title}</h3>
-                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${item.statusClass}`}>
-                          {item.status}
+                        <h3 className="min-w-0 break-words text-sm font-semibold text-slate-900">{item.title}</h3>
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
+                          {item.statusLabel}
                         </span>
-                        {item.eventType ? (
+                        {item.group ? (
                           <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
-                            {getEventTypeLabel(item.eventType)}
+                            {item.group.name}
                           </span>
                         ) : null}
                       </div>
-                      <p className="truncate text-sm text-slate-600">
-                        <span className="text-slate-400">Asignado a · </span>
-                        {item.person}
-                      </p>
-                      {item.location ? (
+                      {item.teacher ? (
+                        <p className="truncate text-sm text-slate-600">
+                          <span className="text-slate-400">Docente · </span>
+                          {item.teacher.name}
+                        </p>
+                      ) : null}
+                      {item.detail ? (
                         <p className="flex min-w-0 items-center gap-1.5 truncate text-xs text-slate-500">
-                          <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                          <span className="truncate">{item.location}</span>
+                          <span className="truncate">{item.detail}</span>
                         </p>
                       ) : null}
                     </div>
                     <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-left ring-1 ring-slate-100 sm:text-right">
-                      <div className="text-sm font-semibold tabular-nums text-slate-800">{formatDateInUruguay(item.at)}</div>
-                      <div className="mt-1 text-xs tabular-nums text-slate-600">{item.summary}</div>
+                      <div className="text-sm font-semibold tabular-nums text-slate-800">{item.time}</div>
+                      <div className="mt-1 text-xs text-slate-600">{item.event?.title || 'Resumen'}</div>
                     </div>
                   </div>
                 </div>
