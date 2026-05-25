@@ -1,4 +1,5 @@
 import argon2 from 'argon2'
+import { randomBytes } from 'crypto'
 import { prisma } from '../db/prisma.js'
 import { ensureBuiltinOrgRoles } from '../identity/org-role-seed.js'
 import { upsertCanonicalProfilePermissions } from '../identity/profile-permissions-repository.js'
@@ -48,7 +49,7 @@ export async function resetDatabaseToSingleAdmin(opts?: {
   adminEmail?: string
 }) {
   const adminUsername = (opts?.adminUsername || process.env.CLEAN_ADMIN_USERNAME || 'admin').toLowerCase()
-  const adminPassword = opts?.adminPassword || process.env.CLEAN_ADMIN_PASSWORD || 'admin123'
+  const adminPassword = opts?.adminPassword || process.env.CLEAN_ADMIN_PASSWORD || `tmp-${randomBytes(12).toString('base64url')}`
   const adminEmail = opts?.adminEmail || process.env.CLEAN_ADMIN_EMAIL || 'admin@edutrack.local'
 
   await prisma.attendanceIncident.deleteMany()

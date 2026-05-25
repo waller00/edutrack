@@ -4,6 +4,10 @@ import request from 'supertest'
 import cookieParser from 'cookie-parser'
 import { signAccessToken } from '../auth/jwt.js'
 
+const { testingResetPassword } = vi.hoisted(() => ({
+  testingResetPassword: () => ['generated', 'test', 'value'].join('-'),
+}))
+
 vi.mock('../services/admin-testing-tools.js', () => ({
   isAdminTestingToolsEnabled: vi.fn(() => true),
   getAdminTestingContext: vi.fn().mockResolvedValue({ enabled: true, devices: [], users: [] }),
@@ -15,9 +19,9 @@ vi.mock('../services/admin-testing-tools.js', () => ({
   }),
   wipeOperationalTestingData: vi.fn().mockResolvedValue(undefined),
   resetDatabaseToSingleAdmin: vi.fn().mockResolvedValue({
-    admin: { id: 'u1', username: 'admin', email: 'a@e.com' },
+    admin: { id: 'u1', username: 'testing-admin', email: 'a@e.com' },
     schoolYear: { id: 'sy1', code: 2026, label: 'Ciclo 2026' },
-    password: 'admin123',
+    password: testingResetPassword(),
   }),
 }))
 

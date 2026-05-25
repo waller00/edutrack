@@ -112,6 +112,60 @@ describe('AdminAttendance', () => {
     expect(rows[0].textContent).toMatch(/Ingreso registrado \/ Salida registrada/)
   })
 
+  it('correlaciona una entrada y una salida que cubren clases contiguas', async () => {
+    const entry = {
+      id: 'a1',
+      type: 'CHECK_IN' as const,
+      status: 'PRESENT' as const,
+      date: '2025-06-01',
+      time: '2025-06-01T21:33:00.000Z',
+      notes: 'Entrada automática',
+      user: { id: 'u1', name: 'Jorge', email: 'j@b.com', role: 'TEACHER' },
+      event: {
+        id: 'class-1',
+        title: 'Clase 1',
+        type: 'CLASE',
+        startTime: '2025-06-01T21:40:00.000Z',
+        endTime: '2025-06-01T22:30:00.000Z',
+      },
+    }
+    const exit = {
+      id: 'a2',
+      type: 'CHECK_OUT' as const,
+      status: 'EXIT' as const,
+      date: '2025-06-01',
+      time: '2025-06-01T22:37:00.000Z',
+      notes: 'Salida automática',
+      user: entry.user,
+      event: {
+        id: 'class-2',
+        title: 'Clase 2',
+        type: 'CLASE',
+        startTime: '2025-06-01T22:30:00.000Z',
+        endTime: '2025-06-01T23:20:00.000Z',
+      },
+    }
+
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('attendance/all')) {
+        return { total: 2, page: 1, pageSize: 20, data: [exit, entry] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 1, presentCount: 1, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 100, lateRate: 0, absenceRate: 0 }
+      return {}
+    })
+
+    render(<AdminAttendance />)
+
+    expect(await screen.findByText('Clase 1 → Clase 2')).toBeInTheDocument()
+    const rows = screen.getAllByRole('row').filter((r) => r.textContent?.includes('Jorge'))
+    expect(rows).toHaveLength(1)
+    expect(rows[0].textContent).toMatch(/Presente/)
+    expect(rows[0].textContent).toMatch(/Salida/)
+    expect(rows[0].textContent).toMatch(/Entrada automática \/ Salida automática/)
+  })
+
   it('muestra entradas duplicadas como filas separadas para poder corregirlas', async () => {
     const entry = {
       id: 'a1',

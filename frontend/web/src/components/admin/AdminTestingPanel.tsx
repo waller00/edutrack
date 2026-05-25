@@ -356,8 +356,7 @@ export default function AdminTestingPanel() {
         <div>
           <h2 className="text-lg font-semibold text-red-900">Reset total (solo admin)</h2>
           <p className="mt-1 text-sm text-red-800/90">
-            Elimina todos los usuarios y datos. Deja un único admin (<code>admin</code> / <code>admin123</code>) y ciclo
-            lectivo vacío.
+            Elimina todos los usuarios y datos. Deja un único admin con contraseña temporal generada y ciclo lectivo vacío.
           </p>
         </div>
         <label className="block text-sm max-w-xs">
