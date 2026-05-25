@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 
 # Copiamos solo lo que realmente se necesita para ejecutar
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/src ./src
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/prisma ./prisma
@@ -35,4 +36,4 @@ USER node
 EXPOSE 4000
 
 # Script de inicio: sincroniza esquema y arranca el servidor
-CMD ["sh", "-c", "npx prisma db push ${PRISMA_DB_PUSH_FLAGS:-} && node dist/server.js"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate ${PRISMA_DB_PUSH_FLAGS:-} && node dist/server.js"]
