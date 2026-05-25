@@ -410,7 +410,7 @@ export default function AdminCoursesPage() {
 
   return (
     <RoleGuard permission="courses.manage">
-      <main className="mx-auto max-w-7xl p-6 space-y-6">
+      <main className="responsive-page max-w-7xl space-y-6">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100">
             <BookOpen className="h-7 w-7 text-emerald-600" aria-hidden />
@@ -709,7 +709,7 @@ export default function AdminCoursesPage() {
                   <p className="text-sm text-gray-500">Este curso aún no tiene asignaturas.</p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="min-w-[720px] text-sm">
                       <thead>
                         <tr className="border-b text-left text-xs uppercase text-gray-500">
                           <th className="py-2 pr-2">Orden</th>

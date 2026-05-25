@@ -396,14 +396,14 @@ function renderAttendancesTable(
   allSelected: boolean
 ) {
   if (attendances.length === 0) {
-    return <div className="p-6 text-center text-gray-500">No hay registros de asistencia</div>
+    return <div className="p-4 text-center text-gray-500 sm:p-6">No hay registros de asistencia</div>
   }
 
   const rows = buildAttendancePairRows(attendances)
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full">
+      <table className="w-full min-w-[980px]">
         <thead className="bg-gray-50">
           <tr>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -820,9 +820,9 @@ export default function AdminAttendance() {
 
   return (
     <RoleGuard permission="attendance.read" permissionScope="all">
-      <main className="mx-auto max-w-7xl p-6 space-y-8">
+      <main className="responsive-page max-w-7xl space-y-8">
         {/* Header moderno */}
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
@@ -832,7 +832,7 @@ export default function AdminAttendance() {
               <p className="text-gray-600">Control y seguimiento del personal</p>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-left sm:text-right">
             <div className="text-2xl font-bold text-emerald-600">{total}</div>
             <div className="text-sm text-gray-600">registros totales</div>
           </div>
@@ -841,14 +841,14 @@ export default function AdminAttendance() {
         {/* Filtros modernos */}
         <div className="card">
           <div className="card-header">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
                   <Search className="h-4 w-4 text-emerald-600" aria-hidden />
                 </div>
                 <h2 className="text-lg font-semibold text-gray-900">Filtros de Búsqueda</h2>
               </div>
-              <div className="flex gap-2">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                 <button
                   onClick={() => exportReport('excel')}
                   className="btn-success inline-flex items-center gap-1.5 text-sm"
@@ -1157,8 +1157,8 @@ export default function AdminAttendance() {
         </div>
 
         {/* Gráfico (simple) de distribución de estados */}
-        <div className="bg-white border rounded-lg shadow-sm p-6">
-          <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="bg-white border rounded-lg shadow-sm p-4 sm:p-6">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-lg font-semibold">Distribución de Estados</h3>
             <div className="text-sm text-gray-500">
               {statsLoading
@@ -1220,7 +1220,7 @@ export default function AdminAttendance() {
 
         {/* Tabla de asistencias */}
         <div className="bg-white border rounded-lg shadow-sm">
-          <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
             <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
@@ -1241,7 +1241,7 @@ export default function AdminAttendance() {
           </div>
           
           {loading
-            ? <div className="p-6 text-center text-gray-500">Cargando...</div>
+            ? <div className="p-4 text-center text-gray-500 sm:p-6">Cargando...</div>
             : renderAttendancesTable(
               attendances,
               selectedAttendanceIds,
@@ -1259,8 +1259,8 @@ export default function AdminAttendance() {
 
         {/* Modal de edición */}
         {editing && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="responsive-modal">
+            <div className="responsive-modal-panel max-w-md">
               <h3 className="text-lg font-semibold mb-4">Editar Asistencia</h3>
               
               <div className="space-y-4">
@@ -1298,7 +1298,7 @@ export default function AdminAttendance() {
                 </div>
               </div>
               
-              <div className="flex gap-3 mt-6">
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <button
                   onClick={() => updateAttendance(editing.id, editing.status, editing.notes)}
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"

@@ -382,7 +382,7 @@ export default function AdminStudentsPage() {
 
   return (
     <RoleGuard permission="students.manage">
-      <main className="mx-auto max-w-7xl p-6 space-y-6">
+      <main className="responsive-page max-w-7xl space-y-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase text-emerald-700">Solo administradores</p>
@@ -417,8 +417,8 @@ export default function AdminStudentsPage() {
         )}
 
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[180px] flex-1">
+          <div className="grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
+            <div className="min-w-0 lg:min-w-[180px] lg:flex-1">
               <label className="block text-xs font-medium text-gray-600 mb-1">Buscar</label>
               <input
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -428,7 +428,7 @@ export default function AdminStudentsPage() {
                 onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
               />
             </div>
-            <div className="min-w-[160px]">
+            <div className="min-w-0 lg:min-w-[160px]">
               <label className="block text-xs font-medium text-gray-600 mb-1">Curso</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -445,7 +445,7 @@ export default function AdminStudentsPage() {
                 ))}
               </select>
             </div>
-            <div className="min-w-[140px]">
+            <div className="min-w-0 lg:min-w-[140px]">
               <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -459,7 +459,7 @@ export default function AdminStudentsPage() {
                 <option value="TRANSFERRED">Transferido</option>
               </select>
             </div>
-            <div className="w-24">
+            <div className="w-full lg:w-24">
               <label className="block text-xs font-medium text-gray-600 mb-1">Año</label>
               <input
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -468,7 +468,7 @@ export default function AdminStudentsPage() {
                 placeholder="2025"
               />
             </div>
-            <div className="w-24">
+            <div className="w-full lg:w-24">
               <label className="block text-xs font-medium text-gray-600 mb-1">Mes</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -483,7 +483,7 @@ export default function AdminStudentsPage() {
                 ))}
               </select>
             </div>
-            <div className="min-w-[120px]">
+            <div className="min-w-0 lg:min-w-[120px]">
               <label className="block text-xs font-medium text-gray-600 mb-1">Pago</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -503,7 +503,7 @@ export default function AdminStudentsPage() {
           {msg && !modal && <p className="text-sm text-red-600">{msg}</p>}
 
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-[900px] text-sm">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-gray-600">
                   <th className="py-2 pr-3 font-medium">Estudiante</th>
@@ -614,8 +614,8 @@ export default function AdminStudentsPage() {
         </div>
 
         {modal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto">
-            <div className="my-8 w-full max-w-2xl rounded-2xl border border-gray-200 bg-white shadow-xl">
+          <div className="responsive-modal bg-black/40">
+            <div className="my-0 w-full max-w-2xl rounded-t-2xl border border-gray-200 bg-white shadow-xl sm:my-8 sm:rounded-2xl">
               <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
                 <h2 className="text-lg font-semibold text-gray-900">
                   {modal === 'create' ? 'Nuevo estudiante' : 'Editar estudiante'}
@@ -858,7 +858,7 @@ export default function AdminStudentsPage() {
                     })}
                 </div>
               </div>
-              <div className="flex justify-end gap-2 border-t border-gray-100 px-4 py-3">
+              <div className="flex flex-col justify-end gap-2 border-t border-gray-100 px-4 py-3 sm:flex-row">
                 <button type="button" className="btn-secondary" onClick={closeModal}>
                   Cancelar
                 </button>

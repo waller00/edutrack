@@ -37,7 +37,7 @@ export default function RegisterDiditReturnPage() {
   }, [])
 
   return (
-    <main className="mx-auto max-w-lg p-8 text-center text-gray-700">
+    <main className="responsive-page max-w-lg text-center text-gray-700">
       <p>{msg}</p>
     </main>
   )

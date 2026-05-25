@@ -413,7 +413,7 @@ export default function LicensesPage() {
 
   return (
     <RoleGuard permission="licenses.read" permissionScope="all">
-      <main className="mx-auto max-w-7xl p-6 space-y-8">
+      <main className="responsive-page max-w-7xl space-y-8">
         {/* Header alineado a otros módulos admin */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
@@ -561,7 +561,7 @@ export default function LicensesPage() {
                 </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-[720px] divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Fecha</th>
@@ -740,7 +740,7 @@ export default function LicensesPage() {
 
         {/* Tabla de licencias */}
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-gray-100 p-6 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 border-b border-gray-100 p-4 md:flex-row md:items-center md:justify-between sm:p-6">
             <h2 className="text-lg font-semibold">Licencias</h2>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
@@ -759,7 +759,7 @@ export default function LicensesPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="min-w-[980px] divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -793,8 +793,8 @@ export default function LicensesPage() {
 
         {/* Modal para crear licencia */}
         {creating && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-gray-100 bg-white p-6 shadow-xl">
+          <div className="responsive-modal backdrop-blur-sm">
+            <div className="responsive-modal-panel max-w-2xl">
               <h3 className="text-lg font-semibold mb-4">Nueva Licencia</h3>
 
               {createModalError ? (
@@ -876,7 +876,7 @@ export default function LicensesPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
                     <input
@@ -1003,8 +1003,8 @@ export default function LicensesPage() {
 
         {/* Modal para ver detalles */}
         {editing && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-gray-100 bg-white p-6 shadow-xl">
+          <div className="responsive-modal backdrop-blur-sm">
+            <div className="responsive-modal-panel max-w-2xl">
               <h3 className="mb-4 text-lg font-semibold">Editar Licencia</h3>
 
               {editModalError ? (
@@ -1017,7 +1017,7 @@ export default function LicensesPage() {
               ) : null}
 
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
                     <p className="text-sm text-gray-900">{editing.user.name}</p>
@@ -1037,7 +1037,7 @@ export default function LicensesPage() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
                     <input

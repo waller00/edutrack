@@ -223,7 +223,7 @@ export default function AdminBiometricDevicesPanel() {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid gap-2 sm:flex sm:flex-wrap">
             <button type="button" onClick={() => void load()} className="btn-secondary inline-flex items-center gap-2 text-sm">
               <RefreshCw className="h-4 w-4" aria-hidden />
               Recargar
@@ -382,7 +382,7 @@ export default function AdminBiometricDevicesPanel() {
                 </label>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="grid gap-2 sm:flex sm:flex-wrap">
                 <button type="button" onClick={() => void save()} disabled={!canSave || saving} className="btn-primary inline-flex items-center gap-2 text-sm disabled:opacity-60">
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Check className="h-4 w-4" aria-hidden />}
                   Guardar

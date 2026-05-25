@@ -18,12 +18,12 @@ export default function PaginationControls({
   const totalPages = Math.ceil(total / pageSize)
 
   return (
-    <div className="px-6 py-3 border-t bg-gray-50">
-      <div className="flex justify-between items-center">
+    <div className="border-t bg-gray-50 px-4 py-3 sm:px-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-gray-700">
           Pagina {page} de {totalPages}
         </div>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex">
           <button
             onClick={() => onPageChange(page - 1)}
             disabled={page === 1}

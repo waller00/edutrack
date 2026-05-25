@@ -121,7 +121,7 @@ export default function AdminSystemSettingsPage() {
 
   return (
     <RoleGuard permission="settings.manage">
-      <main className="mx-auto max-w-7xl p-6 space-y-6">
+      <main className="responsive-page max-w-7xl space-y-6">
         <div className="flex flex-col gap-2">
           <p className="text-sm font-semibold uppercase text-emerald-700">Solo administradores</p>
           <h1 className="text-2xl font-bold text-gray-950">Configuración del sistema</h1>

@@ -81,8 +81,8 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
 
   return (
     <RoleGuard permission="attendance.read" permissionScope="own">
-      <main className="mx-auto max-w-6xl p-6 space-y-6">
-        <div className="flex justify-between items-center">
+      <main className="responsive-page max-w-6xl space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
@@ -95,7 +95,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
           <div className="text-sm text-gray-500">Total: {attendances.length} registros</div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label htmlFor="my-attendance-start-date" className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
             <input
@@ -103,7 +103,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
           </div>
           <div>
@@ -113,20 +113,20 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
           </div>
         </div>
 
         <div className="bg-white border rounded-lg shadow-sm">
-          <div className="p-6 border-b">
+          <div className="border-b p-4 sm:p-6">
             <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
           </div>
           {attendances.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">No hay registros de asistencia</div>
+            <div className="p-4 text-center text-gray-500 sm:p-6">No hay registros de asistencia</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[640px]">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
