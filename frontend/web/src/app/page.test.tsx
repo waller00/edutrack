@@ -54,7 +54,7 @@ describe('Home page', () => {
     expect(screen.getByRole('button', { name: /enviado/i })).toBeDisabled()
   })
 
-  it('combina evento en curso con sus marcas de entrada y salida', async () => {
+  it('combina clases contiguas con una entrada y una salida', async () => {
     vi.mocked(api)
       .mockResolvedValueOnce({
         name: 'Ada',
@@ -70,34 +70,47 @@ describe('Home page', () => {
           {
             id: 'out-1',
             type: 'CHECK_OUT',
-            status: 'EARLY_EXIT',
+            status: 'EXIT',
             date: '2026-05-24T00:00:00.000Z',
-            time: '2026-05-24T23:29:00.000Z',
+            time: '2026-05-24T22:37:00.000Z',
             user: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
-            event: { id: 'ev-1', title: 'Clase Jorge', type: 'CLASE' },
+            event: { id: 'ev-2', title: 'Clase 2', type: 'CLASE' },
           },
           {
             id: 'in-1',
             type: 'CHECK_IN',
             status: 'PRESENT',
             date: '2026-05-24T00:00:00.000Z',
-            time: '2026-05-24T23:21:00.000Z',
+            time: '2026-05-24T21:33:00.000Z',
             user: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
-            event: { id: 'ev-1', title: 'Clase Jorge', type: 'CLASE' },
+            event: { id: 'ev-1', title: 'Clase 1', type: 'CLASE' },
           },
         ],
       })
       .mockResolvedValueOnce({
-        total: 1,
+        total: 2,
         data: [
           {
             id: 'ev-1',
-            title: 'Clase Jorge',
+            title: 'Clase 1',
             type: 'CLASE',
             status: 'IN_PROGRESS',
-            startDate: '2026-05-24T23:20:00.000Z',
-            startTime: '2026-05-24T23:20:00.000Z',
-            endTime: '2026-05-24T23:40:00.000Z',
+            startDate: '2026-05-24T21:40:00.000Z',
+            startTime: '2026-05-24T21:40:00.000Z',
+            endTime: '2026-05-24T22:30:00.000Z',
+            isRecurring: false,
+            daysOfWeek: [],
+            user: { id: 'admin', name: 'Admin', email: 'a@e.com', role: 'ADMIN' },
+            assignedUser: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com', role: 'TEACHER' },
+          },
+          {
+            id: 'ev-2',
+            title: 'Clase 2',
+            type: 'CLASE',
+            status: 'IN_PROGRESS',
+            startDate: '2026-05-24T22:30:00.000Z',
+            startTime: '2026-05-24T22:30:00.000Z',
+            endTime: '2026-05-24T23:20:00.000Z',
             isRecurring: false,
             daysOfWeek: [],
             user: { id: 'admin', name: 'Admin', email: 'a@e.com', role: 'ADMIN' },
@@ -109,11 +122,13 @@ describe('Home page', () => {
     render(<Home />)
 
     expect(await screen.findByText('Cronología operativa')).toBeInTheDocument()
-    expect(screen.getAllByText('Clase Jorge')).toHaveLength(1)
-    expect(screen.getByText('Salida anticipada')).toBeInTheDocument()
+    expect(screen.getByText('Clase 1 → Clase 2')).toBeInTheDocument()
+    expect(screen.getByText('Finalizado')).toBeInTheDocument()
     expect(screen.getByText(/Entró/)).toBeInTheDocument()
     expect(screen.getByText(/Salió/)).toBeInTheDocument()
     expect(screen.queryByText('En Progreso')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Clase 1$/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Clase 2$/)).not.toBeInTheDocument()
   })
 
   it('shows the profile completion state instead of role sections', async () => {

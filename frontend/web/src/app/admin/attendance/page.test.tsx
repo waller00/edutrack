@@ -159,6 +159,8 @@ describe('AdminAttendance', () => {
     render(<AdminAttendance />)
 
     expect(await screen.findByText('Clase 1 → Clase 2')).toBeInTheDocument()
+    expect(screen.getByText('Eventos: 2')).toBeInTheDocument()
+    expect(screen.getByText('Presente (2)')).toBeInTheDocument()
     const rows = screen.getAllByRole('row').filter((r) => r.textContent?.includes('Jorge'))
     expect(rows).toHaveLength(1)
     expect(rows[0].textContent).toMatch(/Presente/)

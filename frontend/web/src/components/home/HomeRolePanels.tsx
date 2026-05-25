@@ -48,6 +48,7 @@ type TimelineItem = {
   status: string
   statusClass: string
   summary: string
+  coveredEventKeys?: string[]
 }
 
 function labelAttendanceStatus(status: string): string {
@@ -119,39 +120,108 @@ function EmptyState({ message }: { message: string }) {
   )
 }
 
-function attendanceGroupKey(row: AttendanceFeedRow): string {
+function attendanceDayGroupKey(row: AttendanceFeedRow): string {
   const dateKey = (row.date || row.time).slice(0, 10)
-  return `${row.user?.id ?? 'user'}:${row.event?.id ?? row.id}:${dateKey}`
+  return `${row.user?.id ?? 'user'}:${dateKey}`
+}
+
+type AttendanceTimelinePair = {
+  key: string
+  source: AttendanceFeedRow
+  entry?: AttendanceFeedRow
+  exit?: AttendanceFeedRow
+  incident?: AttendanceFeedRow
+}
+
+function summarizeAttendanceTimelineEvent(pair: Pick<AttendanceTimelinePair, 'entry' | 'exit' | 'incident' | 'source'>) {
+  const incidentEvent = pair.incident?.event
+  if (incidentEvent) return { title: incidentEvent.title, type: incidentEvent.type }
+
+  const entryEvent = pair.entry?.event
+  const exitEvent = pair.exit?.event
+  const first = entryEvent ?? exitEvent ?? pair.source.event
+  const second = entryEvent && exitEvent && entryEvent.id !== exitEvent.id ? exitEvent : null
+
+  if (!first) return { title: pair.source.title || 'Actividad sin evento', type: pair.source.event?.type }
+
+  return {
+    title: second ? `${first.title} → ${second.title}` : first.title,
+    type: second && first.type !== second.type ? `${first.type} / ${second.type}` : first.type,
+  }
+}
+
+function timelineEventKey(eventId: string, when: string): string {
+  return `${eventId}:${when.slice(0, 10)}`
+}
+
+function coveredEventKeysForPair(pair: Pick<AttendanceTimelinePair, 'entry' | 'exit' | 'incident' | 'source'>): string[] {
+  const rows = [pair.entry, pair.exit, pair.incident, pair.source].filter(Boolean) as AttendanceFeedRow[]
+  return Array.from(
+    new Set(
+      rows
+        .filter((row) => row.event?.id)
+        .map((row) => timelineEventKey(row.event!.id, row.date || row.time)),
+    ),
+  )
 }
 
 function buildAttendanceTimelineItems(rows: AttendanceFeedRow[]): TimelineItem[] {
-  const grouped = new Map<
-    string,
-    {
-      entries: AttendanceFeedRow[]
-      exits: AttendanceFeedRow[]
-      incidents: AttendanceFeedRow[]
-      source: AttendanceFeedRow
-    }
-  >()
+  const grouped = new Map<string, AttendanceFeedRow[]>()
+  const incidentPairs: AttendanceTimelinePair[] = []
 
   for (const row of rows) {
-    const key = row.type === 'INCIDENT' || row.kind === 'INCIDENT' ? row.id : attendanceGroupKey(row)
-    const group = grouped.get(key) ?? { entries: [], exits: [], incidents: [], source: row }
-    if (row.type === 'CHECK_IN') group.entries.push(row)
-    else if (row.type === 'CHECK_OUT') group.exits.push(row)
-    else group.incidents.push(row)
-    if (new Date(row.time).getTime() > new Date(group.source.time).getTime()) group.source = row
+    if (row.type === 'INCIDENT' || row.kind === 'INCIDENT') {
+      incidentPairs.push({ key: row.id, source: row, incident: row })
+      continue
+    }
+
+    const key = attendanceDayGroupKey(row)
+    const group = grouped.get(key) ?? []
+    group.push(row)
     grouped.set(key, group)
   }
 
-  return Array.from(grouped.entries()).map(([key, group]) => {
-    const entry = group.entries.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())[0]
-    const exit = group.exits.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0]
-    const incident = group.incidents[0]
-    const source = incident ?? exit ?? entry ?? group.source
+  const pairs = [...incidentPairs]
+  for (const [key, group] of grouped) {
+    const dayPairs: AttendanceTimelinePair[] = []
+    const openPairs: AttendanceTimelinePair[] = []
+    const ordered = [...group].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+
+    for (const row of ordered) {
+      if (row.type === 'CHECK_IN') {
+        const pair: AttendanceTimelinePair = {
+          key: `${key}:in:${row.id}`,
+          source: row,
+          entry: row,
+        }
+        dayPairs.push(pair)
+        openPairs.push(pair)
+        continue
+      }
+
+      const rowTime = new Date(row.time).getTime()
+      const openPair = openPairs.find((pair) => pair.entry && !pair.exit && new Date(pair.entry.time).getTime() <= rowTime)
+      if (openPair) {
+        openPair.exit = row
+        openPair.source = row
+        continue
+      }
+
+      dayPairs.push({
+        key: `${key}:out:${row.id}`,
+        source: row,
+        exit: row,
+      })
+    }
+
+    pairs.push(...dayPairs)
+  }
+
+  return pairs.map((pair) => {
+    const { entry, exit, incident } = pair
+    const source = incident ?? exit ?? entry ?? pair.source
     const person = source.user?.name || source.user?.email || 'Usuario'
-    const title = source.event?.title || source.title || 'Actividad sin evento'
+    const eventSummary = summarizeAttendanceTimelineEvent(pair)
     const parts = [
       entry ? `Entró ${formatTimeInUruguay(entry.time)}` : null,
       exit ? `Salió ${formatTimeInUruguay(exit.time)}` : null,
@@ -159,15 +229,16 @@ function buildAttendanceTimelineItems(rows: AttendanceFeedRow[]): TimelineItem[]
 
     if (incident) {
       return {
-        id: `attendance:${key}`,
+        id: `attendance:${pair.key}`,
         at: source.time,
         tone: 'incident',
-        title,
+        title: eventSummary.title,
         person,
-        eventType: source.event?.type,
+        eventType: eventSummary.type,
         status: 'Falta',
         statusClass: badgeClassForStatus('ABSENT_NOT_JUSTIFIED'),
         summary: source.description || source.notes || 'No se registró asistencia para el evento.',
+        coveredEventKeys: coveredEventKeysForPair(pair),
       }
     }
 
@@ -181,28 +252,25 @@ function buildAttendanceTimelineItems(rows: AttendanceFeedRow[]): TimelineItem[]
             : 'En curso'
 
     return {
-      id: `attendance:${key}`,
+      id: `attendance:${pair.key}`,
       at: exit?.time || entry?.time || source.time,
       tone: exit ? 'exit' : 'entry',
-      title,
+      title: eventSummary.title,
       person,
-      eventType: source.event?.type,
+      eventType: eventSummary.type,
       status,
       statusClass: badgeClassForStatus(exit?.status || entry?.status || source.status),
       summary: parts.length > 0 ? parts.join(' · ') : labelAttendanceFeedRow(source),
+      coveredEventKeys: coveredEventKeysForPair(pair),
     }
   })
 }
 
 function buildEventTimelineItems(events: AssignedEventRow[], attendanceItems: TimelineItem[]): TimelineItem[] {
-  const coveredEventTitles = new Set(attendanceItems.map((item) => `${item.person}:${item.title}:${item.at.slice(0, 10)}`))
+  const coveredEventKeys = new Set(attendanceItems.flatMap((item) => item.coveredEventKeys ?? []))
   return events
     .filter((event) => event.status === 'SCHEDULED' || event.status === 'IN_PROGRESS')
-    .filter((event) => {
-      const person = event.assignedUser?.name || event.assignedUser?.email || 'Sin persona asignada'
-      const key = `${person}:${event.title}:${(event.startTime || event.startDate).slice(0, 10)}`
-      return !coveredEventTitles.has(key)
-    })
+    .filter((event) => !coveredEventKeys.has(timelineEventKey(event.id, event.startTime || event.startDate)))
     .map((event) => ({
       id: `event:${event.id}`,
       at: event.startTime || event.startDate,
