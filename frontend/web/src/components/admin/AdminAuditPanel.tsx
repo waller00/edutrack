@@ -222,7 +222,7 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
 
       <section className={`${shellCard} overflow-hidden p-0`}>
         <div className="border-b border-gray-100 bg-slate-50/90 px-5 py-3.5">
-          <h3 className="text-sm font-semibold text-gray-900">Eventos registrados</h3>
+          <h3 className="text-sm font-semibold text-gray-900">Movimientos registrados</h3>
           <p className="text-xs text-gray-500">Ordenados del más reciente al más antiguo.</p>
         </div>
 
@@ -230,11 +230,11 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-gray-500">
               <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
-              <p className="text-sm">Cargando eventos…</p>
+              <p className="text-sm">Cargando movimientos…</p>
             </div>
           ) : rows.length === 0 ? (
             <div className="mx-4 my-10 rounded-lg border border-dashed border-gray-200 bg-slate-50/50 px-6 py-12 text-center">
-              <p className="text-sm font-medium text-gray-700">No hay eventos para mostrar</p>
+              <p className="text-sm font-medium text-gray-700">No hay movimientos para mostrar</p>
               <p className="mt-1 text-xs text-gray-500">Probá ampliar fechas o quitar filtros.</p>
             </div>
           ) : (

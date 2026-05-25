@@ -115,6 +115,7 @@ type AttendanceTimelineResponse = {
     presentTeachers: number
     lateArrivals: number
     pendingAbsences: number
+    expectedAbsences?: number
     substitutions?: number
     suspendedClasses: number
     outOfSchedulePunches: number
@@ -487,6 +488,9 @@ function humanTimelineTitle(item: AttendanceTimelineApiItem) {
   if (item.type === 'OUT_OF_SCHEDULE_PUNCH') return 'Se detectó una marcación fuera de horario'
   if (item.type === 'UNIDENTIFIED_PUNCH') return 'Se detectó una marcación no identificada'
   if (item.type === 'JUSTIFICATION') return `${teacher} tiene justificación registrada`
+  if (item.type === 'SUBSTITUTION' && !item.title.toLowerCase().includes('cubre')) {
+    return `${teacher} tiene ausencia prevista sin justificar en ${className}`
+  }
   if (item.type === 'CLASS_ATTENDANCE' && item.status === 'PRESENT') return `${className} - Presente`
   return item.title
 }
@@ -540,7 +544,11 @@ export function HomeAdminTimeline() {
   const activityItems = compactItems
     .filter((item) => item.type !== 'CLASS_ATTENDANCE' || item.status !== 'PRESENT' || (item.mergedCount || 1) <= 1 || item.event?.id)
     .slice(0, 14)
-  const substitutionsCount = data?.summary.substitutions ?? data?.items.filter((item) => item.type === 'SUBSTITUTION').length ?? 0
+  const expectedAbsencesCount =
+    data?.summary.expectedAbsences ??
+    data?.summary.substitutions ??
+    data?.items.filter((item) => item.type === 'SUBSTITUTION' && !item.title.toLowerCase().includes('cubre')).length ??
+    0
 
   const summaryCards = data
     ? [
@@ -569,8 +577,8 @@ export function HomeAdminTimeline() {
           icon: <UserX className="h-4 w-4 text-red-700" aria-hidden />,
         },
         {
-          label: 'Suplencias',
-          value: substitutionsCount,
+          label: 'Ausencias previstas',
+          value: expectedAbsencesCount,
           tone: 'border-indigo-200 bg-indigo-50/70 text-indigo-900',
           icon: <UserCheck className="h-4 w-4 text-indigo-700" aria-hidden />,
         },
@@ -729,7 +737,7 @@ export function HomeAdminTimeline() {
                           </p>
                           <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                             {item.group ? <span>{item.group.name}</span> : null}
-                            {item.type === 'SUBSTITUTION' ? <span>Suplencia asignada</span> : null}
+                            {item.type === 'SUBSTITUTION' && item.status === 'SUBSTITUTED' ? <span>Cubierta por suplencia</span> : null}
                             {item.type === 'PENDING_ABSENCE' ? <span>Clase sin docente presente</span> : null}
                           </div>
                         </div>
@@ -1055,14 +1063,14 @@ export function HomeAdminUpcomingEvents() {
       href="/admin/events"
       className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-medium text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/80"
     >
-      Gestionar eventos
+      Abrir agenda
       <ChevronRight className="h-4 w-4 opacity-80" aria-hidden />
     </a>
   )
 
   return (
     <HomePanelShell
-      title="Próximos eventos"
+      title="Próximas actividades"
       subtitle="Agenda institucional cercana: clases, turnos y actividades programadas para los próximos días."
       icon={<Calendar className="h-6 w-6" strokeWidth={2} aria-hidden />}
       action={action}
@@ -1071,12 +1079,12 @@ export function HomeAdminUpcomingEvents() {
         {loading && (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-500">
             <Loader2 className="h-9 w-9 animate-spin text-emerald-600" aria-hidden />
-            <span className="text-sm">Cargando próximos eventos…</span>
+            <span className="text-sm">Cargando próximas actividades…</span>
           </div>
         )}
         {!loading && error && <EmptyState message={error} />}
         {!loading && !error && visible.length === 0 && (
-          <EmptyState message="No hay eventos próximos en los próximos días. Cuando se programe actividad, aparecerá aquí." />
+          <EmptyState message="No hay actividades próximas en los próximos días. Cuando se programe actividad, aparecerá aquí." />
         )}
         {!loading && !error && visible.length > 0 && (
           <ul className="grid gap-2 2xl:grid-cols-2" role="list">

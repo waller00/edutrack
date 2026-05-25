@@ -93,7 +93,8 @@ function toLicenseEstado(isJustified: boolean) {
 }
 
 function isAbsenceStatus(status: AttendanceStatus) {
-  return status === 'ABSENT_NOT_JUSTIFIED' || status === 'ABSENT_JUSTIFIED'
+  const value = String(status)
+  return value === 'ABSENT_NOT_JUSTIFIED' || value === 'ABSENT_JUSTIFIED' || value === 'SUBSTITUTED'
 }
 
 export async function buildAttendanceDetailRowsFromAttendances(params: {

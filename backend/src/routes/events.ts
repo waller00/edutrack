@@ -443,7 +443,7 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
       ? uruguayYmdEndOfDayToUtc(String(endDate).slice(0, 10))
       : uruguayYmdEndOfDayToUtc(DateTime.now().setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd'))
 
-    const substitutionRows = await prisma.substitution.findMany({
+    const substitutionRows = await (prisma as any).substitution.findMany({
       where: {
         substituteUserId: user.sub,
         date: { gte: subRangeStart, lte: subRangeEnd },

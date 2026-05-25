@@ -664,8 +664,8 @@ export default function OnboardingPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Perfil</label>
                 <select value={role} onChange={(e) => setRole(e.target.value as 'STAFF' | 'TEACHER')} className="select-field">
-                  <option value="STAFF">Staff</option>
-                  <option value="TEACHER">Teacher</option>
+                  <option value="STAFF">Personal</option>
+                  <option value="TEACHER">Docente</option>
                 </select>
               </div>
 

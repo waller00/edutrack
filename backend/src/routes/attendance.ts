@@ -600,6 +600,7 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       attendanceAbsentCount,
       lateCount,
       medicalLeaveCount,
+      expectedAbsenceCount,
       exitCount,
       earlyExitCount,
       incidentAbsentCount,
@@ -609,11 +610,21 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       prisma.attendance.count({
         where: {
           ...where,
-          status: { in: ['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED'] },
+          status: { in: ['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED'] },
         },
       }),
       prisma.attendance.count({ where: { ...where, status: 'LATE' } }),
       prisma.attendance.count({ where: { ...where, status: 'ABSENT_JUSTIFIED' } }),
+      prisma.attendance.count({
+        where: {
+          ...where,
+          OR: [
+            { status: 'SUBSTITUTED' as any },
+            { status: 'ABSENT_NOT_JUSTIFIED' as any, notes: { startsWith: 'Ausencia prevista' } },
+            { status: 'ABSENT_NOT_JUSTIFIED' as any, notes: { startsWith: 'Ausencia esperada' } },
+          ],
+        },
+      }),
       prisma.attendance.count({ where: { ...where, status: 'EXIT' } }),
       prisma.attendance.count({ where: { ...where, status: 'EARLY_EXIT' } }),
       incidentWhere ? prisma.attendanceIncident.count({ where: incidentWhere }) : Promise.resolve(0),
@@ -628,6 +639,7 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       absentCount,
       lateCount,
       medicalLeaveCount,
+      expectedAbsenceCount,
       exitCount,
       earlyExitCount,
       attendanceRate: rate(presentCount, totalAttendances),
@@ -937,7 +949,15 @@ r.post('/:id/note', authGuard, requirePermission('attendance.update', 'all'), as
 // Marcar ausencias automáticamente basadas en eventos y licencias médicas (solo admin)
 r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
   try {
-    const { startDate, endDate, userId, schoolYearId: bodySchoolYearId, allYears: bodyAllYears } = req.body ?? {};
+    const {
+      startDate,
+      endDate,
+      userId,
+      eventId,
+      expectedAbsence,
+      schoolYearId: bodySchoolYearId,
+      allYears: bodyAllYears,
+    } = req.body ?? {};
 
     if (!startDate || !endDate) {
       return res.status(400).json({ message: 'startDate y endDate son requeridos' });
@@ -958,6 +978,7 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
     const events = await prisma.event.findMany({
       where: {
         type: 'CLASE',
+        ...(eventId ? { id: eventId } : {}),
         status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
         assignedUserId: userId ? userId : { not: null },
         startTime: { not: null },
@@ -1016,10 +1037,11 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
               status: 'SUBSTITUTED' as any,
               date: eventDate,
               time: new Date(event.startTime),
-              notes: 'Clase suplida oficialmente',
+              notes: 'Ausencia prevista sin justificar (suplida): clase cubierta oficialmente',
               eventId: event.id,
             },
           });
+          markedAbsences++;
         }
         continue;
       }
@@ -1046,6 +1068,7 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
 
       // Determinar el status basado en si tiene licencia médica
       const status = approvedLicense ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED';
+      const isExpectedAbsence = Boolean(expectedAbsence) && !approvedLicense;
 
       // Crear la ausencia
       await prisma.attendance.create({
@@ -1055,9 +1078,11 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
           status: status as any,
           date: eventDate,
           time: new Date(event.startTime || eventDate),
-          notes: approvedLicense 
+          notes: approvedLicense
             ? `Ausencia automática - Licencia médica: ${approvedLicense.reason}`
-            : 'Ausencia automática - Sin asistencia registrada',
+            : isExpectedAbsence
+              ? 'Ausencia prevista sin justificar - Registrada por administración antes del bloque'
+              : 'Ausencia automática - Sin asistencia registrada',
           eventId: event.id
         }
       });
@@ -1066,7 +1091,9 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
     }
 
     res.json({
-      message: `Se marcaron ${markedAbsences} ausencias automáticamente`,
+      message: expectedAbsence
+        ? `Se registraron ${markedAbsences} ausencias previstas`
+        : `Se marcaron ${markedAbsences} ausencias automáticamente`,
       markedAbsences,
       totalEvents: events.length
     });

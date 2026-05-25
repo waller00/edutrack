@@ -57,8 +57,8 @@ export async function listSubstitutions(params: {
   }
 
   const [total, data] = await Promise.all([
-    prisma.substitution.count({ where }),
-    prisma.substitution.findMany({
+    (prisma as any).substitution.count({ where }),
+    (prisma as any).substitution.findMany({
       where,
       include: substitutionListInclude,
       orderBy: [{ date: "desc" }, { startTime: "desc" }],
@@ -139,7 +139,7 @@ export async function createSubstitution(params: {
     throw new SubstitutionError(`No se puede registrar suplencia: ${nonWorkingDay.reason}`);
   }
 
-  const existing = await prisma.substitution.findUnique({
+  const existing = await (prisma as any).substitution.findUnique({
     where: { eventId_date: { eventId: event.id, date: occurrence.attendanceDate } },
     select: { id: true },
   });
@@ -148,7 +148,7 @@ export async function createSubstitution(params: {
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    const substitution = await tx.substitution.create({
+    const substitution = await (tx as any).substitution.create({
       data: {
         eventId: event.id,
         originalTeacherUserId: event.assignedUserId!,
@@ -177,7 +177,7 @@ export async function createSubstitution(params: {
           where: { id: existingOriginalAttendance.id },
           data: {
             status: "SUBSTITUTED" as any,
-            notes: `Clase suplida oficialmente: ${reason}`,
+            notes: `Ausencia prevista sin justificar (suplida): ${reason}`,
           },
         })
       : await tx.attendance.create({
@@ -188,7 +188,7 @@ export async function createSubstitution(params: {
             time: occurrence.startTime,
             type: "CHECK_IN",
             status: "SUBSTITUTED" as any,
-            notes: `Clase suplida oficialmente: ${reason}`,
+            notes: `Ausencia prevista sin justificar (suplida): ${reason}`,
           },
         });
 
@@ -212,7 +212,7 @@ export async function createSubstitution(params: {
     },
   });
 
-  return prisma.substitution.findUniqueOrThrow({
+  return (prisma as any).substitution.findUniqueOrThrow({
     where: { id: result.substitution.id },
     include: substitutionListInclude,
   });
@@ -223,14 +223,14 @@ export async function deleteSubstitution(params: {
   actorUserId?: string | null;
   req?: Request;
 }) {
-  const row = await prisma.substitution.findUnique({
+  const row = await (prisma as any).substitution.findUnique({
     where: { id: params.id },
     include: { event: { select: { id: true, title: true } } },
   });
   if (!row) throw new SubstitutionError("Suplencia no encontrada", 404, "SUBSTITUTION_NOT_FOUND");
 
   await prisma.$transaction(async (tx) => {
-    await tx.substitution.delete({ where: { id: params.id } });
+    await (tx as any).substitution.delete({ where: { id: params.id } });
 
     const titularCheckIn = await tx.attendance.findFirst({
       where: {
@@ -243,7 +243,11 @@ export async function deleteSubstitution(params: {
       select: { id: true, notes: true },
     });
 
-    if (titularCheckIn?.notes?.includes("Clase suplida oficialmente")) {
+    if (
+      titularCheckIn?.notes?.includes("Ausencia prevista sin justificar (suplida)") ||
+      titularCheckIn?.notes?.includes("Ausencia esperada (suplida)") ||
+      titularCheckIn?.notes?.includes("Clase suplida oficialmente")
+    ) {
       await tx.attendance.update({
         where: { id: titularCheckIn.id },
         data: {

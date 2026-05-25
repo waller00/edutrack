@@ -17,6 +17,7 @@ import {
   type AdminEventCreatorRole,
 } from '@/lib/admin/events-display'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
+import { getRoleLabel } from '@/lib/roles/display'
 import {
   formatDateInUruguay,
   formatTimeInUruguay,
@@ -212,7 +213,7 @@ function AdminTime24Selects({
 
 function renderEventsEmptyState(events: Event[]) {
   if (events.length === 0) {
-    return <div className="p-4 text-center text-gray-500 sm:p-6">No hay eventos</div>
+    return <div className="p-4 text-center text-gray-500 sm:p-6">No hay actividades</div>
   }
 
   return null
@@ -479,7 +480,7 @@ export default function AdminEvents() {
         body: JSON.stringify(eventData),
       })
 
-      setMessage('✅ Evento creado correctamente')
+      setMessage('✅ Actividad creada correctamente')
       await loadEvents()
       setCreating(false)
       resetCreateForm()
@@ -495,7 +496,7 @@ export default function AdminEvents() {
         body: JSON.stringify(updates)
       })
       
-      setMessage('✅ Evento actualizado correctamente')
+      setMessage('✅ Actividad actualizada correctamente')
       await loadEvents()
       setEditingEvent(null)
     } catch (error: any) {
@@ -510,7 +511,7 @@ export default function AdminEvents() {
         body: JSON.stringify({ reason })
       })
       
-      setMessage('✅ Evento cancelado correctamente')
+      setMessage('✅ Actividad cancelada correctamente')
       await loadEvents()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al cancelar evento'}`)
@@ -524,7 +525,7 @@ export default function AdminEvents() {
         body: JSON.stringify({ status: 'SCHEDULED' })
       })
       
-      setMessage('✅ Evento reactivado correctamente')
+      setMessage('✅ Actividad reactivada correctamente')
       await loadEvents()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al reactivar evento'}`)
@@ -568,8 +569,8 @@ export default function AdminEvents() {
               <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Gestión de Eventos</h1>
-              <p className="text-gray-600">Crear y administrar eventos</p>
+              <h1 className="text-2xl font-bold">Agenda y clases</h1>
+              <p className="text-gray-600">Organizá clases, jornadas, reuniones y suplencias.</p>
             </div>
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
@@ -581,10 +582,10 @@ export default function AdminEvents() {
               }}
               className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
             >
-              Crear Evento
+              Nueva actividad
             </button>
             <div className="text-sm text-gray-600">
-              Total: {total} eventos
+              {total} actividades
             </div>
           </div>
         </div>
@@ -592,7 +593,7 @@ export default function AdminEvents() {
         {/* Filtros */}
         <div className="bg-white border rounded-lg p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold">Filtros</h2>
+            <h2 className="text-lg font-semibold">Buscar en agenda</h2>
             <button
               onClick={() => setFilters({
                 startDate: '',
@@ -605,7 +606,7 @@ export default function AdminEvents() {
               })}
               className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border"
             >
-              Limpiar Filtros
+              Limpiar filtros
             </button>
           </div>
           
@@ -681,7 +682,7 @@ export default function AdminEvents() {
               >
                 <option value="">Todos</option>
                 <option value="SCHEDULED">Programado</option>
-                <option value="IN_PROGRESS">En Progreso</option>
+                <option value="IN_PROGRESS">En curso</option>
                 <option value="COMPLETED">Completado</option>
                 <option value="CANCELLED">Cancelado</option>
                 <option value="EXPIRED">Vencido</option>
@@ -700,11 +701,11 @@ export default function AdminEvents() {
         {/* Tabla de eventos */}
         <div className="bg-white border rounded-lg shadow-sm">
           <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
-            <h2 className="text-lg font-semibold">Eventos</h2>
+            <h2 className="text-lg font-semibold">Actividades programadas</h2>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
                 {selectedEventIds.length === 0
-                  ? 'Selecciona eventos para eliminarlos'
+                  ? 'Seleccioná actividades para eliminarlas'
                   : `${selectedEventIds.length} seleccionados`}
               </span>
               <button
@@ -713,13 +714,13 @@ export default function AdminEvents() {
                 disabled={selectedEventIds.length === 0 || deletingSelected}
                 className="inline-flex items-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionados'}
+                {deletingSelected ? 'Eliminando…' : 'Eliminar seleccionadas'}
               </button>
             </div>
           </div>
           
           {loading ? (
-            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando...</div>
+            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando agenda…</div>
           ) : renderEventsEmptyState(events) || (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] table-fixed">
@@ -738,10 +739,10 @@ export default function AdminEvents() {
                         type="checkbox"
                         checked={events.length > 0 && selectedEventIds.length === events.length}
                         onChange={toggleAllEventsSelection}
-                        aria-label="Seleccionar todos los eventos"
+                        aria-label="Seleccionar todas las actividades"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actividad</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Curso y asignatura</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Horario</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Asignado</th>
@@ -756,7 +757,7 @@ export default function AdminEvents() {
                           type="checkbox"
                           checked={selectedEventIds.includes(event.id)}
                           onChange={() => toggleEventSelection(event.id)}
-                          aria-label={`Seleccionar evento ${event.title}`}
+                          aria-label={`Seleccionar actividad ${event.title}`}
                         />
                       </td>
                       <td className="px-4 py-4 align-top text-sm">
@@ -832,7 +833,7 @@ export default function AdminEvents() {
                         {event.assignedUser ? (
                           <div className="min-w-0">
                             <div className="font-medium text-gray-900 break-words">{event.assignedUser.username || event.assignedUser.name}</div>
-                            <div className="text-xs text-gray-500">{event.assignedUser.role}</div>
+                            <div className="text-xs text-gray-500">{getRoleLabel(event.assignedUser.role)}</div>
                           </div>
                         ) : (
                           <span className="text-gray-400">Sin asignar</span>
@@ -852,7 +853,7 @@ export default function AdminEvents() {
                               onClick={() => setSubstitutionEvent(event)}
                               className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
                             >
-                              Suplencia
+                              Registrar suplencia
                             </button>
                           ) : null}
                           {event.status !== 'CANCELLED' ? (
@@ -890,7 +891,7 @@ export default function AdminEvents() {
             onSaved={() => {
               void loadEvents()
               void loadSubstitutionFlags()
-              setMessage('✅ Suplencia actualizada')
+              setMessage('✅ Suplencia registrada')
             }}
           />
         ) : null}
@@ -921,7 +922,7 @@ export default function AdminEvents() {
               </button>
               <div className="mb-4 border-b border-gray-200 pb-3 pr-14">
                 <h3 id="create-event-title" className="text-lg font-semibold">
-                  Crear Evento
+                  Nueva actividad
                 </h3>
               </div>
 
@@ -935,7 +936,7 @@ export default function AdminEvents() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Evento Repetitivo - Primera opción */}
+                {/* Se repite - Primera opción */}
                 <div className="md:col-span-2">
                   <div className="flex items-center mb-4 p-3 bg-gray-50 rounded-lg">
                     <input
@@ -955,7 +956,7 @@ export default function AdminEvents() {
                       className="mr-3 h-4 w-4"
                     />
                     <label htmlFor="isRecurring" className="text-sm font-medium text-gray-700">
-                      Evento Repetitivo
+                      Se repite
                     </label>
                   </div>
                 </div>
@@ -983,7 +984,7 @@ export default function AdminEvents() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Rol del Usuario</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Perfil de la persona</label>
                   <select
                     value={selectedRole}
                     onChange={(e) => {
@@ -998,9 +999,9 @@ export default function AdminEvents() {
                     }}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
-                    <option value="">Seleccionar rol</option>
-                    <option value="TEACHER">Teacher</option>
-                    <option value="STAFF">Staff</option>
+                    <option value="">Seleccioná un perfil</option>
+                    <option value="TEACHER">Docente</option>
+                    <option value="STAFF">Personal</option>
                   </select>
                 </div>
                 
@@ -1013,7 +1014,7 @@ export default function AdminEvents() {
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
                     {getAdminEventRoleTypeOptions(selectedRole).length === 0 ? (
-                      <option value="">Selecciona un rol primero</option>
+                      <option value="">Seleccioná un perfil primero</option>
                     ) : (
                       getAdminEventRoleTypeOptions(selectedRole).map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -1034,7 +1035,7 @@ export default function AdminEvents() {
                     {users
                       .filter(user => !selectedRole || user.role === selectedRole)
                       .map(user => (
-                        <option key={user.id} value={user.id}>{user.username || user.name} ({user.role})</option>
+                        <option key={user.id} value={user.id}>{user.username || user.name} ({getRoleLabel(user.role)})</option>
                       ))}
                   </select>
                 </div>
@@ -1168,7 +1169,7 @@ export default function AdminEvents() {
                   onClick={createEvent}
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
-                  Crear Evento
+                  Nueva actividad
                 </button>
                 <button type="button" onClick={closeCreateModal} className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50">
                   Cancelar
@@ -1200,7 +1201,7 @@ export default function AdminEvents() {
                 ×
               </button>
               <div className="mb-4 border-b border-gray-200 pb-3 pr-14">
-                <h3 className="text-lg font-semibold">Editar Evento</h3>
+                <h3 className="text-lg font-semibold">Editar actividad</h3>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1247,7 +1248,7 @@ export default function AdminEvents() {
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
                     <option value="SCHEDULED">Programado</option>
-                    <option value="IN_PROGRESS">En Progreso</option>
+                    <option value="IN_PROGRESS">En curso</option>
                     <option value="COMPLETED">Completado</option>
                     <option value="CANCELLED">Cancelado</option>
                     <option value="EXPIRED">Vencido</option>
@@ -1301,7 +1302,7 @@ export default function AdminEvents() {
                     <option value="">Sin asignar</option>
                     {users.map(user => (
                       <option key={user.id} value={user.id}>
-                        {user.username || user.name} ({user.role})
+                        {user.username || user.name} ({getRoleLabel(user.role)})
                       </option>
                     ))}
                   </select>
