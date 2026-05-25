@@ -1,18 +1,73 @@
 import type { Request } from "express";
 import crypto from "crypto";
 import { prisma } from "../db/prisma.js";
-import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
+import { uruguayStartOfDayFromInstant, isYmdDateString } from "../config/app-timezone.js";
 import { findNonWorkingDayForDate } from "./non-working-days.js";
 import { recordAuditEventNow } from "./audit-log.js";
+import { resolveSubstitutionOccurrence, SubstitutionError } from "./substitution-occurrence.js";
 
-export class SubstitutionError extends Error {
-  constructor(
-    message: string,
-    public statusCode = 400,
-    public code = "SUBSTITUTION_ERROR",
-  ) {
-    super(message);
+export { SubstitutionError };
+
+const substitutionListInclude = {
+  event: {
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+      startTime: true,
+      endTime: true,
+      subject: { select: { id: true, name: true } },
+      courseOffering: { select: { course: { select: { id: true, name: true, code: true } } } },
+    },
+  },
+  originalTeacher: { select: { id: true, name: true, email: true, username: true } },
+  substitute: { select: { id: true, name: true, email: true, username: true } },
+  createdBy: { select: { id: true, name: true, email: true } },
+} as const;
+
+export async function listSubstitutions(params: {
+  from?: string;
+  to?: string;
+  eventId?: string;
+  originalTeacherUserId?: string;
+  substituteUserId?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const page = params.page ?? 1;
+  const pageSize = Math.min(params.pageSize ?? 50, 100);
+  const where: Record<string, unknown> = {};
+
+  if (params.eventId) where.eventId = params.eventId;
+  if (params.originalTeacherUserId) where.originalTeacherUserId = params.originalTeacherUserId;
+  if (params.substituteUserId) where.substituteUserId = params.substituteUserId;
+
+  if (params.from || params.to) {
+    const dateFilter: { gte?: Date; lte?: Date } = {};
+    if (params.from && isYmdDateString(params.from)) {
+      dateFilter.gte = uruguayStartOfDayFromInstant(new Date(`${params.from}T12:00:00.000Z`));
+    }
+    if (params.to && isYmdDateString(params.to)) {
+      const end = uruguayStartOfDayFromInstant(new Date(`${params.to}T12:00:00.000Z`));
+      end.setUTCHours(23, 59, 59, 999);
+      dateFilter.lte = end;
+    }
+    if (Object.keys(dateFilter).length) where.date = dateFilter;
   }
+
+  const [total, data] = await Promise.all([
+    prisma.substitution.count({ where }),
+    prisma.substitution.findMany({
+      where,
+      include: substitutionListInclude,
+      orderBy: [{ date: "desc" }, { startTime: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+
+  return { total, page, pageSize, data };
 }
 
 export async function createSubstitution(params: {
@@ -20,6 +75,7 @@ export async function createSubstitution(params: {
   substituteUserId: string;
   reason: string;
   notes?: string | null;
+  occurrenceDate?: string | null;
   actorUserId?: string | null;
   req?: Request;
 }) {
@@ -41,6 +97,8 @@ export async function createSubstitution(params: {
       startDate: true,
       startTime: true,
       endTime: true,
+      isRecurring: true,
+      daysOfWeek: true,
     },
   });
   if (!event) throw new SubstitutionError("Clase no encontrada", 404, "EVENT_NOT_FOUND");
@@ -65,53 +123,50 @@ export async function createSubstitution(params: {
     throw new SubstitutionError("El docente suplente no existe o no está activo");
   }
 
-  const nonWorkingDay = await findNonWorkingDayForDate(new Date(event.startTime));
+  const occurrence = resolveSubstitutionOccurrence({
+    occurrenceDate: params.occurrenceDate,
+    event: {
+      startDate: event.startDate,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      isRecurring: event.isRecurring,
+      daysOfWeek: event.daysOfWeek ?? [],
+    },
+  });
+
+  const nonWorkingDay = await findNonWorkingDayForDate(occurrence.startTime);
   if (nonWorkingDay) {
     throw new SubstitutionError(`No se puede registrar suplencia: ${nonWorkingDay.reason}`);
   }
 
-  const attendanceDate = uruguayStartOfDayFromInstant(new Date(event.startTime));
+  const existing = await prisma.substitution.findUnique({
+    where: { eventId_date: { eventId: event.id, date: occurrence.attendanceDate } },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new SubstitutionError("Ya existe una suplencia registrada para esta clase en esa fecha", 409, "SUBSTITUTION_EXISTS");
+  }
 
   const result = await prisma.$transaction(async (tx) => {
-    const substitutionId = crypto.randomUUID();
-    const substitutionRows = await tx.$queryRaw<any[]>`
-      INSERT INTO "Substitution"
-        (
-          "id",
-          "eventId",
-          "originalTeacherUserId",
-          "substituteUserId",
-          "date",
-          "startTime",
-          "endTime",
-          "reason",
-          "notes",
-          "createdByUserId",
-          "updatedAt"
-        )
-      VALUES
-        (
-          ${substitutionId},
-          ${event.id},
-          ${event.assignedUserId!},
-          ${params.substituteUserId},
-          ${attendanceDate},
-          ${new Date(event.startTime!)},
-          ${new Date(event.endTime!)},
-          ${reason},
-          ${params.notes?.trim() || null},
-          ${params.actorUserId || null},
-          ${new Date()}
-        )
-      RETURNING *
-    `;
-    const substitution = substitutionRows[0];
+    const substitution = await tx.substitution.create({
+      data: {
+        eventId: event.id,
+        originalTeacherUserId: event.assignedUserId!,
+        substituteUserId: params.substituteUserId,
+        date: occurrence.attendanceDate,
+        startTime: occurrence.startTime,
+        endTime: occurrence.endTime,
+        reason,
+        notes: params.notes?.trim() || null,
+        createdByUserId: params.actorUserId || null,
+      },
+    });
 
     const existingOriginalAttendance = await tx.attendance.findFirst({
       where: {
         userId: event.assignedUserId!,
         eventId: event.id,
-        date: attendanceDate,
+        date: occurrence.attendanceDate,
         type: "CHECK_IN",
       },
       select: { id: true },
@@ -129,8 +184,8 @@ export async function createSubstitution(params: {
           data: {
             userId: event.assignedUserId!,
             eventId: event.id,
-            date: attendanceDate,
-            time: new Date(event.startTime!),
+            date: occurrence.attendanceDate,
+            time: occurrence.startTime,
             type: "CHECK_IN",
             status: "SUBSTITUTED" as any,
             notes: `Clase suplida oficialmente: ${reason}`,
@@ -148,14 +203,70 @@ export async function createSubstitution(params: {
     entityId: result.substitution.id,
     metadata: {
       eventId: event.id,
+      occurrenceDate: occurrence.occurrenceYmd,
       originalTeacherUserId: event.assignedUserId,
       substituteUserId: params.substituteUserId,
       reason,
-      statusPrevious: null,
       statusNew: "SUBSTITUTED",
       originalAttendanceId: result.originalAttendance.id,
     },
   });
 
-  return result.substitution;
+  return prisma.substitution.findUniqueOrThrow({
+    where: { id: result.substitution.id },
+    include: substitutionListInclude,
+  });
+}
+
+export async function deleteSubstitution(params: {
+  id: string;
+  actorUserId?: string | null;
+  req?: Request;
+}) {
+  const row = await prisma.substitution.findUnique({
+    where: { id: params.id },
+    include: { event: { select: { id: true, title: true } } },
+  });
+  if (!row) throw new SubstitutionError("Suplencia no encontrada", 404, "SUBSTITUTION_NOT_FOUND");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.substitution.delete({ where: { id: params.id } });
+
+    const titularCheckIn = await tx.attendance.findFirst({
+      where: {
+        userId: row.originalTeacherUserId,
+        eventId: row.eventId,
+        date: row.date,
+        type: "CHECK_IN",
+        status: "SUBSTITUTED" as any,
+      },
+      select: { id: true, notes: true },
+    });
+
+    if (titularCheckIn?.notes?.includes("Clase suplida oficialmente")) {
+      await tx.attendance.update({
+        where: { id: titularCheckIn.id },
+        data: {
+          status: "ABSENT_NOT_JUSTIFIED" as any,
+          notes: "Suplencia anulada por administración",
+        },
+      });
+    }
+  });
+
+  await recordAuditEventNow({
+    action: "ATTENDANCE_MANUAL_UPDATED" as any,
+    actorUserId: params.actorUserId ?? null,
+    req: params.req,
+    entityType: "Substitution",
+    entityId: params.id,
+    metadata: {
+      eventId: row.eventId,
+      eventTitle: row.event.title,
+      originalTeacherUserId: row.originalTeacherUserId,
+      substituteUserId: row.substituteUserId,
+    },
+  });
+
+  return { ok: true };
 }

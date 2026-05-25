@@ -430,7 +430,60 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
     });
 
     // Para eventos repetitivos, generar instancias específicas para el rango de fechas
-    const processedEvents = events.flatMap((event) => expandRecurringEvent(event, startDate, endDate))
+    let processedEvents = events.flatMap((event) => expandRecurringEvent(event, startDate, endDate))
+
+    const subRangeStart = startDate
+      ? uruguayWallToUtc(String(startDate).slice(0, 10), 0, 0)
+      : uruguayWallToUtc(
+          DateTime.now().setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd'),
+          0,
+          0,
+        )
+    const subRangeEnd = endDate
+      ? uruguayYmdEndOfDayToUtc(String(endDate).slice(0, 10))
+      : uruguayYmdEndOfDayToUtc(DateTime.now().setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd'))
+
+    const substitutionRows = await prisma.substitution.findMany({
+      where: {
+        substituteUserId: user.sub,
+        date: { gte: subRangeStart, lte: subRangeEnd },
+        event: {
+          status: { not: 'CANCELLED' as any },
+          ...(type ? { type: type as any } : null),
+        },
+      },
+      include: {
+        event: {
+          include: {
+            user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+            assignedUser: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+            courseOffering: eventCourseOfferingInclude,
+            subject: eventSubjectInclude,
+          },
+        },
+      },
+      orderBy: { startTime: 'asc' },
+    })
+
+    const seenIds = new Set(processedEvents.map((e: { id: string }) => e.id))
+    for (const sub of substitutionRows) {
+      const ev = sub.event as any
+      if (!ev || seenIds.has(ev.id)) continue
+      seenIds.add(ev.id)
+      processedEvents.push({
+        ...ev,
+        title: `${ev.title} (suplencia)`,
+        startDate: sub.date,
+        startTime: sub.startTime,
+        endTime: sub.endTime,
+        isSubstitution: true,
+      })
+    }
+
+    processedEvents.sort(
+      (a: { startTime?: Date | string | null }, b: { startTime?: Date | string | null }) =>
+        new Date(a.startTime || 0).getTime() - new Date(b.startTime || 0).getTime(),
+    )
 
     res.json(processedEvents.map((e) => mapNestedEventUsers(e as unknown as Record<string, unknown>)));
   } catch (error) {

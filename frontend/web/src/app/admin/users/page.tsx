@@ -63,6 +63,9 @@ export default function AdminUsersPage() {
   const [biometricUser, setBiometricUser] = useState<AdminUserRow | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createForm, setCreateForm] = useState({ email: '', username: '', role: 'TEACHER' })
+  const [createSaving, setCreateSaving] = useState(false)
 
   const load = useCallback(async (f: AdminUsersListFilters) => {
     setLoading(true)
@@ -170,6 +173,48 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function createUser(e: React.FormEvent) {
+    e.preventDefault()
+    setCreateSaving(true)
+    setMsg('')
+    try {
+      await api('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: createForm.email.trim(),
+          role: createForm.role,
+          username: createForm.username.trim() || undefined,
+        }),
+      })
+      setMsg('Usuario creado. Debe completar registro / contraseña por correo o reset.')
+      setCreating(false)
+      setCreateForm({ email: '', username: '', role: 'TEACHER' })
+      await load(filters)
+    } catch (err: unknown) {
+      setMsg(getAdminUserSaveErrorMessage(err))
+    } finally {
+      setCreateSaving(false)
+    }
+  }
+
+  async function resetPassword(u: AdminUserRow) {
+    if (!confirm(`¿Generar enlace de restablecimiento para ${u.email}?`)) return
+    try {
+      const res = await api<{ token: string; expiresAt: string }>(`/admin/users/${u.id}/password/reset`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+      const link = `${window.location.origin}/reset?token=${res.token}`
+      setMsg(`Reset generado (válido hasta ${new Date(res.expiresAt).toLocaleString('es-UY')}). Enlace: ${link}`)
+      if (process.env.NODE_ENV === 'development') {
+        void navigator.clipboard?.writeText(link)
+      }
+    } catch (err: unknown) {
+      setMsg(getAdminUserSaveErrorMessage(err))
+    }
+  }
+
   async function toggleLock(u: AdminUserRow) {
     const lock = !isAccountLocked(u.lockUntil)
     if (!confirm(lock ? '¿Bloquear este usuario 15 minutos?' : '¿Desbloquear usuario?')) return
@@ -267,6 +312,14 @@ export default function AdminUsersPage() {
             </button>
             <button
               type="button"
+              onClick={() => void resetPassword(u)}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              title="Generar enlace de restablecimiento de contraseña"
+            >
+              Reset pass
+            </button>
+            <button
+              type="button"
               onClick={() => openEdit(u)}
               className="inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               aria-label="Editar usuario"
@@ -319,7 +372,59 @@ export default function AdminUsersPage() {
               </p>
             </div>
           </div>
+          <button type="button" onClick={() => setCreating(true)} className="btn-primary shrink-0">
+            Nuevo usuario
+          </button>
         </div>
+
+        {creating ? (
+          <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm sm:p-5">
+            <h2 className="mb-3 text-lg font-semibold text-slate-900">Alta de usuario</h2>
+            <form onSubmit={createUser} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-xs font-medium text-slate-600">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={createForm.email}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Usuario</label>
+                <input
+                  value={createForm.username}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Opcional"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Rol</label>
+                <select
+                  value={createForm.role}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, role: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                >
+                  {roleChoices.map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-2 sm:col-span-2 lg:col-span-4">
+                <button type="submit" disabled={createSaving} className="btn-primary">
+                  {createSaving ? 'Creando…' : 'Crear'}
+                </button>
+                <button type="button" onClick={() => setCreating(false)} className="btn-secondary">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
 
         <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Filtros</h2>

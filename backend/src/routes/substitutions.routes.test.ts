@@ -7,15 +7,25 @@ const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     event: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
+    substitution: {
+      findUnique: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+      create: vi.fn(),
+      delete: vi.fn(),
+    },
     attendance: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
-    $queryRaw: vi.fn(),
-    $executeRaw: vi.fn(),
+    $executeRaw: vi.fn().mockResolvedValue(1),
     $transaction: vi.fn(),
   },
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../services/non-working-days.js", () => ({
+  findNonWorkingDayForDate: vi.fn().mockResolvedValue(null),
+}));
 
 import substitutionRoutes from "./substitutions.js";
 
@@ -33,8 +43,8 @@ describe("substitutions routes", () => {
     vi.clearAllMocks();
     prismaMock.$transaction.mockImplementation(async (cb: any) => cb(prismaMock));
     prismaMock.auditLog.create.mockResolvedValue({});
-    prismaMock.$queryRaw.mockResolvedValue([]);
-    prismaMock.$executeRaw.mockResolvedValue(1);
+    prismaMock.substitution.count.mockResolvedValue(0);
+    prismaMock.substitution.findMany.mockResolvedValue([]);
   });
 
   it("valida que la suplencia tenga datos mínimos", async () => {
@@ -42,9 +52,22 @@ describe("substitutions routes", () => {
     expect(res.status).toBe(400);
   });
 
+  it("lista suplencias", async () => {
+    prismaMock.substitution.count.mockResolvedValue(1);
+    prismaMock.substitution.findMany.mockResolvedValue([{ id: "sub-1" }]);
+    const res = await request(app())
+      .get("/substitutions?from=2026-05-01&to=2026-05-31")
+      .set("Authorization", `Bearer ${tok()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+  });
+
   it("registra suplencia y deja al titular como suplido", async () => {
+    const eventId = "00000000-0000-4000-8000-0000000000e1";
+    const startTime = new Date("2026-05-05T15:00:00.000Z");
+    const endTime = new Date("2026-05-05T15:45:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
-      id: "00000000-0000-4000-8000-0000000000e1",
+      id: eventId,
       title: "Matemática",
       type: "CLASE",
       status: "SCHEDULED",
@@ -52,24 +75,42 @@ describe("substitutions routes", () => {
       courseOfferingId: "course-1",
       subjectId: "subject-1",
       startDate: new Date("2026-05-05T12:00:00.000Z"),
-      startTime: new Date("2026-05-05T12:00:00.000Z"),
-      endTime: new Date("2026-05-05T12:45:00.000Z"),
+      startTime,
+      endTime,
+      isRecurring: false,
+      daysOfWeek: [],
     });
     const substituteUserId = "00000000-0000-4000-8000-0000000000d2";
     prismaMock.user.findUnique.mockResolvedValue({ id: substituteUserId, isActive: true, isApproved: true });
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: "sub-1", eventId: "00000000-0000-4000-8000-0000000000e1" }]);
+    prismaMock.substitution.findUnique.mockResolvedValue(null);
+    const createdSub = {
+      id: "sub-1",
+      eventId,
+      reason: "Licencia del titular",
+      event: { id: eventId, title: "Matemática", type: "CLASE", status: "SCHEDULED" },
+      originalTeacher: { id: "teacher-1", name: "Titular", email: "t@t.com", username: null },
+      substitute: { id: substituteUserId, name: "Suplente", email: "s@s.com", username: null },
+      substituteUserId,
+      originalTeacherUserId: "teacher-1",
+      date: new Date("2026-05-05T03:00:00.000Z"),
+      startTime,
+      endTime,
+      notes: null,
+      createdBy: null,
+    };
+    prismaMock.substitution.create.mockResolvedValue(createdSub);
     prismaMock.attendance.findFirst.mockResolvedValue(null);
     prismaMock.attendance.create.mockResolvedValue({ id: "att-substituted" });
+    prismaMock.substitution.findUniqueOrThrow.mockResolvedValue(createdSub);
 
     const res = await request(app())
       .post("/substitutions")
       .set("Authorization", `Bearer ${tok()}`)
       .send({
-        eventId: "00000000-0000-4000-8000-0000000000e1",
+        eventId,
         substituteUserId,
         reason: "Licencia del titular",
+        occurrenceDate: "2026-05-05",
       });
 
     expect(res.status).toBe(201);
@@ -78,6 +119,5 @@ describe("substitutions routes", () => {
         data: expect.objectContaining({ status: "SUBSTITUTED" }),
       }),
     );
-    expect(prismaMock.$queryRaw).toHaveBeenCalled();
   });
 });

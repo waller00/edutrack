@@ -22,6 +22,8 @@ import {
   formatClockHhMmInUruguayFromIso,
   getTodayYmdInUruguay,
 } from '@/lib/forms/datetime-uy'
+import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
+import type { SubstitutionListResponse } from '@/lib/substitutions/types'
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
 type SubjectOpt = { id: string; name: string; code: string | null }
@@ -272,11 +274,33 @@ export default function AdminEvents() {
   
   const [selectedRole, setSelectedRole] = useState<RoleOption>('')
   const [portalReady, setPortalReady] = useState(false)
+  const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
+  const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     loadEvents()
     loadUsers()
+    void loadSubstitutionFlags()
   }, [page, filters, syCtx?.allYears, syCtx?.schoolYearQuery])
+
+  async function loadSubstitutionFlags() {
+    try {
+      const from = filters.startDate || getTodayYmdInUruguay()
+      const to = filters.endDate || from
+      const res = await api<SubstitutionListResponse>(
+        `/substitutions?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&pageSize=100`,
+      )
+      const keys = new Set(
+        res.data.map((s) => {
+          const day = String(s.date).slice(0, 10)
+          return `${s.eventId}|${day}`
+        }),
+      )
+      setSubstitutionKeys(keys)
+    } catch {
+      setSubstitutionKeys(new Set())
+    }
+  }
 
   const loadCourses = useCallback(async () => {
     try {
@@ -746,6 +770,15 @@ export default function AdminEvents() {
                               {getAdminEventStatusLabel(event.status)}
                             </span>
                             <span className="text-xs text-gray-500">{event._count.attendances} asist.</span>
+                            {event.type === 'CLASE' &&
+                            event.assignedUser &&
+                            substitutionKeys.has(
+                              `${event.id}|${getEventDateInputValue(event.startDate)}`,
+                            ) ? (
+                              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-800">
+                                Suplida
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       </td>
@@ -810,6 +843,15 @@ export default function AdminEvents() {
                           >
                             Editar
                           </button>
+                          {event.type === 'CLASE' && event.assignedUser && event.status !== 'CANCELLED' ? (
+                            <button
+                              type="button"
+                              onClick={() => setSubstitutionEvent(event)}
+                              className="text-indigo-600 hover:text-indigo-900"
+                            >
+                              Suplencia
+                            </button>
+                          ) : null}
                           {event.status !== 'CANCELLED' ? (
                             <button
                               onClick={() => cancelEvent(event.id)}
@@ -836,6 +878,19 @@ export default function AdminEvents() {
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>
+
+        {substitutionEvent ? (
+          <SubstitutionModal
+            event={substitutionEvent}
+            teachers={users.filter((u) => u.role === 'TEACHER' || u.role === 'STAFF')}
+            onClose={() => setSubstitutionEvent(null)}
+            onSaved={() => {
+              void loadEvents()
+              void loadSubstitutionFlags()
+              setMessage('✅ Suplencia actualizada')
+            }}
+          />
+        ) : null}
 
         {/* Modal de creación (portal a document.body → siempre encima, no queda “tapado” por el layout) */}
         {portalReady &&
