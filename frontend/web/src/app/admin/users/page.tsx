@@ -25,7 +25,7 @@ import {
   type AdminUsersListFilters,
   type TriState,
 } from '@/lib/admin/users-display'
-import { ChevronLeft, ChevronRight, Fingerprint, Loader2, Search, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Fingerprint, KeyRound, Loader2, Pencil, Search, Users } from 'lucide-react'
 
 type OrgRoleRow = { code: string; label: string; active: boolean }
 
@@ -265,7 +265,7 @@ export default function AdminUsersPage() {
         </td>
         <td className="px-3 py-3 align-middle text-sm">
           <div className="font-medium text-slate-900">{displayUserName(u)}</div>
-          <div className="truncate text-xs text-slate-500 max-w-[14rem]" title={u.email}>
+          <div className="truncate text-xs text-slate-500" title={u.email}>
             {u.email}
           </div>
         </td>
@@ -283,12 +283,12 @@ export default function AdminUsersPage() {
             {isAccountLocked(u.lockUntil) ? 'Bloqueado' : 'Libre'}
           </span>
         </td>
-        <td className="px-3 py-3 align-middle text-right">
-          <div className="flex flex-wrap justify-end gap-1.5">
+        <td className="px-3 py-2.5 align-middle">
+          <div className="flex flex-nowrap items-center justify-end gap-1">
             <button
               type="button"
               onClick={() => toggleApproval(u)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               title={u.isApproved ? 'Volver a pendiente' : 'Aprobar'}
             >
               {u.isApproved ? 'Pendiente' : 'Aprobar'}
@@ -296,7 +296,7 @@ export default function AdminUsersPage() {
             <button
               type="button"
               onClick={() => toggleActive(u)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               title={u.isActive ? 'Dar de baja' : 'Dar de alta'}
             >
               {u.isActive ? 'Dar baja' : 'Dar alta'}
@@ -313,27 +313,25 @@ export default function AdminUsersPage() {
             <button
               type="button"
               onClick={() => void resetPassword(u)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              aria-label="Restablecer contraseña"
               title="Generar enlace de restablecimiento de contraseña"
             >
-              Reset pass
+              <KeyRound className="h-4 w-4" aria-hidden />
             </button>
             <button
               type="button"
               onClick={() => openEdit(u)}
-              className="inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               aria-label="Editar usuario"
               title="Editar datos del usuario"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path d="M13.586 3.586a2 2 0 0 1 2.828 2.828l-9.192 9.192a2 2 0 0 1-.878.505l-3.06.785a.5 .5 0 0 1-.606-.606l.785-3.06a2 2 0 0 1 .505-.878l9.192-9.192Z" />
-                <path d="M12.172 4.999 15 7.828" />
-              </svg>
+              <Pencil className="h-4 w-4" aria-hidden />
             </button>
             <button
               type="button"
               onClick={() => toggleLock(u)}
-              className="inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               aria-label={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
               title={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
             >
@@ -359,7 +357,7 @@ export default function AdminUsersPage() {
 
   return (
     <RoleGuard permission="users.read" permissionScope="all">
-      <main className="responsive-page max-w-7xl">
+      <main className="responsive-page max-w-[1600px]">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
@@ -590,17 +588,27 @@ export default function AdminUsersPage() {
 
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-[980px] text-sm">
+            <table className="w-full min-w-[1100px] table-fixed text-sm">
+              <colgroup>
+                <col className="w-[11%]" />
+                <col className="w-[8%]" />
+                <col className="w-[24%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
+                <col className="w-[9%]" />
+                <col className="w-[9%]" />
+                <col className="w-[19%]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="whitespace-nowrap px-3 py-3">Usuario</th>
                   <th className="whitespace-nowrap px-3 py-3">Rol</th>
-                  <th className="min-w-[12rem] px-3 py-3">Persona</th>
+                  <th className="px-3 py-3">Persona</th>
                   <th className="whitespace-nowrap px-3 py-3">Verificado</th>
                   <th className="whitespace-nowrap px-3 py-3">Aprobación</th>
                   <th className="whitespace-nowrap px-3 py-3">Estado</th>
                   <th className="whitespace-nowrap px-3 py-3">Acceso</th>
-                  <th className="w-px whitespace-nowrap px-3 py-3 text-right">Acciones</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

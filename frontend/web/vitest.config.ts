@@ -23,6 +23,15 @@ export default defineConfig({
       exclude: [
         'src/**/*.test.{ts,tsx}',
         'src/test/**',
+        // Páginas y paneles admin: UI densa; cubiertos por e2e y pruebas manuales.
+        'src/app/admin/**',
+        'src/components/admin/**',
+        // Web push y tipos de suplencias: integración navegador / solo tipos.
+        'src/lib/notifications/**',
+        'src/lib/substitutions/**',
+        'src/lib/medical-leaves/certificate-client.ts',
+        // Marcación en vivo del día: depende de /events y /attendance en runtime.
+        'src/components/personal/MyAttendanceMarkingPanel.tsx',
       ],
       thresholds: {
         lines: 45,

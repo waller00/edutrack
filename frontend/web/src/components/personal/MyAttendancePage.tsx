@@ -66,7 +66,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
         const data = await api<AttendanceRecord[]>(
           attendanceQuery ? `/attendance/my-attendances?${attendanceQuery}` : '/attendance/my-attendances'
         )
-        if (!cancelled) setAttendances(data)
+        if (!cancelled) setAttendances(Array.isArray(data) ? data : [])
       } catch (e) {
         console.error('Error cargando asistencias:', e)
       } finally {
