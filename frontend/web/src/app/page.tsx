@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, Info, Loader2, Mail, PenLine } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import {
-  HomeAdminAttendanceFeed,
-  HomeAdminUpcomingEvents,
+  HomeAdminTimeline,
   HomeGenericHint,
   HomeUpcomingSchedule,
 } from '@/components/home/HomeRolePanels'
@@ -164,10 +163,7 @@ export default function Home() {
       </header>
 
       {canRoleDashboard && me.role === 'ADMIN' && (
-        <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
-          <HomeAdminAttendanceFeed />
-          <HomeAdminUpcomingEvents />
-        </div>
+        <HomeAdminTimeline />
       )}
 
       {canRoleDashboard && scheduleRole && me.id && <HomeUpcomingSchedule role={scheduleRole} userId={me.id} />}

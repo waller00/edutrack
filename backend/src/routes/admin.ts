@@ -730,16 +730,22 @@ r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), 
 
 r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_req, res) => {
   const row = await getOrCreateSystemSettings()
+  const settings = row as typeof row & {
+    attendanceEarlyExitToleranceMinutes?: number | null
+    biometricDuplicateWindowMinutes?: number | null
+  }
   return res.json({
     diditConfigured: isDiditConfigured(),
     livenessCheckEnabled: row.livenessCheckEnabled,
     attendanceNoShowGraceMinutes: row.attendanceNoShowGraceMinutes,
     attendanceLateToleranceMinutes: row.attendanceLateToleranceMinutes,
+    attendanceEarlyExitToleranceMinutes: settings.attendanceEarlyExitToleranceMinutes ?? row.attendanceLateToleranceMinutes,
     attendanceClassBridgeGapMinutes: row.attendanceClassBridgeGapMinutes,
     attendanceMonitorEnabled: row.attendanceMonitorEnabled,
     attendanceMonitorIntervalMs: row.attendanceMonitorIntervalMs,
     biometricLateHour: row.biometricLateHour,
     biometricLateMinute: row.biometricLateMinute,
+    biometricDuplicateWindowMinutes: settings.biometricDuplicateWindowMinutes ?? 5,
   })
 })
 
@@ -749,11 +755,13 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       livenessCheckEnabled: z.boolean().optional(),
       attendanceNoShowGraceMinutes: z.number().int().min(1).max(180).optional(),
       attendanceLateToleranceMinutes: z.number().int().min(0).max(120).optional(),
+      attendanceEarlyExitToleranceMinutes: z.number().int().min(0).max(120).optional(),
       attendanceClassBridgeGapMinutes: z.number().int().min(15).max(240).optional(),
       attendanceMonitorEnabled: z.boolean().optional(),
       attendanceMonitorIntervalMs: z.number().int().min(30000).max(3600000).optional(),
       biometricLateHour: z.number().int().min(0).max(23).optional(),
       biometricLateMinute: z.number().int().min(0).max(59).optional(),
+      biometricDuplicateWindowMinutes: z.number().int().min(0).max(120).optional(),
     })
     .safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
@@ -766,14 +774,20 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       livenessCheckEnabled: data.livenessCheckEnabled ?? false,
       attendanceNoShowGraceMinutes: data.attendanceNoShowGraceMinutes ?? 15,
       attendanceLateToleranceMinutes: data.attendanceLateToleranceMinutes ?? 5,
+      attendanceEarlyExitToleranceMinutes: data.attendanceEarlyExitToleranceMinutes ?? 5,
       attendanceClassBridgeGapMinutes: data.attendanceClassBridgeGapMinutes ?? 60,
       attendanceMonitorEnabled: data.attendanceMonitorEnabled ?? true,
       attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs ?? 120000,
       biometricLateHour: data.biometricLateHour ?? 8,
       biometricLateMinute: data.biometricLateMinute ?? 30,
-    },
-    update: data,
+      biometricDuplicateWindowMinutes: data.biometricDuplicateWindowMinutes ?? 5,
+    } as any,
+    update: data as any,
   })
+  const updatedSettings = updated as typeof updated & {
+    attendanceEarlyExitToleranceMinutes?: number | null
+    biometricDuplicateWindowMinutes?: number | null
+  }
 
   recordAuditEvent({
     action: AuditAction.SYSTEM_SETTINGS_UPDATED,
@@ -789,11 +803,13 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     livenessCheckEnabled: updated.livenessCheckEnabled,
     attendanceNoShowGraceMinutes: updated.attendanceNoShowGraceMinutes,
     attendanceLateToleranceMinutes: updated.attendanceLateToleranceMinutes,
+    attendanceEarlyExitToleranceMinutes: updatedSettings.attendanceEarlyExitToleranceMinutes ?? updated.attendanceLateToleranceMinutes,
     attendanceClassBridgeGapMinutes: updated.attendanceClassBridgeGapMinutes,
     attendanceMonitorEnabled: updated.attendanceMonitorEnabled,
     attendanceMonitorIntervalMs: updated.attendanceMonitorIntervalMs,
     biometricLateHour: updated.biometricLateHour,
     biometricLateMinute: updated.biometricLateMinute,
+    biometricDuplicateWindowMinutes: updatedSettings.biometricDuplicateWindowMinutes ?? 5,
   })
 })
 

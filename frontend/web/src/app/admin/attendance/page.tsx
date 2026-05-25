@@ -70,9 +70,13 @@ type AttendanceStats = {
   absentCount: number
   lateCount: number
   medicalLeaveCount: number
+  exitCount: number
+  earlyExitCount: number
   attendanceRate: number
   lateRate: number
   absenceRate: number
+  exitRate: number
+  earlyExitRate: number
 }
 
 type User = {
@@ -96,6 +100,13 @@ type AttendancePairRow = {
   incident?: AttendanceRecord
 }
 
+type AttendanceGroup = {
+  user: AttendanceRecord['user']
+  event?: AttendanceRecord['event']
+  checkIns: AttendanceRecord[]
+  checkOuts: AttendanceRecord[]
+}
+
 function isIncidentRow(attendance: AttendanceRecord): boolean {
   return attendance.type === 'INCIDENT' || attendance.id.startsWith('incident:')
 }
@@ -107,11 +118,12 @@ function getAttendanceGroupKey(attendance: AttendanceRecord): string {
 }
 
 function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePairRow[] {
-  const rows = new Map<string, AttendancePairRow>()
+  const groups = new Map<string, AttendanceGroup>()
+  const incidentRows: AttendancePairRow[] = []
 
   for (const attendance of attendances) {
     if (isIncidentRow(attendance)) {
-      rows.set(attendance.id, {
+      incidentRows.push({
         key: attendance.id,
         user: attendance.user,
         event: attendance.event,
@@ -122,32 +134,47 @@ function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePai
     }
 
     const key = getAttendanceGroupKey(attendance)
-    const existing = rows.get(key)
-    const row = existing ?? {
-      key,
+    const group = groups.get(key) ?? {
       user: attendance.user,
       event: attendance.event,
-      dateTime: attendance.time,
-    }
-
-    if (new Date(attendance.time).getTime() > new Date(row.dateTime).getTime()) {
-      row.dateTime = attendance.time
+      checkIns: [],
+      checkOuts: [],
     }
 
     if (attendance.type === 'CHECK_IN') {
-      if (!row.checkIn || new Date(attendance.time).getTime() < new Date(row.checkIn.time).getTime()) {
-        row.checkIn = attendance
-      }
+      group.checkIns.push(attendance)
     } else if (attendance.type === 'CHECK_OUT') {
-      if (!row.checkOut || new Date(attendance.time).getTime() > new Date(row.checkOut.time).getTime()) {
-        row.checkOut = attendance
-      }
+      group.checkOuts.push(attendance)
     }
 
-    rows.set(key, row)
+    groups.set(key, group)
   }
 
-  return Array.from(rows.values()).sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+  const rows = [...incidentRows]
+  for (const [key, group] of groups) {
+    const checkIns = group.checkIns.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    const checkOuts = group.checkOuts.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    const rowCount = Math.max(checkIns.length, checkOuts.length, 1)
+
+    for (let i = 0; i < rowCount; i++) {
+      const checkIn = checkIns[i]
+      const checkOut = checkOuts[i]
+      const dateTime = [checkIn?.time, checkOut?.time]
+        .filter((time): time is string => Boolean(time))
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? new Date(0).toISOString()
+
+      rows.push({
+        key: `${key}:${i}`,
+        user: group.user,
+        event: group.event,
+        dateTime,
+        checkIn,
+        checkOut,
+      })
+    }
+  }
+
+  return rows.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
 }
 
 function renderAttendanceMark(
@@ -323,6 +350,7 @@ export default function AdminAttendance() {
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+  const showingExitStats = filters.type === 'CHECK_OUT'
 
   useEffect(() => {
     loadAttendances()
@@ -905,38 +933,42 @@ export default function AdminAttendance() {
         {/* Métricas (KPIs) */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">Tasa de Presencia</div>
+            <div className="text-sm text-gray-500">{showingExitStats ? 'Tasa de Salida' : 'Tasa de Presencia'}</div>
             <div className="text-2xl font-bold text-emerald-600">
-              {statsLoading || !stats || typeof stats.attendanceRate !== 'number' ? '—' : `${stats.attendanceRate}%`}
+              {statsLoading || !stats
+                ? '—'
+                : `${showingExitStats ? stats.exitRate : stats.attendanceRate}%`}
             </div>
-            <div className="text-xs text-gray-500">Solo entradas (CHECK_IN) en el rango filtrado</div>
+            <div className="text-xs text-gray-500">
+              {showingExitStats ? 'Solo salidas (CHECK_OUT) en el rango filtrado' : 'Solo entradas (CHECK_IN) en el rango filtrado'}
+            </div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">Presentes</div>
+            <div className="text-sm text-gray-500">{showingExitStats ? 'Salidas' : 'Presentes'}</div>
             <div className="text-2xl font-bold text-emerald-600">
-              {statsLoading || !stats || typeof stats.presentCount !== 'number' ? '—' : stats.presentCount}
+              {statsLoading || !stats ? '—' : showingExitStats ? stats.exitCount : stats.presentCount}
             </div>
-            <div className="text-xs text-gray-500">Entradas presentes</div>
+            <div className="text-xs text-gray-500">{showingExitStats ? 'Salidas normales' : 'Entradas presentes'}</div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">Tarde</div>
+            <div className="text-sm text-gray-500">{showingExitStats ? 'Anticipadas' : 'Tarde'}</div>
             <div className="text-2xl font-bold text-yellow-600">
-              {statsLoading || !stats || typeof stats.lateCount !== 'number' ? '—' : stats.lateCount}
+              {statsLoading || !stats ? '—' : showingExitStats ? stats.earlyExitCount : stats.lateCount}
             </div>
             <div className="text-xs text-gray-500">
-              {statsLoading || !stats || typeof stats.lateRate !== 'number' ? '' : `${stats.lateRate}%`} tasa
+              {statsLoading || !stats ? '' : `${showingExitStats ? stats.earlyExitRate : stats.lateRate}%`} tasa
             </div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">Ausentes</div>
+            <div className="text-sm text-gray-500">{showingExitStats ? 'Total salidas' : 'Ausentes'}</div>
             <div className="text-2xl font-bold text-red-600">
-              {statsLoading || !stats || typeof stats.absentCount !== 'number' ? '—' : stats.absentCount}
+              {statsLoading || !stats ? '—' : showingExitStats ? stats.totalAttendances : stats.absentCount}
             </div>
             <div className="text-xs text-gray-500">
-              {statsLoading || !stats || typeof stats.medicalLeaveCount !== 'number' ? '' : `Justificadas: ${stats.medicalLeaveCount}`}
+              {statsLoading || !stats || showingExitStats ? '' : `Justificadas: ${stats.medicalLeaveCount}`}
             </div>
           </div>
         </div>
@@ -946,23 +978,23 @@ export default function AdminAttendance() {
           <div className="flex items-center justify-between gap-4 mb-4">
             <h3 className="text-lg font-semibold">Distribución de Estados</h3>
             <div className="text-sm text-gray-500">
-              {statsLoading ? 'Cargando…' : stats ? `Entradas: ${stats.totalAttendances}` : ''}
+              {statsLoading ? 'Cargando…' : stats ? `${showingExitStats ? 'Salidas' : 'Entradas'}: ${stats.totalAttendances}` : ''}
             </div>
           </div>
           {statsLoading || !stats ? (
             <div className="text-sm text-gray-500">—</div>
           ) : (
             (() => {
-              const present = stats.presentCount
-              const late = stats.lateCount
-              const absent = stats.absentCount
-              const max = Math.max(1, present, late, absent)
+              const first = showingExitStats ? stats.exitCount : stats.presentCount
+              const second = showingExitStats ? stats.earlyExitCount : stats.lateCount
+              const third = showingExitStats ? 0 : stats.absentCount
+              const max = Math.max(1, first, second, third)
               const hMax = 90
               const bar = (value: number) => (value / max) * hMax
 
-              const bar1H = bar(present)
-              const bar2H = bar(late)
-              const bar3H = bar(absent)
+              const bar1H = bar(first)
+              const bar2H = bar(second)
+              const bar3H = bar(third)
 
               return (
                 <svg viewBox="0 0 600 140" className="w-full" role="img" aria-label="Distribución de estados">
@@ -977,13 +1009,13 @@ export default function AdminAttendance() {
 
                   {/* Labels */}
                   <text x="175" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    Presente ({present})
+                    {showingExitStats ? `Salida (${first})` : `Presente (${first})`}
                   </text>
                   <text x="300" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    Tarde ({late})
+                    {showingExitStats ? `Anticipada (${second})` : `Tarde (${second})`}
                   </text>
                   <text x="425" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    Ausente ({absent})
+                    {showingExitStats ? '' : `Ausente (${third})`}
                   </text>
                 </svg>
               )

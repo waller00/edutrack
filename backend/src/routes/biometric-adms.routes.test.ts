@@ -21,6 +21,7 @@ const { prismaMock } = vi.hoisted(() => ({
       findFirst: vi.fn(),
       findMany: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
     },
     event: {
       findFirst: vi.fn(),
@@ -103,11 +104,13 @@ describe("biometric ADMS ingest", () => {
       livenessCheckEnabled: false,
       attendanceNoShowGraceMinutes: 15,
       attendanceLateToleranceMinutes: 5,
+      attendanceEarlyExitToleranceMinutes: 5,
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
       biometricLateHour: 8,
       biometricLateMinute: 30,
+      biometricDuplicateWindowMinutes: 5,
     });
     prismaMock.biometricDevice.findUnique.mockResolvedValue({
       id: "device-1",
@@ -314,5 +317,66 @@ describe("biometric ADMS ingest", () => {
     expect(res.status).toBe(200);
     expect(res.body.duplicate).toBe(true);
     expect(res.body.punchId).toBe("p-existing");
+  });
+
+  it("200 e ignora segunda entrada explicita dentro de la ventana configurable", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "att-open", type: "CHECK_IN", time: new Date(payload.timestamp) })
+      .mockResolvedValueOnce({ id: "att-open", type: "CHECK_IN", time: new Date(payload.timestamp) });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-duplicate" });
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send({ ...payload, punchType: "CHECK_IN", timestamp: "2026-05-05T13:12:00.000Z" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+    expect(res.body.attendanceId).toBe("att-open");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+    expect(prismaMock.biometricPunch.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          processStatus: "DUPLICATE",
+          punchType: "CHECK_IN",
+        }),
+      }),
+    );
+  });
+
+  it("200 y actualiza salida repetida dentro de la ventana a la ultima marca", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "att-out", type: "CHECK_OUT", time: new Date("2026-05-05T14:00:00.000Z") })
+      .mockResolvedValueOnce({ id: "att-out", type: "CHECK_OUT", time: new Date("2026-05-05T14:00:00.000Z") });
+    prismaMock.event.findMany.mockResolvedValue([]);
+    findAssignedEventNearMock.mockResolvedValue({
+      id: "event-1",
+      title: "Clase Natalia",
+      type: "REUNION",
+      startTime: new Date("2026-05-05T13:00:00.000Z"),
+      endTime: new Date("2026-05-05T14:10:00.000Z"),
+    });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-duplicate" });
+    prismaMock.attendance.update.mockResolvedValue({ id: "att-out" });
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send({ ...payload, punchType: "CHECK_OUT", timestamp: "2026-05-05T14:03:00.000Z" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+    expect(prismaMock.attendance.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "att-out" },
+        data: expect.objectContaining({
+          time: new Date("2026-05-05T14:03:00.000Z"),
+        }),
+      }),
+    );
   });
 });
