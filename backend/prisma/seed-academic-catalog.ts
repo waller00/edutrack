@@ -134,7 +134,8 @@ async function linkCourseOrientations(
   orientationOffered?: Readonly<Record<string, boolean>>,
   courseOffered = true,
 ) {
-  if (!plan.orientaciones) return
+  // CourseOrientation es por ciclo; Prisma no permite upsert con schoolYearId null en la clave única.
+  if (!plan.orientaciones || !schoolYearId) return
   for (const orientationCode of Object.keys(plan.orientaciones)) {
     const orientationId = orientationIds.get(orientationCode)
     if (!orientationId) continue
