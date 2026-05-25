@@ -9,6 +9,13 @@ export type AttendanceStatusResolved =
   | 'ABSENT_JUSTIFIED'
   | 'EXIT'
   | 'EARLY_EXIT'
+  | 'JUSTIFIED'
+  | 'FREE'
+  | 'PENDING_REVIEW'
+  | 'SUBSTITUTED'
+  | 'SUSPENDED'
+  | 'OUT_OF_SCHEDULE'
+  | 'UNIDENTIFIED_PUNCH'
 
 export type AttendanceTypeResolved = 'CHECK_IN' | 'CHECK_OUT'
 
@@ -82,4 +89,3 @@ export type DashboardTopRiskEvent = {
   /** Suma tardanza + absentismo para ordenar rankings. */
   focusScore: number
 }
-

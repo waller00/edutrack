@@ -36,7 +36,21 @@ const exportBodySchema = z.object({
       eventId: z.string().uuid().optional(),
       type: z.enum(['CHECK_IN', 'CHECK_OUT']).optional(),
       status: z
-        .enum(['PRESENT', 'LATE', 'ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'EXIT', 'EARLY_EXIT'])
+        .enum([
+          'PRESENT',
+          'LATE',
+          'ABSENT_NOT_JUSTIFIED',
+          'ABSENT_JUSTIFIED',
+          'EXIT',
+          'EARLY_EXIT',
+          'JUSTIFIED',
+          'FREE',
+          'PENDING_REVIEW',
+          'SUBSTITUTED',
+          'SUSPENDED',
+          'OUT_OF_SCHEDULE',
+          'UNIDENTIFIED_PUNCH',
+        ])
         .optional(),
       schoolYearId: z.string().uuid().optional(),
       /** Si es true / "1", el export incluye todos los ciclos (sin filtro por event.schoolYearId). */
@@ -119,7 +133,7 @@ r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, r
         if (sy) resolvedAttendanceSchoolYearId = sy
       }
 
-      const attendanceFiltersForBackend = {
+      const attendanceFiltersForBackend: any = {
         from,
         to,
         role: filters?.role,

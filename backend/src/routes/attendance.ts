@@ -13,10 +13,13 @@ import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attenda
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
+import { uruguayStartOfDayFromInstant } from '../config/app-timezone.js';
 import {
   isLateAgainstEventStart,
   resolveBiometricAttendanceLinkage,
 } from '../services/biometric-ingest-core.js';
+import { justifyAttendance } from '../services/attendance-justifications.js';
+import { recordAuditEventNow } from '../services/audit-log.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -35,8 +38,30 @@ const attendanceSchema = z.object({
 });
 
 const attendanceUpdateSchema = z.object({
-  status: z.enum(['PRESENT', 'LATE', 'ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'EXIT', 'EARLY_EXIT']).optional(),
+  status: z.enum([
+    'PRESENT',
+    'LATE',
+    'ABSENT_NOT_JUSTIFIED',
+    'ABSENT_JUSTIFIED',
+    'EXIT',
+    'EARLY_EXIT',
+    'JUSTIFIED',
+    'FREE',
+    'PENDING_REVIEW',
+    'SUBSTITUTED',
+    'SUSPENDED',
+    'OUT_OF_SCHEDULE',
+    'UNIDENTIFIED_PUNCH',
+  ]).optional(),
   notes: z.string().optional(),
+  reason: z.string().optional(),
+});
+
+const attendanceJustificationSchema = z.object({
+  type: z.enum(['ABSENCE', 'LATE_ARRIVAL', 'EARLY_EXIT', 'OTHER']).optional(),
+  reason: z.string().min(1),
+  notes: z.string().optional(),
+  attachment: z.string().optional(),
 });
 
 function normalizeAttendanceDate(date: string) {
@@ -188,6 +213,8 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
         startDate: true,
         startTime: true,
         endTime: true,
+        type: true,
+        status: true,
         assignedUserId: true,
       },
     });
@@ -196,8 +223,22 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
       return res.status(404).json({ message: 'Evento no encontrado' });
     }
 
-    // Verificar que el usuario esté asignado al evento
-    if (event.assignedUserId !== user.sub) {
+    if (event.type !== 'CLASE' || !event.startTime || !event.endTime || event.status === 'CANCELLED') {
+      return res.status(400).json({ message: 'No se puede generar asistencia para un horario inexistente o suspendido' });
+    }
+
+    const attendanceDateForSubstitution = uruguayStartOfDayFromInstant(new Date(event.startTime))
+    const substitutionRows = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT "id"
+      FROM "Substitution"
+      WHERE "eventId" = ${eventId}
+        AND "substituteUserId" = ${user.sub}
+        AND "date" = ${attendanceDateForSubstitution}
+      LIMIT 1
+    `;
+
+    // Verificar que el usuario esté asignado al evento o sea suplente oficial
+    if (event.assignedUserId !== user.sub && substitutionRows.length === 0) {
       return res.status(403).json({ message: 'No estás asignado a este evento' });
     }
 
@@ -256,7 +297,7 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
         time: actualTime,
         notes,
         eventId,
-        status,
+        status: status as any,
       },
       include: {
         user: {
@@ -268,7 +309,7 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
       }
     });
 
-    res.json(mapAttendanceUser(attendance));
+    res.json(mapAttendanceUser(attendance as any));
   } catch (error) {
     console.error('Error registrando asistencia:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -403,9 +444,18 @@ r.put('/:id', authGuard, requirePermission('attendance.update', 'all'), async (r
       return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
     }
 
+    const previous = await prisma.attendance.findUnique({
+      where: { id },
+      select: { id: true, status: true, notes: true },
+    });
+    if (!previous) {
+      return res.status(404).json({ message: 'Registro de asistencia no encontrado' });
+    }
+
+    const { reason, ...updateData } = parsed.data;
     const attendance = await prisma.attendance.update({
       where: { id },
-      data: parsed.data,
+      data: updateData as any,
       include: {
         user: {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
@@ -416,10 +466,50 @@ r.put('/:id', authGuard, requirePermission('attendance.update', 'all'), async (r
       }
     });
 
-    res.json(mapAttendanceUser(attendance));
+    await recordAuditEventNow({
+      action: 'ATTENDANCE_MANUAL_UPDATED' as any,
+      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      req,
+      entityType: 'Attendance',
+      entityId: id,
+      metadata: {
+        reason: reason?.trim() || 'Actualización manual de asistencia',
+        previousStatus: previous.status,
+        newStatus: attendance.status,
+        previousNotes: previous.notes,
+        newNotes: attendance.notes,
+      },
+    });
+
+    res.json(mapAttendanceUser(attendance as any));
   } catch (error) {
     console.error('Error actualizando asistencia:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+r.post('/:id/justify', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const parsed = attendanceJustificationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
+    }
+
+    const attendance = await justifyAttendance({
+      attendanceId: id,
+      reason: parsed.data.reason,
+      type: parsed.data.type,
+      notes: parsed.data.notes,
+      attachment: parsed.data.attachment,
+      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      req,
+    });
+
+    res.json({ attendance: mapAttendanceUser(attendance as any), message: 'Justificación registrada correctamente' });
+  } catch (error: any) {
+    console.error('Error justificando asistencia:', error);
+    res.status(error?.statusCode || 500).json({ message: error?.message || 'Error interno del servidor' });
   }
 });
 
@@ -632,13 +722,14 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
             hasApprovedLicense: false,
             lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
           })
+          const resolvedStatus = linkage.attendanceEventId ? status : 'OUT_OF_SCHEDULE'
           const payload = buildBiometricAttendancePayload({
             userId,
             attendanceDate,
             attendanceTime,
             deviceId,
             eventId: linkage.attendanceEventId || undefined,
-            status,
+            status: resolvedStatus as any,
             type: 'CHECK_OUT',
           })
           const updatedExit = await prisma.attendance.update({
@@ -647,8 +738,8 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
               date: attendanceDate,
               time: attendanceTime,
               eventId: linkage.attendanceEventId || undefined,
-              status,
-              notes: payload.notes,
+              status: resolvedStatus as any,
+              notes: linkage.attendanceEventId ? payload.notes : `Marcación sin horario asignado - Dispositivo: ${deviceId || 'N/A'}`,
             },
             include: {
               user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
@@ -659,7 +750,7 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
           return res.status(200).json({
             type: 'CHECK_OUT',
             duplicate: true,
-            attendance: mapAttendanceUser(updatedExit),
+            attendance: mapAttendanceUser(updatedExit as any),
             message: 'Salida repetida dentro de la ventana: se conservó la última marca',
           })
         }
@@ -700,16 +791,22 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
         hasApprovedLicense: false,
         lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
       })
+      const resolvedStatus = linkage.attendanceEventId ? status : 'OUT_OF_SCHEDULE'
       const exitAttendance = await prisma.attendance.create({
-        data: buildBiometricAttendancePayload({
-          userId,
-          attendanceDate,
-          attendanceTime,
-          deviceId,
-          eventId: linkage.attendanceEventId || undefined,
-          status,
-          type: 'CHECK_OUT',
-        }),
+        data: {
+          ...buildBiometricAttendancePayload({
+            userId,
+            attendanceDate,
+            attendanceTime,
+            deviceId,
+            eventId: linkage.attendanceEventId || undefined,
+            status: resolvedStatus as any,
+            type: 'CHECK_OUT',
+          }),
+          ...(!linkage.attendanceEventId
+            ? { notes: `Marcación sin horario asignado - Dispositivo: ${deviceId || 'N/A'}` }
+            : {}),
+        },
         include: {
           user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
           event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
@@ -718,8 +815,8 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
 
       return res.status(201).json({
         type: 'CHECK_OUT',
-        attendance: mapAttendanceUser(exitAttendance),
-        message: status === 'EARLY_EXIT' ? 'Salida anticipada registrada automáticamente' : 'Salida registrada automáticamente'
+        attendance: mapAttendanceUser(exitAttendance as any),
+        message: resolvedStatus === 'EARLY_EXIT' ? 'Salida anticipada registrada automáticamente' : 'Salida registrada automáticamente'
       });
     }
 
@@ -747,8 +844,12 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
           deviceId,
           eventId: linkage.attendanceEventId || undefined,
           isLate,
+          status: linkage.attendanceEventId ? undefined : 'OUT_OF_SCHEDULE',
           type: 'CHECK_IN',
         }),
+        ...(!linkage.attendanceEventId
+          ? { notes: `Marcación sin horario asignado - Dispositivo: ${deviceId || 'N/A'}` }
+          : {}),
         ...(isVeryLate && minutesLate !== null
           ? { notes: `Llegada muy tarde: ${minutesLate} min tarde - Dispositivo: ${deviceId || 'N/A'}` }
           : {}),
@@ -761,7 +862,7 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
 
     return res.status(201).json({
       type: 'CHECK_IN',
-      attendance: mapAttendanceUser(entryAttendance),
+      attendance: mapAttendanceUser(entryAttendance as any),
       message: isLate ? 'Entrada registrada - RETRASO detectado' : 'Entrada registrada correctamente',
       isLate
     });
@@ -772,7 +873,7 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
 });
 
 // Agregar nota a asistencia existente (para retrasos o salidas anticipadas)
-r.post('/:id/note', authGuard, requirePermission('attendance.update'), async (req, res) => {
+r.post('/:id/note', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
   try {
     const { id } = req.params;
     const { note, markLate, markEarlyExit } = req.body;
@@ -784,12 +885,6 @@ r.post('/:id/note', authGuard, requirePermission('attendance.update'), async (re
     const existingAttendance = await prisma.attendance.findUnique({ where: { id } });
     if (!existingAttendance) {
       return res.status(404).json({ message: 'Registro de asistencia no encontrado' });
-    }
-
-    // Verificar permisos
-    const attendanceUpdateScope = await userPermissionScope(req.user.sub, 'attendance.update', req.user.role)
-    if (attendanceUpdateScope !== 'all' && existingAttendance.userId !== req.user.sub) {
-      return res.status(403).json({ message: 'No tienes permisos para modificar este registro' });
     }
 
     let updateData: any = {
@@ -808,14 +903,29 @@ r.post('/:id/note', authGuard, requirePermission('attendance.update'), async (re
 
     const updatedAttendance = await prisma.attendance.update({
       where: { id },
-      data: updateData,
+      data: updateData as any,
       include: {
         user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } }
       }
     });
 
+    await recordAuditEventNow({
+      action: 'ATTENDANCE_MANUAL_UPDATED' as any,
+      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      req,
+      entityType: 'Attendance',
+      entityId: id,
+      metadata: {
+        reason: 'Nota administrativa',
+        previousStatus: existingAttendance.status,
+        newStatus: updatedAttendance.status,
+        previousNotes: existingAttendance.notes,
+        newNotes: updatedAttendance.notes,
+      },
+    });
+
     res.json({
-      attendance: mapAttendanceUser(updatedAttendance),
+      attendance: mapAttendanceUser(updatedAttendance as any),
       message: 'Nota agregada correctamente'
     });
   } catch (error) {
@@ -847,11 +957,15 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
     // Obtener todos los eventos en el rango de fechas
     const events = await prisma.event.findMany({
       where: {
+        type: 'CLASE',
+        status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+        assignedUserId: userId ? userId : { not: null },
+        startTime: { not: null },
+        endTime: { not: null },
         startDate: {
           gte: start,
           lte: end
         },
-        ...(userId && { assignedUserId: userId }),
         ...(resolvedSchoolYearId && { schoolYearId: resolvedSchoolYearId }),
       },
       include: {
@@ -864,11 +978,49 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
     let markedAbsences = 0;
 
     for (const event of events) {
-      const eventDate = new Date(event.startDate);
-      eventDate.setHours(0, 0, 0, 0);
+      if (!event.assignedUserId || !event.startTime || !event.endTime) {
+        continue;
+      }
+
+      const eventDate = uruguayStartOfDayFromInstant(new Date(event.startTime || event.startDate));
 
       const nonWorkingDay = await findNonWorkingDayForDate(new Date(event.startTime || event.startDate));
       if (nonWorkingDay) {
+        continue;
+      }
+
+      const substitution = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT "id"
+        FROM "Substitution"
+        WHERE "eventId" = ${event.id}
+          AND "originalTeacherUserId" = ${event.assignedUserId}
+          AND "date" = ${eventDate}
+        LIMIT 1
+      `;
+
+      if (substitution.length > 0) {
+        const existingSubstitutedAttendance = await prisma.attendance.findFirst({
+          where: {
+            userId: event.assignedUserId,
+            eventId: event.id,
+            date: eventDate,
+            type: 'CHECK_IN',
+          },
+          select: { id: true },
+        });
+        if (!existingSubstitutedAttendance) {
+          await prisma.attendance.create({
+            data: {
+              userId: event.assignedUserId,
+              type: 'CHECK_IN',
+              status: 'SUBSTITUTED' as any,
+              date: eventDate,
+              time: new Date(event.startTime),
+              notes: 'Clase suplida oficialmente',
+              eventId: event.id,
+            },
+          });
+        }
         continue;
       }
 
@@ -886,14 +1038,11 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
       }
 
       // Verificar si el usuario tiene una licencia médica activa en esta fecha
-      const approvedLicense = await prisma.medicalLeave.findFirst({
-        where: {
-          userId: event.assignedUserId,
-          status: 'ACTIVE' as any,
-          startDate: { lte: eventDate },
-          endDate: { gte: eventDate }
-        }
-      });
+      const approvedLicense = await findApprovedLicenseCoveringEventTime(
+        event.assignedUserId,
+        new Date(event.startTime),
+        new Date(event.endTime),
+      );
 
       // Determinar el status basado en si tiene licencia médica
       const status = approvedLicense ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED';

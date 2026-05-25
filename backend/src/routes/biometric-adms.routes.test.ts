@@ -41,6 +41,7 @@ const { prismaMock } = vi.hoisted(() => ({
     systemSettings: {
       upsert: vi.fn(),
     },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   },
 }));
@@ -54,6 +55,7 @@ vi.mock("../services/attendance-incidents.js", () => ({
   findAssignedEventForAttendanceInstant: vi.fn(),
   findAssignedEventNearAttendanceInstant: vi.fn(),
   maybeCreateLateArrivalIncident: vi.fn(),
+  maybeCreateEarlyExitIncident: vi.fn(),
   resolveNoShowIncidentsForEvents: vi.fn(),
 }));
 
@@ -63,6 +65,7 @@ import {
   findAssignedEventForAttendanceInstant,
   findAssignedEventNearAttendanceInstant,
   maybeCreateLateArrivalIncident,
+  maybeCreateEarlyExitIncident,
   resolveNoShowIncidentsForEvents,
 } from "../services/attendance-incidents.js";
 const findLicenseMock = vi.mocked(findApprovedLicenseCoveringEventTime);
@@ -70,6 +73,7 @@ const findOpenNoShowMock = vi.mocked(findOpenNoShowIncidentForEvents);
 const findAssignedEventMock = vi.mocked(findAssignedEventForAttendanceInstant);
 const findAssignedEventNearMock = vi.mocked(findAssignedEventNearAttendanceInstant);
 const lateIncidentMock = vi.mocked(maybeCreateLateArrivalIncident);
+const earlyExitIncidentMock = vi.mocked(maybeCreateEarlyExitIncident);
 const resolveNoShowMock = vi.mocked(resolveNoShowIncidentsForEvents);
 
 function sha256(input: string) {
@@ -98,7 +102,9 @@ describe("biometric ADMS ingest", () => {
     findAssignedEventMock.mockResolvedValue(null);
     findAssignedEventNearMock.mockResolvedValue(null);
     lateIncidentMock.mockResolvedValue(null);
+    earlyExitIncidentMock.mockResolvedValue(null);
     resolveNoShowMock.mockResolvedValue(0);
+    prismaMock.$queryRaw.mockResolvedValue([]);
     prismaMock.systemSettings.upsert.mockResolvedValue({
       id: "default",
       livenessCheckEnabled: false,
@@ -142,7 +148,7 @@ describe("biometric ADMS ingest", () => {
     expect(res.body.punchId).toBe("p-rejected");
   });
 
-  it("201 procesa marcación sin evento como presente", async () => {
+  it("201 procesa marcación sin evento como fuera de horario", async () => {
     prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
     prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
     prismaMock.attendance.findFirst.mockResolvedValue(null);
@@ -150,7 +156,7 @@ describe("biometric ADMS ingest", () => {
     prismaMock.attendance.create.mockResolvedValue({
       id: "att-1",
       type: "CHECK_IN",
-      status: "PRESENT",
+      status: "OUT_OF_SCHEDULE",
       date: new Date("2026-05-05T00:00:00.000Z"),
       time: new Date(payload.timestamp),
     });
@@ -165,7 +171,7 @@ describe("biometric ADMS ingest", () => {
     expect(res.status).toBe(201);
     expect(res.body.duplicate).toBe(false);
     expect(res.body.attendance.id).toBe("att-1");
-    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("OUT_OF_SCHEDULE");
     expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBeUndefined();
   });
 

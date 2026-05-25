@@ -10,6 +10,14 @@ export type RegisterStatus =
   | 'ABSENT_JUSTIFIED'
   | 'EXIT'
   | 'EARLY_EXIT'
+  | 'ABSENT_NOT_JUSTIFIED'
+  | 'JUSTIFIED'
+  | 'FREE'
+  | 'PENDING_REVIEW'
+  | 'SUBSTITUTED'
+  | 'SUSPENDED'
+  | 'OUT_OF_SCHEDULE'
+  | 'UNIDENTIFIED_PUNCH'
 
 export function getDuplicateAttendanceMessage(type: 'CHECK_IN' | 'CHECK_OUT') {
   return `Ya existe un registro de ${type === 'CHECK_IN' ? 'entrada' : 'salida'} para este evento en esta fecha`
@@ -71,7 +79,7 @@ export function buildBiometricAttendancePayload(params: {
   return {
     userId: params.userId,
     type: params.type,
-    status,
+    status: status as any,
     date: params.attendanceDate,
     time: params.attendanceTime,
     eventId: params.eventId,
