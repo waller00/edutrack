@@ -568,6 +568,7 @@ enum SubjectAssociationType {
   CURSO_COMPLETO
   TRONCO_COMUN_CURSO
   ORIENTACION
+  OPTATIVA
   PERSONALIZADA
 }
 
@@ -640,6 +641,8 @@ model CourseOffering {
   schoolYearId       String
   schoolYear         SchoolYear          @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
   isActive           Boolean             @default(true)
+  isOffered          Boolean             @default(true)
+  visibleInFilters   Boolean             @default(true)
   notes              String?             @db.Text
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
@@ -649,6 +652,7 @@ model CourseOffering {
 
   @@unique([courseId, schoolYearId])
   @@index([schoolYearId, isActive])
+  @@index([schoolYearId, isOffered, visibleInFilters])
   @@index([courseId])
 }
 
@@ -662,6 +666,8 @@ model CourseOrientation {
   schoolYearId  String?
   schoolYear    SchoolYear?  @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
   isActive      Boolean      @default(true)
+  isOffered     Boolean      @default(true)
+  visibleInFilters Boolean   @default(true)
   notes         String?      @db.Text
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
@@ -671,6 +677,7 @@ model CourseOrientation {
   @@index([courseId, isActive])
   @@index([orientationId, isActive])
   @@index([schoolYearId, isActive])
+  @@index([schoolYearId, isOffered, visibleInFilters])
 }
 
 /// Catálogo global de asignaturas. La disponibilidad por nivel/curso/orientación
@@ -715,6 +722,8 @@ model SubjectCourseAssignment {
   schoolYear      SchoolYear?            @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
   associationType SubjectAssociationType
   isActive        Boolean                @default(true)
+  isOffered       Boolean                @default(true)
+  visibleInFilters Boolean               @default(true)
   sortOrder       Int                    @default(0)
   notes           String?                @db.Text
   createdAt       DateTime               @default(now())
@@ -725,6 +734,7 @@ model SubjectCourseAssignment {
   @@index([courseId, isActive])
   @@index([orientationId, isActive])
   @@index([schoolYearId, isActive])
+  @@index([schoolYearId, isOffered, visibleInFilters])
   @@index([associationType])
 }
 

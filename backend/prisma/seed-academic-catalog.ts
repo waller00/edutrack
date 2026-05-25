@@ -155,9 +155,11 @@ async function linkCourseOrientations(
         orientationId,
         schoolYearId,
         isActive: offered,
+        isOffered: offered,
+        visibleInFilters: offered,
         notes: schoolYearId ? `Oferta ciclo` : 'Catálogo',
       },
-      update: { isActive: offered },
+      update: { isActive: offered, isOffered: offered, visibleInFilters: offered },
     })
   }
 }
@@ -166,10 +168,12 @@ async function upsertAssignment(params: {
   subjectId: string
   courseId: string
   courseLevel: 'EBI' | 'EMS'
-  associationType: 'CURSO_COMPLETO' | 'TRONCO_COMUN_CURSO' | 'ORIENTACION'
+  associationType: 'CURSO_COMPLETO' | 'TRONCO_COMUN_CURSO' | 'ORIENTACION' | 'OPTATIVA'
   orientationId?: string | null
   schoolYearId: string | null
   isActive: boolean
+  isOffered?: boolean
+  visibleInFilters?: boolean
   sortOrder: number
   notes?: string
 }) {
@@ -187,7 +191,13 @@ async function upsertAssignment(params: {
   if (existing) {
     await db.subjectCourseAssignment.update({
       where: { id: existing.id },
-      data: { isActive: params.isActive, sortOrder: params.sortOrder, notes: params.notes ?? null },
+      data: {
+        isActive: params.isActive,
+        isOffered: params.isOffered ?? params.isActive,
+        visibleInFilters: params.visibleInFilters ?? params.isActive,
+        sortOrder: params.sortOrder,
+        notes: params.notes ?? null,
+      },
     })
     return
   }
@@ -200,6 +210,8 @@ async function upsertAssignment(params: {
       schoolYearId: params.schoolYearId,
       associationType: params.associationType,
       isActive: params.isActive,
+      isOffered: params.isOffered ?? params.isActive,
+      visibleInFilters: params.visibleInFilters ?? params.isActive,
       sortOrder: params.sortOrder,
       notes: params.notes ?? null,
     },
@@ -278,15 +290,18 @@ async function seedPlanForCourse(
   for (const name of plan.optativas ?? []) {
     const sub = subjectIds.get(name)
     if (!sub) continue
+    const isCatalog = schoolYearId === null
     await upsertAssignment({
       subjectId: sub.id,
       courseId,
       courseLevel,
-      associationType: 'CURSO_COMPLETO',
+      associationType: 'OPTATIVA',
       schoolYearId,
-      isActive: activeForYear,
+      isActive: isCatalog,
+      isOffered: isCatalog,
+      visibleInFilters: isCatalog,
       sortOrder: sort++,
-      notes: 'Optativa EAC',
+      notes: schoolYearId ? 'Optativa no ofertada por defecto' : 'Optativa EAC',
     })
   }
 
@@ -344,10 +359,14 @@ async function seedYearOffer(
         courseId,
         schoolYearId: schoolYear.id,
         isActive: offered,
+        isOffered: offered,
+        visibleInFilters: offered,
         notes: offered ? 'Ofertado en el liceo' : 'En catálogo, no ofertado este ciclo',
       },
       update: {
         isActive: offered,
+        isOffered: offered,
+        visibleInFilters: offered,
         notes: offered ? 'Ofertado en el liceo' : 'En catálogo, no ofertado este ciclo',
       },
     })
