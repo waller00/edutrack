@@ -19,7 +19,17 @@ type LinkRequest = {
   device: BiometricDevice
 }
 
-export default function BiometricLinkSection({ role }: { role?: string }) {
+export default function BiometricLinkSection({
+  role,
+  targetUserId,
+  targetUserName,
+  onChanged,
+}: {
+  role?: string
+  targetUserId?: string
+  targetUserName?: string
+  onChanged?: () => void
+}) {
   const [mapping, setMapping] = useState<BiometricMapping | null>(null)
   const [linkRequest, setLinkRequest] = useState<LinkRequest | null>(null)
   const [devices, setDevices] = useState<BiometricDevice[]>([])
@@ -30,12 +40,17 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
   const [msg, setMsg] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const isStudent = role === 'STUDENT'
+  const isAdminMode = Boolean(targetUserId)
+  const isStudent = !isAdminMode && role === 'STUDENT'
+  const targetBase = targetUserId ? `/biometric/admin/users/${targetUserId}/biometric` : '/biometric'
+  const activePath = targetUserId ? targetBase : '/biometric/link-requests/active'
+  const mappingDeletePath = targetUserId ? `${targetBase}/mapping` : '/biometric/me/mapping'
+  const linkRequestsPath = targetUserId ? `${targetBase}/link-requests` : '/biometric/link-requests'
 
   const refresh = useCallback(async () => {
     try {
       const [activeRes, devicesRes] = await Promise.all([
-        api('/biometric/link-requests/active') as Promise<{
+        api(activePath) as Promise<{
           linkRequest: LinkRequest | null
           mapping: BiometricMapping | null
           ttlSeconds: number
@@ -54,7 +69,7 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activePath])
 
   useEffect(() => {
     if (isStudent) {
@@ -83,9 +98,9 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
     try {
       const body: { deviceId?: string } = {}
       if (devices.length > 1 && selectedDeviceId) body.deviceId = selectedDeviceId
-      await api('/biometric/link-requests', { method: 'POST', body: JSON.stringify(body) })
+      await api(linkRequestsPath, { method: 'POST', body: JSON.stringify(body) })
       await refresh()
-      setMsg('Ahora marcá en el lector con tu huella registrada en el equipo.')
+      setMsg(isAdminMode ? 'Pedile al usuario que marque en el lector elegido.' : 'Ahora marcá en el lector con tu huella registrada en el equipo.')
     } catch (e: unknown) {
       const err = e as { message?: string }
       setMsg(err?.message || 'No se pudo iniciar la vinculación.')
@@ -99,10 +114,11 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
     setBusy(true)
     setMsg('')
     try {
-      const res = (await api(`/biometric/link-requests/${linkRequest.id}/confirm`, {
+      const res = (await api(`${linkRequestsPath}/${linkRequest.id}/confirm`, {
         method: 'POST',
       })) as { message?: string }
       await refresh()
+      onChanged?.()
       setMsg(res.message || 'Huella vinculada correctamente.')
     } catch (e: unknown) {
       const err = e as { message?: string }
@@ -116,7 +132,7 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
     if (!linkRequest?.id) return
     setBusy(true)
     try {
-      await api(`/biometric/link-requests/${linkRequest.id}/cancel`, { method: 'POST' })
+      await api(`${linkRequestsPath}/${linkRequest.id}/cancel`, { method: 'POST' })
       await refresh()
       setMsg('Vinculación cancelada.')
     } catch {
@@ -127,11 +143,12 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
   }
 
   async function unlink() {
-    if (!globalThis.confirm('¿Desvincular tu cuenta del lector biométrico?')) return
+    if (!globalThis.confirm(isAdminMode ? '¿Desvincular el lector biométrico de este usuario?' : '¿Desvincular tu cuenta del lector biométrico?')) return
     setBusy(true)
     try {
-      await api('/biometric/me/mapping', { method: 'DELETE' })
+      await api(mappingDeletePath, { method: 'DELETE' })
       await refresh()
+      onChanged?.()
       setMsg('Vínculo eliminado.')
     } catch {
       setMsg('No se pudo desvincular.')
@@ -167,7 +184,9 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Lector biométrico (huella)</h2>
             <p className="text-sm text-gray-600">
-              La huella se registra en el F22; acá vinculás tu cuenta EduTrack con tu PIN del lector.
+              {isAdminMode
+                ? `Vinculación administrada${targetUserName ? ` para ${targetUserName}` : ''}.`
+                : 'La huella se registra en el F22; acá vinculás tu cuenta EduTrack con tu PIN del lector.'}
             </p>
           </div>
         </div>
@@ -211,8 +230,8 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
 
             {waiting && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <p className="font-medium">Esperando tu marca en {linkRequest?.device.name}</p>
-                <p>Poné el dedo en el lector (tenés ~{ttlSeconds}s).</p>
+                <p className="font-medium">Esperando marca en {linkRequest?.device.name}</p>
+                <p>{isAdminMode ? 'El usuario debe apoyar el dedo' : 'Poné el dedo'} en el lector (tenés ~{ttlSeconds}s).</p>
               </div>
             )}
 
@@ -222,7 +241,9 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
                   Se detectó el lector {linkRequest.device.name}, PIN{' '}
                   <span className="font-mono">{linkRequest.candidateDeviceUserId}</span>
                 </p>
-                <p className="text-emerald-800 mt-1">¿Confirmar vínculo con tu cuenta?</p>
+                <p className="text-emerald-800 mt-1">
+                  {isAdminMode ? '¿Confirmar vínculo con este usuario?' : '¿Confirmar vínculo con tu cuenta?'}
+                </p>
                 <div className="flex flex-wrap gap-2 mt-3">
                   <button type="button" className="btn-primary" disabled={busy} onClick={() => void confirmLink()}>
                     <PendingButtonContent pending={busy} pendingText="Confirmando…" idle="Confirmar vínculo" />
@@ -237,11 +258,16 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
             {!linkRequest && (
               <div className="text-sm text-gray-600 space-y-2">
                 <p>
-                  <strong>Primera vez:</strong> pedí al administrador que registre tu huella en el F22 (usuario/PIN en
-                  el equipo).
+                  <strong>Primera vez:</strong>{' '}
+                  {isAdminMode
+                    ? 'registrá o verificá la huella del usuario en el F22.'
+                    : 'pedí al administrador que registre tu huella en el F22 (usuario/PIN en el equipo).'}
                 </p>
                 <p>
-                  <strong>Luego:</strong> tocá el botón, marcá en el lector y confirmá el PIN detectado.
+                  <strong>Luego:</strong>{' '}
+                  {isAdminMode
+                    ? 'iniciá la vinculación, pedile que marque en el lector y confirmá el PIN detectado.'
+                    : 'tocá el botón, marcá en el lector y confirmá el PIN detectado.'}
                 </p>
                 <button
                   type="button"
@@ -249,7 +275,7 @@ export default function BiometricLinkSection({ role }: { role?: string }) {
                   disabled={busy || (devices.length > 1 && !selectedDeviceId)}
                   onClick={() => void startLink()}
                 >
-                  <PendingButtonContent pending={busy} pendingText="Iniciando…" idle="Vincular mi huella" />
+                  <PendingButtonContent pending={busy} pendingText="Iniciando…" idle={isAdminMode ? 'Vincular huella' : 'Vincular mi huella'} />
                 </button>
               </div>
             )}

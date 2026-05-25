@@ -9,6 +9,7 @@ const STATUS_LABEL: Record<BiometricPunchProcessStatus, string> = {
   PROCESSED: 'Procesada',
   FAILED: 'Fallida',
   DUPLICATE: 'Duplicada',
+  LINK_CAPTURED: 'Capturada para vinculación',
 }
 
 export async function executeBiometricIssuesSummary(

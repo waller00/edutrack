@@ -17,6 +17,13 @@ const MONTH_WORD: Record<string, number> = {
   diciembre: 12,
 }
 
+const ROLE_PERSON_WORD = String.raw`docentes?|profesor(?:es)?|profesora(?:s)?|profes?|maestros?|maestras?|educadores?|tutores?|funcionarios?|personal|staff|administrativos?|adscriptos?|bedeles?`
+const ABSENCE_WORD = String.raw`falt[oó]?|faltas?|ausent[oó]?|ausencias?|no\s+show|inasistencias?|inasisten|no\s+vino|no\s+lleg[oó]?`
+const LATE_WORD = String.raw`tardanzas?|tard[ií]as?|atrasos?|retrasos?|llegadas?\s+tarde|entrada\s+tarde|lleg[oó]\s+tarde`
+const EARLY_EXIT_WORD = String.raw`salidas?\s+anticipad[ao]s?|retiros?\s+tempran[ao]s?|se\s+retir[oó]\s+antes|se\s+fue\s+antes`
+const EVENT_WORD = String.raw`eventos?|clases?|turnos?|jornadas?|reuniones?|actividades?`
+const BIOMETRIC_WORD = String.raw`biometric[oa]s?|biometria|reloj(?:es)?|marcador(?:es)?|terminal(?:es)?|lectores?`
+
 function norm(s: string): string {
   const normalized = s
     .toLowerCase()
@@ -65,17 +72,17 @@ function payload(
  * Clasificación local (sin LLM) para frases cortas o cuando el modelo falla.
  * Devuelve null si no hay patrón claro.
  */
-export function heuristicIntentFromQuestion(question: string): LlmIntentPayload | null {
+export function heuristicIntentFromQuestion(question: string, defaultYear = DateTime.utc().year): LlmIntentPayload | null {
   const t = norm(question)
   if (t.length < 2) return null
 
   const month = spanishMonthFromQuestion(question)
   const year = yearFromQuestion(question)
-  const nowY = DateTime.utc().year
+  const nowY = defaultYear
 
   const hoursCue =
     /\bhoras?\b/.test(t) &&
-    (/\btrabajad/.test(t) || /\bcuant/.test(t) || /\bjornada\b/.test(t) || /\bdocente\b/.test(t) || /\bprofesor/.test(t))
+    (/\btrabajad/.test(t) || /\bcuant/.test(t) || /\bjornada\b/.test(t) || new RegExp(`\\b(?:${ROLE_PERSON_WORD})\\b`).test(t))
   if (hoursCue && month != null) {
     return payload(
       'HOURS_WORKED_SUMMARY',
@@ -121,9 +128,9 @@ export function heuristicIntentFromQuestion(question: string): LlmIntentPayload 
 
   /** Ranking de ausencias / no-show por docente (sin palabra "incidencias"). */
   if (
-    /\b(quien|que\s+docente|docente\s+que|el\s+docente)\b/.test(t) &&
+    new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) &&
     /\b(mas|m[aá]s|mayor|mayores|tiene\s+mas)\b/.test(t) &&
-    /\b(falt[oó]?|ausent[oó]?|ausencias?|no\s+show|inasisten)\b/.test(t)
+    new RegExp(`\\b(?:${ABSENCE_WORD})\\b`).test(t)
   ) {
     if (/\beste\s+ano\b/.test(t)) {
       return payload(
@@ -151,9 +158,9 @@ export function heuristicIntentFromQuestion(question: string): LlmIntentPayload 
 
   /** "¿Quién tiene más llegadas tarde?" → tardanzas por persona (no listado genérico de incidencias). */
   if (
-    /\b(quien|que\s+docente|docente\s+que|el\s+docente)\b/.test(t) &&
+    new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) &&
     /\b(mas|m[aá]s|mayor|mayores|tiene\s+mas)\b/.test(t) &&
-    /\bllegadas?\s+tarde\b/.test(t)
+    new RegExp(`\\b(?:${LATE_WORD})\\b`).test(t)
   ) {
     if (/\beste\s+ano\b/.test(t)) {
       return payload(
@@ -213,8 +220,8 @@ export function heuristicIntentFromQuestion(question: string): LlmIntentPayload 
     )
   }
 
-  if (/\bincidencias?\b|\bausencia\s+docente\b|\bno\s+show\b|\bllegadas?\s+tarde\b/.test(t)) {
-    const earlyExit = /\bsalida\s+anticipad/.test(t)
+  if (new RegExp(`\\bincidencias?\\b|\\bausencia\\s+(?:${ROLE_PERSON_WORD})\\b|\\bno\\s+show\\b|\\b(?:${EARLY_EXIT_WORD})\\b`).test(t)) {
+    const earlyExit = new RegExp(`\\b(?:${EARLY_EXIT_WORD})\\b`).test(t)
     return payload(
       'ATTENDANCE_INCIDENTS_SUMMARY',
       {
@@ -249,10 +256,10 @@ export function heuristicIntentFromQuestion(question: string): LlmIntentPayload 
   }
 
   const eventEste =
-    /\b(eventos?|clases?|turnos?)\b/.test(t) && (/\beste\s+mes\b/.test(t) || /\beste\s+ano\b/.test(t))
+    new RegExp(`\\b(?:${EVENT_WORD})\\b`).test(t) && (/\beste\s+mes\b/.test(t) || /\beste\s+ano\b/.test(t))
   const eventAssignedCue =
-    /\b(eventos?|clases?|turnos?)\b/.test(t) &&
-    (/\basignad/.test(t) || /\bdocentes?\b/.test(t) || /\bdel\s+docente\b/.test(t) || /\bdocente\s+[a-záéíóúñ]/.test(t) || eventEste)
+    new RegExp(`\\b(?:${EVENT_WORD})\\b`).test(t) &&
+    (/\basignad/.test(t) || new RegExp(`\\b(?:${ROLE_PERSON_WORD})\\b`).test(t) || new RegExp(`\\bdel\\s+(?:${ROLE_PERSON_WORD})\\b`).test(t) || new RegExp(`\\b(?:${ROLE_PERSON_WORD})\\s+[a-záéíóúñ]`).test(t) || eventEste)
   if (eventAssignedCue) {
     if (/\beste\s+ano\b/.test(t)) {
       return payload(
@@ -272,7 +279,7 @@ export function heuristicIntentFromQuestion(question: string): LlmIntentPayload 
     )
   }
 
-  if (/\b(biometric|marcas?\s+fallid|reloj\s+biometric)\b/.test(t)) {
+  if (new RegExp(`\\b(?:${BIOMETRIC_WORD})\\b`).test(t) && /\b(fallid|pendiente|error|problema|sin\s+procesar)\b/.test(t)) {
     if (month == null) return null
     return payload(
       'BIOMETRIC_ISSUES_SUMMARY',
@@ -283,7 +290,7 @@ export function heuristicIntentFromQuestion(question: string): LlmIntentPayload 
 
   /** "tardanz" sola no matchea "tardanzas". Incluye "llegó tarde" y "¿cuántas veces … tarde?". */
   const latePhrase =
-    /\b(tardanzas?|llegadas?\s+tarde|entrada\s+tarde|lleg[oó]\s+tarde)\b/.test(t) ||
+    new RegExp(`\\b(?:${LATE_WORD})\\b`).test(t) ||
     (/\bcuantas\s+veces\b/.test(t) && /\blleg[oó]\s+tarde\b/.test(t))
   if (latePhrase) {
     if (month == null) return null

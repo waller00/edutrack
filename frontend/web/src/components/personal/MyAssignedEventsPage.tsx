@@ -33,7 +33,8 @@ export type AssignedEventRow = {
 export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {
   const [me, setMe] = useState<{ id: string } | null>(null)
   const [events, setEvents] = useState<AssignedEventRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [eventsLoading, setEventsLoading] = useState(false)
   const [filter, setFilter] = useState<'upcoming' | 'all'>('upcoming')
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set())
 
@@ -41,7 +42,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
     api<{ id: string }>('/auth/me')
       .then((u: { id: string }) => {
         setMe(u)
-        setLoading(false)
+        setAuthLoading(false)
       })
       .catch(() => {
         window.location.href = '/login'
@@ -52,7 +53,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
     if (!me) return
     let cancelled = false
     async function loadEvents() {
-      setLoading(true)
+      setEventsLoading(true)
       try {
         const now = new Date()
         let startDate = ''
@@ -73,7 +74,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
       } catch (e) {
         console.error('Error cargando eventos:', e)
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setEventsLoading(false)
       }
     }
     void loadEvents()
@@ -91,7 +92,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
     })
   }
 
-  if (loading) return <p>Cargando...</p>
+  if (authLoading) return <p>Cargando...</p>
 
   const visibleEvents =
     filter === 'upcoming'
@@ -151,7 +152,9 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
           <div className="p-6 border-b">
             <h2 className="text-lg font-semibold">Eventos</h2>
           </div>
-          {visibleEvents.length === 0 ? (
+          {eventsLoading ? (
+            <div className="p-6 text-center text-gray-500">Cargando eventos…</div>
+          ) : visibleEvents.length === 0 ? (
             <div className="p-6 text-center text-gray-500">No hay eventos para mostrar</div>
           ) : (
             <div className="divide-y divide-gray-200">

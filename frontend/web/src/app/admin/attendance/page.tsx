@@ -30,6 +30,16 @@ function withSchoolYear(path: string, schoolYearQuery: string): string {
   return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
 }
 
+function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
+  if (attendance.type === 'CHECK_OUT' && attendance.status === 'PRESENT') {
+    return 'Salida'
+  }
+  if (attendance.status === 'LATE' && attendance.notes?.toLowerCase().includes('llegada muy tarde')) {
+    return 'Llegada muy tarde'
+  }
+  return getAdminAttendanceStatusLabel(attendance.status)
+}
+
 type AttendanceRecord = {
   id: string
   type: 'CHECK_IN' | 'CHECK_OUT' | 'INCIDENT'
@@ -60,9 +70,13 @@ type AttendanceStats = {
   absentCount: number
   lateCount: number
   medicalLeaveCount: number
+  exitCount: number
+  earlyExitCount: number
   attendanceRate: number
   lateRate: number
   absenceRate: number
+  exitRate: number
+  earlyExitRate: number
 }
 
 type User = {
@@ -76,8 +90,122 @@ type User = {
 type AttendanceStatusOption = AttendanceRecord['status']
 type AttendanceTypeOption = Exclude<AttendanceRecord['type'], 'INCIDENT'>
 
+type AttendancePairRow = {
+  key: string
+  user: AttendanceRecord['user']
+  event?: AttendanceRecord['event']
+  dateTime: string
+  checkIn?: AttendanceRecord
+  checkOut?: AttendanceRecord
+  incident?: AttendanceRecord
+}
+
+type AttendanceGroup = {
+  user: AttendanceRecord['user']
+  event?: AttendanceRecord['event']
+  checkIns: AttendanceRecord[]
+  checkOuts: AttendanceRecord[]
+}
+
 function isIncidentRow(attendance: AttendanceRecord): boolean {
   return attendance.type === 'INCIDENT' || attendance.id.startsWith('incident:')
+}
+
+function getAttendanceGroupKey(attendance: AttendanceRecord): string {
+  const eventKey = attendance.event?.id ?? 'sin-evento'
+  const dateKey = attendance.date ? attendance.date.slice(0, 10) : attendance.time.slice(0, 10)
+  return `${attendance.user.id}:${eventKey}:${dateKey}`
+}
+
+function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePairRow[] {
+  const groups = new Map<string, AttendanceGroup>()
+  const incidentRows: AttendancePairRow[] = []
+
+  for (const attendance of attendances) {
+    if (isIncidentRow(attendance)) {
+      incidentRows.push({
+        key: attendance.id,
+        user: attendance.user,
+        event: attendance.event,
+        dateTime: attendance.time,
+        incident: attendance,
+      })
+      continue
+    }
+
+    const key = getAttendanceGroupKey(attendance)
+    const group = groups.get(key) ?? {
+      user: attendance.user,
+      event: attendance.event,
+      checkIns: [],
+      checkOuts: [],
+    }
+
+    if (attendance.type === 'CHECK_IN') {
+      group.checkIns.push(attendance)
+    } else if (attendance.type === 'CHECK_OUT') {
+      group.checkOuts.push(attendance)
+    }
+
+    groups.set(key, group)
+  }
+
+  const rows = [...incidentRows]
+  for (const [key, group] of groups) {
+    const checkIns = group.checkIns.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    const checkOuts = group.checkOuts.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    const rowCount = Math.max(checkIns.length, checkOuts.length, 1)
+
+    for (let i = 0; i < rowCount; i++) {
+      const checkIn = checkIns[i]
+      const checkOut = checkOuts[i]
+      const dateTime = [checkIn?.time, checkOut?.time]
+        .filter((time): time is string => Boolean(time))
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? new Date(0).toISOString()
+
+      rows.push({
+        key: `${key}:${i}`,
+        user: group.user,
+        event: group.event,
+        dateTime,
+        checkIn,
+        checkOut,
+      })
+    }
+  }
+
+  return rows.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+}
+
+function renderAttendanceMark(
+  attendance: AttendanceRecord | undefined,
+  fallback: string,
+  onEdit: (attendance: AttendanceRecord) => void,
+) {
+  if (!attendance) {
+    return <span className="text-sm text-gray-400">{fallback}</span>
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <div className="font-medium text-gray-900">{formatTimeInUruguay(attendance.time)}</div>
+        {attendance.event && (
+          <div className="text-xs text-gray-500">
+            Planificado: {getAdminAttendancePlannedTimeLabel(attendance)}
+          </div>
+        )}
+      </div>
+      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
+        {getAttendanceRowStatusLabel(attendance)}
+      </span>
+      <div>
+        <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
+          Editar
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function renderAttendancesTable(
@@ -91,6 +219,8 @@ function renderAttendancesTable(
   if (attendances.length === 0) {
     return <div className="p-6 text-center text-gray-500">No hay registros de asistencia</div>
   }
+
+  const rows = buildAttendancePairRows(attendances)
 
   return (
     <div className="overflow-x-auto">
@@ -107,87 +237,81 @@ function renderAttendancesTable(
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hora</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entrada</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Salida</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
-          {attendances.map((attendance) => (
-            <tr key={attendance.id} className={isIncidentRow(attendance) ? 'bg-red-50/20' : undefined}>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                {isIncidentRow(attendance) ? (
-                  <span className="text-xs text-gray-400">—</span>
-                ) : (
-                  <input
-                    type="checkbox"
-                    checked={selectedAttendanceIds.includes(attendance.id)}
-                    onChange={() => onToggleSelect(attendance.id)}
-                    aria-label={`Seleccionar asistencia de ${attendance.user.name}`}
-                  />
-                )}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <div>
-                  <div className="font-medium text-gray-900">{attendance.user.name}</div>
-                  <div className="text-gray-500">{attendance.user.email}</div>
-                  <div className="text-xs text-gray-400">{attendance.user.role}</div>
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {formatDateInUruguay(attendance.time)}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                <div className="flex flex-col">
-                  <div className="font-medium">
-                    {formatTimeInUruguay(attendance.time)}
-                  </div>
-                  {attendance.event && (
-                    <div className="text-xs text-gray-500">
-                      Planificado: {getAdminAttendancePlannedTimeLabel(attendance)}
-                    </div>
-                  )}
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {attendance.event ? (
-                  <div>
-                    <div className="font-medium">{attendance.event.title}</div>
-                    <div className="text-xs text-gray-500">{attendance.event.type}</div>
-                  </div>
-                ) : (
-                  <span className="text-gray-400">Sin evento</span>
-                )}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceTypeStyle(attendance.type)}`}>
-                  {getAdminAttendanceTypeLabel(attendance.type)}
-                </span>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
-                  {getAdminAttendanceStatusLabel(attendance.status)}
-                </span>
-              </td>
-              <td className="px-6 py-4 text-sm text-gray-900">
-                {attendance.notes || attendance.description || '-'}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                <div className="flex gap-2">
-                  {isIncidentRow(attendance) ? (
-                    <span className="text-xs text-gray-400">Solo lectura</span>
+          {rows.map((row) => {
+            const ids = [row.checkIn?.id, row.checkOut?.id].filter(Boolean) as string[]
+            const selected = ids.length > 0 && ids.every((id) => selectedAttendanceIds.includes(id))
+            const primaryAttendance = row.incident ?? row.checkIn ?? row.checkOut
+
+            if (!primaryAttendance) return null
+
+            return (
+              <tr key={row.key} className={row.incident ? 'bg-red-50/20' : undefined}>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  {row.incident ? (
+                    <span className="text-xs text-gray-400">—</span>
                   ) : (
-                    <button onClick={() => onEdit(attendance)} className="text-indigo-600 hover:text-indigo-900">
-                      Editar
-                    </button>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => {
+                        const idsToToggle = selected
+                          ? ids.filter((id) => selectedAttendanceIds.includes(id))
+                          : ids.filter((id) => !selectedAttendanceIds.includes(id))
+                        idsToToggle.forEach(onToggleSelect)
+                      }}
+                      aria-label={`Seleccionar asistencia de ${row.user.name}`}
+                    />
                   )}
-                </div>
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <div>
+                    <div className="font-medium text-gray-900">{row.user.name}</div>
+                    <div className="text-gray-500">{row.user.email}</div>
+                    <div className="text-xs text-gray-400">{row.user.role}</div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {formatDateInUruguay(primaryAttendance.time)}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {row.incident ? (
+                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceTypeStyle('INCIDENT')}`}>
+                      {getAdminAttendanceTypeLabel('INCIDENT')}
+                    </span>
+                  ) : renderAttendanceMark(row.checkIn, 'Sin entrada', onEdit)}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {row.incident ? (
+                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(row.incident.status)}`}>
+                      {getAttendanceRowStatusLabel(row.incident)}
+                    </span>
+                  ) : renderAttendanceMark(row.checkOut, 'Sin salida', onEdit)}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {row.event ? (
+                    <div>
+                      <div className="font-medium">{row.event.title}</div>
+                      <div className="text-xs text-gray-500">{row.event.type}</div>
+                    </div>
+                  ) : (
+                    <span className="text-gray-400">Sin evento</span>
+                  )}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  {row.incident
+                    ? row.incident.notes || row.incident.description || '-'
+                    : [row.checkIn?.notes, row.checkOut?.notes].filter(Boolean).join(' / ') || '-'}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -226,6 +350,7 @@ export default function AdminAttendance() {
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+  const showingExitStats = filters.type === 'CHECK_OUT'
 
   useEffect(() => {
     loadAttendances()
@@ -386,7 +511,7 @@ export default function AdminAttendance() {
   function toggleAllAttendancesSelection() {
     const selectableIds = attendances.filter((attendance) => !isIncidentRow(attendance)).map((attendance) => attendance.id)
     setSelectedAttendanceIds((prev) =>
-      prev.length === selectableIds.length ? [] : selectableIds,
+      selectableIds.every((id) => prev.includes(id)) ? [] : selectableIds,
     )
   }
 
@@ -808,38 +933,42 @@ export default function AdminAttendance() {
         {/* Métricas (KPIs) */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">Tasa de Presencia</div>
+            <div className="text-sm text-gray-500">{showingExitStats ? 'Tasa de Salida' : 'Tasa de Presencia'}</div>
             <div className="text-2xl font-bold text-emerald-600">
-              {statsLoading || !stats || typeof stats.attendanceRate !== 'number' ? '—' : `${stats.attendanceRate}%`}
+              {statsLoading || !stats
+                ? '—'
+                : `${showingExitStats ? stats.exitRate : stats.attendanceRate}%`}
             </div>
-            <div className="text-xs text-gray-500">Solo entradas (CHECK_IN) en el rango filtrado</div>
+            <div className="text-xs text-gray-500">
+              {showingExitStats ? 'Solo salidas (CHECK_OUT) en el rango filtrado' : 'Solo entradas (CHECK_IN) en el rango filtrado'}
+            </div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">Presentes</div>
+            <div className="text-sm text-gray-500">{showingExitStats ? 'Salidas' : 'Presentes'}</div>
             <div className="text-2xl font-bold text-emerald-600">
-              {statsLoading || !stats || typeof stats.presentCount !== 'number' ? '—' : stats.presentCount}
+              {statsLoading || !stats ? '—' : showingExitStats ? stats.exitCount : stats.presentCount}
             </div>
-            <div className="text-xs text-gray-500">Entradas presentes</div>
+            <div className="text-xs text-gray-500">{showingExitStats ? 'Salidas normales' : 'Entradas presentes'}</div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">Tarde</div>
+            <div className="text-sm text-gray-500">{showingExitStats ? 'Anticipadas' : 'Tarde'}</div>
             <div className="text-2xl font-bold text-yellow-600">
-              {statsLoading || !stats || typeof stats.lateCount !== 'number' ? '—' : stats.lateCount}
+              {statsLoading || !stats ? '—' : showingExitStats ? stats.earlyExitCount : stats.lateCount}
             </div>
             <div className="text-xs text-gray-500">
-              {statsLoading || !stats || typeof stats.lateRate !== 'number' ? '' : `${stats.lateRate}%`} tasa
+              {statsLoading || !stats ? '' : `${showingExitStats ? stats.earlyExitRate : stats.lateRate}%`} tasa
             </div>
           </div>
 
           <div className="p-4 bg-white border rounded-lg shadow-sm">
-            <div className="text-sm text-gray-500">Ausentes</div>
+            <div className="text-sm text-gray-500">{showingExitStats ? 'Total salidas' : 'Ausentes'}</div>
             <div className="text-2xl font-bold text-red-600">
-              {statsLoading || !stats || typeof stats.absentCount !== 'number' ? '—' : stats.absentCount}
+              {statsLoading || !stats ? '—' : showingExitStats ? stats.totalAttendances : stats.absentCount}
             </div>
             <div className="text-xs text-gray-500">
-              {statsLoading || !stats || typeof stats.medicalLeaveCount !== 'number' ? '' : `Justificadas: ${stats.medicalLeaveCount}`}
+              {statsLoading || !stats || showingExitStats ? '' : `Justificadas: ${stats.medicalLeaveCount}`}
             </div>
           </div>
         </div>
@@ -849,23 +978,23 @@ export default function AdminAttendance() {
           <div className="flex items-center justify-between gap-4 mb-4">
             <h3 className="text-lg font-semibold">Distribución de Estados</h3>
             <div className="text-sm text-gray-500">
-              {statsLoading ? 'Cargando…' : stats ? `Entradas: ${stats.totalAttendances}` : ''}
+              {statsLoading ? 'Cargando…' : stats ? `${showingExitStats ? 'Salidas' : 'Entradas'}: ${stats.totalAttendances}` : ''}
             </div>
           </div>
           {statsLoading || !stats ? (
             <div className="text-sm text-gray-500">—</div>
           ) : (
             (() => {
-              const present = stats.presentCount
-              const late = stats.lateCount
-              const absent = stats.absentCount
-              const max = Math.max(1, present, late, absent)
+              const first = showingExitStats ? stats.exitCount : stats.presentCount
+              const second = showingExitStats ? stats.earlyExitCount : stats.lateCount
+              const third = showingExitStats ? 0 : stats.absentCount
+              const max = Math.max(1, first, second, third)
               const hMax = 90
               const bar = (value: number) => (value / max) * hMax
 
-              const bar1H = bar(present)
-              const bar2H = bar(late)
-              const bar3H = bar(absent)
+              const bar1H = bar(first)
+              const bar2H = bar(second)
+              const bar3H = bar(third)
 
               return (
                 <svg viewBox="0 0 600 140" className="w-full" role="img" aria-label="Distribución de estados">
@@ -880,13 +1009,13 @@ export default function AdminAttendance() {
 
                   {/* Labels */}
                   <text x="175" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    Presente ({present})
+                    {showingExitStats ? `Salida (${first})` : `Presente (${first})`}
                   </text>
                   <text x="300" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    Tarde ({late})
+                    {showingExitStats ? `Anticipada (${second})` : `Tarde (${second})`}
                   </text>
                   <text x="425" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    Ausente ({absent})
+                    {showingExitStats ? '' : `Ausente (${third})`}
                   </text>
                 </svg>
               )

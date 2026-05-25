@@ -13,6 +13,7 @@
     "start": "node dist/server.js",
     "prisma:studio": "prisma studio",
     "seed": "node prisma/seed-all.mjs",
+    "seed:clean": "node prisma/seed-clean.mjs",
     "seed:liceo": "node prisma/seed-liceo-6months.mjs",
     "seed:liceo-historico": "tsx prisma/seed-liceo-uruguay-historico.ts",
     "seed:biometric": "node prisma/seed-biometric-adms.mjs",

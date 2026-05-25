@@ -8,7 +8,7 @@ const eid = "00000000-0000-4000-8000-0000000000e1";
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     schoolYear: { findUnique: vi.fn(), findFirst: vi.fn() },
-    event: { findUnique: vi.fn(), findMany: vi.fn() },
+    event: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     attendance: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -26,6 +26,7 @@ const { prismaMock } = vi.hoisted(() => ({
     medicalLeave: { findFirst: vi.fn(), findMany: vi.fn() },
     systemSettings: { upsert: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    $queryRaw: vi.fn(),
   },
 }));
 
@@ -56,6 +57,11 @@ describe("attendance /register (prisma mock)", () => {
     vi.clearAllMocks();
     prismaMock.schoolYear.findFirst.mockResolvedValue(null);
     prismaMock.schoolYear.findUnique.mockResolvedValue(null);
+    prismaMock.$queryRaw.mockResolvedValue([]);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.event.findFirst.mockResolvedValue(null);
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     prismaMock.systemSettings.upsert.mockResolvedValue({
       id: "default",
       attendanceNoShowGraceMinutes: 15,
@@ -65,6 +71,7 @@ describe("attendance /register (prisma mock)", () => {
       attendanceMonitorIntervalMs: 120000,
       biometricLateHour: 8,
       biometricLateMinute: 30,
+      biometricDuplicateWindowMinutes: 5,
     });
   });
 
@@ -154,6 +161,7 @@ describe("attendance /register (prisma mock)", () => {
       attendanceMonitorIntervalMs: 120000,
       biometricLateHour: 8,
       biometricLateMinute: 30,
+      biometricDuplicateWindowMinutes: 5,
     });
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
@@ -291,7 +299,7 @@ describe("attendance /register (prisma mock)", () => {
     });
     expect(prismaMock.attendanceIncident.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ type: "TEACHER_NO_SHOW" }),
+        where: expect.objectContaining({ type: "TEACHER_NO_SHOW", status: "OPEN" }),
       }),
     );
   });
@@ -439,9 +447,85 @@ describe("attendance /register (prisma mock)", () => {
       .send({ userId: "user-1", timestamp: "2025-06-01T12:00:00.000Z", deviceId: "dev-1" });
     expect(res.status).toBe(201);
     expect(res.body.type).toBe("CHECK_OUT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("EXIT");
   });
 
-  it("POST /attendance/biometric crea entrada y detecta retraso", async () => {
+  it("POST /attendance/biometric ignora huella repetida de entrada dentro de la ventana", async () => {
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "in-1", time: new Date("2025-06-01T12:00:00.000Z") })
+      .mockResolvedValueOnce(null);
+
+    const res = await request(app())
+      .post("/attendance/biometric")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`)
+      .send({ userId: "user-1", timestamp: "2025-06-01T12:03:00.000Z", deviceId: "dev-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+    expect(res.body.type).toBe("CHECK_IN");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /attendance/biometric actualiza salida repetida dentro de la ventana a la última marca", async () => {
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "in-1", time: new Date("2025-06-01T12:00:00.000Z") })
+      .mockResolvedValueOnce({ id: "out-1", time: new Date("2025-06-01T16:00:00.000Z") });
+    prismaMock.attendance.findMany.mockResolvedValueOnce([{ type: "CHECK_IN", eventId: "event-1" }]);
+    prismaMock.event.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: "event-1",
+        title: "Turno",
+        type: "JORNADA_LABORAL",
+        startTime: new Date("2025-06-01T12:00:00.000Z"),
+        endTime: new Date("2025-06-01T16:10:00.000Z"),
+      },
+    ]);
+    prismaMock.attendance.update.mockResolvedValue({ id: "out-1", time: new Date("2025-06-01T16:04:00.000Z") });
+
+    const res = await request(app())
+      .post("/attendance/biometric")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`)
+      .send({ userId: "user-1", timestamp: "2025-06-01T16:04:00.000Z", deviceId: "dev-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+    expect(res.body.type).toBe("CHECK_OUT");
+    expect(prismaMock.attendance.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "out-1" },
+        data: expect.objectContaining({ time: new Date("2025-06-01T16:04:00.000Z") }),
+      }),
+    );
+  });
+
+  it("POST /attendance/biometric marca salida anticipada contra el fin del evento", async () => {
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "in-1" })
+      .mockResolvedValueOnce(null);
+    prismaMock.attendance.findMany.mockResolvedValueOnce([{ type: "CHECK_IN", eventId: "event-1" }]);
+    prismaMock.event.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: "event-1",
+        title: "Clase Natalia",
+        type: "REUNION",
+        startTime: new Date("2025-06-01T18:06:00.000Z"),
+        endTime: new Date("2025-06-01T19:00:00.000Z"),
+      },
+    ]);
+    prismaMock.attendance.create.mockResolvedValue({ id: "out-1" });
+
+    const res = await request(app())
+      .post("/attendance/biometric")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`)
+      .send({ userId: "user-1", timestamp: "2025-06-01T18:26:00.000Z", deviceId: "dev-1" });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("EARLY_EXIT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBe("event-1");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.notes).toContain("SALIDA ANTICIPADA");
+  });
+
+  it("POST /attendance/biometric crea entrada presente si no hay evento asignado", async () => {
     prismaMock.attendance.findFirst.mockResolvedValueOnce(null);
     prismaMock.attendance.create.mockResolvedValue({ id: "in-1" });
     const res = await request(app())
@@ -450,21 +534,22 @@ describe("attendance /register (prisma mock)", () => {
       .send({ userId: "user-1", timestamp: "2025-06-01T09:10:00.000Z", deviceId: "dev-1" });
     expect(res.status).toBe(201);
     expect(res.body.type).toBe("CHECK_IN");
-    expect(res.body).toHaveProperty("isLate");
+    expect(res.body.isLate).toBe(false);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBeUndefined();
   });
 
-  it("POST /attendance/biometric respeta hora/minuto configurados", async () => {
-    prismaMock.systemSettings.upsert.mockResolvedValueOnce({
-      id: "default",
-      attendanceNoShowGraceMinutes: 15,
-      attendanceLateToleranceMinutes: 5,
-      attendanceClassBridgeGapMinutes: 60,
-      attendanceMonitorEnabled: true,
-      attendanceMonitorIntervalMs: 120000,
-      biometricLateHour: 9,
-      biometricLateMinute: 30,
-    });
+  it("POST /attendance/biometric vincula evento cercano y no marca tarde si llegó antes", async () => {
     prismaMock.attendance.findFirst.mockResolvedValueOnce(null);
+    prismaMock.event.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: "event-1",
+        title: "Clase Natalia",
+        type: "REUNION",
+        startTime: new Date("2025-06-01T09:11:00.000Z"),
+        endTime: new Date("2025-06-01T10:11:00.000Z"),
+      },
+    ]);
     prismaMock.attendance.create.mockResolvedValue({ id: "in-1" });
     const res = await request(app())
       .post("/attendance/biometric")
@@ -473,6 +558,30 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.status).toBe(201);
     expect(res.body.isLate).toBe(false);
     expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBe("event-1");
+  });
+
+  it("POST /attendance/biometric usa llegada muy tarde al superar gracia de no-show", async () => {
+    prismaMock.attendance.findFirst.mockResolvedValueOnce(null);
+    prismaMock.event.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: "event-1",
+        title: "Clase Natalia",
+        type: "REUNION",
+        startTime: new Date("2025-06-01T18:06:00.000Z"),
+        endTime: new Date("2025-06-01T19:00:00.000Z"),
+      },
+    ]);
+    prismaMock.attendance.create.mockResolvedValue({ id: "in-1" });
+
+    const res = await request(app())
+      .post("/attendance/biometric")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`)
+      .send({ userId: "user-1", timestamp: "2025-06-01T18:24:00.000Z", deviceId: "dev-1" });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("LATE");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.notes).toContain("Llegada muy tarde: 18 min tarde");
   });
 
   it("POST /attendance/biometric 500 si falla create", async () => {
@@ -630,6 +739,28 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendance.count.mock.calls[0][0].where.userId).toBe("other-user");
   });
 
+  it("GET /attendance/stats calcula estados de salida cuando se filtra CHECK_OUT", async () => {
+    prismaMock.attendance.count
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(1);
+
+    const res = await request(app())
+      .get("/attendance/stats?type=CHECK_OUT")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.exitCount).toBe(3);
+    expect(res.body.earlyExitCount).toBe(1);
+    expect(res.body.exitRate).toBe(75);
+    expect(res.body.earlyExitRate).toBe(25);
+    expect(prismaMock.attendance.count.mock.calls[0][0].where.type).toBe("CHECK_OUT");
+  });
+
   it("GET /attendance/stats suma incidencias de ausencia cuando se pide feed mixto", async () => {
     prismaMock.attendance.count
       .mockResolvedValueOnce(10)
@@ -648,7 +779,7 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.body.absentCount).toBe(4);
     expect(prismaMock.attendanceIncident.count).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ type: "TEACHER_NO_SHOW" }),
+        where: expect.objectContaining({ type: "TEACHER_NO_SHOW", status: "OPEN" }),
       }),
     );
   });

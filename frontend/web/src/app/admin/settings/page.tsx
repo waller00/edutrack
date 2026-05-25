@@ -4,14 +4,16 @@ import AdminOperationalSettingsPanel, {
   type OperationalSettingsSection,
   type OperationalSettingsData,
 } from '@/components/admin/AdminOperationalSettingsPanel'
+import AdminTestingPanel from '@/components/admin/AdminTestingPanel'
+import AdminBiometricDevicesPanel from '@/components/admin/AdminBiometricDevicesPanel'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { api } from '@/lib/api/client'
-import { Fingerprint, Loader2, Settings, Timer } from 'lucide-react'
+import { Cpu, Fingerprint, FlaskConical, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 type SettingsResponse = OperationalSettingsData
 
-type SettingsSection = OperationalSettingsSection
+type SettingsSection = OperationalSettingsSection | 'readers' | 'testing'
 
 const SETTINGS_SECTIONS: {
   id: SettingsSection
@@ -37,6 +39,18 @@ const SETTINGS_SECTIONS: {
     desc: 'Verificación Didit y prueba de vida.',
     Icon: Fingerprint,
   },
+  {
+    id: 'readers',
+    label: 'Lectores',
+    desc: 'Terminales biométricos habilitados.',
+    Icon: Cpu,
+  },
+  {
+    id: 'testing',
+    label: 'Pruebas',
+    desc: 'Simular ADMS y limpiar datos de testing.',
+    Icon: FlaskConical,
+  },
 ]
 
 export default function AdminSystemSettingsPage() {
@@ -48,7 +62,12 @@ export default function AdminSystemSettingsPage() {
   const load = useCallback(async () => {
     try {
       const r = await api<SettingsResponse>('/admin/system-settings')
-      setData(r)
+      setData({
+        ...r,
+        attendanceEarlyExitToleranceMinutes:
+          r.attendanceEarlyExitToleranceMinutes ?? r.attendanceLateToleranceMinutes ?? 5,
+        biometricDuplicateWindowMinutes: r.biometricDuplicateWindowMinutes ?? 5,
+      })
     } catch {
       setData(null)
     }
@@ -61,7 +80,7 @@ export default function AdminSystemSettingsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const s = params.get('section')
-    if (s === 'attendance' || s === 'identity' || s === 'system') setSection(s)
+    if (s === 'attendance' || s === 'identity' || s === 'system' || s === 'readers' || s === 'testing') setSection(s)
   }, [])
 
   function selectSection(nextSection: SettingsSection) {
@@ -82,11 +101,13 @@ export default function AdminSystemSettingsPage() {
           livenessCheckEnabled: data.livenessCheckEnabled,
           attendanceNoShowGraceMinutes: data.attendanceNoShowGraceMinutes,
           attendanceLateToleranceMinutes: data.attendanceLateToleranceMinutes,
+          attendanceEarlyExitToleranceMinutes: data.attendanceEarlyExitToleranceMinutes,
           attendanceClassBridgeGapMinutes: data.attendanceClassBridgeGapMinutes,
           attendanceMonitorEnabled: data.attendanceMonitorEnabled,
           attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs,
           biometricLateHour: data.biometricLateHour,
           biometricLateMinute: data.biometricLateMinute,
+          biometricDuplicateWindowMinutes: data.biometricDuplicateWindowMinutes,
         }),
       })
       setData(updated)
@@ -132,7 +153,11 @@ export default function AdminSystemSettingsPage() {
           </aside>
 
           <div className="min-w-0">
-            {!data ? (
+            {section === 'readers' ? (
+              <AdminBiometricDevicesPanel />
+            ) : section === 'testing' ? (
+              <AdminTestingPanel />
+            ) : !data ? (
               <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
                 <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
                 <p className="text-sm text-gray-500">Cargando configuración…</p>

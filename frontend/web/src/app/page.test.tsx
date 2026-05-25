@@ -36,13 +36,15 @@ describe('Home page', () => {
         isActive: true,
       })
       .mockResolvedValueOnce({ total: 0, data: [] })
+      .mockResolvedValueOnce({ total: 0, data: [] })
       .mockResolvedValueOnce({})
 
     render(<Home />)
 
-    expect(await screen.findByText('Actividad de asistencias')).toBeInTheDocument()
-    expect(screen.getByText('Gestión completa')).toBeInTheDocument()
-    expect(await screen.findByText(/No hay marcaciones en los últimos días/i)).toBeInTheDocument()
+    expect(await screen.findByText('Cronología operativa')).toBeInTheDocument()
+    expect(screen.getByText('Asistencias')).toBeInTheDocument()
+    expect(screen.getByText('Eventos')).toBeInTheDocument()
+    expect(await screen.findByText(/No hay actividad reciente ni eventos próximos/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /reenviar correo/i }))
 
@@ -50,6 +52,68 @@ describe('Home page', () => {
       expect(api).toHaveBeenCalledWith('/auth/verify/resend', { method: 'POST' })
     )
     expect(screen.getByRole('button', { name: /enviado/i })).toBeDisabled()
+  })
+
+  it('combina evento en curso con sus marcas de entrada y salida', async () => {
+    vi.mocked(api)
+      .mockResolvedValueOnce({
+        name: 'Ada',
+        email: 'ada@example.com',
+        role: 'ADMIN',
+        emailVerifiedAt: '2026-01-01',
+        isApproved: true,
+        isActive: true,
+      })
+      .mockResolvedValueOnce({
+        total: 2,
+        data: [
+          {
+            id: 'out-1',
+            type: 'CHECK_OUT',
+            status: 'EARLY_EXIT',
+            date: '2026-05-24T00:00:00.000Z',
+            time: '2026-05-24T23:29:00.000Z',
+            user: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            event: { id: 'ev-1', title: 'Clase Jorge', type: 'CLASE' },
+          },
+          {
+            id: 'in-1',
+            type: 'CHECK_IN',
+            status: 'PRESENT',
+            date: '2026-05-24T00:00:00.000Z',
+            time: '2026-05-24T23:21:00.000Z',
+            user: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            event: { id: 'ev-1', title: 'Clase Jorge', type: 'CLASE' },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        total: 1,
+        data: [
+          {
+            id: 'ev-1',
+            title: 'Clase Jorge',
+            type: 'CLASE',
+            status: 'IN_PROGRESS',
+            startDate: '2026-05-24T23:20:00.000Z',
+            startTime: '2026-05-24T23:20:00.000Z',
+            endTime: '2026-05-24T23:40:00.000Z',
+            isRecurring: false,
+            daysOfWeek: [],
+            user: { id: 'admin', name: 'Admin', email: 'a@e.com', role: 'ADMIN' },
+            assignedUser: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com', role: 'TEACHER' },
+          },
+        ],
+      })
+
+    render(<Home />)
+
+    expect(await screen.findByText('Cronología operativa')).toBeInTheDocument()
+    expect(screen.getAllByText('Clase Jorge')).toHaveLength(1)
+    expect(screen.getByText('Salida anticipada')).toBeInTheDocument()
+    expect(screen.getByText(/Entró/)).toBeInTheDocument()
+    expect(screen.getByText(/Salió/)).toBeInTheDocument()
+    expect(screen.queryByText('En Progreso')).not.toBeInTheDocument()
   })
 
   it('shows the profile completion state instead of role sections', async () => {

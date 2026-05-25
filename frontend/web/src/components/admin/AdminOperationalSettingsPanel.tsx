@@ -8,11 +8,13 @@ export type OperationalSettingsData = {
   livenessCheckEnabled: boolean
   attendanceNoShowGraceMinutes: number
   attendanceLateToleranceMinutes: number
+  attendanceEarlyExitToleranceMinutes: number
   attendanceClassBridgeGapMinutes: number
   attendanceMonitorEnabled: boolean
   attendanceMonitorIntervalMs: number
   biometricLateHour: number
   biometricLateMinute: number
+  biometricDuplicateWindowMinutes: number
 }
 
 export type OperationalSettingsSection = 'system' | 'attendance' | 'identity'
@@ -62,7 +64,7 @@ export default function AdminOperationalSettingsPanel({
     },
     attendance: {
       title: 'Asistencia y registro horario',
-      desc: 'Tolerancias, tardanzas, no-show docente y parámetros del reloj biométrico.',
+      desc: 'Parámetros separados para evaluar entradas y salidas del personal.',
       Icon: SlidersHorizontal,
     },
     identity: {
@@ -121,23 +123,12 @@ export default function AdminOperationalSettingsPanel({
       )}
 
       {section === 'attendance' && (
-        <section className={`${shellCard} space-y-5`}>
-          <div className="border-b border-gray-100 pb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Reglas de asistencia</h3>
-            <p className="text-xs text-gray-500">Ajustá los valores que determinan tardanzas, ausencias e incidencias.</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block space-y-2">
-              <span className={labelCls}>Tolerancia no-show docente (min)</span>
-              <input
-                type="number"
-                min={1}
-                max={180}
-                className="input-modern w-full text-sm tabular-nums"
-                value={data.attendanceNoShowGraceMinutes}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceNoShowGraceMinutes: Number(e.target.value) || 1 } : prev))}
-              />
-            </label>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <section className={`${shellCard} space-y-5`}>
+            <div className="border-b border-gray-100 pb-4">
+              <h3 className="text-sm font-semibold text-gray-900">Entrada</h3>
+              <p className="text-xs text-gray-500">Reglas usadas para presentes, tardanzas y no-show al iniciar actividad.</p>
+            </div>
             <label className="block space-y-2">
               <span className={labelCls}>Tolerancia llegada tarde (min)</span>
               <input
@@ -147,6 +138,17 @@ export default function AdminOperationalSettingsPanel({
                 className="input-modern w-full text-sm tabular-nums"
                 value={data.attendanceLateToleranceMinutes}
                 onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceLateToleranceMinutes: Number(e.target.value) || 0 } : prev))}
+              />
+            </label>
+            <label className="block space-y-2">
+              <span className={labelCls}>Tolerancia no-show docente (min)</span>
+              <input
+                type="number"
+                min={1}
+                max={180}
+                className="input-modern w-full text-sm tabular-nums"
+                value={data.attendanceNoShowGraceMinutes}
+                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceNoShowGraceMinutes: Number(e.target.value) || 1 } : prev))}
               />
             </label>
             <label className="block space-y-2">
@@ -160,32 +162,68 @@ export default function AdminOperationalSettingsPanel({
                 onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceClassBridgeGapMinutes: Number(e.target.value) || 60 } : prev))}
               />
             </label>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block space-y-2">
+                <span className={labelCls}>Hora tardanza biométrica</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  className="input-modern w-full text-sm tabular-nums"
+                  value={data.biometricLateHour}
+                  onChange={(e) => setData((prev) => (prev ? { ...prev, biometricLateHour: Number(e.target.value) || 0 } : prev))}
+                />
+              </label>
+              <label className="block space-y-2">
+                <span className={labelCls}>Minuto tardanza biométrica</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  className="input-modern w-full text-sm tabular-nums"
+                  value={data.biometricLateMinute}
+                  onChange={(e) => setData((prev) => (prev ? { ...prev, biometricLateMinute: Number(e.target.value) || 0 } : prev))}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className={`${shellCard} space-y-5`}>
+            <div className="border-b border-gray-100 pb-4">
+              <h3 className="text-sm font-semibold text-gray-900">Salida</h3>
+              <p className="text-xs text-gray-500">Reglas usadas para salida normal y salida anticipada al cerrar actividad.</p>
+            </div>
             <label className="block space-y-2">
-              <span className={labelCls}>Hora tardanza biométrica</span>
+              <span className={labelCls}>Tolerancia salida anticipada (min)</span>
               <input
                 type="number"
                 min={0}
-                max={23}
+                max={120}
                 className="input-modern w-full text-sm tabular-nums"
-                value={data.biometricLateHour}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, biometricLateHour: Number(e.target.value) || 0 } : prev))}
+                value={data.attendanceEarlyExitToleranceMinutes}
+                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceEarlyExitToleranceMinutes: Number(e.target.value) || 0 } : prev))}
               />
             </label>
-            <label className="block space-y-2">
-              <span className={labelCls}>Minuto tardanza biométrica</span>
+          </section>
+
+          <section className={`${shellCard} space-y-5 lg:col-span-2`}>
+            <div className="border-b border-gray-100 pb-4">
+              <h3 className="text-sm font-semibold text-gray-900">Biométrico</h3>
+              <p className="text-xs text-gray-500">Ventana para huellas repetidas: la entrada conserva la primera y la salida conserva la última.</p>
+            </div>
+            <label className="block space-y-2 sm:max-w-sm">
+              <span className={labelCls}>Ventana huellas repetidas (min)</span>
               <input
                 type="number"
                 min={0}
-                max={59}
+                max={120}
                 className="input-modern w-full text-sm tabular-nums"
-                value={data.biometricLateMinute}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, biometricLateMinute: Number(e.target.value) || 0 } : prev))}
+                value={data.biometricDuplicateWindowMinutes}
+                onChange={(e) => setData((prev) => (prev ? { ...prev, biometricDuplicateWindowMinutes: Number(e.target.value) || 0 } : prev))}
               />
             </label>
-          </div>
-        </section>
+          </section>
+        </div>
       )}
 
       {section === 'identity' && (

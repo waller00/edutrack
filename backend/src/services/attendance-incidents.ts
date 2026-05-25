@@ -57,6 +57,39 @@ export async function findAssignedEventForAttendanceInstant(tx: any, userId: str
   });
 }
 
+export async function findAssignedEventNearAttendanceInstant(
+  tx: any,
+  userId: string,
+  at: Date,
+  earlyWindowMinutes: number,
+) {
+  const latestStart = new Date(at.getTime() + earlyWindowMinutes * 60 * 1000);
+  const rows = await tx.event.findMany({
+    where: {
+      assignedUserId: userId,
+      status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+      startTime: { not: null, lte: latestStart },
+      endTime: { not: null, gte: at },
+    },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      startTime: true,
+      endTime: true,
+      assignedUser: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: { startTime: "asc" },
+  });
+  if (!rows.length) return null;
+
+  const atMs = at.getTime();
+  const active = rows
+    .filter((event: { startTime: Date }) => new Date(event.startTime).getTime() <= atMs)
+    .sort((a: { startTime: Date }, b: { startTime: Date }) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  return active[0] ?? rows[0] ?? null;
+}
+
 export async function maybeCreateLateArrivalIncident(params: {
   tx: any;
   userId: string;
@@ -124,6 +157,24 @@ export async function resolveNoShowIncidentsForEvents(
     n += await resolveNoShowIncidentIfAny(tx, userId, id);
   }
   return n;
+}
+
+export async function findOpenNoShowIncidentForEvents(
+  tx: any,
+  userId: string,
+  eventIds: (string | null | undefined)[],
+) {
+  const ids = Array.from(new Set(eventIds.filter((id): id is string => Boolean(id))));
+  if (ids.length === 0) return null;
+  return tx.attendanceIncident.findFirst({
+    where: {
+      userId,
+      eventId: { in: ids },
+      type: "TEACHER_NO_SHOW",
+      status: "OPEN",
+    },
+    select: { id: true, eventId: true },
+  });
 }
 
 export async function resolveNoShowIncidentIfAny(tx: any, userId: string, eventId?: string | null) {

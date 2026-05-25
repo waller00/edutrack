@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  getAttendanceOperationalSettings,
   isBiometricLateBySettings,
   isDiditConfigured,
   isLivenessRequiredForRegistration,
 } from './system-settings.js'
+import { prisma } from '../db/prisma.js'
 
 vi.mock('../db/prisma.js', () => ({
   prisma: {
@@ -45,5 +47,34 @@ describe('system-settings', () => {
     expect(isBiometricLateBySettings(new Date('2025-06-01T08:30:00'), settings)).toBe(false)
     expect(isBiometricLateBySettings(new Date('2025-06-01T08:31:00'), settings)).toBe(true)
     expect(isBiometricLateBySettings(new Date('2025-06-01T09:00:00'), settings)).toBe(true)
+  })
+
+  it('normaliza límites operativos de asistencia desde la fila global', async () => {
+    vi.mocked(prisma.systemSettings.upsert).mockResolvedValueOnce({
+      id: 'default',
+      livenessCheckEnabled: false,
+      attendanceNoShowGraceMinutes: 0,
+      attendanceLateToleranceMinutes: -5,
+      attendanceEarlyExitToleranceMinutes: -10,
+      attendanceClassBridgeGapMinutes: 2000,
+      attendanceMonitorEnabled: false,
+      attendanceMonitorIntervalMs: 1000,
+      biometricLateHour: 99,
+      biometricLateMinute: 99,
+      biometricDuplicateWindowMinutes: 999,
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    })
+
+    await expect(getAttendanceOperationalSettings()).resolves.toEqual({
+      noShowGraceMinutes: 1,
+      lateToleranceMinutes: 0,
+      earlyExitToleranceMinutes: 0,
+      classBridgeGapMinutes: 1440,
+      monitorEnabled: false,
+      monitorIntervalMs: 30000,
+      biometricLateHour: 23,
+      biometricLateMinute: 59,
+      biometricDuplicateWindowMinutes: 120,
+    })
   })
 })
