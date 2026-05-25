@@ -18,6 +18,8 @@ import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   BarChart3,
   Calendar,
+  ChevronDown,
+  ChevronRight,
   Clock,
   FileSpreadsheet,
   FileText,
@@ -244,11 +246,72 @@ function renderAttendanceMark(
   )
 }
 
+function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle: () => void) {
+  if (!row.eventSummary) {
+    return <span className="text-gray-400">Sin evento</span>
+  }
+
+  const entryEvent = row.checkIn?.event
+  const exitEvent = row.checkOut?.event
+  const hasLinkedEvents = Boolean(entryEvent || exitEvent)
+  const hasDifferentEvents = Boolean(entryEvent && exitEvent && entryEvent.id !== exitEvent.id)
+
+  return (
+    <div className="min-w-[180px] space-y-2">
+      <div className="flex items-start gap-2">
+        {hasLinkedEvents ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
+            aria-label={expanded ? 'Ocultar detalle de eventos' : 'Mostrar detalle de eventos'}
+            aria-expanded={expanded}
+          >
+            {expanded ? <ChevronDown className="h-3.5 w-3.5" aria-hidden /> : <ChevronRight className="h-3.5 w-3.5" aria-hidden />}
+          </button>
+        ) : null}
+        <div>
+          <div className="font-medium">{row.eventSummary.title}</div>
+          <div className="text-xs text-gray-500">{row.eventSummary.type}</div>
+        </div>
+      </div>
+
+      {expanded && hasLinkedEvents ? (
+        <div className="space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/80 p-2 text-xs text-slate-700">
+          {entryEvent ? (
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">Entrada</span>
+              <div className="min-w-0">
+                <div className="font-medium text-slate-800">{entryEvent.title}</div>
+                <div className="text-slate-500">Planificado: {getAdminAttendancePlannedTimeLabel(row.checkIn!)}</div>
+              </div>
+            </div>
+          ) : null}
+          {exitEvent ? (
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 rounded bg-sky-100 px-1.5 py-0.5 font-medium text-sky-800">Salida</span>
+              <div className="min-w-0">
+                <div className="font-medium text-slate-800">{exitEvent.title}</div>
+                <div className="text-slate-500">Planificado: {getAdminAttendancePlannedTimeLabel(row.checkOut!)}</div>
+              </div>
+            </div>
+          ) : null}
+          {hasDifferentEvents ? (
+            <div className="pt-1 text-[11px] text-slate-500">La misma permanencia cubre eventos contiguos.</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function renderAttendancesTable(
   attendances: AttendanceRecord[],
   selectedAttendanceIds: string[],
   onToggleSelectAll: () => void,
   onToggleSelect: (id: string) => void,
+  expandedRowKeys: string[],
+  onToggleExpandedRow: (key: string) => void,
   onEdit: (attendance: AttendanceRecord) => void,
   allSelected: boolean
 ) {
@@ -331,14 +394,7 @@ function renderAttendancesTable(
                   ) : renderAttendanceMark(row.checkOut, 'Sin salida', onEdit)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {row.eventSummary ? (
-                    <div>
-                      <div className="font-medium">{row.eventSummary.title}</div>
-                      <div className="text-xs text-gray-500">{row.eventSummary.type}</div>
-                    </div>
-                  ) : (
-                    <span className="text-gray-400">Sin evento</span>
-                  )}
+                  {renderEventSummary(row, expandedRowKeys.includes(row.key), () => onToggleExpandedRow(row.key))}
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-900">
                   {row.incident
@@ -379,6 +435,7 @@ export default function AdminAttendance() {
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
   const [selectedAttendanceIds, setSelectedAttendanceIds] = useState<string[]>([])
+  const [expandedAttendanceRows, setExpandedAttendanceRows] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
@@ -420,6 +477,7 @@ export default function AdminAttendance() {
 
   useEffect(() => {
     setSelectedAttendanceIds([])
+    setExpandedAttendanceRows([])
   }, [attendances])
 
   async function loadAttendances() {
@@ -548,6 +606,12 @@ export default function AdminAttendance() {
     const selectableIds = attendances.filter((attendance) => !isIncidentRow(attendance)).map((attendance) => attendance.id)
     setSelectedAttendanceIds((prev) =>
       selectableIds.every((id) => prev.includes(id)) ? [] : selectableIds,
+    )
+  }
+
+  function toggleExpandedAttendanceRow(key: string) {
+    setExpandedAttendanceRows((prev) =>
+      prev.includes(key) ? prev.filter((currentKey) => currentKey !== key) : [...prev, key],
     )
   }
 
@@ -1094,6 +1158,8 @@ export default function AdminAttendance() {
               selectedAttendanceIds,
               toggleAllAttendancesSelection,
               toggleAttendanceSelection,
+              expandedAttendanceRows,
+              toggleExpandedAttendanceRow,
               setEditing,
               attendances.some((attendance) => !isIncidentRow(attendance)) &&
                 selectedAttendanceIds.length === attendances.filter((attendance) => !isIncidentRow(attendance)).length,
