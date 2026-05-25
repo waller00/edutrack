@@ -164,6 +164,12 @@ describe('AdminAttendance', () => {
     expect(rows[0].textContent).toMatch(/Presente/)
     expect(rows[0].textContent).toMatch(/Salida/)
     expect(rows[0].textContent).toMatch(/Entrada automática \/ Salida automática/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar detalle de eventos' }))
+
+    expect(screen.getByText('La misma permanencia cubre eventos contiguos.')).toBeInTheDocument()
+    expect(screen.getAllByText('Entrada').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Salida').length).toBeGreaterThan(0)
   })
 
   it('muestra entradas duplicadas como filas separadas para poder corregirlas', async () => {

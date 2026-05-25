@@ -4,6 +4,15 @@ import { attachRoleCode, selectOrgRoleCode } from '../../identity/user-role-pris
 import type { PlannedInstance, ResolvedAttendanceByInstance } from './models.js'
 import { toYmdUtc } from './dateRange.js'
 
+type AttendanceRow = Pick<Attendance, 'id' | 'userId' | 'eventId' | 'date' | 'time' | 'type' | 'status' | 'notes'>
+
+type AttendanceSpan = {
+  userId: string
+  plannedDate: string
+  checkIn: AttendanceRow
+  checkOut: AttendanceRow
+}
+
 function formatUserDisplayName(u: {
   name: string | null
   username: string | null
@@ -25,15 +34,99 @@ function normalizeAttendanceStatus(status: AttendanceStatus): ResolvedAttendance
   return status as any
 }
 
+function userDateKey(userId: string, plannedDate: string) {
+  return `${userId}_${plannedDate}`
+}
+
+function buildAttendanceSpans(attendances: AttendanceRow[]) {
+  const byUserDate = new Map<string, AttendanceRow[]>()
+  for (const att of attendances) {
+    const key = userDateKey(att.userId, toYmdUtc(att.date))
+    if (!byUserDate.has(key)) byUserDate.set(key, [])
+    byUserDate.get(key)!.push(att)
+  }
+
+  const spansByUserDate = new Map<string, AttendanceSpan[]>()
+  for (const [key, rows] of byUserDate) {
+    const sorted = [...rows].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    const spans: AttendanceSpan[] = []
+    let openCheckIn: AttendanceRow | null = null
+
+    for (const row of sorted) {
+      if (row.type === 'CHECK_IN') {
+        openCheckIn = row
+        continue
+      }
+      if (row.type === 'CHECK_OUT' && openCheckIn) {
+        spans.push({
+          userId: row.userId,
+          plannedDate: toYmdUtc(row.date),
+          checkIn: openCheckIn,
+          checkOut: row,
+        })
+        openCheckIn = null
+      }
+    }
+
+    spansByUserDate.set(key, spans)
+  }
+
+  return spansByUserDate
+}
+
+function findSpanCoveringPlannedInstance(planned: PlannedInstance, spansByUserDate: Map<string, AttendanceSpan[]>) {
+  if (!planned.userIdRequired || !planned.plannedStartTime || !planned.plannedEndTime) return null
+  const spans = spansByUserDate.get(userDateKey(planned.userIdRequired, planned.plannedDate)) ?? []
+  const plannedStart = new Date(planned.plannedStartTime).getTime()
+  const plannedEnd = new Date(planned.plannedEndTime).getTime()
+  return (
+    spans.find((span) => {
+      const actualIn = new Date(span.checkIn.time).getTime()
+      const actualOut = new Date(span.checkOut.time).getTime()
+      return actualIn <= plannedEnd && actualOut >= plannedStart
+    }) ?? null
+  )
+}
+
+function resolveDerivedCheckInStatus(params: {
+  attendance: AttendanceRow
+  plannedStartTime: Date | null
+}): ResolvedAttendanceByInstance['checkInStatusResolved'] {
+  if (params.plannedStartTime && new Date(params.attendance.time).getTime() <= new Date(params.plannedStartTime).getTime()) {
+    return 'PRESENT'
+  }
+  return normalizeAttendanceStatus(params.attendance.status as AttendanceStatus)
+}
+
+function resolveDerivedCheckOutStatus(params: {
+  attendance: AttendanceRow
+  plannedEndTime: Date | null
+}): ResolvedAttendanceByInstance['checkOutStatusResolved'] {
+  if (params.plannedEndTime && new Date(params.attendance.time).getTime() < new Date(params.plannedEndTime).getTime()) {
+    return 'EARLY_EXIT'
+  }
+  return 'EXIT'
+}
+
+function resolveInstanceDurationMinutes(params: {
+  actualInTime: Date | null
+  actualOutTime: Date | null
+  plannedStartTime: Date | null
+  plannedEndTime: Date | null
+}) {
+  if (!params.actualInTime || !params.actualOutTime) return 0
+  const start = params.plannedStartTime && params.actualInTime < params.plannedStartTime ? params.plannedStartTime : params.actualInTime
+  const end = params.plannedEndTime && params.actualOutTime > params.plannedEndTime ? params.plannedEndTime : params.actualOutTime
+  return clampNonNegativeMinutes(end.getTime() - start.getTime())
+}
+
 export async function resolveAttendanceAndJustification(params: {
   plannedInstances: PlannedInstance[]
 }) {
   const instances = params.plannedInstances
   const instanceByPlannedId = new Map(instances.map((i) => [i.plannedInstanceId, i]))
-  const plannedIds = instances.map((i) => i.plannedInstanceId)
 
   const userIds = Array.from(new Set(instances.map((i) => i.userIdRequired).filter(Boolean))) as string[]
-  const eventIds = Array.from(new Set(instances.map((i) => i.eventId))) as string[]
 
   if (instances.length === 0) {
     return [] as ResolvedAttendanceByInstance[]
@@ -42,7 +135,6 @@ export async function resolveAttendanceAndJustification(params: {
   const attendances = await prisma.attendance.findMany({
     where: {
       userId: { in: userIds },
-      eventId: { in: eventIds },
       date: {
         gte: new Date(`${instances[0].plannedDate}T00:00:00.000Z`),
         lte: new Date(`${instances[instances.length - 1].plannedDate}T23:59:59.999Z`),
@@ -96,8 +188,9 @@ export async function resolveAttendanceAndJustification(params: {
     licensesByUser.get(l.userId)!.push(l)
   }
 
-  const checkInByPlannedId = new Map<string, Attendance[]>()
-  const checkOutByPlannedId = new Map<string, Attendance[]>()
+  const checkInByPlannedId = new Map<string, AttendanceRow[]>()
+  const checkOutByPlannedId = new Map<string, AttendanceRow[]>()
+  const spansByUserDate = buildAttendanceSpans(attendances as AttendanceRow[])
 
   for (const att of attendances) {
     if (!att.eventId) continue
@@ -105,10 +198,10 @@ export async function resolveAttendanceAndJustification(params: {
     if (!instanceByPlannedId.has(plannedId)) continue
     if (att.type === 'CHECK_IN') {
       if (!checkInByPlannedId.has(plannedId)) checkInByPlannedId.set(plannedId, [])
-      checkInByPlannedId.get(plannedId)!.push(att as any)
+      checkInByPlannedId.get(plannedId)!.push(att as AttendanceRow)
     } else {
       if (!checkOutByPlannedId.has(plannedId)) checkOutByPlannedId.set(plannedId, [])
-      checkOutByPlannedId.get(plannedId)!.push(att as any)
+      checkOutByPlannedId.get(plannedId)!.push(att as AttendanceRow)
     }
   }
 
@@ -147,10 +240,14 @@ export async function resolveAttendanceAndJustification(params: {
       ? [...outArr].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0]
       : null
 
-    const actualInTime = selectedIn ? new Date(selectedIn.time) : null
+    const span = findSpanCoveringPlannedInstance(planned, spansByUserDate)
+    const effectiveIn = selectedIn ?? span?.checkIn ?? null
+    const effectiveOut = selectedOut ?? span?.checkOut ?? null
+
+    const actualInTime = effectiveIn ? new Date(effectiveIn.time) : null
     const plannedEnd = planned.plannedEndTime
-    const actualOutTime = selectedOut
-      ? new Date(selectedOut.time)
+    const actualOutTime = effectiveOut
+      ? new Date(effectiveOut.time)
       : plannedEnd
         ? new Date(plannedEnd)
         : null
@@ -158,6 +255,11 @@ export async function resolveAttendanceAndJustification(params: {
     let checkInStatusResolved: ResolvedAttendanceByInstance['checkInStatusResolved']
     if (selectedIn) {
       checkInStatusResolved = normalizeAttendanceStatus(selectedIn.status as AttendanceStatus)
+    } else if (span?.checkIn) {
+      checkInStatusResolved = resolveDerivedCheckInStatus({
+        attendance: span.checkIn,
+        plannedStartTime: planned.plannedStartTime,
+      })
     } else {
       checkInStatusResolved = (isJustifiedAbsence ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED') as any
     }
@@ -165,6 +267,11 @@ export async function resolveAttendanceAndJustification(params: {
     let checkOutStatusResolved: ResolvedAttendanceByInstance['checkOutStatusResolved']
     if (selectedOut) {
       checkOutStatusResolved = normalizeAttendanceStatus(selectedOut.status as AttendanceStatus) as any
+    } else if (span?.checkOut) {
+      checkOutStatusResolved = resolveDerivedCheckOutStatus({
+        attendance: span.checkOut,
+        plannedEndTime: planned.plannedEndTime,
+      })
     } else if (checkInStatusResolved === 'ABSENT_JUSTIFIED' || checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED') {
       checkOutStatusResolved = checkInStatusResolved
     } else {
@@ -172,21 +279,26 @@ export async function resolveAttendanceAndJustification(params: {
       checkOutStatusResolved = planned.plannedEndTime ? 'EXIT' : 'PRESENT'
     }
 
-    const durationMinutes = actualInTime && actualOutTime ? clampNonNegativeMinutes(actualOutTime.getTime() - actualInTime.getTime()) : 0
+    const durationMinutes = resolveInstanceDurationMinutes({
+      actualInTime,
+      actualOutTime,
+      plannedStartTime: planned.plannedStartTime,
+      plannedEndTime: planned.plannedEndTime,
+    })
 
     resolved.push({
       planned,
       checkInStatusResolved,
       checkOutStatusResolved,
-      hasCheckIn: Boolean(selectedIn),
-      hasCheckOut: Boolean(selectedOut),
+      hasCheckIn: Boolean(effectiveIn),
+      hasCheckOut: Boolean(effectiveOut),
       actualInTime,
       actualOutTime,
       durationMinutes,
       isJustifiedAbsence,
       licenseIdJustifying,
-      checkInNotes: selectedIn?.notes ?? null,
-      checkOutNotes: selectedOut?.notes ?? null,
+      checkInNotes: effectiveIn?.notes ?? null,
+      checkOutNotes: effectiveOut?.notes ?? null,
       userDisplayName,
       userRole,
       userEmail,
