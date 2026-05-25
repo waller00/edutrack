@@ -128,6 +128,13 @@ function formatTimeLabel(at?: Date | string | null) {
   return DateTime.fromJSDate(new Date(at), { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('HH:mm')
 }
 
+/** Proyecta la hora civil al día filtrado para ordenar bloques de clase/puente en cronología diaria. */
+function timelineSortInstantOnDay(dayYmd: string, at?: Date | string | null) {
+  if (!at) return uruguayWallToUtc(dayYmd, 0, 0)
+  const wall = DateTime.fromJSDate(new Date(at), { zone: 'utc' }).setZone(APP_TIMEZONE)
+  return uruguayWallToUtc(dayYmd, wall.hour, wall.minute)
+}
+
 function timelineStatusLabel(status: string) {
   const labels: Record<string, string> = {
     REGISTERED: 'Registrado',
@@ -241,7 +248,7 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
     items.push({
       id: `class:${row.planned.plannedInstanceId}`,
       time: formatTimeLabel(start),
-      sortTime: new Date(start).toISOString(),
+      sortTime: timelineSortInstantOnDay(date, start).toISOString(),
       type,
       status,
       title: `${classTitle} - ${teacher?.name || row.userDisplayName}`,
@@ -261,7 +268,7 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
       items.push({
         id: `early-exit:${row.planned.plannedInstanceId}`,
         time: formatTimeLabel(at),
-        sortTime: new Date(at).toISOString(),
+        sortTime: timelineSortInstantOnDay(date, at).toISOString(),
         type: 'EARLY_EXIT',
         status: 'EARLY_EXIT',
         title: `${teacher?.name || row.userDisplayName} registró retiro anticipado`,
@@ -296,7 +303,7 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
       items.push({
         id: `bridge:${current.planned.plannedInstanceId}:${next.planned.plannedInstanceId}`,
         time: formatTimeLabel(current.planned.plannedEndTime),
-        sortTime: current.planned.plannedEndTime.toISOString(),
+        sortTime: timelineSortInstantOnDay(date, current.planned.plannedEndTime).toISOString(),
         type: 'FREE_BRIDGE',
         status: 'FREE',
         title: `${teacher?.name || current.userDisplayName} tiene puente libre`,
@@ -404,7 +411,7 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
     items.push({
       id: `suspended:${event.id}`,
       time: formatTimeLabel(event.startTime),
-      sortTime: new Date(event.startTime || dayStart).toISOString(),
+      sortTime: timelineSortInstantOnDay(date, event.startTime || dayStart).toISOString(),
       type: 'SUSPENDED_CLASS',
       status: 'SUSPENDED',
       title: `${subjectCourseTitle({ title: event.title, subject: event.subject, course })} - clase suspendida`,
@@ -470,7 +477,7 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
     items.push({
       id: `substitution:${row.id}`,
       time: formatTimeLabel(row.startTime),
-      sortTime: new Date(row.startTime).toISOString(),
+      sortTime: timelineSortInstantOnDay(date, row.startTime).toISOString(),
       type: 'SUBSTITUTION',
       status: 'SUBSTITUTED',
       title: `${teacher.name} cubre ${row.subjectName || row.eventTitle}`,
