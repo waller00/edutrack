@@ -13,8 +13,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build || npx tsc
-# Eliminamos las dependencias de desarrollo para que no pesen en la imagen final
-RUN npm prune --production
+# Conservamos dependencias de desarrollo en testing para poder ejecutar seeds TS con `npm run seed:*`.
 
 # STAGE 3: Imagen de producción final
 FROM node:20-bookworm-slim AS runner
