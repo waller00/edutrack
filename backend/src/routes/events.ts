@@ -65,7 +65,7 @@ async function assertCourseOfferedInSchoolYear(
   schoolYearId: string,
 ): Promise<{ id: string; schoolYearId: string; courseId: string } | null> {
   const offering = await (prisma as any).courseOffering?.findFirst?.({
-    where: { courseId, schoolYearId, isActive: true, course: { isActive: true } },
+    where: { courseId, schoolYearId, isActive: true, isOffered: true, visibleInFilters: true, course: { isActive: true } },
     select: { id: true, courseId: true, schoolYearId: true },
   })
   if (offering) return offering
@@ -100,6 +100,8 @@ async function assertActiveSubjectInCourse(
         courseAssignments: {
           some: {
             isActive: true,
+            isOffered: true,
+            visibleInFilters: true,
             AND: [
               { OR: assignmentScopes },
               ...(schoolYearId ? [{ OR: [{ schoolYearId }, { schoolYearId: null }] }] : []),
@@ -264,6 +266,8 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
         where: {
           id: resolvedCourseOrientationId,
           isActive: true,
+          isOffered: true,
+          visibleInFilters: true,
           course: { isActive: true },
           orientation: { isActive: true },
           ...(eventData.courseId ? { courseId: eventData.courseId } : {}),
@@ -279,6 +283,8 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
           courseId: eventData.courseId,
           orientationId: resolvedOrientationId,
           isActive: true,
+          isOffered: true,
+          visibleInFilters: true,
           orientation: { isActive: true },
           OR: [{ schoolYearId: resolvedSchoolYearId }, { schoolYearId: null }],
         },
@@ -928,6 +934,8 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
           where: {
             id: parsed.data.courseOrientationId,
             isActive: true,
+            isOffered: true,
+            visibleInFilters: true,
             orientation: { isActive: true },
             ...(finalCourseId ? { courseId: finalCourseId } : {}),
             ...(updateData.schoolYearId || existingEvent.schoolYearId
@@ -955,6 +963,8 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
             courseId: finalCourseId,
             orientationId: parsed.data.orientationId,
             isActive: true,
+            isOffered: true,
+            visibleInFilters: true,
             orientation: { isActive: true },
             ...(updateData.schoolYearId || existingEvent.schoolYearId
               ? { OR: [{ schoolYearId: updateData.schoolYearId ?? existingEvent.schoolYearId }, { schoolYearId: null }] }

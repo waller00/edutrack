@@ -1,5 +1,5 @@
 /**
- * Borra operativos y recarga seed principal. Docker/local: delega en seed-clean.ts.
+ * Borra datos anteriores y recarga seed principal. Docker/local: delega en seed-clean.ts.
  */
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'

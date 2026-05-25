@@ -1,5 +1,5 @@
 /**
- * Borra datos operativos y vuelve a cargar catálogo académico DGES + admin.
+ * Borra datos anteriores y vuelve a cargar catálogo académico DGES + admin + docentes.
  *
  *   npm run seed:clean
  */
@@ -12,7 +12,7 @@ import { prisma } from '../src/db/prisma.js'
 const backendRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 async function wipeOperationalData() {
-  console.log('[seed:clean] Borrando datos operativos…')
+  console.log('[seed:clean] Borrando datos anteriores…')
   await prisma.attendanceIncident.deleteMany()
   await prisma.biometricPunch.deleteMany()
   await prisma.attendance.deleteMany()
@@ -53,7 +53,7 @@ async function main() {
   await wipeOperationalData()
   await prisma.$disconnect()
 
-  console.log('[seed:clean] Recargando seed principal (catálogo + admin)…')
+  console.log('[seed:clean] Recargando seed principal (catálogo + admin + docentes)…')
   const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   const r = spawnSync(cmd, ['tsx', 'prisma/seed.ts'], {
     cwd: backendRoot,

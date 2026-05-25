@@ -50,6 +50,7 @@ const subjectAssociationTypeSchema = z.enum([
   'CURSO_COMPLETO',
   'TRONCO_COMUN_CURSO',
   'ORIENTACION',
+  'OPTATIVA',
   'PERSONALIZADA',
 ])
 
@@ -106,6 +107,8 @@ function serializeCourse(course: any) {
     schoolYearId: course.offerings?.[0]?.schoolYearId ?? null,
     courseOfferingId: course.offerings?.[0]?.id ?? null,
     offeringIsActive: course.offerings?.[0]?.isActive ?? null,
+    offeringIsOffered: course.offerings?.[0]?.isOffered ?? null,
+    visibleInFilters: course.offerings?.[0]?.visibleInFilters ?? null,
     offeringNotes: course.offerings?.[0]?.notes ?? null,
   }
 }
@@ -127,7 +130,12 @@ async function findCourseVisibleToUser(
   const where: any = { id: courseId }
   if (!includeInactive) where.isActive = true
   if (schoolYearId && !includeNotOffered) {
-    where.offerings = { some: { schoolYearId, ...(includeInactive ? {} : { isActive: true }) } }
+    where.offerings = {
+      some: {
+        schoolYearId,
+        ...(includeInactive ? {} : { isActive: true, isOffered: true, visibleInFilters: true }),
+      },
+    }
   }
   return prisma.course.findFirst({ where, select: { id: true } })
 }
@@ -210,7 +218,12 @@ r.get('/', authGuard, requireAnyRoleOrPermission(['ADMIN', 'STAFF', 'TEACHER'], 
     const where: any = {}
     if (!includeInactive) where.isActive = true
     if (schoolYearId && !includeNotOffered) {
-      where.offerings = { some: { schoolYearId, ...(includeInactive ? {} : { isActive: true }) } }
+      where.offerings = {
+        some: {
+          schoolYearId,
+          ...(includeInactive ? {} : { isActive: true, isOffered: true, visibleInFilters: true }),
+        },
+      }
     }
     const list = await (prisma as any).course.findMany({
       where,
@@ -223,8 +236,8 @@ r.get('/', authGuard, requireAnyRoleOrPermission(['ADMIN', 'STAFF', 'TEACHER'], 
         description: true,
         isActive: true,
         offerings: schoolYearId
-          ? { where: { schoolYearId }, select: { id: true, isActive: true, schoolYearId: true, notes: true }, take: 1 }
-          : { select: { id: true, isActive: true, schoolYearId: true, notes: true }, take: 1 },
+          ? { where: { schoolYearId }, select: { id: true, isActive: true, isOffered: true, visibleInFilters: true, schoolYearId: true, notes: true }, take: 1 }
+          : { select: { id: true, isActive: true, isOffered: true, visibleInFilters: true, schoolYearId: true, notes: true }, take: 1 },
       } as any,
       orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
     })
@@ -306,9 +319,19 @@ r.post('/', authGuard, requirePermission('courses.manage', 'all'), async (req, r
       if (!schoolYearId) return serializeCourse({ ...course, offerings: [] })
       const offering = await (tx as any).courseOffering.upsert({
         where: { courseId_schoolYearId: { courseId: course.id, schoolYearId } },
-        update: { isActive: parsed.data.offeringIsActive ?? isActive },
-        create: { courseId: course.id, schoolYearId, isActive: parsed.data.offeringIsActive ?? isActive },
-        select: { id: true, schoolYearId: true, isActive: true, notes: true },
+        update: {
+          isActive: parsed.data.offeringIsActive ?? isActive,
+          isOffered: parsed.data.offeringIsActive ?? isActive,
+          visibleInFilters: parsed.data.offeringIsActive ?? isActive,
+        },
+        create: {
+          courseId: course.id,
+          schoolYearId,
+          isActive: parsed.data.offeringIsActive ?? isActive,
+          isOffered: parsed.data.offeringIsActive ?? isActive,
+          visibleInFilters: parsed.data.offeringIsActive ?? isActive,
+        },
+        select: { id: true, schoolYearId: true, isActive: true, isOffered: true, visibleInFilters: true, notes: true },
       })
       return serializeCourse({ ...course, offerings: [offering] })
     })
@@ -361,9 +384,10 @@ r.put('/:courseId', authGuard, requirePermission('courses.manage', 'all'), async
         where: { courseId_schoolYearId: { courseId: course.id, schoolYearId: requestedSchoolYearId } },
         data: {
           ...(desiredOfferingActive !== undefined ? { isActive: desiredOfferingActive } : {}),
+          ...(desiredOfferingActive !== undefined ? { isOffered: desiredOfferingActive, visibleInFilters: desiredOfferingActive } : {}),
           ...(data.offeringNotes !== undefined ? { notes: data.offeringNotes } : {}),
         },
-        select: { id: true, schoolYearId: true, isActive: true, notes: true },
+        select: { id: true, schoolYearId: true, isActive: true, isOffered: true, visibleInFilters: true, notes: true },
       })
     }
     res.json(serializeCourse({ ...updated, offerings: offering ? [offering] : [] }))
@@ -389,7 +413,7 @@ r.delete('/:courseId', authGuard, requirePermission('courses.manage', 'all'), as
       await ensureCourseOffering(prisma, course.id, requestedSchoolYearId)
       await (prisma as any).courseOffering.update({
         where: { courseId_schoolYearId: { courseId: course.id, schoolYearId: requestedSchoolYearId } },
-        data: { isActive: false },
+        data: { isActive: false, isOffered: false, visibleInFilters: false },
       })
     } else {
       await (prisma as any).course.update({ where: { id: course.id }, data: { isActive: false } })
@@ -419,7 +443,7 @@ r.get('/:courseId/orientations', authGuard, requireAnyRoleOrPermission(['ADMIN',
         })
     const where: any = {
       courseId: course.id,
-      ...(includeInactive ? {} : { isActive: true, orientation: { isActive: true } }),
+      ...(includeInactive ? {} : { isActive: true, isOffered: true, visibleInFilters: true, orientation: { isActive: true } }),
     }
     if (schoolYearId) where.OR = [{ schoolYearId }, { schoolYearId: null }]
     const rows = await (prisma as any).courseOrientation.findMany({
@@ -431,6 +455,8 @@ r.get('/:courseId/orientations', authGuard, requireAnyRoleOrPermission(['ADMIN',
         orientationId: true,
         schoolYearId: true,
         isActive: true,
+        isOffered: true,
+        visibleInFilters: true,
         notes: true,
         orientation: { select: { id: true, name: true, code: true, description: true, isActive: true, sortOrder: true } },
       },
@@ -471,13 +497,20 @@ r.post('/:courseId/orientations', authGuard, requirePermission('courses.manage',
       orientationId: true,
       schoolYearId: true,
       isActive: true,
+      isOffered: true,
+      visibleInFilters: true,
       notes: true,
       orientation: { select: { id: true, name: true, code: true, description: true, isActive: true, sortOrder: true } },
     }
     const row = existing
       ? await (prisma as any).courseOrientation.update({
           where: { id: existing.id },
-          data: { isActive: parsed.data.isActive, notes: parsed.data.notes ?? null },
+          data: {
+            isActive: parsed.data.isActive,
+            isOffered: parsed.data.isActive,
+            visibleInFilters: parsed.data.isActive,
+            notes: parsed.data.notes ?? null,
+          },
           select,
         })
       : await (prisma as any).courseOrientation.create({
@@ -486,6 +519,8 @@ r.post('/:courseId/orientations', authGuard, requirePermission('courses.manage',
             orientationId: parsed.data.orientationId,
             schoolYearId: schoolYearId ?? null,
             isActive: parsed.data.isActive,
+            isOffered: parsed.data.isActive,
+            visibleInFilters: parsed.data.isActive,
             notes: parsed.data.notes ?? null,
           },
           select,
@@ -531,7 +566,7 @@ r.get('/:courseId/subjects', authGuard, requireAnyRoleOrPermission(['ADMIN', 'ST
         {
           courseAssignments: {
             some: {
-              ...(showInactive ? {} : { isActive: true }),
+              ...(showInactive ? {} : { isActive: true, isOffered: true, visibleInFilters: true }),
               AND: [
                 { OR: assignmentScope },
                 ...(schoolYearId ? [{ OR: [{ schoolYearId }, { schoolYearId: null }] }] : []),
@@ -564,7 +599,7 @@ r.get('/:courseId/subjects', authGuard, requireAnyRoleOrPermission(['ADMIN', 'ST
               ...(schoolYearId ? [{ OR: [{ schoolYearId }, { schoolYearId: null }] }] : []),
             ],
           },
-          select: { id: true, associationType: true, orientationId: true, schoolYearId: true, isActive: true },
+          select: { id: true, associationType: true, orientationId: true, schoolYearId: true, isActive: true, isOffered: true, visibleInFilters: true },
           take: 1,
         },
         createdAt: true,
@@ -578,6 +613,8 @@ r.get('/:courseId/subjects', authGuard, requireAnyRoleOrPermission(['ADMIN', 'ST
       associationType: subject.courseAssignments?.[0]?.associationType ?? 'CURSO_COMPLETO',
       orientationId: subject.courseAssignments?.[0]?.orientationId ?? null,
       assignmentIsActive: subject.courseAssignments?.[0]?.isActive ?? null,
+      assignmentIsOffered: subject.courseAssignments?.[0]?.isOffered ?? null,
+      visibleInFilters: subject.courseAssignments?.[0]?.visibleInFilters ?? null,
     })))
   } catch (e) {
     console.error('Error listando asignaturas:', e)
@@ -643,6 +680,8 @@ r.post('/:courseId/subjects', authGuard, requirePermission('courses.manage', 'al
         subjectId: subject.id,
         associationType,
         isActive: parsed.data.isActive,
+        isOffered: parsed.data.isActive,
+        visibleInFilters: parsed.data.isActive,
         sortOrder: parsed.data.sortOrder,
       }
       if (associationType === 'NIVEL_COMPLETO') {
@@ -739,6 +778,7 @@ r.put('/:courseId/subjects/:subjectId', authGuard, requirePermission('courses.ma
           data: {
             ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
             ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+            ...(data.isActive !== undefined ? { isOffered: data.isActive, visibleInFilters: data.isActive } : {}),
             ...(data.associationType !== undefined ? { associationType: data.associationType } : {}),
             ...(data.orientationId !== undefined ? { orientationId: data.orientationId } : {}),
           },
@@ -783,7 +823,7 @@ r.delete('/:courseId/subjects/:subjectId', authGuard, requirePermission('courses
     if (existing.courseAssignments?.length) {
       await (prisma as any).subjectCourseAssignment.updateMany({
         where: { id: { in: existing.courseAssignments.map((a: any) => a.id) } },
-        data: { isActive: false },
+        data: { isActive: false, isOffered: false, visibleInFilters: false },
       })
     } else {
       await (prisma.subject as any).update({ where: { id: existing.id }, data: { isActive: false } })

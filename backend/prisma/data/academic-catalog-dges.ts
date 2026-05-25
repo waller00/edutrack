@@ -42,12 +42,12 @@ export const ACADEMIC_LEVEL_LABELS: Record<AcademicLevelCode, string> = {
 }
 
 export const CATALOG_COURSES: readonly CatalogCourse[] = [
-  { code: '7-EBI', name: '7 EBI', level: 'EBI', sortOrder: 70 },
-  { code: '8-EBI', name: '8 EBI', level: 'EBI', sortOrder: 80 },
-  { code: '9-EBI', name: '9 EBI', level: 'EBI', sortOrder: 90 },
-  { code: '1-EMS', name: '1 EMS', level: 'EMS', sortOrder: 110 },
-  { code: '2-EMS', name: '2 EMS', level: 'EMS', sortOrder: 120 },
-  { code: '3-EMS', name: '3 EMS', level: 'EMS', sortOrder: 130 },
+  { code: '7-EBI', name: '7 EBI', level: 'EBI', sortOrder: 1 },
+  { code: '8-EBI', name: '8 EBI', level: 'EBI', sortOrder: 2 },
+  { code: '9-EBI', name: '9 EBI', level: 'EBI', sortOrder: 3 },
+  { code: '1-EMS', name: '1 EMS', level: 'EMS', sortOrder: 4 },
+  { code: '2-EMS', name: '2 EMS', level: 'EMS', sortOrder: 5 },
+  { code: '3-EMS', name: '3 EMS', level: 'EMS', sortOrder: 6 },
 ] as const
 
 export const CATALOG_ORIENTATIONS: readonly CatalogOrientation[] = [
@@ -72,6 +72,7 @@ const OPTATIVAS_1_EMS = [
   'Patrimonio, Identidad y Diversidad Local',
   'Educación Musical',
   'Lenguaje Audiovisual',
+  'DESEM',
 ] as const
 
 const OPTATIVAS_2_3_EMS = [
@@ -274,9 +275,9 @@ export const SCHOOL_YEAR_OFFERS: Readonly<Record<number, SchoolYearOfferConfig>>
 
 /** Ciclos lectivos a crear junto al catálogo (el activo operativo por defecto es 2026). */
 export const BOOTSTRAP_SCHOOL_YEARS = [
+  { code: 2024, label: 'Ciclo lectivo 2024', status: 'CLOSED' as const },
   { code: 2025, label: 'Ciclo lectivo 2025', status: 'CLOSED' as const },
   { code: 2026, label: 'Ciclo lectivo 2026', status: 'ACTIVE' as const },
-  { code: 2027, label: 'Ciclo lectivo 2027', status: 'PLANNED' as const },
 ]
 
 export function subjectCodeFromName(name: string): string {
