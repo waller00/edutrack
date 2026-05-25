@@ -53,10 +53,12 @@ describe('Home page', () => {
 
     render(<Home />)
 
-    expect(await screen.findByText('Cronología de asistencia')).toBeInTheDocument()
+    expect(await screen.findByText('Inicio operativo')).toBeInTheDocument()
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
     expect(screen.getByText('Eventos')).toBeInTheDocument()
-    expect(await screen.findByText(/No hay eventos de asistencia/i)).toBeInTheDocument()
+    expect(await screen.findByText(/No hay incidencias relevantes/i)).toBeInTheDocument()
+    expect(screen.getByText(/No hay clases para mostrar/i)).toBeInTheDocument()
+    expect(screen.getByText(/No hay actividad relevante/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /reenviar correo/i }))
 
@@ -91,7 +93,10 @@ describe('Home page', () => {
           teachers: [{ id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' }],
           groups: [{ id: 'g1', name: '1°A' }],
           statuses: [{ value: 'PRESENT', label: 'Presente' }],
-          types: [{ value: 'CLASS_ATTENDANCE', label: 'Clase' }],
+          types: [
+            { value: 'CLASS_ATTENDANCE', label: 'Clase' },
+            { value: 'FREE_BRIDGE', label: 'Puente libre' },
+          ],
         },
         items: [
           {
@@ -119,6 +124,18 @@ describe('Home page', () => {
             event: { id: 'ev-1', title: 'Matemática' },
           },
           {
+            id: 'bridge:ev-1:ev-3',
+            time: '09:30',
+            type: 'FREE_BRIDGE',
+            status: 'FREE',
+            statusLabel: 'Libre',
+            title: 'Jorge Daniel Marrero Peiran tiene puente libre',
+            detail: 'Hasta 10:15',
+            teacher: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            group: null,
+            event: null,
+          },
+          {
             id: 'absence:ev-2_2026-05-24',
             time: '12:00',
             type: 'PENDING_ABSENCE',
@@ -135,12 +152,19 @@ describe('Home page', () => {
 
     render(<Home />)
 
-    expect(await screen.findByText('Cronología de asistencia')).toBeInTheDocument()
+    expect(await screen.findByText('Inicio operativo')).toBeInTheDocument()
     expect(screen.getByText('Docentes esperados hoy')).toBeInTheDocument()
-    expect(screen.getByText('Matemática 1°A - Jorge Daniel Marrero Peiran')).toBeInTheDocument()
+    expect(screen.getByText('Incidencias de hoy')).toBeInTheDocument()
+    expect(screen.getByText('Clases en curso y próximas')).toBeInTheDocument()
+    expect(screen.getByText('Actividad reciente')).toBeInTheDocument()
+    expect(screen.getAllByText('Matemática 1°A')[0]).toBeInTheDocument()
     expect(screen.getByText('Jorge Daniel Marrero Peiran registró entrada por huella')).toBeInTheDocument()
-    expect(screen.getByText('Historia 2°B - Carlos Silva')).toBeInTheDocument()
-    expect(screen.getByText('Pendiente')).toBeInTheDocument()
+    expect(screen.getAllByText('Hay una ausencia pendiente de justificar: Historia 2°B')[0]).toBeInTheDocument()
+    expect(screen.getAllByText('Pendiente')[0]).toBeInTheDocument()
+    expect(screen.queryByText('Jorge Daniel Marrero Peiran tiene puente libre')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /ver bloques libres/i }))
+    expect(screen.getByText('Jorge Daniel Marrero Peiran tiene puente libre')).toBeInTheDocument()
   })
 
   it('shows the profile completion state instead of role sections', async () => {
