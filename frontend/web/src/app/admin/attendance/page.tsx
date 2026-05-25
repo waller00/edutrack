@@ -94,6 +94,10 @@ type AttendancePairRow = {
   key: string
   user: AttendanceRecord['user']
   event?: AttendanceRecord['event']
+  eventSummary?: {
+    title: string
+    type: string
+  }
   dateTime: string
   checkIn?: AttendanceRecord
   checkOut?: AttendanceRecord
@@ -102,19 +106,33 @@ type AttendancePairRow = {
 
 type AttendanceGroup = {
   user: AttendanceRecord['user']
-  event?: AttendanceRecord['event']
-  checkIns: AttendanceRecord[]
-  checkOuts: AttendanceRecord[]
+  attendances: AttendanceRecord[]
 }
 
 function isIncidentRow(attendance: AttendanceRecord): boolean {
   return attendance.type === 'INCIDENT' || attendance.id.startsWith('incident:')
 }
 
-function getAttendanceGroupKey(attendance: AttendanceRecord): string {
-  const eventKey = attendance.event?.id ?? 'sin-evento'
+function getAttendanceDayGroupKey(attendance: AttendanceRecord): string {
   const dateKey = attendance.date ? attendance.date.slice(0, 10) : attendance.time.slice(0, 10)
-  return `${attendance.user.id}:${eventKey}:${dateKey}`
+  return `${attendance.user.id}:${dateKey}`
+}
+
+function summarizeRowEvent(row: Pick<AttendancePairRow, 'checkIn' | 'checkOut' | 'incident' | 'event'>) {
+  const incidentEvent = row.incident?.event
+  if (incidentEvent) return { title: incidentEvent.title, type: incidentEvent.type }
+
+  const entryEvent = row.checkIn?.event
+  const exitEvent = row.checkOut?.event
+  const first = entryEvent ?? exitEvent ?? row.event
+  const second = entryEvent && exitEvent && entryEvent.id !== exitEvent.id ? exitEvent : null
+
+  if (!first) return undefined
+
+  return {
+    title: second ? `${first.title} → ${second.title}` : first.title,
+    type: second && first.type !== second.type ? `${first.type} / ${second.type}` : first.type,
+  }
 }
 
 function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePairRow[] {
@@ -127,51 +145,69 @@ function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePai
         key: attendance.id,
         user: attendance.user,
         event: attendance.event,
+        eventSummary: summarizeRowEvent({ incident: attendance }),
         dateTime: attendance.time,
         incident: attendance,
       })
       continue
     }
 
-    const key = getAttendanceGroupKey(attendance)
+    const key = getAttendanceDayGroupKey(attendance)
     const group = groups.get(key) ?? {
       user: attendance.user,
-      event: attendance.event,
-      checkIns: [],
-      checkOuts: [],
+      attendances: [],
     }
-
-    if (attendance.type === 'CHECK_IN') {
-      group.checkIns.push(attendance)
-    } else if (attendance.type === 'CHECK_OUT') {
-      group.checkOuts.push(attendance)
-    }
-
+    group.attendances.push(attendance)
     groups.set(key, group)
   }
 
   const rows = [...incidentRows]
   for (const [key, group] of groups) {
-    const checkIns = group.checkIns.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-    const checkOuts = group.checkOuts.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-    const rowCount = Math.max(checkIns.length, checkOuts.length, 1)
+    const dayRows: AttendancePairRow[] = []
+    const openRows: AttendancePairRow[] = []
+    const ordered = [...group.attendances].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
 
-    for (let i = 0; i < rowCount; i++) {
-      const checkIn = checkIns[i]
-      const checkOut = checkOuts[i]
-      const dateTime = [checkIn?.time, checkOut?.time]
-        .filter((time): time is string => Boolean(time))
-        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? new Date(0).toISOString()
+    for (const attendance of ordered) {
+      if (attendance.type === 'CHECK_IN') {
+        const row: AttendancePairRow = {
+          key: `${key}:in:${attendance.id}`,
+          user: group.user,
+          event: attendance.event,
+          eventSummary: summarizeRowEvent({ checkIn: attendance }),
+          dateTime: attendance.time,
+          checkIn: attendance,
+        }
+        dayRows.push(row)
+        openRows.push(row)
+        continue
+      }
 
-      rows.push({
-        key: `${key}:${i}`,
-        user: group.user,
-        event: group.event,
-        dateTime,
-        checkIn,
-        checkOut,
+      const attendanceTime = new Date(attendance.time).getTime()
+      const openRow = openRows.find((row) => {
+        if (!row.checkIn || row.checkOut) return false
+        return new Date(row.checkIn.time).getTime() <= attendanceTime
       })
+
+      if (openRow) {
+        openRow.checkOut = attendance
+        openRow.dateTime = attendance.time
+        openRow.event = openRow.checkIn?.event ?? attendance.event
+        openRow.eventSummary = summarizeRowEvent(openRow)
+        continue
+      }
+
+      const row: AttendancePairRow = {
+        key: `${key}:out:${attendance.id}`,
+        user: group.user,
+        event: attendance.event,
+        eventSummary: summarizeRowEvent({ checkOut: attendance }),
+        dateTime: attendance.time,
+        checkOut: attendance,
+      }
+      dayRows.push(row)
     }
+
+    rows.push(...dayRows)
   }
 
   return rows.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
@@ -295,10 +331,10 @@ function renderAttendancesTable(
                   ) : renderAttendanceMark(row.checkOut, 'Sin salida', onEdit)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {row.event ? (
+                  {row.eventSummary ? (
                     <div>
-                      <div className="font-medium">{row.event.title}</div>
-                      <div className="text-xs text-gray-500">{row.event.type}</div>
+                      <div className="font-medium">{row.eventSummary.title}</div>
+                      <div className="text-xs text-gray-500">{row.eventSummary.type}</div>
                     </div>
                   ) : (
                     <span className="text-gray-400">Sin evento</span>
