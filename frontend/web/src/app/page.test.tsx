@@ -55,7 +55,7 @@ describe('Home page', () => {
 
     expect(await screen.findByText('Inicio operativo')).toBeInTheDocument()
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
-    expect(screen.getByText('Eventos')).toBeInTheDocument()
+    expect(screen.getByText('Agenda')).toBeInTheDocument()
     expect(await screen.findByText(/No hay incidencias relevantes/i)).toBeInTheDocument()
     expect(screen.getByText(/No hay clases para mostrar/i)).toBeInTheDocument()
     expect(screen.getByText(/No hay actividad relevante/i)).toBeInTheDocument()
@@ -94,8 +94,11 @@ describe('Home page', () => {
           groups: [{ id: 'g1', name: '1°A' }],
           statuses: [{ value: 'PRESENT', label: 'Presente' }],
           types: [
+            { value: 'BIOMETRIC_ENTRY', label: 'Entrada por huella' },
+            { value: 'BIOMETRIC_EXIT', label: 'Salida por huella' },
             { value: 'CLASS_ATTENDANCE', label: 'Clase' },
-            { value: 'FREE_BRIDGE', label: 'Puente libre' },
+            { value: 'SUBSTITUTION', label: 'Suplencia' },
+            { value: 'JUSTIFICATION', label: 'Justificación' },
           ],
         },
         items: [
@@ -162,6 +165,8 @@ describe('Home page', () => {
     expect(screen.getAllByText('Hay una ausencia pendiente de justificar: Historia 2°B')[0]).toBeInTheDocument()
     expect(screen.getAllByText('Pendiente')[0]).toBeInTheDocument()
     expect(screen.queryByText('Jorge Daniel Marrero Peiran tiene puente libre')).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Todos los movimientos' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Puente libre' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('checkbox', { name: /ver bloques libres/i }))
     expect(screen.getByText('Jorge Daniel Marrero Peiran tiene puente libre')).toBeInTheDocument()

@@ -215,8 +215,8 @@ export default function AdminSchoolYearsPage() {
 
   return (
     <RoleGuard permission="school-years.manage">
-      <main className="responsive-page max-w-6xl space-y-8">
-        <header className="space-y-2 border-b border-gray-200 pb-6">
+      <main className="responsive-page max-w-[1600px] space-y-4">
+        <header className="space-y-2 border-b border-gray-200 pb-4">
           <div className="flex flex-wrap items-center gap-2 text-emerald-800">
             <CalendarRange className="h-6 w-6" aria-hidden />
             <h1 className="text-2xl font-bold text-gray-950">Ciclos lectivos</h1>
@@ -255,26 +255,42 @@ export default function AdminSchoolYearsPage() {
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[820px] text-left text-sm">
+            <table className="w-full min-w-[900px] table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-[8%]" />
+                <col className="w-[22%]" />
+                <col className="w-[12%]" />
+                <col className="w-[12%]" />
+                <col className="w-[18%]" />
+                <col className="w-[8%]" />
+                <col className="w-[20%]" />
+              </colgroup>
               <thead className="border-b border-gray-100 bg-gray-50/80 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <tr>
-                  <th className="px-4 py-3 sm:px-5">Año</th>
-                  <th className="px-4 py-3 sm:px-5">Etiqueta</th>
-                  <th className="px-4 py-3 sm:px-5">Inicio</th>
-                  <th className="px-4 py-3 sm:px-5">Fin</th>
-                  <th className="px-4 py-3 sm:px-5">Estado</th>
-                  <th className="px-4 py-3 text-right tabular-nums sm:px-5">Cursos</th>
-                  <th className="px-4 py-3 text-right sm:px-5">Acciones</th>
+                  <th className="px-4 py-2.5 sm:px-5">Año</th>
+                  <th className="px-4 py-2.5 sm:px-5">Etiqueta</th>
+                  <th className="px-4 py-2.5 sm:px-5">Inicio</th>
+                  <th className="px-4 py-2.5 sm:px-5">Fin</th>
+                  <th className="px-4 py-2.5 sm:px-5">Estado</th>
+                  <th className="px-4 py-2.5 text-right tabular-nums sm:px-5">Cursos</th>
+                  <th className="px-4 py-2.5 text-right sm:px-5">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {sortedYears.map((y) => (
+                {sortedYears.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-5 text-center text-sm text-gray-500 sm:px-5">
+                      No hay ciclos cargados.
+                    </td>
+                  </tr>
+                ) : (
+                sortedYears.map((y) => (
                   <tr key={y.id} className="hover:bg-gray-50/80">
-                    <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900 sm:px-5">{y.code}</td>
-                    <td className="max-w-[200px] truncate px-4 py-3 text-gray-800 sm:max-w-xs sm:px-5">{y.label}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-600 sm:px-5">{toInputDate(y.startsOn) || '—'}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-600 sm:px-5">{toInputDate(y.endsOn) || '—'}</td>
-                    <td className="px-4 py-3 sm:px-5">
+                    <td className="whitespace-nowrap px-4 py-2.5 font-medium text-gray-900 sm:px-5">{y.code}</td>
+                    <td className="truncate px-4 py-2.5 text-gray-800 sm:px-5">{y.label}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-gray-600 sm:px-5">{toInputDate(y.startsOn) || '—'}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-gray-600 sm:px-5">{toInputDate(y.endsOn) || '—'}</td>
+                    <td className="px-4 py-2.5 sm:px-5">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                           y.status === 'ACTIVE'
@@ -288,14 +304,14 @@ export default function AdminSchoolYearsPage() {
                         {y.id === activeId ? ' · institucional' : ''}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-slate-800 tabular-nums sm:px-5">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-800 tabular-nums sm:px-5">
                       {y.coursesCount ?? 0}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right sm:px-5">
-                      <div className="flex flex-wrap justify-end gap-1.5">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right sm:px-5">
+                      <div className="flex flex-nowrap items-center justify-end gap-1">
                         <button
                           type="button"
-                          className="rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                          className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
                           onClick={() => openEdit(y)}
                         >
                           <span className="inline-flex items-center gap-1">
@@ -306,7 +322,7 @@ export default function AdminSchoolYearsPage() {
                         {y.status !== 'ACTIVE' && y.status !== 'CLOSED' && (
                           <button
                             type="button"
-                            className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                            className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                             disabled={busyId === y.id}
                             onClick={() => void doActivate(y.id)}
                           >
@@ -316,7 +332,7 @@ export default function AdminSchoolYearsPage() {
                         {y.status === 'PLANNED' && (
                           <button
                             type="button"
-                            className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                            className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
                             disabled={busyId === y.id}
                             onClick={() => void doClose(y.id)}
                           >
@@ -332,7 +348,7 @@ export default function AdminSchoolYearsPage() {
                                 ? `Este ciclo ya tiene ${y.coursesCount} oferta(s). La replicación solo está permitida con oferta vacía.`
                                 : 'Replicar oferta de cursos desde otro ciclo'
                             }
-                            className="rounded-lg border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+                            className="shrink-0 rounded-lg border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
                             onClick={() => {
                               setCopyTarget(y)
                               setCopySourceId(sortedYears.find((o) => o.id !== y.id)?.id ?? '')
@@ -347,10 +363,10 @@ export default function AdminSchoolYearsPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
-            {sortedYears.length === 0 && <p className="px-5 py-8 text-center text-sm text-gray-500">No hay ciclos cargados.</p>}
           </div>
         </section>
 
@@ -409,7 +425,7 @@ export default function AdminSchoolYearsPage() {
 
         <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="text-lg font-semibold text-gray-900">Comparar dos ciclos</h2>
-          <p className="mt-1 text-sm text-gray-600">
+          <p className="mt-0.5 text-sm text-gray-600">
             Totales de estudiantes por estado de matrícula y cantidad de cursos ofertados. Útil para ver diferencias
             entre años antes de planificar el siguiente.
           </p>
@@ -443,7 +459,7 @@ export default function AdminSchoolYearsPage() {
           </div>
           {cmpErr && <p className="mt-3 text-sm text-red-600">{cmpErr}</p>}
           {cmpData && (
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
               {[cmpData.a, cmpData.b].map((side) => (
                 <div key={side.id} className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
                   <h3 className="font-semibold text-gray-900">

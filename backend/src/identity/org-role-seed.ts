@@ -4,7 +4,7 @@ import { prisma } from '../db/prisma.js'
 export const BUILTIN_ORG_ROLE_ROWS = [
   { code: 'ADMIN', label: 'Administrador', sortOrder: 0 },
   { code: 'STAFF', label: 'Staff', sortOrder: 1 },
-  { code: 'TEACHER', label: 'Tutor', sortOrder: 2 },
+  { code: 'TEACHER', label: 'Docente', sortOrder: 2 },
 ] as const
 
 export async function ensureBuiltinOrgRoles(): Promise<void> {

@@ -2,7 +2,7 @@
 
 export const ROLE_LABELS = {
   ADMIN: 'Administrador',
-  TEACHER: 'Tutor',
+  TEACHER: 'Docente',
   STAFF: 'Staff',
 } as const
 

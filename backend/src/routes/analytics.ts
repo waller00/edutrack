@@ -46,6 +46,25 @@ const timelineTypeValues = [
   'EARLY_EXIT',
 ] as const
 
+const timelineStatusFilterValues = [
+  'PRESENT',
+  'LATE',
+  'PENDING',
+  'SUBSTITUTED',
+  'SUSPENDED',
+  'OUT_OF_SCHEDULE',
+  'UNIDENTIFIED',
+  'EARLY_EXIT',
+] as const
+
+const timelineTypeFilterOptions = [
+  { value: 'BIOMETRIC_ENTRY', label: 'Entrada por huella' },
+  { value: 'BIOMETRIC_EXIT', label: 'Salida por huella' },
+  { value: 'CLASS_ATTENDANCE', label: 'Clase' },
+  { value: 'SUBSTITUTION', label: 'Suplencia' },
+  { value: 'JUSTIFICATION', label: 'Justificación' },
+] as const
+
 const dashboardQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -581,21 +600,8 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
     filters: {
       teachers: [...teachers.values()].sort((a, b) => a.name.localeCompare(b.name)),
       groups: [...groups.values()].sort((a, b) => a.name.localeCompare(b.name)),
-      statuses: timelineStatusValues.map((value) => ({ value, label: timelineStatusLabel(value) })),
-      types: [
-        { value: 'BIOMETRIC_ENTRY', label: 'Entrada por huella' },
-        { value: 'BIOMETRIC_EXIT', label: 'Salida por huella' },
-        { value: 'CLASS_ATTENDANCE', label: 'Clase' },
-        { value: 'LATE_ARRIVAL', label: 'Llegada tarde' },
-        { value: 'PENDING_ABSENCE', label: 'Ausencia pendiente' },
-        { value: 'FREE_BRIDGE', label: 'Puente libre' },
-        { value: 'SUSPENDED_CLASS', label: 'Clase suspendida' },
-        { value: 'SUBSTITUTION', label: 'Ausencia prevista / suplencia' },
-        { value: 'OUT_OF_SCHEDULE_PUNCH', label: 'Fuera de horario' },
-        { value: 'UNIDENTIFIED_PUNCH', label: 'No identificada' },
-        { value: 'JUSTIFICATION', label: 'Justificación' },
-        { value: 'EARLY_EXIT', label: 'Retiro anticipado' },
-      ],
+      statuses: timelineStatusFilterValues.map((value) => ({ value, label: timelineStatusLabel(value) })),
+      types: timelineTypeFilterOptions,
     },
   }
 }

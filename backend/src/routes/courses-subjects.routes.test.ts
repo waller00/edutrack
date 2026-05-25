@@ -6,8 +6,11 @@ import { signAccessToken } from '../auth/jwt.js'
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
-    course: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
+    $transaction: vi.fn(async (cb: any) => cb(prismaMock)),
+    course: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    courseOffering: { findFirst: vi.fn(), update: vi.fn(), upsert: vi.fn() },
     subject: { findMany: vi.fn(), create: vi.fn(), findFirst: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
+    subjectCourseAssignment: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   },
 }))
 
@@ -15,6 +18,7 @@ vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
 vi.mock('../services/school-year-service.js', () => ({
   getActiveSchoolYearId: vi.fn().mockResolvedValue('sy-default'),
   resolveSchoolYearIdForList: vi.fn().mockResolvedValue('sy-default'),
+  ensureCourseOffering: vi.fn().mockResolvedValue({ id: 'off-1', courseId: '00000000-0000-4000-8000-0000000000c1', schoolYearId: 'sy-default', isActive: true }),
 }))
 
 import coursesRoutes from './courses.js'
@@ -33,6 +37,9 @@ const subjectId = '00000000-0000-4000-8000-0000000000a1'
 describe('courses / subjects', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    prismaMock.course.findUnique.mockResolvedValue({ id: courseId, level: 'EMS' })
+    prismaMock.courseOffering.findFirst.mockResolvedValue({ id: 'off-1', courseId, schoolYearId: 'sy-default' })
+    prismaMock.subjectCourseAssignment.create.mockResolvedValue({ id: 'as-1' })
   })
 
   it('GET /courses/:id/subjects 404 si curso no visible', async () => {

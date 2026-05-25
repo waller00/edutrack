@@ -10,6 +10,8 @@ type CourseRow = {
   id: string
   name: string
   code: string | null
+  level: 'EBI' | 'EMS' | null
+  sortOrder: number
   description: string | null
   isActive: boolean
   schoolYearId?: string | null
@@ -25,6 +27,26 @@ type SubjectRow = {
   sortOrder: number
   isActive: boolean
   courseId: string
+  associationType?: string | null
+  orientationId?: string | null
+}
+
+type OrientationRow = {
+  id: string
+  name: string
+  code: string | null
+  description: string | null
+  isActive: boolean
+  sortOrder: number
+}
+
+type CourseOrientationRow = {
+  id: string
+  courseId: string
+  orientationId: string
+  schoolYearId: string | null
+  isActive: boolean
+  orientation: OrientationRow
 }
 
 function withSchoolYear(path: string, schoolYearQuery: string): string {
@@ -36,31 +58,18 @@ function emptySubjectDraft() {
   return { name: '', code: '', sortOrder: 0, description: '', isActive: true as boolean }
 }
 
-const ORIENTATION_LABELS: Record<string, string> = {
-  CIENT: 'Ciencias y Tecnología',
-  HUM: 'Ciencias Sociales y Humanidades',
-  VIDA: 'Ciencias de la Vida',
-  ARTE: 'Creativo Artístico',
-  ECO: 'Ciencias Económicas',
-  GRAL: 'General',
+function emptyOrientationDraft() {
+  return { name: '', code: '', description: '', sortOrder: 0, isActive: true as boolean }
 }
 
-const COURSE_BASES = [
-  { key: '7', title: '7.º', kind: 'EBI' },
-  { key: '8', title: '8.º', kind: 'EBI' },
-  { key: '9', title: '9.º', kind: 'EBI' },
-  { key: 'EMS1', title: '1.º EMS', kind: 'EMS' },
-  { key: 'EMS2', title: '2.º EMS', kind: 'EMS' },
-  { key: 'EMS3', title: '3.º EMS', kind: 'EMS' },
-] as const
-
-type CourseBaseKey = (typeof COURSE_BASES)[number]['key']
-
 type CourseDraft = {
-  base: CourseBaseKey
-  orientation: string
-  subgroup: string
+  name: string
+  code: string
+  level: 'EBI' | 'EMS'
+  sortOrder: number
+  description: string
   isActive: boolean
+  offerInSchoolYear: boolean
 }
 
 type CourseGroup = {
@@ -71,24 +80,7 @@ type CourseGroup = {
 }
 
 function emptyCourseDraft(): CourseDraft {
-  return { base: '7', orientation: 'CIENT', subgroup: '', isActive: true }
-}
-
-function trimRepeatedChar(value: string, char: string) {
-  let start = 0
-  let end = value.length
-  while (start < end && value[start] === char) start += 1
-  while (end > start && value[end - 1] === char) end -= 1
-  return value.slice(start, end)
-}
-
-function slug(value: string) {
-  const normalized = value
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-  return trimRepeatedChar(normalized, '-')
+  return { name: '', code: '', level: 'EBI', sortOrder: 0, description: '', isActive: true, offerInSchoolYear: true }
 }
 
 function cleanCourseName(name: string) {
@@ -107,15 +99,6 @@ function cleanCourseName(name: string) {
 }
 
 function courseDisplayLabel(course: CourseRow, groupTitle: string) {
-  const code = course.code ?? ''
-  const compactBasic = code.match(/^([789])([A-Z])$/)
-  if (compactBasic) return `${compactBasic[1]}.º ${compactBasic[2]}`
-  const compactEms = code.match(/^([123])EMS-([A-Z]+)(?:-([A-Z0-9]+))?/)
-  if (compactEms) {
-    const orientation = ORIENTATION_LABELS[compactEms[2]] ?? compactEms[2]
-    return compactEms[3] ? `${orientation} ${compactEms[3]}` : orientation
-  }
-
   const name = cleanCourseName(course.name)
   if (name === groupTitle) return 'Grupo principal'
   if (name.startsWith(`${groupTitle} - `)) return name.slice(groupTitle.length + 3)
@@ -125,16 +108,12 @@ function courseDisplayLabel(course: CourseRow, groupTitle: string) {
 
 function groupCourses(courses: CourseRow[]): CourseGroup[] {
   const buckets = new Map<string, CourseGroup>()
-  for (const base of COURSE_BASES) {
-    buckets.set(base.key, { key: base.key, title: base.title, kind: base.kind, items: [] })
-  }
+  buckets.set('EBI', { key: 'EBI', title: 'EBI', kind: 'EBI', items: [] })
+  buckets.set('EMS', { key: 'EMS', title: 'EMS', kind: 'EMS', items: [] })
   buckets.set('OTROS', { key: 'OTROS', title: 'Otros cursos', kind: 'OTROS', items: [] })
 
   for (const course of courses) {
-    const code = course.code ?? ''
-    const ebi = code.match(/^(?:EBI)?([789])(?:[A-Z]|-|$)/)
-    const ems = code.match(/^(?:(?:EMS)?([123])|([123])EMS)(?:-|$)/)
-    const key = ebi ? ebi[1] : ems ? `EMS${ems[1] ?? ems[2]}` : 'OTROS'
+    const key = course.level === 'EBI' || course.level === 'EMS' ? course.level : 'OTROS'
     const group = buckets.get(key) ?? buckets.get('OTROS')!
     group.items.push({ ...course, displayLabel: courseDisplayLabel(course, group.title) })
   }
@@ -144,7 +123,8 @@ function groupCourses(courses: CourseRow[]): CourseGroup[] {
       ...group,
       items: group.items.sort((a, b) => {
         if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
-        return a.displayLabel.localeCompare(b.displayLabel, 'es')
+        if ((a.sortOrder ?? 0) !== (b.sortOrder ?? 0)) return (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+        return a.name.localeCompare(b.name, 'es')
       }),
     }))
     .filter((group) => group.items.length > 0)
@@ -161,25 +141,37 @@ export default function AdminCoursesPage() {
   const [courseDraft, setCourseDraft] = useState<CourseDraft>(emptyCourseDraft)
   const [creatingCourse, setCreatingCourse] = useState(false)
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null)
-  const [courseEditDraft, setCourseEditDraft] = useState({ name: '', code: '', description: '', isActive: true })
+  const [courseEditDraft, setCourseEditDraft] = useState({
+    name: '',
+    code: '',
+    level: 'EBI' as 'EBI' | 'EMS',
+    sortOrder: 0,
+    description: '',
+    isActive: true,
+    offeringIsActive: true,
+  })
 
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
   const [subjects, setSubjects] = useState<SubjectRow[]>([])
   const [subjectsLoading, setSubjectsLoading] = useState(false)
+  const [orientations, setOrientations] = useState<OrientationRow[]>([])
+  const [courseOrientations, setCourseOrientations] = useState<CourseOrientationRow[]>([])
+  const [orientationDraft, setOrientationDraft] = useState(emptyOrientationDraft)
+  const [selectedOrientationId, setSelectedOrientationId] = useState('')
 
   const [createDraft, setCreateDraft] = useState(emptySubjectDraft)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState(emptySubjectDraft)
   const courseGroups = useMemo(() => groupCourses(courses), [courses])
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(COURSE_BASES.map((base) => [base.key, true])),
+    ({ EBI: true, EMS: true, OTROS: true }),
   )
 
   const loadCourses = useCallback(async () => {
     setCoursesLoading(true)
     setMsg('')
     try {
-      const list = await api<CourseRow[]>(withSchoolYear('/courses?all=1', schoolYearQuery))
+      const list = await api<CourseRow[]>(withSchoolYear('/courses?all=1&includeNotOffered=1', schoolYearQuery))
       setCourses(Array.isArray(list) ? list : [])
     } catch {
       setCourses([])
@@ -188,6 +180,27 @@ export default function AdminCoursesPage() {
       setCoursesLoading(false)
     }
   }, [schoolYearQuery])
+
+  const loadOrientations = useCallback(async () => {
+    try {
+      const list = await api<OrientationRow[]>('/courses/orientations?all=1')
+      setOrientations(Array.isArray(list) ? list : [])
+    } catch {
+      setOrientations([])
+    }
+  }, [])
+
+  const loadCourseOrientations = useCallback(
+    async (courseId: string) => {
+      try {
+        const list = await api<CourseOrientationRow[]>(withSchoolYear(`/courses/${courseId}/orientations?all=1`, schoolYearQuery))
+        setCourseOrientations(Array.isArray(list) ? list : [])
+      } catch {
+        setCourseOrientations([])
+      }
+    },
+    [schoolYearQuery],
+  )
 
   const loadSubjects = useCallback(
     async (courseId: string) => {
@@ -208,17 +221,58 @@ export default function AdminCoursesPage() {
 
   useEffect(() => {
     void loadCourses()
-  }, [loadCourses])
+    void loadOrientations()
+  }, [loadCourses, loadOrientations])
 
   useEffect(() => {
     setEditingId(null)
     setCreateDraft(emptySubjectDraft())
     if (!selectedCourseId) {
       setSubjects([])
+      setCourseOrientations([])
       return
     }
     void loadSubjects(selectedCourseId)
-  }, [selectedCourseId, loadSubjects])
+    void loadCourseOrientations(selectedCourseId)
+  }, [selectedCourseId, loadSubjects, loadCourseOrientations])
+
+  async function createOrientation() {
+    if (!orientationDraft.name.trim()) return
+    setMsg('')
+    try {
+      const created = await api<OrientationRow>('/courses/orientations', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: orientationDraft.name.trim(),
+          code: orientationDraft.code.trim() || undefined,
+          description: orientationDraft.description.trim() || undefined,
+          sortOrder: Number(orientationDraft.sortOrder) || 0,
+          isActive: orientationDraft.isActive,
+        }),
+      })
+      setOrientationDraft(emptyOrientationDraft())
+      await loadOrientations()
+      setSelectedOrientationId(created.id)
+      setMsg('Orientación creada.')
+    } catch (e: unknown) {
+      setMsg((e as Error)?.message || 'Error al crear orientación.')
+    }
+  }
+
+  async function attachOrientation() {
+    if (!selectedCourseId || !selectedOrientationId) return
+    setMsg('')
+    try {
+      await api(withSchoolYear(`/courses/${selectedCourseId}/orientations`, schoolYearQuery), {
+        method: 'POST',
+        body: JSON.stringify({ orientationId: selectedOrientationId, isActive: true }),
+      })
+      await loadCourseOrientations(selectedCourseId)
+      setMsg('Orientación asociada al curso.')
+    } catch (e: unknown) {
+      setMsg((e as Error)?.message || 'Error al asociar orientación.')
+    }
+  }
 
   async function createSubject() {
     if (!selectedCourseId || !createDraft.name.trim()) return
@@ -245,23 +299,15 @@ export default function AdminCoursesPage() {
     }
   }
 
-  async function createCourseSubdivision() {
-    if (!activeSchoolYearId) {
-      setMsg('Elegí un ciclo lectivo concreto para crear cursos o subgrupos.')
+  async function createCourse() {
+    if (!courseDraft.name.trim()) {
+      setMsg('Escribí el nombre del curso.')
       return
     }
-    const baseMeta = COURSE_BASES.find((base) => base.key === courseDraft.base)
-    if (!baseMeta) return
-
-    const subgroup = courseDraft.subgroup.trim()
-    const isEms = baseMeta.kind === 'EMS'
-    const orientationLabel = ORIENTATION_LABELS[courseDraft.orientation] ?? courseDraft.orientation
-    const name = isEms
-      ? `${baseMeta.title} - ${orientationLabel}${subgroup ? ` - ${subgroup}` : ''}`
-      : `${baseMeta.title}${subgroup ? ` - ${subgroup}` : ''}`
-    const codeParts = [courseDraft.base, ...(isEms ? [courseDraft.orientation] : [])]
-    if (subgroup) codeParts.push(slug(subgroup))
-    const code = codeParts.join('-')
+    if (courseDraft.offerInSchoolYear && !activeSchoolYearId) {
+      setMsg('Elegí un ciclo lectivo concreto para ofertar el curso.')
+      return
+    }
 
     setCreatingCourse(true)
     setMsg('')
@@ -269,19 +315,22 @@ export default function AdminCoursesPage() {
       const created = await api<CourseRow>('/courses', {
         method: 'POST',
         body: JSON.stringify({
-          name,
-          code,
-          description: isEms ? `Orientación ${orientationLabel}` : subgroup ? `Subgrupo ${subgroup}` : 'Curso base',
+          name: courseDraft.name.trim(),
+          code: courseDraft.code.trim() || undefined,
+          level: courseDraft.level,
+          sortOrder: Number(courseDraft.sortOrder) || 0,
+          description: courseDraft.description.trim() || undefined,
           isActive: courseDraft.isActive,
-          schoolYearId: activeSchoolYearId,
+          offerInSchoolYear: courseDraft.offerInSchoolYear,
+          schoolYearId: courseDraft.offerInSchoolYear ? activeSchoolYearId : undefined,
         }),
       })
       setCourseDraft(emptyCourseDraft())
       await loadCourses()
       setSelectedCourseId(created.id)
-      setMsg('Curso/subgrupo creado.')
+      setMsg(courseDraft.offerInSchoolYear ? 'Curso creado y ofertado en el ciclo.' : 'Curso creado en el catálogo.')
     } catch (e: unknown) {
-      setMsg((e as Error)?.message || 'Error al crear curso/subgrupo.')
+      setMsg((e as Error)?.message || 'Error al crear curso.')
     } finally {
       setCreatingCourse(false)
     }
@@ -292,8 +341,11 @@ export default function AdminCoursesPage() {
     setCourseEditDraft({
       name: course.name,
       code: course.code ?? '',
+      level: course.level ?? 'EBI',
+      sortOrder: course.sortOrder ?? 0,
       description: course.description ?? '',
       isActive: course.isActive,
+      offeringIsActive: course.offeringIsActive ?? course.isActive,
     })
   }
 
@@ -306,8 +358,11 @@ export default function AdminCoursesPage() {
         body: JSON.stringify({
           name: courseEditDraft.name.trim(),
           code: courseEditDraft.code.trim() || null,
+          level: courseEditDraft.level,
+          sortOrder: Number(courseEditDraft.sortOrder) || 0,
           description: courseEditDraft.description.trim() || null,
           isActive: courseEditDraft.isActive,
+          offeringIsActive: courseEditDraft.offeringIsActive,
         }),
       })
       setCourses((current) => current.map((course) => (course.id === courseId ? updated : course)))
@@ -324,7 +379,7 @@ export default function AdminCoursesPage() {
       const currentlyActive = course.offeringIsActive ?? course.isActive
       const updated = await api<CourseRow>(withSchoolYear(`/courses/${course.id}`, schoolYearQuery), {
         method: 'PUT',
-        body: JSON.stringify({ isActive: !currentlyActive }),
+        body: JSON.stringify({ offeringIsActive: !currentlyActive }),
       })
       setCourses((current) =>
         current.map((row) =>
@@ -440,49 +495,55 @@ export default function AdminCoursesPage() {
             <div className="mb-4 rounded-lg border border-dashed border-emerald-200 bg-emerald-50/40 p-3">
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
                 <Plus className="h-4 w-4 text-emerald-700" aria-hidden />
-                Crear grupo u orientación
+                Crear curso de catálogo
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block text-xs sm:col-span-2">
+                  <span className="text-gray-600">Nombre</span>
+                  <input
+                    className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                    value={courseDraft.name}
+                    onChange={(e) => setCourseDraft({ ...courseDraft, name: e.target.value })}
+                    placeholder="Ej. 2.º EMS"
+                  />
+                </label>
                 <label className="block text-xs">
                   <span className="text-gray-600">Nivel</span>
                   <select
                     className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                    value={courseDraft.base}
-                    onChange={(e) => {
-                      const base = e.target.value as CourseBaseKey
-                      setCourseDraft((current) => ({ ...current, base }))
-                    }}
+                    value={courseDraft.level}
+                    onChange={(e) => setCourseDraft({ ...courseDraft, level: e.target.value as 'EBI' | 'EMS' })}
                   >
-                    {COURSE_BASES.map((base) => (
-                      <option key={base.key} value={base.key}>
-                        {base.title}
-                      </option>
-                    ))}
+                    <option value="EBI">EBI</option>
+                    <option value="EMS">EMS</option>
                   </select>
                 </label>
-                {courseDraft.base.startsWith('EMS') ? (
-                  <label className="block text-xs">
-                    <span className="text-gray-600">Orientación</span>
-                    <select
-                      className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                      value={courseDraft.orientation}
-                      onChange={(e) => setCourseDraft({ ...courseDraft, orientation: e.target.value })}
-                    >
-                      {Object.entries(ORIENTATION_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-                <label className={`block text-xs ${courseDraft.base.startsWith('EMS') ? 'sm:col-span-2' : ''}`}>
-                  <span className="text-gray-600">Subgrupo opcional</span>
+                <label className="block text-xs">
+                  <span className="text-gray-600">Código opcional</span>
                   <input
                     className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                    value={courseDraft.subgroup}
-                    onChange={(e) => setCourseDraft({ ...courseDraft, subgroup: e.target.value })}
-                    placeholder="Ej. Grupo B, Taller, Laboratorio"
+                    value={courseDraft.code}
+                    onChange={(e) => setCourseDraft({ ...courseDraft, code: e.target.value })}
+                    placeholder="Ej. EMS2"
+                  />
+                </label>
+                <label className="block text-xs">
+                  <span className="text-gray-600">Orden</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                    value={courseDraft.sortOrder}
+                    onChange={(e) => setCourseDraft({ ...courseDraft, sortOrder: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="block text-xs sm:col-span-2">
+                  <span className="text-gray-600">Descripción opcional</span>
+                  <textarea
+                    rows={2}
+                    className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                    value={courseDraft.description}
+                    onChange={(e) => setCourseDraft({ ...courseDraft, description: e.target.value })}
                   />
                 </label>
                 <label className="flex items-center gap-2 text-xs">
@@ -491,20 +552,28 @@ export default function AdminCoursesPage() {
                     checked={courseDraft.isActive}
                     onChange={(e) => setCourseDraft({ ...courseDraft, isActive: e.target.checked })}
                   />
-                  Activo
+                  Activo en catálogo
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={courseDraft.offerInSchoolYear}
+                    onChange={(e) => setCourseDraft({ ...courseDraft, offerInSchoolYear: e.target.checked })}
+                  />
+                  Ofertar en ciclo seleccionado
                 </label>
               </div>
               <button
                 type="button"
-                onClick={() => void createCourseSubdivision()}
-                disabled={creatingCourse || syCtx?.allYears}
+                onClick={() => void createCourse()}
+                disabled={creatingCourse || Boolean(syCtx?.allYears && courseDraft.offerInSchoolYear)}
                 className="mt-3 inline-flex items-center gap-2 rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
               >
                 {creatingCourse ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
-                Crear
+                Crear curso
               </button>
               {syCtx?.allYears ? (
-                <p className="mt-2 text-xs text-amber-700">Para crear, desactivá “Ver todos los ciclos”.</p>
+                <p className="mt-2 text-xs text-amber-700">Para ofertar en un ciclo, desactivá “Ver todos los ciclos”.</p>
               ) : null}
             </div>
 
@@ -560,6 +629,24 @@ export default function AdminCoursesPage() {
                                   onChange={(e) => setCourseEditDraft({ ...courseEditDraft, code: e.target.value })}
                                   placeholder="Código"
                                 />
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <select
+                                    className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
+                                    value={courseEditDraft.level}
+                                    onChange={(e) => setCourseEditDraft({ ...courseEditDraft, level: e.target.value as 'EBI' | 'EMS' })}
+                                  >
+                                    <option value="EBI">EBI</option>
+                                    <option value="EMS">EMS</option>
+                                  </select>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
+                                    value={courseEditDraft.sortOrder}
+                                    onChange={(e) => setCourseEditDraft({ ...courseEditDraft, sortOrder: Number(e.target.value) })}
+                                    placeholder="Orden"
+                                  />
+                                </div>
                                 <textarea
                                   rows={2}
                                   className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
@@ -573,7 +660,15 @@ export default function AdminCoursesPage() {
                                     checked={courseEditDraft.isActive}
                                     onChange={(e) => setCourseEditDraft({ ...courseEditDraft, isActive: e.target.checked })}
                                   />
-                                  Activo
+                                  Activo en catálogo
+                                </label>
+                                <label className="flex items-center gap-2 text-xs text-gray-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={courseEditDraft.offeringIsActive}
+                                    onChange={(e) => setCourseEditDraft({ ...courseEditDraft, offeringIsActive: e.target.checked })}
+                                  />
+                                  Ofertado en ciclo
                                 </label>
                                 <div className="flex gap-2">
                                   <button type="button" className="rounded bg-emerald-600 px-2 py-1 text-xs text-white" onClick={() => void saveCourseEdit(c.id)}>
@@ -590,7 +685,9 @@ export default function AdminCoursesPage() {
                                   <div className="font-medium text-gray-900">{c.displayLabel}</div>
                                   <div className="text-xs text-gray-500">
                                     {c.code ? `${c.code} · ` : ''}
+                                    {c.level ? `${c.level} · ` : ''}
                                     {(c.offeringIsActive ?? c.isActive) ? 'Activo en ciclo' : 'Inactivo'}
+                                    {c.courseOfferingId ? '' : ' · No ofertado'}
                                   </div>
                                 </button>
                                 <div className="flex shrink-0 gap-1">
@@ -642,6 +739,77 @@ export default function AdminCoursesPage() {
                 <p className="mb-4 text-sm text-gray-600">
                   Curso: <strong>{selectedCourse?.name}</strong>
                 </p>
+
+                <div className="mb-6 space-y-3 rounded-md border border-dashed border-emerald-200 bg-emerald-50/30 p-3">
+                  <div className="text-sm font-medium text-gray-800">Orientaciones opcionales</div>
+                  {courseOrientations.length === 0 ? (
+                    <p className="text-xs text-gray-500">Este curso no tiene orientaciones asociadas.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {courseOrientations.map((row) => (
+                        <span
+                          key={row.id}
+                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                            row.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {row.orientation.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <select
+                      className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      value={selectedOrientationId}
+                      onChange={(e) => setSelectedOrientationId(e.target.value)}
+                    >
+                      <option value="">Seleccioná una orientación existente</option>
+                      {orientations.map((orientation) => (
+                        <option key={orientation.id} value={orientation.id}>
+                          {orientation.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void attachOrientation()}
+                      disabled={!selectedOrientationId}
+                      className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      Asociar
+                    </button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm sm:col-span-2"
+                      value={orientationDraft.name}
+                      onChange={(e) => setOrientationDraft({ ...orientationDraft, name: e.target.value })}
+                      placeholder="Nueva orientación"
+                    />
+                    <input
+                      className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      value={orientationDraft.code}
+                      onChange={(e) => setOrientationDraft({ ...orientationDraft, code: e.target.value })}
+                      placeholder="Código opcional"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      value={orientationDraft.sortOrder}
+                      onChange={(e) => setOrientationDraft({ ...orientationDraft, sortOrder: Number(e.target.value) })}
+                      placeholder="Orden"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void createOrientation()}
+                    className="rounded bg-white px-3 py-1.5 text-sm text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50"
+                  >
+                    Crear orientación
+                  </button>
+                </div>
 
                 <div className="mb-6 space-y-3 rounded-md border border-dashed border-gray-300 p-3">
                   <div className="text-sm font-medium text-gray-800">Nueva asignatura</div>
@@ -714,6 +882,7 @@ export default function AdminCoursesPage() {
                         <tr className="border-b text-left text-xs uppercase text-gray-500">
                           <th className="py-2 pr-2">Orden</th>
                           <th className="py-2 pr-2">Nombre</th>
+                          <th className="py-2 pr-2">Alcance</th>
                           <th className="py-2 pr-2">Código</th>
                           <th className="py-2 pr-2">Estado</th>
                           <th className="py-2">Acciones</th>
@@ -747,6 +916,9 @@ export default function AdminCoursesPage() {
                                     value={editDraft.description}
                                     onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })}
                                   />
+                                </td>
+                                <td className="py-2 pr-2 align-top text-xs text-gray-500">
+                                  {s.associationType ?? 'CURSO_COMPLETO'}
                                 </td>
                                 <td className="py-2 pr-2 align-top">
                                   <input
@@ -788,6 +960,7 @@ export default function AdminCoursesPage() {
                               <>
                                 <td className="py-2 pr-2">{s.sortOrder}</td>
                                 <td className="py-2 pr-2 font-medium">{s.name}</td>
+                                <td className="py-2 pr-2 text-gray-600">{s.associationType ?? 'Curso'}</td>
                                 <td className="py-2 pr-2 text-gray-600">{s.code ?? '—'}</td>
                                 <td className="py-2 pr-2">{s.isActive ? 'Activa' : 'Inactiva'}</td>
                                 <td className="py-2 whitespace-nowrap">

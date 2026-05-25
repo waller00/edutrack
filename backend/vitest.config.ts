@@ -7,7 +7,7 @@ export default defineConfig({
     /** Evita workers que mueran a mitad del run en algunos entornos Windows/Node. */
     pool: "forks",
     fileParallelism: false,
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "prisma/**/*.test.ts"],
     // --- LÍNEA AGREGADA PARA EL CI ---
     setupFiles: ["./vitest.setup.ts"],
     // ---------------------------------

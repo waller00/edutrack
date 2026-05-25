@@ -58,6 +58,7 @@ const eventSubjectInclude = { select: { id: true, name: true, code: true } } as 
 const eventCourseOfferingInclude = {
   select: { id: true, courseId: true, schoolYearId: true, course: { select: { id: true, name: true, code: true } } },
 } as const
+const eventOrientationInclude = { select: { id: true, name: true, code: true } } as const
 
 async function assertCourseOfferedInSchoolYear(
   courseId: string,
@@ -75,10 +76,41 @@ async function assertActiveSubjectInCourse(
   subjectId: string,
   courseId: string,
   courseOfferingId?: string | null,
+  orientationId?: string | null,
 ): Promise<{ id: string } | null> {
-  const where: any = { id: subjectId, courseId, isActive: true }
+  const offering = courseOfferingId
+    ? await (prisma as any).courseOffering?.findUnique?.({
+        where: { id: courseOfferingId },
+        select: { schoolYearId: true, course: { select: { level: true } } },
+      })
+    : null
+  const level = offering?.course?.level ?? null
+  const schoolYearId = offering?.schoolYearId ?? null
+  const assignmentScopes: any[] = [
+    ...(level ? [{ level, courseId: null, orientationId: null }] : []),
+    { courseId, orientationId: null },
+    ...(orientationId ? [{ courseId, orientationId }] : []),
+  ]
+  const where: any = {
+    id: subjectId,
+    isActive: true,
+    OR: [
+      { courseId },
+      {
+        courseAssignments: {
+          some: {
+            isActive: true,
+            AND: [
+              { OR: assignmentScopes },
+              ...(schoolYearId ? [{ OR: [{ schoolYearId }, { schoolYearId: null }] }] : []),
+            ],
+          },
+        },
+      },
+    ],
+  }
   if (courseOfferingId) {
-    where.OR = [{ courseOfferingId }, { courseOfferingId: null }]
+    where.AND = [{ OR: [{ courseOfferingId }, { courseOfferingId: null }, { courseAssignments: { some: { courseId } } }] }]
   }
   const s = await (prisma.subject as any).findFirst({
     where,
@@ -140,6 +172,8 @@ const eventSchema = z.object({
   // El front puede mandar "" cuando el select está en "Sin asignar"; no es UUID válido.
   assignedUserId: optionalUuidFromInput,
   courseId: optionalUuidFromInput,
+  orientationId: optionalUuidFromInput,
+  courseOrientationId: optionalUuidFromInput,
   subjectId: optionalUuidFromInput,
   recurrenceType: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']).default('NONE'),
   recurrenceEnd: z.string().optional().nullable(),
@@ -156,6 +190,8 @@ const eventUpdateSchema = z.object({
   endTime: z.string().min(1).optional(),
   assignedUserId: nullableOptionalUuidFromUpdateInput,
   courseId: nullableOptionalUuidFromUpdateInput,
+  orientationId: nullableOptionalUuidFromUpdateInput,
+  courseOrientationId: nullableOptionalUuidFromUpdateInput,
   subjectId: nullableOptionalUuidFromUpdateInput,
   status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED']).optional(),
   recurrenceType: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']).optional(),
@@ -214,6 +250,8 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       return res.status(400).json({ message: 'No hay ciclo lectivo activo. Configurá un año lectivo primero.' });
     }
     let resolvedCourseOfferingId: string | null = null
+    let resolvedOrientationId: string | null = eventData.orientationId ?? null
+    let resolvedCourseOrientationId: string | null = eventData.courseOrientationId ?? null
     if (eventData.courseId) {
       const offering = await assertCourseOfferedInSchoolYear(eventData.courseId, resolvedSchoolYearId)
       if (!offering) {
@@ -221,11 +259,39 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       }
       resolvedCourseOfferingId = offering.id || null
     }
+    if (resolvedCourseOrientationId) {
+      const co = await (prisma as any).courseOrientation.findFirst({
+        where: {
+          id: resolvedCourseOrientationId,
+          isActive: true,
+          course: { isActive: true },
+          orientation: { isActive: true },
+          ...(eventData.courseId ? { courseId: eventData.courseId } : {}),
+          OR: [{ schoolYearId: resolvedSchoolYearId }, { schoolYearId: null }],
+        },
+        select: { id: true, orientationId: true, courseId: true },
+      })
+      if (!co) return res.status(400).json({ message: 'Orientación no disponible para este curso y ciclo' })
+      resolvedOrientationId = co.orientationId
+    } else if (resolvedOrientationId && eventData.courseId) {
+      const co = await (prisma as any).courseOrientation.findFirst({
+        where: {
+          courseId: eventData.courseId,
+          orientationId: resolvedOrientationId,
+          isActive: true,
+          orientation: { isActive: true },
+          OR: [{ schoolYearId: resolvedSchoolYearId }, { schoolYearId: null }],
+        },
+        select: { id: true },
+      })
+      if (!co) return res.status(400).json({ message: 'Orientación no disponible para este curso y ciclo' })
+      resolvedCourseOrientationId = co.id
+    }
     if (eventData.subjectId) {
       if (!eventData.courseId) {
         return res.status(400).json({ message: 'Seleccioná un curso para asociar una asignatura' });
       }
-      const sub = await assertActiveSubjectInCourse(eventData.subjectId, eventData.courseId, resolvedCourseOfferingId);
+      const sub = await assertActiveSubjectInCourse(eventData.subjectId, eventData.courseId, resolvedCourseOfferingId, resolvedOrientationId);
       if (!sub) {
         return res.status(400).json({ message: 'Asignatura no encontrada o no pertenece al curso' });
       }
@@ -295,6 +361,8 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
         isRecurring,
         daysOfWeek: eventData.daysOfWeek ?? [],
         courseOfferingId: resolvedCourseOfferingId,
+        orientationId: resolvedOrientationId,
+        courseOrientationId: resolvedCourseOrientationId,
         subjectId: eventData.subjectId ?? null,
         schoolYearId: resolvedSchoolYearId,
       },
@@ -306,6 +374,7 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         courseOffering: eventCourseOfferingInclude,
+        orientation: eventOrientationInclude,
         subject: eventSubjectInclude,
       }
     } as any)) as any;
@@ -401,6 +470,7 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         courseOffering: eventCourseOfferingInclude,
+        orientation: eventOrientationInclude,
         subject: eventSubjectInclude,
         childEvents: {
           select: {
@@ -419,6 +489,7 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
             parentEventId: true,
             subjectId: true,
             courseOffering: eventCourseOfferingInclude,
+            orientation: eventOrientationInclude,
             subject: eventSubjectInclude,
           },
         },
@@ -458,6 +529,7 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
             user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
             assignedUser: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
             courseOffering: eventCourseOfferingInclude,
+            orientation: eventOrientationInclude,
             subject: eventSubjectInclude,
           },
         },
@@ -588,6 +660,7 @@ r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, re
             select: { id: true, name: true, email: true, ...selectOrgRoleCode }
           },
           courseOffering: eventCourseOfferingInclude,
+          orientation: eventOrientationInclude,
           subject: eventSubjectInclude,
           childEvents: {
             select: {
@@ -606,6 +679,7 @@ r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, re
               parentEventId: true,
               subjectId: true,
               courseOffering: eventCourseOfferingInclude,
+              orientation: eventOrientationInclude,
               subject: eventSubjectInclude,
             },
           },
@@ -672,6 +746,7 @@ r.get('/:id', authGuard, requirePermission('events.read'), async (req, res) => {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         courseOffering: eventCourseOfferingInclude,
+        orientation: eventOrientationInclude,
         subject: eventSubjectInclude,
         attendances: {
           include: {
@@ -729,6 +804,8 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
         location: true,
         courseOfferingId: true,
         courseOffering: { select: { courseId: true } },
+        orientationId: true,
+        courseOrientationId: true,
         subjectId: true,
         schoolYearId: true,
         _count: { select: { attendances: true } },
@@ -764,6 +841,8 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       'endTime',
       'assignedUserId',
       'courseId',
+      'orientationId',
+      'courseOrientationId',
       'subjectId',
       'isRecurring',
       'daysOfWeek',
@@ -821,6 +900,8 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
 
     if (parsed.data.courseId === null) {
       updateData.subjectId = null
+      updateData.orientationId = null
+      updateData.courseOrientationId = null
     } else if (
       parsed.data.courseId !== undefined &&
       parsed.data.courseId !== existingEvent.courseOffering?.courseId &&
@@ -833,6 +914,60 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       parsed.data.courseId !== undefined ? parsed.data.courseId : existingEvent.courseOffering?.courseId
     const finalCourseOfferingId =
       updateData.courseOfferingId !== undefined ? updateData.courseOfferingId : existingEvent.courseOfferingId
+    let finalOrientationId =
+      parsed.data.orientationId !== undefined ? parsed.data.orientationId : existingEvent.orientationId
+    let finalCourseOrientationId =
+      parsed.data.courseOrientationId !== undefined ? parsed.data.courseOrientationId : existingEvent.courseOrientationId
+
+    if (parsed.data.courseOrientationId !== undefined) {
+      if (parsed.data.courseOrientationId === null) {
+        updateData.courseOrientationId = null
+        finalCourseOrientationId = null
+      } else {
+        const co = await (prisma as any).courseOrientation.findFirst({
+          where: {
+            id: parsed.data.courseOrientationId,
+            isActive: true,
+            orientation: { isActive: true },
+            ...(finalCourseId ? { courseId: finalCourseId } : {}),
+            ...(updateData.schoolYearId || existingEvent.schoolYearId
+              ? { OR: [{ schoolYearId: updateData.schoolYearId ?? existingEvent.schoolYearId }, { schoolYearId: null }] }
+              : {}),
+          },
+          select: { id: true, orientationId: true },
+        })
+        if (!co) return res.status(400).json({ message: 'Orientación no disponible para este curso y ciclo' })
+        updateData.courseOrientationId = co.id
+        updateData.orientationId = co.orientationId
+        finalCourseOrientationId = co.id
+        finalOrientationId = co.orientationId
+      }
+    } else if (parsed.data.orientationId !== undefined) {
+      if (parsed.data.orientationId === null) {
+        updateData.orientationId = null
+        updateData.courseOrientationId = null
+        finalOrientationId = null
+        finalCourseOrientationId = null
+      } else {
+        if (!finalCourseId) return res.status(400).json({ message: 'Orientación requiere curso' })
+        const co = await (prisma as any).courseOrientation.findFirst({
+          where: {
+            courseId: finalCourseId,
+            orientationId: parsed.data.orientationId,
+            isActive: true,
+            orientation: { isActive: true },
+            ...(updateData.schoolYearId || existingEvent.schoolYearId
+              ? { OR: [{ schoolYearId: updateData.schoolYearId ?? existingEvent.schoolYearId }, { schoolYearId: null }] }
+              : {}),
+          },
+          select: { id: true },
+        })
+        if (!co) return res.status(400).json({ message: 'Orientación no disponible para este curso y ciclo' })
+        updateData.orientationId = parsed.data.orientationId
+        updateData.courseOrientationId = co.id
+        finalCourseOrientationId = co.id
+      }
+    }
     const finalSubjectId =
       updateData.subjectId !== undefined ? updateData.subjectId : existingEvent.subjectId
 
@@ -844,7 +979,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       if (!finalCourseId) {
         return res.status(400).json({ message: 'Asignatura requiere curso' })
       }
-      const okSub = await assertActiveSubjectInCourse(finalSubjectId, finalCourseId, finalCourseOfferingId)
+      const okSub = await assertActiveSubjectInCourse(finalSubjectId, finalCourseId, finalCourseOfferingId, finalOrientationId)
       if (!okSub) {
         return res.status(400).json({ message: 'Asignatura no encontrada o no pertenece al curso' })
       }
@@ -963,6 +1098,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
               select: { id: true, name: true, email: true, ...selectOrgRoleCode }
             },
             courseOffering: eventCourseOfferingInclude,
+            orientation: eventOrientationInclude,
             subject: eventSubjectInclude,
           }
         })
@@ -1003,6 +1139,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
         courseOffering: eventCourseOfferingInclude,
+        orientation: eventOrientationInclude,
         subject: eventSubjectInclude,
       }
     });
@@ -1059,8 +1196,9 @@ r.put('/:id/cancel', authGuard, requirePermission('events.cancel'), async (req, 
         assignedUser: {
           select: { id: true, name: true, email: true, ...selectOrgRoleCode }
         },
-        courseOffering: eventCourseOfferingInclude,
-        subject: eventSubjectInclude,
+            courseOffering: eventCourseOfferingInclude,
+            orientation: eventOrientationInclude,
+            subject: eventSubjectInclude,
       }
     });
 

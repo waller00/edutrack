@@ -14,8 +14,9 @@
     "prisma:studio": "prisma studio",
     "seed": "node prisma/seed-all.mjs",
     "seed:clean": "node prisma/seed-clean.mjs",
-    "seed:liceo": "node prisma/seed-liceo-6months.mjs",
-    "seed:liceo-historico": "tsx prisma/seed-liceo-uruguay-historico.ts",
+    "seed:academic": "tsx prisma/seed-academic-catalog.ts",
+    "seed:teachers": "tsx prisma/seed-teachers.ts",
+    "seed:bootstrap": "tsx prisma/seed-bootstrap.ts",
     "seed:biometric": "node prisma/seed-biometric-adms.mjs",
     "vapid:keys": "node --input-type=module -e \"import w from 'web-push'; const k=w.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY='+k.publicKey); console.log('VAPID_PRIVATE_KEY='+k.privateKey); console.log('VAPID_SUBJECT=mailto:cambiar@tu-dominio.com');\""
   },

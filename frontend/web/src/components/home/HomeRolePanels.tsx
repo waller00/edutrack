@@ -616,7 +616,7 @@ export function HomeAdminTimeline() {
         href="/admin/events"
         className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3.5 py-2 text-sm font-medium text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/80"
       >
-        Eventos
+        Agenda
         <ChevronRight className="h-4 w-4 opacity-80" aria-hidden />
       </a>
     </div>
@@ -819,9 +819,9 @@ export function HomeAdminTimeline() {
                 value={filters.type}
                 onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                aria-label="Tipo de evento"
+                aria-label="Movimiento"
               >
-                <option value="">Todos los tipos</option>
+                <option value="">Todos los movimientos</option>
                 {data.filters.types.map((type) => (
                   <option key={type.value} value={type.value}>
                     {type.label}
@@ -869,7 +869,7 @@ export function HomeAdminTimeline() {
                         {item.group ? <span>{item.group.name}</span> : null}
                         {item.type === 'SUBSTITUTION' ? (
                           <Link href="/admin/events" className="font-medium text-indigo-700 hover:underline">
-                            Ver eventos
+                            Ver agenda
                           </Link>
                         ) : null}
                         {item.status === 'PENDING' || item.type === 'PENDING_ABSENCE' ? (

@@ -125,6 +125,27 @@ export async function copyCoursesBetweenSchoolYears(
         })
         subjectsCreated += versionedSubjects.length
       }
+      const assignments = await (tx as any).subjectCourseAssignment?.findMany?.({
+        where: { courseId: offering.courseId, schoolYearId: sourceSchoolYearId },
+        select: {
+          subjectId: true,
+          level: true,
+          courseId: true,
+          orientationId: true,
+          associationType: true,
+          isActive: true,
+          sortOrder: true,
+          notes: true,
+        },
+      })
+      if (assignments?.length) {
+        await (tx as any).subjectCourseAssignment.createMany({
+          data: assignments.map((assignment: any) => ({
+            ...assignment,
+            schoolYearId: targetSchoolYearId,
+          })),
+        })
+      }
     }
   })
   return { created, subjectsCreated }
