@@ -244,7 +244,8 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
       startTime: event.startTime,
       endTime: event.endTime,
       hasApprovedLicense: false,
-      lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
+      lateToleranceMinutes:
+        type === 'CHECK_OUT' ? runtimeSettings.earlyExitToleranceMinutes : runtimeSettings.lateToleranceMinutes,
     });
 
     const attendance = await prisma.attendance.create({
@@ -486,6 +487,10 @@ async function buildAttendanceStatsWhereAsync(query: Record<string, unknown>, us
   return where
 }
 
+function rate(part: number, total: number) {
+  return total > 0 ? Math.round((part / total) * 10000) / 100 : 0
+}
+
 // Obtener estadísticas de asistencias
 r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res) => {
   try {
@@ -499,7 +504,16 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       ? buildAdminAttendanceIncidentWhere(req.query as Record<string, unknown>, where)
       : null
 
-    const [attendanceTotal, presentCount, attendanceAbsentCount, lateCount, medicalLeaveCount, incidentAbsentCount] = await Promise.all([
+    const [
+      attendanceTotal,
+      presentCount,
+      attendanceAbsentCount,
+      lateCount,
+      medicalLeaveCount,
+      exitCount,
+      earlyExitCount,
+      incidentAbsentCount,
+    ] = await Promise.all([
       prisma.attendance.count({ where }),
       prisma.attendance.count({ where: { ...where, status: 'PRESENT' } }),
       prisma.attendance.count({
@@ -510,14 +524,13 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       }),
       prisma.attendance.count({ where: { ...where, status: 'LATE' } }),
       prisma.attendance.count({ where: { ...where, status: 'ABSENT_JUSTIFIED' } }),
+      prisma.attendance.count({ where: { ...where, status: 'EXIT' } }),
+      prisma.attendance.count({ where: { ...where, status: 'EARLY_EXIT' } }),
       incidentWhere ? prisma.attendanceIncident.count({ where: incidentWhere }) : Promise.resolve(0),
     ])
 
     const totalAttendances = attendanceTotal + incidentAbsentCount
     const absentCount = attendanceAbsentCount + incidentAbsentCount
-    const attendanceRate = totalAttendances > 0 ? (presentCount / totalAttendances) * 100 : 0
-    const lateRate = totalAttendances > 0 ? (lateCount / totalAttendances) * 100 : 0
-    const absenceRate = totalAttendances > 0 ? (absentCount / totalAttendances) * 100 : 0
 
     res.json({
       totalAttendances,
@@ -525,9 +538,13 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       absentCount,
       lateCount,
       medicalLeaveCount,
-      attendanceRate: Math.round(attendanceRate * 100) / 100,
-      lateRate: Math.round(lateRate * 100) / 100,
-      absenceRate: Math.round(absenceRate * 100) / 100,
+      exitCount,
+      earlyExitCount,
+      attendanceRate: rate(presentCount, totalAttendances),
+      lateRate: rate(lateCount, totalAttendances),
+      absenceRate: rate(absentCount, totalAttendances),
+      exitRate: rate(exitCount, totalAttendances),
+      earlyExitRate: rate(earlyExitCount, totalAttendances),
     });
   } catch (error) {
     console.error('Error obteniendo estadísticas:', error);
@@ -567,6 +584,8 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
       });
     }
 
+    const runtimeSettings = await getAttendanceOperationalSettings()
+
     // Verificar si ya existe una entrada para este usuario en esta fecha
     const existingEntry = await prisma.attendance.findFirst({
       where: {
@@ -586,12 +605,87 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
       });
 
       if (existingExit) {
-        return res.status(400).json({ 
-          message: 'Ya existe registro de entrada y salida para este usuario en esta fecha' 
-        });
+        const exitTime = existingExit.time ? new Date(existingExit.time) : null
+        const withinDuplicateWindow =
+          exitTime &&
+          runtimeSettings.biometricDuplicateWindowMinutes > 0 &&
+          Math.abs(attendanceTime.getTime() - exitTime.getTime()) <= runtimeSettings.biometricDuplicateWindowMinutes * 60 * 1000
+
+        if (!withinDuplicateWindow) {
+          return res.status(400).json({
+            message: 'Ya existe registro de entrada y salida para este usuario en esta fecha'
+          });
+        }
+
+        if (exitTime && attendanceTime.getTime() > exitTime.getTime()) {
+          const linkage = await resolveBiometricAttendanceLinkage(prisma, {
+            userId,
+            occurredAt: attendanceTime,
+            punchType: 'CHECK_OUT',
+            attendanceDate,
+            bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+          })
+          const status = getAttendanceStatus({
+            type: 'CHECK_OUT',
+            actualTime: attendanceTime,
+            endTime: linkage.exitReference?.endTime,
+            hasApprovedLicense: false,
+            lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
+          })
+          const payload = buildBiometricAttendancePayload({
+            userId,
+            attendanceDate,
+            attendanceTime,
+            deviceId,
+            eventId: linkage.attendanceEventId || undefined,
+            status,
+            type: 'CHECK_OUT',
+          })
+          const updatedExit = await prisma.attendance.update({
+            where: { id: existingExit.id },
+            data: {
+              date: attendanceDate,
+              time: attendanceTime,
+              eventId: linkage.attendanceEventId || undefined,
+              status,
+              notes: payload.notes,
+            },
+            include: {
+              user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+              event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
+            },
+          })
+
+          return res.status(200).json({
+            type: 'CHECK_OUT',
+            duplicate: true,
+            attendance: mapAttendanceUser(updatedExit),
+            message: 'Salida repetida dentro de la ventana: se conservó la última marca',
+          })
+        }
+
+        return res.status(200).json({
+          type: 'CHECK_OUT',
+          duplicate: true,
+          attendance: existingExit,
+          message: 'Salida repetida dentro de la ventana: se mantiene la marca existente',
+        })
       }
 
-      const runtimeSettings = await getAttendanceOperationalSettings()
+      const entryTime = existingEntry.time ? new Date(existingEntry.time) : null
+      if (
+        entryTime &&
+        runtimeSettings.biometricDuplicateWindowMinutes > 0 &&
+        Math.abs(attendanceTime.getTime() - entryTime.getTime()) <= runtimeSettings.biometricDuplicateWindowMinutes * 60 * 1000
+      ) {
+        return res.status(200).json({
+          type: 'CHECK_IN',
+          duplicate: true,
+          attendance: existingEntry,
+          message: 'Entrada repetida dentro de la ventana: se conservó la primera marca',
+        })
+      }
+
       const linkage = await resolveBiometricAttendanceLinkage(prisma, {
         userId,
         occurredAt: attendanceTime,
@@ -604,7 +698,7 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
         actualTime: attendanceTime,
         endTime: linkage.exitReference?.endTime,
         hasApprovedLicense: false,
-        lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
+        lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
       })
       const exitAttendance = await prisma.attendance.create({
         data: buildBiometricAttendancePayload({
@@ -629,7 +723,6 @@ r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all')
       });
     }
 
-    const runtimeSettings = await getAttendanceOperationalSettings()
     const linkage = await resolveBiometricAttendanceLinkage(prisma, {
       userId,
       occurredAt: attendanceTime,

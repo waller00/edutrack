@@ -71,6 +71,7 @@ describe("attendance /register (prisma mock)", () => {
       attendanceMonitorIntervalMs: 120000,
       biometricLateHour: 8,
       biometricLateMinute: 30,
+      biometricDuplicateWindowMinutes: 5,
     });
   });
 
@@ -160,6 +161,7 @@ describe("attendance /register (prisma mock)", () => {
       attendanceMonitorIntervalMs: 120000,
       biometricLateHour: 8,
       biometricLateMinute: 30,
+      biometricDuplicateWindowMinutes: 5,
     });
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
@@ -448,6 +450,54 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("EXIT");
   });
 
+  it("POST /attendance/biometric ignora huella repetida de entrada dentro de la ventana", async () => {
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "in-1", time: new Date("2025-06-01T12:00:00.000Z") })
+      .mockResolvedValueOnce(null);
+
+    const res = await request(app())
+      .post("/attendance/biometric")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`)
+      .send({ userId: "user-1", timestamp: "2025-06-01T12:03:00.000Z", deviceId: "dev-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+    expect(res.body.type).toBe("CHECK_IN");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /attendance/biometric actualiza salida repetida dentro de la ventana a la última marca", async () => {
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "in-1", time: new Date("2025-06-01T12:00:00.000Z") })
+      .mockResolvedValueOnce({ id: "out-1", time: new Date("2025-06-01T16:00:00.000Z") });
+    prismaMock.attendance.findMany.mockResolvedValueOnce([{ type: "CHECK_IN", eventId: "event-1" }]);
+    prismaMock.event.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: "event-1",
+        title: "Turno",
+        type: "JORNADA_LABORAL",
+        startTime: new Date("2025-06-01T12:00:00.000Z"),
+        endTime: new Date("2025-06-01T16:10:00.000Z"),
+      },
+    ]);
+    prismaMock.attendance.update.mockResolvedValue({ id: "out-1", time: new Date("2025-06-01T16:04:00.000Z") });
+
+    const res = await request(app())
+      .post("/attendance/biometric")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`)
+      .send({ userId: "user-1", timestamp: "2025-06-01T16:04:00.000Z", deviceId: "dev-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+    expect(res.body.type).toBe("CHECK_OUT");
+    expect(prismaMock.attendance.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "out-1" },
+        data: expect.objectContaining({ time: new Date("2025-06-01T16:04:00.000Z") }),
+      }),
+    );
+  });
+
   it("POST /attendance/biometric marca salida anticipada contra el fin del evento", async () => {
     prismaMock.attendance.findFirst
       .mockResolvedValueOnce({ id: "in-1" })
@@ -687,6 +737,28 @@ describe("attendance /register (prisma mock)", () => {
       .set("Authorization", `Bearer ${tok("ADMIN")}`);
     expect(res.status).toBe(200);
     expect(prismaMock.attendance.count.mock.calls[0][0].where.userId).toBe("other-user");
+  });
+
+  it("GET /attendance/stats calcula estados de salida cuando se filtra CHECK_OUT", async () => {
+    prismaMock.attendance.count
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(1);
+
+    const res = await request(app())
+      .get("/attendance/stats?type=CHECK_OUT")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.exitCount).toBe(3);
+    expect(res.body.earlyExitCount).toBe(1);
+    expect(res.body.exitRate).toBe(75);
+    expect(res.body.earlyExitRate).toBe(25);
+    expect(prismaMock.attendance.count.mock.calls[0][0].where.type).toBe("CHECK_OUT");
   });
 
   it("GET /attendance/stats suma incidencias de ausencia cuando se pide feed mixto", async () => {

@@ -112,6 +112,47 @@ describe('AdminAttendance', () => {
     expect(rows[0].textContent).toMatch(/Ingreso registrado \/ Salida registrada/)
   })
 
+  it('muestra entradas duplicadas como filas separadas para poder corregirlas', async () => {
+    const entry = {
+      id: 'a1',
+      type: 'CHECK_IN' as const,
+      status: 'PRESENT' as const,
+      date: '2025-06-01',
+      time: '2025-06-01T08:00:00.000Z',
+      notes: 'Ingreso registrado',
+      user: { id: 'u1', name: 'Pedro', email: 'p@b.com', role: 'STAFF' },
+      event: {
+        id: 'e1',
+        title: 'Turno mañana',
+        type: 'JORNADA_LABORAL',
+        startTime: '2025-06-01T08:00:00.000Z',
+      },
+    }
+    const duplicate = {
+      ...entry,
+      id: 'a2',
+      time: '2025-06-01T08:20:00.000Z',
+      notes: 'Entrada duplicada',
+    }
+
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('attendance/all')) {
+        return { total: 2, page: 1, pageSize: 20, data: [duplicate, entry] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 2, presentCount: 2, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 100, lateRate: 0, absenceRate: 0 }
+      return {}
+    })
+
+    render(<AdminAttendance />)
+
+    expect(await screen.findAllByText('Turno mañana')).toHaveLength(2)
+    const rows = screen.getAllByRole('row').filter((r) => r.textContent?.includes('Pedro'))
+    expect(rows).toHaveLength(2)
+    expect(screen.getByText('Entrada duplicada')).toBeInTheDocument()
+  })
+
   it('exporta Excel vía fetch al backend', async () => {
     const blob = new Blob(['xlsx'])
     const fetchMock = vi.fn().mockResolvedValue({

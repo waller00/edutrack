@@ -28,11 +28,13 @@ const SYSTEM_SETTINGS_LABELS: Record<string, string> = {
   livenessCheckEnabled: 'verificación de vida en altas',
   attendanceNoShowGraceMinutes: 'tolerancia de no-show docente',
   attendanceLateToleranceMinutes: 'tolerancia de llegada tarde',
+  attendanceEarlyExitToleranceMinutes: 'tolerancia de salida anticipada',
   attendanceClassBridgeGapMinutes: 'tiempo entre clases del mismo bloque',
   attendanceMonitorEnabled: 'monitor automático de incidentes',
   attendanceMonitorIntervalMs: 'intervalo del monitor',
   biometricLateHour: 'hora de tardanza biométrica',
   biometricLateMinute: 'minuto de tardanza biométrica',
+  biometricDuplicateWindowMinutes: 'ventana de huellas repetidas',
 }
 
 const USER_FIELD_LABELS: Record<string, string> = {

@@ -37,6 +37,19 @@ type AdminEventsResponse = {
   data: AssignedEventRow[]
 }
 
+type TimelineItem = {
+  id: string
+  at: string
+  tone: 'entry' | 'exit' | 'incident' | 'event'
+  title: string
+  person: string
+  eventType?: string
+  location?: string
+  status: string
+  statusClass: string
+  summary: string
+}
+
 function labelAttendanceStatus(status: string): string {
   const m: Record<string, string> = {
     PRESENT: 'Presente',
@@ -103,6 +116,268 @@ function EmptyState({ message }: { message: string }) {
     <div className="mx-4 my-6 rounded-xl border border-dashed border-slate-200 bg-white/80 px-6 py-12 text-center">
       <p className="text-sm leading-relaxed text-slate-500">{message}</p>
     </div>
+  )
+}
+
+function attendanceGroupKey(row: AttendanceFeedRow): string {
+  const dateKey = (row.date || row.time).slice(0, 10)
+  return `${row.user?.id ?? 'user'}:${row.event?.id ?? row.id}:${dateKey}`
+}
+
+function buildAttendanceTimelineItems(rows: AttendanceFeedRow[]): TimelineItem[] {
+  const grouped = new Map<
+    string,
+    {
+      entries: AttendanceFeedRow[]
+      exits: AttendanceFeedRow[]
+      incidents: AttendanceFeedRow[]
+      source: AttendanceFeedRow
+    }
+  >()
+
+  for (const row of rows) {
+    const key = row.type === 'INCIDENT' || row.kind === 'INCIDENT' ? row.id : attendanceGroupKey(row)
+    const group = grouped.get(key) ?? { entries: [], exits: [], incidents: [], source: row }
+    if (row.type === 'CHECK_IN') group.entries.push(row)
+    else if (row.type === 'CHECK_OUT') group.exits.push(row)
+    else group.incidents.push(row)
+    if (new Date(row.time).getTime() > new Date(group.source.time).getTime()) group.source = row
+    grouped.set(key, group)
+  }
+
+  return Array.from(grouped.entries()).map(([key, group]) => {
+    const entry = group.entries.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())[0]
+    const exit = group.exits.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0]
+    const incident = group.incidents[0]
+    const source = incident ?? exit ?? entry ?? group.source
+    const person = source.user?.name || source.user?.email || 'Usuario'
+    const title = source.event?.title || source.title || 'Actividad sin evento'
+    const parts = [
+      entry ? `Entró ${formatTimeInUruguay(entry.time)}` : null,
+      exit ? `Salió ${formatTimeInUruguay(exit.time)}` : null,
+    ].filter(Boolean)
+
+    if (incident) {
+      return {
+        id: `attendance:${key}`,
+        at: source.time,
+        tone: 'incident',
+        title,
+        person,
+        eventType: source.event?.type,
+        status: 'Falta',
+        statusClass: badgeClassForStatus('ABSENT_NOT_JUSTIFIED'),
+        summary: source.description || source.notes || 'No se registró asistencia para el evento.',
+      }
+    }
+
+    const status =
+      exit?.status === 'EARLY_EXIT'
+        ? 'Salida anticipada'
+        : exit
+          ? 'Finalizado'
+          : entry?.status === 'LATE'
+            ? labelAttendanceFeedRow(entry)
+            : 'En curso'
+
+    return {
+      id: `attendance:${key}`,
+      at: exit?.time || entry?.time || source.time,
+      tone: exit ? 'exit' : 'entry',
+      title,
+      person,
+      eventType: source.event?.type,
+      status,
+      statusClass: badgeClassForStatus(exit?.status || entry?.status || source.status),
+      summary: parts.length > 0 ? parts.join(' · ') : labelAttendanceFeedRow(source),
+    }
+  })
+}
+
+function buildEventTimelineItems(events: AssignedEventRow[], attendanceItems: TimelineItem[]): TimelineItem[] {
+  const coveredEventTitles = new Set(attendanceItems.map((item) => `${item.person}:${item.title}:${item.at.slice(0, 10)}`))
+  return events
+    .filter((event) => event.status === 'SCHEDULED' || event.status === 'IN_PROGRESS')
+    .filter((event) => {
+      const person = event.assignedUser?.name || event.assignedUser?.email || 'Sin persona asignada'
+      const key = `${person}:${event.title}:${(event.startTime || event.startDate).slice(0, 10)}`
+      return !coveredEventTitles.has(key)
+    })
+    .map((event) => ({
+      id: `event:${event.id}`,
+      at: event.startTime || event.startDate,
+      tone: 'event' as const,
+      title: event.title,
+      person: event.assignedUser?.name || event.assignedUser?.email || 'Sin persona asignada',
+      eventType: event.type,
+      location: event.location,
+      status: getAssignedEventStatusLabel(event.status),
+      statusClass: getAssignedEventStatusColor(event.status),
+      summary: `${formatTimeInUruguay(event.startTime || event.startDate)}${event.endTime ? ` - ${formatTimeInUruguay(event.endTime)}` : ''}`,
+    }))
+}
+
+export function HomeAdminTimeline() {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [items, setItems] = useState<TimelineItem[]>([])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const now = new Date()
+      const attendanceStart = new Date(now)
+      attendanceStart.setDate(attendanceStart.getDate() - 7)
+      const eventEnd = new Date(now)
+      eventEnd.setDate(eventEnd.getDate() + 14)
+      const eventStart = new Date(now)
+      eventStart.setDate(eventStart.getDate() - 1)
+
+      const attendanceParams = new URLSearchParams({
+        startDate: attendanceStart.toISOString(),
+        endDate: now.toISOString(),
+        page: '1',
+        pageSize: '16',
+        includeIncidents: 'true',
+      })
+      const eventParams = new URLSearchParams({
+        startDate: eventStart.toISOString(),
+        endDate: eventEnd.toISOString(),
+        page: '1',
+        pageSize: '16',
+      })
+
+      const [attendanceRes, eventsRes] = await Promise.all([
+        api<AttendanceFeedResponse>(`/attendance/all?${attendanceParams.toString()}`),
+        api<AdminEventsResponse>(`/events/all?${eventParams.toString()}`),
+      ])
+      const attendanceItems = buildAttendanceTimelineItems(attendanceRes.data ?? [])
+      const eventItems = buildEventTimelineItems(eventsRes.data ?? [], attendanceItems)
+      const merged = [...attendanceItems, ...eventItems]
+        .sort((a, b) => {
+          const nowMs = now.getTime()
+          const aMs = new Date(a.at).getTime()
+          const bMs = new Date(b.at).getTime()
+          const aFuture = aMs >= nowMs
+          const bFuture = bMs >= nowMs
+          if (aFuture !== bFuture) return aFuture ? 1 : -1
+          return aFuture ? aMs - bMs : bMs - aMs
+        })
+        .slice(0, 10)
+      setItems(merged)
+    } catch {
+      setError('No se pudo cargar la cronología operativa.')
+      setItems([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const action = (
+    <div className="flex flex-wrap gap-2">
+      <a
+        href="/admin/attendance"
+        className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3.5 py-2 text-sm font-medium text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/80"
+      >
+        Asistencias
+        <ChevronRight className="h-4 w-4 opacity-80" aria-hidden />
+      </a>
+      <a
+        href="/admin/events"
+        className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3.5 py-2 text-sm font-medium text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/80"
+      >
+        Eventos
+        <ChevronRight className="h-4 w-4 opacity-80" aria-hidden />
+      </a>
+    </div>
+  )
+
+  return (
+    <HomePanelShell
+      title="Cronología operativa"
+      subtitle="Eventos próximos y actividad reciente en una sola línea, con entrada y salida cuando ya existen marcaciones."
+      icon={<Clock className="h-6 w-6" strokeWidth={2} aria-hidden />}
+      action={action}
+    >
+      <div className="p-4 sm:p-5">
+        {loading && (
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-500">
+            <Loader2 className="h-9 w-9 animate-spin text-emerald-600" aria-hidden />
+            <span className="text-sm">Cargando cronología…</span>
+          </div>
+        )}
+        {!loading && error && <EmptyState message={error} />}
+        {!loading && !error && items.length === 0 && (
+          <EmptyState message="No hay actividad reciente ni eventos próximos para mostrar." />
+        )}
+        {!loading && !error && items.length > 0 && (
+          <ol className="relative space-y-3 before:absolute before:bottom-3 before:left-5 before:top-3 before:w-px before:bg-emerald-100" role="list">
+            {items.map((item) => (
+              <li key={item.id} className="relative flex gap-3">
+                <div
+                  className={`z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white shadow-sm ${
+                    item.tone === 'entry'
+                      ? 'border-emerald-200 text-emerald-700'
+                      : item.tone === 'exit'
+                        ? 'border-sky-200 text-sky-700'
+                        : item.tone === 'incident'
+                          ? 'border-red-200 text-red-700'
+                          : 'border-slate-200 text-slate-600'
+                  }`}
+                  title={item.status}
+                >
+                  {item.tone === 'entry' ? (
+                    <LogIn className="h-[18px] w-[18px]" aria-hidden />
+                  ) : item.tone === 'exit' ? (
+                    <LogOut className="h-[18px] w-[18px]" aria-hidden />
+                  ) : item.tone === 'incident' ? (
+                    <AlertTriangle className="h-[18px] w-[18px]" aria-hidden />
+                  ) : (
+                    <Calendar className="h-[18px] w-[18px]" aria-hidden />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-white/90 px-4 py-3.5 shadow-sm transition hover:border-emerald-200/80 hover:bg-emerald-50/25">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="truncate text-sm font-semibold text-slate-900">{item.title}</h3>
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${item.statusClass}`}>
+                          {item.status}
+                        </span>
+                        {item.eventType ? (
+                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                            {getEventTypeLabel(item.eventType)}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="truncate text-sm text-slate-600">
+                        <span className="text-slate-400">Asignado a · </span>
+                        {item.person}
+                      </p>
+                      {item.location ? (
+                        <p className="flex min-w-0 items-center gap-1.5 truncate text-xs text-slate-500">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                          <span className="truncate">{item.location}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-left ring-1 ring-slate-100 sm:text-right">
+                      <div className="text-sm font-semibold tabular-nums text-slate-800">{formatDateInUruguay(item.at)}</div>
+                      <div className="mt-1 text-xs tabular-nums text-slate-600">{item.summary}</div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </HomePanelShell>
   )
 }
 

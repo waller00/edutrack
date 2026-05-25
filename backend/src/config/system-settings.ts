@@ -26,26 +26,34 @@ export async function getOrCreateSystemSettings() {
       livenessCheckEnabled: false,
       attendanceNoShowGraceMinutes: 15,
       attendanceLateToleranceMinutes: 5,
+      attendanceEarlyExitToleranceMinutes: 5,
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
       biometricLateHour: 8,
       biometricLateMinute: 30,
-    },
+      biometricDuplicateWindowMinutes: 5,
+    } as any,
     update: {},
   })
 }
 
 export async function getAttendanceOperationalSettings() {
   const row = await getOrCreateSystemSettings()
+  const settings = row as typeof row & {
+    attendanceEarlyExitToleranceMinutes?: number | null
+    biometricDuplicateWindowMinutes?: number | null
+  }
   return {
     noShowGraceMinutes: Math.max(row.attendanceNoShowGraceMinutes ?? 15, 1),
     lateToleranceMinutes: Math.max(row.attendanceLateToleranceMinutes ?? 5, 0),
+    earlyExitToleranceMinutes: Math.max(settings.attendanceEarlyExitToleranceMinutes ?? row.attendanceLateToleranceMinutes ?? 5, 0),
     classBridgeGapMinutes: Math.min(Math.max(row.attendanceClassBridgeGapMinutes ?? 60, 1), 24 * 60),
     monitorEnabled: row.attendanceMonitorEnabled !== false,
     monitorIntervalMs: Math.max(row.attendanceMonitorIntervalMs ?? 120000, 30000),
     biometricLateHour: Math.min(Math.max(row.biometricLateHour ?? 8, 0), 23),
     biometricLateMinute: Math.min(Math.max(row.biometricLateMinute ?? 30, 0), 59),
+    biometricDuplicateWindowMinutes: Math.min(Math.max(settings.biometricDuplicateWindowMinutes ?? 5, 0), 120),
   }
 }
 
