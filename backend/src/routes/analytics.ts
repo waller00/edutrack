@@ -13,6 +13,7 @@ import {
 import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { APP_TIMEZONE, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../config/app-timezone.js'
+import { timelineSortInstantOnDay } from '../services/analytics/timeline-sort.js'
 
 const r = Router()
 
@@ -126,13 +127,6 @@ function subjectCourseTitle(params: {
 function formatTimeLabel(at?: Date | string | null) {
   if (!at) return ''
   return DateTime.fromJSDate(new Date(at), { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('HH:mm')
-}
-
-/** Proyecta la hora civil al día filtrado para ordenar bloques de clase/puente en cronología diaria. */
-function timelineSortInstantOnDay(dayYmd: string, at?: Date | string | null) {
-  if (!at) return uruguayWallToUtc(dayYmd, 0, 0)
-  const wall = DateTime.fromJSDate(new Date(at), { zone: 'utc' }).setZone(APP_TIMEZONE)
-  return uruguayWallToUtc(dayYmd, wall.hour, wall.minute)
 }
 
 function timelineStatusLabel(status: string) {

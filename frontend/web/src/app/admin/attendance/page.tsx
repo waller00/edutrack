@@ -15,6 +15,8 @@ import {
 } from '@/lib/admin/attendance-display'
 import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
+import AdminIncidentsPanel from '@/components/admin/AdminIncidentsPanel'
+import AttendanceJustifyModal from '@/components/admin/AttendanceJustifyModal'
 import {
   BarChart3,
   Calendar,
@@ -45,7 +47,15 @@ function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
 type AttendanceRecord = {
   id: string
   type: 'CHECK_IN' | 'CHECK_OUT' | 'INCIDENT'
-  status: 'PRESENT' | 'LATE' | 'ABSENT_NOT_JUSTIFIED' | 'ABSENT_JUSTIFIED' | 'EXIT' | 'EARLY_EXIT'
+  status:
+    | 'PRESENT'
+    | 'LATE'
+    | 'ABSENT_NOT_JUSTIFIED'
+    | 'ABSENT_JUSTIFIED'
+    | 'EXIT'
+    | 'EARLY_EXIT'
+    | 'JUSTIFIED'
+    | 'SUBSTITUTED'
   date: string
   time: string
   notes?: string
@@ -517,6 +527,8 @@ export default function AdminAttendance() {
   const [selectedAttendanceIds, setSelectedAttendanceIds] = useState<string[]>([])
   const [expandedAttendanceRows, setExpandedAttendanceRows] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
+  const [activeTab, setActiveTab] = useState<'attendance' | 'incidents'>('attendance')
+  const [justifyTarget, setJustifyTarget] = useState<AttendanceRecord | null>(null)
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -1084,6 +1096,8 @@ export default function AdminAttendance() {
                             <option value="PRESENT">Presente</option>
                             <option value="LATE">Tarde</option>
                             <option value="ABSENT_NOT_JUSTIFIED">Ausente (No Justificada)</option>
+                            <option value="SUBSTITUTED">Suplido</option>
+                            <option value="JUSTIFIED">Justificado</option>
                             <option value="ABSENT_JUSTIFIED">Ausente (Justificada)</option>
                           </>
                         )}
@@ -1218,7 +1232,39 @@ export default function AdminAttendance() {
           </div>
         )}
 
+        <div className="flex gap-2 border-b border-slate-200">
+          <button
+            type="button"
+            onClick={() => setActiveTab('attendance')}
+            className={`px-4 py-2 text-sm font-medium ${
+              activeTab === 'attendance'
+                ? 'border-b-2 border-emerald-600 text-emerald-700'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Registros
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('incidents')}
+            className={`px-4 py-2 text-sm font-medium ${
+              activeTab === 'incidents'
+                ? 'border-b-2 border-emerald-600 text-emerald-700'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Incidencias
+          </button>
+        </div>
+
+        {activeTab === 'incidents' ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <AdminIncidentsPanel onMessage={setMessage} />
+          </div>
+        ) : null}
+
         {/* Tabla de asistencias */}
+        {activeTab === 'attendance' ? (
         <div className="bg-white border rounded-lg shadow-sm">
           <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
             <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
@@ -1256,6 +1302,20 @@ export default function AdminAttendance() {
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>
+        ) : null}
+
+        {justifyTarget ? (
+          <AttendanceJustifyModal
+            attendanceId={justifyTarget.id}
+            teacherLabel={justifyTarget.user.name}
+            onClose={() => setJustifyTarget(null)}
+            onSaved={() => {
+              setMessage('✅ Justificación registrada')
+              void loadAttendances()
+              void loadStats()
+            }}
+          />
+        ) : null}
 
         {/* Modal de edición */}
         {editing && (
@@ -1277,6 +1337,8 @@ export default function AdminAttendance() {
                         <option value="LATE">Tarde</option>
                         <option value="ABSENT_NOT_JUSTIFIED">Ausente (No Justificada)</option>
                         <option value="ABSENT_JUSTIFIED">Ausente (Justificada)</option>
+                        <option value="SUBSTITUTED">Suplido</option>
+                        <option value="JUSTIFIED">Justificado</option>
                       </>
                     ) : (
                       <>
@@ -1305,6 +1367,20 @@ export default function AdminAttendance() {
                 >
                   Guardar
                 </button>
+                {(editing.status === 'ABSENT_NOT_JUSTIFIED' ||
+                  editing.status === 'LATE' ||
+                  editing.status === 'EARLY_EXIT') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJustifyTarget(editing)
+                      setEditing(null)
+                    }}
+                    className="px-4 py-2 border border-emerald-300 text-emerald-800 rounded hover:bg-emerald-50"
+                  >
+                    Justificar con auditoría
+                  </button>
+                )}
                 <button
                   onClick={() => setEditing(null)}
                   className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"

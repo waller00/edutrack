@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Calendar, ChevronRight, ClipboardList, Clock, Filter, Loader2, LogIn, LogOut, MapPin, User } from 'lucide-react'
 import { api } from '@/lib/api/client'
@@ -556,6 +557,18 @@ export function HomeAdminTimeline() {
                   {iconForTimelineType(item.type)}
                 </div>
                 <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-white/90 px-4 py-3.5 shadow-sm transition hover:border-emerald-200/80 hover:bg-emerald-50/25">
+                  <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                    {item.type === 'SUBSTITUTION' ? (
+                      <Link href="/admin/events" className="font-medium text-indigo-700 hover:underline">
+                        Ver eventos
+                      </Link>
+                    ) : null}
+                    {item.status === 'PENDING' || item.type === 'PENDING_ABSENCE' ? (
+                      <Link href="/admin/attendance" className="font-medium text-emerald-700 hover:underline">
+                        Gestionar asistencias
+                      </Link>
+                    ) : null}
+                  </div>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">

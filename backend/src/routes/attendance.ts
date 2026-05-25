@@ -227,7 +227,7 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
       return res.status(400).json({ message: 'No se puede generar asistencia para un horario inexistente o suspendido' });
     }
 
-    const attendanceDateForSubstitution = uruguayStartOfDayFromInstant(new Date(event.startTime))
+    const attendanceDateForSubstitution = uruguayStartOfDayFromInstant(new Date(date))
     const substitutionRows = await prisma.$queryRaw<{ id: string }[]>`
       SELECT "id"
       FROM "Substitution"

@@ -4,6 +4,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import { BarChart3 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api/client'
+import MyAttendanceMarkingPanel from '@/components/personal/MyAttendanceMarkingPanel'
 import {
   getDefaultAttendanceStartDate,
   getAttendanceTypeStyle,
@@ -37,6 +38,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
   const [loading, setLoading] = useState(true)
   const [startDate, setStartDate] = useState(getDefaultAttendanceStartDate())
   const [endDate, setEndDate] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
   const attendanceQuery = new URLSearchParams(
     [
       ['startDate', startDate],
@@ -75,7 +77,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
     return () => {
       cancelled = true
     }
-  }, [me, attendanceQuery])
+  }, [me, attendanceQuery, refreshKey])
 
   if (loading) return <p>Cargando...</p>
 
@@ -94,6 +96,8 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
           </div>
           <div className="text-sm text-gray-500">Total: {attendances.length} registros</div>
         </div>
+
+        {me ? <MyAttendanceMarkingPanel userId={me.id} onMarked={() => setRefreshKey((k) => k + 1)} /> : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>

@@ -31,7 +31,10 @@ export default defineConfig({
         "src/routes/didit-*.ts",
         // Handler Prisma/raw SQL de alumnos y mensualidades; validado por integración/e2e.
         "src/routes/admin-students.ts",
+        // Dashboard y cronología de asistencia: agregaciones Prisma; validado en e2e/UI.
+        "src/routes/analytics.ts",
         "src/services/analytics/**",
+        "!src/services/analytics/timeline-sort.ts",
         "src/services/exports/**",
         // RF-10: handlers Prisma + OpenAI; cobertura vía tests puntuales (heuristics, date-range) y ruta admin mockeada
         "src/services/query-assistant/**",

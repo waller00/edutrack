@@ -21,6 +21,7 @@ const { prismaMock } = vi.hoisted(() => ({
       count: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
+    substitution: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 
