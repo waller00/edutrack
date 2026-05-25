@@ -99,6 +99,7 @@ model User {
   substitutionsAsOriginal     Substitution[]          @relation("SubstitutionOriginalTeacher")
   substitutionsAsSubstitute   Substitution[]          @relation("SubstitutionSubstituteTeacher")
   auditEvents                 AuditLog[]
+  teacherProfile              TeacherProfile?
   // security
   emailVerifiedAt             DateTime?
   failedLoginAttempts         Int                    @default(0)
@@ -114,6 +115,20 @@ model User {
   livenessVerifiedAt          DateTime?
 
   @@index([roleId])
+}
+
+/// Perfil docente operativo (cuenta en `User` con rol TEACHER).
+model TeacherProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName String
+  isActive    Boolean  @default(true)
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
 }
 
 model TwoFactorBackupCode {
@@ -543,6 +558,19 @@ enum SchoolYearStatus {
   CLOSED
 }
 
+enum AcademicLevel {
+  EBI
+  EMS
+}
+
+enum SubjectAssociationType {
+  NIVEL_COMPLETO
+  CURSO_COMPLETO
+  TRONCO_COMUN_CURSO
+  ORIENTACION
+  PERSONALIZADA
+}
+
 model SchoolYear {
   id                 String                @id @default(uuid())
   /// Año calendario del ciclo (ej. 2026); único en la institución.
@@ -559,6 +587,8 @@ model SchoolYear {
   tuitionYears       StudentTuitionYear[]
   tuitionMonths      StudentTuitionMonth[]
   nonWorkingDays     NonWorkingDay[]
+  courseOrientations CourseOrientation[]
+  subjectAssignments SubjectCourseAssignment[]
 
   @@index([status])
 }
@@ -568,14 +598,37 @@ model Course {
   id          String           @id @default(uuid())
   name        String
   code        String?          @unique
+  level       AcademicLevel?
+  sortOrder   Int              @default(0)
   description String?
   isActive    Boolean          @default(true)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
-  subjects    Subject[]
+  legacySubjects Subject[]
   offerings   CourseOffering[]
+  orientations CourseOrientation[]
+  subjectAssignments SubjectCourseAssignment[]
 
   @@index([isActive])
+  @@index([level, sortOrder])
+}
+
+/// Catálogo configurable de orientaciones/subdivisiones académicas.
+model Orientation {
+  id          String              @id @default(uuid())
+  name        String
+  code        String?             @unique
+  description String?             @db.Text
+  isActive    Boolean             @default(true)
+  sortOrder   Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  courses     CourseOrientation[]
+  subjectAssignments SubjectCourseAssignment[]
+  events      Event[]
+
+  @@index([isActive])
+  @@index([sortOrder, name])
 }
 
 /// Oferta anual de un curso del catálogo dentro de un ciclo lectivo.
@@ -592,15 +645,36 @@ model CourseOffering {
   updatedAt          DateTime            @updatedAt
   events             Event[]
   studentEnrollments StudentEnrollment[]
-  subjects           Subject[]
+  legacySubjects     Subject[]
 
   @@unique([courseId, schoolYearId])
   @@index([schoolYearId, isActive])
   @@index([courseId])
 }
 
-/// Asignatura de un curso. Sin jerarquía de “subcursos”: materias comunes vs orientación
-/// se modelan con cursos distintos y listas de asignaturas propias.
+/// Relación opcional de orientación disponible para un curso y, si corresponde, ciclo lectivo.
+model CourseOrientation {
+  id            String       @id @default(uuid())
+  courseId      String
+  course        Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  orientationId String
+  orientation   Orientation  @relation(fields: [orientationId], references: [id], onDelete: Cascade)
+  schoolYearId  String?
+  schoolYear    SchoolYear?  @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  isActive      Boolean      @default(true)
+  notes         String?      @db.Text
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  events        Event[]
+
+  @@unique([courseId, orientationId, schoolYearId])
+  @@index([courseId, isActive])
+  @@index([orientationId, isActive])
+  @@index([schoolYearId, isActive])
+}
+
+/// Catálogo global de asignaturas. La disponibilidad por nivel/curso/orientación
+/// se define en SubjectCourseAssignment.
 model Subject {
   id               String          @id @default(uuid())
   name             String
@@ -608,17 +682,50 @@ model Subject {
   description      String?         @db.Text
   sortOrder        Int             @default(0)
   isActive         Boolean         @default(true)
-  courseId         String
-  course           Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  /// Compatibilidad histórica: asignaturas creadas antes del catálogo flexible.
+  courseId         String?
+  course           Course?         @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  /// Compatibilidad histórica por ciclo.
   courseOfferingId String?
   courseOffering   CourseOffering? @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  courseAssignments SubjectCourseAssignment[]
   events           Event[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
   @@index([courseId])
   @@index([courseOfferingId])
+  @@index([isActive])
+  @@index([sortOrder, name])
   @@map("asignaturas")
+}
+
+/// Asociación flexible de asignaturas: nivel completo, curso completo, tronco común
+/// de curso, orientación o configuración personalizada por ciclo.
+model SubjectCourseAssignment {
+  id              String                 @id @default(uuid())
+  subjectId       String
+  subject         Subject                @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  level           AcademicLevel?
+  courseId        String?
+  course          Course?                @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  orientationId   String?
+  orientation     Orientation?           @relation(fields: [orientationId], references: [id], onDelete: Cascade)
+  schoolYearId    String?
+  schoolYear      SchoolYear?            @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  associationType SubjectAssociationType
+  isActive        Boolean                @default(true)
+  sortOrder       Int                    @default(0)
+  notes           String?                @db.Text
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([subjectId, isActive])
+  @@index([level, isActive])
+  @@index([courseId, isActive])
+  @@index([orientationId, isActive])
+  @@index([schoolYearId, isActive])
+  @@index([associationType])
 }
 
 /// Estado de matrícula para informes de abandono y seguimiento administrativo.
@@ -743,6 +850,10 @@ model Event {
   schoolYear          SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
   courseOfferingId    String?
   courseOffering      CourseOffering?      @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  orientationId        String?
+  orientation          Orientation?         @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  courseOrientationId  String?
+  courseOrientation    CourseOrientation?   @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
   subjectId           String?
   subject             Subject?             @relation(fields: [subjectId], references: [id], onDelete: SetNull)
   recurrenceType      RecurrenceType       @default(NONE)
@@ -762,6 +873,8 @@ model Event {
   @@index([assignedUserId])
   @@index([schoolYearId])
   @@index([courseOfferingId])
+  @@index([orientationId])
+  @@index([courseOrientationId])
   @@index([subjectId])
   @@index([startDate])
   @@index([type])

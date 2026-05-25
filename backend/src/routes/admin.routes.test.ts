@@ -151,7 +151,7 @@ describe("admin routes (prisma mock)", () => {
     prismaMock.orgRole.findMany.mockResolvedValue([
       { code: "ADMIN", label: "Administrador" },
       { code: "STAFF", label: "Staff" },
-      { code: "TEACHER", label: "Tutor" },
+      { code: "TEACHER", label: "Docente" },
     ]);
     prismaMock.orgRole.findUnique.mockImplementation((args: { where: { code: string } }) =>
       Promise.resolve({ id: orgRoleRowId(args.where.code as BuiltinProfileRole), code: args.where.code }),
@@ -295,7 +295,7 @@ describe("admin routes (prisma mock)", () => {
       expect(res.status).toBe(200);
       expect(res.body.roles).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ role: "TEACHER", label: "Tutor" }),
+          expect.objectContaining({ role: "TEACHER", label: "Docente" }),
           expect.objectContaining({ role: "ADMIN", label: "Administrador" }),
         ]),
       );

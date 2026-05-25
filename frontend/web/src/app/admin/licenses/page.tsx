@@ -337,7 +337,7 @@ export default function LicensesPage() {
     if (loading) {
       return (
         <tr>
-          <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
+          <td colSpan={8} className="px-4 py-5 text-center text-gray-500">
             <span className="inline-flex items-center justify-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
               Cargando…
@@ -350,7 +350,7 @@ export default function LicensesPage() {
     if (licenses.length === 0) {
       return (
         <tr>
-          <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
+          <td colSpan={8} className="px-4 py-5 text-center text-gray-500">
             No hay licencias registradas
           </td>
         </tr>
@@ -413,7 +413,7 @@ export default function LicensesPage() {
 
   return (
     <RoleGuard permission="licenses.read" permissionScope="all">
-      <main className="responsive-page max-w-7xl space-y-8">
+      <main className="responsive-page max-w-[1600px] space-y-5">
         {/* Header alineado a otros módulos admin */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
@@ -428,23 +428,25 @@ export default function LicensesPage() {
               </p>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-4 shrink-0">
-            <div className="text-right">
-              <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licenses.length}</div>
-              <div className="text-sm text-gray-600">registros listados</div>
+          {activeSection === 'licenses' ? (
+            <div className="flex flex-col items-end gap-3 shrink-0">
+              <div className="text-right">
+                <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licenses.length}</div>
+                <div className="text-sm text-gray-600">registros listados</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateModalError('')
+                  setCreating(true)
+                }}
+                className="btn-primary inline-flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4 shrink-0" aria-hidden />
+                Nueva Licencia
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setCreateModalError('')
-                setCreating(true)
-              }}
-              className="btn-primary inline-flex items-center gap-2"
-            >
-              <Plus className="h-4 w-4 shrink-0" aria-hidden />
-              Nueva Licencia
-            </button>
-          </div>
+          ) : null}
         </div>
 
         <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
@@ -478,12 +480,12 @@ export default function LicensesPage() {
         )}
 
         {activeSection === 'non-working' && (
-          <section className="space-y-6">
-            <div className="card">
-              <div className="card-header">
-                <h2 className="text-lg font-semibold text-gray-900">Marcar feriado o día no laborable</h2>
-              </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <section className="space-y-4">
+            <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+              <h2 className="mb-4 border-b border-gray-100 pb-3 text-lg font-semibold text-gray-900">
+                Marcar feriado o día no laborable
+              </h2>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-gray-700">Fecha</label>
                   <input
@@ -514,7 +516,7 @@ export default function LicensesPage() {
                     placeholder="Ej: Feriado nacional"
                   />
                 </div>
-                <div className="md:col-span-2 lg:col-span-4">
+                <div className="md:col-span-2 lg:col-span-3">
                   <label className="mb-2 block text-sm font-medium text-gray-700">Notas</label>
                   <textarea
                     value={newNonWorkingDay.notes}
@@ -523,17 +525,16 @@ export default function LicensesPage() {
                     rows={2}
                   />
                 </div>
-              </div>
-              <div className="mt-5">
-                <button type="button" onClick={() => void createNonWorkingDay()} className="btn-primary">
-                  Guardar día
-                </button>
+                <div className="flex items-end">
+                  <button type="button" onClick={() => void createNonWorkingDay()} className="btn-primary w-full sm:w-auto">
+                    Guardar día
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="card">
-              <div className="card-header">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4 sm:px-5">
                   <h2 className="text-lg font-semibold text-gray-900">Calendario no laborable</h2>
                   <div className="flex flex-wrap items-end gap-3">
                     <div>
@@ -558,24 +559,30 @@ export default function LicensesPage() {
                       Buscar
                     </button>
                   </div>
-                </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-[720px] divide-y divide-gray-200">
+                <table className="w-full min-w-[720px] table-fixed divide-y divide-gray-200">
+                  <colgroup>
+                    <col className="w-[14%]" />
+                    <col className="w-[16%]" />
+                    <col className="w-[30%]" />
+                    <col className="w-[28%]" />
+                    <col className="w-[12%]" />
+                  </colgroup>
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Fecha</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Tipo</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Motivo</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Notas</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Acciones</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-medium uppercase text-gray-500">Fecha</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-medium uppercase text-gray-500">Tipo</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-medium uppercase text-gray-500">Motivo</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-medium uppercase text-gray-500">Notas</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-medium uppercase text-gray-500">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 bg-white">
                     {loadingNonWorkingDays ? (
-                      <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">Cargando…</td></tr>
+                      <tr><td colSpan={5} className="px-4 py-5 text-center text-gray-500">Cargando…</td></tr>
                     ) : nonWorkingDays.length === 0 ? (
-                      <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">No hay días marcados</td></tr>
+                      <tr><td colSpan={5} className="px-4 py-5 text-center text-gray-500">No hay días marcados</td></tr>
                     ) : (
                       nonWorkingDays.map((day) => (
                         <tr key={day.id}>
@@ -599,10 +606,10 @@ export default function LicensesPage() {
         )}
 
         {activeSection === 'licenses' && (
-          <>
+          <section className="space-y-4">
         {/* Filtros (mismo patrón que Control y seguimiento del personal) */}
-        <div className="card">
-          <div className="card-header">
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-4 border-b border-gray-100 pb-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
@@ -707,40 +714,34 @@ export default function LicensesPage() {
             </div>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-4">
             <button type="button" onClick={() => void loadLicenses()} className="btn-primary">
               Aplicar filtros
             </button>
           </div>
         </div>
 
-        {/* KPIs rápidos (derivados del listado actual, sin nueva lógica de negocio) */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <div className="rounded-lg border bg-white p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Totales listados</div>
-            <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licenses.length}</div>
-            <div className="text-xs text-gray-500">Tras última carga o filtros</div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
+            <div className="text-xs text-gray-500">Totales listados</div>
+            <div className="text-xl font-bold text-emerald-600">{loading ? '—' : licenses.length}</div>
           </div>
-          <div className="rounded-lg border bg-white p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Activas</div>
-            <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licensesActiveCount}</div>
-            <div className="text-xs text-gray-500">En esta vista</div>
+          <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
+            <div className="text-xs text-gray-500">Activas</div>
+            <div className="text-xl font-bold text-emerald-600">{loading ? '—' : licensesActiveCount}</div>
           </div>
-          <div className="rounded-lg border bg-white p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Inactivas</div>
-            <div className="text-2xl font-bold text-red-600">{loading ? '—' : licensesInactiveCount}</div>
-            <div className="text-xs text-gray-500">En esta vista</div>
+          <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
+            <div className="text-xs text-gray-500">Inactivas</div>
+            <div className="text-xl font-bold text-red-600">{loading ? '—' : licensesInactiveCount}</div>
           </div>
-          <div className="rounded-lg border bg-white p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Lic. médicas</div>
-            <div className="text-2xl font-bold text-slate-800">{loading ? '—' : licensesMedicalCount}</div>
-            <div className="text-xs text-gray-500">En esta vista</div>
+          <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
+            <div className="text-xs text-gray-500">Lic. médicas</div>
+            <div className="text-xl font-bold text-slate-800">{loading ? '—' : licensesMedicalCount}</div>
           </div>
         </div>
 
-        {/* Tabla de licencias */}
-        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-gray-100 p-4 md:flex-row md:items-center md:justify-between sm:p-6">
+        <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-gray-100 p-4 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-semibold">Licencias</h2>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
@@ -759,10 +760,20 @@ export default function LicensesPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[980px] divide-y divide-gray-200">
+            <table className="w-full min-w-[980px] table-fixed divide-y divide-gray-200">
+              <colgroup>
+                <col className="w-[4%]" />
+                <col className="w-[18%]" />
+                <col className="w-[14%]" />
+                <col className="w-[16%]" />
+                <col className="w-[10%]" />
+                <col className="w-[22%]" />
+                <col className="w-[10%]" />
+                <col className="w-[6%]" />
+              </colgroup>
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">
                     <input
                       type="checkbox"
                       checked={
@@ -773,13 +784,13 @@ export default function LicensesPage() {
                       aria-label="Seleccionar todas las licencias"
                     />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Certificado</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Certificado</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -788,7 +799,7 @@ export default function LicensesPage() {
             </table>
           </div>
         </div>
-          </>
+          </section>
         )}
 
         {/* Modal para crear licencia */}
