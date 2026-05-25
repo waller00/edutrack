@@ -40,6 +40,10 @@ enum AuditAction {
   BIOMETRIC_LINK_CONFIRMED
   BIOMETRIC_LINK_CANCELLED
   BIOMETRIC_MAPPING_REMOVED
+  ATTENDANCE_MANUAL_UPDATED
+  ATTENDANCE_JUSTIFIED
+  ATTENDANCE_INCIDENT_RESOLVED
+  SUBSTITUTION_CREATED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
@@ -90,6 +94,10 @@ model User {
   biometricLinkRequests       BiometricLinkRequest[]
   biometricPunches            BiometricPunch[]
   attendanceIncidents         AttendanceIncident[]
+  attendanceJustificationsCreated AttendanceJustification[] @relation("AttendanceJustificationCreatedBy")
+  substitutionsCreated        Substitution[]          @relation("SubstitutionCreatedBy")
+  substitutionsAsOriginal     Substitution[]          @relation("SubstitutionOriginalTeacher")
+  substitutionsAsSubstitute   Substitution[]          @relation("SubstitutionSubstituteTeacher")
   auditEvents                 AuditLog[]
   // security
   emailVerifiedAt             DateTime?
@@ -287,6 +295,15 @@ enum AttendanceStatus {
   // Estados para CHECK_OUT
   EXIT
   EARLY_EXIT
+
+  // Estados operativos y de revisión
+  JUSTIFIED
+  FREE
+  PENDING_REVIEW
+  SUBSTITUTED
+  SUSPENDED
+  OUT_OF_SCHEDULE
+  UNIDENTIFIED_PUNCH
 }
 
 model Attendance {
@@ -302,12 +319,39 @@ model Attendance {
   event          Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
   biometricPunch BiometricPunch?
   incidents      AttendanceIncident[]
+  justifications AttendanceJustification[]
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
   @@index([userId])
   @@index([date])
   @@index([eventId])
+}
+
+enum AttendanceJustificationType {
+  ABSENCE
+  LATE_ARRIVAL
+  EARLY_EXIT
+  OTHER
+}
+
+model AttendanceJustification {
+  id              String                      @id @default(uuid())
+  attendanceId    String
+  attendance      Attendance                  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  type            AttendanceJustificationType @default(OTHER)
+  reason          String
+  notes           String?                     @db.Text
+  attachment      String?                     @db.Text
+  previousStatus  AttendanceStatus
+  newStatus       AttendanceStatus
+  createdByUserId String?
+  createdBy       User?                       @relation("AttendanceJustificationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                    @default(now())
+
+  @@index([attendanceId])
+  @@index([createdByUserId])
+  @@index([createdAt])
 }
 
 enum AttendanceIncidentType {
@@ -710,6 +754,7 @@ model Event {
   childEvents         Event[]              @relation("EventRecurrence")
   attendances         Attendance[]
   attendanceIncidents AttendanceIncident[]
+  substitutions       Substitution[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -720,6 +765,30 @@ model Event {
   @@index([subjectId])
   @@index([startDate])
   @@index([type])
+}
+
+model Substitution {
+  id                    String   @id @default(uuid())
+  eventId               String
+  event                 Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  originalTeacherUserId String
+  originalTeacher       User     @relation("SubstitutionOriginalTeacher", fields: [originalTeacherUserId], references: [id], onDelete: Restrict)
+  substituteUserId      String
+  substitute            User     @relation("SubstitutionSubstituteTeacher", fields: [substituteUserId], references: [id], onDelete: Restrict)
+  date                  DateTime
+  startTime             DateTime
+  endTime               DateTime
+  reason                String
+  notes                 String?  @db.Text
+  createdByUserId       String?
+  createdBy             User?    @relation("SubstitutionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([eventId, date])
+  @@index([originalTeacherUserId, date])
+  @@index([substituteUserId, date])
+  @@index([createdByUserId])
 }
 
 // Sistema de Licencias Médicas

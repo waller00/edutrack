@@ -1,11 +1,12 @@
 import type { Request } from "express";
+import crypto from "crypto";
 import type { Prisma } from "@prisma/client";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 
 const UA_MAX = 512;
 
-export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
+export const AUDIT_ACTION_LABELS: Record<string, string> = {
   AUTH_LOGIN_SUCCESS: "Inicio de sesión (email/contraseña)",
   AUTH_LOGIN_FAILURE: "Intento de inicio de sesión fallido",
   AUTH_LOGOUT: "Cierre de sesión",
@@ -24,6 +25,10 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   BIOMETRIC_LINK_CONFIRMED: "Vinculación biométrica confirmada",
   BIOMETRIC_LINK_CANCELLED: "Vinculación biométrica cancelada",
   BIOMETRIC_MAPPING_REMOVED: "Vínculo biométrico eliminado",
+  ATTENDANCE_MANUAL_UPDATED: "Asistencia modificada manualmente",
+  ATTENDANCE_JUSTIFIED: "Asistencia justificada",
+  ATTENDANCE_INCIDENT_RESOLVED: "Incidente de asistencia resuelto",
+  SUBSTITUTION_CREATED: "Suplencia registrada",
 };
 
 export function parseAuditActionFilter(raw: string | undefined): AuditAction | undefined {
@@ -32,8 +37,8 @@ export function parseAuditActionFilter(raw: string | undefined): AuditAction | u
 }
 
 export function getAuditActionCatalog(): { code: AuditAction; label: string }[] {
-  return (Object.keys(AUDIT_ACTION_LABELS) as AuditAction[]).map((code) => ({
-    code,
+  return Object.keys(AUDIT_ACTION_LABELS).map((code) => ({
+    code: code as AuditAction,
     label: AUDIT_ACTION_LABELS[code],
   }));
 }
@@ -68,31 +73,59 @@ export type RecordAuditEventInput = {
   metadata?: Record<string, unknown> | null;
 };
 
-/**
- * Inserta un evento de auditoría de forma asíncrona. No debe fallar la petición principal si el log falla.
- */
-export function recordAuditEvent(input: RecordAuditEventInput): void {
+function buildAuditCreateData(input: RecordAuditEventInput) {
   const ip = input.actorIp ?? (input.req ? clientIpFromRequest(input.req) : undefined);
   const ua = truncateUa(
     input.userAgent ?? (input.req?.headers["user-agent"] ? String(input.req.headers["user-agent"]) : undefined),
   );
 
+  return {
+    action: input.action,
+    actorUserId: input.actorUserId || null,
+    actorIp: ip || null,
+    userAgent: ua || null,
+    source: input.source ?? "API",
+    entityType: input.entityType ?? null,
+    entityId: input.entityId ?? null,
+    metadata: (input.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+  };
+}
+
+/**
+ * Inserta un evento de auditoría de forma asíncrona. No debe fallar la petición principal si el log falla.
+ */
+export function recordAuditEvent(input: RecordAuditEventInput): void {
   void (async () => {
     try {
       await prisma.auditLog.create({
-        data: {
-          action: input.action,
-          actorUserId: input.actorUserId || null,
-          actorIp: ip || null,
-          userAgent: ua || null,
-          source: input.source ?? "API",
-          entityType: input.entityType ?? null,
-          entityId: input.entityId ?? null,
-          metadata: (input.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
-        },
+        data: buildAuditCreateData(input),
       });
     } catch (e) {
       console.error("[audit-log] recordAuditEvent:", e);
     }
   })();
+}
+
+/**
+ * Inserta auditoría dentro del flujo principal. Úselo cuando la regla de negocio exige trazabilidad garantizada.
+ */
+export async function recordAuditEventNow(input: RecordAuditEventInput): Promise<void> {
+  const data = buildAuditCreateData(input);
+  const metadataJson = data.metadata === undefined ? null : JSON.stringify(data.metadata);
+  await prisma.$executeRaw`
+    INSERT INTO "AuditLog"
+      ("id", "action", "actorUserId", "actorIp", "userAgent", "source", "entityType", "entityId", "metadata")
+    VALUES
+      (
+        ${crypto.randomUUID()},
+        ${data.action}::"AuditAction",
+        ${data.actorUserId},
+        ${data.actorIp},
+        ${data.userAgent},
+        ${data.source},
+        ${data.entityType},
+        ${data.entityId},
+        ${metadataJson}::jsonb
+      )
+  `;
 }

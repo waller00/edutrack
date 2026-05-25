@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authGuard, requirePermission } from "../middlewares/auth.js";
 import { prisma } from "../db/prisma.js";
 import { scanAndCreateTeacherNoShowIncidents } from "../services/attendance-incidents.js";
+import { recordAuditEventNow } from "../services/audit-log.js";
 
 const r = Router();
 
@@ -68,6 +69,19 @@ r.patch("/:id/resolve", authGuard, requirePermission("attendance.update", "all")
       status: "RESOLVED",
       resolvedAt: new Date(),
       resolvedBy: (req as any).user?.id || null,
+    },
+  });
+  await recordAuditEventNow({
+    action: "ATTENDANCE_INCIDENT_RESOLVED" as any,
+    actorUserId: (req as any).user?.id || (req as any).user?.sub || null,
+    req,
+    entityType: "AttendanceIncident",
+    entityId: id,
+    metadata: {
+      reason: "Incidente resuelto manualmente",
+      previousStatus: incident.status,
+      newStatus: updated.status,
+      type: incident.type,
     },
   });
   return res.json(updated);
