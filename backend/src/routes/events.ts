@@ -131,7 +131,7 @@ const daysOfWeekish = z.preprocess((v) => {
 const eventSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().optional()),
-  type: z.enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA']),
+  type: z.enum(['JORNADA_LABORAL', 'REUNION', 'CLASE']),
   // YYYY-MM-DD o ISO; el día civil se interpreta en America/Montevideo.
   startDate: z.string().min(1),
   // HH:MM (hora Uruguay) o ISO; se normaliza a instante UTC.
@@ -150,7 +150,7 @@ const eventSchema = z.object({
 const eventUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.preprocess((v) => (v === null || v === '' ? null : v), z.string().nullable().optional()),
-  type: z.enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA']).optional(),
+  type: z.enum(['JORNADA_LABORAL', 'REUNION', 'CLASE']).optional(),
   startDate: z.string().min(1).optional(),
   startTime: z.string().min(1).optional(),
   endTime: z.string().min(1).optional(),

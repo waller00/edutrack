@@ -9,6 +9,7 @@ import { Calendar } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import {
   buildAdminEventsAllQueryString,
+  ADMIN_EVENT_TYPE_SELECT_OPTIONS,
   getAdminEventRoleTypeOptions,
   getAdminEventStatusLabel,
   getAdminEventStatusStyle,
@@ -37,7 +38,7 @@ type Event = {
   id: string
   title: string
   description?: string
-  type: 'JORNADA_LABORAL' | 'REUNION' | 'CLASE' | 'EVENTO' | 'CAPACITACION' | 'CITA_MEDICA'
+  type: 'JORNADA_LABORAL' | 'REUNION' | 'CLASE'
   status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED'
   startDate: string
   endDate?: string
@@ -664,9 +665,11 @@ export default function AdminEvents() {
                 className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               >
                 <option value="">Todos</option>
-                <option value="JORNADA_LABORAL">Jornada Laboral</option>
-                <option value="REUNION">Reunión</option>
-                <option value="CLASE">Clase</option>
+                {ADMIN_EVENT_TYPE_SELECT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -847,7 +850,7 @@ export default function AdminEvents() {
                             <button
                               type="button"
                               onClick={() => setSubstitutionEvent(event)}
-                              className="text-indigo-600 hover:text-indigo-900"
+                              className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
                             >
                               Suplencia
                             </button>
@@ -1228,12 +1231,11 @@ export default function AdminEvents() {
                     onChange={(e) => setEditingEvent({ ...editingEvent, type: e.target.value as EventTypeOption })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
-                    <option value="JORNADA_LABORAL">Jornada Laboral</option>
-                    <option value="REUNION">Reunión</option>
-                    <option value="CLASE">Clase</option>
-                    <option value="EVENTO">Evento</option>
-                    <option value="CAPACITACION">Capacitación</option>
-                    <option value="CITA_MEDICA">Cita Médica</option>
+                    {ADMIN_EVENT_TYPE_SELECT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 
@@ -1354,6 +1356,29 @@ export default function AdminEvents() {
                     ))}
                   </select>
                 </div>
+
+                {editingEvent.type === 'CLASE' &&
+                editingEvent.assignedUserId &&
+                editingEvent.status !== 'CANCELLED' ? (
+                  <div className="md:col-span-2 rounded-xl border-2 border-indigo-200 bg-indigo-50/80 p-4">
+                    <h4 className="text-sm font-semibold text-indigo-900">Suplencia de clase</h4>
+                    <p className="mt-1 text-sm text-indigo-800/90">
+                      Registrá qué docente cubre al titular en una fecha concreta (no es un tipo de evento).
+                    </p>
+                    {substitutionKeys.has(
+                      `${editingEvent.id}|${getEventDateInputValue(editingEvent.startDate)}`,
+                    ) ? (
+                      <p className="mt-2 text-xs font-medium text-indigo-700">Ya hay suplencia para el día del evento en el listado.</p>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setSubstitutionEvent(editingEvent)}
+                      className="mt-3 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                    >
+                      Registrar suplencia
+                    </button>
+                  </div>
+                ) : null}
               </div>
               
               <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">

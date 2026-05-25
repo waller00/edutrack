@@ -22,14 +22,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 type OrgRoleFilter = 'ADMIN' | 'STAFF' | 'TEACHER'
 
-const EVENT_TYPES = [
-  'JORNADA_LABORAL',
-  'REUNION',
-  'CLASE',
-  'EVENTO',
-  'CAPACITACION',
-  'CITA_MEDICA',
-] as const
+const EVENT_TYPES = ['JORNADA_LABORAL', 'REUNION', 'CLASE'] as const
 
 type DashboardMeta = {
   resolvedInstanceCount: number
