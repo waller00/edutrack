@@ -1,9 +1,10 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
-import { ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { CalendarDays, ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 
 type Column = { key: string; label: string }
 
@@ -45,10 +46,19 @@ function intentTitle(intent: string): string {
 }
 
 export default function AdminQueryAssistantPage() {
-  const [question, setQuestion] = useState('Horas trabajadas en octubre')
+  const syCtx = useOptionalAdminSchoolYear()
+  const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<AssistantResponse | null>(null)
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string | null>(null)
+  const [allYears, setAllYears] = useState(false)
+
+  useEffect(() => {
+    if (!syCtx || syCtx.loading) return
+    setSelectedSchoolYearId(syCtx.activeId ?? syCtx.years[0]?.id ?? null)
+    setAllYears(false)
+  }, [syCtx?.activeId, syCtx?.loading, syCtx?.years])
 
   const submit = useCallback(async () => {
     const q = question.trim()
@@ -59,7 +69,13 @@ export default function AdminQueryAssistantPage() {
     try {
       const r = await api<AssistantResponse>('/admin/query-assistant', {
         method: 'POST',
-        body: JSON.stringify({ question: q }),
+        body: JSON.stringify({
+          question: q,
+          ...(allYears ? { allYears: true } : {}),
+          ...(!allYears && selectedSchoolYearId
+            ? { schoolYearId: selectedSchoolYearId }
+            : {}),
+        }),
       })
       setResult(r)
     } catch (e: unknown) {
@@ -68,7 +84,7 @@ export default function AdminQueryAssistantPage() {
     } finally {
       setLoading(false)
     }
-  }, [question])
+  }, [allYears, question, selectedSchoolYearId])
 
   function applyExample(text: string) {
     setQuestion(text)
@@ -89,8 +105,71 @@ export default function AdminQueryAssistantPage() {
               Escribí en español lo que necesitás revisar; el sistema interpreta la pregunta y arma una tabla con datos
               reales (solo lectura).
             </p>
+            <p className="mt-2 text-xs font-medium text-emerald-700">
+              {syCtx?.allYears
+                ? 'El selector global puede estar en todos los ciclos; este asistente arranca filtrado por el ciclo actual.'
+                : 'Consultando el ciclo lectivo actual por defecto.'}
+            </p>
           </div>
         </div>
+
+        {syCtx && (
+          <section className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                  <CalendarDays className="h-5 w-5" aria-hidden />
+                </span>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Filtro de ciclo lectivo</h2>
+                  <p className="mt-1 text-xs text-gray-500">
+                    El asistente consulta este ciclo salvo que marques todos los ciclos.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label htmlFor="qa-school-year" className="sr-only">
+                  Ciclo lectivo
+                </label>
+                <select
+                  id="qa-school-year"
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[240px] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={syCtx.loading || allYears}
+                  value={selectedSchoolYearId ?? syCtx.activeId ?? ''}
+                  onChange={(e) => {
+                    setAllYears(false)
+                    setSelectedSchoolYearId(e.target.value || null)
+                    setResult(null)
+                    setError(null)
+                  }}
+                >
+                  {syCtx.loading ? (
+                    <option value="">Cargando ciclos...</option>
+                  ) : (
+                    syCtx.years.map((year) => (
+                      <option key={year.id} value={year.id}>
+                        {year.code} — {year.label}
+                        {year.status === 'ACTIVE' ? ' (actual)' : ''}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={allYears}
+                    onChange={(e) => {
+                      setAllYears(e.target.checked)
+                      setResult(null)
+                      setError(null)
+                    }}
+                  />
+                  Todos los ciclos
+                </label>
+              </div>
+            </div>
+          </section>
+        )}
 
         <details className="group rounded-xl border border-slate-200 bg-slate-50/80 open:bg-white open:shadow-sm">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-slate-800 [&::-webkit-details-marker]:hidden">
@@ -108,6 +187,14 @@ export default function AdminQueryAssistantPage() {
               </li>
               <li>
                 Incluí <strong>mes</strong> (y año si no es el actual): «licencias de marzo», «horas en junio 2025».
+              </li>
+              <li>
+                Entiende palabras parecidas: «profesor», «docente», «profe», «atrasos», «tardanzas»,
+                «retiro temprano», «salida anticipada», «marcas» o «fichadas».
+              </li>
+              <li>
+                Por defecto consulta el ciclo lectivo seleccionado arriba; cambiá a «todos los ciclos» solo para
+                búsquedas históricas.
               </li>
               <li>
                 Si la tabla sale vacía, puede que no haya registros en ese período; probá otro mes o revisá la carga en

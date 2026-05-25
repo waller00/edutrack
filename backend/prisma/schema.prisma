@@ -182,15 +182,17 @@ model AuditLog {
 model SystemSettings {
   id                              String   @id @default("default")
   livenessCheckEnabled            Boolean  @default(false)
-  attendanceNoShowGraceMinutes    Int      @default(15)
-  attendanceLateToleranceMinutes  Int      @default(5)
+  attendanceNoShowGraceMinutes        Int      @default(15)
+  attendanceLateToleranceMinutes      Int      @default(5)
+  attendanceEarlyExitToleranceMinutes Int      @default(5)
   /// Si el hueco entre el fin de una clase y el inicio de la siguiente es >= este valor (minutos), se exige nueva entrada biométrica.
-  attendanceClassBridgeGapMinutes Int      @default(60)
-  attendanceMonitorEnabled        Boolean  @default(true)
-  attendanceMonitorIntervalMs     Int      @default(120000)
-  biometricLateHour               Int      @default(8)
-  biometricLateMinute             Int      @default(30)
-  updatedAt                       DateTime @updatedAt
+  attendanceClassBridgeGapMinutes     Int      @default(60)
+  attendanceMonitorEnabled            Boolean  @default(true)
+  attendanceMonitorIntervalMs         Int      @default(120000)
+  biometricLateHour                   Int      @default(8)
+  biometricLateMinute                 Int      @default(30)
+  biometricDuplicateWindowMinutes     Int      @default(5)
+  updatedAt                           DateTime @updatedAt
 }
 
 enum LivenessSessionStatus {

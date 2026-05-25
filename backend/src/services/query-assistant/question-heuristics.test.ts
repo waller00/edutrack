@@ -9,6 +9,13 @@ describe("heuristicIntentFromQuestion", () => {
     expect(r?.params.year).toBeDefined();
   });
 
+  it("usa el año por defecto del ciclo seleccionado", () => {
+    const r = heuristicIntentFromQuestion("horas trabajadas octubre", 2025);
+    expect(r?.intent).toBe("HOURS_WORKED_SUMMARY");
+    expect(r?.params.month).toBe(10);
+    expect(r?.params.year).toBe(2025);
+  });
+
   it("horas + mes sin 'trabajadas'", () => {
     const r = heuristicIntentFromQuestion("horas mayo");
     expect(r?.intent).toBe("HOURS_WORKED_SUMMARY");
@@ -75,6 +82,12 @@ describe("heuristicIntentFromQuestion", () => {
     expect(r?.params.month).toBe(10);
   })
 
+  it("eventos del profesor Silva en octubre", () => {
+    const r = heuristicIntentFromQuestion("Eventos del profesor Silva en octubre");
+    expect(r?.intent).toBe("ASSIGNED_EVENTS_SUMMARY");
+    expect(r?.params.month).toBe(10);
+  })
+
   it("este mes en spanishMonthFromQuestion", () => {
     expect(spanishMonthFromQuestion("Auditoría de logins este mes")).toBe(new Date().getUTCMonth() + 1);
   });
@@ -97,6 +110,12 @@ describe("heuristicIntentFromQuestion", () => {
     expect(r?.params.month).toBe(5);
   });
 
+  it("quién tiene más atrasos en mayo → tardanzas", () => {
+    const r = heuristicIntentFromQuestion("¿Qué profesor tiene más atrasos en mayo?");
+    expect(r?.intent).toBe("ATTENDANCE_LATE_SUMMARY");
+    expect(r?.params.month).toBe(5);
+  });
+
   it("quién faltó más este año → rango año", () => {
     const r = heuristicIntentFromQuestion("¿Quién faltó más este año?");
     expect(r?.intent).toBe("ATTENDANCE_INCIDENTS_SUMMARY");
@@ -106,6 +125,13 @@ describe("heuristicIntentFromQuestion", () => {
 
   it("Incidencias de salida anticipada en mayo", () => {
     const r = heuristicIntentFromQuestion("Incidencias de salida anticipada en mayo.");
+    expect(r?.intent).toBe("ATTENDANCE_INCIDENTS_SUMMARY");
+    expect(r?.params.incidentTypeScope).toBe("EARLY_EXIT");
+    expect(r?.params.month).toBe(5);
+  });
+
+  it("Incidencias de retiro temprano en mayo", () => {
+    const r = heuristicIntentFromQuestion("Incidencias de retiro temprano en mayo.");
     expect(r?.intent).toBe("ATTENDANCE_INCIDENTS_SUMMARY");
     expect(r?.params.incidentTypeScope).toBe("EARLY_EXIT");
     expect(r?.params.month).toBe(5);

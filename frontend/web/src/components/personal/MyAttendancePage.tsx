@@ -24,6 +24,13 @@ type AttendanceRecord = {
   event?: { id: string; title: string; type: string }
 }
 
+function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
+  if (attendance.status === 'LATE' && attendance.notes?.toLowerCase().includes('llegada muy tarde')) {
+    return 'Llegada muy tarde'
+  }
+  return getAttendanceStatusLabel(attendance.status)
+}
+
 export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {
   const [me, setMe] = useState<{ id: string } | null>(null)
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
@@ -162,7 +169,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceStatusStyle(attendance.status)}`}
                         >
-                          {getAttendanceStatusLabel(attendance.status)}
+                          {getAttendanceRowStatusLabel(attendance)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{attendance.notes || '-'}</td>

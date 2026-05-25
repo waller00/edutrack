@@ -2,9 +2,11 @@ import { prisma } from '../../db/prisma.js'
 import { resolveYmdRangeFromPayload, ymdBoundsUtc } from './date-range.js'
 import { resolveUserIdsFromSearch, userDisplayName } from './helpers.js'
 import type { LlmIntentPayload, QueryAssistantTableResult } from './schemas.js'
+import { relatedEventSchoolYearWhere, schoolYearSummarySuffix, type QueryAssistantScope } from './scope.js'
 
 export async function executeAttendanceLateSummary(
   payload: LlmIntentPayload,
+  scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
   const range = resolveYmdRangeFromPayload(payload.params)
   if (!range) {
@@ -32,6 +34,7 @@ export async function executeAttendanceLateSummary(
       type: 'CHECK_IN',
       date: { gte: start, lte: end },
       ...(userIds ? { userId: { in: userIds } } : {}),
+      ...relatedEventSchoolYearWhere(scope),
     },
     select: { userId: true },
   })
@@ -62,7 +65,7 @@ export async function executeAttendanceLateSummary(
     intent: 'ATTENDANCE_LATE_SUMMARY',
     summary:
       payload.reply ||
-      `Entradas registradas como tardías entre ${range.from} y ${range.to} (${marks.length} marcas).`,
+      `Entradas registradas como tardías entre ${range.from} y ${range.to}${schoolYearSummarySuffix(scope)} (${marks.length} marcas).`,
     columns: [
       { key: 'persona', label: 'Persona' },
       { key: 'rol', label: 'Rol' },

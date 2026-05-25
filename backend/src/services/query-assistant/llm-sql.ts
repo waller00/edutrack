@@ -5,6 +5,7 @@ import { APP_TIMEZONE } from '../../config/app-timezone.js'
 import { prisma } from '../../db/prisma.js'
 import { DATABASE_CONTEXT } from './schema-context.js'
 import type { QueryAssistantTableResult } from './schemas.js'
+import type { QueryAssistantScope } from './scope.js'
 
 const sqlPlanSchema = z.object({
   title: z.string().min(1).max(120),
@@ -36,6 +37,7 @@ Reglas estrictas:
 - Para personas que llegaron tarde usá "Attendance"."type" = 'CHECK_IN' y "Attendance"."status" = 'LATE'.
 - Para faltas/ausencias directas usá "Attendance"."status" IN ('ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED') cuando pidan listado de personas, y "AttendanceIncident"."type" = 'TEACHER_NO_SHOW' cuando pidan incidencias, ranking de incidencias o ausencias docentes detectadas.
 - Para tardanzas/incidencias de llegada tarde usá "AttendanceIncident"."type" = 'LATE_ARRIVAL' solo si el usuario habla de incidencias.
+- Respetá siempre el filtro de ciclo lectivo indicado en el contexto salvo que diga "todos los ciclos": para "Event" usá "Event"."schoolYearId" = id; para "Attendance" y "AttendanceIncident" uní con "Event" y filtrá "Event"."schoolYearId"; para "Course" usá "CourseOffering" si está disponible en el contexto o evitá mezclar ciclos.
 - Limitá los resultados a 200 filas como máximo.
 - Si la pregunta no se puede responder con las tablas disponibles, devolvé un SELECT inocuo sin filas: SELECT 'No se puede responder con el esquema disponible' AS "Mensaje" WHERE false.
 - JSON único, sin markdown.
@@ -53,15 +55,25 @@ const ALLOWED_TABLES = new Set([
   'Attendance',
   'AttendanceIncident',
   'Event',
+  'SchoolYear',
   'Course',
+  'CourseOffering',
+  'asignaturas',
+  'Student',
+  'StudentEnrollment',
   'MedicalLeave',
   'BiometricPunch',
   'AuditLog',
 ])
 
-function currentSqlContextLine() {
+function currentSqlContextLine(scope?: QueryAssistantScope) {
   const now = new Date()
-  return `Contexto temporal: fecha UTC aproximada ${now.toISOString().slice(0, 10)}.`
+  const schoolYearLine = scope?.allYears
+    ? 'Contexto de ciclo lectivo: el usuario eligió todos los ciclos; no filtres por "schoolYearId".'
+    : scope?.schoolYearId
+      ? `Contexto de ciclo lectivo: filtrar por "schoolYearId" = '${scope.schoolYearId}' en datos académicos/asistencia/eventos.`
+      : 'Contexto de ciclo lectivo: si la tabla tiene "schoolYearId", usá el ciclo lectivo activo.'
+  return `Contexto temporal: fecha UTC aproximada ${now.toISOString().slice(0, 10)}.\n${schoolYearLine}`
 }
 
 function getOpenAiClient() {
@@ -135,7 +147,10 @@ function rowsToTableResult(title: string, summary: string, rows: Record<string, 
   }
 }
 
-export async function runNaturalLanguageSqlQuery(question: string): Promise<QueryAssistantTableResult> {
+export async function runNaturalLanguageSqlQuery(
+  question: string,
+  scope?: QueryAssistantScope,
+): Promise<QueryAssistantTableResult> {
   const client = getOpenAiClient()
   const model = process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini'
 
@@ -146,7 +161,7 @@ export async function runNaturalLanguageSqlQuery(question: string): Promise<Quer
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${SQL_SYSTEM_PROMPT}\n\n${DATABASE_CONTEXT}\n${currentSqlContextLine()}` },
+        { role: 'system', content: `${SQL_SYSTEM_PROMPT}\n\n${DATABASE_CONTEXT}\n${currentSqlContextLine(scope)}` },
         { role: 'user', content: question.trim().slice(0, 2000) },
       ],
     })

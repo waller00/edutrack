@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import BiometricLinkSection from '@/components/profile/BiometricLinkSection'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
 import {
@@ -24,7 +25,7 @@ import {
   type AdminUsersListFilters,
   type TriState,
 } from '@/lib/admin/users-display'
-import { ChevronLeft, ChevronRight, Loader2, Search, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Fingerprint, Loader2, Search, Users } from 'lucide-react'
 
 type OrgRoleRow = { code: string; label: string; active: boolean }
 
@@ -59,6 +60,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true)
   const [edit, setEdit] = useState<AdminUserRow | null>(null)
   const [editOrig, setEditOrig] = useState<AdminUserRow | null>(null)
+  const [biometricUser, setBiometricUser] = useState<AdminUserRow | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -203,6 +205,11 @@ export default function AdminUsersPage() {
 
   function renderUserRow(u: AdminUserRow) {
     if (u.role === 'ADMIN') return null
+    const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
+    const biometricButtonClass = u.biometricLinked
+      ? 'inline-grid h-9 w-9 place-items-center rounded-lg border border-emerald-500 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400'
+      : 'inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400'
+
     return (
       <tr key={u.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
         <td className="px-3 py-3 align-middle font-mono text-xs text-slate-700">{u.username || '—'}</td>
@@ -248,6 +255,15 @@ export default function AdminUsersPage() {
               title={u.isActive ? 'Dar de baja' : 'Dar de alta'}
             >
               {u.isActive ? 'Dar baja' : 'Dar alta'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setBiometricUser(u)}
+              className={biometricButtonClass}
+              aria-label={biometricLabel}
+              title={biometricLabel}
+            >
+              <Fingerprint className="h-4 w-4" aria-hidden />
             </button>
             <button
               type="button"
@@ -619,6 +635,31 @@ export default function AdminUsersPage() {
                   {saving ? 'Guardando…' : 'Guardar cambios'}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {biometricUser && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
+            <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Vincular huella</h2>
+                  <p className="mt-1 text-xs text-slate-500">{displayUserName(biometricUser)} · {biometricUser.email}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBiometricUser(null)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <BiometricLinkSection
+                targetUserId={biometricUser.id}
+                targetUserName={displayUserName(biometricUser)}
+                onChanged={() => void load(filters)}
+              />
             </div>
           </div>
         )}

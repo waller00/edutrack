@@ -3,11 +3,12 @@ export const DATABASE_CONTEXT = `Contexto de base de datos disponible (estructur
 - Tabla "OrgRole": rol organizacional. Campos: "id", "code", "label". Códigos esperados: ADMIN, TEACHER, STAFF, STUDENT u otros roles configurados.
 - Tabla "Attendance": marcas de asistencia. Campos: "id", "userId", "eventId", "type", "status", "date", "time", "notes". "type": CHECK_IN/CHECK_OUT. "status" incluye PRESENT, LATE, ABSENT_NOT_JUSTIFIED, ABSENT_JUSTIFIED, EXIT, EARLY_EXIT.
 - Tabla "AttendanceIncident": incidencias derivadas de asistencia. Campos: "id", "userId", "eventId", "attendanceId", "type", "status", "title", "description", "detectedAt". "type": LATE_ARRIVAL (llegada tarde), TEACHER_NO_SHOW (falta/ausencia docente), EARLY_EXIT (salida anticipada). "status": OPEN, ACKNOWLEDGED, RESOLVED.
-- Tabla "Event": clases, jornadas, reuniones y turnos. Campos: "id", "title", "type", "status", "startDate", "endDate", "startTime", "endTime", "userId", "assignedUserId", "courseId". Para eventos asignados a docentes/personal, "assignedUserId" es la persona asignada.
+- Tabla "Event": clases, jornadas, reuniones y turnos. Campos: "id", "title", "type", "status", "startDate", "endDate", "startTime", "endTime", "userId", "assignedUserId", "schoolYearId", "courseOfferingId", "subjectId". Para eventos asignados a docentes/personal, "assignedUserId" es la persona asignada.
 - Tabla "SchoolYear": ciclo lectivo (PLANNED/ACTIVE/CLOSED). Campos: "id", "code" (año entero, ej. 2026), "label", "startsOn", "endsOn", "status". Solo uno debería estar ACTIVE.
-- Tabla "Course": incluye "schoolYearId" (FK opcional tras migración; el listado filtra por ciclo).
-- Tabla "Event": incluye "schoolYearId" (FK opcional; turnos del ciclo).
-- Tabla "Student": incluye "schoolYearId" (matrícula administrativa por ciclo).
+- Tabla "Course": catálogo estable de cursos. Campos: "id", "name", "code", "description", "isActive". No filtra ciclo directo.
+- Tabla "CourseOffering": curso ofrecido en un ciclo lectivo. Campos: "id", "courseId", "schoolYearId", "isActive". Para filtrar cursos por ciclo, unir "CourseOffering"."courseId" con "Course"."id".
+- Tabla "Subject" (tabla real "asignaturas"): asignaturas/materias. Campos: "id", "name", "code", "courseId", "courseOfferingId", "isActive".
+- Tabla "StudentEnrollment": matrícula de estudiante por ciclo. Campos: "studentId", "schoolYearId", "courseOfferingId", "enrollmentStatus", "withdrawnAt". Para estudiantes por ciclo, unir "StudentEnrollment" con "Student".
 - Tabla "Student": estudiante administrativo (sin cuenta de login). Campos: "firstName", "lastName", "documentId", "courseId", "contactPhone", "tutorPhone", "contactEmail", "address", "healthCardExpiresAt", "liceoAccessNotes", "enrollmentStatus" (ACTIVE/WITHDRAWN/GRADUATED/TRANSFERRED), "withdrawnAt", "withdrawalAcademicYear", "internalNotes", "createdAt".
 - Tabla "StudentTuitionYear": cuota anual por estudiante. Campos: "studentId", "year", "paid", "paidAt", "amountCents", "notes". Un registro por par (studentId, year).
 - Tabla "MedicalLeave": licencias o permisos. Campos: "id", "userId", "type", "status", "startDate", "endDate", "reason", "doctorName". "status": ACTIVE/INACTIVE. El período de licencia se interpreta por solapamiento con el rango pedido.
@@ -15,9 +16,12 @@ export const DATABASE_CONTEXT = `Contexto de base de datos disponible (estructur
 - Tabla "AuditLog": auditoría del sistema. Campos: "id", "occurredAt", "action", "actorUserId", "actorIp", "source", "entityType", "entityId", "metadata".
 
 Mapa semántico:
+- Sinónimos de personas/roles: "docente", "profesor", "profe", "maestro", "educador", "tutor" suelen mapear a usuarios con rol TEACHER; "funcionario", "personal", "staff", "administrativo", "adscripto", "bedel" suelen mapear a STAFF o personal no estudiante; "alumno", "estudiante", "chico", "gurí" suelen mapear a Student si preguntan matrícula/cursos.
+- Sinónimos de eventos: "clase", "materia", "asignatura", "curso", "turno", "jornada", "reunión", "actividad" suelen mapear a Event y Course/CourseOffering/Subject según contexto.
+- Sinónimos de asistencia: "marca", "marcación", "fichada", "registro", "entrada", "ingreso", "llegada", "salida", "retiro".
 - "faltas", "ausencias", "no vino", "no llegó", "inasistencias" en consultas directas de asistencia suelen mapear a "Attendance"."status" IN ('ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED'). Si el usuario habla de incidencias o ausencias docentes detectadas, también puede mapear a "AttendanceIncident"."type" = 'TEACHER_NO_SHOW'.
-- "llegaron tarde", "personas que llegaron tarde", "tardanzas", "entradas tarde" en consultas directas suelen mapear a "Attendance"."type" = 'CHECK_IN' y "Attendance"."status" = 'LATE'. Si el usuario habla de incidencias, puede mapear a "AttendanceIncident"."type" = 'LATE_ARRIVAL'.
-- "salidas anticipadas" mapea a "AttendanceIncident"."type" = 'EARLY_EXIT'.
+- "llegaron tarde", "personas que llegaron tarde", "tardanzas", "atrasos", "retrasos", "entradas tarde" en consultas directas suelen mapear a "Attendance"."type" = 'CHECK_IN' y "Attendance"."status" = 'LATE'. Si el usuario habla de incidencias, puede mapear a "AttendanceIncident"."type" = 'LATE_ARRIVAL'.
+- "salidas anticipadas", "se retiró antes", "retiro temprano", "se fue antes" mapea a "Attendance"."type" = 'CHECK_OUT' y "Attendance"."status" = 'EARLY_EXIT' o a "AttendanceIncident"."type" = 'EARLY_EXIT' si pregunta por incidencias.
 - "docentes con más faltas", "ranking de ausencias", "quién faltó más" requiere agrupar por usuario y contar incidencias TEACHER_NO_SHOW.
 - "licencias activas/vigentes" mapea a "MedicalLeave"."status" = 'ACTIVE'.
 - "usuarios pendientes", "cuentas bloqueadas", "documento por vencer" mapea a "User" con isApproved/isActive/lockUntil/nationalIdDocumentExpiresAt.`

@@ -1,11 +1,13 @@
 import crypto from "crypto";
 import { prisma } from "../db/prisma.js";
-import { buildBiometricAttendancePayload } from "../attendance/attendance-logic.js";
+import { buildBiometricAttendancePayload, getAttendanceStatus } from "../attendance/attendance-logic.js";
 import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
-import { getAttendanceOperationalSettings, isBiometricLateBySettings } from "../config/system-settings.js";
+import { getAttendanceOperationalSettings } from "../config/system-settings.js";
 import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
 import {
+  findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
+  findAssignedEventNearAttendanceInstant,
   maybeCreateLateArrivalIncident,
   resolveNoShowIncidentsForEvents,
 } from "./attendance-incidents.js";
@@ -29,7 +31,7 @@ export function isBiometricSecretValid(storedHash: string, providedRaw: string) 
   return crypto.timingSafeEqual(a, b);
 }
 
-function isLateAgainstEventStart(
+export function isLateAgainstEventStart(
   attendanceTime: Date,
   eventStartTime: Date | null | undefined,
   toleranceMinutes: number,
@@ -37,6 +39,50 @@ function isLateAgainstEventStart(
   if (!eventStartTime) return false;
   const minsLate = Math.floor((attendanceTime.getTime() - new Date(eventStartTime).getTime()) / (1000 * 60));
   return minsLate > toleranceMinutes;
+}
+
+function minutesLateAgainstEventStart(attendanceTime: Date, eventStartTime: Date | null | undefined) {
+  if (!eventStartTime) return null;
+  return Math.max(0, Math.floor((attendanceTime.getTime() - new Date(eventStartTime).getTime()) / (1000 * 60)));
+}
+
+function isVeryLateArrival(minutesLate: number | null, noShowGraceMinutes: number) {
+  return minutesLate !== null && minutesLate >= Math.max(1, noShowGraceMinutes);
+}
+
+function isWithinDuplicateWindow(a: Date, b: Date, windowMinutes: number) {
+  return windowMinutes > 0 && Math.abs(a.getTime() - b.getTime()) <= windowMinutes * 60 * 1000;
+}
+
+async function createDuplicatePunch(
+  tx: any,
+  params: {
+    deviceDbId: string;
+    mappingId: string;
+    userId: string;
+    deviceUserId: string;
+    externalId?: string;
+    occurredAt: Date;
+    punchType: "CHECK_IN" | "CHECK_OUT";
+    processError: string;
+    payload: unknown;
+  },
+) {
+  return tx.biometricPunch.create({
+    data: {
+      deviceId: params.deviceDbId,
+      mappingId: params.mappingId,
+      userId: params.userId,
+      deviceUserId: params.deviceUserId,
+      externalId: params.externalId,
+      occurredAt: params.occurredAt,
+      punchType: params.punchType,
+      processStatus: "DUPLICATE",
+      processError: params.processError,
+      payload: params.payload as object,
+    },
+    select: { id: true },
+  });
 }
 
 async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDate: Date): Promise<string | null> {
@@ -53,7 +99,7 @@ async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDa
   return openAnchor;
 }
 
-async function resolveBiometricAttendanceLinkage(
+export async function resolveBiometricAttendanceLinkage(
   tx: any,
   params: {
     userId: string;
@@ -75,13 +121,24 @@ async function resolveBiometricAttendanceLinkage(
       return {
         attendanceEventId: first.id,
         lateReference: first,
+        exitReference: null,
         blockEventIds: block.map((e) => e.id),
+      };
+    }
+    const near = await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, early);
+    if (near?.id) {
+      return {
+        attendanceEventId: near.id,
+        lateReference: near,
+        exitReference: null,
+        blockEventIds: [near.id],
       };
     }
     const fb = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
     return {
       attendanceEventId: fb?.id,
       lateReference: fb,
+      exitReference: null,
       blockEventIds: fb?.id ? [fb.id] : [],
     };
   }
@@ -94,14 +151,18 @@ async function resolveBiometricAttendanceLinkage(
       return {
         attendanceEventId: last.id,
         lateReference: null,
+        exitReference: last,
         blockEventIds: block.map((e) => e.id),
       };
     }
   }
-  const fb = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
+  const fb =
+    (await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, early)) ??
+    (await findAssignedEventForAttendanceInstant(tx, userId, occurredAt));
   return {
     attendanceEventId: fb?.id,
     lateReference: null,
+    exitReference: fb,
     blockEventIds: fb?.id ? [fb.id] : [],
   };
 }
@@ -222,13 +283,133 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
       }
 
       let resolvedType: "CHECK_IN" | "CHECK_OUT" = punchType ?? "CHECK_IN";
-      if (!punchType) {
-        const lastRow = await tx.attendance.findFirst({
-          where: { userId: mapping.userId, date: attendanceDate },
-          orderBy: { time: "desc" },
-          select: { type: true },
+      const lastAttendance = await tx.attendance.findFirst({
+        where: { userId: mapping.userId, date: attendanceDate },
+        orderBy: { time: "desc" },
+        select: { id: true, type: true, time: true },
+      });
+
+      if (!punchType && lastAttendance && isWithinDuplicateWindow(occurredAt, lastAttendance.time, runtimeSettings.biometricDuplicateWindowMinutes)) {
+        const duplicateType = lastAttendance.type;
+        const duplicatePunch = await createDuplicatePunch(tx, {
+          deviceDbId,
+          mappingId: mapping.id,
+          userId: mapping.userId,
+          deviceUserId,
+          externalId,
+          occurredAt,
+          punchType: duplicateType,
+          processError: `Marcación ${duplicateType} repetida dentro de ${runtimeSettings.biometricDuplicateWindowMinutes} min`,
+          payload,
         });
-        resolvedType = !lastRow || lastRow.type === "CHECK_OUT" ? "CHECK_IN" : "CHECK_OUT";
+
+        if (duplicateType === "CHECK_OUT" && occurredAt.getTime() > new Date(lastAttendance.time).getTime()) {
+          const linkage = await resolveBiometricAttendanceLinkage(tx, {
+            userId: mapping.userId,
+            occurredAt,
+            punchType: "CHECK_OUT",
+            attendanceDate,
+            bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+          });
+          const status = getAttendanceStatus({
+            type: "CHECK_OUT",
+            actualTime: occurredAt,
+            endTime: linkage.exitReference?.endTime,
+            hasApprovedLicense: false,
+            lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
+          });
+          await tx.attendance.update({
+            where: { id: lastAttendance.id },
+            data: {
+              date: attendanceDate,
+              time: occurredAt,
+              eventId: linkage.attendanceEventId || undefined,
+              status,
+              notes: buildBiometricAttendancePayload({
+                userId: mapping.userId,
+                attendanceDate,
+                attendanceTime: occurredAt,
+                deviceId: deviceCode,
+                eventId: linkage.attendanceEventId || undefined,
+                status,
+                type: "CHECK_OUT",
+              }).notes,
+            },
+          });
+        }
+
+        return { duplicate: true as const, punchId: duplicatePunch.id, attendanceId: lastAttendance.id };
+      }
+
+      if (!punchType) {
+        resolvedType = !lastAttendance || lastAttendance.type === "CHECK_OUT" ? "CHECK_IN" : "CHECK_OUT";
+      } else {
+        const windowStart = new Date(occurredAt.getTime() - runtimeSettings.biometricDuplicateWindowMinutes * 60 * 1000);
+        const windowEnd = new Date(occurredAt.getTime() + runtimeSettings.biometricDuplicateWindowMinutes * 60 * 1000);
+        const repeatedSameType =
+          runtimeSettings.biometricDuplicateWindowMinutes > 0
+            ? await tx.attendance.findFirst({
+                where: {
+                  userId: mapping.userId,
+                  date: attendanceDate,
+                  type: punchType,
+                  time: { gte: windowStart, lte: windowEnd },
+                },
+                orderBy: { time: punchType === "CHECK_IN" ? "asc" : "desc" },
+                select: { id: true, type: true, time: true },
+              })
+            : null;
+
+        if (repeatedSameType) {
+          const duplicatePunch = await createDuplicatePunch(tx, {
+            deviceDbId,
+            mappingId: mapping.id,
+            userId: mapping.userId,
+            deviceUserId,
+            externalId,
+            occurredAt,
+            punchType,
+            processError: `Marcación ${punchType} repetida dentro de ${runtimeSettings.biometricDuplicateWindowMinutes} min`,
+            payload,
+          });
+
+          if (punchType === "CHECK_OUT" && occurredAt.getTime() > new Date(repeatedSameType.time).getTime()) {
+            const linkage = await resolveBiometricAttendanceLinkage(tx, {
+              userId: mapping.userId,
+              occurredAt,
+              punchType: "CHECK_OUT",
+              attendanceDate,
+              bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+            });
+            const status = getAttendanceStatus({
+              type: "CHECK_OUT",
+              actualTime: occurredAt,
+              endTime: linkage.exitReference?.endTime,
+              hasApprovedLicense: false,
+              lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
+            });
+            await tx.attendance.update({
+              where: { id: repeatedSameType.id },
+              data: {
+                date: attendanceDate,
+                time: occurredAt,
+                eventId: linkage.attendanceEventId || undefined,
+                status,
+                notes: buildBiometricAttendancePayload({
+                  userId: mapping.userId,
+                  attendanceDate,
+                  attendanceTime: occurredAt,
+                  deviceId: deviceCode,
+                  eventId: linkage.attendanceEventId || undefined,
+                  status,
+                  type: "CHECK_OUT",
+                }).notes,
+              },
+            });
+          }
+
+          return { duplicate: true as const, punchId: duplicatePunch.id, attendanceId: repeatedSameType.id };
+        }
       }
 
       const linkage = await resolveBiometricAttendanceLinkage(tx, {
@@ -243,20 +424,45 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
         resolvedType === "CHECK_IN"
           ? lateRef?.startTime
             ? isLateAgainstEventStart(occurredAt, lateRef.startTime, runtimeSettings.lateToleranceMinutes)
-            : isBiometricLateBySettings(occurredAt, runtimeSettings)
+            : false
           : false;
+      const openNoShow =
+        resolvedType === "CHECK_IN"
+          ? await findOpenNoShowIncidentForEvents(tx, mapping.userId, linkage.blockEventIds)
+          : null;
+      const minutesLate = resolvedType === "CHECK_IN" ? minutesLateAgainstEventStart(occurredAt, lateRef?.startTime) : null;
+      const isVeryLate =
+        resolvedType === "CHECK_IN" &&
+        isLate &&
+        (Boolean(openNoShow) || isVeryLateArrival(minutesLate, runtimeSettings.noShowGraceMinutes));
+      const status =
+        resolvedType === "CHECK_OUT"
+          ? getAttendanceStatus({
+              type: "CHECK_OUT",
+              actualTime: occurredAt,
+              endTime: linkage.exitReference?.endTime,
+              hasApprovedLicense: false,
+              lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
+            })
+          : undefined;
 
       const attendance = await tx.attendance.create({
-        data: buildBiometricAttendancePayload({
-          userId: mapping.userId,
-          attendanceDate,
-          attendanceTime: occurredAt,
-          deviceId: deviceCode,
-          eventId: linkage.attendanceEventId || undefined,
-          isLate,
-          type: resolvedType,
-        }),
-        select: { id: true, type: true, status: true, date: true, time: true, eventId: true },
+        data: {
+          ...buildBiometricAttendancePayload({
+            userId: mapping.userId,
+            attendanceDate,
+            attendanceTime: occurredAt,
+            deviceId: deviceCode,
+            eventId: linkage.attendanceEventId || undefined,
+            isLate,
+            status,
+            type: resolvedType,
+          }),
+          ...(isVeryLate && minutesLate !== null
+            ? { notes: `Llegada muy tarde: ${minutesLate} min tarde - Dispositivo: ${deviceCode || "N/A"}` }
+            : {}),
+        },
+        select: { id: true, type: true, status: true, date: true, time: true, eventId: true, notes: true },
       });
 
       const punch = await tx.biometricPunch.create({

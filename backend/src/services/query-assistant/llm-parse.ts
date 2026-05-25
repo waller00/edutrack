@@ -41,19 +41,20 @@ Ejemplos (mapeá intent + params; userSearch en minúsculas o tal cual el nombre
 - "Eventos asignados al docente López en septiembre" → ASSIGNED_EVENTS_SUMMARY, userSearch "López", month 9.
 
 Reglas:
+- Interpretá sinónimos: docente/profesor/profe/maestro/tutor → TEACHER o persona asignada; funcionario/personal/staff/administrativo/adscripto/bedel → personal; alumno/estudiante → Student si pregunta matrícula/cursos. Asistencia/marca/marcación/fichada/registro son equivalentes según contexto. Atraso/retraso/tardanza/llegada tarde son LATE. Retiro temprano/se fue antes/salida anticipada son EARLY_EXIT.
 - Frases cortas válidas: "horas trabajadas mayo", "lista de usuarios", "incidencias abiertas octubre", "tardanzas en mayo" → rellená intent y params (mes en número 1-12).
-- Para mes sin año explícito: inferí year desde el Contexto (fecha UTC).
+- Para mes sin año explícito: inferí year desde el año por defecto indicado en el Contexto; corresponde al ciclo lectivo seleccionado por el usuario.
 - year y month en JSON deben ser números, no strings.
 - dateFrom y dateTo son YYYY-MM-DD inclusive; usalos si el usuario da fechas concretas.
 - reply: una frase corta en español al usuario (confirmación o aclaración mínima).
 - JSON único, sin markdown.`
 
-function currentContextLine() {
+function currentContextLine(defaultYear = new Date().getUTCFullYear()) {
   const now = new Date()
-  return `Contexto: fecha/hora servidor UTC aproximada: ${now.toISOString().slice(0, 10)} (usá este año si el usuario no indica año explícito).`
+  return `Contexto: fecha/hora servidor UTC aproximada: ${now.toISOString().slice(0, 10)}. Año por defecto para meses sin año explícito: ${defaultYear}.`
 }
 
-export async function parseQuestionWithLlm(question: string): Promise<LlmIntentPayload> {
+export async function parseQuestionWithLlm(question: string, options?: { defaultYear?: number }): Promise<LlmIntentPayload> {
   const apiKey = process.env.OPENAI_API_KEY?.trim()
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY_NOT_CONFIGURED')
@@ -74,7 +75,7 @@ export async function parseQuestionWithLlm(question: string): Promise<LlmIntentP
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${SYSTEM_PROMPT}\n\n${DATABASE_CONTEXT}\n${currentContextLine()}` },
+        { role: 'system', content: `${SYSTEM_PROMPT}\n\n${DATABASE_CONTEXT}\n${currentContextLine(options?.defaultYear)}` },
         { role: 'user', content: question.trim().slice(0, 2000) },
       ],
     })
@@ -109,5 +110,5 @@ export async function parseQuestionWithLlm(question: string): Promise<LlmIntentP
   }
 
   const base = parsed.success ? parsed.data : fallbackUnknown
-  return enrichPayloadFromQuestion(base, question.trim())
+  return enrichPayloadFromQuestion(base, question.trim(), { defaultYear: options?.defaultYear })
 }

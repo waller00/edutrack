@@ -114,30 +114,35 @@ r.all("/cdata", async (req, res) => {
       const externalId = `iclock-${sn}-${row.deviceUserId}-${row.occurredAt.getTime()}`;
       const payload = { source: "zkteco-iclock", sn, line: row.rawLine, status: row.status };
 
+      const captured = await tryCaptureBiometricLinkPunch({
+        deviceDbId: device.id,
+        deviceCode: device.code,
+        deviceUserId: row.deviceUserId,
+        occurredAt: row.occurredAt,
+        externalId,
+        punchType,
+        payload,
+      });
+      if (captured.handled) {
+        console.info("[zkteco-iclock] marca capturada para vinculación", {
+          sn,
+          pin: row.deviceUserId,
+          linkRequestId: captured.linkRequestId,
+        });
+        continue;
+      }
+      if ("reason" in captured && captured.reason === "PIN_TAKEN") {
+        console.warn("[zkteco-iclock] marca ignorada durante vinculación: PIN ya vinculado", {
+          sn,
+          pin: row.deviceUserId,
+        });
+        continue;
+      }
+
       const existingMapping = await prisma.biometricUserMapping.findFirst({
         where: { deviceId: device.id, deviceUserId: row.deviceUserId, isActive: true },
         select: { id: true },
       });
-
-      if (!existingMapping) {
-        const captured = await tryCaptureBiometricLinkPunch({
-          deviceDbId: device.id,
-          deviceCode: device.code,
-          deviceUserId: row.deviceUserId,
-          occurredAt: row.occurredAt,
-          externalId,
-          punchType,
-          payload,
-        });
-        if (captured.handled) {
-          console.info("[zkteco-iclock] marca capturada para vinculación", {
-            sn,
-            pin: row.deviceUserId,
-            linkRequestId: captured.linkRequestId,
-          });
-          continue;
-        }
-      }
 
       const result = await processBiometricIngest({
         deviceDbId: device.id,

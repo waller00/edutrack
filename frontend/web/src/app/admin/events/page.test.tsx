@@ -96,6 +96,28 @@ describe('AdminEvents', () => {
     )
   })
 
+  it('muestra hora fin aunque el backend guarde endDate vacío para eventos del mismo día', async () => {
+    const sameDayEvent = { ...baseEvent, endDate: undefined, endTime: '2025-06-01T19:00:00.000Z' }
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('events/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [sameDayEvent] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      return {}
+    })
+
+    render(<AdminEvents />)
+
+    expect(await screen.findByText('Clase matutina')).toBeInTheDocument()
+    expect(screen.getByText(/Fin/)).toHaveTextContent(/\d/)
+    expect(screen.queryByText('Sin fecha fin')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+    const modal = await screen.findByRole('heading', { name: 'Editar Evento' }).then((h) => h.closest('div')!.parentElement!)
+    expect(within(modal).getAllByDisplayValue('2025-06-01')).toHaveLength(2)
+    expect(within(modal).getByText('Mismo día que la fecha del evento.')).toBeInTheDocument()
+  })
+
   it('elimina eventos seleccionados tras confirmar', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('events/all')) {

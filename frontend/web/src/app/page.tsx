@@ -3,7 +3,11 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, Info, Loader2, Mail, PenLine } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
-import { HomeAdminAttendanceFeed, HomeGenericHint, HomeUpcomingSchedule } from '@/components/home/HomeRolePanels'
+import {
+  HomeAdminTimeline,
+  HomeGenericHint,
+  HomeUpcomingSchedule,
+} from '@/components/home/HomeRolePanels'
 import { api } from '@/lib/api/client'
 import type { HomeMe } from '@/lib/home/dashboard'
 import { getWelcomeMessage } from '@/lib/home/dashboard'
@@ -41,7 +45,11 @@ export default function Home() {
   const scheduleRole = me.role === 'TEACHER' || me.role === 'STAFF' ? me.role : null
 
   return (
-    <main className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:max-w-4xl sm:px-6 lg:max-w-5xl">
+    <main
+      className={`mx-auto max-w-3xl space-y-8 px-4 py-6 sm:max-w-4xl sm:px-6 ${
+        me.role === 'ADMIN' ? 'lg:max-w-7xl' : 'lg:max-w-5xl'
+      }`}
+    >
       {notVerified && (
         <div className="card border-l-4 border-l-yellow-400 bg-yellow-50">
           <div className="flex items-center gap-3">
@@ -154,7 +162,9 @@ export default function Home() {
         </div>
       </header>
 
-      {canRoleDashboard && me.role === 'ADMIN' && <HomeAdminAttendanceFeed />}
+      {canRoleDashboard && me.role === 'ADMIN' && (
+        <HomeAdminTimeline />
+      )}
 
       {canRoleDashboard && scheduleRole && me.id && <HomeUpcomingSchedule role={scheduleRole} userId={me.id} />}
 

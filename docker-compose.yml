@@ -59,6 +59,7 @@ services:
       # RF-10 asistente (OpenAI): definir en .env del host; sin esto el endpoint responde 503
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ALLOW_ADMIN_TESTING_TOOLS: ${ALLOW_ADMIN_TESTING_TOOLS:-1}
       # Moodle: en local con Docker, MOODLE_BASE_URL=http://moodle:8080 (red moodle-net) y patch de wwwroot; ver scripts/patch-moodle-wwwroot-dynamic.php
       MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
       MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
