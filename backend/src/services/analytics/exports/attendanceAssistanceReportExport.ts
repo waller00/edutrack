@@ -99,10 +99,11 @@ function durationHours(actualIn: Date | null, actualOut: Date | null) {
 }
 
 function mapEstadoFromCheckInStatus(status: AttendanceStatus | null | undefined): AttendanceDetailReportRow['estado'] {
-  if (!status) return 'AUSENTE'
-  if (status === 'PRESENT') return 'PRESENTE'
-  if (status === 'LATE') return 'TARDE'
-  if (status === 'ABSENT_NOT_JUSTIFIED' || status === 'ABSENT_JUSTIFIED') return 'AUSENTE'
+  const value = String(status ?? '')
+  if (!value) return 'AUSENTE'
+  if (value === 'PRESENT') return 'PRESENTE'
+  if (value === 'LATE') return 'TARDE'
+  if (value === 'ABSENT_NOT_JUSTIFIED' || value === 'ABSENT_JUSTIFIED' || value === 'SUBSTITUTED') return 'AUSENTE'
   // Para seguridad, si llega un estado inesperado lo tratamos como AUSENTE.
   return 'AUSENTE'
 }

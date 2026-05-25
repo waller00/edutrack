@@ -806,6 +806,7 @@ describe("attendance /register (prisma mock)", () => {
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(3)
       .mockResolvedValueOnce(1);
 

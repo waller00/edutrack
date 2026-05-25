@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
+import { getRoleLabel } from '@/lib/roles/display'
 
 type MeUser = {
   role: string
@@ -50,7 +51,7 @@ type NavGroup = {
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    title: 'Dashboard',
+    title: 'Inicio',
     icon: LayoutDashboard,
     items: [
       { label: 'Inicio', href: '/' },
@@ -58,11 +59,11 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'Personal',
+    title: 'Equipo',
     icon: Users,
     items: [
       { label: 'Asistencias', href: '/admin/attendance', permission: 'attendance.read', permissionScope: 'all' },
-      { label: 'Eventos', href: '/admin/events', permission: 'events.read', permissionScope: 'all' },
+      { label: 'Agenda y clases', href: '/admin/events', permission: 'events.read', permissionScope: 'all' },
       { label: 'Usuarios', href: '/admin/users', permission: 'users.read', permissionScope: 'all' },
       { label: 'Licencias', href: '/admin/licenses', permission: 'licenses.read', permissionScope: 'all' },
       { label: 'Mis eventos', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
@@ -71,7 +72,7 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'Gestión académica',
+    title: 'Académico',
     icon: School,
     items: [
       { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage' },
@@ -80,11 +81,11 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'Reportes',
+    title: 'Análisis',
     icon: BarChart3,
     items: [
-      { label: 'Analítica', href: '/admin/analytics', permission: 'analytics.read' },
-      { label: 'Asistente de consultas', href: '/admin/query-assistant', permission: 'query-assistant.use' },
+      { label: 'Indicadores', href: '/admin/analytics', permission: 'analytics.read' },
+      { label: 'Consultas', href: '/admin/query-assistant', permission: 'query-assistant.use' },
     ],
   },
   {
@@ -215,7 +216,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
       const next = { ...current }
       for (const group of visibleGroups(me)) {
         const active = group.items.some((item) => pathIsActive(pathname, item.href))
-        if (active || next[group.title] == null) next[group.title] = active || group.title === 'Dashboard'
+        if (active || next[group.title] == null) next[group.title] = active || group.title === 'Inicio'
       }
       return next
     })
@@ -243,7 +244,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         </div>
         <div className="hidden text-left sm:block">
           <div className="max-w-[180px] truncate text-sm font-medium text-gray-900">{me.name || me.email}</div>
-          <div className="text-xs text-gray-500">{me.role}</div>
+          <div className="text-xs text-gray-500">{getRoleLabel(me.role)}</div>
         </div>
         <ChevronDown className="h-4 w-4 text-gray-400" aria-hidden />
       </button>
@@ -297,7 +298,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Panel administrativo</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Panel de trabajo</p>
           <p className="mt-0.5 truncate text-sm text-emerald-950">{me?.name || me?.email || 'Usuario'}</p>
         </div>
 
@@ -397,7 +398,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
             </button>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">EduTrack</p>
-              <p className="truncate text-sm text-gray-600">Gestión académica y operativa</p>
+              <p className="truncate text-sm text-gray-600">Gestión diaria de la institución</p>
             </div>
             <a
               href="/notifications"

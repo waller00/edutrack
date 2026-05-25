@@ -70,7 +70,7 @@ describe('MyAssignedEventsPage', () => {
 
     render(<MyAssignedEventsPage role="STAFF" />)
     const allButton = await screen.findByRole('button', { name: 'Todos' })
-    await screen.findByText('No hay eventos para mostrar')
+    await screen.findByText('No hay actividades para mostrar')
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
 
     fireEvent.click(allButton)

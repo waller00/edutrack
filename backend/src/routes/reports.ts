@@ -84,7 +84,7 @@ export function updateUserCounters(stats: any, att: any) {
     }
     if (att.status === 'PRESENT') stats.presentCount++
     else if (att.status === 'LATE') stats.lateCount++
-    else if (att.status === 'ABSENT_NOT_JUSTIFIED') stats.absentNotJustifiedCount++
+    else if (att.status === 'ABSENT_NOT_JUSTIFIED' || att.status === 'SUBSTITUTED') stats.absentNotJustifiedCount++
     else if (att.status === 'ABSENT_JUSTIFIED') stats.absentJustifiedCount++
     return
   }
@@ -341,7 +341,7 @@ export async function generateExcelReport(data: any, res: any, filters: any) { /
         } else if (status === 'LATE') {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3CD' } }
           cell.font = { color: { argb: '856404' }, bold: true }
-        } else if (status === 'ABSENT_NOT_JUSTIFIED') {
+        } else if (status === 'ABSENT_NOT_JUSTIFIED' || status === 'SUBSTITUTED') {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8D7DA' } }
           cell.font = { color: { argb: '721C24' }, bold: true }
         }

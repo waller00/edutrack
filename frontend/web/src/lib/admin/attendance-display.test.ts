@@ -28,7 +28,9 @@ describe('admin-attendance-display', () => {
 
   it('estados asistencia', () => {
     expect(getAdminAttendanceStatusLabel('LATE')).toBe('Tarde')
+    expect(getAdminAttendanceStatusLabel('SUBSTITUTED')).toBe('Ausencia prevista sin justificar (suplida)')
     expect(getAdminAttendanceStatusStyle('ABSENT_JUSTIFIED')).toContain('orange')
+    expect(getAdminAttendanceStatusStyle('SUBSTITUTED')).toContain('rose')
   })
 
   it('hora planificada', () => {

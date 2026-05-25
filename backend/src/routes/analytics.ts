@@ -137,7 +137,7 @@ function timelineStatusLabel(status: string) {
     PENDING: 'Pendiente',
     FREE: 'Libre',
     SUSPENDED: 'Suspendida',
-    SUBSTITUTED: 'Suplido',
+    SUBSTITUTED: 'Ausencia prevista',
     OUT_OF_SCHEDULE: 'Fuera de horario',
     UNIDENTIFIED: 'No identificada',
     JUSTIFIED: 'Justificado',
@@ -245,13 +245,18 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
       sortTime: timelineSortInstantOnDay(date, start).toISOString(),
       type,
       status,
-      title: `${classTitle} - ${teacher?.name || row.userDisplayName}`,
+      title:
+        status === 'SUBSTITUTED'
+          ? `${teacher?.name || row.userDisplayName} tiene ausencia prevista sin justificar en ${classTitle}`
+          : `${classTitle} - ${teacher?.name || row.userDisplayName}`,
       detail:
         status === 'PENDING'
           ? 'No registró asistencia'
           : status === 'LATE'
             ? 'Llegada tarde vinculada al bloque horario'
-            : 'Clase vinculada a marcación biométrica',
+            : status === 'SUBSTITUTED'
+              ? 'Clase cubierta por suplencia; ausencia sin justificar'
+              : 'Clase vinculada a marcación biométrica',
       teacher,
       group,
       event: { id: event.id, title: event.title },
@@ -549,6 +554,8 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
     ).size,
     lateArrivals: resolved.filter((r) => r.checkInStatusResolved === 'LATE').length,
     pendingAbsences: resolved.filter((r) => r.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED').length,
+    expectedAbsences: resolved.filter((r) => r.checkInStatusResolved === 'SUBSTITUTED').length,
+    substitutions: substitutionRows.length,
     suspendedClasses: suspendedEvents.length,
     outOfSchedulePunches: attendanceRows.filter((r) => String(r.status) === 'OUT_OF_SCHEDULE').length,
     unidentifiedPunches: unidentifiedPunches.length,
@@ -583,7 +590,7 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
         { value: 'PENDING_ABSENCE', label: 'Ausencia pendiente' },
         { value: 'FREE_BRIDGE', label: 'Puente libre' },
         { value: 'SUSPENDED_CLASS', label: 'Clase suspendida' },
-        { value: 'SUBSTITUTION', label: 'Suplencia' },
+        { value: 'SUBSTITUTION', label: 'Ausencia prevista / suplencia' },
         { value: 'OUT_OF_SCHEDULE_PUNCH', label: 'Fuera de horario' },
         { value: 'UNIDENTIFIED_PUNCH', label: 'No identificada' },
         { value: 'JUSTIFICATION', label: 'Justificación' },

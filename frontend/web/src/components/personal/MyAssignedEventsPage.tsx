@@ -92,7 +92,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
     })
   }
 
-  if (authLoading) return <p>Cargando...</p>
+  if (authLoading) return <p>Cargando…</p>
 
   const visibleEvents =
     filter === 'upcoming'
@@ -114,11 +114,11 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
               <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Mis Eventos</h1>
-              <p className="text-sm text-gray-600">Consulta tus eventos asignados</p>
+              <h1 className="text-2xl font-bold">Mi agenda</h1>
+              <p className="text-sm text-gray-600">Clases, turnos y reuniones que tenés asignados.</p>
             </div>
           </div>
-          <div className="text-sm text-gray-500">Total: {visibleEvents.length} eventos</div>
+          <div className="text-sm text-gray-500">{visibleEvents.length} actividades</div>
         </div>
 
         <div className="bg-white border rounded-lg p-4 shadow-sm">
@@ -132,7 +132,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Esta Semana
+              Próximos días
             </button>
             <button
               type="button"
@@ -150,12 +150,12 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
 
         <div className="bg-white border rounded-lg shadow-sm">
           <div className="border-b p-4 sm:p-6">
-            <h2 className="text-lg font-semibold">Eventos</h2>
+            <h2 className="text-lg font-semibold">Actividades</h2>
           </div>
           {eventsLoading ? (
-            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando eventos…</div>
+            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando actividades…</div>
           ) : visibleEvents.length === 0 ? (
-            <div className="p-4 text-center text-gray-500 sm:p-6">No hay eventos para mostrar</div>
+            <div className="p-4 text-center text-gray-500 sm:p-6">No hay actividades para mostrar</div>
           ) : (
             <div className="divide-y divide-gray-200">
               {visibleEvents.map((event) => {

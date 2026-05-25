@@ -36,7 +36,7 @@ export function getAdminAttendanceStatusStyle(status: AdminAttendanceStatus): st
     case 'JUSTIFIED':
       return 'bg-orange-100 text-orange-800'
     case 'SUBSTITUTED':
-      return 'bg-indigo-100 text-indigo-800'
+      return 'bg-rose-100 text-rose-800'
     default:
       return 'bg-gray-100 text-gray-800'
   }
@@ -59,7 +59,7 @@ export function getAdminAttendanceStatusLabel(status: AdminAttendanceStatus): st
     case 'JUSTIFIED':
       return 'Justificado'
     case 'SUBSTITUTED':
-      return 'Suplido'
+      return 'Ausencia prevista sin justificar (suplida)'
     default:
       return String(status)
   }

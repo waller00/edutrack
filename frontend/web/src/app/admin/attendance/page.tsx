@@ -38,10 +38,22 @@ function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
   if (attendance.type === 'CHECK_OUT' && attendance.status === 'PRESENT') {
     return 'Salida'
   }
+  if (attendance.status === 'ABSENT_NOT_JUSTIFIED' && isExpectedAbsence(attendance)) {
+    return 'Ausencia prevista sin justificar'
+  }
   if (attendance.status === 'LATE' && attendance.notes?.toLowerCase().includes('llegada muy tarde')) {
     return 'Llegada muy tarde'
   }
   return getAdminAttendanceStatusLabel(attendance.status)
+}
+
+function isExpectedAbsence(attendance: Pick<AttendanceRecord, 'notes' | 'status'>): boolean {
+  return (
+    attendance.status === 'SUBSTITUTED' ||
+    (attendance.status === 'ABSENT_NOT_JUSTIFIED' &&
+      (Boolean(attendance.notes?.toLowerCase().startsWith('ausencia esperada')) ||
+        Boolean(attendance.notes?.toLowerCase().startsWith('ausencia prevista'))))
+  )
 }
 
 type AttendanceRecord = {
@@ -84,6 +96,7 @@ type AttendanceStats = {
   medicalLeaveCount: number
   exitCount: number
   earlyExitCount: number
+  expectedAbsenceCount?: number
   attendanceRate: number
   lateRate: number
   absenceRate: number
@@ -231,6 +244,7 @@ type EntryDisplayStats = {
   absentCount: number
   lateCount: number
   medicalLeaveCount: number
+  expectedAbsenceCount: number
   attendanceRate: number
   lateRate: number
   absenceRate: number
@@ -277,6 +291,7 @@ function buildEntryDisplayStats(attendances: AttendanceRecord[], stats: Attendan
       absentCount: stats.absentCount,
       lateCount: stats.lateCount,
       medicalLeaveCount: stats.medicalLeaveCount,
+      expectedAbsenceCount: stats.expectedAbsenceCount ?? 0,
       attendanceRate: stats.attendanceRate,
       lateRate: stats.lateRate,
       absenceRate: stats.absenceRate,
@@ -291,6 +306,7 @@ function buildEntryDisplayStats(attendances: AttendanceRecord[], stats: Attendan
     absentCount: stats.absentCount,
     lateCount,
     medicalLeaveCount: stats.medicalLeaveCount,
+    expectedAbsenceCount: stats.expectedAbsenceCount ?? 0,
     attendanceRate: percentage(presentCount, totalAttendances),
     lateRate: percentage(lateCount, totalAttendances),
     absenceRate: percentage(stats.absentCount, totalAttendances),
@@ -795,7 +811,7 @@ export default function AdminAttendance() {
     }
   }
 
-  async function markAbsences() {
+  async function markAbsences(expectedAbsence = false) {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
       const startDate = filters.startDate || new Date().toISOString().split('T')[0]
@@ -811,6 +827,8 @@ export default function AdminAttendance() {
           startDate,
           endDate,
           userId: filters.userId || undefined,
+          eventId: filters.eventId || undefined,
+          expectedAbsence: expectedAbsence || undefined,
           ...(syCtx?.allYears ? { allYears: '1' } : {}),
           ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
             ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
@@ -876,11 +894,18 @@ export default function AdminAttendance() {
                   PDF
                 </button>
                 <button
-                  onClick={markAbsences}
+                  onClick={() => markAbsences(false)}
                   className="btn-warning inline-flex items-center gap-1.5 text-sm"
                 >
                   <Clock className="h-4 w-4 shrink-0" aria-hidden />
                   Marcar Ausencias
+                </button>
+                <button
+                  onClick={() => markAbsences(true)}
+                  className="btn-secondary inline-flex items-center gap-1.5 text-sm"
+                >
+                  <Calendar className="h-4 w-4 shrink-0" aria-hidden />
+                  Registrar ausencia prevista
                 </button>
                 <button
                   onClick={() => {
@@ -1054,18 +1079,18 @@ export default function AdminAttendance() {
                 </div>
               )}
               {!filters.userId && (
-                <p className="text-xs text-gray-500 mt-1">Selecciona un usuario primero</p>
+                <p className="text-xs text-gray-500 mt-1">Seleccioná una persona primero</p>
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Evento</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de actividad</label>
               <select
                 value={filters.eventType}
                 onChange={(e) => setFilters({ ...filters, eventType: e.target.value })}
                 className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               >
                 <option value="">Todos</option>
-                <option value="JORNADA_LABORAL">Jornada Laboral</option>
+                <option value="JORNADA_LABORAL">Jornada laboral</option>
                 <option value="REUNION">Reunión</option>
                 <option value="CLASE">Clase</option>
               </select>
@@ -1095,31 +1120,31 @@ export default function AdminAttendance() {
                           <>
                             <option value="PRESENT">Presente</option>
                             <option value="LATE">Tarde</option>
-                            <option value="ABSENT_NOT_JUSTIFIED">Ausente (No Justificada)</option>
-                            <option value="SUBSTITUTED">Suplido</option>
+                            <option value="ABSENT_NOT_JUSTIFIED">Ausente sin justificar</option>
+                            <option value="SUBSTITUTED">Ausencia prevista sin justificar (suplida)</option>
                             <option value="JUSTIFIED">Justificado</option>
-                            <option value="ABSENT_JUSTIFIED">Ausente (Justificada)</option>
+                            <option value="ABSENT_JUSTIFIED">Ausente justificada</option>
                           </>
                         )}
                         {filters.type === 'CHECK_OUT' && (
                           <>
                             <option value="EXIT">Salida</option>
-                            <option value="EARLY_EXIT">Salida Anticipada</option>
+                            <option value="EARLY_EXIT">Salida anticipada</option>
                           </>
                         )}
                       </select>
                     </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Perfil</label>
               <select
                 value={filters.role}
                 onChange={(e) => setFilters({ ...filters, role: e.target.value })}
                 className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               >
                 <option value="">Todos</option>
-                <option value="ADMIN">Admin</option>
-                <option value="TEACHER">Teacher</option>
-                <option value="STAFF">Staff</option>
+                <option value="ADMIN">Administración</option>
+                <option value="TEACHER">Docente</option>
+                <option value="STAFF">Personal</option>
               </select>
             </div>
           </div>
@@ -1165,7 +1190,11 @@ export default function AdminAttendance() {
               {statsLoading || !stats ? '—' : showingExitStats ? stats.totalAttendances : entryDisplayStats?.absentCount ?? stats.absentCount}
             </div>
             <div className="text-xs text-gray-500">
-              {statsLoading || !stats || showingExitStats ? '' : `Justificadas: ${entryDisplayStats?.medicalLeaveCount ?? stats.medicalLeaveCount}`}
+              {statsLoading || !stats || showingExitStats
+                ? ''
+                : `Justificadas: ${entryDisplayStats?.medicalLeaveCount ?? stats.medicalLeaveCount} · Previstas: ${
+                    entryDisplayStats?.expectedAbsenceCount ?? stats.expectedAbsenceCount ?? 0
+                  }`}
             </div>
           </div>
         </div>
@@ -1337,7 +1366,7 @@ export default function AdminAttendance() {
                         <option value="LATE">Tarde</option>
                         <option value="ABSENT_NOT_JUSTIFIED">Ausente (No Justificada)</option>
                         <option value="ABSENT_JUSTIFIED">Ausente (Justificada)</option>
-                        <option value="SUBSTITUTED">Suplido</option>
+                            <option value="SUBSTITUTED">Ausencia prevista sin justificar (suplida)</option>
                         <option value="JUSTIFIED">Justificado</option>
                       </>
                     ) : (

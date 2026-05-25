@@ -9,16 +9,16 @@ describe('assigned-event-display', () => {
   it('returns localized labels for known event types and falls back otherwise', () => {
     expect(getEventTypeLabel('CLASE')).toBe('Clase')
     expect(getEventTypeLabel('REUNION')).toBe('Reunión')
-    expect(getEventTypeLabel('JORNADA_LABORAL')).toBe('Jornada Laboral')
+    expect(getEventTypeLabel('JORNADA_LABORAL')).toBe('Jornada laboral')
     expect(getEventTypeLabel('EVENTO')).toBe('Evento')
     expect(getEventTypeLabel('CAPACITACION')).toBe('Capacitación')
-    expect(getEventTypeLabel('CITA_MEDICA')).toBe('Cita Médica')
+    expect(getEventTypeLabel('CITA_MEDICA')).toBe('Cita médica')
     expect(getEventTypeLabel('CUSTOM')).toBe('CUSTOM')
   })
 
   it('returns localized labels for known event statuses and falls back otherwise', () => {
     expect(getAssignedEventStatusLabel('SCHEDULED')).toBe('Programado')
-    expect(getAssignedEventStatusLabel('IN_PROGRESS')).toBe('En Progreso')
+    expect(getAssignedEventStatusLabel('IN_PROGRESS')).toBe('En curso')
     expect(getAssignedEventStatusLabel('COMPLETED')).toBe('Completado')
     expect(getAssignedEventStatusLabel('CANCELLED')).toBe('Cancelado')
     expect(getAssignedEventStatusLabel('UNKNOWN')).toBe('UNKNOWN')
