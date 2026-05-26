@@ -116,9 +116,49 @@ async function assertActiveSubjectInCourse(
   }
   const s = await (prisma.subject as any).findFirst({
     where,
-    select: { id: true },
+    select: {
+      id: true,
+      courseId: true,
+      courseAssignments: {
+        where: {
+          AND: [
+            { OR: assignmentScopes },
+            ...(schoolYearId ? [{ OR: [{ schoolYearId }, { schoolYearId: null }] }] : []),
+          ],
+        },
+        select: {
+          id: true,
+          associationType: true,
+          level: true,
+          courseId: true,
+          orientationId: true,
+          schoolYearId: true,
+          isActive: true,
+          isOffered: true,
+          visibleInFilters: true,
+        },
+      },
+    },
   })
-  return s
+  if (!s) return null
+  const byScope = new Map<string, any>()
+  for (const assignment of s.courseAssignments ?? []) {
+    const key = [
+      assignment.associationType ?? '',
+      assignment.level ?? '',
+      assignment.courseId ?? '',
+      assignment.orientationId ?? '',
+    ].join('|')
+    const current = byScope.get(key)
+    if (!current || (!current.schoolYearId && assignment.schoolYearId === schoolYearId)) {
+      byScope.set(key, assignment)
+    }
+  }
+  const visibleAssignment = Array.from(byScope.values()).some((assignment) =>
+    Boolean(assignment.isActive && assignment.isOffered && assignment.visibleInFilters),
+  )
+  if (!visibleAssignment && s.courseId !== courseId) return null
+  return { id: s.id }
 }
 
 function myEventsPathForRole(role: string | undefined): string {
@@ -242,8 +282,9 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
     let resolvedSchoolYearId: string | null =
       typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : null
     if (resolvedSchoolYearId) {
-      const sy = await prisma.schoolYear.findUnique({ where: { id: resolvedSchoolYearId }, select: { id: true } })
+      const sy = await prisma.schoolYear.findUnique({ where: { id: resolvedSchoolYearId }, select: { id: true, status: true } })
       if (!sy) return res.status(400).json({ message: 'Ciclo lectivo no encontrado' })
+      if (sy.status === 'CLOSED') return res.status(400).json({ message: 'No se pueden crear eventos en un ciclo lectivo cerrado' })
     }
     if (!resolvedSchoolYearId) {
       resolvedSchoolYearId = await getActiveSchoolYearId(prisma);
@@ -330,9 +371,6 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
     const recurrenceType = eventData.recurrenceType ?? (isRecurring ? 'WEEKLY' : 'NONE');
     if (isRecurring && recurrenceType === 'NONE') {
       return res.status(400).json({ message: 'Evento repetitivo requiere recurrenceType válido' });
-    }
-    if (isRecurring && (eventData.recurrenceEnd === null || !eventData.recurrenceEnd)) {
-      return res.status(400).json({ message: 'Evento repetitivo requiere recurrenceEnd' });
     }
     if (isRecurring && recurrenceType === 'WEEKLY' && eventData.daysOfWeek.length === 0) {
       // UX: si no seleccionan días pero el usuario definió una fecha base,
@@ -582,9 +620,12 @@ async function markExpiredEvents() {
         OR: [
           {
             isRecurring: true,
-            recurrenceEnd: {
-              lt: now,
-            },
+            recurrenceEnd: { not: null, lt: now },
+          },
+          {
+            isRecurring: true,
+            recurrenceEnd: null,
+            schoolYear: { status: 'CLOSED' as any },
           },
           {
             isRecurring: false,
@@ -1062,10 +1103,6 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       const recType = updateData.recurrenceType ?? existingEvent.recurrenceType
       if (recType === 'NONE') {
         return res.status(400).json({ message: 'Evento repetitivo requiere recurrenceType válido' })
-      }
-      const recEnd = updateData.recurrenceEnd ?? existingEvent.recurrenceEnd
-      if (!recEnd) {
-        return res.status(400).json({ message: 'Evento repetitivo requiere recurrenceEnd' })
       }
       const days = updateData.daysOfWeek ?? existingEvent.daysOfWeek
       if (recType === 'WEEKLY' && (!days || days.length === 0)) {

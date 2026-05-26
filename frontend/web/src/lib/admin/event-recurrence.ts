@@ -36,8 +36,6 @@ export function formatYmdEs(ymd: string): string {
 
 export function schoolYearRangeLabel(year: SchoolYearApiRow | null): string {
   if (!year) return 'año lectivo seleccionado'
-  const end = schoolYearEndYmd(year)
   const code = year.code ?? year.label
-  if (end) return `año lectivo ${code} (hasta ${formatYmdEs(end)})`
   return `año lectivo ${code}`
 }

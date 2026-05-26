@@ -53,13 +53,11 @@ export default function AdminSchoolYearsPage() {
   const [createCode, setCreateCode] = useState(String(new Date().getFullYear() + 1))
   const [createLabel, setCreateLabel] = useState('')
   const [createStart, setCreateStart] = useState('')
-  const [createEnd, setCreateEnd] = useState('')
   const [creating, setCreating] = useState(false)
 
   const [editing, setEditing] = useState<SchoolYearApiRow | null>(null)
   const [editLabel, setEditLabel] = useState('')
   const [editStart, setEditStart] = useState('')
-  const [editEnd, setEditEnd] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
 
   const [copyTarget, setCopyTarget] = useState<SchoolYearApiRow | null>(null)
@@ -84,7 +82,7 @@ export default function AdminSchoolYearsPage() {
     setBusyId(id)
     try {
       await api(`/admin/school-years/${id}/activate`, { method: 'POST' })
-      setMsg('Ciclo activado. Los demás activos pasaron a cerrados según la política del sistema.')
+      setMsg('Ciclo iniciado.')
       await reload()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudo activar')
@@ -112,7 +110,6 @@ export default function AdminSchoolYearsPage() {
     setEditing(y)
     setEditLabel(y.label)
     setEditStart(toInputDate(y.startsOn))
-    setEditEnd(toInputDate(y.endsOn))
   }
 
   async function saveEdit() {
@@ -122,7 +119,6 @@ export default function AdminSchoolYearsPage() {
     try {
       const body: Record<string, string | null> = { label: editLabel.trim() }
       body.startsOn = editStart ? new Date(`${editStart}T00:00:00.000Z`).toISOString() : null
-      body.endsOn = editEnd ? new Date(`${editEnd}T00:00:00.000Z`).toISOString() : null
       await api(`/admin/school-years/${editing.id}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
@@ -152,12 +148,10 @@ export default function AdminSchoolYearsPage() {
         status: 'PLANNED',
       }
       if (createStart) body.startsOn = new Date(`${createStart}T00:00:00.000Z`).toISOString()
-      if (createEnd) body.endsOn = new Date(`${createEnd}T00:00:00.000Z`).toISOString()
       await api('/admin/school-years', { method: 'POST', body: JSON.stringify(body) })
       setMsg('Ciclo creado en estado planificado.')
       setCreateLabel('')
       setCreateStart('')
-      setCreateEnd('')
       setCreateOpen(false)
       await reload()
     } catch (e) {
@@ -222,7 +216,7 @@ export default function AdminSchoolYearsPage() {
             <h1 className="text-2xl font-bold text-gray-950">Ciclos lectivos</h1>
           </div>
           <p className="max-w-3xl text-sm text-gray-600">
-            Alta y edición de ciclos, activación del año en curso, cierre y replicación de oferta cuando el ciclo destino tiene{' '}
+            Alta y edición de ciclos, inicio manual del año lectivo, cierre manual y replicación de oferta cuando el ciclo destino tiene{' '}
             <strong>0 ofertas</strong> (la columna «Cursos» muestra cuántos cursos están ofertados en ese ciclo). Abajo podés
             comparar métricas entre dos ciclos. El selector global del encabezado admin sigue filtrando listados en el resto
             del sistema.
@@ -257,20 +251,18 @@ export default function AdminSchoolYearsPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[8%]" />
-                <col className="w-[22%]" />
-                <col className="w-[12%]" />
+                <col className="w-[9%]" />
+                <col className="w-[27%]" />
                 <col className="w-[12%]" />
                 <col className="w-[18%]" />
-                <col className="w-[8%]" />
-                <col className="w-[20%]" />
+                <col className="w-[9%]" />
+                <col className="w-[25%]" />
               </colgroup>
               <thead className="border-b border-gray-100 bg-gray-50/80 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-4 py-2.5 sm:px-5">Año</th>
                   <th className="px-4 py-2.5 sm:px-5">Etiqueta</th>
                   <th className="px-4 py-2.5 sm:px-5">Inicio</th>
-                  <th className="px-4 py-2.5 sm:px-5">Fin</th>
                   <th className="px-4 py-2.5 sm:px-5">Estado</th>
                   <th className="px-4 py-2.5 text-right tabular-nums sm:px-5">Cursos</th>
                   <th className="px-4 py-2.5 text-right sm:px-5">Acciones</th>
@@ -279,7 +271,7 @@ export default function AdminSchoolYearsPage() {
               <tbody className="divide-y divide-gray-100">
                 {sortedYears.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-5 text-center text-sm text-gray-500 sm:px-5">
+                    <td colSpan={6} className="px-4 py-5 text-center text-sm text-gray-500 sm:px-5">
                       No hay ciclos cargados.
                     </td>
                   </tr>
@@ -289,7 +281,6 @@ export default function AdminSchoolYearsPage() {
                     <td className="whitespace-nowrap px-4 py-2.5 font-medium text-gray-900 sm:px-5">{y.code}</td>
                     <td className="truncate px-4 py-2.5 text-gray-800 sm:px-5">{y.label}</td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-gray-600 sm:px-5">{toInputDate(y.startsOn) || '—'}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-gray-600 sm:px-5">{toInputDate(y.endsOn) || '—'}</td>
                     <td className="px-4 py-2.5 sm:px-5">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -326,10 +317,10 @@ export default function AdminSchoolYearsPage() {
                             disabled={busyId === y.id}
                             onClick={() => void doActivate(y.id)}
                           >
-                            {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Activar'}
+                            {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Iniciar'}
                           </button>
                         )}
-                        {y.status === 'PLANNED' && (
+                        {y.status !== 'CLOSED' && (
                           <button
                             type="button"
                             className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
@@ -379,7 +370,7 @@ export default function AdminSchoolYearsPage() {
           >
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Nuevo ciclo lectivo</h2>
-              <p className="text-sm text-gray-500">Se crea en estado planificado; luego podés activarlo o replicar ofertas.</p>
+              <p className="text-sm text-gray-500">Se crea en estado planificado; luego podés iniciarlo manualmente o replicar ofertas.</p>
             </div>
             <ChevronDown className={`h-5 w-5 shrink-0 text-gray-500 transition ${createOpen ? 'rotate-180' : ''}`} aria-hidden />
           </button>
@@ -409,10 +400,6 @@ export default function AdminSchoolYearsPage() {
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600">Inicio (opc.)</label>
                   <input className="input-field text-sm" type="date" value={createStart} onChange={(e) => setCreateStart(e.target.value)} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Fin (opc.)</label>
-                  <input className="input-field text-sm" type="date" value={createEnd} onChange={(e) => setCreateEnd(e.target.value)} />
                 </div>
               </div>
               <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={creating} onClick={() => void submitCreate()}>
@@ -507,10 +494,6 @@ export default function AdminSchoolYearsPage() {
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600">Inicio</label>
                   <input className="input-field text-sm" type="date" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Fin</label>
-                  <input className="input-field text-sm" type="date" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
                 </div>
               </div>
               <div className="mt-6 flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
