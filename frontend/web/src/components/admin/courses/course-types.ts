@@ -9,6 +9,8 @@ export type CourseRow = {
   schoolYearId?: string | null
   courseOfferingId?: string | null
   offeringIsActive?: boolean | null
+  offeringIsOffered?: boolean | null
+  visibleInFilters?: boolean | null
   offeringNotes?: string | null
 }
 
@@ -23,6 +25,8 @@ export type SubjectRow = {
   associationType?: string | null
   orientationId?: string | null
   assignmentIsActive?: boolean | null
+  assignmentIsOffered?: boolean | null
+  visibleInFilters?: boolean | null
 }
 
 export type OrientationRow = {
@@ -40,11 +44,13 @@ export type CourseOrientationRow = {
   orientationId: string
   schoolYearId: string | null
   isActive: boolean
+  isOffered?: boolean | null
+  visibleInFilters?: boolean | null
   notes: string | null
   orientation: OrientationRow
 }
 
-export type CourseDetailTab = 'general' | 'common' | 'orientations' | 'offer'
+export type CourseDetailTab = 'plan' | 'general' | 'offer'
 
 export type SubjectDraft = {
   name: string
@@ -87,13 +93,13 @@ export function courseShortLabel(name: string) {
 }
 
 export function isOfferedInCycle(course: CourseRow): boolean {
-  return Boolean(course.courseOfferingId && (course.offeringIsActive ?? false))
+  return Boolean(course.courseOfferingId && (course.offeringIsActive ?? false) && (course.offeringIsOffered ?? true))
 }
 
 export function isVisibleInFilters(course: CourseRow): boolean {
-  return isOfferedInCycle(course) && course.isActive
+  return isOfferedInCycle(course) && course.isActive && (course.visibleInFilters ?? true)
 }
 
 export function isOrientationOfferedInCycle(row: CourseOrientationRow): boolean {
-  return row.isActive
+  return row.isActive && (row.isOffered ?? true)
 }

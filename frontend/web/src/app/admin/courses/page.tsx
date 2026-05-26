@@ -2,8 +2,6 @@
 
 import RoleGuard from '@/components/auth/RoleGuard'
 import CourseDetailPanel from '@/components/admin/courses/CourseDetailPanel'
-import type { CourseGroup } from '@/components/admin/courses/course-sidebar'
-import { groupCoursesForSidebar } from '@/components/admin/courses/course-sidebar'
 import type {
   CourseOrientationRow,
   CourseRow,
@@ -12,7 +10,7 @@ import type {
 } from '@/components/admin/courses/course-types'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
-import { BookOpen, ChevronDown, ChevronRight, Layers, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { BookOpen, Layers, Loader2, Pencil, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 function withSchoolYear(path: string, schoolYearQuery: string): string {
@@ -45,7 +43,6 @@ export default function AdminCoursesPage() {
     return y ? `${y.code} — ${y.label}` : 'Ciclo activo'
   }, [syCtx])
 
-  const [showInactiveNotOffered, setShowInactiveNotOffered] = useState(false)
   const [courses, setCourses] = useState<CourseRow[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
   const [msg, setMsg] = useState('')
@@ -56,15 +53,15 @@ export default function AdminCoursesPage() {
   const [subjectsLoading, setSubjectsLoading] = useState(false)
   const [orientations, setOrientations] = useState<OrientationRow[]>([])
   const [courseOrientations, setCourseOrientations] = useState<CourseOrientationRow[]>([])
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ EBI: true, EMS: true, OTROS: true })
   const [showCreateCourse, setShowCreateCourse] = useState(false)
 
   const loadCourses = useCallback(async () => {
     setCoursesLoading(true)
     setMsg('')
     try {
-      const qs = showInactiveNotOffered ? 'all=1&includeNotOffered=1' : ''
-      const list = await api<CourseRow[]>(withSchoolYear(`/courses?${qs}`, schoolYearQuery))
+      const list = await api<CourseRow[]>(
+        withSchoolYear('/courses?all=1&includeNotOffered=1', schoolYearQuery),
+      )
       setCourses(Array.isArray(list) ? list : [])
     } catch {
       setCourses([])
@@ -72,7 +69,7 @@ export default function AdminCoursesPage() {
     } finally {
       setCoursesLoading(false)
     }
-  }, [schoolYearQuery, showInactiveNotOffered])
+  }, [schoolYearQuery])
 
   const loadOrientations = useCallback(async () => {
     try {
@@ -130,13 +127,14 @@ export default function AdminCoursesPage() {
     void loadCourseOrientations(selectedCourseId)
   }, [selectedCourseId, loadSubjects, loadCourseOrientations])
 
-  const visibleCourses = useMemo(() => {
-    if (showInactiveNotOffered) return courses
-    return courses.filter((c) => c.isActive && c.courseOfferingId && (c.offeringIsActive ?? false))
-  }, [courses, showInactiveNotOffered])
-
-  const courseGroups: CourseGroup[] = useMemo(() => groupCoursesForSidebar(visibleCourses), [visibleCourses])
-  const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? visibleCourses.find((c) => c.id === selectedCourseId)
+  const visibleCourses = useMemo(
+    () =>
+      [...courses].sort(
+        (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name, 'es'),
+      ),
+    [courses],
+  )
+  const selectedCourse = courses.find((c) => c.id === selectedCourseId)
 
   const ws = (path: string) => withSchoolYear(path, schoolYearQuery)
 
@@ -157,7 +155,6 @@ export default function AdminCoursesPage() {
         body: JSON.stringify({
           name: courseDraft.name.trim(),
           code: courseDraft.code.trim() || undefined,
-          level: courseDraft.level,
           sortOrder: Number(courseDraft.sortOrder) || 0,
           description: courseDraft.description.trim() || undefined,
           isActive: courseDraft.isActive,
@@ -177,35 +174,24 @@ export default function AdminCoursesPage() {
     }
   }
 
-  async function toggleCourseActive(course: CourseRow) {
+  async function toggleCourseOffering(course: CourseRow) {
+    if (!activeSchoolYearId) {
+      setMsg('Elegí un ciclo lectivo concreto para activar o desactivar la oferta.')
+      return
+    }
+    const offered = Boolean(
+      course.courseOfferingId && (course.offeringIsActive ?? false) && (course.offeringIsOffered ?? true),
+    )
     setMsg('')
     try {
-      const currentlyActive = course.offeringIsActive ?? course.isActive
       const updated = await api<CourseRow>(ws(`/courses/${course.id}`), {
         method: 'PUT',
-        body: JSON.stringify({ offeringIsActive: !currentlyActive }),
+        body: JSON.stringify({ offeringIsActive: !offered }),
       })
-      setCourses((current) =>
-        current.map((row) =>
-          row.id === course.id ? { ...row, ...updated, offeringIsActive: !currentlyActive } : row,
-        ),
-      )
-      setMsg(!currentlyActive ? 'Curso activado en el ciclo.' : 'Curso desactivado en el ciclo.')
+      setCourses((current) => current.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)))
+      setMsg(!offered ? 'Curso activado en el ciclo.' : 'Curso desactivado en el ciclo.')
     } catch (e: unknown) {
-      setMsg((e as Error)?.message || 'Error al cambiar el estado del curso.')
-    }
-  }
-
-  async function removeCourse(course: CourseRow) {
-    if (!confirm(`¿Quitar "${course.name}" de este ciclo? El catálogo y sus asignaturas se conservan.`)) return
-    setMsg('')
-    try {
-      await api(ws(`/courses/${course.id}`), { method: 'DELETE' })
-      setCourses((current) => current.filter((row) => row.id !== course.id))
-      if (selectedCourseId === course.id) setSelectedCourseId(null)
-      setMsg('Curso quitado del ciclo.')
-    } catch (e: unknown) {
-      setMsg((e as Error)?.message || 'Error al eliminar curso.')
+      setMsg((e as Error)?.message || 'No se pudo actualizar la oferta del curso.')
     }
   }
 
@@ -219,18 +205,9 @@ export default function AdminCoursesPage() {
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold">Cursos y asignaturas</h1>
             <p className="text-gray-600">
-              Elegí un curso a la izquierda. Las asignaturas comunes y las de cada orientación se gestionan en
-              contextos separados.
+              Catálogo académico completo. La oferta del ciclo solo afecta filtros operativos y creación de eventos.
             </p>
           </div>
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={showInactiveNotOffered}
-              onChange={(e) => setShowInactiveNotOffered(e.target.checked)}
-            />
-            Mostrar inactivos / no ofertados
-          </label>
         </div>
 
         {msg ? (
@@ -241,10 +218,10 @@ export default function AdminCoursesPage() {
           <aside className="rounded-lg border border-gray-200 bg-white shadow-sm">
             <div className="border-b border-gray-100 px-3 py-3">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold text-gray-900">Catálogo por nivel</h2>
+                <h2 className="text-sm font-semibold text-gray-900">Cursos del catálogo</h2>
                 <Layers className="h-4 w-4 text-emerald-600" aria-hidden />
               </div>
-              <p className="mt-1 text-xs text-gray-500">Ciclo: {schoolYearLabel}</p>
+              <p className="mt-1 text-xs text-gray-500">Orden académico · Ciclo: {schoolYearLabel}</p>
               <button
                 type="button"
                 onClick={() => setShowCreateCourse((v) => !v)}
@@ -264,14 +241,13 @@ export default function AdminCoursesPage() {
                     value={courseDraft.name}
                     onChange={(e) => setCourseDraft({ ...courseDraft, name: e.target.value })}
                   />
-                  <select
+                  <input
+                    type="number"
                     className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                    value={courseDraft.level}
-                    onChange={(e) => setCourseDraft({ ...courseDraft, level: e.target.value as 'EBI' | 'EMS' })}
-                  >
-                    <option value="EBI">EBI</option>
-                    <option value="EMS">EMS</option>
-                  </select>
+                    placeholder="Orden"
+                    value={courseDraft.sortOrder}
+                    onChange={(e) => setCourseDraft({ ...courseDraft, sortOrder: Number(e.target.value) })}
+                  />
                   <label className="flex items-center gap-2 text-xs">
                     <input
                       type="checkbox"
@@ -298,87 +274,54 @@ export default function AdminCoursesPage() {
                 Cargando…
               </div>
             ) : visibleCourses.length === 0 ? (
-              <p className="p-4 text-sm text-gray-500">No hay cursos para mostrar con este filtro.</p>
+              <p className="p-4 text-sm text-gray-500">No hay cursos en el catálogo.</p>
             ) : (
               <div className="max-h-[min(70vh,640px)] overflow-y-auto p-2">
-                {courseGroups.map((group) => (
-                  <div key={group.key} className="mb-2">
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between rounded-md bg-slate-50 px-2 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-700 hover:bg-slate-100"
-                      onClick={() => setExpandedGroups((c) => ({ ...c, [group.key]: !(c[group.key] ?? true) }))}
-                    >
-                      <span className="flex items-center gap-1">
-                        {(expandedGroups[group.key] ?? true) ? (
-                          <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-                        ) : (
-                          <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                        )}
-                        {group.title}
-                      </span>
-                      <span className="font-normal text-gray-500">{group.items.length}</span>
-                    </button>
-                    {(expandedGroups[group.key] ?? true) && (
-                      <ul className="mt-1 space-y-0.5">
-                        {group.items.map((c) => {
-                          const offered = Boolean(c.courseOfferingId && (c.offeringIsActive ?? false))
-                          const dim = !c.isActive || !offered
-                          return (
-                            <li key={c.id}>
-                              <div
-                                className={`rounded-md border px-2 py-2 text-sm ${
-                                  selectedCourseId === c.id
-                                    ? 'border-emerald-500 bg-emerald-50'
-                                    : dim
-                                      ? 'border-transparent bg-gray-50/80 opacity-80'
-                                      : 'border-transparent hover:bg-gray-50'
-                                }`}
-                              >
-                                <button
-                                  type="button"
-                                  className="w-full text-left"
-                                  onClick={() => setSelectedCourseId(c.id)}
-                                >
-                                  <div className="font-medium text-gray-900">{c.displayLabel}</div>
-                                  <div className="mt-0.5 text-[11px] text-gray-500">
-                                    {!c.courseOfferingId
-                                      ? 'No ofertado'
-                                      : offered
-                                        ? 'Ofertado'
-                                        : 'Oferta inactiva'}
-                                    {!c.isActive ? ' · Catálogo inactivo' : ''}
-                                  </div>
-                                </button>
-                                <div className="mt-1 flex justify-end gap-0.5">
-                                  <button
-                                    type="button"
-                                    role="switch"
-                                    aria-checked={offered}
-                                    className={`relative h-5 w-9 rounded-full ${offered ? 'bg-emerald-600' : 'bg-gray-300'}`}
-                                    title="Oferta en ciclo"
-                                    onClick={() => void toggleCourseActive(c)}
-                                  >
-                                    <span
-                                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow ${offered ? 'left-4' : 'left-0.5'}`}
-                                    />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded p-1 text-red-600 hover:bg-red-50"
-                                    title="Quitar del ciclo"
-                                    onClick={() => void removeCourse(c)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                                  </button>
-                                </div>
-                              </div>
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                ))}
+                <ul className="space-y-1">
+                  {visibleCourses.map((c) => {
+                    const offered = Boolean(
+                      c.courseOfferingId && (c.offeringIsActive ?? false) && (c.offeringIsOffered ?? true),
+                    )
+                    return (
+                      <li key={c.id}>
+                        <div
+                          className={`flex items-center gap-2 rounded-md border px-2 py-2 text-sm ${
+                            selectedCourseId === c.id
+                              ? 'border-emerald-500 bg-emerald-50'
+                              : !c.isActive || !offered
+                                ? 'border-transparent bg-gray-50/80 opacity-80'
+                                : 'border-transparent hover:bg-gray-50'
+                          }`}
+                        >
+                          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedCourseId(c.id)}>
+                            <div className="font-medium text-gray-900">{c.name}</div>
+                            <div className="mt-0.5 text-[11px] text-gray-500">
+                              {!c.courseOfferingId ? 'No ofertado' : offered ? 'Ofertado' : 'No ofertado'}
+                              {!c.isActive ? ' · Catálogo inactivo' : ''}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={offered}
+                            title={offered ? 'Desactivar en el ciclo' : 'Activar en el ciclo'}
+                            onClick={() => void toggleCourseOffering(c)}
+                            className={`relative h-5 w-9 shrink-0 rounded-full transition ${
+                              offered ? 'bg-emerald-600' : 'bg-gray-300'
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${
+                                offered ? 'left-4' : 'left-0.5'
+                              }`}
+                            />
+                            <span className="sr-only">{offered ? 'Desactivar curso' : 'Activar curso'}</span>
+                          </button>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
               </div>
             )}
           </aside>

@@ -251,9 +251,11 @@ export default function AdminUsersPage() {
   function renderUserRow(u: AdminUserRow) {
     if (u.role === 'ADMIN') return null
     const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
+    const iconActionBtn =
+      'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-400'
     const biometricButtonClass = u.biometricLinked
-      ? 'inline-grid h-9 w-9 place-items-center rounded-lg border border-emerald-500 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400'
-      : 'inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400'
+      ? `${iconActionBtn} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700`
+      : `${iconActionBtn} border-emerald-300 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100`
 
     return (
       <tr key={u.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
@@ -284,7 +286,7 @@ export default function AdminUsersPage() {
           </span>
         </td>
         <td className="px-3 py-2.5 align-middle">
-          <div className="flex flex-nowrap items-center justify-end gap-1">
+          <div className="flex min-w-[17.5rem] flex-nowrap items-center justify-end gap-1.5">
             <button
               type="button"
               onClick={() => toggleApproval(u)}
@@ -308,30 +310,30 @@ export default function AdminUsersPage() {
               aria-label={biometricLabel}
               title={biometricLabel}
             >
-              <Fingerprint className="h-4 w-4" aria-hidden />
+              <Fingerprint className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
             </button>
             <button
               type="button"
               onClick={() => void resetPassword(u)}
-              className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
               aria-label="Restablecer contraseña"
               title="Generar enlace de restablecimiento de contraseña"
             >
-              <KeyRound className="h-4 w-4" aria-hidden />
+              <KeyRound className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
             </button>
             <button
               type="button"
               onClick={() => openEdit(u)}
-              className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
               aria-label="Editar usuario"
               title="Editar datos del usuario"
             >
-              <Pencil className="h-4 w-4" aria-hidden />
+              <Pencil className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
             </button>
             <button
               type="button"
               onClick={() => toggleLock(u)}
-              className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
               aria-label={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
               title={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
             >
@@ -592,12 +594,12 @@ export default function AdminUsersPage() {
               <colgroup>
                 <col className="w-[11%]" />
                 <col className="w-[8%]" />
-                <col className="w-[24%]" />
+                <col className="w-[21%]" />
                 <col className="w-[10%]" />
                 <col className="w-[10%]" />
                 <col className="w-[9%]" />
                 <col className="w-[9%]" />
-                <col className="w-[19%]" />
+                <col className="w-[22%]" />
               </colgroup>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">

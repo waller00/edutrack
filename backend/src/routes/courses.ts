@@ -38,6 +38,14 @@ const orientationCreateSchema = z.object({
   sortOrder: z.number().int().min(0).max(9999).optional().default(0),
 })
 
+const orientationUpdateSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  code: z.preprocess((v) => (v === null || v === '' ? null : v), z.string().max(64).nullable().optional()),
+  description: z.preprocess((v) => (v === null || v === '' ? null : v), z.string().max(5000).nullable().optional()),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(9999).optional(),
+})
+
 const courseOrientationCreateSchema = z.object({
   orientationId: z.string().uuid(),
   isActive: z.boolean().optional().default(true),
@@ -199,6 +207,53 @@ r.post('/orientations', authGuard, requirePermission('courses.manage', 'all'), a
   } catch (e: unknown) {
     if ((e as { code?: string }).code === 'P2002') return res.status(409).json({ message: 'Ya existe una orientación con ese código' })
     console.error('Error creando orientación:', e)
+    res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.put('/orientations/:orientationId', authGuard, requirePermission('courses.manage', 'all'), async (req, res) => {
+  try {
+    const oid = z.string().uuid().safeParse(req.params.orientationId)
+    if (!oid.success) return res.status(400).json({ message: 'Orientación inválida' })
+    const parsed = orientationUpdateSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: 'Datos inválidos',
+        detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
+      })
+    }
+    const data = parsed.data
+    const row = await (prisma as any).orientation.update({
+      where: { id: oid.data },
+      data: {
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.code !== undefined ? { code: data.code } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+        ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
+      },
+      select: { id: true, name: true, code: true, description: true, isActive: true, sortOrder: true },
+    })
+    res.json(row)
+  } catch (e: unknown) {
+    if ((e as { code?: string }).code === 'P2002') return res.status(409).json({ message: 'Ya existe una orientación con ese código' })
+    if ((e as { code?: string }).code === 'P2025') return res.status(404).json({ message: 'Orientación no encontrada' })
+    console.error('Error actualizando orientación:', e)
+    res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.delete('/orientations/:orientationId', authGuard, requirePermission('courses.manage', 'all'), async (req, res) => {
+  try {
+    const oid = z.string().uuid().safeParse(req.params.orientationId)
+    if (!oid.success) return res.status(400).json({ message: 'Orientación inválida' })
+    await (prisma as any).orientation.delete({
+      where: { id: oid.data },
+    })
+    res.json({ ok: true })
+  } catch (e: unknown) {
+    if ((e as { code?: string }).code === 'P2025') return res.status(404).json({ message: 'Orientación no encontrada' })
+    console.error('Error eliminando orientación:', e)
     res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -529,6 +584,30 @@ r.post('/:courseId/orientations', authGuard, requirePermission('courses.manage',
   } catch (e: unknown) {
     if ((e as { code?: string }).code === 'P2002') return res.status(409).json({ message: 'La orientación ya está asociada a este curso' })
     console.error('Error asociando orientación:', e)
+    res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.delete('/:courseId/orientations/:courseOrientationId', authGuard, requirePermission('courses.manage', 'all'), async (req, res) => {
+  try {
+    const user = req.user
+    if (!user) return res.status(401).json({ message: 'No autorizado' })
+    const cid = z.string().uuid().safeParse(req.params.courseId)
+    const coid = z.string().uuid().safeParse(req.params.courseOrientationId)
+    if (!cid.success || !coid.success) return res.status(400).json({ message: 'Identificador inválido' })
+    const course = await findCourseVisibleToUser(cid.data, user, { ...req.query, all: '1', includeNotOffered: '1' })
+    if (!course) return res.status(404).json({ message: 'Curso no encontrado' })
+    const row = await (prisma as any).courseOrientation.findFirst({
+      where: { id: coid.data, courseId: course.id },
+      select: { id: true },
+    })
+    if (!row) return res.status(404).json({ message: 'Orientación no asociada a este curso' })
+    await (prisma as any).courseOrientation.delete({
+      where: { id: row.id },
+    })
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('Error quitando orientación del curso:', e)
     res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
