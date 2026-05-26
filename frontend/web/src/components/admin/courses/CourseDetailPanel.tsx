@@ -1,30 +1,11 @@
 'use client'
 
 import { api } from '@/lib/api/client'
-import { ChevronDown, ChevronRight, Loader2, Plus } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import SubjectListBlock from './SubjectListBlock'
-import {
-  CatalogStatusChip,
-  FilterVisibilityChip,
-  OfferingStatusChip,
-  SubjectStatusChip,
-} from './StatusChips'
-import type {
-  CourseDetailTab,
-  CourseOrientationRow,
-  CourseRow,
-  OrientationRow,
-  SubjectDraft,
-  SubjectRow,
-} from './course-types'
-import {
-  courseShortLabel,
-  emptySubjectDraft,
-  isOfferedInCycle,
-  isVisibleInFilters,
-  partitionSubjects,
-} from './course-types'
+import type { CourseOrientationRow, CourseRow, OrientationRow, SubjectDraft, SubjectRow } from './course-types'
+import { courseShortLabel, partitionSubjects } from './course-types'
 
 type Props = {
   course: CourseRow
@@ -40,83 +21,66 @@ type Props = {
   withSchoolYear: (path: string) => string
 }
 
-function emptyOrientationDraft() {
-  return { name: '', code: '', description: '', sortOrder: 0, isActive: true as boolean }
-}
-
 export default function CourseDetailPanel({
   course,
-  schoolYearLabel,
   subjects,
   subjectsLoading,
   courseOrientations,
   orientationsCatalog,
   onReloadSubjects,
   onReloadOrientations,
-  onCourseUpdated,
   onMessage,
   withSchoolYear,
 }: Props) {
-  const [tab, setTab] = useState<CourseDetailTab>('common')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const [orientationDraft, setOrientationDraft] = useState(emptyOrientationDraft)
+  const [courseOpen, setCourseOpen] = useState(true)
+  const [commonOpen, setCommonOpen] = useState(true)
+  const [showHistoricalSubjects, setShowHistoricalSubjects] = useState(false)
   const [attachOrientationId, setAttachOrientationId] = useState('')
-  const [courseEdit, setCourseEdit] = useState({
-    name: course.name,
-    code: course.code ?? '',
-    level: (course.level ?? 'EBI') as 'EBI' | 'EMS',
-    sortOrder: course.sortOrder ?? 0,
-    description: course.description ?? '',
-    isActive: course.isActive,
-    offeringIsActive: course.offeringIsActive ?? course.isActive,
-    offeringNotes: course.offeringNotes ?? '',
-  })
-  const [savingCourse, setSavingCourse] = useState(false)
+  const [newOrientationName, setNewOrientationName] = useState('')
+  const [editingOrientationId, setEditingOrientationId] = useState<string | null>(null)
+  const [editingOrientationName, setEditingOrientationName] = useState('')
 
-  useEffect(() => {
-    setCourseEdit({
-      name: course.name,
-      code: course.code ?? '',
-      level: (course.level ?? 'EBI') as 'EBI' | 'EMS',
-      sortOrder: course.sortOrder ?? 0,
-      description: course.description ?? '',
-      isActive: course.isActive,
-      offeringIsActive: course.offeringIsActive ?? course.isActive,
-      offeringNotes: course.offeringNotes ?? '',
-    })
-  }, [course])
+  const currentSubjects = useMemo(
+    () =>
+      showHistoricalSubjects
+        ? subjects
+        : subjects.filter(
+            (s) =>
+              s.isActive &&
+              (s.assignmentIsActive ?? true) &&
+              (s.assignmentIsOffered ?? true) &&
+              (s.visibleInFilters ?? true),
+          ),
+    [subjects, showHistoricalSubjects],
+  )
+  const { common, byOrientation } = useMemo(() => partitionSubjects(currentSubjects), [currentSubjects])
 
-  const { common, byOrientation } = useMemo(() => partitionSubjects(subjects), [subjects])
-  const hasOrientations = courseOrientations.length > 0
-  const offered = isOfferedInCycle(course)
-  const visibleInFilters = isVisibleInFilters(course)
-
-  const tabs: { id: CourseDetailTab; label: string; show?: boolean }[] = [
-    { id: 'general', label: 'General' },
-    { id: 'common', label: 'Asignaturas comunes' },
-    { id: 'orientations', label: 'Orientaciones', show: hasOrientations || course.level === 'EMS' },
-    { id: 'offer', label: 'Oferta en ciclo' },
-  ]
+  const unattachedOrientations = orientationsCatalog.filter(
+    (o) => !courseOrientations.some((co) => co.orientationId === o.id),
+  )
+  const adminPath = (path: string) => {
+    const separator = path.includes('?') ? '&' : '?'
+    return withSchoolYear(`${path}${separator}all=1&includeNotOffered=1`)
+  }
 
   async function createSubject(draft: SubjectDraft, opts: { common: boolean; orientationId?: string }) {
-    await api(withSchoolYear(`/courses/${course.id}/subjects`), {
+    await api(adminPath(`/courses/${course.id}/subjects`), {
       method: 'POST',
       body: JSON.stringify({
         name: draft.name.trim(),
-        code: draft.code.trim() || undefined,
-        description: draft.description.trim() || undefined,
         sortOrder: Number(draft.sortOrder) || 0,
-        isActive: draft.isActive,
-        associationType: opts.common ? 'CURSO_COMPLETO' : 'ORIENTACION',
+        isActive: true,
+        associationType: opts.common ? (course.level === 'EMS' ? 'TRONCO_COMUN_CURSO' : 'CURSO_COMPLETO') : 'ORIENTACION',
         orientationId: opts.orientationId,
       }),
     })
     await onReloadSubjects()
-    onMessage(opts.common ? 'Asignatura común agregada.' : 'Asignatura de orientación agregada.')
+    onMessage(opts.common ? 'Asignatura común agregada.' : 'Asignatura específica agregada.')
   }
 
   async function updateSubject(id: string, draft: SubjectDraft) {
-    await api(withSchoolYear(`/courses/${course.id}/subjects/${id}`), {
+    await api(adminPath(`/courses/${course.id}/subjects/${id}`), {
       method: 'PUT',
       body: JSON.stringify({
         name: draft.name.trim(),
@@ -131,395 +95,341 @@ export default function CourseDetailPanel({
   }
 
   async function removeSubject(id: string) {
-    if (!confirm('¿Eliminar esta asignatura?')) return
-    await api(withSchoolYear(`/courses/${course.id}/subjects/${id}`), { method: 'DELETE' })
+    if (!confirm('¿Eliminar esta asignatura del plan?')) return
+    await api(adminPath(`/courses/${course.id}/subjects/${id}`), { method: 'DELETE' })
     await onReloadSubjects()
-    onMessage('Asignatura eliminada.')
-  }
-
-  async function saveGeneral() {
-    if (!courseEdit.name.trim()) return
-    setSavingCourse(true)
-    try {
-      const updated = await api<CourseRow>(withSchoolYear(`/courses/${course.id}`), {
-        method: 'PUT',
-        body: JSON.stringify({
-          name: courseEdit.name.trim(),
-          code: courseEdit.code.trim() || null,
-          level: courseEdit.level,
-          sortOrder: Number(courseEdit.sortOrder) || 0,
-          description: courseEdit.description.trim() || null,
-          isActive: courseEdit.isActive,
-          offeringIsActive: courseEdit.offeringIsActive,
-          offeringNotes: courseEdit.offeringNotes.trim() || null,
-        }),
-      })
-      onCourseUpdated(updated)
-      onMessage('Curso actualizado.')
-    } catch (e: unknown) {
-      onMessage((e as Error)?.message || 'Error al actualizar curso.')
-    } finally {
-      setSavingCourse(false)
-    }
+    onMessage('Asignatura quitada del plan.')
   }
 
   async function attachOrientation() {
     if (!attachOrientationId) return
-    await api(withSchoolYear(`/courses/${course.id}/orientations`), {
+    await api(adminPath(`/courses/${course.id}/orientations`), {
       method: 'POST',
       body: JSON.stringify({ orientationId: attachOrientationId, isActive: true }),
     })
     setAttachOrientationId('')
     await onReloadOrientations()
-    onMessage('Orientación asociada al curso.')
+    onMessage('Orientación agregada al curso.')
   }
 
   async function createOrientation() {
-    if (!orientationDraft.name.trim()) return
+    if (!newOrientationName.trim()) return
     const created = await api<OrientationRow>('/courses/orientations', {
       method: 'POST',
-      body: JSON.stringify({
-        name: orientationDraft.name.trim(),
-        code: orientationDraft.code.trim() || undefined,
-        description: orientationDraft.description.trim() || undefined,
-        sortOrder: Number(orientationDraft.sortOrder) || 0,
-        isActive: orientationDraft.isActive,
-      }),
+      body: JSON.stringify({ name: newOrientationName.trim(), isActive: true }),
     })
-    await api(withSchoolYear(`/courses/${course.id}/orientations`), {
+    await api(adminPath(`/courses/${course.id}/orientations`), {
       method: 'POST',
       body: JSON.stringify({ orientationId: created.id, isActive: true }),
     })
-    setOrientationDraft(emptyOrientationDraft())
+    setNewOrientationName('')
     await onReloadOrientations()
-    onMessage('Orientación creada y asociada.')
+    onMessage('Orientación creada y agregada al curso.')
+  }
+
+  async function updateOrientation(row: CourseOrientationRow) {
+    if (!editingOrientationName.trim()) return
+    await api<OrientationRow>(`/courses/orientations/${row.orientationId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: editingOrientationName.trim() }),
+    })
+    setEditingOrientationId(null)
+    setEditingOrientationName('')
+    await onReloadOrientations()
+    onMessage('Orientación actualizada.')
   }
 
   async function toggleOrientationOffer(row: CourseOrientationRow) {
-    await api(withSchoolYear(`/courses/${course.id}/orientations`), {
+    await api(adminPath(`/courses/${course.id}/orientations`), {
       method: 'POST',
       body: JSON.stringify({ orientationId: row.orientationId, isActive: !row.isActive }),
     })
     await onReloadOrientations()
-    onMessage(row.isActive ? 'Orientación desactivada en el ciclo.' : 'Orientación activada en el ciclo.')
+    await onReloadSubjects()
+    onMessage(!row.isActive ? 'Orientación activada en el curso.' : 'Orientación desactivada en el curso.')
   }
 
-  const unattachedOrientations = orientationsCatalog.filter(
-    (o) => !courseOrientations.some((co) => co.orientationId === o.id),
-  )
+  async function removeOrientationFromCourse(row: CourseOrientationRow) {
+    if (!confirm(`¿Quitar "${row.orientation.name}" de ${courseShortLabel(course.name)}?`)) return
+    await api(adminPath(`/courses/${course.id}/orientations/${row.id}`), { method: 'DELETE' })
+    await onReloadOrientations()
+    await onReloadSubjects()
+    onMessage('Orientación quitada del curso.')
+  }
+
+  async function deleteOrientation(row: CourseOrientationRow) {
+    if (!confirm(`¿Eliminar "${row.orientation.name}" del catálogo? También se ocultará de los cursos donde esté asociada.`)) return
+    await api(`/courses/orientations/${row.orientationId}`, { method: 'DELETE' })
+    await onReloadOrientations()
+    await onReloadSubjects()
+    onMessage('Orientación eliminada del catálogo.')
+  }
 
   return (
-    <div className="flex min-h-[560px] flex-col">
-      <header className="border-b border-gray-200 bg-slate-50/80 px-4 py-4">
-        <h2 className="text-xl font-bold text-gray-900">Curso: {courseShortLabel(course.name)}</h2>
-        <div className="mt-2 flex flex-wrap gap-2 text-sm text-gray-600">
-          <span>Nivel: {course.level ?? '—'}</span>
-          {course.code ? <span>· Código: {course.code}</span> : null}
-          <span>· Ciclo: {schoolYearLabel}</span>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <CatalogStatusChip active={course.isActive} />
-          <OfferingStatusChip offered={offered} hasOffering={Boolean(course.courseOfferingId)} />
-          <FilterVisibilityChip visible={visibleInFilters} />
+    <div className="min-h-[560px] bg-white">
+      <header className="border-b border-gray-200 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">{courseShortLabel(course.name)}</h2>
+            <p className="mt-1 text-sm text-gray-500">Asignaturas del curso</p>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            <input
+              type="checkbox"
+              checked={showHistoricalSubjects}
+              onChange={(e) => setShowHistoricalSubjects(e.target.checked)}
+            />
+            Ver histórico
+          </label>
         </div>
       </header>
 
-      <nav className="flex flex-wrap gap-1 border-b border-gray-200 bg-white px-2 pt-2">
-        {tabs
-          .filter((t) => t.show !== false)
-          .map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`rounded-t-md px-3 py-2 text-sm font-medium transition ${
-                tab === t.id
-                  ? 'border border-b-white border-gray-200 bg-white text-emerald-800'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-      </nav>
+      <div className="p-5">
+        <section className="rounded-md border border-gray-200 bg-white">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 rounded-t-md bg-gray-50 px-3 py-3 text-left hover:bg-gray-100"
+            onClick={() => setCourseOpen((value) => !value)}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              {courseOpen ? (
+                <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+              ) : (
+                <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+              )}
+              <span className="truncate text-base font-semibold text-gray-900">{courseShortLabel(course.name)}</span>
+            </span>
+            <span className="shrink-0 text-xs text-gray-500">
+              {common.length} comunes · {courseOrientations.length} orientaciones
+            </span>
+          </button>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        {tab === 'general' && (
-          <div className="max-w-xl space-y-3">
-            <p className="text-sm text-gray-600">Datos del catálogo del curso (permanentes entre ciclos).</p>
-            <label className="block text-xs">
-              <span className="text-gray-600">Nombre</span>
-              <input
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                value={courseEdit.name}
-                onChange={(e) => setCourseEdit({ ...courseEdit, name: e.target.value })}
-              />
-            </label>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label className="block text-xs">
-                <span className="text-gray-600">Nivel</span>
-                <select
-                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                  value={courseEdit.level}
-                  onChange={(e) => setCourseEdit({ ...courseEdit, level: e.target.value as 'EBI' | 'EMS' })}
+          {courseOpen ? (
+            <div className="space-y-2 border-t border-gray-100 p-3">
+              <div className="rounded-md border border-sky-100 bg-sky-50/60">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-sky-50"
+                  onClick={() => setCommonOpen((value) => !value)}
                 >
-                  <option value="EBI">EBI</option>
-                  <option value="EMS">EMS</option>
-                </select>
-              </label>
-              <label className="block text-xs">
-                <span className="text-gray-600">Código</span>
-                <input
-                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                  value={courseEdit.code}
-                  onChange={(e) => setCourseEdit({ ...courseEdit, code: e.target.value })}
-                />
-              </label>
-              <label className="block text-xs">
-                <span className="text-gray-600">Orden</span>
-                <input
-                  type="number"
-                  min={0}
-                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                  value={courseEdit.sortOrder}
-                  onChange={(e) => setCourseEdit({ ...courseEdit, sortOrder: Number(e.target.value) })}
-                />
-              </label>
-            </div>
-            <label className="block text-xs">
-              <span className="text-gray-600">Descripción</span>
-              <textarea
-                rows={3}
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                value={courseEdit.description}
-                onChange={(e) => setCourseEdit({ ...courseEdit, description: e.target.value })}
-              />
-            </label>
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={courseEdit.isActive}
-                onChange={(e) => setCourseEdit({ ...courseEdit, isActive: e.target.checked })}
-              />
-              Activo en catálogo
-            </label>
-            <button
-              type="button"
-              disabled={savingCourse}
-              onClick={() => void saveGeneral()}
-              className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
-            >
-              {savingCourse ? <Loader2 className="inline h-4 w-4 animate-spin" aria-hidden /> : null}
-              Guardar datos del curso
-            </button>
-          </div>
-        )}
-
-        {tab === 'common' && (
-          <SubjectListBlock
-            title="Asignaturas comunes del curso"
-            hint="Aplican al curso completo. Si hay orientaciones, también valen para todas ellas (no hace falta repetirlas en cada orientación)."
-            subjects={common}
-            loading={subjectsLoading}
-            addLabel="Agregar asignatura común"
-            onCreate={(d) => createSubject(d, { common: true })}
-            onUpdate={updateSubject}
-            onRemove={removeSubject}
-          />
-        )}
-
-        {tab === 'orientations' && (
-          <div className="space-y-4">
-            {!hasOrientations ? (
-              <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
-                Este curso no tiene orientaciones. Podés usar solo asignaturas comunes en la pestaña anterior, o
-                asociar una orientación abajo.
+                  <span className="flex min-w-0 items-center gap-2">
+                    {commonOpen ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 text-sky-700" aria-hidden />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-sky-700" aria-hidden />
+                    )}
+                    <span className="truncate text-sm font-semibold text-sky-950">Comunes</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-sky-800">{common.length} asignaturas</span>
+                </button>
+                {commonOpen ? (
+                  <div className="border-t border-sky-100 bg-white p-3">
+                    <SubjectListBlock
+                      title="Comunes del curso"
+                      hint={`Aplican a ${courseShortLabel(course.name)} y aparecen dentro de todas sus orientaciones.`}
+                      subjects={common}
+                      loading={subjectsLoading}
+                      addLabel="Agregar común"
+                      onCreate={(d) => createSubject(d, { common: true })}
+                      onUpdate={updateSubject}
+                      onRemove={removeSubject}
+                      showStatus={showHistoricalSubjects}
+                    />
+                  </div>
+                ) : null}
               </div>
-            ) : (
-              <div className="space-y-3">
-                {courseOrientations.map((row) => {
-                  const open = expanded[row.id] ?? true
+
+              {courseOrientations.length === 0 ? (
+                <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">
+                  Este curso no tiene orientaciones.
+                </div>
+              ) : (
+                courseOrientations.map((row) => {
+                  const open = expanded[row.id] ?? false
                   const specific = byOrientation.get(row.orientationId) ?? []
+                  const isEditing = editingOrientationId === row.id
                   return (
-                    <div key={row.id} className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between gap-2 bg-slate-50 px-3 py-3 text-left hover:bg-slate-100"
-                        onClick={() => setExpanded((c) => ({ ...c, [row.id]: !open }))}
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
+                    <div key={row.id} className="rounded-md border border-gray-200 bg-white">
+                      <div className="flex items-center justify-between gap-3 px-3 py-3 hover:bg-gray-50">
+                        <button
+                          type="button"
+                          className="shrink-0"
+                          onClick={() => setExpanded((current) => ({ ...current, [row.id]: !open }))}
+                        >
                           {open ? (
                             <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
                           ) : (
                             <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
                           )}
-                          <span className="font-semibold text-gray-900">{row.orientation.name}</span>
+                        </button>
+                        {isEditing ? (
+                          <input
+                            className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-sm"
+                            value={editingOrientationName}
+                            onChange={(e) => setEditingOrientationName(e.target.value)}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 truncate text-left font-medium text-gray-900"
+                            onClick={() => setExpanded((current) => ({ ...current, [row.id]: !open }))}
+                          >
+                            {row.orientation.name}
+                          </button>
+                        )}
+                        <span className="hidden shrink-0 text-xs text-gray-500 sm:inline">
+                          {common.length} comunes · {specific.length} específicas
                         </span>
-                        <span className="flex flex-wrap justify-end gap-1">
-                          <CatalogStatusChip active={row.orientation.isActive} />
-                          <OfferingStatusChip offered={row.isActive} hasOffering={Boolean(row.schoolYearId ?? course.courseOfferingId)} />
-                        </span>
-                      </button>
-                      {open && (
-                        <div className="space-y-4 border-t border-gray-100 p-4">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
+                        {isEditing ? (
+                          <div className="flex shrink-0 gap-1">
+                            <button
+                              type="button"
+                              className="rounded bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-700"
+                              onClick={() => void updateOrientation(row)}
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700"
+                              onClick={() => {
+                                setEditingOrientationId(null)
+                                setEditingOrientationName('')
+                              }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex shrink-0 items-center gap-1">
                             <button
                               type="button"
                               role="switch"
                               aria-checked={row.isActive}
-                              className={`relative h-6 w-11 rounded-full transition ${row.isActive ? 'bg-emerald-600' : 'bg-gray-300'}`}
+                              title={row.isActive ? 'Desactivar orientación en este curso' : 'Activar orientación en este curso'}
                               onClick={() => void toggleOrientationOffer(row)}
+                              className={`relative h-5 w-9 rounded-full transition ${
+                                row.isActive ? 'bg-emerald-600' : 'bg-gray-300'
+                              }`}
                             >
                               <span
-                                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${
-                                  row.isActive ? 'left-5' : 'left-0.5'
+                                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${
+                                  row.isActive ? 'left-4' : 'left-0.5'
                                 }`}
                               />
-                              <span className="sr-only">Oferta de orientación en ciclo</span>
+                              <span className="sr-only">
+                                {row.isActive ? 'Desactivar orientación' : 'Activar orientación'}
+                              </span>
                             </button>
-                            <span className="text-xs text-gray-500">
-                              {row.isActive ? 'Ofertada en ciclo' : 'No ofertada en ciclo'}
-                            </span>
+                            <button
+                              type="button"
+                              className="rounded p-1.5 text-gray-500 hover:bg-gray-100"
+                              title="Editar orientación"
+                              onClick={() => {
+                                setEditingOrientationId(row.id)
+                                setEditingOrientationName(row.orientation.name)
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded p-1.5 text-amber-700 hover:bg-amber-50"
+                              title="Quitar del curso"
+                              onClick={() => void removeOrientationFromCourse(row)}
+                            >
+                              <X className="h-4 w-4" aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded p-1.5 text-red-600 hover:bg-red-50"
+                              title="Eliminar orientación"
+                              onClick={() => void deleteOrientation(row)}
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden />
+                            </button>
                           </div>
+                        )}
+                      </div>
 
-                          {common.length > 0 ? (
-                            <div className="rounded-md border border-sky-100 bg-sky-50/50 p-3">
-                              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-900">
-                                Asignaturas comunes heredadas
-                              </div>
-                              <ul className="space-y-1 text-sm text-gray-800">
-                                {common.map((s) => (
-                                  <li key={s.id} className="flex flex-wrap items-center gap-2">
-                                    <span>{s.name}</span>
-                                    <SubjectStatusChip active={s.isActive} assignmentActive={s.assignmentIsActive} />
-                                  </li>
+                      {open ? (
+                        <div className="space-y-4 border-t border-gray-100 p-4">
+                          <div className="rounded-md bg-sky-50 p-3">
+                            <div className="mb-2 text-xs font-semibold uppercase text-sky-900">
+                              Comunes heredadas de {courseShortLabel(course.name)}
+                            </div>
+                            {common.length === 0 ? (
+                              <p className="text-sm text-sky-900/70">Todavía no hay comunes cargadas.</p>
+                            ) : (
+                              <ul className="grid gap-1 text-sm text-gray-800 sm:grid-cols-2">
+                                {common.map((subject) => (
+                                  <li key={subject.id}>{subject.name}</li>
                                 ))}
                               </ul>
-                            </div>
-                          ) : null}
+                            )}
+                          </div>
 
                           <SubjectListBlock
-                            title="Asignaturas específicas de esta orientación"
-                            hint="Solo para estudiantes de esta orientación."
+                            title="Específicas"
                             subjects={specific}
                             loading={subjectsLoading}
-                            addLabel="Agregar asignatura específica"
+                            addLabel="Agregar específica"
                             onCreate={(d) => createSubject(d, { common: false, orientationId: row.orientationId })}
                             onUpdate={updateSubject}
                             onRemove={removeSubject}
+                            showStatus={showHistoricalSubjects}
                           />
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   )
-                })}
-              </div>
-            )}
+                })
+              )}
 
-            <div className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/40 p-4">
-              <h4 className="text-sm font-semibold text-gray-900">Asociar orientación al curso</h4>
-              <p className="mt-1 text-xs text-gray-600">
-                Elegí una orientación del catálogo global o creá una nueva y asociala a este curso.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <select
-                  className="min-w-[12rem] flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                  value={attachOrientationId}
-                  onChange={(e) => setAttachOrientationId(e.target.value)}
-                >
-                  <option value="">Orientación existente…</option>
-                  {unattachedOrientations.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={!attachOrientationId}
-                  onClick={() => void attachOrientation()}
-                  className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
-                >
-                  Asociar
-                </button>
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <input
-                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm sm:col-span-2"
-                  placeholder="Nueva orientación"
-                  value={orientationDraft.name}
-                  onChange={(e) => setOrientationDraft({ ...orientationDraft, name: e.target.value })}
-                />
-                <input
-                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                  placeholder="Código opcional"
-                  value={orientationDraft.code}
-                  onChange={(e) => setOrientationDraft({ ...orientationDraft, code: e.target.value })}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                  value={orientationDraft.sortOrder}
-                  onChange={(e) => setOrientationDraft({ ...orientationDraft, sortOrder: Number(e.target.value) })}
-                />
-              </div>
+            <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-3">
+            <div className="flex flex-wrap gap-2">
+              <select
+                className="min-w-[12rem] flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                value={attachOrientationId}
+                onChange={(e) => setAttachOrientationId(e.target.value)}
+              >
+                <option value="">Agregar orientación existente…</option>
+                {unattachedOrientations.map((orientation) => (
+                  <option key={orientation.id} value={orientation.id}>
+                    {orientation.name}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
+                disabled={!attachOrientationId}
+                onClick={() => void attachOrientation()}
+                className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                Agregar
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                className="min-w-[12rem] flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                placeholder="Nueva orientación"
+                value={newOrientationName}
+                onChange={(e) => setNewOrientationName(e.target.value)}
+              />
+              <button
+                type="button"
+                disabled={!newOrientationName.trim()}
                 onClick={() => void createOrientation()}
-                className="mt-3 inline-flex items-center gap-1 rounded bg-white px-3 py-1.5 text-sm text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-50"
+                className="inline-flex items-center gap-1 rounded bg-white px-3 py-1.5 text-sm text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-50 disabled:opacity-50"
               >
                 <Plus className="h-4 w-4" aria-hidden />
-                Crear y asociar orientación
+                Crear
               </button>
             </div>
           </div>
-        )}
-
-        {tab === 'offer' && (
-          <div className="max-w-xl space-y-4">
-            <p className="text-sm text-gray-600">
-              Configuración de la oferta en el ciclo lectivo seleccionado. Los filtros operativos de la app usan
-              cursos y orientaciones ofertados y activos.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <OfferingStatusChip offered={offered} hasOffering={Boolean(course.courseOfferingId)} />
-              <FilterVisibilityChip visible={visibleInFilters} />
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={courseEdit.offeringIsActive}
-                onChange={(e) => setCourseEdit({ ...courseEdit, offeringIsActive: e.target.checked })}
-                disabled={!course.courseOfferingId}
-              />
-              Ofertado y activo en el ciclo actual
-            </label>
-            {!course.courseOfferingId ? (
-              <p className="text-xs text-amber-800">
-                Este curso no está ofertado en el ciclo. Activá la oferta desde la lista de cursos o creá el curso
-                marcando “Ofertar en ciclo”.
-              </p>
-            ) : null}
-            <label className="block text-xs">
-              <span className="text-gray-600">Observaciones de la oferta</span>
-              <textarea
-                rows={3}
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                value={courseEdit.offeringNotes}
-                onChange={(e) => setCourseEdit({ ...courseEdit, offeringNotes: e.target.value })}
-              />
-            </label>
-            <button
-              type="button"
-              disabled={savingCourse}
-              onClick={() => void saveGeneral()}
-              className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
-            >
-              Guardar oferta en ciclo
-            </button>
-          </div>
-        )}
+          ) : null}
+        </section>
       </div>
     </div>
   )

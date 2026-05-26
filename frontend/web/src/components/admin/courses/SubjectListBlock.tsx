@@ -16,6 +16,7 @@ type Props = {
   onUpdate: (id: string, draft: SubjectDraft) => Promise<void>
   onRemove: (id: string) => Promise<void>
   readOnly?: boolean
+  showStatus?: boolean
 }
 
 export default function SubjectListBlock({
@@ -28,6 +29,7 @@ export default function SubjectListBlock({
   onUpdate,
   onRemove,
   readOnly,
+  showStatus = true,
 }: Props) {
   const [showForm, setShowForm] = useState(false)
   const [draft, setDraft] = useState(emptySubjectDraft)
@@ -89,11 +91,11 @@ export default function SubjectListBlock({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-medium text-gray-900">{s.name}</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                      {s.code ? <span>Código: {s.code}</span> : null}
-                      <span>Orden: {s.sortOrder}</span>
-                      <SubjectStatusChip active={s.isActive} assignmentActive={s.assignmentIsActive} />
-                    </div>
+                    {showStatus ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                        <SubjectStatusChip active={s.isActive} assignmentActive={s.assignmentIsActive} />
+                      </div>
+                    ) : null}
                   </div>
                   {!readOnly ? (
                     <div className="flex shrink-0 gap-1">
@@ -179,8 +181,8 @@ function SubjectForm({
   saveLabel: string
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      <label className="block text-xs sm:col-span-2">
+    <div className="grid gap-2">
+      <label className="block text-xs">
         <span className="text-gray-600">Nombre</span>
         <input
           className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
@@ -189,42 +191,7 @@ function SubjectForm({
           placeholder="Ej. Matemática"
         />
       </label>
-      <label className="block text-xs">
-        <span className="text-gray-600">Código (opcional)</span>
-        <input
-          className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-          value={draft.code}
-          onChange={(e) => onChange({ ...draft, code: e.target.value })}
-        />
-      </label>
-      <label className="block text-xs">
-        <span className="text-gray-600">Orden</span>
-        <input
-          type="number"
-          min={0}
-          className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-          value={draft.sortOrder}
-          onChange={(e) => onChange({ ...draft, sortOrder: Number(e.target.value) })}
-        />
-      </label>
-      <label className="block text-xs sm:col-span-2">
-        <span className="text-gray-600">Descripción (opcional)</span>
-        <textarea
-          rows={2}
-          className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-          value={draft.description}
-          onChange={(e) => onChange({ ...draft, description: e.target.value })}
-        />
-      </label>
-      <label className="flex items-center gap-2 text-xs sm:col-span-2">
-        <input
-          type="checkbox"
-          checked={draft.isActive}
-          onChange={(e) => onChange({ ...draft, isActive: e.target.checked })}
-        />
-        Activa en el ciclo
-      </label>
-      <div className="flex gap-2 sm:col-span-2">
+      <div className="flex gap-2">
         <button
           type="button"
           disabled={busy}

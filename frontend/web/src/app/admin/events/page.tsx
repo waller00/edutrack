@@ -26,6 +26,13 @@ import {
 } from '@/lib/forms/datetime-uy'
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
 import type { SubstitutionListResponse } from '@/lib/substitutions/types'
+import {
+  formatYmdEs,
+  resolveAdminSchoolYearForEvents,
+  schoolYearEndYmd,
+  schoolYearRangeLabel,
+  type RecurrenceRangeMode,
+} from '@/lib/admin/event-recurrence'
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
 type SubjectOpt = { id: string; name: string; code: string | null }
@@ -258,6 +265,10 @@ export default function AdminEvents() {
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
 
+  const [recurrenceRangeMode, setRecurrenceRangeMode] = useState<RecurrenceRangeMode>('school_year')
+  const activeSchoolYear = resolveAdminSchoolYearForEvents(syCtx ?? null)
+  const schoolYearEndDate = schoolYearEndYmd(activeSchoolYear)
+
   const [newEvent, setNewEvent] = useState<EditableEvent>({
     title: '',
     description: '',
@@ -275,6 +286,12 @@ export default function AdminEvents() {
   })
   
   const [selectedRole, setSelectedRole] = useState<RoleOption>('')
+  useEffect(() => {
+    if (!creating || !newEvent.isRecurring || recurrenceRangeMode !== 'school_year' || !schoolYearEndDate) return
+    setNewEvent((prev) =>
+      prev.recurrenceEnd === schoolYearEndDate ? prev : { ...prev, recurrenceEnd: schoolYearEndDate },
+    )
+  }, [creating, newEvent.isRecurring, recurrenceRangeMode, schoolYearEndDate])
   const [portalReady, setPortalReady] = useState(false)
   const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
   const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
@@ -403,6 +420,7 @@ export default function AdminEvents() {
   function resetCreateForm() {
     setSelectedRole('')
     setCreateModalError('')
+    setRecurrenceRangeMode('school_year')
     setNewEvent({
       title: '',
       description: '',
@@ -436,9 +454,19 @@ export default function AdminEvents() {
       return 'La hora de fin debe ser mayor que la de inicio. Muy común: elegir “12:11 AM” para el fin (eso es 00:11 de la madrugada, antes que las 11:11 de la mañana). Para terminar a las 12:11 del mediodía usá 12:11 en 24 h o “12:11 PM”.'
     }
     if (newEvent.isRecurring) {
-      if (!newEvent.recurrenceEnd) return 'Los eventos repetitivos requieren fecha de fin de recurrencia.'
-      if (newEvent.recurrenceEnd < newEvent.startDate) {
+      const endYmd =
+        recurrenceRangeMode === 'school_year' ? schoolYearEndDate : newEvent.recurrenceEnd?.trim() || null
+      if (!endYmd) {
+        if (recurrenceRangeMode === 'school_year') {
+          return 'Para repetir hasta fin del año lectivo, elegí un ciclo concreto en la barra superior (no «Ver todos los ciclos»).'
+        }
+        return 'Los eventos repetitivos requieren fecha de fin de recurrencia.'
+      }
+      if (endYmd < newEvent.startDate) {
         return 'La fecha de fin de recurrencia debe ser igual o posterior a la fecha de inicio.'
+      }
+      if (newEvent.daysOfWeek.length === 0) {
+        return 'Seleccioná al menos un día de la semana para la repetición.'
       }
     }
     return null
@@ -463,7 +491,11 @@ export default function AdminEvents() {
         isRecurring: newEvent.isRecurring,
         recurrenceType: newEvent.isRecurring ? 'WEEKLY' : 'NONE',
         daysOfWeek: newEvent.isRecurring ? newEvent.daysOfWeek.map((d) => Number(d)) : [],
-        recurrenceEnd: newEvent.isRecurring && newEvent.recurrenceEnd ? newEvent.recurrenceEnd : null,
+        recurrenceEnd: newEvent.isRecurring
+          ? recurrenceRangeMode === 'school_year'
+            ? schoolYearEndDate
+            : newEvent.recurrenceEnd || null
+          : null,
       }
       if (newEvent.assignedUserId) {
         eventData.assignedUserId = newEvent.assignedUserId
@@ -945,12 +977,13 @@ export default function AdminEvents() {
                       checked={newEvent.isRecurring}
                       onChange={(e) => {
                         const isRecurring = e.target.checked
-                        setNewEvent({ 
-                          ...newEvent, 
+                        setRecurrenceRangeMode('school_year')
+                        setNewEvent({
+                          ...newEvent,
                           isRecurring,
                           recurrenceType: isRecurring ? 'WEEKLY' : 'NONE',
                           daysOfWeek: [],
-                          recurrenceEnd: ''
+                          recurrenceEnd: isRecurring && schoolYearEndDate ? schoolYearEndDate : '',
                         })
                       }}
                       className="mr-3 h-4 w-4"
@@ -1094,29 +1127,85 @@ export default function AdminEvents() {
                   onChange={(hhmm) => setNewEvent({ ...newEvent, endTime: hhmm })}
                 />
                 
-                {/* Campos de fecha según si es repetitivo o no */}
+                {/* Fechas: evento único o repetitivo */}
                 {newEvent.isRecurring ? (
-                  <>
+                  <div className="md:col-span-2 space-y-4 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Inicio</label>
-                      <input
-                        type="date"
-                        value={newEvent.startDate}
-                        onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      />
+                      <span className="block text-sm font-medium text-gray-800 mb-2">Vigencia de la repetición</span>
+                      <div className="space-y-2">
+                        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
+                          <input
+                            type="radio"
+                            name="recurrenceRangeMode"
+                            checked={recurrenceRangeMode === 'school_year'}
+                            onChange={() => {
+                              setRecurrenceRangeMode('school_year')
+                              if (schoolYearEndDate) {
+                                setNewEvent((prev) => ({ ...prev, recurrenceEnd: schoolYearEndDate }))
+                              }
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="font-medium text-gray-900">Hasta fin del año lectivo actual</span>
+                            <span className="mt-0.5 block text-xs text-gray-600">
+                              {schoolYearEndDate
+                                ? `Finaliza el ${formatYmdEs(schoolYearEndDate)} (${schoolYearRangeLabel(activeSchoolYear)}).`
+                                : 'Elegí un ciclo lectivo concreto en la barra superior para usar esta opción.'}
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
+                          <input
+                            type="radio"
+                            name="recurrenceRangeMode"
+                            checked={recurrenceRangeMode === 'custom'}
+                            onChange={() => setRecurrenceRangeMode('custom')}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="font-medium text-gray-900">Rango personalizado</span>
+                            <span className="mt-0.5 block text-xs text-gray-600">
+                              Elegí manualmente la fecha de inicio y la fecha de fin de la repetición.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
                     </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Fin</label>
-                      <input
-                        type="date"
-                        value={newEvent.recurrenceEnd}
-                        onChange={(e) => setNewEvent({ ...newEvent, recurrenceEnd: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      />
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio</label>
+                        <input
+                          type="date"
+                          value={newEvent.startDate}
+                          onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+                          className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">Desde cuándo empieza a repetirse (primer día).</p>
+                      </div>
+                      {recurrenceRangeMode === 'custom' ? (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de fin</label>
+                          <input
+                            type="date"
+                            value={newEvent.recurrenceEnd}
+                            onChange={(e) => setNewEvent({ ...newEvent, recurrenceEnd: e.target.value })}
+                            className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          />
+                          <p className="mt-1 text-xs text-gray-500">Último día en que puede repetirse.</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                          <span className="font-medium">Fin de repetición</span>
+                          <span className="mt-1">
+                            {schoolYearEndDate
+                              ? formatYmdEs(schoolYearEndDate)
+                              : 'Sin ciclo lectivo seleccionado'}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
