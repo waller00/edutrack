@@ -632,11 +632,13 @@ r.get('/:courseId/subjects', authGuard, requireAnyRoleOrPermission(['ADMIN', 'ST
       role: user.role,
       requestedSchoolYearId: typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : undefined,
     })
+    const includeAllCourseAssignments =
+      !orientationId && showInactive && req.query.includeNotOffered === '1' && user.role === 'ADMIN'
     const assignmentScope: any[] = [
       ...(fullCourse?.level
         ? [{ level: fullCourse.level, courseId: null, orientationId: null }]
         : []),
-      { courseId: course.id, orientationId: null },
+      includeAllCourseAssignments ? { courseId: course.id } : { courseId: course.id, orientationId: null },
       ...(orientationId ? [{ courseId: course.id, orientationId }] : []),
     ]
     const where: any = {
@@ -678,23 +680,70 @@ r.get('/:courseId/subjects', authGuard, requireAnyRoleOrPermission(['ADMIN', 'ST
               ...(schoolYearId ? [{ OR: [{ schoolYearId }, { schoolYearId: null }] }] : []),
             ],
           },
-          select: { id: true, associationType: true, orientationId: true, schoolYearId: true, isActive: true, isOffered: true, visibleInFilters: true },
-          take: 1,
+          select: {
+            id: true,
+            associationType: true,
+            level: true,
+            courseId: true,
+            orientationId: true,
+            schoolYearId: true,
+            isActive: true,
+            isOffered: true,
+            visibleInFilters: true,
+          },
         },
         createdAt: true,
         updatedAt: true,
       },
     })
-    res.json((list as any[]).map((subject) => ({
-      ...subject,
-      courseId: subject.courseId ?? course.id,
-      assignmentId: subject.courseAssignments?.[0]?.id ?? null,
-      associationType: subject.courseAssignments?.[0]?.associationType ?? 'CURSO_COMPLETO',
-      orientationId: subject.courseAssignments?.[0]?.orientationId ?? null,
-      assignmentIsActive: subject.courseAssignments?.[0]?.isActive ?? null,
-      assignmentIsOffered: subject.courseAssignments?.[0]?.isOffered ?? null,
-      visibleInFilters: subject.courseAssignments?.[0]?.visibleInFilters ?? null,
-    })))
+    const isVisibleAssignment = (assignment: any) =>
+      Boolean(assignment?.isActive && assignment?.isOffered && assignment?.visibleInFilters)
+    const effectiveAssignmentsForCycle = (assignments: any[]) => {
+      const byScope = new Map<string, any>()
+      for (const assignment of assignments) {
+        const key = [
+          assignment.associationType ?? '',
+          assignment.level ?? '',
+          assignment.courseId ?? '',
+          assignment.orientationId ?? '',
+        ].join('|')
+        const current = byScope.get(key)
+        if (!current || (!current.schoolYearId && assignment.schoolYearId === schoolYearId)) {
+          byScope.set(key, assignment)
+        }
+      }
+      return Array.from(byScope.values())
+    }
+    const rows = (list as any[])
+      .map((subject) => {
+        const effectiveAssignments = effectiveAssignmentsForCycle(subject.courseAssignments ?? [])
+        const visibleAssignments = showInactive
+          ? effectiveAssignments
+          : effectiveAssignments.filter(isVisibleAssignment)
+        const chosenAssignment =
+          (orientationId
+            ? visibleAssignments.find((assignment) => assignment.orientationId === orientationId)
+            : null) ??
+          visibleAssignments.find((assignment) => assignment.orientationId === null) ??
+          visibleAssignments[0] ??
+          effectiveAssignments[0] ??
+          null
+        const legacyOnly = effectiveAssignments.length === 0 && subject.courseId === course.id
+        if (!showInactive && !legacyOnly && visibleAssignments.length === 0) return null
+        return {
+          ...subject,
+          courseAssignments: undefined,
+          courseId: subject.courseId ?? course.id,
+          assignmentId: chosenAssignment?.id ?? null,
+          associationType: chosenAssignment?.associationType ?? 'CURSO_COMPLETO',
+          orientationId: chosenAssignment?.orientationId ?? null,
+          assignmentIsActive: chosenAssignment?.isActive ?? null,
+          assignmentIsOffered: chosenAssignment?.isOffered ?? null,
+          visibleInFilters: chosenAssignment?.visibleInFilters ?? null,
+        }
+      })
+      .filter(Boolean)
+    res.json(rows)
   } catch (e) {
     console.error('Error listando asignaturas:', e)
     res.status(500).json({ message: 'Error interno del servidor' })

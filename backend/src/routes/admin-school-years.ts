@@ -252,7 +252,11 @@ r.post('/:id/activate', async (req, res) => {
     const updated = await activateSchoolYearById(prisma, id)
     const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: updated.id } })
     return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))
-  } catch (e) {
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'ACTIVE_SCHOOL_YEAR_EXISTS') {
+      return res.status(409).json({ message: 'Ya hay un ciclo lectivo activo. Cerralo manualmente antes de iniciar otro.' })
+    }
     console.error('[admin/school-years activate]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
@@ -263,10 +267,8 @@ r.post('/:id/close', async (req, res) => {
   try {
     const row = await prisma.schoolYear.findUnique({ where: { id } })
     if (!row) return res.status(404).json({ message: 'Ciclo no encontrado' })
-    if (row.status === 'ACTIVE') {
-      return res.status(400).json({
-        message: 'No se puede cerrar el ciclo activo. Primero activá otro año lectivo.',
-      })
+    if (row.status === 'CLOSED') {
+      return res.json(serializeYear({ ...row, coursesCount: await countCourseOfferings(row.id) }))
     }
     const updated = await prisma.schoolYear.update({
       where: { id },

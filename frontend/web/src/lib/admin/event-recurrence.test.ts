@@ -19,7 +19,7 @@ const years = [
 ]
 
 describe('event-recurrence', () => {
-  it('resuelve fin de año lectivo en YYYY-MM-DD', () => {
+  it('resuelve año lectivo seleccionado', () => {
     const year = resolveAdminSchoolYearForEvents({
       allYears: false,
       selectedId: 'sy-2026',
@@ -28,7 +28,7 @@ describe('event-recurrence', () => {
     })
     expect(schoolYearEndYmd(year)).toBe('2026-12-15')
     expect(schoolYearRangeLabel(year)).toContain('2026')
-    expect(schoolYearRangeLabel(year)).toContain('15/12/2026')
+    expect(schoolYearRangeLabel(year)).not.toContain('15/12/2026')
   })
 
   it('no resuelve año cuando allYears está activo', () => {

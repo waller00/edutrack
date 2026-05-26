@@ -27,14 +27,18 @@ import {
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
 import type { SubstitutionListResponse } from '@/lib/substitutions/types'
 import {
-  formatYmdEs,
   resolveAdminSchoolYearForEvents,
-  schoolYearEndYmd,
   schoolYearRangeLabel,
   type RecurrenceRangeMode,
 } from '@/lib/admin/event-recurrence'
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
+type CourseOrientationOpt = {
+  id: string
+  orientationId: string
+  isActive: boolean
+  orientation: { id: string; name: string; code: string | null }
+}
 type SubjectOpt = { id: string; name: string; code: string | null }
 
 function withSchoolYear(path: string, schoolYearQuery: string): string {
@@ -70,6 +74,9 @@ type Event = {
   assignedUserId?: string
   courseId?: string | null
   course?: { id: string; name: string; code: string | null } | null
+  orientationId?: string | null
+  courseOrientationId?: string | null
+  orientation?: { id: string; name: string; code: string | null } | null
   subjectId?: string | null
   subject?: { id: string; name: string; code: string | null } | null
   recurrenceType: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
@@ -102,6 +109,8 @@ type EditableEvent = Pick<
   | 'endTime'
   | 'assignedUserId'
   | 'courseId'
+  | 'orientationId'
+  | 'courseOrientationId'
   | 'subjectId'
   | 'recurrenceType'
   | 'isRecurring'
@@ -111,6 +120,8 @@ type EditableEvent = Pick<
   assignedUserId: string
   recurrenceEnd: string
   courseId: string
+  orientationId: string
+  courseOrientationId: string
   subjectId: string
 }
 
@@ -243,6 +254,8 @@ export default function AdminEvents() {
   const [events, setEvents] = useState<Event[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [courses, setCourses] = useState<CourseOpt[]>([])
+  const [createOrientations, setCreateOrientations] = useState<CourseOrientationOpt[]>([])
+  const [editOrientations, setEditOrientations] = useState<CourseOrientationOpt[]>([])
   const [createSubjects, setCreateSubjects] = useState<SubjectOpt[]>([])
   const [editSubjects, setEditSubjects] = useState<SubjectOpt[]>([])
   const [loading, setLoading] = useState(false)
@@ -267,7 +280,6 @@ export default function AdminEvents() {
 
   const [recurrenceRangeMode, setRecurrenceRangeMode] = useState<RecurrenceRangeMode>('school_year')
   const activeSchoolYear = resolveAdminSchoolYearForEvents(syCtx ?? null)
-  const schoolYearEndDate = schoolYearEndYmd(activeSchoolYear)
 
   const [newEvent, setNewEvent] = useState<EditableEvent>({
     title: '',
@@ -278,6 +290,8 @@ export default function AdminEvents() {
     endTime: '10:00',
     assignedUserId: '',
     courseId: '',
+    orientationId: '',
+    courseOrientationId: '',
     subjectId: '',
     recurrenceType: 'NONE',
     isRecurring: false,
@@ -286,12 +300,6 @@ export default function AdminEvents() {
   })
   
   const [selectedRole, setSelectedRole] = useState<RoleOption>('')
-  useEffect(() => {
-    if (!creating || !newEvent.isRecurring || recurrenceRangeMode !== 'school_year' || !schoolYearEndDate) return
-    setNewEvent((prev) =>
-      prev.recurrenceEnd === schoolYearEndDate ? prev : { ...prev, recurrenceEnd: schoolYearEndDate },
-    )
-  }, [creating, newEvent.isRecurring, recurrenceRangeMode, schoolYearEndDate])
   const [portalReady, setPortalReady] = useState(false)
   const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
   const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
@@ -344,43 +352,69 @@ export default function AdminEvents() {
 
   useEffect(() => {
     if (!creating || !newEvent.courseId) {
+      setCreateOrientations([])
       setCreateSubjects([])
       return
     }
     let cancelled = false
     void (async () => {
       try {
-        const path = `/courses/${newEvent.courseId}/subjects`
-        const list = await api<SubjectOpt[]>(withSchoolYear(path, coursePickerQuery))
-        if (!cancelled) setCreateSubjects(Array.isArray(list) ? list : [])
+        const orientationPath = `/courses/${newEvent.courseId}/orientations`
+        const subjectPath = newEvent.orientationId
+          ? `/courses/${newEvent.courseId}/subjects?orientationId=${encodeURIComponent(newEvent.orientationId)}`
+          : `/courses/${newEvent.courseId}/subjects`
+        const [orientationList, subjectList] = await Promise.all([
+          api<CourseOrientationOpt[]>(withSchoolYear(orientationPath, coursePickerQuery)),
+          api<SubjectOpt[]>(withSchoolYear(subjectPath, coursePickerQuery)),
+        ])
+        if (!cancelled) {
+          setCreateOrientations(Array.isArray(orientationList) ? orientationList : [])
+          setCreateSubjects(Array.isArray(subjectList) ? subjectList : [])
+        }
       } catch {
-        if (!cancelled) setCreateSubjects([])
+        if (!cancelled) {
+          setCreateOrientations([])
+          setCreateSubjects([])
+        }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [creating, newEvent.courseId, coursePickerQuery])
+  }, [creating, newEvent.courseId, newEvent.orientationId, coursePickerQuery])
 
   useEffect(() => {
     if (!editingEvent?.courseId) {
+      setEditOrientations([])
       setEditSubjects([])
       return
     }
     let cancelled = false
     void (async () => {
       try {
-        const path = `/courses/${editingEvent.courseId}/subjects`
-        const list = await api<SubjectOpt[]>(withSchoolYear(path, coursePickerQuery))
-        if (!cancelled) setEditSubjects(Array.isArray(list) ? list : [])
+        const orientationPath = `/courses/${editingEvent.courseId}/orientations`
+        const subjectPath = editingEvent.orientationId
+          ? `/courses/${editingEvent.courseId}/subjects?orientationId=${encodeURIComponent(editingEvent.orientationId)}`
+          : `/courses/${editingEvent.courseId}/subjects`
+        const [orientationList, subjectList] = await Promise.all([
+          api<CourseOrientationOpt[]>(withSchoolYear(orientationPath, coursePickerQuery)),
+          api<SubjectOpt[]>(withSchoolYear(subjectPath, coursePickerQuery)),
+        ])
+        if (!cancelled) {
+          setEditOrientations(Array.isArray(orientationList) ? orientationList : [])
+          setEditSubjects(Array.isArray(subjectList) ? subjectList : [])
+        }
       } catch {
-        if (!cancelled) setEditSubjects([])
+        if (!cancelled) {
+          setEditOrientations([])
+          setEditSubjects([])
+        }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [editingEvent?.courseId, coursePickerQuery])
+  }, [editingEvent?.courseId, editingEvent?.orientationId, coursePickerQuery])
 
   async function loadEvents() {
     setLoading(true)
@@ -430,6 +464,8 @@ export default function AdminEvents() {
       endTime: '10:00',
       assignedUserId: '',
       courseId: '',
+      orientationId: '',
+      courseOrientationId: '',
       subjectId: '',
       recurrenceType: 'NONE',
       isRecurring: false,
@@ -455,14 +491,17 @@ export default function AdminEvents() {
     }
     if (newEvent.isRecurring) {
       const endYmd =
-        recurrenceRangeMode === 'school_year' ? schoolYearEndDate : newEvent.recurrenceEnd?.trim() || null
+        recurrenceRangeMode === 'school_year' ? null : newEvent.recurrenceEnd?.trim() || null
       if (!endYmd) {
         if (recurrenceRangeMode === 'school_year') {
-          return 'Para repetir hasta fin del año lectivo, elegí un ciclo concreto en la barra superior (no «Ver todos los ciclos»).'
+          if (!activeSchoolYear || activeSchoolYear.status === 'CLOSED') {
+            return 'Para repetir hasta cierre manual del ciclo, elegí un ciclo lectivo abierto en la barra superior.'
+          }
+        } else {
+          return 'Los eventos repetitivos requieren fecha de fin de recurrencia.'
         }
-        return 'Los eventos repetitivos requieren fecha de fin de recurrencia.'
       }
-      if (endYmd < newEvent.startDate) {
+      if (endYmd && endYmd < newEvent.startDate) {
         return 'La fecha de fin de recurrencia debe ser igual o posterior a la fecha de inicio.'
       }
       if (newEvent.daysOfWeek.length === 0) {
@@ -493,7 +532,7 @@ export default function AdminEvents() {
         daysOfWeek: newEvent.isRecurring ? newEvent.daysOfWeek.map((d) => Number(d)) : [],
         recurrenceEnd: newEvent.isRecurring
           ? recurrenceRangeMode === 'school_year'
-            ? schoolYearEndDate
+            ? null
             : newEvent.recurrenceEnd || null
           : null,
       }
@@ -502,6 +541,12 @@ export default function AdminEvents() {
       }
       if (newEvent.courseId) {
         eventData.courseId = newEvent.courseId
+      }
+      if (newEvent.orientationId) {
+        eventData.orientationId = newEvent.orientationId
+      }
+      if (newEvent.courseOrientationId) {
+        eventData.courseOrientationId = newEvent.courseOrientationId
       }
       if (newEvent.subjectId) {
         eventData.subjectId = newEvent.subjectId
@@ -983,7 +1028,7 @@ export default function AdminEvents() {
                           isRecurring,
                           recurrenceType: isRecurring ? 'WEEKLY' : 'NONE',
                           daysOfWeek: [],
-                          recurrenceEnd: isRecurring && schoolYearEndDate ? schoolYearEndDate : '',
+                          recurrenceEnd: '',
                         })
                       }}
                       className="mr-3 h-4 w-4"
@@ -1082,6 +1127,8 @@ export default function AdminEvents() {
                       setNewEvent((prev) => ({
                         ...prev,
                         courseId: v,
+                        orientationId: prev.courseId === v ? prev.orientationId : '',
+                        courseOrientationId: prev.courseId === v ? prev.courseOrientationId : '',
                         subjectId: prev.courseId === v ? prev.subjectId : '',
                       }))
                     }}
@@ -1090,7 +1137,38 @@ export default function AdminEvents() {
                     <option value="">Sin curso</option>
                     {courses.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.code ? `${c.code} — ${c.name}` : c.name}
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Orientación (opcional)</label>
+                  <select
+                    value={newEvent.courseOrientationId}
+                    onChange={(e) => {
+                      const row = createOrientations.find((o) => o.id === e.target.value)
+                      setNewEvent({
+                        ...newEvent,
+                        courseOrientationId: row?.id ?? '',
+                        orientationId: row?.orientationId ?? '',
+                        subjectId: '',
+                      })
+                    }}
+                    disabled={!newEvent.courseId || createOrientations.length === 0}
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {!newEvent.courseId
+                        ? 'Elegí un curso primero'
+                        : createOrientations.length === 0
+                          ? 'El curso no tiene orientaciones'
+                          : 'Todas las orientaciones'}
+                    </option>
+                    {createOrientations.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.orientation.name}
                       </option>
                     ))}
                   </select>
@@ -1107,7 +1185,7 @@ export default function AdminEvents() {
                     <option value="">{newEvent.courseId ? 'Sin asignatura' : 'Elegí un curso primero'}</option>
                     {createSubjects.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.code ? `${s.code} — ${s.name}` : s.name}
+                        {s.name}
                       </option>
                     ))}
                   </select>
@@ -1140,18 +1218,16 @@ export default function AdminEvents() {
                             checked={recurrenceRangeMode === 'school_year'}
                             onChange={() => {
                               setRecurrenceRangeMode('school_year')
-                              if (schoolYearEndDate) {
-                                setNewEvent((prev) => ({ ...prev, recurrenceEnd: schoolYearEndDate }))
-                              }
+                              setNewEvent((prev) => ({ ...prev, recurrenceEnd: '' }))
                             }}
                             className="mt-0.5"
                           />
                           <span>
-                            <span className="font-medium text-gray-900">Hasta fin del año lectivo actual</span>
+                            <span className="font-medium text-gray-900">Hasta cierre manual del año lectivo</span>
                             <span className="mt-0.5 block text-xs text-gray-600">
-                              {schoolYearEndDate
-                                ? `Finaliza el ${formatYmdEs(schoolYearEndDate)} (${schoolYearRangeLabel(activeSchoolYear)}).`
-                                : 'Elegí un ciclo lectivo concreto en la barra superior para usar esta opción.'}
+                              {activeSchoolYear && activeSchoolYear.status !== 'CLOSED'
+                                ? `Sigue disponible en ${schoolYearRangeLabel(activeSchoolYear)} hasta que el ciclo se cierre.`
+                                : 'Elegí un ciclo lectivo abierto en la barra superior para usar esta opción.'}
                             </span>
                           </span>
                         </label>
@@ -1196,11 +1272,11 @@ export default function AdminEvents() {
                         </div>
                       ) : (
                         <div className="flex flex-col justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                          <span className="font-medium">Fin de repetición</span>
+                          <span className="font-medium">Vigencia</span>
                           <span className="mt-1">
-                            {schoolYearEndDate
-                              ? formatYmdEs(schoolYearEndDate)
-                              : 'Sin ciclo lectivo seleccionado'}
+                            {activeSchoolYear && activeSchoolYear.status !== 'CLOSED'
+                              ? 'Hasta cierre manual del ciclo'
+                              : 'Sin ciclo lectivo abierto'}
                           </span>
                         </div>
                       )}
@@ -1410,6 +1486,8 @@ export default function AdminEvents() {
                         return {
                           ...prev,
                           courseId: v,
+                          orientationId: prevC === nextC ? prev.orientationId ?? null : null,
+                          courseOrientationId: prevC === nextC ? prev.courseOrientationId ?? null : null,
                           subjectId: prevC === nextC ? prev.subjectId : null,
                         }
                       })
@@ -1419,7 +1497,38 @@ export default function AdminEvents() {
                     <option value="">Sin curso</option>
                     {courses.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.code ? `${c.code} — ${c.name}` : c.name}
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Orientación (opcional)</label>
+                  <select
+                    value={editingEvent.courseOrientationId ?? ''}
+                    onChange={(e) => {
+                      const row = editOrientations.find((o) => o.id === e.target.value)
+                      setEditingEvent({
+                        ...editingEvent,
+                        courseOrientationId: row?.id ?? null,
+                        orientationId: row?.orientationId ?? null,
+                        subjectId: null,
+                      })
+                    }}
+                    disabled={!editingEvent.courseId || editOrientations.length === 0}
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {!editingEvent.courseId
+                        ? 'Elegí un curso primero'
+                        : editOrientations.length === 0
+                          ? 'El curso no tiene orientaciones'
+                          : 'Todas las orientaciones'}
+                    </option>
+                    {editOrientations.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.orientation.name}
                       </option>
                     ))}
                   </select>
@@ -1441,7 +1550,7 @@ export default function AdminEvents() {
                     <option value="">{editingEvent.courseId ? 'Sin asignatura' : 'Elegí un curso primero'}</option>
                     {editSubjects.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.code ? `${s.code} — ${s.name}` : s.name}
+                        {s.name}
                       </option>
                     ))}
                   </select>

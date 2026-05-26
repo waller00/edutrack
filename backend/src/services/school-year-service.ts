@@ -64,10 +64,11 @@ export async function resolveSchoolYearIdForList(
 
 export async function activateSchoolYearById(prisma: PrismaClient, id: string): Promise<SchoolYear> {
   return prisma.$transaction(async (tx) => {
-    await tx.schoolYear.updateMany({
+    const otherActive = await tx.schoolYear.findFirst({
       where: { status: 'ACTIVE', NOT: { id } },
-      data: { status: 'CLOSED' },
+      select: { id: true },
     })
+    if (otherActive) throw new Error('ACTIVE_SCHOOL_YEAR_EXISTS')
     return tx.schoolYear.update({
       where: { id },
       data: { status: 'ACTIVE' },
