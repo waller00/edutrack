@@ -3,9 +3,9 @@ import DateRangeFields from '@/components/forms/DateRangeFields'
 import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Calendar } from 'lucide-react'
+import { Calendar, Download, Upload } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import {
   buildAdminEventsAllQueryString,
@@ -96,6 +96,14 @@ type User = {
   role: string
 }
 
+type EventImportError = { row: number; message: string }
+type EventImportResponse = {
+  ok: boolean
+  createdCount: number
+  validCount?: number
+  errors?: EventImportError[]
+}
+
 type EventTypeOption = Event['type']
 type EventStatusOption = Event['status']
 type RoleOption = AdminEventCreatorRole
@@ -155,6 +163,111 @@ function getApiErrorDetail(error: unknown): string {
     return zod.map((err) => (err.path?.length ? `${err.path.join('.')}: ` : '') + err.message).join(' · ')
   }
   return e.data?.message || e.message || 'Error desconocido'
+}
+
+function csvCell(value: string): string {
+  if (/[;"\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`
+  return value
+}
+
+function buildEventImportTemplate(): string {
+  const headers = [
+    'titulo',
+    'descripcion',
+    'tipo',
+    'fecha',
+    'hora_inicio',
+    'hora_fin',
+    'asignado_a',
+    'curso',
+    'orientacion',
+    'asignatura',
+    'repite',
+    'dias',
+    'fin_repeticion',
+  ]
+  const rows = [
+    [
+      'Clase semanal Biología',
+      'Una fila crea toda la regla semanal',
+      'CLASE',
+      '2026-03-02',
+      '09:00',
+      '10:30',
+      'usuario_docente',
+      '3-EMS',
+      'Ciencias de la Vida',
+      'Biología Humana',
+      'si',
+      'lun',
+      'ciclo',
+    ],
+    [
+      'Reunion de coordinacion',
+      '',
+      'REUNION',
+      '2026-03-04',
+      '13:00',
+      '14:00',
+      'admin',
+      '',
+      '',
+      '',
+      'no',
+      '',
+      '',
+    ],
+  ]
+  return [headers, ...rows].map((row) => row.map(csvCell).join(';')).join('\n')
+}
+
+function parseCsvRows(text: string): Record<string, string>[] {
+  const cleaned = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const firstLine = cleaned.split('\n')[0] ?? ''
+  const delimiter = (firstLine.match(/;/g)?.length ?? 0) >= (firstLine.match(/,/g)?.length ?? 0) ? ';' : ','
+  const rows: string[][] = []
+  let row: string[] = []
+  let cell = ''
+  let inQuotes = false
+
+  for (let i = 0; i < cleaned.length; i += 1) {
+    const ch = cleaned[i]
+    const next = cleaned[i + 1]
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (ch === delimiter && !inQuotes) {
+      row.push(cell)
+      cell = ''
+    } else if (ch === '\n' && !inQuotes) {
+      row.push(cell)
+      rows.push(row)
+      row = []
+      cell = ''
+    } else {
+      cell += ch
+    }
+  }
+  if (cell !== '' || row.length > 0) {
+    row.push(cell)
+    rows.push(row)
+  }
+
+  const [headersRaw, ...dataRows] = rows.filter((r) => r.some((v) => v.trim() !== ''))
+  if (!headersRaw) return []
+  const headers = headersRaw.map((h) => h.trim())
+  return dataRows
+    .filter((r) => r.some((v) => v.trim() !== ''))
+    .map((r) =>
+      headers.reduce<Record<string, string>>((acc, header, index) => {
+        acc[header] = (r[index] ?? '').trim()
+        return acc
+      }, {}),
+    )
 }
 
 /** Horas 00–23 (formato 24 h civil; no AM/PM). */
@@ -275,6 +388,9 @@ export default function AdminEvents() {
   const [message, setMessage] = useState('')
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
+  const [importingEvents, setImportingEvents] = useState(false)
+  const [importErrors, setImportErrors] = useState<EventImportError[]>([])
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
 
@@ -627,6 +743,45 @@ export default function AdminEvents() {
     }
   }
 
+  function downloadImportTemplate() {
+    const blob = new Blob([`\uFEFF${buildEventImportTemplate()}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'plantilla_importacion_eventos.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function importEventsFromFile(file: File) {
+    setMessage('')
+    setImportErrors([])
+    setImportingEvents(true)
+    try {
+      const rows = parseCsvRows(await file.text())
+      if (rows.length === 0) {
+        setMessage('❌ El CSV no tiene filas para importar.')
+        return
+      }
+      const result = await api<EventImportResponse>(withSchoolYear('/events/import', coursePickerQuery), {
+        method: 'POST',
+        body: JSON.stringify({ rows }),
+      })
+      setMessage(`✅ Se importaron ${result.createdCount} eventos correctamente`)
+      await loadEvents()
+    } catch (error: unknown) {
+      const data = (error as { data?: { errors?: EventImportError[] } }).data
+      const errors = Array.isArray(data?.errors) ? data.errors : []
+      setImportErrors(errors)
+      setMessage(errors.length > 0 ? '❌ No se importó ningún evento. Revisá las filas marcadas.' : `❌ ${getApiErrorDetail(error)}`)
+    } finally {
+      setImportingEvents(false)
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
   function toggleEventSelection(id: string) {
     setSelectedEventIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
@@ -652,8 +807,36 @@ export default function AdminEvents() {
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
             <button
+              type="button"
+              onClick={downloadImportTemplate}
+              className="inline-flex items-center justify-center gap-2 rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Download className="h-4 w-4" aria-hidden />
+              Descargar formato
+            </button>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              disabled={importingEvents}
+              className="inline-flex items-center justify-center gap-2 rounded border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4" aria-hidden />
+              {importingEvents ? 'Importando...' : 'Importar CSV'}
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) void importEventsFromFile(file)
+              }}
+            />
+            <button
               onClick={() => {
                 setMessage('')
+                setImportErrors([])
                 setCreateModalError('')
                 setCreating(true)
               }}
@@ -774,6 +957,19 @@ export default function AdminEvents() {
             {message}
           </div>
         )}
+        {importErrors.length > 0 && !creating && !editingEvent ? (
+          <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            <div className="font-semibold">Errores de importación</div>
+            <ul className="mt-2 space-y-1">
+              {importErrors.slice(0, 12).map((err) => (
+                <li key={`${err.row}-${err.message}`}>Fila {err.row}: {err.message}</li>
+              ))}
+            </ul>
+            {importErrors.length > 12 ? (
+              <div className="mt-2 text-red-800">Hay {importErrors.length - 12} errores más.</div>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Tabla de eventos */}
         <div className="bg-white border rounded-lg shadow-sm">
