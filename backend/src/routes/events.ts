@@ -178,6 +178,157 @@ function parseRecurrenceEndInclusive(s: string) {
   return new Date(d.getTime())
 }
 
+function normalizeImportText(value: unknown): string {
+  return String(value ?? '').trim()
+}
+
+function normalizeImportLookup(value: unknown): string {
+  return normalizeImportText(value).toLowerCase()
+}
+
+function importCell(row: Record<string, unknown>, keys: string[]): string {
+  const normalized = new Map<string, unknown>()
+  for (const [key, value] of Object.entries(row)) {
+    normalized.set(key.trim().toLowerCase(), value)
+  }
+  for (const key of keys) {
+    const value = normalized.get(key.toLowerCase())
+    if (value !== undefined && String(value).trim() !== '') return String(value).trim()
+  }
+  return ''
+}
+
+function normalizeImportDate(value: string): string | null {
+  const raw = value.trim()
+  if (!raw) return null
+  if (isYmdDateString(raw)) return raw
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) {
+    const dd = m[1].padStart(2, '0')
+    const mm = m[2].padStart(2, '0')
+    return `${m[3]}-${mm}-${dd}`
+  }
+  return parseStartDateToUruguayYmd(raw)
+}
+
+function normalizeImportType(value: string): 'JORNADA_LABORAL' | 'REUNION' | 'CLASE' | null {
+  const key = normalizeImportLookup(value).normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  if (key === 'clase') return 'CLASE'
+  if (key === 'reunion') return 'REUNION'
+  if (key === 'jornada' || key === 'jornada laboral' || key === 'jornada_laboral') return 'JORNADA_LABORAL'
+  if (key === 'jornada-laboral') return 'JORNADA_LABORAL'
+  if (value === 'CLASE' || value === 'REUNION' || value === 'JORNADA_LABORAL') return value
+  return null
+}
+
+function parseImportBoolean(value: string): boolean {
+  const key = normalizeImportLookup(value).normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  return ['si', 's', 'true', '1', 'yes', 'y', 'x'].includes(key)
+}
+
+function parseImportDays(value: string): number[] {
+  const keyFor = (part: string) => part.trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  const map = new Map<string, number>([
+    ['dom', 0], ['domingo', 0], ['0', 0],
+    ['lun', 1], ['lunes', 1], ['1', 1],
+    ['mar', 2], ['martes', 2], ['2', 2],
+    ['mie', 3], ['miercoles', 3], ['mié', 3], ['3', 3],
+    ['jue', 4], ['jueves', 4], ['4', 4],
+    ['vie', 5], ['viernes', 5], ['5', 5],
+    ['sab', 6], ['sabado', 6], ['sáb', 6], ['6', 6],
+  ])
+  const days = value
+    .split(/[,+|/ ]+/)
+    .map((part) => map.get(keyFor(part)))
+    .filter((day): day is number => typeof day === 'number')
+  return Array.from(new Set(days))
+}
+
+async function resolveImportUser(input: string): Promise<string | null> {
+  if (!input) return null
+  const user = await (prisma as any).user.findFirst({
+    where: {
+      isActive: true,
+      username: { equals: input, mode: 'insensitive' },
+    },
+    select: { id: true },
+  })
+  return user?.id ?? null
+}
+
+async function resolveImportCourse(
+  input: string,
+  schoolYearId: string,
+): Promise<{ courseId: string; courseOfferingId: string } | null> {
+  if (!input) return null
+  const course = await (prisma as any).course.findFirst({
+    where: {
+      isActive: true,
+      OR: [
+        { code: { equals: input, mode: 'insensitive' } },
+        { name: { equals: input, mode: 'insensitive' } },
+      ],
+    },
+    select: { id: true },
+  })
+  if (!course) return null
+  const offering = await assertCourseOfferedInSchoolYear(course.id, schoolYearId)
+  if (!offering) return null
+  return { courseId: course.id, courseOfferingId: offering.id }
+}
+
+async function resolveImportOrientation(
+  courseId: string,
+  input: string,
+  schoolYearId: string,
+): Promise<{ orientationId: string; courseOrientationId: string } | null> {
+  if (!input) return null
+  const row = await (prisma as any).courseOrientation.findFirst({
+    where: {
+      courseId,
+      isActive: true,
+      isOffered: true,
+      visibleInFilters: true,
+      OR: [{ schoolYearId }, { schoolYearId: null }],
+      orientation: {
+        isActive: true,
+        OR: [
+          { code: { equals: input, mode: 'insensitive' } },
+          { name: { equals: input, mode: 'insensitive' } },
+        ],
+      },
+    },
+    select: { id: true, orientationId: true },
+  })
+  if (!row) return null
+  return { orientationId: row.orientationId, courseOrientationId: row.id }
+}
+
+async function resolveImportSubject(
+  input: string,
+  courseId: string,
+  courseOfferingId: string,
+  orientationId: string | null,
+): Promise<string | null> {
+  if (!input) return null
+  const candidates = await (prisma.subject as any).findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { code: { equals: input, mode: 'insensitive' } },
+        { name: { equals: input, mode: 'insensitive' } },
+      ],
+    },
+    select: { id: true },
+    take: 20,
+  })
+  for (const candidate of candidates) {
+    const ok = await assertActiveSubjectInCourse(candidate.id, courseId, courseOfferingId, orientationId)
+    if (ok) return candidate.id
+  }
+  return null
+}
+
 // Esquemas de validación
 const optionalUuidFromInput = z.preprocess(
   (v) => (v === '' || v === null || v === undefined ? undefined : v),
@@ -250,6 +401,207 @@ const eventUpdateSchema = z.object({
   ),
   recurrenceEnd: z.preprocess((v) => (v === '' || v === null ? null : v), z.string().optional().nullable()),
 });
+
+const eventImportSchema = z.object({
+  dryRun: boolish.optional().default(false),
+  rows: z.array(z.record(z.unknown())).min(1).max(500),
+})
+
+// Importar eventos en lote desde filas CSV parseadas por el frontend.
+r.post('/import', authGuard, requirePermission('events.create', 'all'), async (req, res) => {
+  try {
+    const user = req.user
+    if (!user) return res.status(401).json({ message: 'No autorizado' })
+
+    const parsed = eventImportSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: 'Datos inválidos',
+        detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
+      })
+    }
+
+    let schoolYearId: string | null =
+      typeof req.query.schoolYearId === 'string' ? req.query.schoolYearId : null
+    if (schoolYearId) {
+      const sy = await prisma.schoolYear.findUnique({ where: { id: schoolYearId }, select: { id: true, status: true } })
+      if (!sy) return res.status(400).json({ message: 'Ciclo lectivo no encontrado' })
+      if (sy.status === 'CLOSED') return res.status(400).json({ message: 'No se pueden importar eventos en un ciclo lectivo cerrado' })
+    }
+    if (!schoolYearId) schoolYearId = await getActiveSchoolYearId(prisma)
+    if (!schoolYearId) {
+      return res.status(400).json({ message: 'No hay ciclo lectivo activo. Configurá un año lectivo primero.' })
+    }
+
+    const errors: Array<{ row: number; message: string }> = []
+    const prepared: any[] = []
+
+    for (let idx = 0; idx < parsed.data.rows.length; idx += 1) {
+      const source = parsed.data.rows[idx]
+      const rowNumber = idx + 2
+      const title = importCell(source, ['titulo', 'título', 'title'])
+      const description = importCell(source, ['descripcion', 'descripción', 'description'])
+      const typeInput = importCell(source, ['tipo', 'type'])
+      const dateInput = importCell(source, ['fecha', 'date', 'startDate'])
+      const startTimeInput = importCell(source, ['hora_inicio', 'inicio', 'startTime'])
+      const endTimeInput = importCell(source, ['hora_fin', 'fin', 'endTime'])
+      const assignedInput = importCell(source, ['asignado_a', 'asignado', 'docente', 'usuario', 'assignedTo'])
+      const courseInput = importCell(source, ['curso', 'course'])
+      const orientationInput = importCell(source, ['orientacion', 'orientación', 'orientation'])
+      const subjectInput = importCell(source, ['asignatura', 'materia', 'subject'])
+      const repeatsInput = importCell(source, ['repite', 'repetitivo', 'isRecurring'])
+      const daysInput = importCell(source, ['dias', 'días', 'days'])
+      const recurrenceEndInput = importCell(source, ['fin_repeticion', 'fin_repetición', 'hasta', 'recurrenceEnd'])
+
+      const rowErrors: string[] = []
+      if (!title) rowErrors.push('falta titulo')
+      const type = normalizeImportType(typeInput || 'JORNADA_LABORAL')
+      if (!type) rowErrors.push('tipo inválido')
+      const ymd = normalizeImportDate(dateInput)
+      if (!ymd) rowErrors.push('fecha inválida')
+      const startHHmm = parseEventTimeToUruguayHhMm(startTimeInput)
+      const endHHmm = parseEventTimeToUruguayHhMm(endTimeInput)
+      if (!startHHmm) rowErrors.push('hora_inicio inválida')
+      if (!endHHmm) rowErrors.push('hora_fin inválida')
+      if (startHHmm && endHHmm && toTimeMinutes(endHHmm.hh, endHHmm.mm) <= toTimeMinutes(startHHmm.hh, startHHmm.mm)) {
+        rowErrors.push('hora_fin debe ser mayor que hora_inicio')
+      }
+
+      let assignedUserId: string | null = null
+      if (assignedInput) {
+        assignedUserId = await resolveImportUser(assignedInput)
+        if (!assignedUserId) rowErrors.push(`asignado_a no encontrado: ${assignedInput}`)
+      }
+
+      let courseId: string | null = null
+      let courseOfferingId: string | null = null
+      if (courseInput) {
+        const resolved = await resolveImportCourse(courseInput, schoolYearId)
+        if (!resolved) {
+          rowErrors.push(`curso no encontrado/ofertado: ${courseInput}`)
+        } else {
+          courseId = resolved.courseId
+          courseOfferingId = resolved.courseOfferingId
+        }
+      }
+
+      let orientationId: string | null = null
+      let courseOrientationId: string | null = null
+      if (orientationInput) {
+        if (!courseId) {
+          rowErrors.push('orientacion requiere curso')
+        } else {
+          const resolved = await resolveImportOrientation(courseId, orientationInput, schoolYearId)
+          if (!resolved) {
+            rowErrors.push(`orientacion no disponible para el curso: ${orientationInput}`)
+          } else {
+            orientationId = resolved.orientationId
+            courseOrientationId = resolved.courseOrientationId
+          }
+        }
+      }
+
+      let subjectId: string | null = null
+      if (subjectInput) {
+        if (!courseId || !courseOfferingId) {
+          rowErrors.push('asignatura requiere curso')
+        } else {
+          subjectId = await resolveImportSubject(subjectInput, courseId, courseOfferingId, orientationId)
+          if (!subjectId) rowErrors.push(`asignatura no pertenece al alcance elegido: ${subjectInput}`)
+        }
+      }
+
+      if (rowErrors.length > 0 || !type || !ymd || !startHHmm || !endHHmm) {
+        errors.push({ row: rowNumber, message: rowErrors.join(' · ') || 'fila inválida' })
+        continue
+      }
+
+      const startDate = uruguayWallToUtc(ymd, startHHmm.hh, startHHmm.mm)
+      const endTime = uruguayWallToUtc(ymd, endHHmm.hh, endHHmm.mm)
+      const isRecurring = parseImportBoolean(repeatsInput)
+      let daysOfWeek = isRecurring ? parseImportDays(daysInput) : []
+      if (isRecurring && daysOfWeek.length === 0) daysOfWeek = [jsWeekdayInUruguay(startDate)]
+      const recurrenceEndKey = normalizeImportLookup(recurrenceEndInput).normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      const recurrenceEndYmd =
+        isRecurring && recurrenceEndInput && !['ciclo', 'cierre', 'ano lectivo', 'anio lectivo'].includes(recurrenceEndKey)
+          ? normalizeImportDate(recurrenceEndInput)
+          : null
+      if (isRecurring && recurrenceEndInput && recurrenceEndYmd === null && !['', 'ciclo', 'cierre', 'ano lectivo', 'anio lectivo'].includes(recurrenceEndKey)) {
+        errors.push({ row: rowNumber, message: 'fin_repeticion inválido' })
+        continue
+      }
+      if (isRecurring && recurrenceEndYmd && uruguayYmdEndOfDayToUtc(recurrenceEndYmd).getTime() < startDate.getTime()) {
+        errors.push({ row: rowNumber, message: 'fin_repeticion debe ser igual o posterior a fecha' })
+        continue
+      }
+
+      prepared.push({
+        row: rowNumber,
+        data: {
+          title,
+          description: description || null,
+          type,
+          status: 'SCHEDULED',
+          userId: user.sub,
+          assignedUserId,
+          startDate,
+          startTime: startDate,
+          endTime,
+          endDate: null,
+          schoolYearId,
+          courseOfferingId,
+          orientationId,
+          courseOrientationId,
+          subjectId,
+          isRecurring,
+          recurrenceType: isRecurring ? 'WEEKLY' : 'NONE',
+          daysOfWeek,
+          recurrenceEnd: recurrenceEndYmd ? parseRecurrenceEndInclusive(recurrenceEndYmd) : null,
+        },
+      })
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        message: 'No se importó ningún evento porque hay filas con errores',
+        errors,
+        validCount: prepared.length,
+      })
+    }
+
+    if (parsed.data.dryRun) {
+      return res.json({ ok: true, dryRun: true, createdCount: 0, validCount: prepared.length, errors: [] })
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const rows = []
+      for (const item of prepared) {
+        rows.push(await (tx as any).event.create({ data: item.data, select: { id: true, title: true } }))
+      }
+      return rows
+    })
+
+    for (const event of created) {
+      recordAuditEvent({
+        action: AuditAction.EVENT_CREATED,
+        actorUserId: user.sub,
+        req,
+        entityType: 'Event',
+        entityId: event.id,
+        metadata: { title: event.title, imported: true },
+      })
+    }
+
+    for (const item of prepared) {
+      if (item.data.assignedUserId) void ensureMoodleUserById(item.data.assignedUserId)
+    }
+
+    res.status(201).json({ ok: true, createdCount: created.length, errors: [] })
+  } catch (error) {
+    console.error('Error importando eventos:', error)
+    res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
 
 // Crear evento
 r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
