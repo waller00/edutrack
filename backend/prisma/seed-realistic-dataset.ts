@@ -27,7 +27,7 @@ const prisma = new PrismaClient()
 const SCHOOL_YEAR_DATES: Record<number, { start: string; end: string; attendanceUntil: string }> = {
   2024: { start: '2024-03-04', end: '2024-11-29', attendanceUntil: '2024-11-29' },
   2025: { start: '2025-03-03', end: '2025-12-05', attendanceUntil: '2025-12-05' },
-  2026: { start: '2026-03-02', end: '2026-12-11', attendanceUntil: '2026-05-27' },
+  2026: { start: '2026-03-02', end: '2026-12-11', attendanceUntil: '2026-05-28' },
 }
 
 const COURSE_OFFERS: Record<number, Record<string, boolean>> = {
