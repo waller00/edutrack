@@ -26,6 +26,7 @@ import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/
 import { syncLivenessSessionFromDiditApi } from "../integrations/didit/sync-session.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
 import { ensureDefaultProfilePermissionsIfNeeded } from "../identity/profile-permissions-repository.js";
+import { isKeycloakMode, createKeycloakUser } from "../auth/keycloak.js";
 
 const r = Router();
 
@@ -501,6 +502,25 @@ r.post("/register", async (req, res) => {
     });
   } catch (e) {
     console.error("SMTP send error (verify):", e);
+  }
+
+  // En modo Keycloak (BFF) el usuario se crea tambien en Keycloak (IdP). No se
+  // emiten cookies/JWT propios: el alta luego inicia sesion via OIDC.
+  if (isKeycloakMode()) {
+    try {
+      await createKeycloakUser({
+        email,
+        firstName,
+        lastName,
+        password,
+        role: registerRoleCode,
+        emailVerified: false,
+      });
+    } catch (e) {
+      console.error("[register] keycloak create user:", e);
+      return res.status(502).json({ message: "No se pudo crear la cuenta en el proveedor de identidad." });
+    }
+    return res.json({ id: user.id, email: user.email, username: user.username, role: registerRoleCode });
   }
 
   const at = signAccessToken({ sub: user.id, email: user.email, role: registerRoleCode });

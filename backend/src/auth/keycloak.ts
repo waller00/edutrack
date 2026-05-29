@@ -1,0 +1,236 @@
+import * as oidc from "openid-client";
+
+/**
+ * Integracion con Keycloak para el patron BFF.
+ *
+ * - `getOidcConfig()`: descubre la configuracion OIDC del realm (cacheada).
+ * - helpers para construir URLs de login/logout e intercambiar codigos.
+ * - Admin API para provisionar usuarios (registro con Didit).
+ *
+ * Todo el modulo asume AUTH_MODE=keycloak; si Keycloak no responde, las rutas
+ * que lo usan devolveran error controlado.
+ */
+
+export function isKeycloakMode(): boolean {
+  return (process.env.AUTH_MODE || "legacy").toLowerCase() === "keycloak";
+}
+
+function issuerUrl(): string {
+  const url = process.env.KEYCLOAK_ISSUER_URL;
+  if (!url) throw new Error("KEYCLOAK_ISSUER_URL no definido");
+  return url.replace(/\/$/, "");
+}
+
+function clientId(): string {
+  return process.env.KEYCLOAK_CLIENT_ID || "edutrack-web";
+}
+
+function clientSecret(): string {
+  return process.env.KEYCLOAK_CLIENT_SECRET || "";
+}
+
+export function redirectUri(): string {
+  return process.env.KEYCLOAK_REDIRECT_URI || "http://localhost:4000/auth/callback";
+}
+
+let configPromise: Promise<oidc.Configuration> | null = null;
+
+export async function getOidcConfig(): Promise<oidc.Configuration> {
+  if (!configPromise) {
+    const execute = process.env.NODE_ENV === "production" ? [] : [oidc.allowInsecureRequests];
+    configPromise = oidc.discovery(
+      new URL(issuerUrl()),
+      clientId(),
+      clientSecret(),
+      undefined,
+      execute.length ? { execute } : undefined,
+    );
+  }
+  return configPromise;
+}
+
+export type AuthRequestState = {
+  codeVerifier: string;
+  state: string;
+  authUrl: string;
+};
+
+export async function buildLoginUrl(): Promise<AuthRequestState> {
+  const config = await getOidcConfig();
+  const codeVerifier = oidc.randomPKCECodeVerifier();
+  const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
+  const state = oidc.randomState();
+
+  const authUrl = oidc.buildAuthorizationUrl(config, {
+    redirect_uri: redirectUri(),
+    scope: "openid email profile",
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    state,
+  }).href;
+
+  return { codeVerifier, state, authUrl };
+}
+
+export type ExchangedTokens = {
+  accessToken: string;
+  refreshToken?: string;
+  idToken?: string;
+  expiresAt: number;
+  claims: Record<string, any>;
+};
+
+export async function exchangeCode(
+  currentUrl: URL,
+  codeVerifier: string,
+  expectedState: string,
+): Promise<ExchangedTokens> {
+  const config = await getOidcConfig();
+  const tokens = await oidc.authorizationCodeGrant(config, currentUrl, {
+    pkceCodeVerifier: codeVerifier,
+    expectedState,
+  });
+  return toExchanged(tokens);
+}
+
+export async function refreshTokens(refreshToken: string): Promise<ExchangedTokens> {
+  const config = await getOidcConfig();
+  const tokens = await oidc.refreshTokenGrant(config, refreshToken);
+  return toExchanged(tokens);
+}
+
+function toExchanged(tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers): ExchangedTokens {
+  const claims = (tokens.claims() as Record<string, any>) || {};
+  const expiresInSec = typeof tokens.expires_in === "number" ? tokens.expires_in : 300;
+  return {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    idToken: tokens.id_token,
+    expiresAt: Date.now() + expiresInSec * 1000,
+    claims,
+  };
+}
+
+export async function buildLogoutUrl(idToken?: string, postLogoutRedirectUri?: string): Promise<string | null> {
+  const config = await getOidcConfig();
+  try {
+    return oidc.buildEndSessionUrl(config, {
+      id_token_hint: idToken,
+      post_logout_redirect_uri: postLogoutRedirectUri,
+    }).href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extrae los roles de realm desde los claims y devuelve el primero que mapee a
+ * un orgRole conocido (ADMIN > STAFF > TEACHER).
+ */
+export function pickRealmRole(claims: Record<string, any>): string | null {
+  const roles: string[] = claims?.realm_access?.roles ?? [];
+  const priority = ["ADMIN", "STAFF", "TEACHER"];
+  for (const code of priority) {
+    if (roles.includes(code)) return code;
+  }
+  return roles[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Admin API (provisioning de usuarios)
+// ---------------------------------------------------------------------------
+
+function adminBaseUrl(): string {
+  return (process.env.KEYCLOAK_ADMIN_BASE_URL || "http://keycloak:8080").replace(/\/$/, "");
+}
+
+function adminRealm(): string {
+  return process.env.KEYCLOAK_ADMIN_REALM || "edutrack";
+}
+
+async function getAdminToken(): Promise<string> {
+  const base = adminBaseUrl();
+  const body = new URLSearchParams({
+    grant_type: "password",
+    client_id: "admin-cli",
+    username: process.env.KEYCLOAK_ADMIN_USER || "admin",
+    password: process.env.KEYCLOAK_ADMIN_PASSWORD || "",
+  });
+  const res = await fetch(`${base}/realms/master/protocol/openid-connect/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`Keycloak admin token error ${res.status}`);
+  }
+  const json = (await res.json()) as { access_token: string };
+  return json.access_token;
+}
+
+export type CreateKeycloakUserInput = {
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  password?: string;
+  role: string;
+  emailVerified?: boolean;
+};
+
+/**
+ * Crea un usuario en el realm y le asigna el rol. Devuelve el id de Keycloak.
+ * Usado por el registro de la app tras pasar la prueba de vida (Didit).
+ */
+export async function createKeycloakUser(input: CreateKeycloakUserInput): Promise<string> {
+  const token = await getAdminToken();
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+
+  const createRes = await fetch(`${base}/admin/realms/${realm}/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      email: input.email,
+      username: input.email,
+      firstName: input.firstName ?? undefined,
+      lastName: input.lastName ?? undefined,
+      enabled: true,
+      emailVerified: input.emailVerified ?? false,
+      credentials: input.password
+        ? [{ type: "password", value: input.password, temporary: false }]
+        : undefined,
+    }),
+  });
+
+  if (createRes.status !== 201) {
+    const detail = await createRes.text().catch(() => "");
+    throw new Error(`Keycloak create user error ${createRes.status}: ${detail}`);
+  }
+
+  // El id viene en el header Location: .../users/{id}
+  const location = createRes.headers.get("location") || "";
+  const kcId = location.split("/").pop() || "";
+
+  if (kcId && input.role) {
+    await assignRealmRole(token, kcId, input.role).catch((e) => {
+      console.error("[keycloak] assign role:", e);
+    });
+  }
+
+  return kcId;
+}
+
+async function assignRealmRole(token: string, kcUserId: string, roleName: string): Promise<void> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const roleRes = await fetch(`${base}/admin/realms/${realm}/roles/${encodeURIComponent(roleName)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!roleRes.ok) return;
+  const role = (await roleRes.json()) as { id: string; name: string };
+  await fetch(`${base}/admin/realms/${realm}/users/${kcUserId}/role-mappings/realm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify([{ id: role.id, name: role.name }]),
+  });
+}

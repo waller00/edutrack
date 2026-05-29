@@ -116,6 +116,46 @@ Notas:
 - Se excluyen artefactos generados como `dist`, `.next`, `node_modules` y definiciones `*.d.ts`.
 - **Cobertura global (Sonar):** objetivo **≥70%** mezclando `backend/coverage/lcov.info` + `frontend/web/coverage/lcov.info` (ver umbrales en `backend/vitest.config.ts` y el workflow de CI).
 
+### Sonar en GitHub Actions
+El workflow `.github/workflows/sonar.yml` genera la cobertura de backend y frontend y ejecuta el scanner, fallando el pipeline si el Quality Gate no pasa.
+
+Secrets a cargar en GitHub (Settings → Secrets and variables → Actions):
+- `SONAR_TOKEN`: token de proyecto (SonarCloud o tu SonarQube).
+- `SONAR_HOST_URL`: URL del servidor (ej. `https://sonarcloud.io` o tu instancia).
+
+Si `SONAR_TOKEN` no está cargado, el job se omite (no rompe el resto del CI). Para SonarCloud, agregá también `sonar.organization` en `sonar-project.properties`.
+
+## Observabilidad (Sentry / LogRocket)
+- **Sentry** (errores + performance) en backend (`@sentry/node`, ver `backend/src/instrument.ts`) y frontend (`@sentry/nextjs`). Se activa solo si hay DSN.
+  - Recomendado en **testing y producción** (se distinguen por `SENTRY_ENVIRONMENT`; `tracesSampleRate` más bajo en prod).
+  - Variables: `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_SENTRY_DSN`. Opcional source maps: `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`.
+- **LogRocket** (session replay del frontend, `src/components/observability/Observability.tsx`).
+  - Recomendado **solo en producción** (en testing son sesiones sintéticas y gastan cuota). Enmascara inputs por privacidad (datos de menores).
+  - Variable: `NEXT_PUBLIC_LOGROCKET_APP_ID` (forzar fuera de prod con `NEXT_PUBLIC_LOGROCKET_FORCE=true`).
+
+## Redis
+- Servicio `redis` en ambos compose. Cliente en `backend/src/db/redis.ts` (`REDIS_URL`).
+- Usos: rate limiting de login (`backend/src/middlewares/rate-limit.ts`) y **sesiones server-side del BFF** (`backend/src/auth/session-store.ts`).
+- Degrada con elegancia: si `REDIS_URL` no está, el rate limit es no-op (pero el modo Keycloak requiere Redis).
+
+## Keycloak (reemplazo total de auth, patrón BFF)
+La autenticación puede operar en dos modos vía `AUTH_MODE` (backend) + `NEXT_PUBLIC_AUTH_MODE` (frontend):
+- `legacy` (default): JWT propio en cookies, Google OAuth con Passport, 2FA con otplib.
+- `keycloak`: Keycloak es el IdP. Patrón **BFF**: el backend hace OIDC (Authorization Code + PKCE), guarda los tokens en una **sesión server-side en Redis** y entrega al navegador solo una cookie opaca `sid`. La autorización (permisos por `orgRole`) sigue en Postgres.
+
+Componentes:
+- `keycloak` + `keycloak-db` en los compose; realm import en `keycloak/realm-edutrack.json` (roles `ADMIN/STAFF/TEACHER`, client `edutrack-web`, Google IdP, OTP).
+- Backend: `backend/src/auth/keycloak.ts`, `backend/src/routes/auth-keycloak.ts` (`/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/refresh`), provisioning en `backend/src/auth/keycloak-provisioning.ts`.
+
+Pasos de cutover (testing primero):
+1. Redimensionar el droplet a 4GB (`terraform/main.tf`, resize in-place en DigitalOcean).
+2. En Keycloak: rotar el client secret (`KEYCLOAK_CLIENT_SECRET`) y cargar las credenciales de Google en el IdP (`REEMPLAZAR_GOOGLE_*`). Agregar el redirect URI de Keycloak en Google Cloud Console.
+3. Setear `KEYCLOAK_ISSUER_URL`/`KEYCLOAK_REDIRECT_URI` con las URLs públicas reales (deben ser alcanzables por el navegador y por el contenedor del backend).
+4. Cambiar `AUTH_MODE=keycloak` y `NEXT_PUBLIC_AUTH_MODE=keycloak` (rebuild del frontend porque es build-time) y levantar.
+5. Validar login/logout/registro. Para volver atrás, basta `AUTH_MODE=legacy` (el código legacy permanece).
+
+En modo `keycloak`, el login por credenciales y el 2FA propios quedan deshabilitados (410) y Google se brokerea desde Keycloak.
+
 ## Estructura
 Ver el mapa completo en **[docs/ESTRUCTURA_PROYECTO.md](docs/ESTRUCTURA_PROYECTO.md)**.
 

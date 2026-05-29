@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
 import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
+import { isKeycloak, keycloakLoginUrl } from '@/lib/auth/mode'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -93,6 +94,41 @@ export default function LoginPage() {
     return (
       <main className="min-h-screen gradient-light flex items-center justify-center p-4">
         <p className="text-gray-600">Cargando…</p>
+      </main>
+    )
+  }
+
+  if (isKeycloak) {
+    return (
+      <main className="min-h-screen gradient-light flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="card shadow-modern-lg">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">Iniciar Sesión</h1>
+              <p className="text-gray-600">Accede con tu cuenta institucional</p>
+            </div>
+            {externalError && (
+              <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-red-600 text-sm">No se pudo iniciar sesión. Intenta nuevamente.</p>
+              </div>
+            )}
+            <button
+              className="btn-primary w-full justify-center"
+              type="button"
+              onClick={() => { window.location.href = keycloakLoginUrl('/') }}
+            >
+              Continuar
+            </button>
+            <div className="mt-6 text-center">
+              <a href="/register" className="text-emerald-600 hover:text-emerald-700 font-medium text-sm">
+                Registrarse
+              </a>
+            </div>
+          </div>
+        </div>
       </main>
     )
   }
