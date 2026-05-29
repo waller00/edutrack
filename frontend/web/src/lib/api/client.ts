@@ -1,3 +1,5 @@
+import { isKeycloak } from '@/lib/auth/mode'
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 
@@ -11,7 +13,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
   let res = await doFetch()
 
-  if (res.status === 401) {
+  // En modo Keycloak (BFF) el refresh lo maneja el backend con la sesion
+  // server-side; un 401 significa sesion ausente/expirada (no se reintenta aqui).
+  if (res.status === 401 && !isKeycloak) {
     // intentar refresh una vez
     const r = await fetch(`${apiUrl}/auth/refresh`, {
       method: 'POST',

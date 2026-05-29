@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
+import { isKeycloak, keycloakLogoutUrl } from '@/lib/auth/mode'
 import { getRoleLabel } from '@/lib/roles/display'
 
 type MeUser = {
@@ -223,6 +224,12 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
   }, [me, pathname])
 
   async function logout() {
+    if (isKeycloak) {
+      // BFF: el logout limpia la sesion server-side y cierra sesion en Keycloak.
+      setMe(null)
+      window.location.href = keycloakLogoutUrl()
+      return
+    }
     try { await api('/auth/logout', { method: 'POST' }) } catch {}
     setMe(null)
     window.location.href = '/login'
