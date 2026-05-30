@@ -8,14 +8,7 @@ import {
   isValidLocalPhoneUY,
   normalizeLocalPhoneUY,
 } from '@/lib/forms/uruguay-forms'
-import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
-import {
-  isStrongPassword,
-  STRONG_PASSWORD_MESSAGE,
-  getPasswordStrength,
-  getStrengthBarClass,
-} from '@/lib/auth/password-strength'
 import {
   getOnboardingUsernameStatusDisplay,
   resolveOnboardingUsernameStatus,
@@ -59,7 +52,6 @@ type Me = {
   nationalIdDocumentExpiresAt?: string
   phone?: string
   role: 'ADMIN' | 'STAFF' | 'TEACHER'
-  hasPassword: boolean
 }
 
 export default function OnboardingPage() {
@@ -73,11 +65,6 @@ export default function OnboardingPage() {
   const [birthdate, setBirthdate] = useState('')
   const [nationalIdDocumentExpiresAt, setNationalIdDocumentExpiresAt] = useState('')
   const [role, setRole] = useState<'STAFF' | 'TEACHER'>('STAFF')
-  const [hasPassword, setHasPassword] = useState(true)
-  const [password, setPassword] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [showPwd, setShowPwd] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
   const [verificationResults, setVerificationResults] = useState<RegisterVerificationResults | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -138,7 +125,6 @@ export default function OnboardingPage() {
     api<Me & { needsProfileCompletion: boolean }>('/auth/me')
       .then((data) => {
         setMe(data)
-        setHasPassword(!!data.hasPassword)
         setUsername(data.username || '')
         setFirstName(data.firstName || '')
         setLastName(data.lastName || '')
@@ -524,10 +510,6 @@ export default function OnboardingPage() {
       return 'Debés confirmar tu identidad con el proceso indicado antes de continuar.'
     }
     if (!livenessApproved) return 'Debés completar la verificación antes de continuar.'
-    if (!hasPassword) {
-      if (!isStrongPassword(password)) return STRONG_PASSWORD_MESSAGE
-      if (password !== confirm) return 'Las contraseñas no coinciden.'
-    }
     if (verificationHasIssues()) return 'Corregí los datos que no coinciden o volvé a verificar antes de continuar.'
     return null
   }
@@ -560,9 +542,6 @@ export default function OnboardingPage() {
           role,
         }),
       })
-      if (!hasPassword) {
-        await api('/auth/password', { method: 'PUT', body: JSON.stringify({ password }) })
-      }
       clearOnboardingDraft()
       window.location.href = '/'
     } catch (err: unknown) {
@@ -576,7 +555,6 @@ export default function OnboardingPage() {
 
   if (!me) return null
 
-  const strength = getPasswordStrength(password)
   const usernameStatusInfo = getOnboardingUsernameStatusDisplay(usernameStatus)
 
   return (
@@ -589,7 +567,7 @@ export default function OnboardingPage() {
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Completa tu registro</h1>
             <p className="text-gray-600">
-              Ingresaste con Google. Terminá el alta validando tu identidad con Didit y corrigiendo los datos que haga falta.
+              Terminá el alta validando tu identidad con Didit y corrigiendo los datos que haga falta.
             </p>
           </div>
 
@@ -669,46 +647,6 @@ export default function OnboardingPage() {
                 </select>
               </div>
 
-              {!hasPassword && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
-                    <div className="relative">
-                      <input
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        type={showPwd ? 'text' : 'password'}
-                        className="input-field pr-10"
-                        placeholder="Mín 8, Aa y 0-9"
-                      />
-                      <PasswordVisibilityToggle visible={showPwd} onToggle={() => setShowPwd((value) => !value)} />
-                    </div>
-                    <div className="h-2 bg-gray-200 rounded mt-2">
-                      <div
-                        className={`${getStrengthBarClass(strength)} h-2 rounded transition-all duration-300`}
-                        style={{ width: `${strength}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar contraseña</label>
-                    <div className="relative">
-                      <input
-                        value={confirm}
-                        onChange={(e) => setConfirm(e.target.value)}
-                        type={showConfirm ? 'text' : 'password'}
-                        className="input-field pr-10"
-                      />
-                      <PasswordVisibilityToggle
-                        visible={showConfirm}
-                        onToggle={() => setShowConfirm((value) => !value)}
-                        field="confirmación"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
 
             <div className="mt-8 pt-6 border-t border-gray-200">

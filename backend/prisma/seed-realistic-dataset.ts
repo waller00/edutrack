@@ -13,7 +13,6 @@
  */
 import 'dotenv/config'
 import crypto from 'node:crypto'
-import argon2 from 'argon2'
 import { PrismaClient } from '@prisma/client'
 import type { AttendanceStatus, Event, User } from '@prisma/client'
 import { DateTime } from 'luxon'
@@ -1004,7 +1003,6 @@ async function seedAudit(admin: User) {
 async function ensureDemoStaffUsers() {
   const staffRole = await prisma.orgRole.findUnique({ where: { code: 'STAFF' } })
   if (!staffRole) return
-  const passwordHash = await argon2.hash('funcionario123', { type: argon2.argon2id })
   const rows = [
     ['maria.adscriptora', 'María', 'Santos', 'Adscripta turno matutino'],
     ['pablo.bedel', 'Pablo', 'Molina', 'Bedelia y gestion de asistencias'],
@@ -1022,7 +1020,6 @@ async function ensureDemoStaffUsers() {
         phone: `+59898${String(500000 + i).padStart(6, '0')}`,
         nationalId: buildValidCi(1_800_000 + i),
         birthdate: wall(`198${i + 1}-04-12`, 0, 0),
-        passwordHash,
         roleId: staffRole.id,
         emailVerifiedAt: new Date(),
         isApproved: true,

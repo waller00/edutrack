@@ -180,19 +180,4 @@ async function handleLogout(req: any, res: any) {
 r.post("/logout", handleLogout);
 r.get("/logout", handleLogout);
 
-// --- Retiro del auth legacy detras del flag AUTH_MODE=keycloak ---
-// Estas rutas tienen prioridad sobre el router legacy (montado despues), por lo
-// que en modo Keycloak el login por credenciales/2FA propio queda deshabilitado.
-// El codigo legacy permanece para poder volver a AUTH_MODE=legacy si hiciera falta.
-r.post("/login", (_req, res) => {
-  res.status(410).json({ message: "Login por credenciales deshabilitado. Usá el inicio de sesión (Keycloak)." });
-});
-r.post("/login/2fa", (_req, res) => {
-  res.status(410).json({ message: "2FA gestionado por Keycloak." });
-});
-r.get("/google", (_req, res) => {
-  // Google se brokerea desde Keycloak: redirigimos al flujo OIDC estandar.
-  res.redirect("/auth/login");
-});
-
 export default r;

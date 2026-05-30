@@ -89,7 +89,6 @@ services:
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---
-      AUTH_MODE: ${AUTH_MODE:-legacy}
       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://keycloak:8080/realms/edutrack}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-edutrack-web}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-edutrack-web-secret-change-me}
@@ -160,7 +159,6 @@ services:
         NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}
         NEXT_PUBLIC_LOGROCKET_APP_ID: ${NEXT_PUBLIC_LOGROCKET_APP_ID:-}
         NEXT_PUBLIC_LOGROCKET_FORCE: ${NEXT_PUBLIC_LOGROCKET_FORCE:-false}
-        NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-legacy}
     # NEXT_PUBLIC_* en runtime no reemplaza lo ya embebido en el bundle de Next al construir la imagen.
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://165.22.34.95:4000}

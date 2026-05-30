@@ -198,18 +198,13 @@ export default function AdminUsersPage() {
   }
 
   async function resetPassword(u: AdminUserRow) {
-    if (!confirm(`¿Generar enlace de restablecimiento para ${u.email}?`)) return
+    if (!confirm(`¿Enviar correo de restablecimiento de contraseña (Keycloak) a ${u.email}?`)) return
     try {
-      const res = await api<{ token: string; expiresAt: string }>(`/admin/users/${u.id}/password/reset`, {
+      const res = await api<{ ok: boolean; message?: string }>(`/admin/users/${u.id}/password/reset`, {
         method: 'POST',
         body: JSON.stringify({}),
       })
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-      const link = `${window.location.origin}/reset?token=${res.token}`
-      setMsg(`Reset generado (válido hasta ${new Date(res.expiresAt).toLocaleString('es-UY')}). Enlace: ${link}`)
-      if (process.env.NODE_ENV === 'development') {
-        void navigator.clipboard?.writeText(link)
-      }
+      setMsg(res.message || 'Se envió el correo de restablecimiento.')
     } catch (err: unknown) {
       setMsg(getAdminUserSaveErrorMessage(err))
     }

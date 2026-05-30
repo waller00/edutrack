@@ -3,12 +3,13 @@ import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { Prisma } from "@prisma/client";
-import { signAccessToken } from "../auth/jwt.js";
+import { signAccessToken } from "../test-utils/bearer-token.js";
 import { computeCICheckDigit } from "../identity/uruguay-ci.js";
 import type { BuiltinProfileRole } from "../identity/profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../identity/profile-permissions-defaults.js";
 
-const { prismaMock, runAdminQueryAssistantMock } = vi.hoisted(() => ({
+const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock } = vi.hoisted(() => ({
+  triggerKeycloakPasswordResetMock: vi.fn().mockResolvedValue(undefined),
   runAdminQueryAssistantMock: vi.fn(),
   prismaMock: {
     user: {
@@ -42,7 +43,6 @@ const { prismaMock, runAdminQueryAssistantMock } = vi.hoisted(() => ({
       update: vi.fn(),
       create: vi.fn(),
     },
-    passwordReset: { create: vi.fn() },
     auditLog: {
       findMany: vi.fn(),
       count: vi.fn(),
@@ -98,6 +98,9 @@ function permissionCatalogRows() {
 }
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../auth/keycloak.js", () => ({
+  triggerKeycloakPasswordReset: triggerKeycloakPasswordResetMock,
+}));
 vi.mock("../services/query-assistant/run.js", () => ({
   runAdminQueryAssistant: runAdminQueryAssistantMock,
 }));
@@ -546,19 +549,18 @@ describe("admin routes (prisma mock)", () => {
     );
   });
 
-  it("POST /admin/users/:id/password/reset devuelve token", async () => {
-    prismaMock.passwordReset.create.mockResolvedValue({});
+  it("POST /admin/users/:id/password/reset dispara Keycloak", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "STAFF" }, email: "u@example.com" });
     const res = await request(app()).post("/admin/users/u1/password/reset").set(adminHdr());
     expect(res.status).toBe(200);
-    expect(res.body.token).toBeDefined();
-    expect(res.body.expiresAt).toBeDefined();
+    expect(res.body.ok).toBe(true);
+    expect(triggerKeycloakPasswordResetMock).toHaveBeenCalledWith("u@example.com");
   });
 
   it("POST /admin/users/:id/password/reset 403 para administrador", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "ADMIN" } });
+    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "ADMIN" }, email: "admin@e.com" });
     const res = await request(app()).post("/admin/users/adm/password/reset").set(adminHdr());
     expect(res.status).toBe(403);
-    expect(prismaMock.passwordReset.create).not.toHaveBeenCalled();
   });
 
   it("403 sin rol ADMIN", async () => {

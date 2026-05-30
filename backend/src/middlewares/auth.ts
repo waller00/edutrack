@@ -1,49 +1,42 @@
 import { Request, Response, NextFunction } from "express";
-import { verifyToken } from "../auth/jwt.js";
 import { prisma } from "../db/prisma.js";
 import { getSession } from "../auth/session-store.js";
-
-function isKeycloakMode(): boolean {
-  return (process.env.AUTH_MODE || "legacy").toLowerCase() === "keycloak";
-}
+import { verifyTestBearerToken } from "../test-utils/bearer-token.js";
 
 export async function authGuard(req: Request, res: Response, next: NextFunction) {
-  if (isKeycloakMode()) {
-    return keycloakGuard(req, res, next);
-  }
-  const header = req.headers.authorization?.replace("Bearer ", "");
-  const token = header || (req as any).cookies?.access_token;
-  if (!token) return res.status(401).json({ message: "No autorizado" });
-  try {
-    const user = verifyToken(token);
-    (req as any).user = { ...user, id: user.id ?? user.sub };
-    next();
-  } catch {
-    return res.status(401).json({ message: "Token inválido" });
-  }
-}
-
-/**
- * Guard del patron BFF: la cookie `sid` referencia una sesion server-side en
- * Redis con los tokens OIDC. El navegador nunca ve los tokens de Keycloak.
- */
-async function keycloakGuard(req: Request, res: Response, next: NextFunction) {
   const sid = (req as any).cookies?.sid as string | undefined;
-  if (!sid) return res.status(401).json({ message: "No autorizado" });
-  try {
-    const session = await getSession(sid);
-    if (!session) return res.status(401).json({ message: "Sesión expirada" });
-    (req as any).user = {
-      sub: session.userId,
-      id: session.userId,
-      email: session.email,
-      role: session.role,
-    };
-    (req as any).bffSession = session;
-    next();
-  } catch {
-    return res.status(401).json({ message: "No autorizado" });
+  if (sid) {
+    try {
+      const session = await getSession(sid);
+      if (!session) return res.status(401).json({ message: "Sesión expirada" });
+      (req as any).user = {
+        sub: session.userId,
+        id: session.userId,
+        email: session.email,
+        role: session.role,
+      };
+      (req as any).bffSession = session;
+      return next();
+    } catch {
+      return res.status(401).json({ message: "No autorizado" });
+    }
   }
+
+  if (process.env.NODE_ENV === "test") {
+    const header = req.headers.authorization?.replace("Bearer ", "");
+    const token = header || ((req as any).cookies?.access_token as string | undefined);
+    if (token) {
+      try {
+        const user = verifyTestBearerToken(token);
+        (req as any).user = { ...user, id: user.id ?? user.sub };
+        return next();
+      } catch {
+        return res.status(401).json({ message: "Token inválido" });
+      }
+    }
+  }
+
+  return res.status(401).json({ message: "No autorizado" });
 }
 
 export function requireRole(role: string) {

@@ -7,12 +7,11 @@ Stack:
 
 ## Roles y Autenticación
 - Perfiles/Roles: ADMIN, DOCENTE, ESTUDIANTE, PADRE
-- Autenticación y cuentas
-  - Login: usuario/email+contraseña (Argon2), OAuth Google, refresh tokens.
-  - Registro y verificación: alta con verificación por email.
-  - Recupero de contraseña: enlace por email (con captcha).
-  - Perfil básico: nombre, cédula, teléfono, fecha de nacimiento.
-  - Control de acceso: guardas por rol, JWT en cookies httpOnly.
+- Autenticación y cuentas (Keycloak + BFF)
+  - Login/logout OIDC vía Keycloak (Google y OTP en el IdP).
+  - Registro en la app (Didit) + verificación de email; contraseña en Keycloak.
+  - Recupero de contraseña: flujo de Keycloak (o email desde admin).
+  - Perfil básico en Postgres; permisos por `orgRole`.
 
 ## Desarrollo rápido
 ```bash
@@ -138,23 +137,18 @@ Si `SONAR_TOKEN` no está cargado, el job se omite (no rompe el resto del CI). P
 - Usos: rate limiting de login (`backend/src/middlewares/rate-limit.ts`) y **sesiones server-side del BFF** (`backend/src/auth/session-store.ts`).
 - Degrada con elegancia: si `REDIS_URL` no está, el rate limit es no-op (pero el modo Keycloak requiere Redis).
 
-## Keycloak (reemplazo total de auth, patrón BFF)
-La autenticación puede operar en dos modos vía `AUTH_MODE` (backend) + `NEXT_PUBLIC_AUTH_MODE` (frontend):
-- `legacy` (default): JWT propio en cookies, Google OAuth con Passport, 2FA con otplib.
-- `keycloak`: Keycloak es el IdP. Patrón **BFF**: el backend hace OIDC (Authorization Code + PKCE), guarda los tokens en una **sesión server-side en Redis** y entrega al navegador solo una cookie opaca `sid`. La autorización (permisos por `orgRole`) sigue en Postgres.
+## Keycloak (autenticación, patrón BFF)
+Keycloak es el único IdP. Patrón **BFF**: el backend hace OIDC (Authorization Code + PKCE), guarda los tokens en una **sesión server-side en Redis** (`REDIS_URL` obligatorio) y entrega al navegador solo una cookie opaca `sid`. La autorización (permisos por `orgRole`) sigue en Postgres.
 
 Componentes:
 - `keycloak` + `keycloak-db` en los compose; realm import en `keycloak/realm-edutrack.json` (roles `ADMIN/STAFF/TEACHER`, client `edutrack-web`, Google IdP, OTP).
 - Backend: `backend/src/auth/keycloak.ts`, `backend/src/routes/auth-keycloak.ts` (`/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/refresh`), provisioning en `backend/src/auth/keycloak-provisioning.ts`.
 
-Pasos de cutover (testing primero):
-1. Redimensionar el droplet a 4GB (`terraform/main.tf`, resize in-place en DigitalOcean).
-2. En Keycloak: rotar el client secret (`KEYCLOAK_CLIENT_SECRET`) y cargar las credenciales de Google en el IdP (`REEMPLAZAR_GOOGLE_*`). Agregar el redirect URI de Keycloak en Google Cloud Console.
-3. Setear `KEYCLOAK_ISSUER_URL`/`KEYCLOAK_REDIRECT_URI` con las URLs públicas reales (deben ser alcanzables por el navegador y por el contenedor del backend).
-4. Cambiar `AUTH_MODE=keycloak` y `NEXT_PUBLIC_AUTH_MODE=keycloak` (rebuild del frontend porque es build-time) y levantar.
-5. Validar login/logout/registro. Para volver atrás, basta `AUTH_MODE=legacy` (el código legacy permanece).
-
-En modo `keycloak`, el login por credenciales y el 2FA propios quedan deshabilitados (410) y Google se brokerea desde Keycloak.
+Puesta en marcha (testing primero):
+1. Droplet ≥ 4GB (`terraform/main.tf` o panel DigitalOcean).
+2. Rotar `KEYCLOAK_CLIENT_SECRET` y cargar Google en el IdP (`REEMPLAZAR_GOOGLE_*` en el realm); redirect URI de Keycloak en Google Cloud Console.
+3. URLs públicas: `KEYCLOAK_ISSUER_URL`, `KEYCLOAK_REDIRECT_URI` (alcanzables por navegador y contenedor `auth`).
+4. `docker compose up -d --build` y validar login/logout/registro.
 
 ## Estructura
 Ver el mapa completo en **[docs/ESTRUCTURA_PROYECTO.md](docs/ESTRUCTURA_PROYECTO.md)**.

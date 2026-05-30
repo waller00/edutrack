@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import express from "express";
-import { signAccessToken } from "../auth/jwt.js";
+import { signAccessToken } from "../test-utils/bearer-token.js";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {

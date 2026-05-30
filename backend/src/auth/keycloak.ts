@@ -11,10 +11,6 @@ import * as oidc from "openid-client";
  * que lo usan devolveran error controlado.
  */
 
-export function isKeycloakMode(): boolean {
-  return (process.env.AUTH_MODE || "legacy").toLowerCase() === "keycloak";
-}
-
 function issuerUrl(): string {
   const url = process.env.KEYCLOAK_ISSUER_URL;
   if (!url) throw new Error("KEYCLOAK_ISSUER_URL no definido");
@@ -233,4 +229,34 @@ async function assignRealmRole(token: string, kcUserId: string, roleName: string
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify([{ id: role.id, name: role.name }]),
   });
+}
+
+async function findKeycloakUserIdByEmail(token: string, email: string): Promise<string | null> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const res = await fetch(
+    `${base}/admin/realms/${realm}/users?email=${encodeURIComponent(email)}&exact=true`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return null;
+  const users = (await res.json()) as { id?: string }[];
+  return users[0]?.id ?? null;
+}
+
+/** Envía el email de actualización de contraseña de Keycloak al usuario. */
+export async function triggerKeycloakPasswordReset(email: string): Promise<void> {
+  const token = await getAdminToken();
+  const kcId = await findKeycloakUserIdByEmail(token, email);
+  if (!kcId) throw new Error("Usuario no encontrado en Keycloak");
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const res = await fetch(`${base}/admin/realms/${realm}/users/${kcId}/execute-actions-email`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(["UPDATE_PASSWORD"]),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak password reset error ${res.status}: ${detail}`);
+  }
 }
