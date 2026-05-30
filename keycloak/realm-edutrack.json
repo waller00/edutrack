@@ -2,6 +2,7 @@
   "realm": "edutrack",
   "enabled": true,
   "displayName": "EduTrack",
+  "loginTheme": "edutrack",
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "registrationAllowed": false,
@@ -74,10 +75,11 @@
       "addReadTokenRoleOnCreate": false,
       "firstBrokerLoginFlowAlias": "first broker login",
       "config": {
-        "clientId": "REEMPLAZAR_GOOGLE_CLIENT_ID",
-        "clientSecret": "REEMPLAZAR_GOOGLE_CLIENT_SECRET",
+        "clientId": "395690612021-04mgdrkmqi54pk7422lus0oqbmegbcoe.apps.googleusercontent.com",
+        "clientSecret": "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",
         "useJwksUrl": "true",
-        "syncMode": "IMPORT"
+        "syncMode": "IMPORT",
+        "defaultScope": "openid email profile"
       }
     }
   ]

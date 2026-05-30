@@ -18,13 +18,15 @@ import {
 import { provisionUserFromClaims } from "../auth/keycloak-provisioning.js";
 
 /**
- * Rutas de autenticacion del patron BFF (AUTH_MODE=keycloak).
+ * Rutas de autenticacion del patron BFF (Keycloak como IdP).
  *
- * Flujo OIDC Authorization Code + PKCE:
- *   /auth/login    -> redirige a Keycloak
- *   /auth/callback -> intercambia code, crea sesion en Redis, setea cookie `sid`
- *   /auth/logout   -> borra sesion + logout en Keycloak
- *   /auth/refresh  -> refresca tokens OIDC de la sesion
+ * Flujo OIDC Authorization Code + PKCE. El login se hace en la pantalla de
+ * Keycloak (tematizada con el tema `edutrack` para que luzca como la app), lo
+ * que habilita de forma nativa Google, 2FA (TOTP/WebAuthn) y reset de password.
+ *   GET  /auth/login    -> redirige a Keycloak (pantalla themed)
+ *   GET  /auth/callback -> intercambia code, crea sesion en Redis, setea cookie `sid`
+ *   /auth/logout        -> borra sesion + logout en Keycloak
+ *   /auth/refresh       -> refresca tokens OIDC de la sesion
  */
 const r = Router();
 
@@ -70,6 +72,28 @@ function clearSessionCookie(res: any) {
   });
 }
 
+async function startSessionFromTokens(
+  res: any,
+  tokens: { accessToken: string; refreshToken?: string; idToken?: string; expiresAt: number; claims: Record<string, any> },
+): Promise<void> {
+  const user = await provisionUserFromClaims(tokens.claims);
+  const sid = newSessionId();
+  const session: BffSession = {
+    sid,
+    userId: user.id,
+    kcId: String(tokens.claims.sub || ""),
+    email: user.email,
+    role: pickRealmRole(tokens.claims) || user.role,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    idToken: tokens.idToken,
+    accessTokenExpiresAt: tokens.expiresAt,
+    createdAt: Date.now(),
+  };
+  await saveSession(session);
+  setSessionCookie(res, sid);
+}
+
 r.get("/login", async (req, res) => {
   try {
     const { codeVerifier, state, authUrl } = await buildLoginUrl();
@@ -107,23 +131,7 @@ r.get("/callback", async (req, res) => {
     }
 
     const tokens = await exchangeCode(currentUrl, codeVerifier, state);
-    const user = await provisionUserFromClaims(tokens.claims);
-
-    const sid = newSessionId();
-    const session: BffSession = {
-      sid,
-      userId: user.id,
-      kcId: String(tokens.claims.sub || ""),
-      email: user.email,
-      role: pickRealmRole(tokens.claims) || user.role,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      idToken: tokens.idToken,
-      accessTokenExpiresAt: tokens.expiresAt,
-      createdAt: Date.now(),
-    };
-    await saveSession(session);
-    setSessionCookie(res, sid);
+    await startSessionFromTokens(res, tokens);
 
     const safeReturn = returnTo && returnTo.startsWith("/") ? returnTo : "/";
     res.redirect(`${frontendUrl()}${safeReturn}`);

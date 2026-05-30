@@ -29,25 +29,66 @@ export function redirectUri(): string {
   return process.env.KEYCLOAK_REDIRECT_URI || "http://localhost:4000/auth/callback";
 }
 
+/**
+ * URL interna (red Docker) para las llamadas server-to-server a Keycloak
+ * (discovery, token, jwks). El navegador y Google usan la URL pública del
+ * issuer (p. ej. http://localhost:8089), que el contenedor no puede resolver;
+ * por eso reescribimos esas llamadas hacia este origen interno.
+ */
+function internalBaseUrl(): string | null {
+  const raw = process.env.KEYCLOAK_INTERNAL_URL;
+  if (!raw) return null;
+  return raw.replace(/\/$/, "");
+}
+
+/**
+ * fetch que reescribe el origen público del issuer por el interno para las
+ * peticiones backchannel. Mantiene el issuer lógico (público) intacto, de modo
+ * que la validación de `iss` y las URLs de redirección al navegador siguen
+ * apuntando a la URL pública.
+ */
+function buildCustomFetch(): typeof fetch | null {
+  const internal = internalBaseUrl();
+  if (!internal) return null;
+  const publicOrigin = new URL(issuerUrl()).origin;
+  const internalOrigin = new URL(internal).origin;
+  if (publicOrigin === internalOrigin) return null;
+
+  return ((input: any, init?: any) => {
+    const original = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+    let target = original;
+    if (original.startsWith(publicOrigin)) {
+      target = internalOrigin + original.slice(publicOrigin.length);
+    }
+    return fetch(target, init);
+  }) as typeof fetch;
+}
+
 let configPromise: Promise<oidc.Configuration> | null = null;
 
 /** HTTP sin TLS (testing nip.io, Docker local). openid-client lo bloquea salvo allowInsecureRequests. */
 function oidcDiscoveryExecute(): Array<(config: oidc.Configuration) => void> {
   const flag = (process.env.KEYCLOAK_ALLOW_HTTP || "").toLowerCase();
   if (flag === "1" || flag === "true") return [oidc.allowInsecureRequests];
-  if (issuerUrl().startsWith("http://")) return [oidc.allowInsecureRequests];
+  if (issuerUrl().startsWith("http://") || (internalBaseUrl() || "").startsWith("http://")) {
+    return [oidc.allowInsecureRequests];
+  }
   return [];
 }
 
 export async function getOidcConfig(): Promise<oidc.Configuration> {
   if (!configPromise) {
     const execute = oidcDiscoveryExecute();
+    const customFetch = buildCustomFetch();
+    const options: Record<symbol, unknown> & { execute?: typeof execute } = {};
+    if (execute.length) options.execute = execute;
+    if (customFetch) options[oidc.customFetch] = customFetch;
     configPromise = oidc.discovery(
       new URL(issuerUrl()),
       clientId(),
       clientSecret(),
       undefined,
-      execute.length ? { execute } : undefined,
+      Object.keys(options).length || Object.getOwnPropertySymbols(options).length ? (options as any) : undefined,
     );
   }
   return configPromise;

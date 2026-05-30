@@ -2,7 +2,7 @@
 import { useEffect } from 'react'
 import { loginUrl } from '@/lib/auth/urls'
 
-/** Recupero de contraseña gestionado por Keycloak. */
+/** Recupero de contraseña gestionado por Keycloak (enlace "¿Olvidaste tu contraseña?"). */
 export default function ForgotPage() {
   useEffect(() => {
     window.location.replace(loginUrl('/login'))
