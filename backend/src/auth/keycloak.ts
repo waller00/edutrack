@@ -31,9 +31,17 @@ export function redirectUri(): string {
 
 let configPromise: Promise<oidc.Configuration> | null = null;
 
+/** HTTP sin TLS (testing nip.io, Docker local). openid-client lo bloquea salvo allowInsecureRequests. */
+function oidcDiscoveryExecute(): Array<(config: oidc.Configuration) => void> {
+  const flag = (process.env.KEYCLOAK_ALLOW_HTTP || "").toLowerCase();
+  if (flag === "1" || flag === "true") return [oidc.allowInsecureRequests];
+  if (issuerUrl().startsWith("http://")) return [oidc.allowInsecureRequests];
+  return [];
+}
+
 export async function getOidcConfig(): Promise<oidc.Configuration> {
   if (!configPromise) {
-    const execute = process.env.NODE_ENV === "production" ? [] : [oidc.allowInsecureRequests];
+    const execute = oidcDiscoveryExecute();
     configPromise = oidc.discovery(
       new URL(issuerUrl()),
       clientId(),
