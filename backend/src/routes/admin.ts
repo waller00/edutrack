@@ -708,24 +708,28 @@ r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), 
   const id = req.params.id
   const u = await prisma.user.findUnique({
     where: { id },
-    select: selectOrgRoleCode,
+    select: { ...selectOrgRoleCode, email: true },
   })
   if (!u) return res.status(404).json({ message: 'Usuario no encontrado' })
   if ((u.orgRole?.code ?? '') === 'ADMIN') {
     return res.status(403).json({ message: 'No se puede resetear la contraseña del administrador desde esta pantalla.' })
   }
-  const token = randomBytes(32).toString('hex')
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
-  await prisma.passwordReset.create({ data: { token, userId: id, expiresAt } })
+  try {
+    const { triggerKeycloakPasswordReset } = await import('../auth/keycloak.js')
+    await triggerKeycloakPasswordReset(u.email)
+  } catch (e) {
+    console.error('[admin] keycloak password reset:', e)
+    return res.status(502).json({ message: 'No se pudo enviar el restablecimiento de contraseña (Keycloak).' })
+  }
   recordAuditEvent({
     action: AuditAction.ADMIN_PASSWORD_RESET_ISSUED,
     actorUserId: (req as any).user?.id ?? null,
     req,
     entityType: 'User',
     entityId: id,
-    metadata: { expiresAt: expiresAt.toISOString() },
+    metadata: { via: 'keycloak' },
   })
-  res.json({ token, expiresAt })
+  res.json({ ok: true, message: 'Se envió un correo de restablecimiento de contraseña (Keycloak).' })
 })
 
 r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_req, res) => {

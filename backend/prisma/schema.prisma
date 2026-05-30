@@ -74,16 +74,13 @@ model User {
   name                        String?
   phone                       String?
   birthdate                   DateTime?
-  passwordHash                String?
   googleId                    String?                @unique
   roleId                      String
   orgRole                     OrgRole                @relation(fields: [roleId], references: [id], onDelete: Restrict)
   createdAt                   DateTime               @default(now())
   updatedAt                   DateTime               @updatedAt
   // relations
-  passwordResets              PasswordReset[]
   emailVerifications          EmailVerification[]
-  refreshTokens               RefreshToken[]
   attendances                 Attendance[]
   events                      Event[]
   assignedEvents              Event[]                @relation("EventAssignment")
@@ -107,10 +104,6 @@ model User {
   isApproved                  Boolean                @default(true)
   approvedAt                  DateTime?
   isActive                    Boolean                @default(true)
-  twoFactorEnabled            Boolean                @default(false)
-  twoFactorSecret             String?
-  twoFactorConfirmedAt        DateTime?
-  twoFactorBackupCodes        TwoFactorBackupCode[]
   /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
   livenessVerifiedAt          DateTime?
 
@@ -129,30 +122,6 @@ model TeacherProfile {
   updatedAt   DateTime @updatedAt
 
   @@index([isActive])
-}
-
-model TwoFactorBackupCode {
-  id        String    @id @default(uuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  codeHash  String
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@unique([userId, codeHash])
-  @@index([userId, usedAt])
-}
-
-model PasswordReset {
-  id        String    @id @default(uuid())
-  token     String    @unique
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@index([userId])
 }
 
 model EmailVerification {
@@ -252,21 +221,6 @@ model WebPushSubscription {
   userAgent String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([userId])
-}
-
-model RefreshToken {
-  id           String    @id @default(uuid())
-  tokenHash    String
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  replacedById String?
-  createdAt    DateTime  @default(now())
-  userAgent    String?
-  ipAddress    String?
 
   @@index([userId])
 }

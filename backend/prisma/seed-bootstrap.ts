@@ -2,7 +2,6 @@
  * Usuario admin inicial + configuración mínima (sin datos operativos).
  */
 import 'dotenv/config'
-import argon2 from 'argon2'
 import { prisma } from '../src/db/prisma.js'
 import { ensureBuiltinOrgRoles } from '../src/identity/org-role-seed.js'
 import { upsertCanonicalProfilePermissions } from '../src/identity/profile-permissions-repository.js'
@@ -40,7 +39,6 @@ export async function ensureBootstrapAdmin() {
     return existing
   }
 
-  const passwordHash = await argon2.hash(ADMIN_PASSWORD, { type: argon2.argon2id })
   const now = new Date()
   const user = await prisma.user.create({
     data: {
@@ -53,17 +51,28 @@ export async function ensureBootstrapAdmin() {
       nationalId: buildValidCi(1_234_567),
       birthdate: new Date('1986-02-14T00:00:00.000Z'),
       roleId: adminRole.id,
-      passwordHash,
       emailVerifiedAt: now,
       isApproved: true,
       approvedAt: now,
       isActive: true,
       failedLoginAttempts: 0,
       lockUntil: null,
-      twoFactorEnabled: false,
     },
   })
-  console.log(`[seed:bootstrap] Admin creado: ${user.username} / ${ADMIN_PASSWORD}`)
+  try {
+    const { createKeycloakUser } = await import('../src/auth/keycloak.js')
+    await createKeycloakUser({
+      email: ADMIN_EMAIL,
+      firstName: 'Admin',
+      lastName: 'Principal',
+      password: ADMIN_PASSWORD,
+      role: 'ADMIN',
+      emailVerified: true,
+    })
+  } catch (e) {
+    console.warn('[seed:bootstrap] Keycloak admin (opcional):', e)
+  }
+  console.log(`[seed:bootstrap] Admin creado: ${user.username} (login vía Keycloak; password seed: ${ADMIN_PASSWORD})`)
   return user
 }
 

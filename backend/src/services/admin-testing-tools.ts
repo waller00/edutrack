@@ -1,4 +1,3 @@
-import argon2 from 'argon2'
 import { randomBytes } from 'crypto'
 import { prisma } from '../db/prisma.js'
 import { ensureBuiltinOrgRoles } from '../identity/org-role-seed.js'
@@ -70,10 +69,7 @@ export async function resetDatabaseToSingleAdmin(opts?: {
   await prisma.biometricUserMapping.deleteMany()
   await prisma.biometricDevice.deleteMany()
   await prisma.webPushSubscription.deleteMany()
-  await prisma.refreshToken.deleteMany()
-  await prisma.passwordReset.deleteMany()
   await prisma.emailVerification.deleteMany()
-  await prisma.twoFactorBackupCode.deleteMany()
   await prisma.livenessSession.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.inAppNotification.deleteMany()
@@ -103,7 +99,6 @@ export async function resetDatabaseToSingleAdmin(opts?: {
   const adminRole = await prisma.orgRole.findUnique({ where: { code: 'ADMIN' } })
   if (!adminRole) throw new Error('Falta OrgRole ADMIN')
 
-  const passwordHash = await argon2.hash(adminPassword, { type: argon2.argon2id })
   const now = new Date()
   const admin = await prisma.user.create({
     data: {
@@ -116,16 +111,28 @@ export async function resetDatabaseToSingleAdmin(opts?: {
       nationalId: buildValidCi(1_234_567),
       birthdate: new Date('1986-02-14T00:00:00.000Z'),
       roleId: adminRole.id,
-      passwordHash,
       emailVerifiedAt: now,
       isApproved: true,
       approvedAt: now,
       isActive: true,
       failedLoginAttempts: 0,
       lockUntil: null,
-      twoFactorEnabled: false,
     },
   })
+
+  try {
+    const { createKeycloakUser } = await import('../auth/keycloak.js')
+    await createKeycloakUser({
+      email: adminEmail,
+      firstName: 'Admin',
+      lastName: 'Principal',
+      password: adminPassword,
+      role: 'ADMIN',
+      emailVerified: true,
+    })
+  } catch (e) {
+    console.error('[admin-testing] keycloak admin user:', e)
+  }
 
   return { admin, schoolYear: year, password: adminPassword }
 }

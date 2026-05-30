@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
-import { signAccessToken } from "../auth/jwt.js";
+import { signAccessToken } from "../test-utils/bearer-token.js";
 
 vi.mock("web-push", () => ({
   default: {

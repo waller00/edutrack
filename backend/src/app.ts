@@ -12,9 +12,7 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.js";
 import keycloakAuthRoutes from "./routes/auth-keycloak.js";
-import { isKeycloakMode } from "./auth/keycloak.js";
 import { rateLimit } from "./middlewares/rate-limit.js";
-import passport from "./auth/passportGoogle.js";
 import adminRoutes from "./routes/admin.js";
 import adminTestingRoutes from "./routes/admin-testing.js";
 import attendanceRoutes from "./routes/attendance.js";
@@ -117,13 +115,8 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
 
-app.use(passport.initialize());
-// Rate limiting de login (Redis): no-op si REDIS_URL no esta definido.
 app.use("/auth/login", rateLimit({ bucket: "login", max: 10, windowSeconds: 60 }));
-// En modo Keycloak (BFF) las rutas OIDC tienen prioridad sobre el auth legacy.
-if (isKeycloakMode()) {
-  app.use("/auth", keycloakAuthRoutes);
-}
+app.use("/auth", keycloakAuthRoutes);
 app.use("/auth", authRoutes);
 app.use("/auth", diditLivenessRoutes);
 app.use("/admin", adminRoutes);

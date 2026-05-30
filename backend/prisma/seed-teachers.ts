@@ -4,7 +4,6 @@
  *   npx tsx prisma/seed-teachers.ts
  */
 import 'dotenv/config'
-import argon2 from 'argon2'
 import { prisma } from '../src/db/prisma.js'
 import { ensureBuiltinOrgRoles } from '../src/identity/org-role-seed.js'
 import {
@@ -26,7 +25,6 @@ export async function seedTeachers() {
   const teacherRole = await prisma.orgRole.findUnique({ where: { code: 'TEACHER' } })
   if (!teacherRole) throw new Error('Falta OrgRole TEACHER')
 
-  const passwordHash = await argon2.hash(TEACHER_INITIAL_PASSWORD, { type: argon2.argon2id })
   const now = new Date()
   let created = 0
   let updated = 0
@@ -45,7 +43,6 @@ export async function seedTeachers() {
       firstName: t.firstName,
       lastName: t.lastName,
       name: displayName,
-      passwordHash,
       roleId: teacherRole.id,
       emailVerifiedAt: now,
       isApproved: true,
@@ -53,7 +50,6 @@ export async function seedTeachers() {
       isActive: true,
       failedLoginAttempts: 0,
       lockUntil: null,
-      twoFactorEnabled: false,
       nationalId: buildValidCi(2_000_000 + i),
       phone: `+59899${String(100000 + i).slice(-6)}`,
     }

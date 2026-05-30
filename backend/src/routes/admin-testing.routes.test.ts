@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import express from 'express'
 import request from 'supertest'
 import cookieParser from 'cookie-parser'
-import { signAccessToken } from '../auth/jwt.js'
+import { signAccessToken } from '../test-utils/bearer-token.js'
 
 const { testingResetPassword } = vi.hoisted(() => ({
   testingResetPassword: () => ['generated', 'test', 'value'].join('-'),

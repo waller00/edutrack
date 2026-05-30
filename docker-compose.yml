@@ -88,8 +88,6 @@ services:
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---
-      # AUTH_MODE: "legacy" (JWT propio) o "keycloak" (BFF OIDC). Default legacy para cutover gradual.
-      AUTH_MODE: ${AUTH_MODE:-legacy}
       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://keycloak:8080/realms/edutrack}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-edutrack-web}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-edutrack-web-secret-change-me}
@@ -178,7 +176,6 @@ services:
         NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-development}
         NEXT_PUBLIC_LOGROCKET_APP_ID: ${NEXT_PUBLIC_LOGROCKET_APP_ID:-}
         NEXT_PUBLIC_LOGROCKET_FORCE: ${NEXT_PUBLIC_LOGROCKET_FORCE:-false}
-        NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-legacy}
     restart: unless-stopped
     environment:
       NODE_ENV: production

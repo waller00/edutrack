@@ -3,7 +3,7 @@ import express from "express";
 import request from "supertest";
 import cookieParser from "cookie-parser";
 import { authGuard, requireRole, requireAnyRole } from "./auth.js";
-import { signAccessToken } from "../auth/jwt.js";
+import { signAccessToken } from "../test-utils/bearer-token.js";
 
 function makeApp() {
   const app = express();
