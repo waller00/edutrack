@@ -45,7 +45,7 @@ export default function LoginPage() {
               <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Iniciar Sesión</h1>
-            <p className="text-gray-600">Accede con tu cuenta institucional (Keycloak)</p>
+            <p className="text-gray-600">Accede a tu cuenta para continuar</p>
           </div>
           {externalError && (
             <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">

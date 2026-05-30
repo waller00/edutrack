@@ -68,6 +68,7 @@ services:
       JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m"
     volumes:
       - ./keycloak/realm-edutrack.json:/opt/keycloak/data/import/realm-edutrack.json:ro
+      - ./keycloak/themes:/opt/keycloak/themes:ro
     ports:
       - "8089:8080"
     depends_on:
@@ -88,7 +89,9 @@ services:
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---
-      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://keycloak:8080/realms/edutrack}
+      # ISSUER_URL = URL pública (navegador y Google). INTERNAL_URL = red Docker (backchannel).
+      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://localhost:8089/realms/edutrack}
+      KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-edutrack-web}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-edutrack-web-secret-change-me}
       KEYCLOAK_REDIRECT_URI: ${KEYCLOAK_REDIRECT_URI:-http://localhost:4000/auth/callback}

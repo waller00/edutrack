@@ -1,0 +1,219 @@
+/* =========================================================================
+   Tema EduTrack para Keycloak (login). Imita la UI de la app:
+   verde esmeralda, fondo degradado claro, tarjeta blanca redondeada.
+   Extiende keycloak.v2 (PatternFly v5) sobreescribiendo solo estilos.
+   ========================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --et-green: #10b981;
+  --et-green-600: #059669;
+  --et-green-700: #047857;
+  --et-green-50: #ecfdf5;
+  --et-border: #e5e7eb;
+  --et-text: #111827;
+  --et-muted: #6b7280;
+}
+
+/* ---- Fondo: degradado claro como gradient-light de la app ---- */
+html,
+body.login-pf,
+.login-pf body,
+.pf-v5-c-login__container {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+body.login-pf,
+.login-pf {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%) !important;
+}
+
+/* El tema base mete una imagen de fondo oscura; la ocultamos. */
+#keycloak-bg,
+.pf-v5-c-background-image,
+.login-pf-page .login-pf-page-header,
+.pf-v5-c-login__container::before {
+  background: none !important;
+  background-image: none !important;
+}
+
+.pf-v5-c-login {
+  background: transparent !important;
+}
+
+/* ---- Tarjeta principal (card blanca redondeada con sombra) ---- */
+.pf-v5-c-login__main {
+  background: #ffffff !important;
+  border: 1px solid #f3f4f6 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  padding: 0.5rem 0.5rem 1rem !important;
+  overflow: hidden;
+}
+
+.pf-v5-c-login__main-header,
+.pf-v5-c-login__main-body,
+.pf-v5-c-login__main-footer {
+  padding-left: 1.5rem !important;
+  padding-right: 1.5rem !important;
+}
+
+/* ---- Encabezado con logo y título de EduTrack ---- */
+#kc-header,
+.pf-v5-c-login__header {
+  text-align: center;
+}
+
+#kc-header-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem 0 0.25rem !important;
+  color: var(--et-text) !important;
+  font-size: 0 !important; /* oculta el texto del realm para no duplicar */
+  white-space: normal;
+}
+
+#kc-header-wrapper::before {
+  content: '';
+  display: block;
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background-color: #d1fae5;
+  background-image: url('../img/logo.svg');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 40px 40px;
+}
+
+#kc-header-wrapper::after {
+  content: 'EduTrack';
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--et-text);
+  letter-spacing: -0.01em;
+}
+
+/* Título de cada pantalla (Iniciar sesión, OTP, etc.) */
+#kc-page-title {
+  color: var(--et-text) !important;
+  font-weight: 600;
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+/* ---- Inputs (input-field de la app) ---- */
+.pf-v5-c-form-control,
+.pf-v5-c-form-control > input,
+input.pf-v5-c-form-control {
+  border: 1px solid var(--et-border) !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  --pf-v5-c-form-control--BorderColor: var(--et-border);
+  --pf-v5-c-form-control--after--BorderBottomColor: var(--et-border);
+  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--et-green);
+}
+
+.pf-v5-c-form-control:focus-within,
+.pf-v5-c-form-control:focus,
+input.pf-v5-c-form-control:focus {
+  border-color: var(--et-green) !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35) !important;
+  outline: none !important;
+}
+
+.pf-v5-c-form__label-text,
+.pf-v5-c-form__label {
+  color: var(--et-text) !important;
+  font-weight: 500;
+}
+
+/* ---- Botón primario (btn-primary) ---- */
+.pf-v5-c-button.pf-m-primary {
+  background-color: var(--et-green-600) !important;
+  border-color: var(--et-green-600) !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--et-green-600);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--et-green-700);
+  --pf-v5-c-button--m-primary--active--BackgroundColor: var(--et-green-700);
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--et-green-700);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pf-v5-c-button.pf-m-primary:hover {
+  background-color: var(--et-green-700) !important;
+  border-color: var(--et-green-700) !important;
+  box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.3) !important;
+}
+
+/* ---- Botones de control (mostrar contraseña, social) ---- */
+.pf-v5-c-button.pf-m-control {
+  border-radius: 8px !important;
+}
+
+/* ---- Enlaces (verde esmeralda) ---- */
+a,
+#kc-registration a,
+.pf-v5-c-login__main-footer-links-item-link,
+#kc-info-message a {
+  color: var(--et-green-600) !important;
+  font-weight: 500;
+}
+
+a:hover {
+  color: var(--et-green-700) !important;
+}
+
+/* ---- Botones sociales (Google) ---- */
+#kc-social-providers {
+  margin-top: 1rem;
+}
+
+#kc-social-providers h2,
+.kc-social-section h2 {
+  position: relative;
+  text-align: center;
+  color: var(--et-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin: 1rem 0;
+}
+
+.pf-v5-c-login__main-footer-links {
+  padding-top: 0.5rem;
+}
+
+#social-google,
+a[id^="social-"] {
+  border: 1px solid var(--et-border) !important;
+  border-radius: 8px !important;
+  color: var(--et-text) !important;
+  font-weight: 500 !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#social-google:hover,
+a[id^="social-"]:hover {
+  background-color: var(--et-green-50) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ---- Checkbox "recordarme" ---- */
+.pf-v5-c-check__input:checked {
+  accent-color: var(--et-green-600);
+}
+
+/* ---- Alertas de error/info: bordes redondeados suaves ---- */
+.pf-v5-c-alert {
+  border-radius: 10px !important;
+}
+
+/* ---- Pie de página del realm (powered by) más discreto ---- */
+.pf-v5-c-login__main-footer-band {
+  color: var(--et-muted);
+}
