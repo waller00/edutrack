@@ -61,6 +61,7 @@ services:
       JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m"
     volumes:
       - ./keycloak/realm-edutrack.json:/opt/keycloak/data/import/realm-edutrack.json:ro
+      - ./keycloak/themes:/opt/keycloak/themes:ro
     ports:
       - "8089:8080"
     depends_on:
