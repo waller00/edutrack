@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import LoginPage from './page'
+
+const replaceMock = vi.fn()
 
 vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: vi.fn() }),
+  useRouter: () => ({ replace: replaceMock }),
 }))
 
 import { api } from '@/lib/api/client'
@@ -25,10 +27,36 @@ describe('LoginPage (Keycloak)', () => {
     })
   })
 
-  it('muestra botón Continuar que redirige al BFF', async () => {
+  it('redirige automaticamente al BFF cuando no hay sesion', async () => {
     render(<LoginPage />)
-    const btn = await screen.findByRole('button', { name: 'Continuar' })
+    await waitFor(() => expect(locationMock.href).toContain('/auth/login'))
+    expect(locationMock.href).toContain('returnTo=%2F')
+  })
+
+  it('respeta returnTo seguro para usuarios autenticados', async () => {
+    vi.mocked(api).mockResolvedValueOnce({ id: 'u1' })
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { href: '', search: '?returnTo=%2Fadmin%2Fusers' },
+    })
+
+    render(<LoginPage />)
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/admin/users'))
+  })
+
+  it('muestra recuperacion si Keycloak devuelve error', async () => {
+    const errorLocationMock = { href: '', search: '?error=oidc' }
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: errorLocationMock,
+    })
+
+    render(<LoginPage />)
+
+    const btn = await screen.findByRole('button', { name: /Reintentar ingreso/i })
+    expect(errorLocationMock.href).toBe('')
     fireEvent.click(btn)
-    expect(locationMock.href).toContain('/auth/login')
+    expect(errorLocationMock.href).toContain('/auth/login')
   })
 })

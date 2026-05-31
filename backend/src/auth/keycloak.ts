@@ -100,19 +100,29 @@ export type AuthRequestState = {
   authUrl: string;
 };
 
-export async function buildLoginUrl(): Promise<AuthRequestState> {
+export type LoginUrlOptions = {
+  identityProvider?: string;
+};
+
+export async function buildLoginUrl(options: LoginUrlOptions = {}): Promise<AuthRequestState> {
   const config = await getOidcConfig();
   const codeVerifier = oidc.randomPKCECodeVerifier();
   const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
   const state = oidc.randomState();
 
-  const authUrl = oidc.buildAuthorizationUrl(config, {
+  const params: Record<string, string> = {
     redirect_uri: redirectUri(),
     scope: "openid email profile",
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
     state,
-  }).href;
+  };
+
+  if (options.identityProvider) {
+    params.kc_idp_hint = options.identityProvider;
+  }
+
+  const authUrl = oidc.buildAuthorizationUrl(config, params).href;
 
   return { codeVerifier, state, authUrl };
 }
