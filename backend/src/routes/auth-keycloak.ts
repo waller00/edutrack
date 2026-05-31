@@ -96,7 +96,9 @@ async function startSessionFromTokens(
 
 r.get("/login", async (req, res) => {
   try {
-    const { codeVerifier, state, authUrl } = await buildLoginUrl();
+    const provider = typeof req.query.provider === "string" ? req.query.provider : "";
+    const identityProvider = provider === "google" ? "google" : undefined;
+    const { codeVerifier, state, authUrl } = await buildLoginUrl({ identityProvider });
     const redis = getRedis();
     if (!redis) return res.status(503).json({ message: "Redis no disponible" });
     const returnTo = typeof req.query.returnTo === "string" ? req.query.returnTo : "/";

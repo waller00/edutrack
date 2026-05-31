@@ -1,219 +1,812 @@
-/* =========================================================================
-   Tema EduTrack para Keycloak (login). Imita la UI de la app:
-   verde esmeralda, fondo degradado claro, tarjeta blanca redondeada.
-   Extiende keycloak.v2 (PatternFly v5) sobreescribiendo solo estilos.
-   ========================================================================= */
-
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+/* =========================================================================
+   EduTrack — Keycloak Login Theme
+   Extiende keycloak.v2 (PatternFly v5). Sobreescribe variables y estilos
+   para que el login sea visualmente indistinguible de la app principal.
+   ========================================================================= */
+
+/* ── 1. Variables de marca + anulación total de variables PF azules ─────── */
 :root {
-  --et-green: #10b981;
-  --et-green-600: #059669;
-  --et-green-700: #047857;
-  --et-green-50: #ecfdf5;
-  --et-border: #e5e7eb;
-  --et-text: #111827;
-  --et-muted: #6b7280;
+  /* Paleta EduTrack */
+  --et-green:        #10b981;
+  --et-green-50:     #ecfdf5;
+  --et-green-100:    #d1fae5;
+  --et-green-200:    #a7f3d0;
+  --et-green-600:    #059669;
+  --et-green-700:    #047857;
+  --et-border:       #e5e7eb;
+  --et-border-light: #f3f4f6;
+  --et-text:         #111827;
+  --et-text-sec:     #374151;
+  --et-muted:        #6b7280;
+
+  /* Anular TODOS los azules / teals de PatternFly v5 */
+  --pf-v5-global--primary-color--100:                 #059669;
+  --pf-v5-global--primary-color--200:                 #047857;
+  --pf-v5-global--primary-color--300:                 #065f46;
+  --pf-v5-global--link--Color:                        #059669;
+  --pf-v5-global--link--Color--hover:                 #047857;
+  --pf-v5-global--link--Color--visited:               #059669;
+  --pf-v5-global--link--Color--dark:                  #059669;
+  --pf-v5-global--active-color--100:                  #059669;
+  --pf-v5-global--active-color--400:                  #ecfdf5;
+  --pf-v5-global--info-color--100:                    #059669;
+  --pf-v5-global--Color--100:                         #111827;
+  --pf-v5-global--Color--200:                         #374151;
+  --pf-v5-global--Color--300:                         #6b7280;
+  --pf-v5-global--Color--400:                         #9ca3af;
+  --pf-v5-global--BorderColor--100:                   #e5e7eb;
+  --pf-v5-global--BorderColor--200:                   #d1d5db;
+  --pf-v5-global--BackgroundColor--100:               #ffffff;
+  --pf-v5-global--BackgroundColor--200:               #f9fafb;
+  --pf-v5-global--FontFamily--sans-serif:             'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --pf-v5-global--FontFamily--heading--sans-serif:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Login */
+  --pf-v5-c-login--BackgroundColor:                   transparent;
+
+  /* Botón primario */
+  --pf-v5-c-button--m-primary--Color:                 #ffffff;
+  --pf-v5-c-button--m-primary--BackgroundColor:       #059669;
+  --pf-v5-c-button--m-primary--hover--BackgroundColor:#047857;
+  --pf-v5-c-button--m-primary--focus--BackgroundColor:#047857;
+  --pf-v5-c-button--m-primary--active--BackgroundColor:#047857;
+
+  /* Form control */
+  --pf-v5-c-form-control--BorderColor:                        #e5e7eb;
+  --pf-v5-c-form-control--hover--BorderBottomColor:           #059669;
+  --pf-v5-c-form-control--focus--after--BorderBottomColor:    transparent;
+  --pf-v5-c-form-control--after--BorderBottomWidth:           0px;
+  --pf-v5-c-form-control--Color:                              #111827;
 }
 
-/* ---- Fondo: degradado claro como gradient-light de la app ---- */
+/* ── 2. Keyframes ────────────────────────────────────────────────────────── */
+@keyframes et-fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+/* ── 3. Reset mínimo ─────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+/* ── 4. Fondo — igual a `gradient-light` de globals.css ─────────────────── */
 html,
-body.login-pf,
-.login-pf body,
-.pf-v5-c-login__container {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+body.login-pf {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--et-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body.login-pf,
 .login-pf {
+  min-height: 100vh;
   background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%) !important;
+  background-attachment: fixed !important;
 }
 
-/* El tema base mete una imagen de fondo oscura; la ocultamos. */
+/* Eliminar imagen de fondo del tema base */
 #keycloak-bg,
 .pf-v5-c-background-image,
-.login-pf-page .login-pf-page-header,
-.pf-v5-c-login__container::before {
+.pf-v5-c-background-image::before,
+.pf-v5-c-background-image::after,
+.login-pf-page .login-pf-page-header {
   background: none !important;
   background-image: none !important;
 }
 
-.pf-v5-c-login {
+.pf-v5-c-background-image,
+.pf-v5-c-background-image::before,
+.pf-v5-c-background-image::after,
+.login-pf-page .login-pf-page-header {
+  display: none !important;
+}
+
+/* ── 5. Layout centrado ──────────────────────────────────────────────────── */
+.pf-v5-c-login,
+.login-pf-page {
+  min-height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 1.5rem !important;
   background: transparent !important;
 }
 
-/* ---- Tarjeta principal (card blanca redondeada con sombra) ---- */
+.pf-v5-c-login__container {
+  width: 100% !important;
+  max-width: 28rem !important;
+  min-height: auto !important;
+}
+
+/* ── 6. Tarjeta — igual a `.card` de globals.css ────────────────────────── */
 .pf-v5-c-login__main {
   background: #ffffff !important;
-  border: 1px solid #f3f4f6 !important;
-  border-radius: 16px !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-  padding: 0.5rem 0.5rem 1rem !important;
+  border: 1px solid var(--et-border-light) !important;
+  border-radius: 12px !important;
+  /* shadow-sm exacto */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  padding: 0 !important;
   overflow: hidden;
+  animation: et-fadeIn 0.3s ease-out both;
 }
 
+/* ── 7. Padding de secciones ─────────────────────────────────────────────── */
 .pf-v5-c-login__main-header,
-.pf-v5-c-login__main-body,
-.pf-v5-c-login__main-footer {
-  padding-left: 1.5rem !important;
-  padding-right: 1.5rem !important;
-}
-
-/* ---- Encabezado con logo y título de EduTrack ---- */
-#kc-header,
-.pf-v5-c-login__header {
+#kc-header {
+  padding: 0 !important;
   text-align: center;
 }
 
+.pf-v5-c-login__main-body {
+  padding: 1.25rem 1.75rem 0.25rem !important;
+}
+
+.pf-v5-c-login__main-footer {
+  padding: 0 1.75rem 1.75rem !important;
+}
+
+/* ── 8. Header: logo + nombre de marca ───────────────────────────────────── */
 #kc-header-wrapper {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1.5rem 0 0.25rem !important;
-  color: var(--et-text) !important;
-  font-size: 0 !important; /* oculta el texto del realm para no duplicar */
-  white-space: normal;
+  gap: 0.625rem;
+  padding: 2rem 1.75rem 0.5rem !important;
+  /* Oculta el texto del realm que Keycloak inyecta */
+  font-size: 0 !important;
+  color: transparent !important;
+  line-height: 0;
 }
 
+/* Ícono — igual a w-16 h-16 bg-emerald-100 rounded-2xl del frontend */
 #kc-header-wrapper::before {
   content: '';
   display: block;
   width: 64px;
   height: 64px;
-  border-radius: 18px;
-  background-color: #d1fae5;
+  border-radius: 16px;
+  background-color: var(--et-green-100);
   background-image: url('../img/logo.svg');
   background-repeat: no-repeat;
   background-position: center;
   background-size: 40px 40px;
+  flex-shrink: 0;
 }
 
+/* Nombre de la marca */
 #kc-header-wrapper::after {
   content: 'EduTrack';
   display: block;
   font-size: 1.5rem;
   font-weight: 700;
+  letter-spacing: -0.025em;
   color: var(--et-text);
-  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
-/* Título de cada pantalla (Iniciar sesión, OTP, etc.) */
+/* Subtítulo de pantalla (p.ej. "Ingresar a tu cuenta") */
 #kc-page-title {
-  color: var(--et-text) !important;
-  font-weight: 600;
-  font-size: 1.25rem;
-  text-align: center;
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  color: var(--et-muted) !important;
+  letter-spacing: 0 !important;
+  text-align: center !important;
+  margin: 0.2rem 0 0 !important;
 }
 
-/* ---- Inputs (input-field de la app) ---- */
-.pf-v5-c-form-control,
-.pf-v5-c-form-control > input,
-input.pf-v5-c-form-control {
+/* ── 9. Formulario ───────────────────────────────────────────────────────── */
+.pf-v5-c-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1rem !important;
+}
+
+.pf-v5-c-form__group {
+  margin-bottom: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.3rem !important;
+}
+
+/* ── 10. Labels ──────────────────────────────────────────────────────────── */
+.pf-v5-c-form__label,
+.pf-v5-c-form__label-text {
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  color: var(--et-text) !important;
+  letter-spacing: 0 !important;
+}
+
+/* ── 11. Inputs — `.input-field` de globals.css ─────────────────────────── */
+.pf-v5-c-form-control {
   border: 1px solid var(--et-border) !important;
   border-radius: 8px !important;
   background: #ffffff !important;
-  --pf-v5-c-form-control--BorderColor: var(--et-border);
-  --pf-v5-c-form-control--after--BorderBottomColor: var(--et-border);
-  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--et-green);
+  overflow: hidden;
 }
 
-.pf-v5-c-form-control:focus-within,
-.pf-v5-c-form-control:focus,
-input.pf-v5-c-form-control:focus {
+/* Anular el truco de pseudo-borde inferior de PatternFly */
+.pf-v5-c-form-control::after {
+  display: none !important;
+}
+
+.pf-v5-c-form-control > input,
+input.pf-v5-c-form-control,
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="tel"],
+input#totp,
+input#userLabel {
+  width: 100% !important;
+  min-height: 40px !important;
+  padding: 0.5rem 1rem !important;
+  font-size: 0.9375rem !important;
+  font-family: inherit !important;
+  color: var(--et-text) !important;
+  background: #ffffff !important;
+  border: none !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Focus en el wrapper */
+.pf-v5-c-form-control:focus-within {
   border-color: var(--et-green) !important;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35) !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18) !important;
+}
+
+/* Focus directo (para inputs sin wrapper) */
+input.pf-v5-c-form-control:focus,
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus {
+  border-color: var(--et-green) !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18) !important;
   outline: none !important;
 }
 
-.pf-v5-c-form__label-text,
-.pf-v5-c-form__label {
+/* Botón mostrar/ocultar contraseña */
+.pf-v5-c-input-group .pf-v5-c-button.pf-m-control {
+  border: none !important;
+  border-left: 1px solid var(--et-border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--et-muted) !important;
+  min-height: 40px !important;
+  padding: 0 0.75rem !important;
+  transition: color 0.15s ease, background 0.15s ease !important;
+  box-shadow: none !important;
+}
+
+.pf-v5-c-input-group .pf-v5-c-button.pf-m-control:hover {
+  background: #f9fafb !important;
   color: var(--et-text) !important;
-  font-weight: 500;
 }
 
-/* ---- Botón primario (btn-primary) ---- */
-.pf-v5-c-button.pf-m-primary {
+.pf-v5-c-input-group {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* ── 12. Botón primario — `.btn-primary` de globals.css ─────────────────── */
+.pf-v5-c-button.pf-m-primary,
+#kc-form-buttons input[type="submit"],
+#kc-form-buttons button[type="submit"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  min-height: 40px !important;
+  padding: 0.5rem 1rem !important;
+  font-size: 0.9375rem !important;
+  font-family: inherit !important;
+  font-weight: 500 !important;
+  color: #ffffff !important;
   background-color: var(--et-green-600) !important;
-  border-color: var(--et-green-600) !important;
+  border: none !important;
   border-radius: 8px !important;
-  font-weight: 600 !important;
-  --pf-v5-c-button--m-primary--BackgroundColor: var(--et-green-600);
-  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--et-green-700);
-  --pf-v5-c-button--m-primary--active--BackgroundColor: var(--et-green-700);
-  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--et-green-700);
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+  letter-spacing: 0 !important;
+  text-decoration: none !important;
 }
 
-.pf-v5-c-button.pf-m-primary:hover {
+.pf-v5-c-button.pf-m-primary:hover,
+#kc-form-buttons input[type="submit"]:hover {
   background-color: var(--et-green-700) !important;
-  border-color: var(--et-green-700) !important;
-  box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.3) !important;
+  box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.25), 0 2px 4px -1px rgba(5, 150, 105, 0.1) !important;
 }
 
-/* ---- Botones de control (mostrar contraseña, social) ---- */
-.pf-v5-c-button.pf-m-control {
-  border-radius: 8px !important;
+.pf-v5-c-button.pf-m-primary:focus-visible {
+  outline: 2px solid var(--et-green) !important;
+  outline-offset: 2px !important;
 }
 
-/* ---- Enlaces (verde esmeralda) ---- */
+/* ── 13. "Recordarme" y opciones del form ────────────────────────────────── */
+#kc-form-options {
+  margin-top: 0.15rem !important;
+}
+
+#kc-form-options .pf-v5-c-check,
+#kc-form-options .checkbox {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.45rem !important;
+}
+
+#kc-form-options .pf-v5-c-check__input,
+#kc-form-options input[type="checkbox"] {
+  width: 1rem !important;
+  height: 1rem !important;
+  accent-color: var(--et-green-600) !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+}
+
+#kc-form-options label,
+#kc-form-options .pf-v5-c-check__label,
+#kc-form-options span {
+  font-size: 0.875rem !important;
+  color: var(--et-muted) !important;
+  font-weight: 400 !important;
+  cursor: pointer !important;
+}
+
+/* ── 14. Links ───────────────────────────────────────────────────────────── */
 a,
 #kc-registration a,
 .pf-v5-c-login__main-footer-links-item-link,
 #kc-info-message a {
   color: var(--et-green-600) !important;
-  font-weight: 500;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+  transition: color 0.15s ease !important;
 }
 
 a:hover {
   color: var(--et-green-700) !important;
 }
 
-/* ---- Botones sociales (Google) ---- */
-#kc-social-providers {
-  margin-top: 1rem;
+/* ── 15. Footer con link de registro ─────────────────────────────────────── */
+#kc-registration,
+.pf-v5-c-login__main-footer-band,
+#kc-info {
+  text-align: center !important;
+  font-size: 0.875rem !important;
+  color: var(--et-muted) !important;
+  padding-top: 0.875rem !important;
+  border-top: 1px solid var(--et-border-light) !important;
+  margin-top: 0.5rem !important;
 }
 
+/* ── 16. Proveedores sociales (Google) ───────────────────────────────────── */
+#kc-social-providers {
+  margin-top: 1rem !important;
+}
+
+/* Divisor "o también" */
 #kc-social-providers h2,
 .kc-social-section h2 {
-  position: relative;
-  text-align: center;
-  color: var(--et-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-  margin: 1rem 0;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  font-size: 0.8rem !important;
+  font-weight: 400 !important;
+  color: var(--et-muted) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  margin: 0 0 0.75rem !important;
 }
 
+#kc-social-providers h2::before,
+#kc-social-providers h2::after,
+.kc-social-section h2::before,
+.kc-social-section h2::after {
+  content: '' !important;
+  flex: 1 !important;
+  height: 1px !important;
+  background: var(--et-border-light) !important;
+}
+
+/* Lista de botones sociales */
 .pf-v5-c-login__main-footer-links {
-  padding-top: 0.5rem;
+  list-style: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.5rem !important;
 }
 
+/* Botón Google — igual a `.btn-secondary` de globals.css */
 #social-google,
 a[id^="social-"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.5rem !important;
+  width: 100% !important;
+  min-height: 40px !important;
+  padding: 0.5rem 1rem !important;
+  font-size: 0.9375rem !important;
+  font-family: inherit !important;
+  font-weight: 500 !important;
+  color: var(--et-green-600) !important;
+  background: #ffffff !important;
   border: 1px solid var(--et-border) !important;
   border-radius: 8px !important;
-  color: var(--et-text) !important;
-  font-weight: 500 !important;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  text-decoration: none !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease !important;
 }
 
 #social-google:hover,
 a[id^="social-"]:hover {
-  background-color: var(--et-green-50) !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06) !important;
+  background: var(--et-green-50) !important;
+  border-color: var(--et-green-200) !important;
+  box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.1), 0 2px 4px -1px rgba(5, 150, 105, 0.06) !important;
+  color: var(--et-green-700) !important;
 }
 
-/* ---- Checkbox "recordarme" ---- */
-.pf-v5-c-check__input:checked {
-  accent-color: var(--et-green-600);
-}
-
-/* ---- Alertas de error/info: bordes redondeados suaves ---- */
+/* ── 17. Alertas de error — igual a red-50/red-200 de la app ─────────────── */
 .pf-v5-c-alert {
-  border-radius: 10px !important;
+  border-radius: 8px !important;
+  border: 1px solid !important;
+  padding: 0.75rem !important;
+  margin-bottom: 1rem !important;
+  font-size: 0.875rem !important;
+  box-shadow: none !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 0.5rem !important;
 }
 
-/* ---- Pie de página del realm (powered by) más discreto ---- */
+.pf-v5-c-alert.pf-m-danger,
+.pf-v5-c-alert.pf-m-warning {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #991b1b !important;
+  --pf-v5-c-alert--BackgroundColor: #fef2f2;
+}
+
+.pf-v5-c-alert.pf-m-success,
+.pf-v5-c-alert.pf-m-info {
+  background: var(--et-green-50) !important;
+  border-color: var(--et-green-200) !important;
+  color: var(--et-green-700) !important;
+  --pf-v5-c-alert--BackgroundColor: var(--et-green-50);
+}
+
+.pf-v5-c-alert__title {
+  font-weight: 500 !important;
+}
+
+/* ── 18. Pantallas de 2FA / TOTP ─────────────────────────────────────────── */
+ol#kc-totp-settings {
+  padding-left: 1.25rem;
+  color: var(--et-text);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+ol#kc-totp-settings > li {
+  margin-bottom: 0.65rem;
+}
+
+ul#kc-totp-supported-apps {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+
+ul#kc-totp-supported-apps > li {
+  background: var(--et-green-50);
+  color: var(--et-green-700);
+  border: 1px solid var(--et-green-100);
+  border-radius: 9999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+#kc-totp-secret-qr-code {
+  display: block;
+  margin: 0.75rem auto;
+  padding: 0.75rem;
+  background: #ffffff;
+  border: 1px solid var(--et-border);
+  border-radius: 10px;
+}
+
+#kc-totp-secret-key {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  letter-spacing: 0.05em;
+  word-break: break-all;
+  background: #f9fafb;
+  border: 1px dashed var(--et-border);
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  color: var(--et-text);
+}
+
+#mode-barcode,
+#mode-manual {
+  color: var(--et-green-600) !important;
+  font-weight: 500;
+}
+
+/* ── 19. Responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .pf-v5-c-login,
+  .login-pf-page {
+    padding: 0.75rem !important;
+    align-items: flex-start !important;
+    padding-top: 2rem !important;
+  }
+
+  .pf-v5-c-login__main-body,
+  .pf-v5-c-login__main-footer {
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+  }
+
+  #kc-header-wrapper {
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+    padding-top: 1.5rem !important;
+  }
+}
+
+/* ── 20. Composición final: una sola tarjeta, registro visible y contrastes ─ */
+.pf-v5-c-login {
+  align-items: center !important;
+  padding: 1rem !important;
+}
+
+.pf-v5-c-login__container {
+  display: block !important;
+  width: min(100%, 26rem) !important;
+  max-width: 26rem !important;
+  min-height: auto !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  background: #ffffff !important;
+  border: 1px solid #dfe6e3 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 18px 50px rgba(17, 24, 39, 0.10), 0 3px 10px rgba(17, 24, 39, 0.06) !important;
+}
+
+.pf-v5-c-login__header,
+#kc-header {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none !important;
+  flex: 0 0 100% !important;
+  justify-self: stretch !important;
+  grid-column: 1 / -1 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #ffffff !important;
+}
+
+#kc-header-wrapper {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 1.5rem 1.5rem 0.65rem !important;
+  gap: 0.55rem !important;
+}
+
+#kc-header-wrapper::before {
+  width: 54px !important;
+  height: 54px !important;
+  border-radius: 14px !important;
+  background-size: 34px 34px !important;
+}
+
+#kc-header-wrapper::after {
+  content: 'EduTrack' !important;
+  font-size: 1.45rem !important;
+  line-height: 1.2 !important;
+  text-transform: none !important;
+}
+
+.pf-v5-c-login__main {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none !important;
+  flex: 0 0 100% !important;
+  justify-self: stretch !important;
+  grid-column: 1 / -1 !important;
+  align-self: stretch !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+.pf-v5-c-login__main-header {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 1.5rem 0.85rem !important;
+  text-align: center !important;
+}
+
+#kc-page-title {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  justify-self: stretch !important;
+  grid-column: 1 / -1 !important;
+  margin: 0 !important;
+  color: #374151 !important;
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+  line-height: 1.35 !important;
+  text-align: center !important;
+}
+
+.pf-v5-c-login__main-body {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 1.5rem 0.9rem !important;
+}
+
+.pf-v5-c-login__main-footer {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 1.5rem 1.35rem !important;
+}
+
+#kc-form,
+#kc-form-wrapper,
+#kc-form-login,
+.pf-v5-c-form__group,
+.pf-v5-c-form__actions {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.pf-v5-c-form {
+  gap: 0.85rem !important;
+  align-items: stretch !important;
+}
+
+.pf-v5-c-form__label,
+.pf-v5-c-form__label-text {
+  color: #1f2937 !important;
+}
+
+.pf-v5-c-form-control {
+  border-color: #d1d5db !important;
+}
+
+.pf-v5-c-form-control > input,
+input.pf-v5-c-form-control,
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="tel"] {
+  min-height: 42px !important;
+}
+
+.pf-v5-c-input-group .pf-v5-c-button.pf-m-control {
+  min-height: 42px !important;
+  color: #4b5563 !important;
+}
+
+.pf-v5-c-button.pf-m-primary,
+#kc-form-buttons input[type="submit"],
+#kc-form-buttons button[type="submit"] {
+  min-height: 42px !important;
+  background-color: #047857 !important;
+}
+
+.pf-v5-c-button.pf-m-primary:hover,
+#kc-form-buttons input[type="submit"]:hover {
+  background-color: #065f46 !important;
+}
+
+.pf-v5-c-form__helper-text {
+  margin-top: 0.15rem !important;
+}
+
+#kc-form-options label,
+#kc-form-options .pf-v5-c-check__label,
+#kc-form-options span,
+.pf-v5-c-login__main-footer-band,
+.pf-v5-c-login__main-footer-band-item {
+  color: #4b5563 !important;
+}
+
 .pf-v5-c-login__main-footer-band {
-  color: var(--et-muted);
+  margin: 0.1rem 0 0.75rem !important;
+  padding-top: 0.95rem !important;
+  border-top: 1px solid #eef2f0 !important;
+}
+
+#kc-social-providers {
+  margin-top: 0 !important;
+}
+
+.pf-v5-c-login__main-footer-links {
+  width: 100% !important;
+  max-width: none !important;
+  gap: 0 !important;
+}
+
+.pf-v5-c-login__main-footer-links-item {
+  width: 100% !important;
+}
+
+#social-google,
+a[id^="social-"] {
+  min-height: 42px !important;
+  color: #1f2937 !important;
+  border-color: #d1d5db !important;
+  box-shadow: none !important;
+}
+
+#social-google svg,
+a[id^="social-"] svg {
+  width: 1.05rem !important;
+  height: 1.05rem !important;
+  fill: #4b5563 !important;
+}
+
+#social-google .et-google-label {
+  color: #1f2937 !important;
+  font-weight: 500 !important;
+}
+
+#social-google:hover,
+a[id^="social-"]:hover {
+  background: #f9fafb !important;
+  border-color: #9ca3af !important;
+  color: #111827 !important;
+}
+
+.et-register-link {
+  margin-top: 0.95rem;
+  padding-top: 0.95rem;
+  border-top: 1px solid #eef2f0;
+  color: #4b5563;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.et-register-link a {
+  color: #047857 !important;
+  font-weight: 600 !important;
+}
+
+.et-register-link a:hover {
+  color: #065f46 !important;
+}
+
+@media (max-width: 480px) {
+  .pf-v5-c-login {
+    align-items: flex-start !important;
+    padding: 0.85rem !important;
+  }
+
+  .pf-v5-c-login__container {
+    width: 100% !important;
+  }
 }

@@ -2,10 +2,14 @@ function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
 }
 
-export function loginUrl(returnTo = '/'): string {
+export type LoginProvider = 'google'
+
+export function loginUrl(returnTo = '/', provider?: LoginProvider): string {
   const base = `${apiBase()}/auth/login`
   const safe = returnTo && returnTo.startsWith('/') ? returnTo : '/'
-  return `${base}?returnTo=${encodeURIComponent(safe)}`
+  const params = new URLSearchParams({ returnTo: safe })
+  if (provider) params.set('provider', provider)
+  return `${base}?${params.toString()}`
 }
 
 export function logoutUrl(): string {
