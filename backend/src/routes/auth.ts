@@ -329,6 +329,7 @@ r.post("/register", async (req, res) => {
   try {
     await createKeycloakUser({
       email,
+      username: user.username,
       firstName,
       lastName,
       password,

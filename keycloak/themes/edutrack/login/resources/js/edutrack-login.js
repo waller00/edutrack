@@ -43,6 +43,32 @@
     if (element) element.textContent = text
   }
 
+  function isRequiredActionScreen() {
+    return window.location.href.indexOf('/login-actions/required-action') >= 0 ||
+      window.location.href.indexOf('CONFIGURE_TOTP') >= 0 ||
+      window.location.href.indexOf('UPDATE_PASSWORD') >= 0
+  }
+
+  function replaceValue(selector, text) {
+    var element = document.querySelector(selector)
+    if (element) element.value = text
+  }
+
+  function replaceValues(selector, text) {
+    document.querySelectorAll(selector).forEach(function (element) {
+      element.value = text
+    })
+  }
+
+  function replaceVisibleText(from, to) {
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    var nodes = []
+    while (walker.nextNode()) nodes.push(walker.currentNode)
+    nodes.forEach(function (node) {
+      if (node.nodeValue && node.nodeValue.trim() === from) node.nodeValue = node.nodeValue.replace(from, to)
+    })
+  }
+
   function localizeVisibleText() {
     replaceText('#kc-page-title', 'Ingresar a EduTrack')
     replaceText('label[for="username"] .pf-v5-c-form__label-text', 'Correo o usuario')
@@ -53,6 +79,38 @@
 
     var forgot = document.querySelector('a[href*="reset-credentials"]')
     if (forgot) forgot.textContent = 'Olvidé mi contraseña'
+  }
+
+  function localizeActionScreens() {
+    var isTotp = window.location.href.indexOf('CONFIGURE_TOTP') >= 0 || document.querySelector('#kc-totp-settings')
+    var isPasswordUpdate = window.location.href.indexOf('UPDATE_PASSWORD') >= 0 || document.querySelector('#password-new')
+
+    if (isTotp) {
+      replaceText('#kc-page-title', 'Configurar 2FA')
+      replaceText('label[for="totp"] .pf-v5-c-form__label-text', 'Código de verificación')
+      replaceText('label[for="userLabel"] .pf-v5-c-form__label-text', 'Nombre del dispositivo')
+      replaceValue('#kc-form-buttons input[type="submit"]', 'Activar 2FA')
+      replaceValues('input[type="submit"]', 'Activar 2FA')
+      replaceVisibleText('Submit', 'Activar 2FA')
+      replaceVisibleText('Cancel', 'Cancelar')
+      replaceVisibleText('Install one of the following applications on your mobile:', 'Instalá una app autenticadora en tu celular:')
+      replaceVisibleText('Open the application and scan the barcode:', 'Abrí la aplicación y escaneá el código QR:')
+      replaceVisibleText('Unable to scan?', '¿No podés escanear?')
+      replaceVisibleText(
+        'Enter the one-time code provided by the application and click Submit to finish the setup.',
+        'Ingresá el código de un solo uso que muestra la aplicación para terminar la configuración.',
+      )
+    }
+
+    if (isPasswordUpdate) {
+      replaceText('#kc-page-title', 'Cambiar contraseña')
+      replaceText('label[for="password-new"] .pf-v5-c-form__label-text', 'Contraseña nueva')
+      replaceText('label[for="password-confirm"] .pf-v5-c-form__label-text', 'Confirmar contraseña')
+      replaceValue('#kc-form-buttons input[type="submit"]', 'Guardar contraseña')
+      replaceValues('input[type="submit"]', 'Guardar contraseña')
+      replaceVisibleText('Submit', 'Guardar contraseña')
+      replaceVisibleText('Cancel', 'Cancelar')
+    }
   }
 
   function enhanceGoogleButton() {
@@ -74,7 +132,7 @@
     block.className = 'et-register-link'
 
     var text = document.createElement('span')
-    text.textContent = 'No tenés cuenta? '
+    text.textContent = '¿No tenés cuenta? '
 
     var link = document.createElement('a')
     link.href = frontendOrigin() + '/register'
@@ -87,7 +145,8 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     localizeVisibleText()
+    localizeActionScreens()
     enhanceGoogleButton()
-    addRegisterLink()
+    if (!isRequiredActionScreen()) addRegisterLink()
   })
 })()

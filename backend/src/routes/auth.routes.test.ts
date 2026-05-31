@@ -108,7 +108,12 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
         phone: "099123456",
       });
     expect(res.status).toBe(200);
-    expect(createKeycloakUserMock).toHaveBeenCalled();
+    expect(createKeycloakUserMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "nuevo@example.com",
+        username: "nuevo.user",
+      }),
+    );
     expect(res.body.email).toBe("nuevo@example.com");
   });
 

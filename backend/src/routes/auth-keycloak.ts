@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getRedis } from "../db/redis.js";
 import {
+  buildAccountConsoleUrl,
   buildLoginUrl,
   buildLogoutUrl,
   exchangeCode,
@@ -27,6 +28,7 @@ import { provisionUserFromClaims } from "../auth/keycloak-provisioning.js";
  *   GET  /auth/callback -> intercambia code, crea sesion en Redis, setea cookie `sid`
  *   /auth/logout        -> borra sesion + logout en Keycloak
  *   /auth/refresh       -> refresca tokens OIDC de la sesion
+ *   /auth/account/*     -> envia al portal de cuenta con sesion BFF valida
  */
 const r = Router();
 
@@ -94,21 +96,54 @@ async function startSessionFromTokens(
   setSessionCookie(res, sid);
 }
 
+async function requireSession(req: any, res: any): Promise<BffSession | null> {
+  const sid = req.cookies?.sid as string | undefined;
+  if (!sid) {
+    res.redirect(`${frontendUrl()}/login`);
+    return null;
+  }
+  const session = await getSession(sid);
+  if (!session) {
+    clearSessionCookie(res);
+    res.redirect(`${frontendUrl()}/login`);
+    return null;
+  }
+  return session;
+}
+
+async function beginLoginFlow(
+  res: any,
+  options: {
+    identityProvider?: "google";
+    requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP";
+    returnTo?: string;
+  } = {},
+) {
+  const { codeVerifier, state, authUrl } = await buildLoginUrl({
+    identityProvider: options.identityProvider,
+    requiredAction: options.requiredAction,
+  });
+  const redis = getRedis();
+  if (!redis) {
+    res.status(503).json({ message: "Redis no disponible" });
+    return;
+  }
+  const returnTo = options.returnTo && options.returnTo.startsWith("/") ? options.returnTo : "/";
+  await redis.set(
+    OAUTH_PREFIX + state,
+    JSON.stringify({ codeVerifier, returnTo }),
+    "EX",
+    OAUTH_TTL_SECONDS,
+  );
+  res.redirect(authUrl);
+}
+
 r.get("/login", async (req, res) => {
   try {
     const provider = typeof req.query.provider === "string" ? req.query.provider : "";
     const identityProvider = provider === "google" ? "google" : undefined;
-    const { codeVerifier, state, authUrl } = await buildLoginUrl({ identityProvider });
-    const redis = getRedis();
-    if (!redis) return res.status(503).json({ message: "Redis no disponible" });
     const returnTo = typeof req.query.returnTo === "string" ? req.query.returnTo : "/";
-    await redis.set(
-      OAUTH_PREFIX + state,
-      JSON.stringify({ codeVerifier, returnTo }),
-      "EX",
-      OAUTH_TTL_SECONDS,
-    );
-    res.redirect(authUrl);
+    await beginLoginFlow(res, { identityProvider, returnTo });
   } catch (error) {
     console.error("[auth/login] keycloak:", error);
     res.redirect(`${frontendUrl()}/login?error=oidc`);
@@ -169,6 +204,30 @@ r.post("/refresh", async (req, res) => {
   }
 });
 
+r.get("/account", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  res.redirect(buildAccountConsoleUrl());
+});
+
+r.get("/account/password", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  await beginLoginFlow(res, { requiredAction: "UPDATE_PASSWORD", returnTo: "/profile" });
+});
+
+r.get("/account/2fa", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  await beginLoginFlow(res, { requiredAction: "CONFIGURE_TOTP", returnTo: "/profile" });
+});
+
+r.get("/account/security", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  res.redirect(buildAccountConsoleUrl("account-security/signing-in"));
+});
+
 async function handleLogout(req: any, res: any) {
   const sid = req.cookies?.sid as string | undefined;
   let idToken: string | undefined;
@@ -179,10 +238,13 @@ async function handleLogout(req: any, res: any) {
   }
   clearSessionCookie(res);
 
-  const postLogout = `${frontendUrl()}/login`;
+  const postLogout = `${frontendUrl()}/login?loggedOut=1`;
   const logoutUrl = await buildLogoutUrl(idToken, postLogout);
   if (req.method === "GET" && logoutUrl) {
     return res.redirect(logoutUrl);
+  }
+  if (req.method === "GET") {
+    return res.redirect(postLogout);
   }
   res.json({ ok: true, logoutUrl });
 }

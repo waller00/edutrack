@@ -90,9 +90,17 @@ describe('ProfilePage', () => {
     })
   })
 
-  it('muestra aviso de contraseña vía Keycloak', async () => {
+  it('muestra acciones para contraseña y 2FA', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe })
     render(<ProfilePage />)
-    expect(await screen.findByText(/Keycloak/)).toBeInTheDocument()
+    expect(await screen.findByText('Seguridad de la cuenta')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /cambiar contraseña/i })).toHaveAttribute(
+      'href',
+      'http://localhost:4000/auth/account/password',
+    )
+    expect(screen.getByRole('link', { name: /configurar 2fa/i })).toHaveAttribute(
+      'href',
+      'http://localhost:4000/auth/account/2fa',
+    )
   })
 })

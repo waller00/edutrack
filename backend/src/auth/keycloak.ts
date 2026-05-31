@@ -29,6 +29,15 @@ export function redirectUri(): string {
   return process.env.KEYCLOAK_REDIRECT_URI || "http://localhost:4000/auth/callback";
 }
 
+export function buildAccountConsoleUrl(path = ""): string {
+  const accountUrl = new URL(`${issuerUrl()}/account/`);
+  const cleanPath = path.replace(/^\/+/, "");
+  if (cleanPath) {
+    accountUrl.pathname = `${accountUrl.pathname.replace(/\/$/, "")}/${cleanPath}`;
+  }
+  return accountUrl.href;
+}
+
 /**
  * URL interna (red Docker) para las llamadas server-to-server a Keycloak
  * (discovery, token, jwks). El navegador y Google usan la URL pública del
@@ -102,6 +111,7 @@ export type AuthRequestState = {
 
 export type LoginUrlOptions = {
   identityProvider?: string;
+  requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP";
 };
 
 export async function buildLoginUrl(options: LoginUrlOptions = {}): Promise<AuthRequestState> {
@@ -120,6 +130,9 @@ export async function buildLoginUrl(options: LoginUrlOptions = {}): Promise<Auth
 
   if (options.identityProvider) {
     params.kc_idp_hint = options.identityProvider;
+  }
+  if (options.requiredAction) {
+    params.kc_action = options.requiredAction;
   }
 
   const authUrl = oidc.buildAuthorizationUrl(config, params).href;
@@ -169,10 +182,10 @@ function toExchanged(tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResp
 export async function buildLogoutUrl(idToken?: string, postLogoutRedirectUri?: string): Promise<string | null> {
   const config = await getOidcConfig();
   try {
-    return oidc.buildEndSessionUrl(config, {
-      id_token_hint: idToken,
-      post_logout_redirect_uri: postLogoutRedirectUri,
-    }).href;
+    const params: Record<string, string> = {};
+    if (idToken) params.id_token_hint = idToken;
+    if (postLogoutRedirectUri) params.post_logout_redirect_uri = postLogoutRedirectUri;
+    return oidc.buildEndSessionUrl(config, params).href;
   } catch {
     return null;
   }
@@ -225,6 +238,7 @@ async function getAdminToken(): Promise<string> {
 
 export type CreateKeycloakUserInput = {
   email: string;
+  username?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   password?: string;
@@ -246,7 +260,7 @@ export async function createKeycloakUser(input: CreateKeycloakUserInput): Promis
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       email: input.email,
-      username: input.email,
+      username: input.username || input.email,
       firstName: input.firstName ?? undefined,
       lastName: input.lastName ?? undefined,
       enabled: true,
@@ -273,6 +287,55 @@ export async function createKeycloakUser(input: CreateKeycloakUserInput): Promis
   }
 
   return kcId;
+}
+
+export type SyncKeycloakUserIdentityInput = {
+  kcId: string;
+  email?: string | null;
+  username?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+};
+
+export async function syncKeycloakUserIdentity(input: SyncKeycloakUserIdentityInput): Promise<void> {
+  if (!input.kcId) return;
+  const token = await getAdminToken();
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+
+  const currentRes = await fetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!currentRes.ok) return;
+
+  const current = (await currentRes.json()) as Record<string, unknown>;
+  const next = {
+    ...current,
+    ...(input.email ? { email: input.email } : {}),
+    ...(input.username ? { username: input.username } : {}),
+    ...(input.firstName ? { firstName: input.firstName } : {}),
+    ...(input.lastName ? { lastName: input.lastName } : {}),
+  };
+
+  const updateRes = await fetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(next),
+  });
+  if (!updateRes.ok) {
+    const detail = await updateRes.text().catch(() => "");
+    throw new Error(`Keycloak update user error ${updateRes.status}: ${detail}`);
+  }
+}
+
+export async function syncKeycloakUserIdentityByEmail(
+  email: string,
+  input: Omit<SyncKeycloakUserIdentityInput, "kcId" | "email">,
+): Promise<void> {
+  const token = await getAdminToken();
+  const kcId = await findKeycloakUserIdByEmail(token, email);
+  if (!kcId) return;
+  await syncKeycloakUserIdentity({ kcId, email, ...input });
 }
 
 async function assignRealmRole(token: string, kcUserId: string, roleName: string): Promise<void> {

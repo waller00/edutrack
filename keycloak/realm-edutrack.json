@@ -4,6 +4,7 @@
   "displayName": "EduTrack",
   "loginTheme": "edutrack",
   "loginWithEmailAllowed": true,
+  "editUsernameAllowed": true,
   "duplicateEmailsAllowed": false,
   "registrationAllowed": false,
   "resetPasswordAllowed": true,
@@ -48,7 +49,7 @@
       ],
       "webOrigins": ["+"],
       "attributes": {
-        "post.logout.redirect.uris": "+"
+        "post.logout.redirect.uris": "http://localhost:3000/*"
       },
       "protocolMappers": [
         {
