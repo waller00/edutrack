@@ -54,9 +54,22 @@ describe('LoginPage (Keycloak)', () => {
 
     render(<LoginPage />)
 
-    const btn = await screen.findByRole('button', { name: /Reintentar ingreso/i })
+    const btn = await screen.findByRole('button', { name: /Ingresar/i })
     expect(errorLocationMock.href).toBe('')
     fireEvent.click(btn)
     expect(errorLocationMock.href).toContain('/auth/login')
+  })
+
+  it('no redirige automaticamente despues de cerrar sesion', async () => {
+    const loggedOutLocationMock = { href: '', search: '?loggedOut=1' }
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: loggedOutLocationMock,
+    })
+
+    render(<LoginPage />)
+
+    expect(await screen.findByRole('heading', { name: /Sesión cerrada/i })).toBeInTheDocument()
+    expect(loggedOutLocationMock.href).toBe('')
   })
 })

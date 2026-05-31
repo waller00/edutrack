@@ -15,3 +15,15 @@ export function loginUrl(returnTo = '/', provider?: LoginProvider): string {
 export function logoutUrl(): string {
   return `${apiBase()}/auth/logout`
 }
+
+export function accountSecurityUrl(): string {
+  return `${apiBase()}/auth/account/security`
+}
+
+export function accountPasswordUrl(): string {
+  return `${apiBase()}/auth/account/password`
+}
+
+export function accountTwoFactorUrl(): string {
+  return `${apiBase()}/auth/account/2fa`
+}

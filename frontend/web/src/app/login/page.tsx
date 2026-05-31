@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { loginUrl } from '@/lib/auth/urls'
 
@@ -12,15 +12,18 @@ function safeReturnTo(value: string | null): string {
 export default function LoginPage() {
   const router = useRouter()
   const [externalError, setExternalError] = useState('')
+  const [loggedOut, setLoggedOut] = useState(false)
   const [sessionPending, setSessionPending] = useState(true)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const error = params.get('error') || ''
+    const loggedOutParam = params.get('loggedOut') === '1'
     const returnTo = safeReturnTo(params.get('returnTo'))
 
     let alive = true
     setExternalError(error)
+    setLoggedOut(loggedOutParam)
 
     api('/auth/me')
       .then(() => {
@@ -28,7 +31,7 @@ export default function LoginPage() {
       })
       .catch(() => {
         if (!alive) return
-        if (error) {
+        if (error || loggedOutParam) {
           setSessionPending(false)
           return
         }
@@ -59,9 +62,19 @@ export default function LoginPage() {
             <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">No se pudo iniciar sesion</h1>
-            <p className="text-gray-600">El proveedor de identidad no completo el ingreso.</p>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              {loggedOut ? 'Sesión cerrada' : 'No se pudo iniciar sesión'}
+            </h1>
+            <p className="text-gray-600">
+              {loggedOut ? 'Podés volver a ingresar cuando lo necesites.' : 'El proveedor de identidad no completó el ingreso.'}
+            </p>
           </div>
+          {loggedOut && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+              <p className="text-sm text-emerald-800">Tu sesión local y la sesión de Keycloak fueron cerradas.</p>
+            </div>
+          )}
           {externalError && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
@@ -73,7 +86,7 @@ export default function LoginPage() {
             type="button"
             onClick={() => { window.location.href = loginUrl('/') }}
           >
-            Reintentar ingreso
+            Ingresar
           </button>
           <div className="mt-6 text-center">
             <a href="/register" className="text-emerald-600 hover:text-emerald-700 font-medium text-sm">

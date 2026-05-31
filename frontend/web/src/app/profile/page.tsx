@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { FileText, Save, User } from 'lucide-react'
+import { ExternalLink, FileText, KeyRound, Save, ShieldCheck, User } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
+import { accountPasswordUrl, accountTwoFactorUrl } from '@/lib/auth/urls'
 import PhoneBirthdateFields from '@/components/forms/PhoneBirthdateFields'
 import WebPushSection from '@/components/notifications/WebPushSection'
 import { formatLocalMobileInputFromE164 } from '@/lib/forms/uruguay-forms'
@@ -174,12 +175,45 @@ export default function ProfilePage() {
       </section>
 
       <section className="card">
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Contraseña y 2FA</h2>
-        <p className="text-sm text-gray-600">
-          La contraseña y la autenticación en dos pasos se gestionan en el portal de cuenta (Keycloak).
-          Cerrá sesión y usá «¿Olvidaste tu contraseña?» en la pantalla de inicio de sesión, o pedí a un administrador
-          que envíe un restablecimiento desde Usuarios.
-        </p>
+        <div className="card-header">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100">
+              <ShieldCheck className="h-4 w-4 text-sky-700" aria-hidden />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-950">Seguridad de la cuenta</h2>
+              <p className="text-sm text-gray-600">Gestioná tu contraseña y la verificación en dos pasos.</p>
+            </div>
+          </div>
+        </div>
+        <div className="divide-y divide-gray-100">
+          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-gray-700" aria-hidden />
+              <div>
+                <h3 className="font-semibold text-gray-950">Contraseña</h3>
+                <p className="text-sm text-gray-600">Cambiá tu contraseña actual desde el gestor seguro de cuenta.</p>
+              </div>
+            </div>
+            <a href={accountPasswordUrl()} className="btn-secondary w-full sm:w-auto">
+              Cambiar contraseña
+              <ExternalLink className="h-4 w-4" aria-hidden />
+            </a>
+          </div>
+          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden />
+              <div>
+                <h3 className="font-semibold text-gray-950">Verificación en dos pasos</h3>
+                <p className="text-sm text-gray-600">Activá o administrá tu autenticador cuando quieras.</p>
+              </div>
+            </div>
+            <a href={accountTwoFactorUrl()} className="btn-primary w-full sm:w-auto">
+              Configurar 2FA
+              <ExternalLink className="h-4 w-4" aria-hidden />
+            </a>
+          </div>
+        </div>
       </section>
 
       <WebPushSection />
