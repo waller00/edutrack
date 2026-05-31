@@ -64,10 +64,11 @@ export async function resolveSchoolYearIdForList(
 
 export async function activateSchoolYearById(prisma: PrismaClient, id: string): Promise<SchoolYear> {
   return prisma.$transaction(async (tx) => {
-    await tx.schoolYear.updateMany({
+    const otherActive = await tx.schoolYear.findFirst({
       where: { status: 'ACTIVE', NOT: { id } },
-      data: { status: 'CLOSED' },
+      select: { id: true },
     })
+    if (otherActive) throw new Error('ACTIVE_SCHOOL_YEAR_EXISTS')
     return tx.schoolYear.update({
       where: { id },
       data: { status: 'ACTIVE' },
@@ -124,6 +125,27 @@ export async function copyCoursesBetweenSchoolYears(
           })),
         })
         subjectsCreated += versionedSubjects.length
+      }
+      const assignments = await (tx as any).subjectCourseAssignment?.findMany?.({
+        where: { courseId: offering.courseId, schoolYearId: sourceSchoolYearId },
+        select: {
+          subjectId: true,
+          level: true,
+          courseId: true,
+          orientationId: true,
+          associationType: true,
+          isActive: true,
+          sortOrder: true,
+          notes: true,
+        },
+      })
+      if (assignments?.length) {
+        await (tx as any).subjectCourseAssignment.createMany({
+          data: assignments.map((assignment: any) => ({
+            ...assignment,
+            schoolYearId: targetSchoolYearId,
+          })),
+        })
       }
     }
   })

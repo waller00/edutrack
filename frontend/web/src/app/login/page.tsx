@@ -1,98 +1,55 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
-import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
+import { loginUrl } from '@/lib/auth/urls'
+
+function safeReturnTo(value: string | null): string {
+  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/'
+}
 
 export default function LoginPage() {
   const router = useRouter()
-  const [identifier, setIdentifier] = useState('')
-  const [password, setPassword] = useState('')
-  const [show, setShow] = useState(false)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
   const [externalError, setExternalError] = useState('')
-  const [twoFactorToken, setTwoFactorToken] = useState('')
-  const [twoFactorEmail, setTwoFactorEmail] = useState('')
-  const [twoFactorCode, setTwoFactorCode] = useState('')
-  /** true hasta saber si ya hay sesión (evita mostrar login estando logueado) */
+  const [loggedOut, setLoggedOut] = useState(false)
   const [sessionPending, setSessionPending] = useState(true)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    setExternalError(params.get('error') || '')
-    const token = params.get('twoFactorToken') || ''
-    if (token) {
-      setTwoFactorToken(token)
-      setTwoFactorEmail(params.get('email') || '')
-      setSessionPending(false)
-      window.history.replaceState({}, '', '/login')
-    }
-  }, [])
+    const error = params.get('error') || ''
+    const loggedOutParam = params.get('loggedOut') === '1'
+    const returnTo = safeReturnTo(params.get('returnTo'))
 
-  useEffect(() => {
     let alive = true
+    setExternalError(error)
+    setLoggedOut(loggedOutParam)
+
     api('/auth/me')
       .then(() => {
-        if (alive) router.replace('/')
+        if (alive) router.replace(returnTo)
       })
       .catch(() => {
-        if (alive) setSessionPending(false)
+        if (!alive) return
+        if (error || loggedOutParam) {
+          setSessionPending(false)
+          return
+        }
+        window.location.href = loginUrl(returnTo)
       })
+
     return () => {
       alive = false
     }
   }, [router])
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      const result = await api<any>('/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) })
-      if (result?.requiresTwoFactor) {
-        setTwoFactorToken(result.twoFactorToken)
-        setTwoFactorEmail(result.email || identifier)
-        setTwoFactorCode('')
-        return
-      }
-      window.location.href = '/'
-    } catch (e:any) {
-      const msg = String(e?.message||'')
-      if (msg.includes('429')) setError('Tu cuenta está temporalmente bloqueada por intentos fallidos. Intenta más tarde.')
-      else if (msg.includes('desactivada')) setError('Tu cuenta está dada de baja. Contacta a un administrador.')
-      else setError('Credenciales inválidas')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function onTwoFactorSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      await api('/auth/login/2fa', {
-        method: 'POST',
-        body: JSON.stringify({ twoFactorToken, code: twoFactorCode.trim() }),
-      })
-      window.location.href = '/'
-    } catch {
-      setError('Código de autenticación inválido')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  function loginWithGoogle() {
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/google`
-  }
-
   if (sessionPending) {
     return (
       <main className="min-h-screen gradient-light flex items-center justify-center p-4">
-        <p className="text-gray-600">Cargando…</p>
+        <div className="flex items-center gap-3 text-sm font-medium text-gray-600">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-600" aria-hidden />
+          Conectando con EduTrack
+        </div>
       </main>
     )
   }
@@ -100,159 +57,41 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen gradient-light flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Card principal */}
         <div className="card shadow-modern-lg">
-                  <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                      <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Iniciar Sesión</h1>
-                    <p className="text-gray-600">Accede a tu cuenta para continuar</p>
-                  </div>
-          
-          {twoFactorToken ? (
-            <form onSubmit={onTwoFactorSubmit} className="space-y-6">
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-                <p className="text-sm font-medium text-emerald-900">Verificación en dos pasos</p>
-                <p className="text-sm text-emerald-800 mt-1">
-                  Ingresa el código de Google Authenticator o un código de respaldo{twoFactorEmail ? ` para ${twoFactorEmail}` : ''}.
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Código de autenticación
-                </label>
-                <input
-                  className="input-field text-center tracking-[0.4em]"
-                  value={twoFactorCode}
-                  onChange={e => setTwoFactorCode(e.target.value)}
-                  autoComplete="one-time-code"
-                  inputMode="text"
-                  maxLength={9}
-                  placeholder="123456"
-                  required
-                />
-              </div>
-              {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-red-600 text-sm">{error}</p>
-                </div>
-              )}
-              <button className="btn-primary w-full justify-center" disabled={loading} type="submit">
-                <PendingButtonContent pending={loading} pendingText="Verificando…" idle="Verificar" />
-              </button>
-              <button
-                type="button"
-                className="btn-secondary w-full justify-center"
-                onClick={() => {
-                  setTwoFactorToken('')
-                  setTwoFactorCode('')
-                  setError('')
-                }}
-              >
-                Volver al login
-              </button>
-            </form>
-          ) : (
-          <form onSubmit={onSubmit} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email o Usuario
-              </label>
-              <input
-                id="identifier"
-                className="input-field"
-                placeholder="Ingresa tu email o usuario"
-                value={identifier}
-                onChange={e => setIdentifier(e.target.value)}
-                autoComplete="username"
-                required
-              />
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
             </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Contraseña
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  className="input-field pr-10"
-                  placeholder="Ingresa tu contraseña"
-                  type={show ? 'text' : 'password'}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-                <PasswordVisibilityToggle visible={show} onToggle={() => setShow(!show)} />
-              </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              {loggedOut ? 'Sesión cerrada' : 'No se pudo iniciar sesión'}
+            </h1>
+            <p className="text-gray-600">
+              {loggedOut ? 'Podés volver a ingresar cuando lo necesites.' : 'El proveedor de identidad no completó el ingreso.'}
+            </p>
+          </div>
+          {loggedOut && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+              <p className="text-sm text-emerald-800">Tu sesión local y la sesión de Keycloak fueron cerradas.</p>
             </div>
-            
-          {(error || externalError) && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-red-600 text-sm">
-                  {error || (externalError === 'inactive' ? 'Tu cuenta está dada de baja. Contacta a un administrador.' : 'No se pudo iniciar sesión.')}
-                </p>
-              </div>
-            )}
-            
-            <button
-              className="btn-primary w-full justify-center"
-              disabled={loading}
-              type="submit"
-            >
-              <PendingButtonContent pending={loading} pendingText="Ingresando…" idle="Entrar" />
-            </button>
-          </form>
           )}
-          
-          <div className="flex justify-between mt-6 text-sm">
-            <a href="/forgot" className="text-emerald-600 hover:text-emerald-700 font-medium">
-              ¿Olvidaste tu contraseña?
-            </a>
-            <a href="/register" className="text-emerald-600 hover:text-emerald-700 font-medium">
+          {externalError && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
+              <p className="text-sm text-red-700">Intentá nuevamente. Si el problema continúa, revisá la configuración de Keycloak.</p>
+            </div>
+          )}
+          <button
+            className="btn-primary w-full justify-center"
+            type="button"
+            onClick={() => { window.location.href = loginUrl('/') }}
+          >
+            Ingresar
+          </button>
+          <div className="mt-6 text-center">
+            <a href="/register" className="text-emerald-600 hover:text-emerald-700 font-medium text-sm">
               Registrarse
             </a>
-          </div>
-          
-          <div className="flex items-center my-6">
-            <div className="flex-grow border-t border-gray-200"></div>
-            <span className="mx-4 text-gray-400 text-sm">o continúa con</span>
-            <div className="flex-grow border-t border-gray-200"></div>
-          </div>
-          
-          <button
-            onClick={loginWithGoogle}
-            className="btn-secondary w-full justify-center items-center gap-3 flex"
-            type="button"
-          >
-            <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            <span className="flex-shrink-0">Google</span>
-          </button>
-        </div>
-        
-        {/* Footer */}
-        <div className="text-center mt-8 space-y-4">
-          <p className="text-gray-600">
-            ¿No tienes cuenta?{' '}
-            <button
-              onClick={() => router.push('/register')}
-              className="text-green-600 hover:text-green-700 font-medium"
-            >
-              Regístrate aquí
-            </button>
-          </p>
-          
-          <div className="border-t pt-4">
-            <p className="text-sm text-gray-500">
-              Tras el registro, deberás validar tu DNI y esperar la aprobación administrativa.
-            </p>
           </div>
         </div>
       </div>

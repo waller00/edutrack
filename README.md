@@ -7,12 +7,11 @@ Stack:
 
 ## Roles y Autenticación
 - Perfiles/Roles: ADMIN, DOCENTE, ESTUDIANTE, PADRE
-- Autenticación y cuentas
-  - Login: usuario/email+contraseña (Argon2), OAuth Google, refresh tokens.
-  - Registro y verificación: alta con verificación por email.
-  - Recupero de contraseña: enlace por email (con captcha).
-  - Perfil básico: nombre, cédula, teléfono, fecha de nacimiento.
-  - Control de acceso: guardas por rol, JWT en cookies httpOnly.
+- Autenticación y cuentas (Keycloak + BFF)
+  - Login/logout OIDC vía Keycloak (Google y OTP en el IdP).
+  - Registro en la app (Didit) + verificación de email; contraseña en Keycloak.
+  - Recupero de contraseña: flujo de Keycloak (o email desde admin).
+  - Perfil básico en Postgres; permisos por `orgRole`.
 
 ## Desarrollo rápido
 ```bash
@@ -115,6 +114,41 @@ Notas:
 - El análisis toma como código fuente `backend/src` y `frontend/web/src`; tests y LCOV ya están enlazados en `sonar-project.properties`.
 - Se excluyen artefactos generados como `dist`, `.next`, `node_modules` y definiciones `*.d.ts`.
 - **Cobertura global (Sonar):** objetivo **≥70%** mezclando `backend/coverage/lcov.info` + `frontend/web/coverage/lcov.info` (ver umbrales en `backend/vitest.config.ts` y el workflow de CI).
+
+### Sonar en GitHub Actions
+El workflow `.github/workflows/sonar.yml` genera la cobertura de backend y frontend y ejecuta el scanner, fallando el pipeline si el Quality Gate no pasa.
+
+Secrets a cargar en GitHub (Settings → Secrets and variables → Actions):
+- `SONAR_TOKEN`: token de proyecto (SonarCloud o tu SonarQube).
+- `SONAR_HOST_URL`: URL del servidor (ej. `https://sonarcloud.io` o tu instancia).
+
+Si `SONAR_TOKEN` no está cargado, el job se omite (no rompe el resto del CI). Para SonarCloud, agregá también `sonar.organization` en `sonar-project.properties`.
+
+## Observabilidad (Sentry / LogRocket)
+- **Sentry** (errores + performance) en backend (`@sentry/node`, ver `backend/src/instrument.ts`) y frontend (`@sentry/nextjs`). Se activa solo si hay DSN.
+  - Recomendado en **testing y producción** (se distinguen por `SENTRY_ENVIRONMENT`; `tracesSampleRate` más bajo en prod).
+  - Variables: `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_SENTRY_DSN`. Opcional source maps: `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`.
+- **LogRocket** (session replay del frontend, `src/components/observability/Observability.tsx`).
+  - Recomendado **solo en producción** (en testing son sesiones sintéticas y gastan cuota). Enmascara inputs por privacidad (datos de menores).
+  - Variable: `NEXT_PUBLIC_LOGROCKET_APP_ID` (forzar fuera de prod con `NEXT_PUBLIC_LOGROCKET_FORCE=true`).
+
+## Redis
+- Servicio `redis` en ambos compose. Cliente en `backend/src/db/redis.ts` (`REDIS_URL`).
+- Usos: rate limiting de login (`backend/src/middlewares/rate-limit.ts`) y **sesiones server-side del BFF** (`backend/src/auth/session-store.ts`).
+- Degrada con elegancia: si `REDIS_URL` no está, el rate limit es no-op (pero el modo Keycloak requiere Redis).
+
+## Keycloak (autenticación, patrón BFF)
+Keycloak es el único IdP. Patrón **BFF**: el backend hace OIDC (Authorization Code + PKCE), guarda los tokens en una **sesión server-side en Redis** (`REDIS_URL` obligatorio) y entrega al navegador solo una cookie opaca `sid`. La autorización (permisos por `orgRole`) sigue en Postgres.
+
+Componentes:
+- `keycloak` + `keycloak-db` en los compose; realm import en `keycloak/realm-edutrack.json` (roles `ADMIN/STAFF/TEACHER`, client `edutrack-web`, Google IdP, OTP).
+- Backend: `backend/src/auth/keycloak.ts`, `backend/src/routes/auth-keycloak.ts` (`/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/refresh`), provisioning en `backend/src/auth/keycloak-provisioning.ts`.
+
+Puesta en marcha (testing primero):
+1. Droplet ≥ 4GB (`terraform/main.tf` o panel DigitalOcean).
+2. Rotar `KEYCLOAK_CLIENT_SECRET` y cargar Google en el IdP (`REEMPLAZAR_GOOGLE_*` en el realm); redirect URI de Keycloak en Google Cloud Console.
+3. URLs públicas: `KEYCLOAK_ISSUER_URL`, `KEYCLOAK_REDIRECT_URI` (alcanzables por navegador y contenedor `auth`).
+4. `docker compose up -d --build` y validar login/logout/registro.
 
 ## Estructura
 Ver el mapa completo en **[docs/ESTRUCTURA_PROYECTO.md](docs/ESTRUCTURA_PROYECTO.md)**.

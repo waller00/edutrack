@@ -8,6 +8,7 @@ import {
   findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
   findAssignedEventNearAttendanceInstant,
+  maybeCreateEarlyExitIncident,
   maybeCreateLateArrivalIncident,
   resolveNoShowIncidentsForEvents,
 } from "./attendance-incidents.js";
@@ -97,6 +98,75 @@ async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDa
     else if (r.type === "CHECK_OUT") openAnchor = null;
   }
   return openAnchor;
+}
+
+async function materializeAttendanceForBlockEvents(
+  tx: any,
+  params: {
+    userId: string;
+    attendanceDate: Date;
+    attendanceTime: Date;
+    type: "CHECK_IN" | "CHECK_OUT";
+    anchorEventId?: string | null;
+    blockEventIds: string[];
+    deviceCode: string;
+    lateToleranceMinutes: number;
+    earlyExitToleranceMinutes: number;
+  },
+) {
+  const ids = Array.from(new Set(params.blockEventIds.filter((id) => id && id !== params.anchorEventId)));
+  if (ids.length === 0) return 0;
+
+  const events = await tx.event.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, startTime: true, endTime: true },
+  });
+
+  let created = 0;
+  for (const ev of events) {
+    const existing = await tx.attendance.findFirst({
+      where: {
+        userId: params.userId,
+        date: params.attendanceDate,
+        type: params.type,
+        eventId: ev.id,
+      },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    const status =
+      params.type === "CHECK_IN"
+        ? getAttendanceStatus({
+            type: "CHECK_IN",
+            actualTime: params.attendanceTime,
+            startTime: ev.startTime,
+            hasApprovedLicense: false,
+            lateToleranceMinutes: params.lateToleranceMinutes,
+          })
+        : getAttendanceStatus({
+            type: "CHECK_OUT",
+            actualTime: params.attendanceTime,
+            endTime: ev.endTime,
+            hasApprovedLicense: false,
+            lateToleranceMinutes: params.earlyExitToleranceMinutes,
+          });
+
+    await tx.attendance.create({
+      data: buildBiometricAttendancePayload({
+        userId: params.userId,
+        attendanceDate: params.attendanceDate,
+        attendanceTime: params.attendanceTime,
+        deviceId: params.deviceCode,
+        eventId: ev.id,
+        status: status as any,
+        type: params.type,
+      }),
+    });
+    created += 1;
+  }
+
+  return created;
 }
 
 export async function resolveBiometricAttendanceLinkage(
@@ -324,14 +394,14 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
               date: attendanceDate,
               time: occurredAt,
               eventId: linkage.attendanceEventId || undefined,
-              status,
+              status: status as any,
               notes: buildBiometricAttendancePayload({
                 userId: mapping.userId,
                 attendanceDate,
                 attendanceTime: occurredAt,
                 deviceId: deviceCode,
                 eventId: linkage.attendanceEventId || undefined,
-                status,
+                status: status as any,
                 type: "CHECK_OUT",
               }).notes,
             },
@@ -394,14 +464,14 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
                 date: attendanceDate,
                 time: occurredAt,
                 eventId: linkage.attendanceEventId || undefined,
-                status,
+                status: status as any,
                 notes: buildBiometricAttendancePayload({
                   userId: mapping.userId,
                   attendanceDate,
                   attendanceTime: occurredAt,
                   deviceId: deviceCode,
                   eventId: linkage.attendanceEventId || undefined,
-                  status,
+                  status: status as any,
                   type: "CHECK_OUT",
                 }).notes,
               },
@@ -435,7 +505,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
         resolvedType === "CHECK_IN" &&
         isLate &&
         (Boolean(openNoShow) || isVeryLateArrival(minutesLate, runtimeSettings.noShowGraceMinutes));
-      const status =
+      const computedStatus =
         resolvedType === "CHECK_OUT"
           ? getAttendanceStatus({
               type: "CHECK_OUT",
@@ -444,7 +514,10 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
               hasApprovedLicense: false,
               lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
             })
-          : undefined;
+          : isLate
+            ? "LATE"
+            : "PRESENT";
+      const status = linkage.attendanceEventId ? computedStatus : "OUT_OF_SCHEDULE";
 
       const attendance = await tx.attendance.create({
         data: {
@@ -455,9 +528,14 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
             deviceId: deviceCode,
             eventId: linkage.attendanceEventId || undefined,
             isLate,
-            status,
+            status: status as any,
             type: resolvedType,
           }),
+          ...(!linkage.attendanceEventId
+            ? {
+                notes: `Marcación sin horario asignado - Dispositivo: ${deviceCode || "N/A"}`,
+              }
+            : {}),
           ...(isVeryLate && minutesLate !== null
             ? { notes: `Llegada muy tarde: ${minutesLate} min tarde - Dispositivo: ${deviceCode || "N/A"}` }
             : {}),
@@ -494,7 +572,32 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
           eventStartTime: lateRef?.startTime || null,
           lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
         });
+      } else {
+        await maybeCreateEarlyExitIncident({
+          tx,
+          userId: mapping.userId,
+          eventId: linkage.exitReference?.id,
+          eventType: linkage.exitReference?.type,
+          eventTitle: linkage.exitReference?.title,
+          attendanceId: attendance.id,
+          biometricPunchId: punch.id,
+          attendanceTime: occurredAt,
+          eventEndTime: linkage.exitReference?.endTime || null,
+          earlyExitToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
+        });
       }
+
+      await materializeAttendanceForBlockEvents(tx, {
+        userId: mapping.userId,
+        attendanceDate,
+        attendanceTime: occurredAt,
+        type: resolvedType,
+        anchorEventId: attendance.eventId,
+        blockEventIds: linkage.blockEventIds,
+        deviceCode,
+        lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
+        earlyExitToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
+      });
       await resolveNoShowIncidentsForEvents(tx, mapping.userId, linkage.blockEventIds);
 
       await tx.biometricDevice.update({

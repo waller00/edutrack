@@ -32,6 +32,7 @@ import {
 import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { ensureMoodleUserById } from '../services/moodle.js'
+import { createKeycloakUser, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
 import adminStudentsRoutes from './admin-students.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
 
@@ -533,6 +534,17 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
       isActive: true,
     },
   })
+  try {
+    await createKeycloakUser({
+      email,
+      username,
+      role: roleCode,
+      emailVerified: false,
+    })
+  } catch (e) {
+    console.error('[admin] keycloak create user:', e)
+    return res.status(502).json({ message: 'Usuario local creado, pero no se pudo crear la cuenta en Keycloak.' })
+  }
   recordAuditEvent({
     action: AuditAction.USER_CREATED_BY_ADMIN,
     actorUserId: (req as any).user?.id ?? null,
@@ -634,6 +646,7 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
     where: { id },
     select: {
       roleId: true,
+      email: true,
       username: true,
       firstName: true,
       lastName: true,
@@ -654,6 +667,13 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
 
   try {
     await prisma.user.update({ where: { id }, data: data as Prisma.UserUpdateInput })
+    if (data.username || data.firstName || data.lastName) {
+      await syncKeycloakUserIdentityByEmail(beforeSnapshot.email, {
+        username: typeof data.username === 'string' ? data.username : beforeSnapshot.username,
+        firstName: typeof data.firstName === 'string' ? data.firstName : beforeSnapshot.firstName,
+        lastName: typeof data.lastName === 'string' ? data.lastName : beforeSnapshot.lastName,
+      }).catch((error) => console.warn('[admin] keycloak sync user identity skipped:', error))
+    }
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return res.status(409).json({ message: messageForUniqueViolation(error) })
@@ -708,24 +728,28 @@ r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), 
   const id = req.params.id
   const u = await prisma.user.findUnique({
     where: { id },
-    select: selectOrgRoleCode,
+    select: { ...selectOrgRoleCode, email: true },
   })
   if (!u) return res.status(404).json({ message: 'Usuario no encontrado' })
   if ((u.orgRole?.code ?? '') === 'ADMIN') {
     return res.status(403).json({ message: 'No se puede resetear la contraseña del administrador desde esta pantalla.' })
   }
-  const token = randomBytes(32).toString('hex')
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
-  await prisma.passwordReset.create({ data: { token, userId: id, expiresAt } })
+  try {
+    const { triggerKeycloakPasswordReset } = await import('../auth/keycloak.js')
+    await triggerKeycloakPasswordReset(u.email)
+  } catch (e) {
+    console.error('[admin] keycloak password reset:', e)
+    return res.status(502).json({ message: 'No se pudo enviar el restablecimiento de contraseña (Keycloak).' })
+  }
   recordAuditEvent({
     action: AuditAction.ADMIN_PASSWORD_RESET_ISSUED,
     actorUserId: (req as any).user?.id ?? null,
     req,
     entityType: 'User',
     entityId: id,
-    metadata: { expiresAt: expiresAt.toISOString() },
+    metadata: { via: 'keycloak' },
   })
-  res.json({ token, expiresAt })
+  res.json({ ok: true, message: 'Se envió un correo de restablecimiento de contraseña (Keycloak).' })
 })
 
 r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_req, res) => {

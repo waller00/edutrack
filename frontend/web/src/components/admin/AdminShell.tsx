@@ -22,14 +22,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     <div className="min-h-screen bg-slate-50/80">
       {showSchoolYearFilter ? (
         <div className="border-b border-gray-200 bg-white shadow-sm">
-          <div className="mx-auto max-w-7xl px-4 py-3 flex flex-wrap items-center gap-3 justify-between">
-            <div className="flex flex-wrap items-center gap-3 min-w-0">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <span className="text-sm font-semibold text-gray-800 shrink-0">Ciclo lectivo</span>
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-emerald-600" aria-hidden />
               ) : (
                 <select
-                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm min-w-[200px] max-w-full disabled:opacity-50"
+                  className="w-full min-w-0 rounded-lg border border-gray-200 px-3 py-1.5 text-sm disabled:opacity-50 sm:w-auto sm:min-w-[200px]"
                   disabled={allYears}
                   value={selectedId ?? activeId ?? ''}
                   onChange={(e) => setSelectedId(e.target.value || null)}
@@ -48,7 +48,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 Ver todos los ciclos (sin filtrar)
               </label>
             </div>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-gray-500">
               <span className="hidden sm:inline">Filtro API:</span>
               <code className="rounded bg-slate-100 px-2 py-0.5 max-w-[220px] truncate">{schoolYearQuery || '—'}</code>
               <Link href="/admin/school-years" className="text-emerald-700 hover:underline shrink-0">

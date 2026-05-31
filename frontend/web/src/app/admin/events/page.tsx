@@ -3,12 +3,13 @@ import DateRangeFields from '@/components/forms/DateRangeFields'
 import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Calendar } from 'lucide-react'
+import { Calendar, Download, Upload } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import {
   buildAdminEventsAllQueryString,
+  ADMIN_EVENT_TYPE_SELECT_OPTIONS,
   getAdminEventRoleTypeOptions,
   getAdminEventStatusLabel,
   getAdminEventStatusStyle,
@@ -16,14 +17,28 @@ import {
   type AdminEventCreatorRole,
 } from '@/lib/admin/events-display'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
+import { getRoleLabel } from '@/lib/roles/display'
 import {
   formatDateInUruguay,
   formatTimeInUruguay,
   formatClockHhMmInUruguayFromIso,
   getTodayYmdInUruguay,
 } from '@/lib/forms/datetime-uy'
+import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
+import type { SubstitutionListResponse } from '@/lib/substitutions/types'
+import {
+  resolveAdminSchoolYearForEvents,
+  schoolYearRangeLabel,
+  type RecurrenceRangeMode,
+} from '@/lib/admin/event-recurrence'
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
+type CourseOrientationOpt = {
+  id: string
+  orientationId: string
+  isActive: boolean
+  orientation: { id: string; name: string; code: string | null }
+}
 type SubjectOpt = { id: string; name: string; code: string | null }
 
 function withSchoolYear(path: string, schoolYearQuery: string): string {
@@ -35,7 +50,7 @@ type Event = {
   id: string
   title: string
   description?: string
-  type: 'JORNADA_LABORAL' | 'REUNION' | 'CLASE' | 'EVENTO' | 'CAPACITACION' | 'CITA_MEDICA'
+  type: 'JORNADA_LABORAL' | 'REUNION' | 'CLASE'
   status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED'
   startDate: string
   endDate?: string
@@ -59,6 +74,9 @@ type Event = {
   assignedUserId?: string
   courseId?: string | null
   course?: { id: string; name: string; code: string | null } | null
+  orientationId?: string | null
+  courseOrientationId?: string | null
+  orientation?: { id: string; name: string; code: string | null } | null
   subjectId?: string | null
   subject?: { id: string; name: string; code: string | null } | null
   recurrenceType: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
@@ -78,6 +96,14 @@ type User = {
   role: string
 }
 
+type EventImportError = { row: number; message: string }
+type EventImportResponse = {
+  ok: boolean
+  createdCount: number
+  validCount?: number
+  errors?: EventImportError[]
+}
+
 type EventTypeOption = Event['type']
 type EventStatusOption = Event['status']
 type RoleOption = AdminEventCreatorRole
@@ -91,6 +117,8 @@ type EditableEvent = Pick<
   | 'endTime'
   | 'assignedUserId'
   | 'courseId'
+  | 'orientationId'
+  | 'courseOrientationId'
   | 'subjectId'
   | 'recurrenceType'
   | 'isRecurring'
@@ -100,6 +128,8 @@ type EditableEvent = Pick<
   assignedUserId: string
   recurrenceEnd: string
   courseId: string
+  orientationId: string
+  courseOrientationId: string
   subjectId: string
 }
 
@@ -133,6 +163,111 @@ function getApiErrorDetail(error: unknown): string {
     return zod.map((err) => (err.path?.length ? `${err.path.join('.')}: ` : '') + err.message).join(' · ')
   }
   return e.data?.message || e.message || 'Error desconocido'
+}
+
+function csvCell(value: string): string {
+  if (/[;"\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`
+  return value
+}
+
+function buildEventImportTemplate(): string {
+  const headers = [
+    'titulo',
+    'descripcion',
+    'tipo',
+    'fecha',
+    'hora_inicio',
+    'hora_fin',
+    'asignado_a',
+    'curso',
+    'orientacion',
+    'asignatura',
+    'repite',
+    'dias',
+    'fin_repeticion',
+  ]
+  const rows = [
+    [
+      'Clase semanal Biología',
+      'Una fila crea toda la regla semanal',
+      'CLASE',
+      '2026-03-02',
+      '09:00',
+      '10:30',
+      'usuario_docente',
+      '3-EMS',
+      'Ciencias de la Vida',
+      'Biología Humana',
+      'si',
+      'lun',
+      'ciclo',
+    ],
+    [
+      'Reunion de coordinacion',
+      '',
+      'REUNION',
+      '2026-03-04',
+      '13:00',
+      '14:00',
+      'admin',
+      '',
+      '',
+      '',
+      'no',
+      '',
+      '',
+    ],
+  ]
+  return [headers, ...rows].map((row) => row.map(csvCell).join(';')).join('\n')
+}
+
+function parseCsvRows(text: string): Record<string, string>[] {
+  const cleaned = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const firstLine = cleaned.split('\n')[0] ?? ''
+  const delimiter = (firstLine.match(/;/g)?.length ?? 0) >= (firstLine.match(/,/g)?.length ?? 0) ? ';' : ','
+  const rows: string[][] = []
+  let row: string[] = []
+  let cell = ''
+  let inQuotes = false
+
+  for (let i = 0; i < cleaned.length; i += 1) {
+    const ch = cleaned[i]
+    const next = cleaned[i + 1]
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (ch === delimiter && !inQuotes) {
+      row.push(cell)
+      cell = ''
+    } else if (ch === '\n' && !inQuotes) {
+      row.push(cell)
+      rows.push(row)
+      row = []
+      cell = ''
+    } else {
+      cell += ch
+    }
+  }
+  if (cell !== '' || row.length > 0) {
+    row.push(cell)
+    rows.push(row)
+  }
+
+  const [headersRaw, ...dataRows] = rows.filter((r) => r.some((v) => v.trim() !== ''))
+  if (!headersRaw) return []
+  const headers = headersRaw.map((h) => h.trim())
+  return dataRows
+    .filter((r) => r.some((v) => v.trim() !== ''))
+    .map((r) =>
+      headers.reduce<Record<string, string>>((acc, header, index) => {
+        acc[header] = (r[index] ?? '').trim()
+        return acc
+      }, {}),
+    )
 }
 
 /** Horas 00–23 (formato 24 h civil; no AM/PM). */
@@ -209,7 +344,7 @@ function AdminTime24Selects({
 
 function renderEventsEmptyState(events: Event[]) {
   if (events.length === 0) {
-    return <div className="p-6 text-center text-gray-500">No hay eventos</div>
+    return <div className="p-4 text-center text-gray-500 sm:p-6">No hay actividades</div>
   }
 
   return null
@@ -232,6 +367,8 @@ export default function AdminEvents() {
   const [events, setEvents] = useState<Event[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [courses, setCourses] = useState<CourseOpt[]>([])
+  const [createOrientations, setCreateOrientations] = useState<CourseOrientationOpt[]>([])
+  const [editOrientations, setEditOrientations] = useState<CourseOrientationOpt[]>([])
   const [createSubjects, setCreateSubjects] = useState<SubjectOpt[]>([])
   const [editSubjects, setEditSubjects] = useState<SubjectOpt[]>([])
   const [loading, setLoading] = useState(false)
@@ -251,8 +388,14 @@ export default function AdminEvents() {
   const [message, setMessage] = useState('')
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
+  const [importingEvents, setImportingEvents] = useState(false)
+  const [importErrors, setImportErrors] = useState<EventImportError[]>([])
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
+
+  const [recurrenceRangeMode, setRecurrenceRangeMode] = useState<RecurrenceRangeMode>('school_year')
+  const activeSchoolYear = resolveAdminSchoolYearForEvents(syCtx ?? null)
 
   const [newEvent, setNewEvent] = useState<EditableEvent>({
     title: '',
@@ -263,6 +406,8 @@ export default function AdminEvents() {
     endTime: '10:00',
     assignedUserId: '',
     courseId: '',
+    orientationId: '',
+    courseOrientationId: '',
     subjectId: '',
     recurrenceType: 'NONE',
     isRecurring: false,
@@ -272,11 +417,33 @@ export default function AdminEvents() {
   
   const [selectedRole, setSelectedRole] = useState<RoleOption>('')
   const [portalReady, setPortalReady] = useState(false)
+  const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
+  const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     loadEvents()
     loadUsers()
+    void loadSubstitutionFlags()
   }, [page, filters, syCtx?.allYears, syCtx?.schoolYearQuery])
+
+  async function loadSubstitutionFlags() {
+    try {
+      const from = filters.startDate || getTodayYmdInUruguay()
+      const to = filters.endDate || from
+      const res = await api<SubstitutionListResponse>(
+        `/substitutions?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&pageSize=100`,
+      )
+      const keys = new Set(
+        res.data.map((s) => {
+          const day = String(s.date).slice(0, 10)
+          return `${s.eventId}|${day}`
+        }),
+      )
+      setSubstitutionKeys(keys)
+    } catch {
+      setSubstitutionKeys(new Set())
+    }
+  }
 
   const loadCourses = useCallback(async () => {
     try {
@@ -301,43 +468,69 @@ export default function AdminEvents() {
 
   useEffect(() => {
     if (!creating || !newEvent.courseId) {
+      setCreateOrientations([])
       setCreateSubjects([])
       return
     }
     let cancelled = false
     void (async () => {
       try {
-        const path = `/courses/${newEvent.courseId}/subjects`
-        const list = await api<SubjectOpt[]>(withSchoolYear(path, coursePickerQuery))
-        if (!cancelled) setCreateSubjects(Array.isArray(list) ? list : [])
+        const orientationPath = `/courses/${newEvent.courseId}/orientations`
+        const subjectPath = newEvent.orientationId
+          ? `/courses/${newEvent.courseId}/subjects?orientationId=${encodeURIComponent(newEvent.orientationId)}`
+          : `/courses/${newEvent.courseId}/subjects`
+        const [orientationList, subjectList] = await Promise.all([
+          api<CourseOrientationOpt[]>(withSchoolYear(orientationPath, coursePickerQuery)),
+          api<SubjectOpt[]>(withSchoolYear(subjectPath, coursePickerQuery)),
+        ])
+        if (!cancelled) {
+          setCreateOrientations(Array.isArray(orientationList) ? orientationList : [])
+          setCreateSubjects(Array.isArray(subjectList) ? subjectList : [])
+        }
       } catch {
-        if (!cancelled) setCreateSubjects([])
+        if (!cancelled) {
+          setCreateOrientations([])
+          setCreateSubjects([])
+        }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [creating, newEvent.courseId, coursePickerQuery])
+  }, [creating, newEvent.courseId, newEvent.orientationId, coursePickerQuery])
 
   useEffect(() => {
     if (!editingEvent?.courseId) {
+      setEditOrientations([])
       setEditSubjects([])
       return
     }
     let cancelled = false
     void (async () => {
       try {
-        const path = `/courses/${editingEvent.courseId}/subjects`
-        const list = await api<SubjectOpt[]>(withSchoolYear(path, coursePickerQuery))
-        if (!cancelled) setEditSubjects(Array.isArray(list) ? list : [])
+        const orientationPath = `/courses/${editingEvent.courseId}/orientations`
+        const subjectPath = editingEvent.orientationId
+          ? `/courses/${editingEvent.courseId}/subjects?orientationId=${encodeURIComponent(editingEvent.orientationId)}`
+          : `/courses/${editingEvent.courseId}/subjects`
+        const [orientationList, subjectList] = await Promise.all([
+          api<CourseOrientationOpt[]>(withSchoolYear(orientationPath, coursePickerQuery)),
+          api<SubjectOpt[]>(withSchoolYear(subjectPath, coursePickerQuery)),
+        ])
+        if (!cancelled) {
+          setEditOrientations(Array.isArray(orientationList) ? orientationList : [])
+          setEditSubjects(Array.isArray(subjectList) ? subjectList : [])
+        }
       } catch {
-        if (!cancelled) setEditSubjects([])
+        if (!cancelled) {
+          setEditOrientations([])
+          setEditSubjects([])
+        }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [editingEvent?.courseId, coursePickerQuery])
+  }, [editingEvent?.courseId, editingEvent?.orientationId, coursePickerQuery])
 
   async function loadEvents() {
     setLoading(true)
@@ -377,6 +570,7 @@ export default function AdminEvents() {
   function resetCreateForm() {
     setSelectedRole('')
     setCreateModalError('')
+    setRecurrenceRangeMode('school_year')
     setNewEvent({
       title: '',
       description: '',
@@ -386,6 +580,8 @@ export default function AdminEvents() {
       endTime: '10:00',
       assignedUserId: '',
       courseId: '',
+      orientationId: '',
+      courseOrientationId: '',
       subjectId: '',
       recurrenceType: 'NONE',
       isRecurring: false,
@@ -410,9 +606,22 @@ export default function AdminEvents() {
       return 'La hora de fin debe ser mayor que la de inicio. Muy común: elegir “12:11 AM” para el fin (eso es 00:11 de la madrugada, antes que las 11:11 de la mañana). Para terminar a las 12:11 del mediodía usá 12:11 en 24 h o “12:11 PM”.'
     }
     if (newEvent.isRecurring) {
-      if (!newEvent.recurrenceEnd) return 'Los eventos repetitivos requieren fecha de fin de recurrencia.'
-      if (newEvent.recurrenceEnd < newEvent.startDate) {
+      const endYmd =
+        recurrenceRangeMode === 'school_year' ? null : newEvent.recurrenceEnd?.trim() || null
+      if (!endYmd) {
+        if (recurrenceRangeMode === 'school_year') {
+          if (!activeSchoolYear || activeSchoolYear.status === 'CLOSED') {
+            return 'Para repetir hasta cierre manual del ciclo, elegí un ciclo lectivo abierto en la barra superior.'
+          }
+        } else {
+          return 'Los eventos repetitivos requieren fecha de fin de recurrencia.'
+        }
+      }
+      if (endYmd && endYmd < newEvent.startDate) {
         return 'La fecha de fin de recurrencia debe ser igual o posterior a la fecha de inicio.'
+      }
+      if (newEvent.daysOfWeek.length === 0) {
+        return 'Seleccioná al menos un día de la semana para la repetición.'
       }
     }
     return null
@@ -437,13 +646,23 @@ export default function AdminEvents() {
         isRecurring: newEvent.isRecurring,
         recurrenceType: newEvent.isRecurring ? 'WEEKLY' : 'NONE',
         daysOfWeek: newEvent.isRecurring ? newEvent.daysOfWeek.map((d) => Number(d)) : [],
-        recurrenceEnd: newEvent.isRecurring && newEvent.recurrenceEnd ? newEvent.recurrenceEnd : null,
+        recurrenceEnd: newEvent.isRecurring
+          ? recurrenceRangeMode === 'school_year'
+            ? null
+            : newEvent.recurrenceEnd || null
+          : null,
       }
       if (newEvent.assignedUserId) {
         eventData.assignedUserId = newEvent.assignedUserId
       }
       if (newEvent.courseId) {
         eventData.courseId = newEvent.courseId
+      }
+      if (newEvent.orientationId) {
+        eventData.orientationId = newEvent.orientationId
+      }
+      if (newEvent.courseOrientationId) {
+        eventData.courseOrientationId = newEvent.courseOrientationId
       }
       if (newEvent.subjectId) {
         eventData.subjectId = newEvent.subjectId
@@ -454,7 +673,7 @@ export default function AdminEvents() {
         body: JSON.stringify(eventData),
       })
 
-      setMessage('✅ Evento creado correctamente')
+      setMessage('✅ Actividad creada correctamente')
       await loadEvents()
       setCreating(false)
       resetCreateForm()
@@ -470,7 +689,7 @@ export default function AdminEvents() {
         body: JSON.stringify(updates)
       })
       
-      setMessage('✅ Evento actualizado correctamente')
+      setMessage('✅ Actividad actualizada correctamente')
       await loadEvents()
       setEditingEvent(null)
     } catch (error: any) {
@@ -485,7 +704,7 @@ export default function AdminEvents() {
         body: JSON.stringify({ reason })
       })
       
-      setMessage('✅ Evento cancelado correctamente')
+      setMessage('✅ Actividad cancelada correctamente')
       await loadEvents()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al cancelar evento'}`)
@@ -499,7 +718,7 @@ export default function AdminEvents() {
         body: JSON.stringify({ status: 'SCHEDULED' })
       })
       
-      setMessage('✅ Evento reactivado correctamente')
+      setMessage('✅ Actividad reactivada correctamente')
       await loadEvents()
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al reactivar evento'}`)
@@ -524,6 +743,45 @@ export default function AdminEvents() {
     }
   }
 
+  function downloadImportTemplate() {
+    const blob = new Blob([`\uFEFF${buildEventImportTemplate()}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'plantilla_importacion_eventos.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function importEventsFromFile(file: File) {
+    setMessage('')
+    setImportErrors([])
+    setImportingEvents(true)
+    try {
+      const rows = parseCsvRows(await file.text())
+      if (rows.length === 0) {
+        setMessage('❌ El CSV no tiene filas para importar.')
+        return
+      }
+      const result = await api<EventImportResponse>(withSchoolYear('/events/import', coursePickerQuery), {
+        method: 'POST',
+        body: JSON.stringify({ rows }),
+      })
+      setMessage(`✅ Se importaron ${result.createdCount} eventos correctamente`)
+      await loadEvents()
+    } catch (error: unknown) {
+      const data = (error as { data?: { errors?: EventImportError[] } }).data
+      const errors = Array.isArray(data?.errors) ? data.errors : []
+      setImportErrors(errors)
+      setMessage(errors.length > 0 ? '❌ No se importó ningún evento. Revisá las filas marcadas.' : `❌ ${getApiErrorDetail(error)}`)
+    } finally {
+      setImportingEvents(false)
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
   function toggleEventSelection(id: string) {
     setSelectedEventIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
@@ -536,38 +794,66 @@ export default function AdminEvents() {
 
   return (
     <RoleGuard permission="events.read" permissionScope="all">
-      <main className="mx-auto w-full max-w-[1600px] p-6 space-y-6">
-        <div className="flex justify-between items-center">
+      <main className="responsive-page max-w-[1600px] space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Gestión de Eventos</h1>
-              <p className="text-gray-600">Crear y administrar eventos</p>
+              <h1 className="text-2xl font-bold">Agenda y clases</h1>
+              <p className="text-gray-600">Organizá clases, jornadas, reuniones y suplencias.</p>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={downloadImportTemplate}
+              className="inline-flex items-center justify-center gap-2 rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Download className="h-4 w-4" aria-hidden />
+              Descargar formato
+            </button>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              disabled={importingEvents}
+              className="inline-flex items-center justify-center gap-2 rounded border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4" aria-hidden />
+              {importingEvents ? 'Importando...' : 'Importar CSV'}
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) void importEventsFromFile(file)
+              }}
+            />
             <button
               onClick={() => {
                 setMessage('')
+                setImportErrors([])
                 setCreateModalError('')
                 setCreating(true)
               }}
               className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
             >
-              Crear Evento
+              Nueva actividad
             </button>
             <div className="text-sm text-gray-600">
-              Total: {total} eventos
+              {total} actividades
             </div>
           </div>
         </div>
 
         {/* Filtros */}
-        <div className="bg-white border rounded-lg p-6 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold">Filtros</h2>
+        <div className="bg-white border rounded-lg p-4 shadow-sm sm:p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold">Buscar en agenda</h2>
             <button
               onClick={() => setFilters({
                 startDate: '',
@@ -580,7 +866,7 @@ export default function AdminEvents() {
               })}
               className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border"
             >
-              Limpiar Filtros
+              Limpiar filtros
             </button>
           </div>
           
@@ -640,9 +926,11 @@ export default function AdminEvents() {
                 className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               >
                 <option value="">Todos</option>
-                <option value="JORNADA_LABORAL">Jornada Laboral</option>
-                <option value="REUNION">Reunión</option>
-                <option value="CLASE">Clase</option>
+                {ADMIN_EVENT_TYPE_SELECT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -654,7 +942,7 @@ export default function AdminEvents() {
               >
                 <option value="">Todos</option>
                 <option value="SCHEDULED">Programado</option>
-                <option value="IN_PROGRESS">En Progreso</option>
+                <option value="IN_PROGRESS">En curso</option>
                 <option value="COMPLETED">Completado</option>
                 <option value="CANCELLED">Cancelado</option>
                 <option value="EXPIRED">Vencido</option>
@@ -669,15 +957,28 @@ export default function AdminEvents() {
             {message}
           </div>
         )}
+        {importErrors.length > 0 && !creating && !editingEvent ? (
+          <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            <div className="font-semibold">Errores de importación</div>
+            <ul className="mt-2 space-y-1">
+              {importErrors.slice(0, 12).map((err) => (
+                <li key={`${err.row}-${err.message}`}>Fila {err.row}: {err.message}</li>
+              ))}
+            </ul>
+            {importErrors.length > 12 ? (
+              <div className="mt-2 text-red-800">Hay {importErrors.length - 12} errores más.</div>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Tabla de eventos */}
         <div className="bg-white border rounded-lg shadow-sm">
-          <div className="p-6 border-b flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <h2 className="text-lg font-semibold">Eventos</h2>
+          <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
+            <h2 className="text-lg font-semibold">Actividades programadas</h2>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
                 {selectedEventIds.length === 0
-                  ? 'Selecciona eventos para eliminarlos'
+                  ? 'Seleccioná actividades para eliminarlas'
                   : `${selectedEventIds.length} seleccionados`}
               </span>
               <button
@@ -686,16 +987,16 @@ export default function AdminEvents() {
                 disabled={selectedEventIds.length === 0 || deletingSelected}
                 className="inline-flex items-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionados'}
+                {deletingSelected ? 'Eliminando…' : 'Eliminar seleccionadas'}
               </button>
             </div>
           </div>
           
           {loading ? (
-            <div className="p-6 text-center text-gray-500">Cargando...</div>
+            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando agenda…</div>
           ) : renderEventsEmptyState(events) || (
-            <div className="overflow-hidden">
-              <table className="w-full table-fixed">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] table-fixed">
                 <colgroup>
                   <col className="w-10" />
                   <col className="w-[32%]" />
@@ -711,10 +1012,10 @@ export default function AdminEvents() {
                         type="checkbox"
                         checked={events.length > 0 && selectedEventIds.length === events.length}
                         onChange={toggleAllEventsSelection}
-                        aria-label="Seleccionar todos los eventos"
+                        aria-label="Seleccionar todas las actividades"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evento</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actividad</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Curso y asignatura</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Horario</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Asignado</th>
@@ -729,7 +1030,7 @@ export default function AdminEvents() {
                           type="checkbox"
                           checked={selectedEventIds.includes(event.id)}
                           onChange={() => toggleEventSelection(event.id)}
-                          aria-label={`Seleccionar evento ${event.title}`}
+                          aria-label={`Seleccionar actividad ${event.title}`}
                         />
                       </td>
                       <td className="px-4 py-4 align-top text-sm">
@@ -746,6 +1047,15 @@ export default function AdminEvents() {
                               {getAdminEventStatusLabel(event.status)}
                             </span>
                             <span className="text-xs text-gray-500">{event._count.attendances} asist.</span>
+                            {event.type === 'CLASE' &&
+                            event.assignedUser &&
+                            substitutionKeys.has(
+                              `${event.id}|${getEventDateInputValue(event.startDate)}`,
+                            ) ? (
+                              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-800">
+                                Suplida
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       </td>
@@ -796,7 +1106,7 @@ export default function AdminEvents() {
                         {event.assignedUser ? (
                           <div className="min-w-0">
                             <div className="font-medium text-gray-900 break-words">{event.assignedUser.username || event.assignedUser.name}</div>
-                            <div className="text-xs text-gray-500">{event.assignedUser.role}</div>
+                            <div className="text-xs text-gray-500">{getRoleLabel(event.assignedUser.role)}</div>
                           </div>
                         ) : (
                           <span className="text-gray-400">Sin asignar</span>
@@ -810,6 +1120,15 @@ export default function AdminEvents() {
                           >
                             Editar
                           </button>
+                          {event.type === 'CLASE' && event.assignedUser && event.status !== 'CANCELLED' ? (
+                            <button
+                              type="button"
+                              onClick={() => setSubstitutionEvent(event)}
+                              className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
+                            >
+                              Registrar suplencia
+                            </button>
+                          ) : null}
                           {event.status !== 'CANCELLED' ? (
                             <button
                               onClick={() => cancelEvent(event.id)}
@@ -837,12 +1156,25 @@ export default function AdminEvents() {
           <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>
 
+        {substitutionEvent ? (
+          <SubstitutionModal
+            event={substitutionEvent}
+            teachers={users.filter((u) => u.role === 'TEACHER' || u.role === 'STAFF')}
+            onClose={() => setSubstitutionEvent(null)}
+            onSaved={() => {
+              void loadEvents()
+              void loadSubstitutionFlags()
+              setMessage('✅ Suplencia registrada')
+            }}
+          />
+        ) : null}
+
         {/* Modal de creación (portal a document.body → siempre encima, no queda “tapado” por el layout) */}
         {portalReady &&
           creating &&
           createPortal(
             <div
-              className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+              className="fixed inset-0 flex items-end justify-center overflow-y-auto bg-black/70 p-3 sm:items-center sm:p-4"
               style={{ zIndex: 2147483647 }}
               role="dialog"
               aria-modal="true"
@@ -850,7 +1182,7 @@ export default function AdminEvents() {
             >
             <div
               data-testid="create-event-modal"
-              className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative"
+              className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-lg sm:p-6"
             >
               <button
                 type="button"
@@ -863,7 +1195,7 @@ export default function AdminEvents() {
               </button>
               <div className="mb-4 border-b border-gray-200 pb-3 pr-14">
                 <h3 id="create-event-title" className="text-lg font-semibold">
-                  Crear Evento
+                  Nueva actividad
                 </h3>
               </div>
 
@@ -877,7 +1209,7 @@ export default function AdminEvents() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Evento Repetitivo - Primera opción */}
+                {/* Se repite - Primera opción */}
                 <div className="md:col-span-2">
                   <div className="flex items-center mb-4 p-3 bg-gray-50 rounded-lg">
                     <input
@@ -886,18 +1218,19 @@ export default function AdminEvents() {
                       checked={newEvent.isRecurring}
                       onChange={(e) => {
                         const isRecurring = e.target.checked
-                        setNewEvent({ 
-                          ...newEvent, 
+                        setRecurrenceRangeMode('school_year')
+                        setNewEvent({
+                          ...newEvent,
                           isRecurring,
                           recurrenceType: isRecurring ? 'WEEKLY' : 'NONE',
                           daysOfWeek: [],
-                          recurrenceEnd: ''
+                          recurrenceEnd: '',
                         })
                       }}
                       className="mr-3 h-4 w-4"
                     />
                     <label htmlFor="isRecurring" className="text-sm font-medium text-gray-700">
-                      Evento Repetitivo
+                      Se repite
                     </label>
                   </div>
                 </div>
@@ -925,7 +1258,7 @@ export default function AdminEvents() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Rol del Usuario</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Perfil de la persona</label>
                   <select
                     value={selectedRole}
                     onChange={(e) => {
@@ -940,9 +1273,9 @@ export default function AdminEvents() {
                     }}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
-                    <option value="">Seleccionar rol</option>
-                    <option value="TEACHER">Teacher</option>
-                    <option value="STAFF">Staff</option>
+                    <option value="">Seleccioná un perfil</option>
+                    <option value="TEACHER">Docente</option>
+                    <option value="STAFF">Personal</option>
                   </select>
                 </div>
                 
@@ -955,7 +1288,7 @@ export default function AdminEvents() {
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
                     {getAdminEventRoleTypeOptions(selectedRole).length === 0 ? (
-                      <option value="">Selecciona un rol primero</option>
+                      <option value="">Seleccioná un perfil primero</option>
                     ) : (
                       getAdminEventRoleTypeOptions(selectedRole).map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -976,7 +1309,7 @@ export default function AdminEvents() {
                     {users
                       .filter(user => !selectedRole || user.role === selectedRole)
                       .map(user => (
-                        <option key={user.id} value={user.id}>{user.username || user.name} ({user.role})</option>
+                        <option key={user.id} value={user.id}>{user.username || user.name} ({getRoleLabel(user.role)})</option>
                       ))}
                   </select>
                 </div>
@@ -990,6 +1323,8 @@ export default function AdminEvents() {
                       setNewEvent((prev) => ({
                         ...prev,
                         courseId: v,
+                        orientationId: prev.courseId === v ? prev.orientationId : '',
+                        courseOrientationId: prev.courseId === v ? prev.courseOrientationId : '',
                         subjectId: prev.courseId === v ? prev.subjectId : '',
                       }))
                     }}
@@ -998,7 +1333,38 @@ export default function AdminEvents() {
                     <option value="">Sin curso</option>
                     {courses.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.code ? `${c.code} — ${c.name}` : c.name}
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Orientación (opcional)</label>
+                  <select
+                    value={newEvent.courseOrientationId}
+                    onChange={(e) => {
+                      const row = createOrientations.find((o) => o.id === e.target.value)
+                      setNewEvent({
+                        ...newEvent,
+                        courseOrientationId: row?.id ?? '',
+                        orientationId: row?.orientationId ?? '',
+                        subjectId: '',
+                      })
+                    }}
+                    disabled={!newEvent.courseId || createOrientations.length === 0}
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {!newEvent.courseId
+                        ? 'Elegí un curso primero'
+                        : createOrientations.length === 0
+                          ? 'El curso no tiene orientaciones'
+                          : 'Todas las orientaciones'}
+                    </option>
+                    {createOrientations.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.orientation.name}
                       </option>
                     ))}
                   </select>
@@ -1015,7 +1381,7 @@ export default function AdminEvents() {
                     <option value="">{newEvent.courseId ? 'Sin asignatura' : 'Elegí un curso primero'}</option>
                     {createSubjects.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.code ? `${s.code} — ${s.name}` : s.name}
+                        {s.name}
                       </option>
                     ))}
                   </select>
@@ -1035,29 +1401,83 @@ export default function AdminEvents() {
                   onChange={(hhmm) => setNewEvent({ ...newEvent, endTime: hhmm })}
                 />
                 
-                {/* Campos de fecha según si es repetitivo o no */}
+                {/* Fechas: evento único o repetitivo */}
                 {newEvent.isRecurring ? (
-                  <>
+                  <div className="md:col-span-2 space-y-4 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Inicio</label>
-                      <input
-                        type="date"
-                        value={newEvent.startDate}
-                        onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      />
+                      <span className="block text-sm font-medium text-gray-800 mb-2">Vigencia de la repetición</span>
+                      <div className="space-y-2">
+                        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
+                          <input
+                            type="radio"
+                            name="recurrenceRangeMode"
+                            checked={recurrenceRangeMode === 'school_year'}
+                            onChange={() => {
+                              setRecurrenceRangeMode('school_year')
+                              setNewEvent((prev) => ({ ...prev, recurrenceEnd: '' }))
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="font-medium text-gray-900">Hasta cierre manual del año lectivo</span>
+                            <span className="mt-0.5 block text-xs text-gray-600">
+                              {activeSchoolYear && activeSchoolYear.status !== 'CLOSED'
+                                ? `Sigue disponible en ${schoolYearRangeLabel(activeSchoolYear)} hasta que el ciclo se cierre.`
+                                : 'Elegí un ciclo lectivo abierto en la barra superior para usar esta opción.'}
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
+                          <input
+                            type="radio"
+                            name="recurrenceRangeMode"
+                            checked={recurrenceRangeMode === 'custom'}
+                            onChange={() => setRecurrenceRangeMode('custom')}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="font-medium text-gray-900">Rango personalizado</span>
+                            <span className="mt-0.5 block text-xs text-gray-600">
+                              Elegí manualmente la fecha de inicio y la fecha de fin de la repetición.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
                     </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Fin</label>
-                      <input
-                        type="date"
-                        value={newEvent.recurrenceEnd}
-                        onChange={(e) => setNewEvent({ ...newEvent, recurrenceEnd: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      />
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio</label>
+                        <input
+                          type="date"
+                          value={newEvent.startDate}
+                          onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+                          className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">Desde cuándo empieza a repetirse (primer día).</p>
+                      </div>
+                      {recurrenceRangeMode === 'custom' ? (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de fin</label>
+                          <input
+                            type="date"
+                            value={newEvent.recurrenceEnd}
+                            onChange={(e) => setNewEvent({ ...newEvent, recurrenceEnd: e.target.value })}
+                            className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          />
+                          <p className="mt-1 text-xs text-gray-500">Último día en que puede repetirse.</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                          <span className="font-medium">Vigencia</span>
+                          <span className="mt-1">
+                            {activeSchoolYear && activeSchoolYear.status !== 'CLOSED'
+                              ? 'Hasta cierre manual del ciclo'
+                              : 'Sin ciclo lectivo abierto'}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
@@ -1104,13 +1524,13 @@ export default function AdminEvents() {
                 )}
               </div>
               
-              <div className="flex gap-3 mt-6">
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <button
                   type="button"
                   onClick={createEvent}
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
-                  Crear Evento
+                  Nueva actividad
                 </button>
                 <button type="button" onClick={closeCreateModal} className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50">
                   Cancelar
@@ -1126,12 +1546,12 @@ export default function AdminEvents() {
           editingEvent &&
           createPortal(
             <div
-              className="fixed inset-0 flex items-center justify-center bg-black/70 p-4"
+              className="fixed inset-0 flex items-end justify-center overflow-y-auto bg-black/70 p-3 sm:items-center sm:p-4"
               style={{ zIndex: 2147483647 }}
               role="dialog"
               aria-modal="true"
             >
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
+            <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-lg sm:p-6">
               <button
                 type="button"
                 onClick={() => setEditingEvent(null)}
@@ -1142,7 +1562,7 @@ export default function AdminEvents() {
                 ×
               </button>
               <div className="mb-4 border-b border-gray-200 pb-3 pr-14">
-                <h3 className="text-lg font-semibold">Editar Evento</h3>
+                <h3 className="text-lg font-semibold">Editar actividad</h3>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1173,12 +1593,11 @@ export default function AdminEvents() {
                     onChange={(e) => setEditingEvent({ ...editingEvent, type: e.target.value as EventTypeOption })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
-                    <option value="JORNADA_LABORAL">Jornada Laboral</option>
-                    <option value="REUNION">Reunión</option>
-                    <option value="CLASE">Clase</option>
-                    <option value="EVENTO">Evento</option>
-                    <option value="CAPACITACION">Capacitación</option>
-                    <option value="CITA_MEDICA">Cita Médica</option>
+                    {ADMIN_EVENT_TYPE_SELECT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 
@@ -1190,7 +1609,7 @@ export default function AdminEvents() {
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
                     <option value="SCHEDULED">Programado</option>
-                    <option value="IN_PROGRESS">En Progreso</option>
+                    <option value="IN_PROGRESS">En curso</option>
                     <option value="COMPLETED">Completado</option>
                     <option value="CANCELLED">Cancelado</option>
                     <option value="EXPIRED">Vencido</option>
@@ -1244,7 +1663,7 @@ export default function AdminEvents() {
                     <option value="">Sin asignar</option>
                     {users.map(user => (
                       <option key={user.id} value={user.id}>
-                        {user.username || user.name} ({user.role})
+                        {user.username || user.name} ({getRoleLabel(user.role)})
                       </option>
                     ))}
                   </select>
@@ -1263,6 +1682,8 @@ export default function AdminEvents() {
                         return {
                           ...prev,
                           courseId: v,
+                          orientationId: prevC === nextC ? prev.orientationId ?? null : null,
+                          courseOrientationId: prevC === nextC ? prev.courseOrientationId ?? null : null,
                           subjectId: prevC === nextC ? prev.subjectId : null,
                         }
                       })
@@ -1272,7 +1693,38 @@ export default function AdminEvents() {
                     <option value="">Sin curso</option>
                     {courses.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.code ? `${c.code} — ${c.name}` : c.name}
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Orientación (opcional)</label>
+                  <select
+                    value={editingEvent.courseOrientationId ?? ''}
+                    onChange={(e) => {
+                      const row = editOrientations.find((o) => o.id === e.target.value)
+                      setEditingEvent({
+                        ...editingEvent,
+                        courseOrientationId: row?.id ?? null,
+                        orientationId: row?.orientationId ?? null,
+                        subjectId: null,
+                      })
+                    }}
+                    disabled={!editingEvent.courseId || editOrientations.length === 0}
+                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {!editingEvent.courseId
+                        ? 'Elegí un curso primero'
+                        : editOrientations.length === 0
+                          ? 'El curso no tiene orientaciones'
+                          : 'Todas las orientaciones'}
+                    </option>
+                    {editOrientations.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.orientation.name}
                       </option>
                     ))}
                   </select>
@@ -1294,14 +1746,37 @@ export default function AdminEvents() {
                     <option value="">{editingEvent.courseId ? 'Sin asignatura' : 'Elegí un curso primero'}</option>
                     {editSubjects.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.code ? `${s.code} — ${s.name}` : s.name}
+                        {s.name}
                       </option>
                     ))}
                   </select>
                 </div>
+
+                {editingEvent.type === 'CLASE' &&
+                editingEvent.assignedUserId &&
+                editingEvent.status !== 'CANCELLED' ? (
+                  <div className="md:col-span-2 rounded-xl border-2 border-indigo-200 bg-indigo-50/80 p-4">
+                    <h4 className="text-sm font-semibold text-indigo-900">Suplencia de clase</h4>
+                    <p className="mt-1 text-sm text-indigo-800/90">
+                      Registrá qué docente cubre al titular en una fecha concreta (no es un tipo de evento).
+                    </p>
+                    {substitutionKeys.has(
+                      `${editingEvent.id}|${getEventDateInputValue(editingEvent.startDate)}`,
+                    ) ? (
+                      <p className="mt-2 text-xs font-medium text-indigo-700">Ya hay suplencia para el día del evento en el listado.</p>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setSubstitutionEvent(editingEvent)}
+                      className="mt-3 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                    >
+                      Registrar suplencia
+                    </button>
+                  </div>
+                ) : null}
               </div>
               
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
                 <button
                   onClick={() => updateEvent(editingEvent.id, editingEvent)}
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"

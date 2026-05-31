@@ -23,6 +23,8 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
+import { logoutUrl } from '@/lib/auth/urls'
+import { getRoleLabel } from '@/lib/roles/display'
 
 type MeUser = {
   role: string
@@ -50,7 +52,7 @@ type NavGroup = {
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    title: 'Dashboard',
+    title: 'Inicio',
     icon: LayoutDashboard,
     items: [
       { label: 'Inicio', href: '/' },
@@ -58,11 +60,11 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'Personal',
+    title: 'Equipo',
     icon: Users,
     items: [
       { label: 'Asistencias', href: '/admin/attendance', permission: 'attendance.read', permissionScope: 'all' },
-      { label: 'Eventos', href: '/admin/events', permission: 'events.read', permissionScope: 'all' },
+      { label: 'Agenda y clases', href: '/admin/events', permission: 'events.read', permissionScope: 'all' },
       { label: 'Usuarios', href: '/admin/users', permission: 'users.read', permissionScope: 'all' },
       { label: 'Licencias', href: '/admin/licenses', permission: 'licenses.read', permissionScope: 'all' },
       { label: 'Mis eventos', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
@@ -71,7 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'Gestión académica',
+    title: 'Académico',
     icon: School,
     items: [
       { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage' },
@@ -80,11 +82,11 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'Reportes',
+    title: 'Análisis',
     icon: BarChart3,
     items: [
-      { label: 'Analítica', href: '/admin/analytics', permission: 'analytics.read' },
-      { label: 'Asistente de consultas', href: '/admin/query-assistant', permission: 'query-assistant.use' },
+      { label: 'Indicadores', href: '/admin/analytics', permission: 'analytics.read' },
+      { label: 'Consultas', href: '/admin/query-assistant', permission: 'query-assistant.use' },
     ],
   },
   {
@@ -215,16 +217,15 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
       const next = { ...current }
       for (const group of visibleGroups(me)) {
         const active = group.items.some((item) => pathIsActive(pathname, item.href))
-        if (active || next[group.title] == null) next[group.title] = active || group.title === 'Dashboard'
+        if (active || next[group.title] == null) next[group.title] = active || group.title === 'Inicio'
       }
       return next
     })
   }, [me, pathname])
 
   async function logout() {
-    try { await api('/auth/logout', { method: 'POST' }) } catch {}
     setMe(null)
-    window.location.href = '/login'
+    window.location.href = logoutUrl()
   }
 
   const hasDashboardShell = Boolean(me && canAccessModules(me) && !isPublicPath(pathname))
@@ -233,7 +234,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     <div className="relative">
       <button
         onClick={() => setUserMenuOpen(!userMenuOpen)}
-        className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 transition-all duration-200 hover:border-emerald-300 hover:shadow-sm"
+        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-2 transition-all duration-200 hover:border-emerald-300 hover:shadow-sm sm:gap-3 sm:px-3"
         aria-expanded={userMenuOpen}
       >
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100">
@@ -243,7 +244,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         </div>
         <div className="hidden text-left sm:block">
           <div className="max-w-[180px] truncate text-sm font-medium text-gray-900">{me.name || me.email}</div>
-          <div className="text-xs text-gray-500">{me.role}</div>
+          <div className="text-xs text-gray-500">{getRoleLabel(me.role)}</div>
         </div>
         <ChevronDown className="h-4 w-4 text-gray-400" aria-hidden />
       </button>
@@ -279,7 +280,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
   ) : null
 
   const sidebar = hasDashboardShell ? (
-    <aside className="sidebar-modern fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-white">
+    <aside className="sidebar-modern fixed inset-y-0 left-0 z-40 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-white lg:w-72">
       <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-5">
         <a href="/" className="flex min-w-0 items-center gap-2 text-xl font-bold text-emerald-600 transition-colors hover:text-emerald-700">
           <img src="/logo.svg" alt="EduTrack" className="h-8 w-8 shrink-0" />
@@ -297,7 +298,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Panel administrativo</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Panel de trabajo</p>
           <p className="mt-0.5 truncate text-sm text-emerald-950">{me?.name || me?.email || 'Usuario'}</p>
         </div>
 
@@ -354,20 +355,20 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     return (
       <>
         <header className="header-modern">
-          <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4">
-            <a href="/" className="flex shrink-0 items-center gap-2 text-xl font-bold text-emerald-600 transition-colors hover:text-emerald-700">
+          <div className="mx-auto flex min-h-16 max-w-6xl items-center justify-between gap-3 px-4 py-2">
+            <a href="/" className="flex min-w-0 shrink items-center gap-2 text-lg font-bold text-emerald-600 transition-colors hover:text-emerald-700 sm:text-xl">
               <img src="/logo.svg" alt="EduTrack" className="h-8 w-8" />
-              EduTrack
+              <span className="truncate">EduTrack</span>
             </a>
-            <div className="flex shrink-0 items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               {me ? (
                 accountButton
               ) : (
                 <>
-                  <a href="/login" className="btn-secondary text-sm">
+                  <a href="/login" className="btn-secondary px-3 text-sm">
                     Iniciar Sesión
                   </a>
-                  <a href="/register" className="btn-primary text-sm">
+                  <a href="/register" className="btn-primary px-3 text-sm">
                     Registrarse
                   </a>
                 </>
@@ -386,7 +387,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
       <div className={`lg:block ${mobileOpen ? 'block' : 'hidden'}`}>{sidebar}</div>
       <div className="min-h-screen lg:pl-72">
         <header className="header-modern sticky top-0 z-30 bg-white/90">
-          <div className="flex h-16 items-center justify-between gap-3 px-4 lg:px-6">
+          <div className="flex h-16 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
             <button
               type="button"
               className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 lg:hidden"
@@ -397,7 +398,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
             </button>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">EduTrack</p>
-              <p className="truncate text-sm text-gray-600">Gestión académica y operativa</p>
+              <p className="truncate text-sm text-gray-600">Gestión diaria de la institución</p>
             </div>
             <a
               href="/notifications"

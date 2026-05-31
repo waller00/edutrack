@@ -13,6 +13,61 @@ services:
       - pgdata:/var/lib/postgresql/data
     networks: [net]
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redisdata:/data
+    networks: [net]
+
+  keycloak-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - keycloakdata:/var/lib/postgresql/data
+    networks: [net]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    # start-dev: arranque tolerante. Endurecer a `start` con KC_HOSTNAME real + SSL via Cloudflare.
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-}
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m"
+    volumes:
+      - ./keycloak/realm-edutrack.json:/opt/keycloak/data/import/realm-edutrack.json:ro
+    ports:
+      - "8089:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    networks: [net]
+
   auth:
     build: ./backend
     # Este comando asegura que las tablas se creen antes de iniciar el servidor
@@ -32,6 +87,17 @@ services:
       COOKIE_AUTO_DOMAIN: ${COOKIE_AUTO_DOMAIN:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # --- Keycloak / BFF ---
+      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://keycloak:8080/realms/edutrack}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-edutrack-web}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-edutrack-web-secret-change-me}
+      KEYCLOAK_REDIRECT_URI: ${KEYCLOAK_REDIRECT_URI:-https://165.22.34.95:4000/auth/callback}
+      KEYCLOAK_ADMIN_BASE_URL: ${KEYCLOAK_ADMIN_BASE_URL:-http://keycloak:8080}
+      KEYCLOAK_ADMIN_REALM: ${KEYCLOAK_ADMIN_REALM:-edutrack}
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
       # Correo (recuperación de contraseña, verificación): definir en .env del servidor
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -61,6 +127,11 @@ services:
       MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
       # ADMS ZKTeco: 0 = mismo puerto que PORT (4000). El reloj usa la URL pública HTTPS del API.
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-0}
+      # Observabilidad (Sentry backend)
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
     volumes:
       - /etc/ssl/cloudflare:/etc/ssl/cloudflare:ro
     ports:
@@ -68,6 +139,10 @@ services:
     depends_on:
       pg:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
     networks:
       - net
       - moodle-net
@@ -80,11 +155,20 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://165.22.34.95:4000}
         NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
         NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL: ${NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL:-}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}
+        NEXT_PUBLIC_LOGROCKET_APP_ID: ${NEXT_PUBLIC_LOGROCKET_APP_ID:-}
+        NEXT_PUBLIC_LOGROCKET_FORCE: ${NEXT_PUBLIC_LOGROCKET_FORCE:-false}
     # NEXT_PUBLIC_* en runtime no reemplaza lo ya embebido en el bundle de Next al construir la imagen.
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://165.22.34.95:4000}
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
       NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL: ${NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL:-}
+      NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+      NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}
+      NEXT_PUBLIC_LOGROCKET_APP_ID: ${NEXT_PUBLIC_LOGROCKET_APP_ID:-}
+      NEXT_PUBLIC_LOGROCKET_FORCE: ${NEXT_PUBLIC_LOGROCKET_FORCE:-false}
+      NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-legacy}
     ports:
       - "3000:3000"
     depends_on:
@@ -94,6 +178,8 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
+  keycloakdata:
 
 networks:
   net:

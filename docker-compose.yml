@@ -17,6 +17,66 @@ services:
     networks:
       - appnet
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redisdata:/data
+    networks:
+      - appnet
+
+  keycloak-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - keycloakdata:/var/lib/postgresql/data
+    networks:
+      - appnet
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    # start-dev: arranque tolerante para testing/local. En produccion endurecida
+    # cambiar a `start` con KC_HOSTNAME y SSL via proxy (Cloudflare).
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-}
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m"
+    volumes:
+      - ./keycloak/realm-edutrack.json:/opt/keycloak/data/import/realm-edutrack.json:ro
+      - ./keycloak/themes:/opt/keycloak/themes:ro
+    ports:
+      - "8089:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    networks:
+      - appnet
+
   auth:
     build:
       context: ./backend
@@ -27,6 +87,19 @@ services:
       PORT: 4000
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # --- Keycloak / BFF ---
+      # ISSUER_URL = URL pública (navegador y Google). INTERNAL_URL = red Docker (backchannel).
+      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://localhost:8089/realms/edutrack}
+      KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-edutrack-web}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-edutrack-web-secret-change-me}
+      KEYCLOAK_REDIRECT_URI: ${KEYCLOAK_REDIRECT_URI:-http://localhost:4000/auth/callback}
+      KEYCLOAK_ADMIN_BASE_URL: ${KEYCLOAK_ADMIN_BASE_URL:-http://keycloak:8080}
+      KEYCLOAK_ADMIN_REALM: ${KEYCLOAK_ADMIN_REALM:-edutrack}
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
@@ -65,6 +138,11 @@ services:
       MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
       MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-8081}
+      # Observabilidad (Sentry backend): vacio = deshabilitado
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
     ports:
       - "4000:4000"
       - "8081:8081"
@@ -76,6 +154,8 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       pg:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
@@ -95,12 +175,21 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
         NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
         NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL: ${NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL:-}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-development}
+        NEXT_PUBLIC_LOGROCKET_APP_ID: ${NEXT_PUBLIC_LOGROCKET_APP_ID:-}
+        NEXT_PUBLIC_LOGROCKET_FORCE: ${NEXT_PUBLIC_LOGROCKET_FORCE:-false}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
       NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL: ${NEXT_PUBLIC_DIDIT_BROWSER_RETURN_URL:-}
+      NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+      NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-development}
+      NEXT_PUBLIC_LOGROCKET_APP_ID: ${NEXT_PUBLIC_LOGROCKET_APP_ID:-}
+      NEXT_PUBLIC_LOGROCKET_FORCE: ${NEXT_PUBLIC_LOGROCKET_FORCE:-false}
+      NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-legacy}
     ports:
       - "3000:3000"
     depends_on:
@@ -111,6 +200,8 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
+  keycloakdata:
 
 networks:
   appnet:

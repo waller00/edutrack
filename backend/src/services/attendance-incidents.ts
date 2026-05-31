@@ -41,6 +41,7 @@ export async function findAssignedEventForAttendanceInstant(tx: any, userId: str
   return tx.event.findFirst({
     where: {
       assignedUserId: userId,
+      type: "CLASE",
       status: { in: ["SCHEDULED", "IN_PROGRESS"] },
       startTime: { lte: at },
       endTime: { gte: at },
@@ -67,6 +68,7 @@ export async function findAssignedEventNearAttendanceInstant(
   const rows = await tx.event.findMany({
     where: {
       assignedUserId: userId,
+      type: "CLASE",
       status: { in: ["SCHEDULED", "IN_PROGRESS"] },
       startTime: { not: null, lte: latestStart },
       endTime: { not: null, gte: at },
@@ -132,6 +134,60 @@ export async function maybeCreateLateArrivalIncident(params: {
       severity: "MEDIUM",
       title: "Docente con llegada tarde",
       description: `Llegada ${minsLate} min tarde en clase${eventTitle ? `: ${eventTitle}` : ""}.`,
+      userId,
+      eventId,
+      attendanceId,
+      biometricPunchId: biometricPunchId || null,
+    },
+    select: { id: true, title: true, description: true },
+  });
+
+  await notifyAdminsAttendanceIncident(incident.title, incident.description || "Incidente de asistencia detectado.");
+  return incident;
+}
+
+export async function maybeCreateEarlyExitIncident(params: {
+  tx: any;
+  userId: string;
+  eventId?: string | null;
+  eventType?: string | null;
+  eventTitle?: string | null;
+  attendanceId: string;
+  biometricPunchId?: string | null;
+  attendanceTime: Date;
+  eventEndTime?: Date | null;
+  earlyExitToleranceMinutes: number;
+}) {
+  const {
+    tx,
+    userId,
+    eventId,
+    eventType,
+    eventTitle,
+    attendanceId,
+    biometricPunchId,
+    attendanceTime,
+    eventEndTime,
+    earlyExitToleranceMinutes,
+  } = params;
+  if (!eventId || eventType !== "CLASE" || !eventEndTime) return null;
+
+  const minsEarly = minutesDiff(new Date(eventEndTime), attendanceTime);
+  if (minsEarly <= earlyExitToleranceMinutes) return null;
+
+  const alreadyOpen = await tx.attendanceIncident.findFirst({
+    where: { userId, eventId, type: "EARLY_EXIT", status: "OPEN" },
+    select: { id: true },
+  });
+  if (alreadyOpen) return alreadyOpen;
+
+  const incident = await tx.attendanceIncident.create({
+    data: {
+      type: "EARLY_EXIT",
+      status: "OPEN",
+      severity: "MEDIUM",
+      title: "Docente con retiro anticipado",
+      description: `Salida ${minsEarly} min antes de finalizar la clase${eventTitle ? `: ${eventTitle}` : ""}.`,
       userId,
       eventId,
       attendanceId,
@@ -232,6 +288,16 @@ export async function scanAndCreateTeacherNoShowIncidents(now = new Date()) {
     if (await isNonWorkingDate(new Date(anchorTime))) continue;
 
     const day = uruguayStartOfDayFromInstant(new Date(anchorTime));
+
+    const substitutions = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id"
+      FROM "Substitution"
+      WHERE "eventId" = ${ev.id}
+        AND "originalTeacherUserId" = ${userId}
+        AND "date" = ${day}
+      LIMIT 1
+    `;
+    if (substitutions.length > 0) continue;
 
     const slots = await fetchTeacherClassSlotsForUruguayDay(tx, userId, new Date(anchorTime));
     const blocks = buildContiguousClassBlocks(slots, bridgeGap);

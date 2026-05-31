@@ -1,5 +1,6 @@
-import { prisma } from '../src/prisma.js'
-import { ensureBuiltinOrgRoles } from '../src/org-role-seed.js'
+import 'dotenv/config'
+import { prisma } from '../src/db/prisma.js'
+import { ensureBuiltinOrgRoles } from '../src/identity/org-role-seed.js'
 
 async function main() {
   await ensureBuiltinOrgRoles()

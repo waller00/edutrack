@@ -3,12 +3,15 @@ import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { Prisma } from "@prisma/client";
-import { signAccessToken } from "../auth/jwt.js";
+import { signAccessToken } from "../test-utils/bearer-token.js";
 import { computeCICheckDigit } from "../identity/uruguay-ci.js";
 import type { BuiltinProfileRole } from "../identity/profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../identity/profile-permissions-defaults.js";
 
-const { prismaMock, runAdminQueryAssistantMock } = vi.hoisted(() => ({
+const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock, createKeycloakUserMock, syncKeycloakUserIdentityByEmailMock } = vi.hoisted(() => ({
+  triggerKeycloakPasswordResetMock: vi.fn().mockResolvedValue(undefined),
+  createKeycloakUserMock: vi.fn().mockResolvedValue("kc-id-1"),
+  syncKeycloakUserIdentityByEmailMock: vi.fn().mockResolvedValue(undefined),
   runAdminQueryAssistantMock: vi.fn(),
   prismaMock: {
     user: {
@@ -42,7 +45,6 @@ const { prismaMock, runAdminQueryAssistantMock } = vi.hoisted(() => ({
       update: vi.fn(),
       create: vi.fn(),
     },
-    passwordReset: { create: vi.fn() },
     auditLog: {
       findMany: vi.fn(),
       count: vi.fn(),
@@ -98,6 +100,11 @@ function permissionCatalogRows() {
 }
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+vi.mock("../auth/keycloak.js", () => ({
+  triggerKeycloakPasswordReset: triggerKeycloakPasswordResetMock,
+  createKeycloakUser: createKeycloakUserMock,
+  syncKeycloakUserIdentityByEmail: syncKeycloakUserIdentityByEmailMock,
+}));
 vi.mock("../services/query-assistant/run.js", () => ({
   runAdminQueryAssistant: runAdminQueryAssistantMock,
 }));
@@ -151,7 +158,7 @@ describe("admin routes (prisma mock)", () => {
     prismaMock.orgRole.findMany.mockResolvedValue([
       { code: "ADMIN", label: "Administrador" },
       { code: "STAFF", label: "Staff" },
-      { code: "TEACHER", label: "Tutor" },
+      { code: "TEACHER", label: "Docente" },
     ]);
     prismaMock.orgRole.findUnique.mockImplementation((args: { where: { code: string } }) =>
       Promise.resolve({ id: orgRoleRowId(args.where.code as BuiltinProfileRole), code: args.where.code }),
@@ -160,6 +167,8 @@ describe("admin routes (prisma mock)", () => {
     prismaMock.permission.findMany.mockResolvedValue(permissionCatalogRows());
     prismaMock.schoolYear.findFirst.mockResolvedValue(null);
     prismaMock.schoolYear.findUnique.mockResolvedValue(null);
+    createKeycloakUserMock.mockResolvedValue("kc-id-1");
+    syncKeycloakUserIdentityByEmailMock.mockResolvedValue(undefined);
     prismaMock.$transaction.mockImplementation(async (input: any) => {
       if (typeof input === "function") return input(prismaMock);
       return Promise.all(input);
@@ -295,7 +304,7 @@ describe("admin routes (prisma mock)", () => {
       expect(res.status).toBe(200);
       expect(res.body.roles).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ role: "TEACHER", label: "Tutor" }),
+          expect.objectContaining({ role: "TEACHER", label: "Docente" }),
           expect.objectContaining({ role: "ADMIN", label: "Administrador" }),
         ]),
       );
@@ -413,6 +422,12 @@ describe("admin routes (prisma mock)", () => {
       .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("new-id");
+    expect(createKeycloakUserMock).toHaveBeenCalledWith({
+      email: "new@e.com",
+      username: "userabc",
+      role: "TEACHER",
+      emailVerified: false,
+    });
   });
 
   it("PUT /admin/users/:id 404 si no existe", async () => {
@@ -546,19 +561,18 @@ describe("admin routes (prisma mock)", () => {
     );
   });
 
-  it("POST /admin/users/:id/password/reset devuelve token", async () => {
-    prismaMock.passwordReset.create.mockResolvedValue({});
+  it("POST /admin/users/:id/password/reset dispara Keycloak", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "STAFF" }, email: "u@example.com" });
     const res = await request(app()).post("/admin/users/u1/password/reset").set(adminHdr());
     expect(res.status).toBe(200);
-    expect(res.body.token).toBeDefined();
-    expect(res.body.expiresAt).toBeDefined();
+    expect(res.body.ok).toBe(true);
+    expect(triggerKeycloakPasswordResetMock).toHaveBeenCalledWith("u@example.com");
   });
 
   it("POST /admin/users/:id/password/reset 403 para administrador", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "ADMIN" } });
+    prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "ADMIN" }, email: "admin@e.com" });
     const res = await request(app()).post("/admin/users/adm/password/reset").set(adminHdr());
     expect(res.status).toBe(403);
-    expect(prismaMock.passwordReset.create).not.toHaveBeenCalled();
   });
 
   it("403 sin rol ADMIN", async () => {

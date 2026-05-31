@@ -74,8 +74,8 @@ export default function NotificationsPage() {
 
   return (
     <RoleGuard permission="notifications.read">
-      <div className="mx-auto max-w-2xl px-4 py-10">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <div className="responsive-page max-w-2xl">
+      <div className="mb-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Avisos</h1>
           <p className="mt-1 text-sm text-gray-600">
@@ -151,7 +151,7 @@ export default function NotificationsPage() {
                     <p className="mt-1 text-sm text-gray-700">{it.body}</p>
                     <p className="mt-2 text-xs text-gray-500">{dateStr}</p>
                   </div>
-                  <div className="flex shrink-0 flex-wrap gap-2">
+                  <div className="grid w-full shrink-0 grid-cols-2 gap-2 sm:w-auto sm:flex sm:flex-wrap">
                     {it.actionUrl && (
                       <a
                         href={it.actionUrl}

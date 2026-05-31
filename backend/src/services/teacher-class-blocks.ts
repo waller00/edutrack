@@ -77,11 +77,34 @@ export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: strin
     select: { id: true, title: true, type: true, startTime: true, endTime: true },
     orderBy: { startTime: 'asc' },
   })
-  return rows.map((r: { id: string; title: string; type: string; startTime: Date; endTime: Date }) => ({
+  const substitutionRows = await tx.$queryRaw<
+    { eventId: string; title: string; type: string; startTime: Date; endTime: Date }[]
+  >`
+    SELECT s."eventId", e."title", e."type"::text AS "type", s."startTime", s."endTime"
+    FROM "Substitution" s
+    JOIN "Event" e ON e."id" = s."eventId"
+    WHERE s."substituteUserId" = ${userId}
+      AND s."date" >= ${dayStart}
+      AND s."date" <= ${dayEnd}
+      AND e."type" = 'CLASE'::"EventType"
+      AND e."status" IN ('SCHEDULED'::"EventStatus", 'IN_PROGRESS'::"EventStatus")
+    ORDER BY s."startTime" ASC
+  `
+
+  return [
+    ...rows.map((r: { id: string; title: string; type: string; startTime: Date; endTime: Date }) => ({
     id: r.id,
     title: r.title,
     type: r.type,
     startTime: new Date(r.startTime),
     endTime: new Date(r.endTime),
-  }))
+    })),
+    ...substitutionRows.map((r) => ({
+      id: r.eventId,
+      title: `${r.title} (suplencia)`,
+      type: r.type,
+      startTime: new Date(r.startTime),
+      endTime: new Date(r.endTime),
+    })),
+  ].sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
 }

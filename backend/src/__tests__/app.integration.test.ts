@@ -9,9 +9,20 @@ describe("App HTTP (integración ligera)", () => {
     expect(res.body).toEqual({ ok: true });
   });
 
-  it("POST /auth/login sin body devuelve error de validación o 400", async () => {
-    const res = await request(app).post("/auth/login").send({});
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
+  it("GET /auth/login inicia flujo OIDC (redirect o error si falta Redis)", async () => {
+    const res = await request(app).get("/auth/login");
+    expect([302, 303, 503]).toContain(res.status);
+  });
+
+  it("GET /auth/account/security sin sesión redirige al login de la app", async () => {
+    const res = await request(app).get("/auth/account/security");
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/login");
+  });
+
+  it("GET /auth/account/2fa sin sesión redirige al login de la app", async () => {
+    const res = await request(app).get("/auth/account/2fa");
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/login");
   });
 });

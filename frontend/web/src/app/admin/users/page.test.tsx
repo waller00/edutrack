@@ -61,6 +61,23 @@ describe('AdminUsersPage', () => {
     const button = await screen.findByRole('button', { name: 'Huella vinculada' })
     expect(button).toHaveClass('bg-emerald-600')
     expect(button).toHaveClass('text-white')
+    expect(button).toHaveClass('shrink-0')
+    expect(button).toHaveClass('h-9')
+    expect(button).toHaveClass('w-9')
+  })
+
+  it('muestra botón de huella reconocible sin vincular', async () => {
+    mockedApi
+      .mockResolvedValueOnce(orgRoles)
+      .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [{ ...row, biometricLinked: false }] })
+
+    render(<AdminUsersPage />)
+
+    const button = await screen.findByRole('button', { name: 'Vincular huella' })
+    expect(button).toHaveClass('bg-emerald-50')
+    expect(button).toHaveClass('text-emerald-700')
+    expect(button).toHaveClass('h-9')
+    expect(button).toHaveClass('w-9')
   })
 
   it('aplicar filtros actualiza query', async () => {

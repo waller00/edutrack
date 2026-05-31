@@ -689,9 +689,9 @@ export default function RegisterPage() {
                   className="select-field"
                   required
                 >
-                  <option value="">Selecciona un perfil</option>
-                  <option value="STAFF">Staff</option>
-                  <option value="TEACHER">Teacher</option>
+                  <option value="">Seleccioná un perfil</option>
+                  <option value="STAFF">Personal</option>
+                  <option value="TEACHER">Docente</option>
                 </select>
               </div>
             </div>

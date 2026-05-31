@@ -382,7 +382,7 @@ export default function AdminStudentsPage() {
 
   return (
     <RoleGuard permission="students.manage">
-      <main className="mx-auto max-w-7xl p-6 space-y-6">
+      <main className="responsive-page max-w-[1600px] space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase text-emerald-700">Solo administradores</p>
@@ -402,23 +402,24 @@ export default function AdminStudentsPage() {
         </div>
 
         {summary && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
               <p className="text-xs font-medium uppercase text-gray-500">Total</p>
-              <p className="text-2xl font-bold text-gray-900">{summary.total}</p>
+              <p className="text-xl font-bold text-gray-900">{summary.total}</p>
             </div>
             {(['ACTIVE', 'WITHDRAWN', 'GRADUATED', 'TRANSFERRED'] as const).map((k) => (
-              <div key={k} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div key={k} className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
                 <p className="text-xs font-medium uppercase text-gray-500">{STATUS_LABEL[k]}</p>
-                <p className="text-2xl font-bold text-gray-900">{summary.byStatus[k] ?? 0}</p>
+                <p className="text-xl font-bold text-gray-900">{summary.byStatus[k] ?? 0}</p>
               </div>
             ))}
           </div>
         )}
 
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[180px] flex-1">
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="space-y-4 p-4 sm:p-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
+            <div className="min-w-0 lg:min-w-[180px] lg:flex-1">
               <label className="block text-xs font-medium text-gray-600 mb-1">Buscar</label>
               <input
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -428,7 +429,7 @@ export default function AdminStudentsPage() {
                 onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
               />
             </div>
-            <div className="min-w-[160px]">
+            <div className="min-w-0 lg:min-w-[160px]">
               <label className="block text-xs font-medium text-gray-600 mb-1">Curso</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -445,7 +446,7 @@ export default function AdminStudentsPage() {
                 ))}
               </select>
             </div>
-            <div className="min-w-[140px]">
+            <div className="min-w-0 lg:min-w-[140px]">
               <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -459,7 +460,7 @@ export default function AdminStudentsPage() {
                 <option value="TRANSFERRED">Transferido</option>
               </select>
             </div>
-            <div className="w-24">
+            <div className="w-full lg:w-24">
               <label className="block text-xs font-medium text-gray-600 mb-1">Año</label>
               <input
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -468,7 +469,7 @@ export default function AdminStudentsPage() {
                 placeholder="2025"
               />
             </div>
-            <div className="w-24">
+            <div className="w-full lg:w-24">
               <label className="block text-xs font-medium text-gray-600 mb-1">Mes</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -483,7 +484,7 @@ export default function AdminStudentsPage() {
                 ))}
               </select>
             </div>
-            <div className="min-w-[120px]">
+            <div className="min-w-0 lg:min-w-[120px]">
               <label className="block text-xs font-medium text-gray-600 mb-1">Pago</label>
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -502,37 +503,45 @@ export default function AdminStudentsPage() {
 
           {msg && !modal && <p className="text-sm text-red-600">{msg}</p>}
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-left text-gray-600">
-                  <th className="py-2 pr-3 font-medium">Estudiante</th>
-                  {syCtx?.allYears ? <th className="py-2 pr-3 font-medium">Ciclo</th> : null}
-                  <th className="py-2 pr-3 font-medium">Curso</th>
-                  <th className="py-2 pr-3 font-medium">Estado</th>
-                  <th className="py-2 pr-3 font-medium">
+          <div className="-mx-4 overflow-x-auto border-t border-gray-100 sm:-mx-5">
+            <table className="w-full min-w-[960px] table-fixed text-sm">
+              <colgroup>
+                <col className={syCtx?.allYears ? 'w-[20%]' : 'w-[24%]'} />
+                {syCtx?.allYears ? <col className="w-[9%]" /> : null}
+                <col className="w-[14%]" />
+                <col className="w-[11%]" />
+                <col className={syCtx?.allYears ? 'w-[44%]' : 'w-[47%]'} />
+                <col className="w-[4%]" />
+              </colgroup>
+              <thead className="bg-gray-50/80">
+                <tr className="border-b border-gray-200 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <th className="px-4 py-2.5 font-medium">Estudiante</th>
+                  {syCtx?.allYears ? <th className="px-4 py-2.5 font-medium">Ciclo</th> : null}
+                  <th className="px-4 py-2.5 font-medium">Curso</th>
+                  <th className="px-4 py-2.5 font-medium">Estado</th>
+                  <th className="px-4 py-2.5 font-medium">
                     Mensualidades {syCtx?.allYears ? 'del ciclo' : tuitionYear || CURRENT_YEAR}
                   </th>
-                  <th className="py-2 pr-3 font-medium w-28" />
+                  <th className="px-4 py-2.5 font-medium" />
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={syCtx?.allYears ? 6 : 5} className="py-12 text-center text-gray-500">
+                    <td colSpan={syCtx?.allYears ? 6 : 5} className="px-4 py-5 text-center text-gray-500">
                       <Loader2 className="inline h-6 w-6 animate-spin text-emerald-600" aria-hidden />
                     </td>
                   </tr>
                 ) : list.data.length === 0 ? (
                   <tr>
-                    <td colSpan={syCtx?.allYears ? 6 : 5} className="py-8 text-center text-gray-500">
+                    <td colSpan={syCtx?.allYears ? 6 : 5} className="px-4 py-5 text-center text-gray-500">
                       No hay registros con estos filtros.
                     </td>
                   </tr>
                 ) : (
                   list.data.map((row) => (
                     <tr key={row.id} className="border-b border-gray-100 hover:bg-slate-50/80">
-                      <td className="py-2 pr-3">
+                      <td className="px-4 py-2.5">
                         <button
                           type="button"
                           className="text-left font-medium text-emerald-700 hover:underline"
@@ -543,12 +552,12 @@ export default function AdminStudentsPage() {
                         {row.documentId && <div className="text-xs text-gray-500">{row.documentId}</div>}
                       </td>
                       {syCtx?.allYears ? (
-                        <td className="py-2 pr-3 text-gray-600">{row.schoolYearCode ?? '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{row.schoolYearCode ?? '—'}</td>
                       ) : null}
-                      <td className="py-2 pr-3 text-gray-700">{row.course?.name ?? '—'}</td>
-                      <td className="py-2 pr-3">{STATUS_LABEL[row.enrollmentStatus] ?? row.enrollmentStatus}</td>
-                      <td className="py-2 pr-3">
-                        <div className="flex min-w-[360px] flex-wrap gap-1.5" aria-label="Mensualidades">
+                      <td className="px-4 py-2.5 text-gray-700">{row.course?.name ?? '—'}</td>
+                      <td className="px-4 py-2.5">{STATUS_LABEL[row.enrollmentStatus] ?? row.enrollmentStatus}</td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex flex-wrap gap-1" aria-label="Mensualidades">
                           {monthsForYear(
                             row.tuitionMonthsPreview,
                             syCtx?.allYears && row.schoolYearCode ? row.schoolYearCode : Number(tuitionYear) || CURRENT_YEAR,
@@ -569,10 +578,10 @@ export default function AdminStudentsPage() {
                           ))}
                         </div>
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="px-4 py-2.5 text-right">
                         <button
                           type="button"
-                          className="text-red-600 hover:text-red-800 p-1"
+                          className="inline-grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50 hover:text-red-800"
                           title="Eliminar"
                           onClick={() => void remove(row.studentId ?? row.id)}
                         >
@@ -586,7 +595,7 @@ export default function AdminStudentsPage() {
             </table>
           </div>
 
-          <div className="flex items-center justify-between gap-3 pt-2">
+          <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 sm:px-5">
             <p className="text-xs text-gray-500">
               {list.total} registro{list.total === 1 ? '' : 's'} · página {list.page} de {totalPages}
             </p>
@@ -611,11 +620,12 @@ export default function AdminStudentsPage() {
               </button>
             </div>
           </div>
+          </div>
         </div>
 
         {modal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto">
-            <div className="my-8 w-full max-w-2xl rounded-2xl border border-gray-200 bg-white shadow-xl">
+          <div className="responsive-modal bg-black/40">
+            <div className="my-0 w-full max-w-2xl rounded-t-2xl border border-gray-200 bg-white shadow-xl sm:my-8 sm:rounded-2xl">
               <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
                 <h2 className="text-lg font-semibold text-gray-900">
                   {modal === 'create' ? 'Nuevo estudiante' : 'Editar estudiante'}
@@ -858,7 +868,7 @@ export default function AdminStudentsPage() {
                     })}
                 </div>
               </div>
-              <div className="flex justify-end gap-2 border-t border-gray-100 px-4 py-3">
+              <div className="flex flex-col justify-end gap-2 border-t border-gray-100 px-4 py-3 sm:flex-row">
                 <button type="button" className="btn-secondary" onClick={closeModal}>
                   Cancelar
                 </button>

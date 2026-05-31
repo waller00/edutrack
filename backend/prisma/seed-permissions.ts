@@ -1,13 +1,13 @@
 /**
- * Ejecutado tras `prisma/seed.js` cuando usás `npm run seed`.
- * Idempotente: alinea tabla Permission + RolePermission con los defaults del código.
+ * Solo matriz de permisos (idempotente). El seed principal ya la incluye.
  */
-import { PrismaClient } from '@prisma/client'
-import { upsertCanonicalProfilePermissions } from '../src/profile-permissions-repository.js'
-
-const prisma = new PrismaClient()
+import 'dotenv/config'
+import { prisma } from '../src/db/prisma.js'
+import { ensureBuiltinOrgRoles } from '../src/identity/org-role-seed.js'
+import { upsertCanonicalProfilePermissions } from '../src/identity/profile-permissions-repository.js'
 
 async function main() {
+  await ensureBuiltinOrgRoles()
   await upsertCanonicalProfilePermissions(prisma)
   console.log('[seed-permissions] Matriz Permission / RolePermission actualizada.')
 }

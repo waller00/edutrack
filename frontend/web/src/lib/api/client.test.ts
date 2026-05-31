@@ -29,20 +29,12 @@ describe('api', () => {
     }))
   })
 
-  it('refreshes once after a 401 and retries the original request', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ message: 'expired' }, 401))
-      .mockResolvedValueOnce(jsonResponse({}, 200))
-      .mockResolvedValueOnce(jsonResponse({ ok: true }, 200))
+  it('no reintenta tras 401 (sesión Keycloak en el servidor)', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ message: 'expired' }, 401))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(api('/private')).resolves.toEqual({ ok: true })
-
-    expect(fetchMock).toHaveBeenNthCalledWith(2, 'http://test.local/auth/refresh', expect.objectContaining({
-      method: 'POST',
-      credentials: 'include',
-    }))
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await expect(api('/private')).rejects.toMatchObject({ message: 'expired', status: 401 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('throws an error using the backend message and status when available', async () => {
@@ -74,35 +66,6 @@ describe('api', () => {
       message: 'API 500',
       status: 500,
     })
-  })
-
-  it('no reintenta si el refresh tras 401 no es ok', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ message: 'Sesión expirada' }, 401))
-      .mockResolvedValueOnce(new Response('', { status: 401 }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await expect(api('/x')).rejects.toMatchObject({
-      message: 'Sesión expirada',
-      status: 401,
-    })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('tras refresh ok, falla con el error del segundo intento', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({}, 401))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Prohibido' }, 403))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await expect(api('/y')).rejects.toMatchObject({
-      message: 'Prohibido',
-      status: 403,
-    })
-    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('usa API {status} cuando el JSON de error no trae message', async () => {

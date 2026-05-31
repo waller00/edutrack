@@ -80,10 +80,7 @@ describe('UserNav', () => {
     expect(screen.getByRole('link', { name: /configuración del sistema/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /cerrar sesión/i }))
 
-    await waitFor(() =>
-      expect(api).toHaveBeenCalledWith('/auth/logout', { method: 'POST' })
-    )
-    expect(window.location.href).toBe('/login')
+    await waitFor(() => expect(window.location.href).toContain('/auth/logout'))
   })
 
   it('does not show protected modules for users without access', async () => {

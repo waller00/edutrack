@@ -27,7 +27,7 @@ const response = {
   roles: [
     {
       role: 'TEACHER',
-      label: 'Tutor',
+      label: 'Docente',
       permissions: [
         {
           id: 'attendance.read',
@@ -73,7 +73,7 @@ describe('AdminProfilesPanel', () => {
     render(<AdminProfilesPanel />)
 
     expect(await screen.findByText('Gestión de perfiles')).toBeInTheDocument()
-    expect(screen.getAllByText('Tutor').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Docente').length).toBeGreaterThan(0)
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
     expect(screen.getByText('Ver mis asistencias')).toBeInTheDocument()
     expect(screen.getAllByText('2 permisos activos').length).toBeGreaterThan(0)
@@ -96,7 +96,7 @@ describe('AdminProfilesPanel', () => {
     mockedApi.mockResolvedValueOnce(response).mockResolvedValueOnce(response)
 
     render(<AdminProfilesPanel />)
-    await screen.findAllByText('Tutor')
+    await screen.findAllByText('Docente')
 
     fireEvent.click(screen.getByRole('button', { name: /Nuevo perfil/ }))
     fireEvent.change(screen.getByPlaceholderText('Ej: Coordinador'), { target: { value: 'Coordinador' } })

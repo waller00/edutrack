@@ -53,13 +53,11 @@ export default function AdminSchoolYearsPage() {
   const [createCode, setCreateCode] = useState(String(new Date().getFullYear() + 1))
   const [createLabel, setCreateLabel] = useState('')
   const [createStart, setCreateStart] = useState('')
-  const [createEnd, setCreateEnd] = useState('')
   const [creating, setCreating] = useState(false)
 
   const [editing, setEditing] = useState<SchoolYearApiRow | null>(null)
   const [editLabel, setEditLabel] = useState('')
   const [editStart, setEditStart] = useState('')
-  const [editEnd, setEditEnd] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
 
   const [copyTarget, setCopyTarget] = useState<SchoolYearApiRow | null>(null)
@@ -84,7 +82,7 @@ export default function AdminSchoolYearsPage() {
     setBusyId(id)
     try {
       await api(`/admin/school-years/${id}/activate`, { method: 'POST' })
-      setMsg('Ciclo activado. Los demás activos pasaron a cerrados según la política del sistema.')
+      setMsg('Ciclo iniciado.')
       await reload()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudo activar')
@@ -112,7 +110,6 @@ export default function AdminSchoolYearsPage() {
     setEditing(y)
     setEditLabel(y.label)
     setEditStart(toInputDate(y.startsOn))
-    setEditEnd(toInputDate(y.endsOn))
   }
 
   async function saveEdit() {
@@ -122,7 +119,6 @@ export default function AdminSchoolYearsPage() {
     try {
       const body: Record<string, string | null> = { label: editLabel.trim() }
       body.startsOn = editStart ? new Date(`${editStart}T00:00:00.000Z`).toISOString() : null
-      body.endsOn = editEnd ? new Date(`${editEnd}T00:00:00.000Z`).toISOString() : null
       await api(`/admin/school-years/${editing.id}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
@@ -152,12 +148,10 @@ export default function AdminSchoolYearsPage() {
         status: 'PLANNED',
       }
       if (createStart) body.startsOn = new Date(`${createStart}T00:00:00.000Z`).toISOString()
-      if (createEnd) body.endsOn = new Date(`${createEnd}T00:00:00.000Z`).toISOString()
       await api('/admin/school-years', { method: 'POST', body: JSON.stringify(body) })
       setMsg('Ciclo creado en estado planificado.')
       setCreateLabel('')
       setCreateStart('')
-      setCreateEnd('')
       setCreateOpen(false)
       await reload()
     } catch (e) {
@@ -215,14 +209,14 @@ export default function AdminSchoolYearsPage() {
 
   return (
     <RoleGuard permission="school-years.manage">
-      <main className="mx-auto max-w-6xl space-y-8 p-4 sm:p-6">
-        <header className="space-y-2 border-b border-gray-200 pb-6">
+      <main className="responsive-page max-w-[1600px] space-y-4">
+        <header className="space-y-2 border-b border-gray-200 pb-4">
           <div className="flex flex-wrap items-center gap-2 text-emerald-800">
             <CalendarRange className="h-6 w-6" aria-hidden />
             <h1 className="text-2xl font-bold text-gray-950">Ciclos lectivos</h1>
           </div>
           <p className="max-w-3xl text-sm text-gray-600">
-            Alta y edición de ciclos, activación del año en curso, cierre y replicación de oferta cuando el ciclo destino tiene{' '}
+            Alta y edición de ciclos, inicio manual del año lectivo, cierre manual y replicación de oferta cuando el ciclo destino tiene{' '}
             <strong>0 ofertas</strong> (la columna «Cursos» muestra cuántos cursos están ofertados en ese ciclo). Abajo podés
             comparar métricas entre dos ciclos. El selector global del encabezado admin sigue filtrando listados en el resto
             del sistema.
@@ -255,26 +249,39 @@ export default function AdminSchoolYearsPage() {
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="w-full min-w-[900px] table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-[9%]" />
+                <col className="w-[27%]" />
+                <col className="w-[12%]" />
+                <col className="w-[18%]" />
+                <col className="w-[9%]" />
+                <col className="w-[25%]" />
+              </colgroup>
               <thead className="border-b border-gray-100 bg-gray-50/80 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <tr>
-                  <th className="px-4 py-3 sm:px-5">Año</th>
-                  <th className="px-4 py-3 sm:px-5">Etiqueta</th>
-                  <th className="px-4 py-3 sm:px-5">Inicio</th>
-                  <th className="px-4 py-3 sm:px-5">Fin</th>
-                  <th className="px-4 py-3 sm:px-5">Estado</th>
-                  <th className="px-4 py-3 text-right tabular-nums sm:px-5">Cursos</th>
-                  <th className="px-4 py-3 text-right sm:px-5">Acciones</th>
+                  <th className="px-4 py-2.5 sm:px-5">Año</th>
+                  <th className="px-4 py-2.5 sm:px-5">Etiqueta</th>
+                  <th className="px-4 py-2.5 sm:px-5">Inicio</th>
+                  <th className="px-4 py-2.5 sm:px-5">Estado</th>
+                  <th className="px-4 py-2.5 text-right tabular-nums sm:px-5">Cursos</th>
+                  <th className="px-4 py-2.5 text-right sm:px-5">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {sortedYears.map((y) => (
+                {sortedYears.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-5 text-center text-sm text-gray-500 sm:px-5">
+                      No hay ciclos cargados.
+                    </td>
+                  </tr>
+                ) : (
+                sortedYears.map((y) => (
                   <tr key={y.id} className="hover:bg-gray-50/80">
-                    <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900 sm:px-5">{y.code}</td>
-                    <td className="max-w-[200px] truncate px-4 py-3 text-gray-800 sm:max-w-xs sm:px-5">{y.label}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-600 sm:px-5">{toInputDate(y.startsOn) || '—'}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-600 sm:px-5">{toInputDate(y.endsOn) || '—'}</td>
-                    <td className="px-4 py-3 sm:px-5">
+                    <td className="whitespace-nowrap px-4 py-2.5 font-medium text-gray-900 sm:px-5">{y.code}</td>
+                    <td className="truncate px-4 py-2.5 text-gray-800 sm:px-5">{y.label}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-gray-600 sm:px-5">{toInputDate(y.startsOn) || '—'}</td>
+                    <td className="px-4 py-2.5 sm:px-5">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                           y.status === 'ACTIVE'
@@ -288,14 +295,14 @@ export default function AdminSchoolYearsPage() {
                         {y.id === activeId ? ' · institucional' : ''}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-slate-800 tabular-nums sm:px-5">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-800 tabular-nums sm:px-5">
                       {y.coursesCount ?? 0}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right sm:px-5">
-                      <div className="flex flex-wrap justify-end gap-1.5">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right sm:px-5">
+                      <div className="flex flex-nowrap items-center justify-end gap-1">
                         <button
                           type="button"
-                          className="rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                          className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
                           onClick={() => openEdit(y)}
                         >
                           <span className="inline-flex items-center gap-1">
@@ -306,17 +313,17 @@ export default function AdminSchoolYearsPage() {
                         {y.status !== 'ACTIVE' && y.status !== 'CLOSED' && (
                           <button
                             type="button"
-                            className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                            className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                             disabled={busyId === y.id}
                             onClick={() => void doActivate(y.id)}
                           >
-                            {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Activar'}
+                            {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Iniciar'}
                           </button>
                         )}
-                        {y.status === 'PLANNED' && (
+                        {y.status !== 'CLOSED' && (
                           <button
                             type="button"
-                            className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                            className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
                             disabled={busyId === y.id}
                             onClick={() => void doClose(y.id)}
                           >
@@ -332,7 +339,7 @@ export default function AdminSchoolYearsPage() {
                                 ? `Este ciclo ya tiene ${y.coursesCount} oferta(s). La replicación solo está permitida con oferta vacía.`
                                 : 'Replicar oferta de cursos desde otro ciclo'
                             }
-                            className="rounded-lg border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+                            className="shrink-0 rounded-lg border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
                             onClick={() => {
                               setCopyTarget(y)
                               setCopySourceId(sortedYears.find((o) => o.id !== y.id)?.id ?? '')
@@ -347,10 +354,10 @@ export default function AdminSchoolYearsPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
-            {sortedYears.length === 0 && <p className="px-5 py-8 text-center text-sm text-gray-500">No hay ciclos cargados.</p>}
           </div>
         </section>
 
@@ -363,7 +370,7 @@ export default function AdminSchoolYearsPage() {
           >
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Nuevo ciclo lectivo</h2>
-              <p className="text-sm text-gray-500">Se crea en estado planificado; luego podés activarlo o replicar ofertas.</p>
+              <p className="text-sm text-gray-500">Se crea en estado planificado; luego podés iniciarlo manualmente o replicar ofertas.</p>
             </div>
             <ChevronDown className={`h-5 w-5 shrink-0 text-gray-500 transition ${createOpen ? 'rotate-180' : ''}`} aria-hidden />
           </button>
@@ -394,10 +401,6 @@ export default function AdminSchoolYearsPage() {
                   <label className="mb-1 block text-xs font-medium text-gray-600">Inicio (opc.)</label>
                   <input className="input-field text-sm" type="date" value={createStart} onChange={(e) => setCreateStart(e.target.value)} />
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Fin (opc.)</label>
-                  <input className="input-field text-sm" type="date" value={createEnd} onChange={(e) => setCreateEnd(e.target.value)} />
-                </div>
               </div>
               <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={creating} onClick={() => void submitCreate()}>
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
@@ -409,14 +412,14 @@ export default function AdminSchoolYearsPage() {
 
         <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="text-lg font-semibold text-gray-900">Comparar dos ciclos</h2>
-          <p className="mt-1 text-sm text-gray-600">
+          <p className="mt-0.5 text-sm text-gray-600">
             Totales de estudiantes por estado de matrícula y cantidad de cursos ofertados. Útil para ver diferencias
             entre años antes de planificar el siguiente.
           </p>
-          <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo A</label>
-              <select className="select-field min-w-[220px] text-sm" value={cmpA} onChange={(e) => setCmpA(e.target.value)}>
+              <select className="select-field min-w-0 text-sm lg:min-w-[220px]" value={cmpA} onChange={(e) => setCmpA(e.target.value)}>
                 <option value="">—</option>
                 {sortedYears.map((y) => (
                   <option key={y.id} value={y.id}>
@@ -427,7 +430,7 @@ export default function AdminSchoolYearsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo B</label>
-              <select className="select-field min-w-[220px] text-sm" value={cmpB} onChange={(e) => setCmpB(e.target.value)}>
+              <select className="select-field min-w-0 text-sm lg:min-w-[220px]" value={cmpB} onChange={(e) => setCmpB(e.target.value)}>
                 <option value="">—</option>
                 {sortedYears.map((y) => (
                   <option key={y.id} value={y.id}>
@@ -443,7 +446,7 @@ export default function AdminSchoolYearsPage() {
           </div>
           {cmpErr && <p className="mt-3 text-sm text-red-600">{cmpErr}</p>}
           {cmpData && (
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
               {[cmpData.a, cmpData.b].map((side) => (
                 <div key={side.id} className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
                   <h3 className="font-semibold text-gray-900">
@@ -476,7 +479,7 @@ export default function AdminSchoolYearsPage() {
             onClick={() => setEditing(null)}
           >
             <div
-              className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl"
+              className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
               role="dialog"
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
@@ -492,12 +495,8 @@ export default function AdminSchoolYearsPage() {
                   <label className="mb-1 block text-xs font-medium text-gray-600">Inicio</label>
                   <input className="input-field text-sm" type="date" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Fin</label>
-                  <input className="input-field text-sm" type="date" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
-                </div>
               </div>
-              <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <div className="mt-6 flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
                 <button type="button" className="btn-secondary text-sm" onClick={() => setEditing(null)}>
                   Cancelar
                 </button>
@@ -516,7 +515,7 @@ export default function AdminSchoolYearsPage() {
             onClick={() => setCopyTarget(null)}
           >
             <div
-              className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+              className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
               role="dialog"
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
@@ -537,7 +536,7 @@ export default function AdminSchoolYearsPage() {
                   ))}
                 </select>
               </div>
-              <div className="mt-6 flex justify-end gap-2">
+              <div className="mt-6 flex flex-col justify-end gap-2 sm:flex-row">
                 <button type="button" className="btn-secondary text-sm" onClick={() => setCopyTarget(null)}>
                   Cancelar
                 </button>

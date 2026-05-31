@@ -5,13 +5,13 @@ export function getEventTypeLabel(type: string) {
     case "REUNION":
       return "Reunión";
     case "JORNADA_LABORAL":
-      return "Jornada Laboral";
+      return "Jornada laboral";
     case "EVENTO":
       return "Evento";
     case "CAPACITACION":
       return "Capacitación";
     case "CITA_MEDICA":
-      return "Cita Médica";
+      return "Cita médica";
     default:
       return type;
   }
@@ -22,7 +22,7 @@ export function getAssignedEventStatusLabel(status: string) {
     case "SCHEDULED":
       return "Programado";
     case "IN_PROGRESS":
-      return "En Progreso";
+      return "En curso";
     case "COMPLETED":
       return "Completado";
     case "CANCELLED":

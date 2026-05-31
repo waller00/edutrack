@@ -13,8 +13,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build || npx tsc
-# Eliminamos las dependencias de desarrollo para que no pesen en la imagen final
-RUN npm prune --production
+# Conservamos dependencias de desarrollo en testing para poder ejecutar seeds TS con `npm run seed:*`.
 
 # STAGE 3: Imagen de producción final
 FROM node:20-bookworm-slim AS runner
@@ -26,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 
 # Copiamos solo lo que realmente se necesita para ejecutar
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/src ./src
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/prisma ./prisma
@@ -36,4 +36,4 @@ USER node
 EXPOSE 4000
 
 # Script de inicio: sincroniza esquema y arranca el servidor
-CMD ["sh", "-c", "npx prisma db push ${PRISMA_DB_PUSH_FLAGS:-} && node dist/server.js"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate ${PRISMA_DB_PUSH_FLAGS:-} && node dist/server.js"]
