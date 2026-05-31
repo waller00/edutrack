@@ -92,7 +92,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
     })
   }
 
-  if (authLoading) return <p>Cargando...</p>
+  if (authLoading) return <p>Cargando…</p>
 
   const visibleEvents =
     filter === 'upcoming'
@@ -107,22 +107,22 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
 
   return (
     <RoleGuard permission="events.read" permissionScope="own">
-      <main className="mx-auto max-w-6xl p-6 space-y-6">
-        <div className="flex justify-between items-center">
+      <main className="responsive-page max-w-6xl space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Mis Eventos</h1>
-              <p className="text-sm text-gray-600">Consulta tus eventos asignados</p>
+              <h1 className="text-2xl font-bold">Mi agenda</h1>
+              <p className="text-sm text-gray-600">Clases, turnos y reuniones que tenés asignados.</p>
             </div>
           </div>
-          <div className="text-sm text-gray-500">Total: {visibleEvents.length} eventos</div>
+          <div className="text-sm text-gray-500">{visibleEvents.length} actividades</div>
         </div>
 
         <div className="bg-white border rounded-lg p-4 shadow-sm">
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:inline-flex">
             <button
               type="button"
               onClick={() => setFilter('upcoming')}
@@ -132,7 +132,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Esta Semana
+              Próximos días
             </button>
             <button
               type="button"
@@ -149,22 +149,22 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
         </div>
 
         <div className="bg-white border rounded-lg shadow-sm">
-          <div className="p-6 border-b">
-            <h2 className="text-lg font-semibold">Eventos</h2>
+          <div className="border-b p-4 sm:p-6">
+            <h2 className="text-lg font-semibold">Actividades</h2>
           </div>
           {eventsLoading ? (
-            <div className="p-6 text-center text-gray-500">Cargando eventos…</div>
+            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando actividades…</div>
           ) : visibleEvents.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">No hay eventos para mostrar</div>
+            <div className="p-4 text-center text-gray-500 sm:p-6">No hay actividades para mostrar</div>
           ) : (
             <div className="divide-y divide-gray-200">
               {visibleEvents.map((event) => {
                 const isExpanded = expandedEvents.has(event.id)
                 return (
-                  <div key={event.id} className="p-6 hover:bg-gray-50">
-                    <div className="flex justify-between items-start">
+                  <div key={event.id} className="p-4 hover:bg-gray-50 sm:p-6">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
+                        <div className="mb-3 flex flex-wrap items-center gap-2 sm:gap-3">
                           <h3 className="text-lg font-semibold text-gray-900">{event.title}</h3>
                           <span
                             className={`px-2 py-1 rounded-full text-xs font-medium ${getAssignedEventStatusColor(event.status)}`}

@@ -1,0 +1,79 @@
+name: SonarQube
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analysis:
+    name: Static analysis + coverage gate
+    runs-on: ubuntu-latest
+    # Sin SONAR_TOKEN el analisis no puede publicar: se omite el job en vez de fallar el pipeline.
+    if: ${{ github.actor != 'dependabot[bot]' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sonar necesita el historial completo para "new code" y blame.
+          fetch-depth: 0
+
+      - name: Verificar SONAR_TOKEN
+        id: guard
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "SONAR_TOKEN no configurado; se omite el analisis Sonar." >&2
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.skip == 'false'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/web/package-lock.json
+
+      - name: Backend - install + coverage
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: |
+          npm ci
+          npx prisma generate
+          npm run test:coverage
+
+      - name: Frontend - install + coverage
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: frontend/web
+        run: |
+          npm ci
+          npm run test:coverage
+
+      - name: SonarQube scan
+        if: steps.guard.outputs.skip == 'false'
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      # Falla el pipeline si el Quality Gate de Sonar no pasa.
+      - name: SonarQube Quality Gate
+        if: steps.guard.outputs.skip == 'false'
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

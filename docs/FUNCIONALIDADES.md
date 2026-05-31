@@ -39,7 +39,7 @@ EduTrack es una **plataforma de gestión administrativa integral** orientada a i
 | Código | Etiqueta habitual | Uso principal |
 |--------|-------------------|---------------|
 | `ADMIN` | Administrador | Gestión completa del sistema |
-| `TEACHER` | Tutor / Docente | Consulta de propias asistencias, eventos y licencias |
+| `TEACHER` | Docente | Consulta de propias asistencias, eventos y licencias |
 | `STAFF` | Staff | Igual que docente en módulos “propios” |
 | `STUDENT` | Estudiante | Rol reconocido en modelo; **sin panel operativo** en home (lista vacía) |
 | Perfiles personalizados | Configurables | Matriz de permisos editable por administrador |

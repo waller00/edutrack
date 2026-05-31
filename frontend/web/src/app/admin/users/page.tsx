@@ -25,7 +25,7 @@ import {
   type AdminUsersListFilters,
   type TriState,
 } from '@/lib/admin/users-display'
-import { ChevronLeft, ChevronRight, Fingerprint, Loader2, Search, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Fingerprint, KeyRound, Loader2, Pencil, Search, Users } from 'lucide-react'
 
 type OrgRoleRow = { code: string; label: string; active: boolean }
 
@@ -63,6 +63,9 @@ export default function AdminUsersPage() {
   const [biometricUser, setBiometricUser] = useState<AdminUserRow | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createForm, setCreateForm] = useState({ email: '', username: '', role: 'TEACHER' })
+  const [createSaving, setCreateSaving] = useState(false)
 
   const load = useCallback(async (f: AdminUsersListFilters) => {
     setLoading(true)
@@ -170,6 +173,43 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function createUser(e: React.FormEvent) {
+    e.preventDefault()
+    setCreateSaving(true)
+    setMsg('')
+    try {
+      await api('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: createForm.email.trim(),
+          role: createForm.role,
+          username: createForm.username.trim() || undefined,
+        }),
+      })
+      setMsg('Usuario creado. Debe completar registro / contraseña por correo o reset.')
+      setCreating(false)
+      setCreateForm({ email: '', username: '', role: 'TEACHER' })
+      await load(filters)
+    } catch (err: unknown) {
+      setMsg(getAdminUserSaveErrorMessage(err))
+    } finally {
+      setCreateSaving(false)
+    }
+  }
+
+  async function resetPassword(u: AdminUserRow) {
+    if (!confirm(`¿Enviar correo de restablecimiento de contraseña (Keycloak) a ${u.email}?`)) return
+    try {
+      const res = await api<{ ok: boolean; message?: string }>(`/admin/users/${u.id}/password/reset`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+      setMsg(res.message || 'Se envió el correo de restablecimiento.')
+    } catch (err: unknown) {
+      setMsg(getAdminUserSaveErrorMessage(err))
+    }
+  }
+
   async function toggleLock(u: AdminUserRow) {
     const lock = !isAccountLocked(u.lockUntil)
     if (!confirm(lock ? '¿Bloquear este usuario 15 minutos?' : '¿Desbloquear usuario?')) return
@@ -206,9 +246,11 @@ export default function AdminUsersPage() {
   function renderUserRow(u: AdminUserRow) {
     if (u.role === 'ADMIN') return null
     const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
+    const iconActionBtn =
+      'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-400'
     const biometricButtonClass = u.biometricLinked
-      ? 'inline-grid h-9 w-9 place-items-center rounded-lg border border-emerald-500 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400'
-      : 'inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400'
+      ? `${iconActionBtn} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700`
+      : `${iconActionBtn} border-emerald-300 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100`
 
     return (
       <tr key={u.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
@@ -220,7 +262,7 @@ export default function AdminUsersPage() {
         </td>
         <td className="px-3 py-3 align-middle text-sm">
           <div className="font-medium text-slate-900">{displayUserName(u)}</div>
-          <div className="truncate text-xs text-slate-500 max-w-[14rem]" title={u.email}>
+          <div className="truncate text-xs text-slate-500" title={u.email}>
             {u.email}
           </div>
         </td>
@@ -238,12 +280,12 @@ export default function AdminUsersPage() {
             {isAccountLocked(u.lockUntil) ? 'Bloqueado' : 'Libre'}
           </span>
         </td>
-        <td className="px-3 py-3 align-middle text-right">
-          <div className="flex flex-wrap justify-end gap-1.5">
+        <td className="px-3 py-2.5 align-middle">
+          <div className="flex min-w-[17.5rem] flex-nowrap items-center justify-end gap-1.5">
             <button
               type="button"
               onClick={() => toggleApproval(u)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               title={u.isApproved ? 'Volver a pendiente' : 'Aprobar'}
             >
               {u.isApproved ? 'Pendiente' : 'Aprobar'}
@@ -251,7 +293,7 @@ export default function AdminUsersPage() {
             <button
               type="button"
               onClick={() => toggleActive(u)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               title={u.isActive ? 'Dar de baja' : 'Dar de alta'}
             >
               {u.isActive ? 'Dar baja' : 'Dar alta'}
@@ -263,24 +305,30 @@ export default function AdminUsersPage() {
               aria-label={biometricLabel}
               title={biometricLabel}
             >
-              <Fingerprint className="h-4 w-4" aria-hidden />
+              <Fingerprint className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={() => void resetPassword(u)}
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
+              aria-label="Restablecer contraseña"
+              title="Generar enlace de restablecimiento de contraseña"
+            >
+              <KeyRound className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
             </button>
             <button
               type="button"
               onClick={() => openEdit(u)}
-              className="inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
               aria-label="Editar usuario"
               title="Editar datos del usuario"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path d="M13.586 3.586a2 2 0 0 1 2.828 2.828l-9.192 9.192a2 2 0 0 1-.878.505l-3.06.785a.5 .5 0 0 1-.606-.606l.785-3.06a2 2 0 0 1 .505-.878l9.192-9.192Z" />
-                <path d="M12.172 4.999 15 7.828" />
-              </svg>
+              <Pencil className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
             </button>
             <button
               type="button"
               onClick={() => toggleLock(u)}
-              className="inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
               aria-label={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
               title={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
             >
@@ -306,7 +354,7 @@ export default function AdminUsersPage() {
 
   return (
     <RoleGuard permission="users.read" permissionScope="all">
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <main className="responsive-page max-w-[1600px]">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
@@ -319,7 +367,59 @@ export default function AdminUsersPage() {
               </p>
             </div>
           </div>
+          <button type="button" onClick={() => setCreating(true)} className="btn-primary shrink-0">
+            Nuevo usuario
+          </button>
         </div>
+
+        {creating ? (
+          <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm sm:p-5">
+            <h2 className="mb-3 text-lg font-semibold text-slate-900">Alta de usuario</h2>
+            <form onSubmit={createUser} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-xs font-medium text-slate-600">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={createForm.email}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Usuario</label>
+                <input
+                  value={createForm.username}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Opcional"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Rol</label>
+                <select
+                  value={createForm.role}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, role: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                >
+                  {roleChoices.map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-2 sm:col-span-2 lg:col-span-4">
+                <button type="submit" disabled={createSaving} className="btn-primary">
+                  {createSaving ? 'Creando…' : 'Crear'}
+                </button>
+                <button type="button" onClick={() => setCreating(false)} className="btn-secondary">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
 
         <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Filtros</h2>
@@ -423,7 +523,7 @@ export default function AdminUsersPage() {
               </select>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <button
               type="button"
               onClick={applyFilters}
@@ -459,7 +559,7 @@ export default function AdminUsersPage() {
             )}
           </p>
           {data.total > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={loading || data.page <= 1}
@@ -485,17 +585,27 @@ export default function AdminUsersPage() {
 
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="w-full min-w-[1100px] table-fixed text-sm">
+              <colgroup>
+                <col className="w-[11%]" />
+                <col className="w-[8%]" />
+                <col className="w-[21%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
+                <col className="w-[9%]" />
+                <col className="w-[9%]" />
+                <col className="w-[22%]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="whitespace-nowrap px-3 py-3">Usuario</th>
                   <th className="whitespace-nowrap px-3 py-3">Rol</th>
-                  <th className="min-w-[12rem] px-3 py-3">Persona</th>
+                  <th className="px-3 py-3">Persona</th>
                   <th className="whitespace-nowrap px-3 py-3">Verificado</th>
                   <th className="whitespace-nowrap px-3 py-3">Aprobación</th>
                   <th className="whitespace-nowrap px-3 py-3">Estado</th>
                   <th className="whitespace-nowrap px-3 py-3">Acceso</th>
-                  <th className="w-px whitespace-nowrap px-3 py-3 text-right">Acciones</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -515,8 +625,8 @@ export default function AdminUsersPage() {
         </div>
 
         {edit && (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-            <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="responsive-modal bg-slate-900/40 backdrop-blur-[1px]">
+            <div className="responsive-modal-panel max-w-lg border-slate-200">
               <h2 className="text-lg font-semibold text-slate-900">Editar usuario</h2>
               <p className="mt-1 text-xs text-slate-500">{edit.email}</p>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -618,7 +728,7 @@ export default function AdminUsersPage() {
                 </div>
               </div>
               {msg && <p className="mt-3 text-sm text-red-600">{msg}</p>}
-              <div className="mt-6 flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <div className="mt-6 flex flex-col justify-end gap-2 border-t border-slate-100 pt-4 sm:flex-row">
                 <button
                   type="button"
                   onClick={closeEdit}
@@ -640,8 +750,8 @@ export default function AdminUsersPage() {
         )}
 
         {biometricUser && (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-            <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+          <div className="responsive-modal bg-slate-900/40 backdrop-blur-[1px]">
+            <div className="responsive-modal-panel max-w-xl border-slate-200">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-900">Vincular huella</h2>

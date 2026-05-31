@@ -1,18 +1,42 @@
 import { Request, Response, NextFunction } from "express";
-import { verifyToken } from "../auth/jwt.js";
 import { prisma } from "../db/prisma.js";
+import { getSession } from "../auth/session-store.js";
+import { verifyTestBearerToken } from "../test-utils/bearer-token.js";
 
-export function authGuard(req: Request, res: Response, next: NextFunction) {
-  const header = req.headers.authorization?.replace("Bearer ", "");
-  const token = header || (req as any).cookies?.access_token;
-  if (!token) return res.status(401).json({ message: "No autorizado" });
-  try {
-    const user = verifyToken(token);
-    (req as any).user = { ...user, id: user.id ?? user.sub };
-    next();
-  } catch {
-    return res.status(401).json({ message: "Token inválido" });
+export async function authGuard(req: Request, res: Response, next: NextFunction) {
+  const sid = (req as any).cookies?.sid as string | undefined;
+  if (sid) {
+    try {
+      const session = await getSession(sid);
+      if (!session) return res.status(401).json({ message: "Sesión expirada" });
+      (req as any).user = {
+        sub: session.userId,
+        id: session.userId,
+        email: session.email,
+        role: session.role,
+      };
+      (req as any).bffSession = session;
+      return next();
+    } catch {
+      return res.status(401).json({ message: "No autorizado" });
+    }
   }
+
+  if (process.env.NODE_ENV === "test") {
+    const header = req.headers.authorization?.replace("Bearer ", "");
+    const token = header || ((req as any).cookies?.access_token as string | undefined);
+    if (token) {
+      try {
+        const user = verifyTestBearerToken(token);
+        (req as any).user = { ...user, id: user.id ?? user.sub };
+        return next();
+      } catch {
+        return res.status(401).json({ message: "Token inválido" });
+      }
+    }
+  }
+
+  return res.status(401).json({ message: "No autorizado" });
 }
 
 export function requireRole(role: string) {

@@ -91,7 +91,7 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
   }, [load])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const containerClass = compact ? 'space-y-5' : 'mx-auto max-w-6xl p-6 space-y-6'
+  const containerClass = compact ? 'space-y-5' : 'responsive-page max-w-6xl space-y-6'
 
   const labelCls = 'block text-xs font-medium uppercase tracking-wide text-gray-500'
 
@@ -100,8 +100,8 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
       <section
         className={
           compact
-            ? 'rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/40 p-5 shadow-sm'
-            : 'rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/30 p-6 shadow-sm'
+            ? 'rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/40 p-4 shadow-sm sm:p-5'
+            : 'rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/30 p-4 shadow-sm sm:p-6'
         }
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
@@ -222,7 +222,7 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
 
       <section className={`${shellCard} overflow-hidden p-0`}>
         <div className="border-b border-gray-100 bg-slate-50/90 px-5 py-3.5">
-          <h3 className="text-sm font-semibold text-gray-900">Eventos registrados</h3>
+          <h3 className="text-sm font-semibold text-gray-900">Movimientos registrados</h3>
           <p className="text-xs text-gray-500">Ordenados del más reciente al más antiguo.</p>
         </div>
 
@@ -230,15 +230,15 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-gray-500">
               <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
-              <p className="text-sm">Cargando eventos…</p>
+              <p className="text-sm">Cargando movimientos…</p>
             </div>
           ) : rows.length === 0 ? (
             <div className="mx-4 my-10 rounded-lg border border-dashed border-gray-200 bg-slate-50/50 px-6 py-12 text-center">
-              <p className="text-sm font-medium text-gray-700">No hay eventos para mostrar</p>
+              <p className="text-sm font-medium text-gray-700">No hay movimientos para mostrar</p>
               <p className="mt-1 text-xs text-gray-500">Probá ampliar fechas o quitar filtros.</p>
             </div>
           ) : (
-            <table className="min-w-full text-left text-sm">
+            <table className="min-w-[860px] text-left text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-white">
                   <th className="whitespace-nowrap px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">

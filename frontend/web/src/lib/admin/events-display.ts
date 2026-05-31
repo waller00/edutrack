@@ -1,10 +1,11 @@
-export type AdminEventType =
-  | 'JORNADA_LABORAL'
-  | 'REUNION'
-  | 'CLASE'
-  | 'EVENTO'
-  | 'CAPACITACION'
-  | 'CITA_MEDICA'
+/** Tipos operativos en UI (crear/editar/filtrar). Eventos legacy en BD siguen mostrándose por etiqueta. */
+export type AdminEventType = 'JORNADA_LABORAL' | 'REUNION' | 'CLASE'
+
+export const ADMIN_EVENT_TYPE_SELECT_OPTIONS: { value: AdminEventType; label: string }[] = [
+  { value: 'CLASE', label: 'Clase' },
+  { value: 'JORNADA_LABORAL', label: 'Jornada laboral' },
+  { value: 'REUNION', label: 'Reunión' },
+]
 
 export type AdminEventStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED'
 
@@ -13,17 +14,11 @@ export type AdminEventCreatorRole = 'TEACHER' | 'STAFF' | ''
 export function getAdminEventTypeLabel(type: string): string {
   switch (type as AdminEventType) {
     case 'JORNADA_LABORAL':
-      return 'Jornada Laboral'
+      return 'Jornada laboral'
     case 'REUNION':
       return 'Reunión'
     case 'CLASE':
       return 'Clase'
-    case 'EVENTO':
-      return 'Evento'
-    case 'CAPACITACION':
-      return 'Capacitación'
-    case 'CITA_MEDICA':
-      return 'Cita Médica'
     default:
       return type
   }
@@ -51,7 +46,7 @@ export function getAdminEventStatusLabel(status: string): string {
     case 'SCHEDULED':
       return 'Programado'
     case 'IN_PROGRESS':
-      return 'En Progreso'
+      return 'En curso'
     case 'COMPLETED':
       return 'Completado'
     case 'EXPIRED':
@@ -72,7 +67,7 @@ export function getAdminEventRoleTypeOptions(role: AdminEventCreatorRole): { val
   }
   if (role === 'STAFF') {
     return [
-      { value: 'JORNADA_LABORAL', label: 'Jornada Laboral' },
+      { value: 'JORNADA_LABORAL', label: 'Jornada laboral' },
       { value: 'REUNION', label: 'Reunión' },
     ]
   }

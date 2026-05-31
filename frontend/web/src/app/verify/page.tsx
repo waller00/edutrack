@@ -15,8 +15,8 @@ export default function VerifyPage() {
   }, [])
 
   return (
-    <main className="min-h-screen grid place-items-center bg-gray-50">
-      <div className="w-full max-w-md bg-white border rounded-2xl p-6 shadow text-center">
+    <main className="grid min-h-screen place-items-center bg-gray-50 p-4">
+      <div className="w-full max-w-md rounded-2xl border bg-white p-5 text-center shadow sm:p-6">
         {status === 'loading' && <p>Verificando…</p>}
         {status === 'ok' && (
           <>

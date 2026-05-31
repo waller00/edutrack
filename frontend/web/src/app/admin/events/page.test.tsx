@@ -51,8 +51,8 @@ describe('AdminEvents', () => {
 
     render(<AdminEvents />)
 
-    expect(await screen.findByText('Gestión de Eventos')).toBeInTheDocument()
-    expect(await screen.findByText('No hay eventos')).toBeInTheDocument()
+    expect(await screen.findByText('Agenda y clases')).toBeInTheDocument()
+    expect(await screen.findByText('No hay actividades')).toBeInTheDocument()
   })
 
   it('carga solo cursos activos para crear o filtrar eventos', async () => {
@@ -66,7 +66,7 @@ describe('AdminEvents', () => {
     })
 
     render(<AdminEvents />)
-    await screen.findByText('No hay eventos')
+    await screen.findByText('No hay actividades')
 
     const courseCalls = mockedApi.mock.calls.map((call) => String(call[0])).filter((url) => url.startsWith('/courses'))
     expect(courseCalls).toContain('/courses')
@@ -113,7 +113,7 @@ describe('AdminEvents', () => {
     expect(screen.queryByText('Sin fecha fin')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
-    const modal = await screen.findByRole('heading', { name: 'Editar Evento' }).then((h) => h.closest('div')!.parentElement!)
+    const modal = await screen.findByRole('heading', { name: 'Editar actividad' }).then((h) => h.closest('div')!.parentElement!)
     expect(within(modal).getAllByDisplayValue('2025-06-01')).toHaveLength(2)
     expect(within(modal).getByText('Mismo día que la fecha del evento.')).toBeInTheDocument()
   })
@@ -131,8 +131,8 @@ describe('AdminEvents', () => {
     render(<AdminEvents />)
     await screen.findByText('Clase matutina')
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar evento Clase matutina' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionados' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar actividad Clase matutina' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/events/e1', expect.objectContaining({ method: 'DELETE' })),
@@ -151,10 +151,10 @@ describe('AdminEvents', () => {
     render(<AdminEvents />)
     await screen.findByText('Clase matutina')
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todos los eventos' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todas las actividades' }))
 
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar evento Clase matutina' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar evento Clase tarde' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar actividad Clase matutina' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar actividad Clase tarde' })).toBeChecked()
   })
 
   it('reactiva evento cancelado', async () => {
@@ -200,7 +200,7 @@ describe('AdminEvents', () => {
     await screen.findByText('Clase matutina')
 
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
-    const modal = await screen.findByRole('heading', { name: 'Editar Evento' }).then((h) => h.closest('div')!.parentElement!)
+    const modal = await screen.findByRole('heading', { name: 'Editar actividad' }).then((h) => h.closest('div')!.parentElement!)
     const titleInput = within(modal).getByDisplayValue('Clase matutina')
     fireEvent.change(titleInput, { target: { value: 'Clase vespertina' } })
     fireEvent.click(within(modal).getByRole('button', { name: 'Guardar Cambios' }))
@@ -228,9 +228,9 @@ describe('AdminEvents', () => {
     })
 
     render(<AdminEvents />)
-    await screen.findByText('No hay eventos')
+    await screen.findByText('No hay actividades')
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Crear Evento' })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: 'Nueva actividad' })[0])
 
     const createModal = screen.getByTestId('create-event-modal')
     const selects = () => createModal.querySelectorAll('select')
@@ -245,7 +245,7 @@ describe('AdminEvents', () => {
     fireEvent.change(within(createModal).getByTestId('create-event-end-h'), { target: { value: '11' } })
     fireEvent.change(within(createModal).getByTestId('create-event-end-m'), { target: { value: '00' } })
 
-    const crearBtns = screen.getAllByRole('button', { name: 'Crear Evento' })
+    const crearBtns = screen.getAllByRole('button', { name: 'Nueva actividad' })
     fireEvent.click(crearBtns[crearBtns.length - 1])
 
     await waitFor(() =>

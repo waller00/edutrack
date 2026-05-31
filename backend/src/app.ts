@@ -4,13 +4,15 @@ import dns from "node:dns";
 import express from "express";
 import diditWebhookHandler from "./routes/didit-webhook.js";
 import diditLivenessRoutes from "./routes/didit-liveness.js";
+import * as Sentry from "@sentry/node";
 import cors from "cors";
 import type { CorsOptions } from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.js";
-import passport from "./auth/passportGoogle.js";
+import keycloakAuthRoutes from "./routes/auth-keycloak.js";
+import { rateLimit } from "./middlewares/rate-limit.js";
 import adminRoutes from "./routes/admin.js";
 import adminTestingRoutes from "./routes/admin-testing.js";
 import attendanceRoutes from "./routes/attendance.js";
@@ -27,6 +29,7 @@ import biometricAdmsRoutes from "./routes/biometric-adms.js";
 import biometricLinkRoutes from "./routes/biometric-link.js";
 import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
+import substitutionsRoutes from "./routes/substitutions.js";
 
 dns.setDefaultResultOrder("ipv4first");
 
@@ -112,7 +115,8 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
 
-app.use(passport.initialize());
+app.use("/auth/login", rateLimit({ bucket: "login", max: 10, windowSeconds: 60 }));
+app.use("/auth", keycloakAuthRoutes);
 app.use("/auth", authRoutes);
 app.use("/auth", diditLivenessRoutes);
 app.use("/admin", adminRoutes);
@@ -130,7 +134,11 @@ app.use("/notifications/in-app", inAppNotificationRoutes);
 app.use("/biometric", biometricLinkRoutes);
 app.use("/biometric", biometricAdmsRoutes);
 app.use("/attendance-incidents", attendanceIncidentsRoutes);
+app.use("/substitutions", substitutionsRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Captura de errores de Express en Sentry (no-op si SENTRY_DSN no esta definido).
+Sentry.setupExpressErrorHandler(app);
 
 export default app;

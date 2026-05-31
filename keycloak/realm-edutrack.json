@@ -1,0 +1,90 @@
+{
+  "realm": "edutrack",
+  "enabled": true,
+  "displayName": "EduTrack",
+  "loginTheme": "edutrack",
+  "loginWithEmailAllowed": true,
+  "editUsernameAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "internationalizationEnabled": true,
+  "supportedLocales": ["es"],
+  "defaultLocale": "es",
+  "sslRequired": "none",
+  "passwordPolicy": "length(8) and notUsername(undefined)",
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      { "name": "ADMIN", "description": "Administrador EduTrack" },
+      { "name": "STAFF", "description": "Staff EduTrack" },
+      { "name": "TEACHER", "description": "Docente EduTrack" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "edutrack-web",
+      "name": "EduTrack BFF",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "edutrack-web-secret-change-me",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "http://localhost:4000/auth/callback",
+        "http://138.197.35.2.nip.io:4000/auth/callback",
+        "https://*/auth/callback",
+        "http://*/auth/callback"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "google",
+      "providerId": "google",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "395690612021-04mgdrkmqi54pk7422lus0oqbmegbcoe.apps.googleusercontent.com",
+        "clientSecret": "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",
+        "useJwksUrl": "true",
+        "syncMode": "IMPORT",
+        "defaultScope": "openid email profile"
+      }
+    }
+  ]
+}

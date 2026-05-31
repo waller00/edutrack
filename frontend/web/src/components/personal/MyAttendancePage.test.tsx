@@ -10,6 +10,10 @@ vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
+vi.mock('@/components/personal/MyAttendanceMarkingPanel', () => ({
+  default: () => null,
+}))
+
 const mockedApi = vi.mocked(api)
 
 function mockLocation() {

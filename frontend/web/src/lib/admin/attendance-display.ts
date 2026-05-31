@@ -9,6 +9,8 @@ export type AdminAttendanceStatus =
   | 'ABSENT_JUSTIFIED'
   | 'EXIT'
   | 'EARLY_EXIT'
+  | 'JUSTIFIED'
+  | 'SUBSTITUTED'
 
 export function getAdminAttendanceTypeStyle(type: AdminAttendanceType): string {
   if (type === 'INCIDENT') return 'bg-red-100 text-red-800'
@@ -31,7 +33,10 @@ export function getAdminAttendanceStatusStyle(status: AdminAttendanceStatus): st
     case 'ABSENT_NOT_JUSTIFIED':
       return 'bg-red-100 text-red-800'
     case 'ABSENT_JUSTIFIED':
+    case 'JUSTIFIED':
       return 'bg-orange-100 text-orange-800'
+    case 'SUBSTITUTED':
+      return 'bg-rose-100 text-rose-800'
     default:
       return 'bg-gray-100 text-gray-800'
   }
@@ -51,6 +56,10 @@ export function getAdminAttendanceStatusLabel(status: AdminAttendanceStatus): st
       return 'Ausente (No Justificada)'
     case 'ABSENT_JUSTIFIED':
       return 'Ausente (Justificada)'
+    case 'JUSTIFIED':
+      return 'Justificado'
+    case 'SUBSTITUTED':
+      return 'Ausencia prevista sin justificar (suplida)'
     default:
       return String(status)
   }

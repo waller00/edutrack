@@ -40,6 +40,10 @@ enum AuditAction {
   BIOMETRIC_LINK_CONFIRMED
   BIOMETRIC_LINK_CANCELLED
   BIOMETRIC_MAPPING_REMOVED
+  ATTENDANCE_MANUAL_UPDATED
+  ATTENDANCE_JUSTIFIED
+  ATTENDANCE_INCIDENT_RESOLVED
+  SUBSTITUTION_CREATED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
@@ -70,16 +74,13 @@ model User {
   name                        String?
   phone                       String?
   birthdate                   DateTime?
-  passwordHash                String?
   googleId                    String?                @unique
   roleId                      String
   orgRole                     OrgRole                @relation(fields: [roleId], references: [id], onDelete: Restrict)
   createdAt                   DateTime               @default(now())
   updatedAt                   DateTime               @updatedAt
   // relations
-  passwordResets              PasswordReset[]
   emailVerifications          EmailVerification[]
-  refreshTokens               RefreshToken[]
   attendances                 Attendance[]
   events                      Event[]
   assignedEvents              Event[]                @relation("EventAssignment")
@@ -90,7 +91,12 @@ model User {
   biometricLinkRequests       BiometricLinkRequest[]
   biometricPunches            BiometricPunch[]
   attendanceIncidents         AttendanceIncident[]
+  attendanceJustificationsCreated AttendanceJustification[] @relation("AttendanceJustificationCreatedBy")
+  substitutionsCreated        Substitution[]          @relation("SubstitutionCreatedBy")
+  substitutionsAsOriginal     Substitution[]          @relation("SubstitutionOriginalTeacher")
+  substitutionsAsSubstitute   Substitution[]          @relation("SubstitutionSubstituteTeacher")
   auditEvents                 AuditLog[]
+  teacherProfile              TeacherProfile?
   // security
   emailVerifiedAt             DateTime?
   failedLoginAttempts         Int                    @default(0)
@@ -98,38 +104,24 @@ model User {
   isApproved                  Boolean                @default(true)
   approvedAt                  DateTime?
   isActive                    Boolean                @default(true)
-  twoFactorEnabled            Boolean                @default(false)
-  twoFactorSecret             String?
-  twoFactorConfirmedAt        DateTime?
-  twoFactorBackupCodes        TwoFactorBackupCode[]
   /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
   livenessVerifiedAt          DateTime?
 
   @@index([roleId])
 }
 
-model TwoFactorBackupCode {
-  id        String    @id @default(uuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  codeHash  String
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
+/// Perfil docente operativo (cuenta en `User` con rol TEACHER).
+model TeacherProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName String
+  isActive    Boolean  @default(true)
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  @@unique([userId, codeHash])
-  @@index([userId, usedAt])
-}
-
-model PasswordReset {
-  id        String    @id @default(uuid())
-  token     String    @unique
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@index([userId])
+  @@index([isActive])
 }
 
 model EmailVerification {
@@ -233,21 +225,6 @@ model WebPushSubscription {
   @@index([userId])
 }
 
-model RefreshToken {
-  id           String    @id @default(uuid())
-  tokenHash    String
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  replacedById String?
-  createdAt    DateTime  @default(now())
-  userAgent    String?
-  ipAddress    String?
-
-  @@index([userId])
-}
-
 // Sistema de Asistencias
 enum AttendanceType {
   CHECK_IN
@@ -287,6 +264,15 @@ enum AttendanceStatus {
   // Estados para CHECK_OUT
   EXIT
   EARLY_EXIT
+
+  // Estados operativos y de revisión
+  JUSTIFIED
+  FREE
+  PENDING_REVIEW
+  SUBSTITUTED
+  SUSPENDED
+  OUT_OF_SCHEDULE
+  UNIDENTIFIED_PUNCH
 }
 
 model Attendance {
@@ -302,12 +288,39 @@ model Attendance {
   event          Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
   biometricPunch BiometricPunch?
   incidents      AttendanceIncident[]
+  justifications AttendanceJustification[]
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
   @@index([userId])
   @@index([date])
   @@index([eventId])
+}
+
+enum AttendanceJustificationType {
+  ABSENCE
+  LATE_ARRIVAL
+  EARLY_EXIT
+  OTHER
+}
+
+model AttendanceJustification {
+  id              String                      @id @default(uuid())
+  attendanceId    String
+  attendance      Attendance                  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  type            AttendanceJustificationType @default(OTHER)
+  reason          String
+  notes           String?                     @db.Text
+  attachment      String?                     @db.Text
+  previousStatus  AttendanceStatus
+  newStatus       AttendanceStatus
+  createdByUserId String?
+  createdBy       User?                       @relation("AttendanceJustificationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                    @default(now())
+
+  @@index([attendanceId])
+  @@index([createdByUserId])
+  @@index([createdAt])
 }
 
 enum AttendanceIncidentType {
@@ -499,6 +512,20 @@ enum SchoolYearStatus {
   CLOSED
 }
 
+enum AcademicLevel {
+  EBI
+  EMS
+}
+
+enum SubjectAssociationType {
+  NIVEL_COMPLETO
+  CURSO_COMPLETO
+  TRONCO_COMUN_CURSO
+  ORIENTACION
+  OPTATIVA
+  PERSONALIZADA
+}
+
 model SchoolYear {
   id                 String                @id @default(uuid())
   /// Año calendario del ciclo (ej. 2026); único en la institución.
@@ -515,6 +542,8 @@ model SchoolYear {
   tuitionYears       StudentTuitionYear[]
   tuitionMonths      StudentTuitionMonth[]
   nonWorkingDays     NonWorkingDay[]
+  courseOrientations CourseOrientation[]
+  subjectAssignments SubjectCourseAssignment[]
 
   @@index([status])
 }
@@ -524,14 +553,37 @@ model Course {
   id          String           @id @default(uuid())
   name        String
   code        String?          @unique
+  level       AcademicLevel?
+  sortOrder   Int              @default(0)
   description String?
   isActive    Boolean          @default(true)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
-  subjects    Subject[]
+  legacySubjects Subject[]
   offerings   CourseOffering[]
+  orientations CourseOrientation[]
+  subjectAssignments SubjectCourseAssignment[]
 
   @@index([isActive])
+  @@index([level, sortOrder])
+}
+
+/// Catálogo configurable de orientaciones/subdivisiones académicas.
+model Orientation {
+  id          String              @id @default(uuid())
+  name        String
+  code        String?             @unique
+  description String?             @db.Text
+  isActive    Boolean             @default(true)
+  sortOrder   Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  courses     CourseOrientation[]
+  subjectAssignments SubjectCourseAssignment[]
+  events      Event[]
+
+  @@index([isActive])
+  @@index([sortOrder, name])
 }
 
 /// Oferta anual de un curso del catálogo dentro de un ciclo lectivo.
@@ -543,20 +595,47 @@ model CourseOffering {
   schoolYearId       String
   schoolYear         SchoolYear          @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
   isActive           Boolean             @default(true)
+  isOffered          Boolean             @default(true)
+  visibleInFilters   Boolean             @default(true)
   notes              String?             @db.Text
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   events             Event[]
   studentEnrollments StudentEnrollment[]
-  subjects           Subject[]
+  legacySubjects     Subject[]
 
   @@unique([courseId, schoolYearId])
   @@index([schoolYearId, isActive])
+  @@index([schoolYearId, isOffered, visibleInFilters])
   @@index([courseId])
 }
 
-/// Asignatura de un curso. Sin jerarquía de “subcursos”: materias comunes vs orientación
-/// se modelan con cursos distintos y listas de asignaturas propias.
+/// Relación opcional de orientación disponible para un curso y, si corresponde, ciclo lectivo.
+model CourseOrientation {
+  id            String       @id @default(uuid())
+  courseId      String
+  course        Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  orientationId String
+  orientation   Orientation  @relation(fields: [orientationId], references: [id], onDelete: Cascade)
+  schoolYearId  String?
+  schoolYear    SchoolYear?  @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  isActive      Boolean      @default(true)
+  isOffered     Boolean      @default(true)
+  visibleInFilters Boolean   @default(true)
+  notes         String?      @db.Text
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  events        Event[]
+
+  @@unique([courseId, orientationId, schoolYearId])
+  @@index([courseId, isActive])
+  @@index([orientationId, isActive])
+  @@index([schoolYearId, isActive])
+  @@index([schoolYearId, isOffered, visibleInFilters])
+}
+
+/// Catálogo global de asignaturas. La disponibilidad por nivel/curso/orientación
+/// se define en SubjectCourseAssignment.
 model Subject {
   id               String          @id @default(uuid())
   name             String
@@ -564,17 +643,53 @@ model Subject {
   description      String?         @db.Text
   sortOrder        Int             @default(0)
   isActive         Boolean         @default(true)
-  courseId         String
-  course           Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  /// Compatibilidad histórica: asignaturas creadas antes del catálogo flexible.
+  courseId         String?
+  course           Course?         @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  /// Compatibilidad histórica por ciclo.
   courseOfferingId String?
   courseOffering   CourseOffering? @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  courseAssignments SubjectCourseAssignment[]
   events           Event[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
   @@index([courseId])
   @@index([courseOfferingId])
+  @@index([isActive])
+  @@index([sortOrder, name])
   @@map("asignaturas")
+}
+
+/// Asociación flexible de asignaturas: nivel completo, curso completo, tronco común
+/// de curso, orientación o configuración personalizada por ciclo.
+model SubjectCourseAssignment {
+  id              String                 @id @default(uuid())
+  subjectId       String
+  subject         Subject                @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  level           AcademicLevel?
+  courseId        String?
+  course          Course?                @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  orientationId   String?
+  orientation     Orientation?           @relation(fields: [orientationId], references: [id], onDelete: Cascade)
+  schoolYearId    String?
+  schoolYear      SchoolYear?            @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  associationType SubjectAssociationType
+  isActive        Boolean                @default(true)
+  isOffered       Boolean                @default(true)
+  visibleInFilters Boolean               @default(true)
+  sortOrder       Int                    @default(0)
+  notes           String?                @db.Text
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([subjectId, isActive])
+  @@index([level, isActive])
+  @@index([courseId, isActive])
+  @@index([orientationId, isActive])
+  @@index([schoolYearId, isActive])
+  @@index([schoolYearId, isOffered, visibleInFilters])
+  @@index([associationType])
 }
 
 /// Estado de matrícula para informes de abandono y seguimiento administrativo.
@@ -699,6 +814,10 @@ model Event {
   schoolYear          SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
   courseOfferingId    String?
   courseOffering      CourseOffering?      @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  orientationId        String?
+  orientation          Orientation?         @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  courseOrientationId  String?
+  courseOrientation    CourseOrientation?   @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
   subjectId           String?
   subject             Subject?             @relation(fields: [subjectId], references: [id], onDelete: SetNull)
   recurrenceType      RecurrenceType       @default(NONE)
@@ -710,6 +829,7 @@ model Event {
   childEvents         Event[]              @relation("EventRecurrence")
   attendances         Attendance[]
   attendanceIncidents AttendanceIncident[]
+  substitutions       Substitution[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -717,9 +837,35 @@ model Event {
   @@index([assignedUserId])
   @@index([schoolYearId])
   @@index([courseOfferingId])
+  @@index([orientationId])
+  @@index([courseOrientationId])
   @@index([subjectId])
   @@index([startDate])
   @@index([type])
+}
+
+model Substitution {
+  id                    String   @id @default(uuid())
+  eventId               String
+  event                 Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  originalTeacherUserId String
+  originalTeacher       User     @relation("SubstitutionOriginalTeacher", fields: [originalTeacherUserId], references: [id], onDelete: Restrict)
+  substituteUserId      String
+  substitute            User     @relation("SubstitutionSubstituteTeacher", fields: [substituteUserId], references: [id], onDelete: Restrict)
+  date                  DateTime
+  startTime             DateTime
+  endTime               DateTime
+  reason                String
+  notes                 String?  @db.Text
+  createdByUserId       String?
+  createdBy             User?    @relation("SubstitutionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([eventId, date])
+  @@index([originalTeacherUserId, date])
+  @@index([substituteUserId, date])
+  @@index([createdByUserId])
 }
 
 // Sistema de Licencias Médicas

@@ -9,19 +9,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       cache: "no-store",
     })
 
-  let res = await doFetch()
+  const res = await doFetch()
 
-  if (res.status === 401) {
-    // intentar refresh una vez
-    const r = await fetch(`${apiUrl}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-    })
-    if (r.ok) {
-      res = await doFetch()
-    }
-  }
   if (!res.ok) {
     const errorData = await parseErrorJson(res);
     let errorMessage = `API ${res.status}`;

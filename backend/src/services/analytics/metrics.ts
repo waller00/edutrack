@@ -40,7 +40,10 @@ export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance
   const M2_LATE_RATE_pct = totalIn ? roundTo(pct(late, totalIn), 2) : 0
 
   const absent = resolvedInstances.filter(
-    (i) => i.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED' || i.checkInStatusResolved === 'ABSENT_JUSTIFIED',
+    (i) =>
+      i.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED' ||
+      i.checkInStatusResolved === 'ABSENT_JUSTIFIED' ||
+      i.checkInStatusResolved === 'SUBSTITUTED',
   ).length
   const M4_AOP_pct = roundTo(pct(absent, totalPlan), 2)
 

@@ -283,11 +283,11 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
     )
   }
 
-  const containerClass = compact ? 'space-y-6' : 'mx-auto max-w-7xl p-6 space-y-6'
+  const containerClass = compact ? 'space-y-6' : 'responsive-page max-w-7xl space-y-6'
 
   return (
     <div className={containerClass}>
-      <section className="rounded-xl border border-emerald-100 bg-white p-6 shadow-sm">
+      <section className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
             <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
@@ -334,7 +334,7 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
         <section className="space-y-4">
           {newProfileOpen && (
             <article className="rounded-xl border border-emerald-200 bg-white shadow-sm">
-              <div className="border-b border-emerald-100 p-5">
+              <div className="border-b border-emerald-100 p-4 sm:p-5">
                 <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
                   <label className="block text-sm font-medium text-gray-700">
                     Nombre
@@ -371,7 +371,7 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
                   </button>
                 </div>
               </div>
-              <div className="border-t border-gray-100 p-5 text-sm text-gray-600">
+              <div className="border-t border-gray-100 p-4 text-sm text-gray-600 sm:p-5">
                 Primero creá el perfil. Después seleccionalo en <span className="font-semibold text-gray-800">Perfil a configurar</span> para activar permisos y revisar la vista previa.
               </div>
             </article>
@@ -424,7 +424,7 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
 
                 <section className="space-y-4">
                   {previewOpen && (
-                    <article className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-5">
+                    <article className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-5">
                       <h2 className="text-base font-semibold text-emerald-950">Vista previa del rol</h2>
                       <p className="mt-1 text-sm text-emerald-800">
                         Así quedaría el acceso para una persona con el perfil {profile.label}.
@@ -446,13 +446,13 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
                     </article>
                   )}
 
-                  <article className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <article className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
                     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <h2 className="text-lg font-semibold text-gray-950">Permisos de {profile.label}</h2>
                         <p className="text-sm text-gray-600">Activá módulos y elegí si ve solo lo propio o todos los registros.</p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid gap-2 sm:flex sm:flex-wrap">
                         <button
                           type="button"
                           onClick={() =>

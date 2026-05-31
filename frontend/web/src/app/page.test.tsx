@@ -35,16 +35,30 @@ describe('Home page', () => {
         isApproved: true,
         isActive: true,
       })
-      .mockResolvedValueOnce({ total: 0, data: [] })
-      .mockResolvedValueOnce({ total: 0, data: [] })
+      .mockResolvedValueOnce({
+        date: '2026-05-24',
+        summary: {
+          expectedTeachers: 0,
+          presentTeachers: 0,
+          lateArrivals: 0,
+          pendingAbsences: 0,
+          suspendedClasses: 0,
+          outOfSchedulePunches: 0,
+          unidentifiedPunches: 0,
+        },
+        items: [],
+        filters: { teachers: [], groups: [], statuses: [], types: [] },
+      })
       .mockResolvedValueOnce({})
 
     render(<Home />)
 
-    expect(await screen.findByText('Cronología operativa')).toBeInTheDocument()
+    expect(await screen.findByText('Inicio operativo')).toBeInTheDocument()
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
-    expect(screen.getByText('Eventos')).toBeInTheDocument()
-    expect(await screen.findByText(/No hay actividad reciente ni eventos próximos/i)).toBeInTheDocument()
+    expect(screen.getByText('Agenda')).toBeInTheDocument()
+    expect(await screen.findByText(/No hay incidencias relevantes/i)).toBeInTheDocument()
+    expect(screen.getByText(/No hay clases para mostrar/i)).toBeInTheDocument()
+    expect(screen.getByText(/No hay actividad relevante/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /reenviar correo/i }))
 
@@ -54,7 +68,7 @@ describe('Home page', () => {
     expect(screen.getByRole('button', { name: /enviado/i })).toBeDisabled()
   })
 
-  it('combina evento en curso con sus marcas de entrada y salida', async () => {
+  it('muestra la cronología diaria de asistencia resumida', async () => {
     vi.mocked(api)
       .mockResolvedValueOnce({
         name: 'Ada',
@@ -65,55 +79,97 @@ describe('Home page', () => {
         isActive: true,
       })
       .mockResolvedValueOnce({
-        total: 2,
-        data: [
+        date: '2026-05-24',
+        summary: {
+          expectedTeachers: 2,
+          presentTeachers: 1,
+          lateArrivals: 1,
+          pendingAbsences: 1,
+          suspendedClasses: 0,
+          outOfSchedulePunches: 1,
+          unidentifiedPunches: 1,
+        },
+        filters: {
+          teachers: [{ id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' }],
+          groups: [{ id: 'g1', name: '1°A' }],
+          statuses: [{ value: 'PRESENT', label: 'Presente' }],
+          types: [
+            { value: 'BIOMETRIC_ENTRY', label: 'Entrada por huella' },
+            { value: 'BIOMETRIC_EXIT', label: 'Salida por huella' },
+            { value: 'CLASS_ATTENDANCE', label: 'Clase' },
+            { value: 'SUBSTITUTION', label: 'Suplencia' },
+            { value: 'JUSTIFICATION', label: 'Justificación' },
+          ],
+        },
+        items: [
           {
-            id: 'out-1',
-            type: 'CHECK_OUT',
-            status: 'EARLY_EXIT',
-            date: '2026-05-24T00:00:00.000Z',
-            time: '2026-05-24T23:29:00.000Z',
-            user: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
-            event: { id: 'ev-1', title: 'Clase Jorge', type: 'CLASE' },
+            id: 'attendance:in-1',
+            time: '07:45',
+            type: 'BIOMETRIC_ENTRY',
+            status: 'REGISTERED',
+            statusLabel: 'Registrado',
+            title: 'Jorge Daniel Marrero Peiran registró entrada por huella',
+            detail: 'Marcación biométrica',
+            teacher: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            group: null,
+            event: null,
           },
           {
-            id: 'in-1',
-            type: 'CHECK_IN',
+            id: 'class:ev-1_2026-05-24',
+            time: '08:00',
+            type: 'CLASS_ATTENDANCE',
             status: 'PRESENT',
-            date: '2026-05-24T00:00:00.000Z',
-            time: '2026-05-24T23:21:00.000Z',
-            user: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
-            event: { id: 'ev-1', title: 'Clase Jorge', type: 'CLASE' },
+            statusLabel: 'Presente',
+            title: 'Matemática 1°A - Jorge Daniel Marrero Peiran',
+            detail: 'Clase vinculada a marcación biométrica',
+            teacher: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            group: { id: 'g1', name: '1°A' },
+            event: { id: 'ev-1', title: 'Matemática' },
           },
-        ],
-      })
-      .mockResolvedValueOnce({
-        total: 1,
-        data: [
           {
-            id: 'ev-1',
-            title: 'Clase Jorge',
-            type: 'CLASE',
-            status: 'IN_PROGRESS',
-            startDate: '2026-05-24T23:20:00.000Z',
-            startTime: '2026-05-24T23:20:00.000Z',
-            endTime: '2026-05-24T23:40:00.000Z',
-            isRecurring: false,
-            daysOfWeek: [],
-            user: { id: 'admin', name: 'Admin', email: 'a@e.com', role: 'ADMIN' },
-            assignedUser: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com', role: 'TEACHER' },
+            id: 'bridge:ev-1:ev-3',
+            time: '09:30',
+            type: 'FREE_BRIDGE',
+            status: 'FREE',
+            statusLabel: 'Libre',
+            title: 'Jorge Daniel Marrero Peiran tiene puente libre',
+            detail: 'Hasta 10:15',
+            teacher: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            group: null,
+            event: null,
+          },
+          {
+            id: 'absence:ev-2_2026-05-24',
+            time: '12:00',
+            type: 'PENDING_ABSENCE',
+            status: 'PENDING',
+            statusLabel: 'Pendiente',
+            title: 'Historia 2°B - Carlos Silva',
+            detail: 'No registró asistencia',
+            teacher: { id: 'u2', name: 'Carlos Silva', email: 'c@e.com' },
+            group: { id: 'g2', name: '2°B' },
+            event: { id: 'ev-2', title: 'Historia' },
           },
         ],
       })
 
     render(<Home />)
 
-    expect(await screen.findByText('Cronología operativa')).toBeInTheDocument()
-    expect(screen.getAllByText('Clase Jorge')).toHaveLength(1)
-    expect(screen.getByText('Salida anticipada')).toBeInTheDocument()
-    expect(screen.getByText(/Entró/)).toBeInTheDocument()
-    expect(screen.getByText(/Salió/)).toBeInTheDocument()
-    expect(screen.queryByText('En Progreso')).not.toBeInTheDocument()
+    expect(await screen.findByText('Inicio operativo')).toBeInTheDocument()
+    expect(screen.getByText('Docentes esperados hoy')).toBeInTheDocument()
+    expect(screen.getByText('Incidencias de hoy')).toBeInTheDocument()
+    expect(screen.getByText('Clases en curso y próximas')).toBeInTheDocument()
+    expect(screen.getByText('Actividad reciente')).toBeInTheDocument()
+    expect(screen.getAllByText('Matemática 1°A')[0]).toBeInTheDocument()
+    expect(screen.getByText('Jorge Daniel Marrero Peiran registró entrada por huella')).toBeInTheDocument()
+    expect(screen.getAllByText('Hay una ausencia pendiente de justificar: Historia 2°B')[0]).toBeInTheDocument()
+    expect(screen.getAllByText('Pendiente')[0]).toBeInTheDocument()
+    expect(screen.queryByText('Jorge Daniel Marrero Peiran tiene puente libre')).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Todos los movimientos' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Puente libre' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /ver bloques libres/i }))
+    expect(screen.getByText('Jorge Daniel Marrero Peiran tiene puente libre')).toBeInTheDocument()
   })
 
   it('shows the profile completion state instead of role sections', async () => {

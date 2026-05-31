@@ -67,12 +67,12 @@ describe('wrapper pages', () => {
     expect(licensesMock).toHaveBeenCalledTimes(2)
   })
 
-  it('renders the guarded student placeholder content', () => {
+  it('renders the guarded student attendance info page', () => {
     render(<StudentAttendance />)
 
     expect(screen.getByTestId('guard')).toBeInTheDocument()
-    expect(screen.getByText('Mis asistencias')).toBeInTheDocument()
-    expect(screen.getByText('Tabla/Gráfico próximamente.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Asistencia estudiantil' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Mis asistencias' })).toHaveAttribute('href', '/me/attendance')
   })
 
   it('redirects the legacy register route to the unified register page', async () => {

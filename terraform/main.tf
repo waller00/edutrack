@@ -23,7 +23,9 @@ resource "digitalocean_droplet" "edutrack_vm" {
   image  = "ubuntu-22-04-x64"
   name   = "edutrack-production"
   region = "nyc3" # Nueva York, lo más estable para nosotros
-  size   = "s-1vcpu-2gb" # 2GB de RAM: corre Next.js, Postgres y Auth sin transpirar
+  # 4GB: Keycloak (JVM) + Postgres + Redis + Next.js + Auth. El redimensionado
+  # de RAM/CPU en DigitalOcean es in-place (no recrea el droplet ni borra disco).
+  size   = "s-2vcpu-4gb"
 
   # Este script corre APENAS se prende la máquina por primera vez
   user_data = <<-EOF

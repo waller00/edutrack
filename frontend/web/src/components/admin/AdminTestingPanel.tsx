@@ -180,7 +180,7 @@ export default function AdminTestingPanel() {
 
   if (ctx && !ctx.enabled) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-950">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 sm:p-6">
         <p className="font-semibold">Panel deshabilitado en este entorno</p>
         <p className="mt-2 text-amber-900/90">
           En el servidor de testing, agregá <code className="rounded bg-white px-1">ALLOW_ADMIN_TESTING_TOOLS=1</code>{' '}
@@ -214,7 +214,7 @@ export default function AdminTestingPanel() {
         </div>
       )}
 
-      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-5">
+      <section className="space-y-5 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Simular marcación ADMS</h2>
           <p className="mt-1 text-sm text-gray-600">
@@ -270,7 +270,7 @@ export default function AdminTestingPanel() {
           </p>
         )}
 
-        <div className="flex flex-wrap gap-3">
+        <div className="grid gap-3 sm:flex sm:flex-wrap">
           <button
             type="button"
             onClick={() => setPunchType('CHECK_IN')}
@@ -325,7 +325,7 @@ export default function AdminTestingPanel() {
         </button>
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Limpiar datos de prueba</h2>
           <p className="mt-1 text-sm text-gray-600">
@@ -352,12 +352,11 @@ export default function AdminTestingPanel() {
         </button>
       </section>
 
-      <section className="rounded-xl border border-red-200 bg-red-50/40 p-6 shadow-sm space-y-4">
+      <section className="space-y-4 rounded-xl border border-red-200 bg-red-50/40 p-4 shadow-sm sm:p-6">
         <div>
           <h2 className="text-lg font-semibold text-red-900">Reset total (solo admin)</h2>
           <p className="mt-1 text-sm text-red-800/90">
-            Elimina todos los usuarios y datos. Deja un único admin (<code>admin</code> / <code>admin123</code>) y ciclo
-            lectivo vacío.
+            Elimina todos los usuarios y datos. Deja un único admin con contraseña temporal generada y ciclo lectivo vacío.
           </p>
         </div>
         <label className="block text-sm max-w-xs">
