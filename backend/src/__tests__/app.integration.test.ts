@@ -1,8 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import request from "supertest";
 import app from "../app.js";
 
 describe("App HTTP (integración ligera)", () => {
+  // `frontendUrl()` se lee en runtime; fijamos el valor esperado para no depender
+  // de otros archivos de test que muten FRONTEND_URL (vitest corre en un fork).
+  beforeEach(() => {
+    process.env.FRONTEND_URL = "http://localhost:3000";
+  });
+
   it("GET /health responde ok", async () => {
     const res = await request(app).get("/health");
     expect(res.status).toBe(200);

@@ -22,7 +22,12 @@ import { sendWebPushPayloadToUser } from '../services/webPush.js';
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
 import { AuditAction } from '@prisma/client';
 import { recordAuditEvent } from '../services/audit-log.js';
-import { getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js';
+import {
+  getActiveSchoolYearId,
+  resolveSchoolYearIdForList,
+  assertCourseOfferedInSchoolYear as assertCourseOfferedInSchoolYearShared,
+  isYmdWithinSchoolYear,
+} from '../services/school-year-service.js';
 import { ensureMoodleUserById } from '../services/moodle.js';
 
 const r = Router();
@@ -60,16 +65,11 @@ const eventCourseOfferingInclude = {
 } as const
 const eventOrientationInclude = { select: { id: true, name: true, code: true } } as const
 
-async function assertCourseOfferedInSchoolYear(
+function assertCourseOfferedInSchoolYear(
   courseId: string,
   schoolYearId: string,
-): Promise<{ id: string; schoolYearId: string; courseId: string } | null> {
-  const offering = await (prisma as any).courseOffering?.findFirst?.({
-    where: { courseId, schoolYearId, isActive: true, isOffered: true, visibleInFilters: true, course: { isActive: true } },
-    select: { id: true, courseId: true, schoolYearId: true },
-  })
-  if (offering) return offering
-  return null
+): Promise<{ id: string; courseId: string; schoolYearId: string } | null> {
+  return assertCourseOfferedInSchoolYearShared(prisma, courseId, schoolYearId)
 }
 
 async function assertActiveSubjectInCourse(
@@ -432,6 +432,10 @@ r.post('/import', authGuard, requirePermission('events.create', 'all'), async (r
     if (!schoolYearId) {
       return res.status(400).json({ message: 'No hay ciclo lectivo activo. Configurá un año lectivo primero.' })
     }
+    const importYearBounds = await prisma.schoolYear.findUnique({
+      where: { id: schoolYearId },
+      select: { startsOn: true, endsOn: true },
+    })
 
     const errors: Array<{ row: number; message: string }> = []
     const prepared: any[] = []
@@ -459,6 +463,9 @@ r.post('/import', authGuard, requirePermission('events.create', 'all'), async (r
       if (!type) rowErrors.push('tipo inválido')
       const ymd = normalizeImportDate(dateInput)
       if (!ymd) rowErrors.push('fecha inválida')
+      else if (importYearBounds && !isYmdWithinSchoolYear(importYearBounds, ymd)) {
+        rowErrors.push('la fecha está fuera del rango del ciclo lectivo')
+      }
       const startHHmm = parseEventTimeToUruguayHhMm(startTimeInput)
       const endHHmm = parseEventTimeToUruguayHhMm(endTimeInput)
       if (!startHHmm) rowErrors.push('hora_inicio inválida')
@@ -701,6 +708,14 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
     const tEnd = parseEventTimeToUruguayHhMm(eventData.endTime);
     if (!ymd || !tStart || !tEnd) {
       return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM, hora de Uruguay)' });
+    }
+
+    const eventYearBounds = await prisma.schoolYear.findUnique({
+      where: { id: resolvedSchoolYearId },
+      select: { startsOn: true, endsOn: true },
+    });
+    if (eventYearBounds && !isYmdWithinSchoolYear(eventYearBounds, ymd)) {
+      return res.status(400).json({ message: 'La fecha del evento está fuera del rango del ciclo lectivo seleccionado' });
     }
 
     const startMinutes = toTimeMinutes(tStart.hh, tStart.mm);
@@ -1427,6 +1442,17 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       const endMinutes = toTimeMinutes(endHHmm.hh, endHHmm.mm);
       if (endMinutes <= startMinutes) {
         return res.status(400).json({ message: 'Hora fin debe ser mayor que hora inicio' });
+      }
+
+      const targetYearId = updateData.schoolYearId ?? existingEvent.schoolYearId;
+      if (targetYearId) {
+        const updateYearBounds = await prisma.schoolYear.findUnique({
+          where: { id: targetYearId },
+          select: { startsOn: true, endsOn: true },
+        });
+        if (updateYearBounds && !isYmdWithinSchoolYear(updateYearBounds, baseYmd)) {
+          return res.status(400).json({ message: 'La fecha del evento está fuera del rango del ciclo lectivo seleccionado' });
+        }
       }
 
       let startDateUtc: Date;

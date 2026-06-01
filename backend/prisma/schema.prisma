@@ -286,6 +286,11 @@ model Attendance {
   notes          String?
   eventId        String?
   event          Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  /// Ciclo lectivo de la marca. Se deriva del evento cuando hay uno; para marcas sin
+  /// evento (manual / biométrica fuera de horario) se fija el ciclo activo al crearla.
+  /// Permite segmentar el listado admin por ciclo sin depender de la relación con Event.
+  schoolYearId   String?
+  schoolYear     SchoolYear?          @relation(fields: [schoolYearId], references: [id], onDelete: SetNull)
   biometricPunch BiometricPunch?
   incidents      AttendanceIncident[]
   justifications AttendanceJustification[]
@@ -295,6 +300,7 @@ model Attendance {
   @@index([userId])
   @@index([date])
   @@index([eventId])
+  @@index([schoolYearId])
 }
 
 enum AttendanceJustificationType {
@@ -538,6 +544,7 @@ model SchoolYear {
   updatedAt          DateTime              @updatedAt
   courseOfferings    CourseOffering[]
   events             Event[]
+  attendances        Attendance[]
   studentEnrollments StudentEnrollment[]
   tuitionYears       StudentTuitionYear[]
   tuitionMonths      StudentTuitionMonth[]

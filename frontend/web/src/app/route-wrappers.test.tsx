@@ -9,22 +9,8 @@ import TeacherLicenses from './teacher/licenses/page'
 import StudentAttendance from './student/attendance/page'
 import LegacyRegisterRedirect from './register-step-by-step/page'
 
-const attendanceMock = vi.fn(() => <div>Attendance page</div>)
-const eventsMock = vi.fn(() => <div>Events page</div>)
-const licensesMock = vi.fn(() => <div>Licenses page</div>)
 const redirectMock = vi.fn()
-
-vi.mock('@/components/personal/MyAttendancePage', () => ({
-  default: () => attendanceMock(),
-}))
-
-vi.mock('@/components/personal/MyAssignedEventsPage', () => ({
-  default: () => eventsMock(),
-}))
-
-vi.mock('@/components/personal/MyLicensesPage', () => ({
-  default: () => licensesMock(),
-}))
+const routerReplaceMock = vi.fn()
 
 vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
@@ -35,36 +21,38 @@ vi.mock('next/navigation', async (importOriginal) => {
   return {
     ...actual,
     redirect: (href: string) => redirectMock(href),
+    useRouter: () => ({ replace: routerReplaceMock }),
   }
 })
 
 describe('wrapper pages', () => {
   beforeEach(() => {
-    attendanceMock.mockClear()
-    eventsMock.mockClear()
-    licensesMock.mockClear()
     redirectMock.mockClear()
+    routerReplaceMock.mockClear()
   })
 
-  it('renders attendance compatibility wrappers without role-specific props', () => {
+  it('redirects legacy attendance routes (teacher/staff) to /me/attendance', async () => {
     render(<StaffAttendance />)
     render(<TeacherAttendance />)
 
-    expect(attendanceMock).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(routerReplaceMock).toHaveBeenCalledWith('/me/attendance'))
+    expect(routerReplaceMock).toHaveBeenCalledTimes(2)
   })
 
-  it('renders events compatibility wrappers without role-specific props', () => {
+  it('redirects legacy events routes (teacher/staff) to /me/events', async () => {
     render(<StaffEvents />)
     render(<TeacherEvents />)
 
-    expect(eventsMock).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(routerReplaceMock).toHaveBeenCalledWith('/me/events'))
+    expect(routerReplaceMock).toHaveBeenCalledTimes(2)
   })
 
-  it('renders licenses compatibility wrappers without role-specific props', () => {
+  it('redirects legacy licenses routes (teacher/staff) to /me/licenses', async () => {
     render(<StaffLicenses />)
     render(<TeacherLicenses />)
 
-    expect(licensesMock).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(routerReplaceMock).toHaveBeenCalledWith('/me/licenses'))
+    expect(routerReplaceMock).toHaveBeenCalledTimes(2)
   })
 
   it('renders the guarded student attendance info page', () => {

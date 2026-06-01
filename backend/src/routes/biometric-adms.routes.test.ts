@@ -26,6 +26,10 @@ const { prismaMock } = vi.hoisted(() => ({
     event: {
       findFirst: vi.fn(),
       findMany: vi.fn(),
+      findUnique: vi.fn().mockResolvedValue({ schoolYearId: "sy-1" }),
+    },
+    schoolYear: {
+      findFirst: vi.fn().mockResolvedValue({ id: "sy-1", status: "ACTIVE" }),
     },
     attendanceIncident: {
       findFirst: vi.fn(),

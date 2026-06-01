@@ -4,6 +4,8 @@ import { buildBiometricAttendancePayload, getAttendanceStatus } from "../attenda
 import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
 import { getAttendanceOperationalSettings } from "../config/system-settings.js";
 import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
+import { isNonWorkingDate } from "./non-working-days.js";
+import { getActiveSchoolYearId } from "./school-year-service.js";
 import {
   findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
@@ -86,6 +88,15 @@ async function createDuplicatePunch(
   });
 }
 
+/** Ciclo lectivo de la marca: el del evento vinculado, o el ciclo activo si no hay evento. */
+async function resolveAttendanceSchoolYearId(tx: any, eventId: string | null | undefined): Promise<string | null> {
+  if (eventId) {
+    const ev = await tx.event.findUnique({ where: { id: eventId }, select: { schoolYearId: true } });
+    if (ev?.schoolYearId) return ev.schoolYearId;
+  }
+  return getActiveSchoolYearId(prisma);
+}
+
 async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDate: Date): Promise<string | null> {
   const rows = await tx.attendance.findMany({
     where: { userId, date: attendanceDate },
@@ -119,7 +130,7 @@ async function materializeAttendanceForBlockEvents(
 
   const events = await tx.event.findMany({
     where: { id: { in: ids } },
-    select: { id: true, startTime: true, endTime: true },
+    select: { id: true, startTime: true, endTime: true, schoolYearId: true },
   });
 
   let created = 0;
@@ -159,6 +170,7 @@ async function materializeAttendanceForBlockEvents(
         attendanceTime: params.attendanceTime,
         deviceId: params.deviceCode,
         eventId: ev.id,
+        schoolYearId: ev.schoolYearId,
         status: status as any,
         type: params.type,
       }),
@@ -250,7 +262,8 @@ export type BiometricIngestParams = {
 export type BiometricIngestResult =
   | { ok: true; duplicate: boolean; punchId: string; attendanceId?: string | null; isLate?: boolean; attendance?: unknown }
   | { ok: false; reason: "NO_MAPPING"; punchId: string }
-  | { ok: false; reason: "LICENSE_BLOCKED"; punchId: string };
+  | { ok: false; reason: "LICENSE_BLOCKED"; punchId: string }
+  | { ok: false; reason: "NON_WORKING_DAY"; punchId: string };
 
 export async function findBiometricDeviceByCode(code: string) {
   return prisma.biometricDevice.findUnique({
@@ -332,6 +345,27 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
         return { duplicate: true as const, punchId: existing.id, attendanceId: existing.attendanceId };
       }
 
+      // Día no laborable (feriado / no laborable institucional): no se admiten fichadas.
+      // Se resuelve por la fecha civil de Uruguay (attendanceDate ya es el inicio de día UY).
+      if (await isNonWorkingDate(attendanceDate)) {
+        const blockedPunch = await tx.biometricPunch.create({
+          data: {
+            deviceId: deviceDbId,
+            mappingId: mapping.id,
+            userId: mapping.userId,
+            deviceUserId,
+            externalId,
+            occurredAt,
+            punchType: punchType ?? "UNKNOWN",
+            processStatus: "FAILED",
+            processError: "Marcación en día no laborable / feriado",
+            payload: payload as object,
+          },
+          select: { id: true },
+        });
+        return { blockedByNonWorkingDay: true as const, punchId: blockedPunch.id };
+      }
+
       const licBio = await findApprovedLicenseCoveringEventTime(mapping.userId, occurredAt, occurredAt);
       if (licBio) {
         const blockedPunch = await tx.biometricPunch.create({
@@ -388,12 +422,14 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
             hasApprovedLicense: false,
             lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
           });
+          const dupSchoolYearId = await resolveAttendanceSchoolYearId(tx, linkage.attendanceEventId);
           await tx.attendance.update({
             where: { id: lastAttendance.id },
             data: {
               date: attendanceDate,
               time: occurredAt,
               eventId: linkage.attendanceEventId || undefined,
+              schoolYearId: dupSchoolYearId ?? undefined,
               status: status as any,
               notes: buildBiometricAttendancePayload({
                 userId: mapping.userId,
@@ -458,12 +494,14 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
               hasApprovedLicense: false,
               lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
             });
+            const dupSchoolYearId = await resolveAttendanceSchoolYearId(tx, linkage.attendanceEventId);
             await tx.attendance.update({
               where: { id: repeatedSameType.id },
               data: {
                 date: attendanceDate,
                 time: occurredAt,
                 eventId: linkage.attendanceEventId || undefined,
+                schoolYearId: dupSchoolYearId ?? undefined,
                 status: status as any,
                 notes: buildBiometricAttendancePayload({
                   userId: mapping.userId,
@@ -518,6 +556,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
             ? "LATE"
             : "PRESENT";
       const status = linkage.attendanceEventId ? computedStatus : "OUT_OF_SCHEDULE";
+      const schoolYearId = await resolveAttendanceSchoolYearId(tx, linkage.attendanceEventId);
 
       const attendance = await tx.attendance.create({
         data: {
@@ -527,6 +566,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
             attendanceTime: occurredAt,
             deviceId: deviceCode,
             eventId: linkage.attendanceEventId || undefined,
+            schoolYearId,
             isLate,
             status: status as any,
             type: resolvedType,
@@ -607,6 +647,10 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
 
       return { duplicate: false as const, punchId: punch.id, attendance, isLate };
     });
+
+    if ("blockedByNonWorkingDay" in created) {
+      return { ok: false, reason: "NON_WORKING_DAY", punchId: created.punchId };
+    }
 
     if ("blockedByLicense" in created) {
       return { ok: false, reason: "LICENSE_BLOCKED", punchId: created.punchId };

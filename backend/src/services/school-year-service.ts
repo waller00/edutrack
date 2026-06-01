@@ -62,6 +62,21 @@ export async function resolveSchoolYearIdForList(
   return getActiveSchoolYearId(prisma)
 }
 
+/**
+ * ¿La fecha civil (YYYY-MM-DD, hora Uruguay) cae dentro del rango del ciclo lectivo?
+ * `startsOn`/`endsOn` se guardan como medianoche UTC de la fecha civil, por lo que la
+ * comparación lexicográfica de YMD es correcta y evita problemas de zona horaria.
+ * Si el ciclo no tiene límites definidos, no se restringe.
+ */
+export function isYmdWithinSchoolYear(
+  year: { startsOn: Date | null; endsOn: Date | null },
+  ymd: string,
+): boolean {
+  if (year.startsOn && ymd < year.startsOn.toISOString().slice(0, 10)) return false
+  if (year.endsOn && ymd > year.endsOn.toISOString().slice(0, 10)) return false
+  return true
+}
+
 export async function activateSchoolYearById(prisma: PrismaClient, id: string): Promise<SchoolYear> {
   return prisma.$transaction(async (tx) => {
     const otherActive = await tx.schoolYear.findFirst({
@@ -168,6 +183,22 @@ export async function ensureCourseOffering(
     update: {},
     create: { courseId, schoolYearId, isActive: course.isActive },
     select: { id: true, courseId: true, schoolYearId: true, isActive: true },
+  })
+}
+
+/**
+ * Oferta vigente y visible de un curso en un ciclo: exige `isActive`, `isOffered`,
+ * `visibleInFilters` y curso activo. Criterio único compartido por eventos y matrícula
+ * de estudiantes (un curso no ofertado ese ciclo no admite eventos ni inscripciones).
+ */
+export async function assertCourseOfferedInSchoolYear(
+  prisma: PrismaClient,
+  courseId: string,
+  schoolYearId: string,
+): Promise<{ id: string; courseId: string; schoolYearId: string } | null> {
+  return (prisma as any).courseOffering.findFirst({
+    where: { courseId, schoolYearId, isActive: true, isOffered: true, visibleInFilters: true, course: { isActive: true } },
+    select: { id: true, courseId: true, schoolYearId: true },
   })
 }
 

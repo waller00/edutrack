@@ -49,6 +49,33 @@
       window.location.href.indexOf('UPDATE_PASSWORD') >= 0
   }
 
+  function screenFlags() {
+    var isTotp = window.location.href.indexOf('CONFIGURE_TOTP') >= 0 || document.querySelector('#kc-totp-settings')
+    var isOtpChallenge = window.location.href.indexOf('LOGIN_OTP') >= 0 ||
+      document.querySelector('#otp') ||
+      document.querySelector('#kc-otp-login-form')
+    var isPasswordUpdate = window.location.href.indexOf('UPDATE_PASSWORD') >= 0 || document.querySelector('#password-new')
+    var isAction = isRequiredActionScreen() || isTotp || isPasswordUpdate || isOtpChallenge
+    return {
+      isAction: isAction,
+      isTotp: isTotp,
+      isOtpChallenge: isOtpChallenge,
+      isPasswordUpdate: isPasswordUpdate,
+      isLogin: !isAction && !!document.querySelector('#kc-form-login'),
+    }
+  }
+
+  function applyScreenClasses() {
+    var flags = screenFlags()
+    document.body.classList.add('et-auth-screen')
+
+    if (flags.isAction) document.body.classList.add('et-required-action-screen')
+    if (flags.isTotp) document.body.classList.add('et-totp-screen')
+    if (flags.isOtpChallenge) document.body.classList.add('et-otp-screen')
+    if (flags.isPasswordUpdate) document.body.classList.add('et-password-update-screen')
+    if (flags.isLogin) document.body.classList.add('et-login-screen')
+  }
+
   function replaceValue(selector, text) {
     var element = document.querySelector(selector)
     if (element) element.value = text
@@ -69,8 +96,29 @@
     })
   }
 
+  function replaceVisibleTextContaining(from, to) {
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    var nodes = []
+    while (walker.nextNode()) nodes.push(walker.currentNode)
+    nodes.forEach(function (node) {
+      if (node.nodeValue && node.nodeValue.indexOf(from) >= 0) node.nodeValue = node.nodeValue.replace(from, to)
+    })
+  }
+
+  function hideField(selector, defaultValue) {
+    var field = document.querySelector(selector)
+    if (!field) return
+    if (defaultValue) field.value = defaultValue
+
+    var group = field.closest('.pf-v5-c-form__group') || field.closest('.form-group') || field.parentElement
+    if (group) group.classList.add('et-hidden-field')
+  }
+
   function localizeVisibleText() {
-    replaceText('#kc-page-title', 'Ingresar a EduTrack')
+    if (screenFlags().isLogin) {
+      document.body.classList.add('et-login-no-page-title')
+      replaceText('#kc-page-title', '')
+    }
     replaceText('label[for="username"] .pf-v5-c-form__label-text', 'Correo o usuario')
     replaceText('label[for="password"] .pf-v5-c-form__label-text', 'Contraseña')
     replaceText('.pf-v5-c-check__label', 'Recordarme')
@@ -82,27 +130,48 @@
   }
 
   function localizeActionScreens() {
-    var isTotp = window.location.href.indexOf('CONFIGURE_TOTP') >= 0 || document.querySelector('#kc-totp-settings')
-    var isPasswordUpdate = window.location.href.indexOf('UPDATE_PASSWORD') >= 0 || document.querySelector('#password-new')
+    var flags = screenFlags()
 
-    if (isTotp) {
+    if (flags.isTotp) {
       replaceText('#kc-page-title', 'Configurar 2FA')
       replaceText('label[for="totp"] .pf-v5-c-form__label-text', 'Código de verificación')
-      replaceText('label[for="userLabel"] .pf-v5-c-form__label-text', 'Nombre del dispositivo')
+      replaceText('label[for="totp"]', 'Código de verificación')
+      hideField('#userLabel', 'EduTrack')
       replaceValue('#kc-form-buttons input[type="submit"]', 'Activar 2FA')
       replaceValues('input[type="submit"]', 'Activar 2FA')
+      replaceVisibleText('One-time code', 'Código de verificación')
+      replaceVisibleText('Device Name', '')
       replaceVisibleText('Submit', 'Activar 2FA')
       replaceVisibleText('Cancel', 'Cancelar')
-      replaceVisibleText('Install one of the following applications on your mobile:', 'Instalá una app autenticadora en tu celular:')
+      replaceVisibleText('Install one of the following applications on your mobile:', 'Instalá una app autenticadora en tu celular.')
       replaceVisibleText('Open the application and scan the barcode:', 'Abrí la aplicación y escaneá el código QR:')
       replaceVisibleText('Unable to scan?', '¿No podés escanear?')
       replaceVisibleText(
         'Enter the one-time code provided by the application and click Submit to finish the setup.',
-        'Ingresá el código de un solo uso que muestra la aplicación para terminar la configuración.',
+        'Ingresá el código de verificación para terminar la configuración.',
+      )
+      replaceVisibleText(
+        'Provide a Device Name to help you manage your OTP devices.',
+        '',
+      )
+      replaceVisibleTextContaining(
+        'Provide a Device Name to help you manage your OTP devices.',
+        '',
       )
     }
 
-    if (isPasswordUpdate) {
+    if (flags.isOtpChallenge) {
+      replaceText('#kc-page-title', 'Verificación en dos pasos')
+      replaceText('label[for="otp"] .pf-v5-c-form__label-text', 'Código de verificación')
+      replaceText('label[for="totp"] .pf-v5-c-form__label-text', 'Código de verificación')
+      replaceValue('#kc-login', 'Confirmar')
+      replaceValues('input[type="submit"]', 'Confirmar')
+      replaceVisibleText('One-time code', 'Código de verificación')
+      replaceVisibleText('Log in', 'Confirmar')
+      replaceVisibleText('Submit', 'Confirmar')
+    }
+
+    if (flags.isPasswordUpdate) {
       replaceText('#kc-page-title', 'Cambiar contraseña')
       replaceText('label[for="password-new"] .pf-v5-c-form__label-text', 'Contraseña nueva')
       replaceText('label[for="password-confirm"] .pf-v5-c-form__label-text', 'Confirmar contraseña')
@@ -144,9 +213,10 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    applyScreenClasses()
     localizeVisibleText()
     localizeActionScreens()
     enhanceGoogleButton()
-    if (!isRequiredActionScreen()) addRegisterLink()
+    if (!screenFlags().isAction) addRegisterLink()
   })
 })()

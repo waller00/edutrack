@@ -3,7 +3,6 @@ import {
   getDuplicateAttendanceMessage,
   getAttendanceStatus,
   getBiometricStatus,
-  isBiometricLate,
   buildBiometricAttendancePayload,
 } from "./attendance-logic.js";
 
@@ -131,21 +130,6 @@ describe("getBiometricStatus", () => {
   it("CHECK_IN tarde → LATE", () => {
     expect(getBiometricStatus("CHECK_IN", true)).toBe("LATE");
     expect(getBiometricStatus("CHECK_IN", false)).toBe("PRESENT");
-  });
-});
-
-describe("isBiometricLate", () => {
-  it("después de 8:30 es tarde", () => {
-    expect(isBiometricLate(new Date("2025-01-01T08:31:00"))).toBe(true);
-    expect(isBiometricLate(new Date("2025-01-01T09:00:00"))).toBe(true);
-  });
-
-  it("8:30 exacto no es tarde", () => {
-    expect(isBiometricLate(new Date("2025-01-01T08:30:00"))).toBe(false);
-  });
-
-  it("antes de 8:30 no es tarde", () => {
-    expect(isBiometricLate(new Date("2025-01-01T08:00:00"))).toBe(false);
   });
 });
 

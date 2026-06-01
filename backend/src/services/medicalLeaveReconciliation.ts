@@ -120,6 +120,7 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
           data: {
             userId: license.userId,
             eventId: o.parentEventId,
+            schoolYearId: ev.schoolYearId,
             type: 'CHECK_IN',
             status: 'ABSENT_JUSTIFIED' as AttendanceStatus,
             date: o.attendanceDay,

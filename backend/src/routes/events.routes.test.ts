@@ -10,6 +10,7 @@ const { prismaMock } = vi.hoisted(() => ({
     course: { findFirst: vi.fn() },
     courseOffering: { findFirst: vi.fn() },
     subject: { findFirst: vi.fn() },
+    schoolYear: { findUnique: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
     inAppNotification: { create: vi.fn().mockResolvedValue({ id: "n1" }) },
     event: {
@@ -30,6 +31,10 @@ vi.mock("../services/school-year-service.js", () => ({
   getActiveSchoolYearId: vi.fn().mockResolvedValue("sy-default"),
   resolveSchoolYearIdForList: vi.fn().mockResolvedValue("sy-default"),
   getActiveSchoolYear: vi.fn().mockResolvedValue({ id: "sy-default", code: 2026, status: "ACTIVE" }),
+  // Delega en el mock de courseOffering.findFirst para preservar el contrato de los tests de curso.
+  assertCourseOfferedInSchoolYear: vi.fn((_p, courseId, schoolYearId) =>
+    prismaMock.courseOffering.findFirst({ where: { courseId, schoolYearId } })),
+  isYmdWithinSchoolYear: vi.fn(() => true),
 }));
 vi.mock("@prisma/client", () => ({
   AuditAction: {
@@ -38,6 +43,8 @@ vi.mock("@prisma/client", () => ({
 }));
 
 import eventsRoutes from "./events.js";
+import { isYmdWithinSchoolYear } from "../services/school-year-service.js";
+const isYmdWithinSchoolYearMock = vi.mocked(isYmdWithinSchoolYear);
 
 function app() {
   const a = express();
@@ -101,6 +108,22 @@ describe("events routes (prisma mock)", () => {
     expect(res.body.id).toBe("ev1");
     expect(prismaMock.inAppNotification.create).not.toHaveBeenCalled();
     expect(prismaMock.course.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("POST /events 400 si la fecha cae fuera del rango del ciclo lectivo", async () => {
+    prismaMock.schoolYear.findUnique.mockResolvedValue({
+      startsOn: new Date("2026-03-01T00:00:00.000Z"),
+      endsOn: new Date("2026-12-15T00:00:00.000Z"),
+    });
+    isYmdWithinSchoolYearMock.mockReturnValueOnce(false);
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send(minimalEvent);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/ciclo lectivo/i);
+    expect(prismaMock.event.create).not.toHaveBeenCalled();
   });
 
   it("POST /events 400 si courseId no existe o está inactivo", async () => {

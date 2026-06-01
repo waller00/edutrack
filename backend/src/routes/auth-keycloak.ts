@@ -5,7 +5,6 @@ import {
   buildLoginUrl,
   buildLogoutUrl,
   exchangeCode,
-  pickRealmRole,
   redirectUri,
   refreshTokens,
 } from "../auth/keycloak.js";
@@ -85,7 +84,8 @@ async function startSessionFromTokens(
     userId: user.id,
     kcId: String(tokens.claims.sub || ""),
     email: user.email,
-    role: pickRealmRole(tokens.claims) || user.role,
+    // `user.role` ya es el rol efectivo en Postgres (fuente de verdad de autz).
+    role: user.role,
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     idToken: tokens.idToken,

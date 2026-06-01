@@ -1184,7 +1184,7 @@ export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAF
     })
     .slice(0, 12)
 
-  const eventsHref = role === 'TEACHER' ? '/teacher/events' : '/staff/events'
+  const eventsHref = '/me/events'
 
   const action = (
     <a
