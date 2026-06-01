@@ -40,7 +40,7 @@ jobs:
 
   deploy-testing:
     needs: validate # <--- ESTO ES LO QUE TE SALVA: Solo corre si validate dio OK
-    if: github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -97,7 +97,7 @@ jobs:
 
   deploy-production:
     needs: validate # <--- TAMBIÉN PROTEGEMOS PRODUCCIÓN
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     concurrency:
       group: deploy-production-server
       cancel-in-progress: false
