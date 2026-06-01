@@ -87,7 +87,7 @@ services:
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       COOKIE_AUTO_DOMAIN: ${COOKIE_AUTO_DOMAIN:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
-      PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
+      PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---
       KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://keycloak:8080/realms/edutrack}

@@ -126,8 +126,9 @@ KEYCLOAK_ISSUER_URL=http://138.197.35.2.nip.io:8089/realms/edutrack
 KEYCLOAK_CLIENT_SECRET=...
 KEYCLOAK_REDIRECT_URI=http://138.197.35.2.nip.io:4000/auth/callback
 
-# Prisma al arrancar auth (testing tras cambios de schema)
-PRISMA_DB_PUSH_FLAGS=--accept-data-loss
+# Prisma al arrancar auth: en produccion dejar vacio (no usar --force-reset ni
+# --accept-data-loss salvo migraciones puntuales en testing).
+# PRISMA_DB_PUSH_FLAGS=
 
 # ADMS ZKTeco en el mismo puerto que la API
 ZKTECO_ICLOCK_PORT=0
@@ -361,7 +362,7 @@ docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d 
 | Síntoma | Causa probable | Acción |
 |---------|----------------|--------|
 | Pipeline SSH falla | Secrets, firewall 22, droplet caído | Revisar Actions; reiniciar droplet |
-| `auth` Exited (1) al deploy | `prisma db push` pide flags | `PRISMA_DB_PUSH_FLAGS=--accept-data-loss` en `.env` + recreate `auth` |
+| `auth` Exited (1) al deploy | `prisma db push` pide flags por cambio de schema | Solo en **testing**: `PRISMA_DB_PUSH_FLAGS=--accept-data-loss` temporal + recreate `auth`. En produccion no usar flags destructivos. |
 | Login OK pero sin sesión (testing) | Redis caído, cookies HTTPS en HTTP | Verificar `redis` Up; `COOKIE_SECURE=false`, URLs alineadas |
 | Front no ve API | `NEXT_PUBLIC_API_URL` viejo | Rebuild `web` |
 | F22 no conecta ADMS | Puerto 80 vs 4000, URL mal parseada | IP `138.197.35.2`, puerto **4000**, HTTPS OFF |
