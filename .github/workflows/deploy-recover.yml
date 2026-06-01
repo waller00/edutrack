@@ -33,6 +33,13 @@ jobs:
             compose() {
               if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose" >&2; exit 1; fi
             }
+            echo "== Disco antes =="; df -h / || true
+            docker builder prune -af 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
+            docker container prune -f 2>/dev/null || true
+            journalctl --vacuum-time=3d 2>/dev/null || true
+            echo "== Disco después =="; df -h / || true
+            if [ ! -d /root/edutrack ]; then echo "Falta /root/edutrack en el servidor" >&2; exit 1; fi
             cd /root/edutrack
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
