@@ -1,4 +1,4 @@
-import { api } from '@/lib/api/client'
+import { api, apiBaseUrl } from '@/lib/api/client'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -27,6 +27,12 @@ describe('api', () => {
       cache: 'no-store',
       headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
     }))
+  })
+
+  it('normaliza NEXT_PUBLIC_API_URL sin slash final', () => {
+    vi.stubEnv('NEXT_PUBLIC_API_URL', 'http://test.local///')
+
+    expect(apiBaseUrl()).toBe('http://test.local')
   })
 
   it('no reintenta tras 401 (sesión Keycloak en el servidor)', async () => {

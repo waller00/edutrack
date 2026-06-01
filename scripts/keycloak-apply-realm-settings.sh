@@ -54,6 +54,49 @@ curl -fsS -X PUT \
 AFTER="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$KC_URL/admin/realms/$REALM_NAME" | jq -r '.loginTheme')"
 echo ">> OK. loginTheme del realm '$REALM_NAME' = $AFTER"
 
+CLIENT_ID="${KEYCLOAK_CLIENT_ID:-$(env_get KEYCLOAK_CLIENT_ID)}"
+CLIENT_ID="${CLIENT_ID:-edutrack-web}"
+FRONTEND_URL="${FRONTEND_URL:-$(env_get FRONTEND_URL)}"
+KEYCLOAK_REDIRECT_URI="${KEYCLOAK_REDIRECT_URI:-$(env_get KEYCLOAK_REDIRECT_URI)}"
+
+if [ -n "$FRONTEND_URL" ] && [ -n "$KEYCLOAK_REDIRECT_URI" ]; then
+  CLIENT_UUID="$(curl -fsS -G -H "Authorization: Bearer $TOKEN" \
+    --data-urlencode "clientId=$CLIENT_ID" \
+    "$KC_URL/admin/realms/$REALM_NAME/clients" | jq -r '.[0].id // empty')"
+
+  if [ -z "$CLIENT_UUID" ]; then
+    echo ">> Client '$CLIENT_ID': no existe; no puedo aplicar redirect/logout."
+  else
+    CLIENT_URL="$KC_URL/admin/realms/$REALM_NAME/clients/$CLIENT_UUID"
+    CLIENT_CURRENT="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$CLIENT_URL")"
+    FRONTEND_ORIGIN="$(printf '%s' "$FRONTEND_URL" | sed -E 's#^(https?://[^/]+).*$#\1#')"
+    POST_LOGOUT="${FRONTEND_ORIGIN}/*"
+    CLIENT_PATCHED="$(printf '%s' "$CLIENT_CURRENT" | jq \
+      --arg redirect "$KEYCLOAK_REDIRECT_URI" \
+      --arg postLogout "$POST_LOGOUT" \
+      --arg frontendOrigin "$FRONTEND_ORIGIN" '
+        .redirectUris = ((.redirectUris // []) + [$redirect] | unique)
+        | .webOrigins = ((.webOrigins // []) + ["+", $frontendOrigin] | unique)
+        | .attributes = (.attributes // {})
+        | .attributes["post.logout.redirect.uris"] = (
+            ((.attributes["post.logout.redirect.uris"] // "")
+              | split("##")
+              | map(select(length > 0))
+              + [$postLogout]
+              | unique)
+            | join("##")
+          )
+      ')"
+    curl -fsS -X PUT \
+      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+      -d "$CLIENT_PATCHED" "$CLIENT_URL"
+    echo ">> OK. Client '$CLIENT_ID': redirectUris incluye $KEYCLOAK_REDIRECT_URI"
+    echo ">> OK. Client '$CLIENT_ID': post logout incluye $POST_LOGOUT"
+  fi
+else
+  echo ">> Client '$CLIENT_ID': faltan FRONTEND_URL o KEYCLOAK_REDIRECT_URI; no aplico redirect/logout."
+fi
+
 GOOGLE_ID="${GOOGLE_CLIENT_ID:-$(env_get GOOGLE_CLIENT_ID)}"
 GOOGLE_SECRET="${GOOGLE_CLIENT_SECRET:-$(env_get GOOGLE_CLIENT_SECRET)}"
 if [ -z "$GOOGLE_ID" ]; then

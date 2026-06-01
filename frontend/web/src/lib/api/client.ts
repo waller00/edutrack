@@ -1,5 +1,9 @@
+import { apiBaseUrl } from '@/lib/api/base-url'
+
+export { apiBaseUrl }
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+  const apiUrl = apiBaseUrl()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12000)
 

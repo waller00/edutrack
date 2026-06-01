@@ -1,5 +1,7 @@
+import { apiBaseUrl } from '@/lib/api/base-url'
+
 function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+  return apiBaseUrl()
 }
 
 export type LoginProvider = 'google'

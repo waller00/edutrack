@@ -3,6 +3,7 @@
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
+import { apiBaseUrl } from '@/lib/api/base-url'
 import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
@@ -351,7 +352,7 @@ export default function AdminAnalyticsPage() {
   const [exportingKind, setExportingKind] = useState<'xlsx' | 'csv' | 'pdf' | null>(null)
   const [exportNotice, setExportNotice] = useState<string>('')
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+  const apiUrl = apiBaseUrl()
   const analyticsSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
 
   const loadDashboard = useCallback(async () => {

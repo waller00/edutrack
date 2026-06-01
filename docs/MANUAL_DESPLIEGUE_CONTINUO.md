@@ -117,8 +117,6 @@ Ejemplos (ajustar por entorno):
 # Base
 DATABASE_URL=postgresql://postgres:...@pg:5432/asistencias?schema=public
 REDIS_URL=redis://redis:6379
-PUBLIC_HOST=138.197.35.2.nip.io
-PUBLIC_SCHEME=http
 FRONTEND_URL=http://138.197.35.2.nip.io:3000
 NEXT_PUBLIC_API_URL=http://138.197.35.2.nip.io:4000
 
@@ -144,7 +142,16 @@ COOKIE_SAMESITE=lax
 
 **Importante:** solo las variables listadas en `environment:` de `docker-compose.cloud.yml` entran al contenedor. Tras editar `.env`, recrear servicios:
 
-`FRONTEND_URL`, `NEXT_PUBLIC_API_URL`, `KEYCLOAK_ISSUER_URL` y `KEYCLOAK_REDIRECT_URI` deben apuntar al mismo host publico. `KEYCLOAK_INTERNAL_URL` debe quedar en `http://keycloak:8080` para llamadas internas entre contenedores. Si se usa el fallback de `PUBLIC_HOST`, revisar que no quede `localhost` ni una IP vieja embebida en el build del frontend.
+`FRONTEND_URL`, `NEXT_PUBLIC_API_URL`, `KEYCLOAK_ISSUER_URL` y `KEYCLOAK_REDIRECT_URI` deben apuntar a URLs publicas completas. `KEYCLOAK_INTERNAL_URL` debe quedar en `http://keycloak:8080` para llamadas internas entre contenedores. No usar interpolaciones compuestas tipo `${PUBLIC_SCHEME}://${PUBLIC_HOST}` en Compose: en algunas versiones dejan llaves renderizadas (`%7D`) dentro del bundle del frontend.
+
+Antes de bajar/reconstruir produccion, validar rutas:
+
+```bash
+bash scripts/validate-production-routes.sh --env .env --production
+docker compose -f docker-compose.cloud.yml config | grep -E 'FRONTEND_URL|NEXT_PUBLIC_API_URL|KEYCLOAK_ISSUER_URL|KEYCLOAK_REDIRECT_URI'
+```
+
+La validacion falla si detecta `localhost`, `keycloak:8080`, `{`, `}`, `%7D`, HTTP en produccion, o un callback que no use el origen publico de la API. El workflow de produccion la ejecuta antes de `compose down`.
 
 ```bash
 docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d --force-recreate auth web
