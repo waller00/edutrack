@@ -346,22 +346,8 @@ r.post("/register", async (req, res) => {
     return u;
   });
 
-  if (!ssoProfile?.emailVerified) {
-    const token = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
-    await prisma.emailVerification.create({ data: { token, userId: user.id, expiresAt } });
-    const verifyUrl = `${process.env.FRONTEND_URL}/verify?token=${token}`;
-    try {
-      await sendMail({
-        to: email,
-        subject: "Verifica tu email",
-        html: `<p>Bienvenido/a. Verifica tu correo haciendo clic aquí:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
-      });
-    } catch (e) {
-      console.error("SMTP send error (verify):", e);
-    }
-  }
-
+  // Keycloak primero (crítico: sin la cuenta en el IdP el usuario no puede loguear).
+  // Si falla, respondemos 502 (con CORS) antes de enviar ningún correo.
   try {
     if (ssoProfile) {
       await syncRegisteredSsoUser({
@@ -388,6 +374,26 @@ r.post("/register", async (req, res) => {
   } catch (e) {
     console.error("[register] keycloak create user:", e);
     return res.status(502).json({ message: "No se pudo crear la cuenta en el proveedor de identidad." });
+  }
+
+  // Correo de verificación: best-effort y en segundo plano. No bloquea la respuesta,
+  // así un SMTP lento/caído no cuelga el registro (causa de cortes 502/CORS en prod).
+  if (!ssoProfile?.emailVerified) {
+    void (async () => {
+      try {
+        const token = crypto.randomBytes(32).toString("hex");
+        const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
+        await prisma.emailVerification.create({ data: { token, userId: user.id, expiresAt } });
+        const verifyUrl = `${process.env.FRONTEND_URL}/verify?token=${token}`;
+        await sendMail({
+          to: email,
+          subject: "Verifica tu email",
+          html: `<p>Bienvenido/a. Verifica tu correo haciendo clic aquí:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
+        });
+      } catch (e) {
+        console.error("SMTP send error (verify):", e);
+      }
+    })();
   }
 
   return res.json({ id: user.id, email: user.email, username: user.username, role: registerRoleCode });

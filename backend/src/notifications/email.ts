@@ -51,6 +51,7 @@ async function sendMailSendGridApi(options: { to: string; subject: string; html:
 
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
+    signal: AbortSignal.timeout(Number(process.env.SENDGRID_HTTP_TIMEOUT_MS || 10000)),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
@@ -77,6 +78,12 @@ const transporter = nodemailer.createTransport({
   port: smtpPort,
   secure: smtpPort === 465,
   auth: { user: smtpUser, pass: smtpPass },
+  // Sin estos timeouts, si el puerto SMTP está bloqueado (típico en Droplets DO con 587)
+  // sendMail queda colgado ~1-2 min y arrastra al request que lo llama (p. ej. /auth/register),
+  // que termina cortado por el proxy sin cabeceras CORS. Mejor fallar rápido.
+  connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 8000),
+  greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 8000),
+  socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 10000),
 });
 
 export async function sendMail(options: { to: string; subject: string; html: string; text?: string }) {

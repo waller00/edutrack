@@ -37,6 +37,9 @@ describe("email", () => {
       port: 465,
       secure: true,
       auth: { user: "user", pass: "pass" },
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 10000,
     });
     expect(sendMailSpy).toHaveBeenCalledWith({
       from: "no-reply@frontend.local",
