@@ -10,6 +10,7 @@ import {
 } from '@/lib/forms/uruguay-forms'
 import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import { loginUrl } from '@/lib/auth/urls'
 import { getPasswordStrength, getStrengthBarClass } from '@/lib/auth/password-strength'
 import {
   getRegisterVerificationFieldLabel,
@@ -583,7 +584,7 @@ export default function RegisterPage() {
               <p className="text-sm text-emerald-800 mb-3">También puedes entrar con Google. Después se te pedirá esta misma validación con DNI y completar solo los datos faltantes.</p>
               <button
                 type="button"
-                onClick={() => { window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/google` }}
+                onClick={() => { window.location.href = loginUrl('/', 'google') }}
                 className="btn-secondary w-full justify-center"
               >
                 Continuar con Google

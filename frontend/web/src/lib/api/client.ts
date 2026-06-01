@@ -1,15 +1,27 @@
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 12000)
 
-  const doFetch = async () =>
-    fetch(`${apiUrl}${path}`, {
+  let res: Response
+  try {
+    res = await fetch(`${apiUrl}${path}`, {
       credentials: "include",
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
       cache: "no-store",
+      signal: init?.signal || controller.signal,
     })
-
-  const res = await doFetch()
+  } catch (err) {
+    const message = err instanceof DOMException && err.name === 'AbortError'
+      ? 'API sin respuesta'
+      : 'No se pudo conectar con la API'
+    const error = new Error(message) as Error & { status?: number }
+    error.status = 0
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!res.ok) {
     const errorData = await parseErrorJson(res);
