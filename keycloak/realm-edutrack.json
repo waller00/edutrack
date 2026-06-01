@@ -49,7 +49,7 @@
       ],
       "webOrigins": ["+"],
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:3000/*"
+        "post.logout.redirect.uris": "http://localhost:3000/*##http://*:3000/*##https://*:3000/*##http://*/*##https://*/*"
       },
       "protocolMappers": [
         {

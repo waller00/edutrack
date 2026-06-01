@@ -32,6 +32,9 @@
       if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
         return url.protocol + '//' + url.hostname + ':3000'
       }
+      if (url.port === '4000') {
+        return url.protocol + '//' + url.hostname + ':3000'
+      }
       return url.protocol + '//' + url.host
     } catch (_error) {
       return 'http://localhost:3000'
