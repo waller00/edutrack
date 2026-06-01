@@ -82,6 +82,12 @@ jobs:
               git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
             cd "$REPO_DIR"
+            echo "== Disco antes =="; df -h / || true
+            docker builder prune -af 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
+            docker container prune -f 2>/dev/null || true
+            journalctl --vacuum-time=3d 2>/dev/null || true
+            echo "== Disco después =="; df -h / || true
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
@@ -142,6 +148,12 @@ jobs:
               git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
             cd "$REPO_DIR"
+            echo "== Disco antes =="; df -h / || true
+            docker builder prune -af 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
+            docker container prune -f 2>/dev/null || true
+            journalctl --vacuum-time=3d 2>/dev/null || true
+            echo "== Disco después =="; df -h / || true
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
@@ -200,6 +212,12 @@ jobs:
               git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
             cd "$REPO_DIR"
+            echo "== Disco antes =="; df -h / || true
+            docker builder prune -af 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
+            docker container prune -f 2>/dev/null || true
+            journalctl --vacuum-time=3d 2>/dev/null || true
+            echo "== Disco después =="; df -h / || true
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
@@ -259,6 +277,12 @@ jobs:
               git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
             cd "$REPO_DIR"
+            echo "== Disco antes =="; df -h / || true
+            docker builder prune -af 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
+            docker container prune -f 2>/dev/null || true
+            journalctl --vacuum-time=3d 2>/dev/null || true
+            echo "== Disco después =="; df -h / || true
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
