@@ -248,7 +248,12 @@ async function handleLogout(req: any, res: any) {
   }
   clearSessionCookie(res);
 
-  const postLogout = `${frontendUrl()}/login?loggedOut=1`;
+  const returnTo = typeof req.query.returnTo === "string" &&
+    req.query.returnTo.startsWith("/") &&
+    !req.query.returnTo.startsWith("//")
+    ? req.query.returnTo
+    : "";
+  const postLogout = returnTo ? `${frontendUrl()}${returnTo}` : `${frontendUrl()}/login?loggedOut=1`;
   const logoutUrl = await buildLogoutUrl(idToken, postLogout);
   if (req.method === "GET" && logoutUrl) {
     return res.redirect(logoutUrl);

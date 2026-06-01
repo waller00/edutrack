@@ -10,7 +10,7 @@ import {
 } from '@/lib/forms/uruguay-forms'
 import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
-import { loginUrl } from '@/lib/auth/urls'
+import { loginUrl, logoutUrl } from '@/lib/auth/urls'
 import { getPasswordStrength, getStrengthBarClass } from '@/lib/auth/password-strength'
 import {
   getRegisterVerificationFieldLabel,
@@ -80,6 +80,7 @@ export default function RegisterPage() {
   const [ssoRegistrationToken, setSsoRegistrationToken] = useState<string | null>(null)
   const [ssoEmailLocked, setSsoEmailLocked] = useState(false)
   const [ssoPrefillLoading, setSsoPrefillLoading] = useState(false)
+  const [googleCancelled, setGoogleCancelled] = useState(false)
 
   const registerDraftRestoredRef = useRef(false)
   /** Último email con el que contamos para la regla “no cambiar correo tras Didit” (evita falso positivo al hidratar borrador). */
@@ -177,7 +178,9 @@ export default function RegisterPage() {
 
   useEffect(() => {
     if (sessionGate || typeof window === 'undefined') return
-    const token = new URLSearchParams(window.location.search || '').get('sso')
+    const params = new URLSearchParams(window.location.search || '')
+    setGoogleCancelled(params.get('googleCancelled') === '1')
+    const token = params.get('sso')
     if (!token) return
     let alive = true
     setSsoRegistrationToken(token)
@@ -647,11 +650,26 @@ export default function RegisterPage() {
               </button>
             </div>
 
+            {googleCancelled && !ssoRegistrationToken && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                Se cerró la sesión de Google. Podés elegir otra cuenta o completar el registro común.
+              </div>
+            )}
+
             {ssoRegistrationToken && (
               <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                {ssoPrefillLoading
-                  ? 'Trayendo datos de Google…'
-                  : 'Completá o corregí tus datos. El correo queda fijado por la cuenta de Google.'}
+                <p>
+                  {ssoPrefillLoading
+                    ? 'Trayendo datos de Google…'
+                    : 'Completá o corregí tus datos. El correo queda fijado por la cuenta de Google.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { window.location.href = logoutUrl('/register?googleCancelled=1') }}
+                  className="mt-3 text-sm font-semibold text-sky-800 underline-offset-4 hover:underline"
+                >
+                  Cancelar y elegir otra cuenta
+                </button>
               </div>
             )}
 

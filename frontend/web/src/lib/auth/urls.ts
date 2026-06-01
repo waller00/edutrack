@@ -14,8 +14,11 @@ export function loginUrl(returnTo = '/', provider?: LoginProvider): string {
   return `${base}?${params.toString()}`
 }
 
-export function logoutUrl(): string {
-  return `${apiBase()}/auth/logout`
+export function logoutUrl(returnTo?: string): string {
+  const base = `${apiBase()}/auth/logout`
+  const safe = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : ''
+  if (!safe) return base
+  return `${base}?${new URLSearchParams({ returnTo: safe }).toString()}`
 }
 
 export function accountSecurityUrl(): string {
