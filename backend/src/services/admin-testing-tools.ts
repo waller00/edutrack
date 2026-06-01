@@ -124,6 +124,7 @@ export async function resetDatabaseToSingleAdmin(opts?: {
     const { createKeycloakUser } = await import('../auth/keycloak.js')
     await createKeycloakUser({
       email: adminEmail,
+      username: adminUsername,
       firstName: 'Admin',
       lastName: 'Principal',
       password: adminPassword,

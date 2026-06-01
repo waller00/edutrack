@@ -41,7 +41,22 @@ for attempt in $(seq 1 30); do
 done
 [ -n "$TOKEN" ] || { echo "No se pudo obtener token admin (revisa user/pass/URL)." >&2; exit 1; }
 
-PATCH="$(jq '{loginTheme, accountTheme, emailTheme, adminTheme} | with_entries(select(.value != null))' "$REALM_FILE")"
+PATCH="$(jq '{
+  loginTheme,
+  accountTheme,
+  emailTheme,
+  adminTheme,
+  loginWithEmailAllowed,
+  editUsernameAllowed,
+  duplicateEmailsAllowed,
+  registrationAllowed,
+  resetPasswordAllowed,
+  rememberMe,
+  verifyEmail,
+  internationalizationEnabled,
+  supportedLocales,
+  defaultLocale
+} | with_entries(select(.value != null))' "$REALM_FILE")"
 echo ">> Settings a aplicar al realm '$REALM_NAME': $PATCH"
 
 CURRENT="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$KC_URL/admin/realms/$REALM_NAME")"
