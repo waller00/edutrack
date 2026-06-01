@@ -4,6 +4,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
+import { apiBaseUrl } from '@/lib/api/base-url'
 import {
   buildAdminAttendanceAllQueryString,
   buildAttendanceExportReportQueryString,
@@ -649,7 +650,7 @@ export default function AdminAttendance() {
 
   async function exportReport(format: 'excel' | 'pdf') {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+      const apiUrl = apiBaseUrl()
       const to = filters.endDate || new Date().toISOString().split('T')[0]
 
       const sanitizePart = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -736,7 +737,7 @@ export default function AdminAttendance() {
 
   async function markAbsences(expectedAbsence = false) {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+      const apiUrl = apiBaseUrl()
       const startDate = filters.startDate || new Date().toISOString().split('T')[0]
       const endDate = filters.endDate || new Date().toISOString().split('T')[0]
 

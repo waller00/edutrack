@@ -113,6 +113,7 @@ jobs:
             fi
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
+            bash scripts/validate-production-routes.sh --env .env --production
             compose $CF down
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
             compose $CF build --no-cache web
@@ -195,6 +196,7 @@ jobs:
             git reset --hard "$TARGET_REF"
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
+            bash scripts/validate-production-routes.sh --env .env --production
             compose $CF down
             docker rmi edutrack-web edutrack-auth 2>/dev/null || true
             compose $CF build --no-cache web
