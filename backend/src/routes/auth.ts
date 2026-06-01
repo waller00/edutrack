@@ -18,17 +18,10 @@ import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-pol
 import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/system-settings.js";
 import { syncLivenessSessionFromDiditApi } from "../integrations/didit/sync-session.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
-import { ensureDefaultProfilePermissionsIfNeeded } from "../identity/profile-permissions-repository.js";
 import { createKeycloakUser, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
 
 const r = Router();
-
-const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
-  ADMIN: [],
-  TEACHER: [],
-  STAFF: [],
-};
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -502,20 +495,14 @@ r.get("/me", authGuard, async (req, res) => {
   const roleCode = raw.orgRole?.code ?? "";
   const needsProfileCompletion =
     !raw.firstName || !raw.lastName || !raw.nationalId || !raw.birthdate || !raw.username;
-  try {
-    await ensureDefaultProfilePermissionsIfNeeded();
-  } catch (error) {
-    console.warn("[auth/me] permissions bootstrap skipped", error);
-  }
+  // El seed de permisos por rol vive en el arranque del servidor y en los seeds;
+  // no se hace acá para no escribir en BD en cada carga de página autenticada.
   const permissions = await enabledPermissionsForRole(roleCode);
-  const canShowNav = Boolean(raw.isApproved && raw.isActive && !needsProfileCompletion);
-  const navLinks = canShowNav ? NAV_LINKS_BY_ROLE[roleCode] || [] : [];
   const { orgRole, ...safe } = raw as typeof raw & { orgRole?: { code: string } };
   res.json({
     ...safe,
     role: roleCode,
     needsProfileCompletion,
-    navLinks,
     permissions,
     permissionIds: permissions.map((permission) => permission.id),
   });

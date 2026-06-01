@@ -42,22 +42,57 @@ function normalizeOrigin(url: string): string {
     .replace(/\/$/, "");
 }
 
+function addOrigin(set: Set<string>, value: string | undefined) {
+  const origin = normalizeOrigin(value || "");
+  if (origin) set.add(origin);
+}
+
+function addWwwVariant(set: Set<string>, origin: string) {
+  try {
+    const url = new URL(origin);
+    if (url.hostname.startsWith("www.")) {
+      url.hostname = url.hostname.replace(/^www\./, "");
+      addOrigin(set, url.origin);
+    } else {
+      url.hostname = `www.${url.hostname}`;
+      addOrigin(set, url.origin);
+    }
+  } catch {
+    /* origen inválido: se ignora */
+  }
+}
+
+function addApiSiblingFrontend(set: Set<string>, origin: string) {
+  try {
+    const url = new URL(origin);
+    if (!url.hostname.startsWith("api.")) return;
+    url.hostname = url.hostname.replace(/^api\./, "");
+    addOrigin(set, url.origin);
+    addWwwVariant(set, url.origin);
+  } catch {
+    /* origen inválido: se ignora */
+  }
+}
+
 /** Orígenes permitidos: FRONTEND_URL + lista opcional CORS_ORIGINS (separados por coma), p. ej. https://edutrack-uy.com,https://www.edutrack-uy.com */
 function buildAllowedOrigins(): Set<string> {
   const set = new Set<string>();
   const primary = process.env.FRONTEND_URL || "http://localhost:3000";
-  set.add(normalizeOrigin(primary));
+  addOrigin(set, primary);
+  addWwwVariant(set, primary);
+  addApiSiblingFrontend(set, primary);
+  if (process.env.NODE_ENV === "production") {
+    addOrigin(set, "https://edutrack-uy.com");
+    addOrigin(set, "https://www.edutrack-uy.com");
+  }
   const extra = process.env.CORS_ORIGINS;
   if (extra) {
     for (const part of extra.split(",")) {
-      const o = normalizeOrigin(part);
-      if (o) set.add(o);
+      addOrigin(set, part);
     }
   }
   return set;
 }
-
-const allowedOrigins = buildAllowedOrigins();
 
 const corsOptions: CorsOptions = {
   credentials: true,
@@ -67,6 +102,7 @@ const corsOptions: CorsOptions = {
       return;
     }
     const normalized = normalizeOrigin(origin);
+    const allowedOrigins = buildAllowedOrigins();
     if (allowedOrigins.has(normalized)) {
       callback(null, true);
       return;

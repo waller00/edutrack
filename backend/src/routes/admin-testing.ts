@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { authGuard, requirePermission, requireRole } from '../middlewares/auth.js'
+import { authGuard, requirePermission } from '../middlewares/auth.js'
 import {
   getAdminTestingContext,
   isAdminTestingToolsEnabled,
@@ -11,7 +11,8 @@ import {
 
 const r = Router()
 r.use(authGuard)
-r.use(requireRole('ADMIN'))
+// Autorización unificada por permiso (no por rol): solo perfiles con
+// settings.manage:all (por defecto, ADMIN) acceden a las herramientas de prueba.
 r.use(requirePermission('settings.manage', 'all'))
 
 function testingDisabled(res: any) {
