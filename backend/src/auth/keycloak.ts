@@ -221,6 +221,16 @@ function adminRealm(): string {
   return process.env.KEYCLOAK_ADMIN_REALM || "edutrack";
 }
 
+/**
+ * fetch con timeout para la Admin API de Keycloak. Sin esto, si Keycloak no responde,
+ * el request que lo llama (p. ej. /auth/register) queda colgado hasta el timeout del
+ * proxy y devuelve un 502/504 sin cabeceras CORS. Mejor fallar rápido y controlado.
+ */
+function kcFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const timeoutMs = Number(process.env.KEYCLOAK_ADMIN_TIMEOUT_MS || 8000);
+  return fetch(input, { ...init, signal: init.signal ?? AbortSignal.timeout(timeoutMs) });
+}
+
 async function getAdminToken(): Promise<string> {
   const base = adminBaseUrl();
   const body = new URLSearchParams({
@@ -229,7 +239,7 @@ async function getAdminToken(): Promise<string> {
     username: process.env.KEYCLOAK_ADMIN_USER || "admin",
     password: process.env.KEYCLOAK_ADMIN_PASSWORD || "",
   });
-  const res = await fetch(`${base}/realms/master/protocol/openid-connect/token`, {
+  const res = await kcFetch(`${base}/realms/master/protocol/openid-connect/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -260,7 +270,7 @@ export async function createKeycloakUser(input: CreateKeycloakUserInput): Promis
   const base = adminBaseUrl();
   const realm = adminRealm();
 
-  const createRes = await fetch(`${base}/admin/realms/${realm}/users`, {
+  const createRes = await kcFetch(`${base}/admin/realms/${realm}/users`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
@@ -309,7 +319,7 @@ export async function syncKeycloakUserIdentity(input: SyncKeycloakUserIdentityIn
   const base = adminBaseUrl();
   const realm = adminRealm();
 
-  const currentRes = await fetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
+  const currentRes = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!currentRes.ok) return;
@@ -324,7 +334,7 @@ export async function syncKeycloakUserIdentity(input: SyncKeycloakUserIdentityIn
     ...(input.emailVerified === true ? { emailVerified: true } : {}),
   };
 
-  const updateRes = await fetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
+  const updateRes = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(next),
@@ -357,12 +367,12 @@ export async function syncRegisteredSsoUser(input: SyncKeycloakUserIdentityInput
 async function assignRealmRole(token: string, kcUserId: string, roleName: string): Promise<void> {
   const base = adminBaseUrl();
   const realm = adminRealm();
-  const roleRes = await fetch(`${base}/admin/realms/${realm}/roles/${encodeURIComponent(roleName)}`, {
+  const roleRes = await kcFetch(`${base}/admin/realms/${realm}/roles/${encodeURIComponent(roleName)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!roleRes.ok) return;
   const role = (await roleRes.json()) as { id: string; name: string };
-  await fetch(`${base}/admin/realms/${realm}/users/${kcUserId}/role-mappings/realm`, {
+  await kcFetch(`${base}/admin/realms/${realm}/users/${kcUserId}/role-mappings/realm`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify([{ id: role.id, name: role.name }]),
@@ -372,7 +382,7 @@ async function assignRealmRole(token: string, kcUserId: string, roleName: string
 async function findKeycloakUserIdByEmail(token: string, email: string): Promise<string | null> {
   const base = adminBaseUrl();
   const realm = adminRealm();
-  const res = await fetch(
+  const res = await kcFetch(
     `${base}/admin/realms/${realm}/users?email=${encodeURIComponent(email)}&exact=true`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
@@ -391,7 +401,7 @@ export async function triggerKeycloakPasswordReset(email: string): Promise<void>
   if (!kcId) throw new Error("Usuario no encontrado en Keycloak");
   const base = adminBaseUrl();
   const realm = adminRealm();
-  const res = await fetch(`${base}/admin/realms/${realm}/users/${kcId}/execute-actions-email`, {
+  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${kcId}/execute-actions-email`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(["UPDATE_PASSWORD"]),
