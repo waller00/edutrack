@@ -1,36 +1,25 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { prismaMock, resolveRoleIdByCodeMock, ensureBuiltinOrgRolesMock, syncIdentityMock } = vi.hoisted(() => ({
+const { prismaMock, syncIdentityMock } = vi.hoisted(() => ({
   prismaMock: {
     user: {
       findUnique: vi.fn(),
       update: vi.fn(),
-      create: vi.fn(),
     },
   },
-  resolveRoleIdByCodeMock: vi.fn(),
-  ensureBuiltinOrgRolesMock: vi.fn(),
   syncIdentityMock: vi.fn(),
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
-vi.mock("../identity/org-role-service.js", () => ({ resolveRoleIdByCode: resolveRoleIdByCodeMock }));
-vi.mock("../identity/org-role-seed.js", () => ({ ensureBuiltinOrgRoles: ensureBuiltinOrgRolesMock }));
 vi.mock("./keycloak.js", () => ({
-  pickRealmRole: (claims: Record<string, any>) => {
-    const roles: string[] = claims?.realm_access?.roles ?? [];
-    for (const code of ["ADMIN", "STAFF", "TEACHER"]) if (roles.includes(code)) return code;
-    return roles[0] ?? null;
-  },
   syncKeycloakUserIdentity: syncIdentityMock,
 }));
 
-import { provisionUserFromClaims } from "./keycloak-provisioning.js";
+import { provisionUserFromClaims, SsoRegistrationRequiredError } from "./keycloak-provisioning.js";
 
 describe("provisionUserFromClaims", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resolveRoleIdByCodeMock.mockResolvedValue("role-id");
     syncIdentityMock.mockResolvedValue(undefined);
   });
 
@@ -56,21 +45,27 @@ describe("provisionUserFromClaims", () => {
     expect(updateArg?.data).not.toHaveProperty("roleId");
   });
 
-  it("crea un usuario nuevo por SSO como PENDIENTE de aprobación", async () => {
+  it("pide completar registro para un usuario SSO sin cuenta local", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
-    prismaMock.user.create.mockResolvedValue({ id: "u-new" });
 
-    const result = await provisionUserFromClaims({
-      sub: "kc-2",
+    let error: unknown;
+    try {
+      await provisionUserFromClaims({
+        sub: "kc-2",
+        email: "nuevo@e.com",
+        given_name: "Nuevo",
+        family_name: "User",
+      });
+    } catch (e) {
+      error = e;
+    }
+
+    expect(error).toBeInstanceOf(SsoRegistrationRequiredError);
+    expect((error as SsoRegistrationRequiredError).profile).toEqual(expect.objectContaining({
+      kcId: "kc-2",
       email: "nuevo@e.com",
-      given_name: "Nuevo",
-      family_name: "User",
-      realm_access: { roles: ["TEACHER"] },
-    });
-
-    expect(result.id).toBe("u-new");
-    const createArg = prismaMock.user.create.mock.calls[0]?.[0];
-    expect(createArg?.data?.isApproved).toBe(false);
-    expect(createArg?.data?.isActive).toBe(true);
+      firstName: "Nuevo",
+      lastName: "User",
+    }));
   });
 });

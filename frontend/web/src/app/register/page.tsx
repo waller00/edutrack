@@ -39,6 +39,16 @@ type DiditFieldVerifyApiResponse = {
 
 type IdentityVerificationMethod = 'didit' | null
 
+type SsoRegisterPrefill = {
+  email: string
+  username?: string
+  firstName?: string
+  lastName?: string
+  name?: string
+  emailLocked?: boolean
+  provider?: 'google'
+}
+
 export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -54,6 +64,7 @@ export default function RegisterPage() {
   const [role, setRole] = useState<RegisterRole>('')
   const [error, setError] = useState('')
   const [ok, setOk] = useState(false)
+  const [registeredWithSso, setRegisteredWithSso] = useState(false)
   const [loading, setLoading] = useState(false)
   const [verificationResults, setVerificationResults] = useState<RegisterVerificationResults | null>(null)
   const [sessionGate, setSessionGate] = useState(true)
@@ -66,6 +77,9 @@ export default function RegisterPage() {
   const [identityVerificationMethod, setIdentityVerificationMethod] =
     useState<IdentityVerificationMethod>(null)
   const [processingDiditFields, setProcessingDiditFields] = useState(false)
+  const [ssoRegistrationToken, setSsoRegistrationToken] = useState<string | null>(null)
+  const [ssoEmailLocked, setSsoEmailLocked] = useState(false)
+  const [ssoPrefillLoading, setSsoPrefillLoading] = useState(false)
 
   const registerDraftRestoredRef = useRef(false)
   /** Último email con el que contamos para la regla “no cambiar correo tras Didit” (evita falso positivo al hidratar borrador). */
@@ -160,6 +174,37 @@ export default function RegisterPage() {
       alive = false
     }
   }, [])
+
+  useEffect(() => {
+    if (sessionGate || typeof window === 'undefined') return
+    const token = new URLSearchParams(window.location.search || '').get('sso')
+    if (!token) return
+    let alive = true
+    setSsoRegistrationToken(token)
+    setSsoPrefillLoading(true)
+    api<SsoRegisterPrefill>(`/auth/register/sso?token=${encodeURIComponent(token)}`)
+      .then((profile) => {
+        if (!alive) return
+        setEmail(profile.email || '')
+        lastEmailForLivenessRef.current = profile.email || ''
+        setFirstName(profile.firstName || '')
+        setLastName(profile.lastName || '')
+        setSsoEmailLocked(profile.emailLocked !== false)
+      })
+      .catch((err: unknown) => {
+        if (!alive) return
+        const e = err as { data?: { message?: string }; message?: string }
+        setError(e.data?.message || e.message || 'El registro con Google venció. Iniciá nuevamente.')
+        setSsoRegistrationToken(null)
+        setSsoEmailLocked(false)
+      })
+      .finally(() => {
+        if (alive) setSsoPrefillLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [sessionGate])
 
   useEffect(() => {
     let alive = true
@@ -391,6 +436,7 @@ export default function RegisterPage() {
       identityVerificationMethod: identityVerificationMethod ?? undefined,
       livenessCheckEnabled,
       livenessApproved,
+      passwordRequired: !ssoRegistrationToken,
     })
     if (baseValidation) return baseValidation
     if (verificationHasIssues()) return 'Debes verificar tu DNI antes de crear la cuenta'
@@ -494,10 +540,16 @@ export default function RegisterPage() {
           : undefined,
         role,
       }
+      if (!ssoRegistrationToken) {
+        payload.password = password
+      } else {
+        payload.ssoRegistrationToken = ssoRegistrationToken
+      }
       if (livenessCheckEnabled && livenessToken) {
         payload.livenessToken = livenessToken
       }
       await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
+      setRegisteredWithSso(Boolean(ssoRegistrationToken))
       setOk(true)
       clearRegisterDraft()
     } catch (e: unknown) {
@@ -556,7 +608,11 @@ export default function RegisterPage() {
                 <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
               </div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Registro Exitoso</h1>
-              <p className="text-gray-600">Revisa tu correo y espera la aprobación de un administrador para habilitar el acceso completo.</p>
+              <p className="text-gray-600">
+                {registeredWithSso
+                  ? 'Tu registro con Google quedó enviado. Espera la aprobación de un administrador para habilitar el acceso completo.'
+                  : 'Revisa tu correo y espera la aprobación de un administrador para habilitar el acceso completo.'}
+              </p>
             </div>
             <a href="/" className="btn-primary w-full text-center justify-center">
               Ir al inicio
@@ -584,12 +640,20 @@ export default function RegisterPage() {
               <p className="text-sm text-emerald-800 mb-3">También puedes entrar con Google. Después se te pedirá esta misma validación con DNI y completar solo los datos faltantes.</p>
               <button
                 type="button"
-                onClick={() => { window.location.href = loginUrl('/', 'google') }}
+                onClick={() => { window.location.href = loginUrl('/register', 'google') }}
                 className="btn-secondary w-full justify-center"
               >
                 Continuar con Google
               </button>
             </div>
+
+            {ssoRegistrationToken && (
+              <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+                {ssoPrefillLoading
+                  ? 'Trayendo datos de Google…'
+                  : 'Completá o corregí tus datos. El correo queda fijado por la cuenta de Google.'}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
@@ -599,47 +663,52 @@ export default function RegisterPage() {
                   onChange={e=>setEmail(e.target.value)} 
                   type="email" 
                   required 
+                  disabled={ssoEmailLocked}
                   className="input-field"
                   placeholder="tu@email.com"
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
-                <div className="relative">
-                  <input 
-                    value={password} 
-                    onChange={e=>setPassword(e.target.value)} 
-                    type={showPwd?'text':'password'} 
-                    required 
-                    className="input-field pr-10"
-                    placeholder="Mín 8, Aa y 0-9"
-                  />
-                  <PasswordVisibilityToggle visible={showPwd} onToggle={() => setShowPwd((s) => !s)} />
-                </div>
-                <div className="h-2 bg-gray-200 rounded mt-2">
-                  <div className={`${getStrengthBarClass(strength)} h-2 rounded transition-all duration-300`} style={{width: `${strength}%`}} />
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar contraseña</label>
-                <div className="relative">
-                  <input 
-                    value={confirm} 
-                    onChange={e=>setConfirm(e.target.value)} 
-                    type={showConfirm?'text':'password'} 
-                    required 
-                    className="input-field pr-10"
-                    placeholder="Repite tu contraseña"
-                  />
-                  <PasswordVisibilityToggle
-                    visible={showConfirm}
-                    onToggle={() => setShowConfirm((s) => !s)}
-                    field="confirmación"
-                  />
-                </div>
-              </div>
+              {!ssoRegistrationToken && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
+                    <div className="relative">
+                      <input
+                        value={password}
+                        onChange={e=>setPassword(e.target.value)}
+                        type={showPwd?'text':'password'}
+                        required
+                        className="input-field pr-10"
+                        placeholder="Mín 8, Aa y 0-9"
+                      />
+                      <PasswordVisibilityToggle visible={showPwd} onToggle={() => setShowPwd((s) => !s)} />
+                    </div>
+                    <div className="h-2 bg-gray-200 rounded mt-2">
+                      <div className={`${getStrengthBarClass(strength)} h-2 rounded transition-all duration-300`} style={{width: `${strength}%`}} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar contraseña</label>
+                    <div className="relative">
+                      <input
+                        value={confirm}
+                        onChange={e=>setConfirm(e.target.value)}
+                        type={showConfirm?'text':'password'}
+                        required
+                        className="input-field pr-10"
+                        placeholder="Repite tu contraseña"
+                      />
+                      <PasswordVisibilityToggle
+                        visible={showConfirm}
+                        onToggle={() => setShowConfirm((s) => !s)}
+                        field="confirmación"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
               
               
               <div>

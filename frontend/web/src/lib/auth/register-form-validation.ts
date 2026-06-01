@@ -189,12 +189,15 @@ export function validateRegisterForm(params: {
   /** `true` si el servidor tiene Didit configurado (entonces solo verificación electrónica). */
   livenessCheckEnabled?: boolean
   livenessApproved?: boolean
+  passwordRequired?: boolean
 }): string | null {
   if (!isValidRegisterEmail(params.email)) return 'Email inválido'
-  if (!isStrongPassword(params.password)) {
-    return STRONG_PASSWORD_MESSAGE
+  if (params.passwordRequired !== false) {
+    if (!isStrongPassword(params.password)) {
+      return STRONG_PASSWORD_MESSAGE
+    }
+    if (params.password !== params.confirm) return 'Las contraseñas no coinciden'
   }
-  if (params.password !== params.confirm) return 'Las contraseñas no coinciden'
   const identityError = getRegisterIdentityValidationError(params)
   if (identityError) return identityError
   if (params.phoneLocal) {

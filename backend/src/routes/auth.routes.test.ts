@@ -4,7 +4,15 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import { signAccessToken } from "../test-utils/bearer-token.js";
 
-const { prismaMock, sendMailMock, createKeycloakUserMock, ensureDefaultPermissionsMock } = vi.hoisted(() => ({
+const {
+  prismaMock,
+  sendMailMock,
+  createKeycloakUserMock,
+  syncRegisteredSsoUserMock,
+  getSsoRegistrationMock,
+  consumeSsoRegistrationMock,
+  ensureDefaultPermissionsMock,
+} = vi.hoisted(() => ({
   prismaMock: {
     user: {
       findUnique: vi.fn(),
@@ -32,6 +40,9 @@ const { prismaMock, sendMailMock, createKeycloakUserMock, ensureDefaultPermissio
   },
   sendMailMock: vi.fn().mockResolvedValue(undefined),
   createKeycloakUserMock: vi.fn().mockResolvedValue("kc-id-1"),
+  syncRegisteredSsoUserMock: vi.fn().mockResolvedValue(undefined),
+  getSsoRegistrationMock: vi.fn().mockResolvedValue(null),
+  consumeSsoRegistrationMock: vi.fn().mockResolvedValue(null),
   ensureDefaultPermissionsMock: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -39,6 +50,11 @@ vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../notifications/email.js", () => ({ sendMail: sendMailMock }));
 vi.mock("../auth/keycloak.js", () => ({
   createKeycloakUser: createKeycloakUserMock,
+  syncRegisteredSsoUser: syncRegisteredSsoUserMock,
+}));
+vi.mock("../auth/sso-registration.js", () => ({
+  getSsoRegistration: getSsoRegistrationMock,
+  consumeSsoRegistration: consumeSsoRegistrationMock,
 }));
 vi.mock("../identity/org-role-service.js", () => ({
   normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
@@ -71,6 +87,9 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     vi.clearAllMocks();
     sendMailMock.mockResolvedValue(undefined);
     createKeycloakUserMock.mockResolvedValue("kc-id-1");
+    syncRegisteredSsoUserMock.mockResolvedValue(undefined);
+    getSsoRegistrationMock.mockResolvedValue(null);
+    consumeSsoRegistrationMock.mockResolvedValue(null);
     ensureDefaultPermissionsMock.mockResolvedValue(undefined);
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {
@@ -123,6 +142,70 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
       }),
     );
     expect(res.body.email).toBe("nuevo@example.com");
+  });
+
+  it("GET /auth/register/sso devuelve prefills de Google", async () => {
+    getSsoRegistrationMock.mockResolvedValueOnce({
+      kcId: "kc-google-1",
+      email: "google@example.com",
+      firstName: "Google",
+      lastName: "User",
+      emailVerified: true,
+    });
+
+    const res = await request(app()).get("/auth/register/sso").query({ token: "token-google" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({
+      email: "google@example.com",
+      firstName: "Google",
+      lastName: "User",
+      emailLocked: true,
+      provider: "google",
+    }));
+  });
+
+  it("POST /auth/register con token Google no exige contraseña ni crea usuario Keycloak nuevo", async () => {
+    getSsoRegistrationMock.mockResolvedValue({
+      kcId: "kc-google-1",
+      email: "google@example.com",
+      firstName: "Google",
+      lastName: "User",
+      emailVerified: true,
+    });
+    consumeSsoRegistrationMock.mockResolvedValue({
+      kcId: "kc-google-1",
+      email: "google@example.com",
+    });
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({
+      id: "u-google",
+      email: "google@example.com",
+      username: "google.user",
+    });
+
+    const res = await request(app())
+      .post("/auth/register")
+      .send({
+        email: "google@example.com",
+        ssoRegistrationToken: "token-google-registration-1",
+        firstName: "Google",
+        lastName: "User",
+        birthdate: "1990-01-01T00:00:00.000Z",
+        role: "TEACHER",
+      });
+
+    expect(res.status).toBe(200);
+    expect(createKeycloakUserMock).not.toHaveBeenCalled();
+    expect(syncRegisteredSsoUserMock).toHaveBeenCalledWith(expect.objectContaining({
+      kcId: "kc-google-1",
+      email: "google@example.com",
+      username: "google.user",
+      role: "TEACHER",
+      emailVerified: true,
+    }));
+    expect(prismaMock.emailVerification.create).not.toHaveBeenCalled();
+    expect(consumeSsoRegistrationMock).toHaveBeenCalledWith("token-google-registration-1");
   });
 
   it("POST /auth/verify token válido", async () => {
