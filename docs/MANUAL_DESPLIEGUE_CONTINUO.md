@@ -117,6 +117,7 @@ Ejemplos (ajustar por entorno):
 # Base
 DATABASE_URL=postgresql://postgres:...@pg:5432/asistencias?schema=public
 REDIS_URL=redis://redis:6379
+PUBLIC_HOST=138.197.35.2.nip.io
 FRONTEND_URL=http://138.197.35.2.nip.io:3000
 NEXT_PUBLIC_API_URL=http://138.197.35.2.nip.io:4000
 
@@ -139,6 +140,8 @@ COOKIE_SAMESITE=lax
 ```
 
 **Importante:** solo las variables listadas en `environment:` de `docker-compose.cloud.yml` entran al contenedor. Tras editar `.env`, recrear servicios:
+
+`FRONTEND_URL`, `NEXT_PUBLIC_API_URL`, `KEYCLOAK_ISSUER_URL` y `KEYCLOAK_REDIRECT_URI` deben apuntar al mismo host publico. Si se usa el fallback de `PUBLIC_HOST`, revisar que no quede `localhost` ni una IP vieja embebida en el build del frontend.
 
 ```bash
 docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d --force-recreate auth web
