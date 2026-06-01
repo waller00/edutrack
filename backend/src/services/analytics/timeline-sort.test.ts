@@ -16,4 +16,10 @@ describe('timelineSortInstantOnDay', () => {
     const onFilteredDay = timelineSortInstantOnDay(day, eveningUtc)
     expect(onFilteredDay.getTime()).toBe(eveningUtc.getTime())
   })
+
+  it('sin hora de referencia usa medianoche del día filtrado', () => {
+    const midnight = timelineSortInstantOnDay(day)
+    const expected = uruguayWallToUtc(day, 0, 0)
+    expect(midnight.getTime()).toBe(expected.getTime())
+  })
 })

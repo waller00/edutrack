@@ -1,18 +1,16 @@
 import { expect, test } from '@playwright/test'
 
-test('muestra la pantalla de login', async ({ page }) => {
-  await page.goto('/login')
+test('muestra la pantalla de login (estado sin sesión Keycloak)', async ({ page }) => {
+  await page.goto('/login?loggedOut=1')
 
-  await expect(page.getByRole('heading', { name: 'Iniciar Sesión' })).toBeVisible()
-  await expect(page.getByPlaceholder('Ingresa tu email o usuario')).toBeVisible()
-  await expect(page.getByPlaceholder('Ingresa tu contraseña')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Entrar' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sesión cerrada' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Ingresar' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Registrarse' })).toBeVisible()
 })
 
 test('redirige al login cuando no hay sesion', async ({ page }) => {
   await page.goto('/')
-
-  await expect(page).toHaveURL(/\/login$/)
+  await page.waitForURL(/\/login/, { timeout: 15_000 })
 })
 
 test('backend responde healthcheck', async ({ request }) => {
