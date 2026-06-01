@@ -61,6 +61,23 @@ jobs:
             }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
             REPO_DIR="/root/edutrack"
+            git_sync_from_url() {
+              local repo_url="$1" target_ref="$2"
+              git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
+              rm -f .git/config.lock .git/index.lock
+              find .git -name '*.lock' -type f -delete 2>/dev/null || true
+              if [[ "$target_ref" == origin/* ]]; then
+                local branch="${target_ref#origin/}"
+                git fetch "$repo_url" "+refs/heads/${branch}:refs/remotes/origin/${branch}" --tags --prune
+                git reset --hard "$target_ref"
+              elif git fetch "$repo_url" "$target_ref" --tags 2>/dev/null; then
+                git reset --hard FETCH_HEAD
+              else
+                git fetch "$repo_url" "+refs/heads/${target_ref}:refs/remotes/origin/${target_ref}" --tags --prune
+                git reset --hard "origin/${target_ref}"
+              fi
+              git clean -fd
+            }
             if [ ! -d "$REPO_DIR/.git" ]; then
               git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
@@ -68,12 +85,7 @@ jobs:
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
-            rm -f .git/config.lock .git/index.lock
-            find .git -maxdepth 2 -name '*.lock' -type f -delete 2>/dev/null || true
-            git remote set-url origin "$REPO_HTTPS"
-            git fetch --all --tags --prune
-            git reset --hard origin/develop
-            git clean -fd
+            git_sync_from_url "$REPO_HTTPS" origin/develop
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             # Red compartida con auth (MOODLE) y docker-compose.moodle.yml; debe existir antes de up
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
@@ -86,6 +98,9 @@ jobs:
   deploy-production:
     needs: validate # <--- TAMBIÉN PROTEGEMOS PRODUCCIÓN
     if: github.ref == 'refs/heads/main'
+    concurrency:
+      group: deploy-production-server
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -106,6 +121,23 @@ jobs:
             }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
             REPO_DIR="/root/edutrack"
+            git_sync_from_url() {
+              local repo_url="$1" target_ref="$2"
+              git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
+              rm -f .git/config.lock .git/index.lock
+              find .git -name '*.lock' -type f -delete 2>/dev/null || true
+              if [[ "$target_ref" == origin/* ]]; then
+                local branch="${target_ref#origin/}"
+                git fetch "$repo_url" "+refs/heads/${branch}:refs/remotes/origin/${branch}" --tags --prune
+                git reset --hard "$target_ref"
+              elif git fetch "$repo_url" "$target_ref" --tags 2>/dev/null; then
+                git reset --hard FETCH_HEAD
+              else
+                git fetch "$repo_url" "+refs/heads/${target_ref}:refs/remotes/origin/${target_ref}" --tags --prune
+                git reset --hard "origin/${target_ref}"
+              fi
+              git clean -fd
+            }
             if [ ! -d "$REPO_DIR/.git" ]; then
               git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
@@ -113,12 +145,7 @@ jobs:
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
-            rm -f .git/config.lock .git/index.lock
-            find .git -maxdepth 2 -name '*.lock' -type f -delete 2>/dev/null || true
-            git remote set-url origin "$REPO_HTTPS"
-            git fetch --all --tags --prune
-            git reset --hard origin/main
-            git clean -fd
+            git_sync_from_url "$REPO_HTTPS" origin/main
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
@@ -152,6 +179,23 @@ jobs:
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
             REPO_DIR="/root/edutrack"
             TARGET_REF="${{ github.event.inputs.git_ref }}"
+            git_sync_from_url() {
+              local repo_url="$1" target_ref="$2"
+              git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
+              rm -f .git/config.lock .git/index.lock
+              find .git -name '*.lock' -type f -delete 2>/dev/null || true
+              if [[ "$target_ref" == origin/* ]]; then
+                local branch="${target_ref#origin/}"
+                git fetch "$repo_url" "+refs/heads/${branch}:refs/remotes/origin/${branch}" --tags --prune
+                git reset --hard "$target_ref"
+              elif git fetch "$repo_url" "$target_ref" --tags 2>/dev/null; then
+                git reset --hard FETCH_HEAD
+              else
+                git fetch "$repo_url" "+refs/heads/${target_ref}:refs/remotes/origin/${target_ref}" --tags --prune
+                git reset --hard "origin/${target_ref}"
+              fi
+              git clean -fd
+            }
             if [ ! -d "$REPO_DIR/.git" ]; then
               git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
@@ -159,12 +203,7 @@ jobs:
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
-            rm -f .git/config.lock .git/index.lock
-            find .git -maxdepth 2 -name '*.lock' -type f -delete 2>/dev/null || true
-            git remote set-url origin "$REPO_HTTPS"
-            git fetch --all --tags --prune
-            git reset --hard "$TARGET_REF"
-            git clean -fd
+            git_sync_from_url "$REPO_HTTPS" "$TARGET_REF"
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF build auth
@@ -175,6 +214,9 @@ jobs:
 
   deploy-production-manual:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.target_env == 'production'
+    concurrency:
+      group: deploy-production-server
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -196,6 +238,23 @@ jobs:
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
             REPO_DIR="/root/edutrack"
             TARGET_REF="${{ github.event.inputs.git_ref }}"
+            git_sync_from_url() {
+              local repo_url="$1" target_ref="$2"
+              git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
+              rm -f .git/config.lock .git/index.lock
+              find .git -name '*.lock' -type f -delete 2>/dev/null || true
+              if [[ "$target_ref" == origin/* ]]; then
+                local branch="${target_ref#origin/}"
+                git fetch "$repo_url" "+refs/heads/${branch}:refs/remotes/origin/${branch}" --tags --prune
+                git reset --hard "$target_ref"
+              elif git fetch "$repo_url" "$target_ref" --tags 2>/dev/null; then
+                git reset --hard FETCH_HEAD
+              else
+                git fetch "$repo_url" "+refs/heads/${target_ref}:refs/remotes/origin/${target_ref}" --tags --prune
+                git reset --hard "origin/${target_ref}"
+              fi
+              git clean -fd
+            }
             if [ ! -d "$REPO_DIR/.git" ]; then
               git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
@@ -203,12 +262,7 @@ jobs:
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
-            rm -f .git/config.lock .git/index.lock
-            find .git -maxdepth 2 -name '*.lock' -type f -delete 2>/dev/null || true
-            git remote set-url origin "$REPO_HTTPS"
-            git fetch --all --tags --prune
-            git reset --hard "$TARGET_REF"
-            git clean -fd
+            git_sync_from_url "$REPO_HTTPS" "$TARGET_REF"
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
