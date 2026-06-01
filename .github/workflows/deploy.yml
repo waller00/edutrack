@@ -20,6 +20,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # --- NUEVO: EL CANDADO DE CALIDAD ---
   validate:
@@ -50,24 +54,26 @@ jobs:
           port: 22
           timeout: 120s
           command_timeout: 40m
-          retry: 3
-          retry_interval: 15s
           script: |
             set -e
             compose() {
               if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
             }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
-            cd /root
-            if [ ! -d "edutrack" ]; then
-              git clone "$REPO_HTTPS" edutrack
-              cd edutrack
-            else
-              cd edutrack
-              git remote set-url origin "$REPO_HTTPS"
-              git fetch --all
-              git reset --hard origin/develop
+            REPO_DIR="/root/edutrack"
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
+            cd "$REPO_DIR"
+            LOCK_FILE="/tmp/edutrack-deploy.lock"
+            exec 200>"$LOCK_FILE"
+            flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
+            rm -f .git/config.lock .git/index.lock
+            find .git -maxdepth 2 -name '*.lock' -type f -delete 2>/dev/null || true
+            git remote set-url origin "$REPO_HTTPS"
+            git fetch --all --tags --prune
+            git reset --hard origin/develop
+            git clean -fd
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             # Red compartida con auth (MOODLE) y docker-compose.moodle.yml; debe existir antes de up
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
@@ -93,24 +99,26 @@ jobs:
           port: 22
           timeout: 120s
           command_timeout: 40m
-          retry: 3
-          retry_interval: 15s
           script: |
             set -e
             compose() {
               if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
             }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
-            cd /root
-            if [ ! -d "edutrack" ]; then
-              git clone "$REPO_HTTPS" edutrack
-              cd edutrack
-            else
-              cd edutrack
-              git remote set-url origin "$REPO_HTTPS"
-              git fetch --all
-              git reset --hard origin/main
+            REPO_DIR="/root/edutrack"
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              git clone "$REPO_HTTPS" "$REPO_DIR"
             fi
+            cd "$REPO_DIR"
+            LOCK_FILE="/tmp/edutrack-deploy.lock"
+            exec 200>"$LOCK_FILE"
+            flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
+            rm -f .git/config.lock .git/index.lock
+            find .git -maxdepth 2 -name '*.lock' -type f -delete 2>/dev/null || true
+            git remote set-url origin "$REPO_HTTPS"
+            git fetch --all --tags --prune
+            git reset --hard origin/main
+            git clean -fd
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
@@ -137,23 +145,27 @@ jobs:
           port: 22
           timeout: 120s
           command_timeout: 40m
-          retry: 3
-          retry_interval: 15s
           script: |
             set -e
             compose() {
               if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
             }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
-            cd /root
-            if [ ! -d "edutrack" ]; then
-              git clone "$REPO_HTTPS" edutrack
-            fi
-            cd edutrack
-            git remote set-url origin "$REPO_HTTPS"
-            git fetch --all --tags
+            REPO_DIR="/root/edutrack"
             TARGET_REF="${{ github.event.inputs.git_ref }}"
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              git clone "$REPO_HTTPS" "$REPO_DIR"
+            fi
+            cd "$REPO_DIR"
+            LOCK_FILE="/tmp/edutrack-deploy.lock"
+            exec 200>"$LOCK_FILE"
+            flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
+            rm -f .git/config.lock .git/index.lock
+            find .git -maxdepth 2 -name '*.lock' -type f -delete 2>/dev/null || true
+            git remote set-url origin "$REPO_HTTPS"
+            git fetch --all --tags --prune
             git reset --hard "$TARGET_REF"
+            git clean -fd
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF build auth
@@ -177,23 +189,27 @@ jobs:
           port: 22
           timeout: 120s
           command_timeout: 40m
-          retry: 3
-          retry_interval: 15s
           script: |
             set -e
             compose() {
               if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
             }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
-            cd /root
-            if [ ! -d "edutrack" ]; then
-              git clone "$REPO_HTTPS" edutrack
-            fi
-            cd edutrack
-            git remote set-url origin "$REPO_HTTPS"
-            git fetch --all --tags
+            REPO_DIR="/root/edutrack"
             TARGET_REF="${{ github.event.inputs.git_ref }}"
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              git clone "$REPO_HTTPS" "$REPO_DIR"
+            fi
+            cd "$REPO_DIR"
+            LOCK_FILE="/tmp/edutrack-deploy.lock"
+            exec 200>"$LOCK_FILE"
+            flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
+            rm -f .git/config.lock .git/index.lock
+            find .git -maxdepth 2 -name '*.lock' -type f -delete 2>/dev/null || true
+            git remote set-url origin "$REPO_HTTPS"
+            git fetch --all --tags --prune
             git reset --hard "$TARGET_REF"
+            git clean -fd
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
