@@ -5,7 +5,7 @@ test('muestra la pantalla de login (estado sin sesión Keycloak)', async ({ page
 
   await expect(page.getByRole('heading', { name: 'Sesión cerrada' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Ingresar' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Registrarse' })).toBeVisible()
+  await expect(page.getByRole('main').getByRole('link', { name: 'Registrarse' })).toBeVisible()
 })
 
 test('redirige al login cuando no hay sesion', async ({ page }) => {
