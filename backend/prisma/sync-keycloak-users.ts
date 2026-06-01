@@ -48,6 +48,16 @@ async function findUserId(token: string, email: string): Promise<string | null> 
   return users[0]?.id ?? null
 }
 
+async function findUserIdByUsername(token: string, username: string): Promise<string | null> {
+  const res = await fetch(
+    `${adminBaseUrl()}/admin/realms/${adminRealm()}/users?username=${encodeURIComponent(username)}&exact=true`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) return null
+  const users = (await res.json()) as { id?: string }[]
+  return users[0]?.id ?? null
+}
+
 async function assignRealmRole(token: string, kcUserId: string, roleName: string): Promise<void> {
   const roleRes = await fetch(
     `${adminBaseUrl()}/admin/realms/${adminRealm()}/roles/${encodeURIComponent(roleName)}`,
@@ -81,20 +91,25 @@ async function ensureKeycloakUser(
   token: string,
   input: {
     email: string
+    username?: string | null
     firstName?: string | null
     lastName?: string | null
     role: string
     password: string
   },
 ): Promise<'created' | 'updated'> {
+  const username = input.username?.trim() || input.email
   let kcId = await findUserId(token, input.email)
+  if (!kcId && username !== input.email) {
+    kcId = await findUserIdByUsername(token, username)
+  }
   if (!kcId) {
     const createRes = await fetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         email: input.email,
-        username: input.email,
+        username,
         firstName: input.firstName ?? undefined,
         lastName: input.lastName ?? undefined,
         enabled: true,
@@ -112,6 +127,22 @@ async function ensureKeycloakUser(
     await assignRealmRole(token, kcId, input.role)
     return 'created'
   }
+  const updateRes = await fetch(`${adminBaseUrl()}/admin/realms/${adminRealm()}/users/${kcId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      email: input.email,
+      username,
+      firstName: input.firstName ?? undefined,
+      lastName: input.lastName ?? undefined,
+      enabled: true,
+      emailVerified: true,
+    }),
+  })
+  if (!updateRes.ok) {
+    const detail = await updateRes.text().catch(() => '')
+    throw new Error(`update user ${input.email} ${updateRes.status}: ${detail}`)
+  }
   await setPassword(token, kcId, input.password)
   await assignRealmRole(token, kcId, input.role)
   return 'updated'
@@ -124,6 +155,7 @@ async function main() {
     where: { isActive: true, email: { not: '' } },
     select: {
       email: true,
+      username: true,
       firstName: true,
       lastName: true,
       orgRole: { select: { code: true } },
@@ -149,6 +181,7 @@ async function main() {
     }
     const result = await ensureKeycloakUser(token, {
       email,
+      username: user.username,
       firstName: user.firstName,
       lastName: user.lastName,
       role,

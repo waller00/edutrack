@@ -78,7 +78,7 @@ describe('RegisterPage', () => {
     expect(await screen.findByText(/Email inválido/i)).toBeInTheDocument()
   })
 
-  it('permite cancelar el registro con Google y elegir otra cuenta', async () => {
+  it('usa el Cancelar existente para salir del registro con Google', async () => {
     const locationMock = { href: '', replace: vi.fn(), search: '?sso=token-google-registration-1' }
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -99,11 +99,11 @@ describe('RegisterPage', () => {
 
     render(<RegisterPage />)
 
-    const cancel = await screen.findByRole('button', { name: /cancelar y elegir otra cuenta/i })
-    fireEvent.click(cancel)
+    const cancel = await screen.findByRole('link', { name: /^cancelar$/i })
 
-    expect(locationMock.href).toBe(
-      'http://localhost:4000/auth/logout?returnTo=%2Fregister%3FgoogleCancelled%3D1',
+    expect(cancel).toHaveAttribute(
+      'href',
+      'http://localhost:4000/auth/logout?returnTo=%2Flogin',
     )
   })
 })

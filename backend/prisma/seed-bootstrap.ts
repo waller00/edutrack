@@ -72,6 +72,7 @@ export async function ensureBootstrapAdmin() {
     const { createKeycloakUser } = await import('../src/auth/keycloak.js')
     await createKeycloakUser({
       email: ADMIN_EMAIL,
+      username: ADMIN_USERNAME,
       firstName: 'Admin',
       lastName: 'Principal',
       password: ADMIN_PASSWORD,
