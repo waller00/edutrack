@@ -35,7 +35,16 @@ export async function ensureBootstrapAdmin() {
     select: { id: true, username: true },
   })
   if (existing) {
-    console.log(`[seed:bootstrap] Admin ya existe (${existing.username})`)
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        isActive: true,
+        isApproved: true,
+        approvedAt: new Date(),
+        roleId: adminRole.id,
+      },
+    })
+    console.log(`[seed:bootstrap] Admin ya existe (${existing.username}); estado verificado`)
     return existing
   }
 

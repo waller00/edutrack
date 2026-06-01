@@ -92,13 +92,20 @@ export async function getOidcConfig(): Promise<oidc.Configuration> {
     const options: Record<symbol, unknown> & { execute?: typeof execute } = {};
     if (execute.length) options.execute = execute;
     if (customFetch) options[oidc.customFetch] = customFetch;
-    configPromise = oidc.discovery(
-      new URL(issuerUrl()),
-      clientId(),
-      clientSecret(),
-      undefined,
-      Object.keys(options).length || Object.getOwnPropertySymbols(options).length ? (options as any) : undefined,
-    );
+    // No cacheamos la promesa rechazada: si la discovery falla (p. ej. Keycloak
+    // todavia esta arrancando), dejamos configPromise en null para reintentar.
+    configPromise = oidc
+      .discovery(
+        new URL(issuerUrl()),
+        clientId(),
+        clientSecret(),
+        undefined,
+        Object.keys(options).length || Object.getOwnPropertySymbols(options).length ? (options as any) : undefined,
+      )
+      .catch((error) => {
+        configPromise = null;
+        throw error;
+      });
   }
   return configPromise;
 }
@@ -127,6 +134,16 @@ export async function buildLoginUrl(options: LoginUrlOptions = {}): Promise<Auth
     code_challenge_method: "S256",
     state,
   };
+
+  // El redirect_uri apunta al API; el tema de Keycloak necesita el origen del frontend.
+  const frontendOrigin = process.env.FRONTEND_URL;
+  if (frontendOrigin) {
+    try {
+      params.frontend_origin = new URL(frontendOrigin).origin;
+    } catch {
+      /* FRONTEND_URL invalido: el tema cae al heuristico */
+    }
+  }
 
   if (options.identityProvider) {
     params.kc_idp_hint = options.identityProvider;

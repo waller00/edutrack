@@ -72,4 +72,19 @@ describe('LoginPage (Keycloak)', () => {
     expect(await screen.findByRole('heading', { name: /Sesión cerrada/i })).toBeInTheDocument()
     expect(loggedOutLocationMock.href).toBe('')
   })
+
+  it('no reintenta login en bucle si la cuenta esta pendiente o inhabilitada', async () => {
+    const err = new Error('Cuenta inhabilitada') as Error & { status?: number }
+    err.status = 403
+    vi.mocked(api).mockRejectedValueOnce(err)
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { href: '', search: '' },
+    })
+
+    render(<LoginPage />)
+
+    expect(await screen.findByRole('heading', { name: /Cuenta no habilitada/i })).toBeInTheDocument()
+    expect(locationMock.href).toBe('')
+  })
 })

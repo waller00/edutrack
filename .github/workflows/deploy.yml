@@ -74,6 +74,7 @@ jobs:
             compose $CF build auth
             compose $CF build web
             compose $CF up -d --no-build
+            bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack actualizado en TESTING"
 
   deploy-production:
@@ -117,6 +118,7 @@ jobs:
             compose $CF build --no-cache web
             compose $CF build auth
             compose $CF up -d --no-build
+            bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack actualizado en PRODUCCION"
 
   deploy-testing-manual:
@@ -156,6 +158,7 @@ jobs:
             compose $CF build auth
             compose $CF build web
             compose $CF up -d --no-build
+            bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack testing actualizado manualmente a $TARGET_REF"
 
   deploy-production-manual:
@@ -197,4 +200,5 @@ jobs:
             compose $CF build --no-cache web
             compose $CF build auth
             compose $CF up -d --no-build
+            bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack producción actualizado manualmente a $TARGET_REF"

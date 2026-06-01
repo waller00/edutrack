@@ -91,6 +91,7 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
   // del realm, pero queda PENDIENTE de aprobación igual que el registro normal.
   const roleCode = pickRealmRole(claims) || DEFAULT_ROLE;
   const roleId = await resolveRoleIdByCodeEnsuring(roleCode);
+  const autoApprove = roleCode === "ADMIN";
   const created = await prisma.user.create({
     data: {
       email,
@@ -100,8 +101,8 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
       name: fullName,
       roleId,
       isActive: true,
-      isApproved: false,
-      approvedAt: null,
+      isApproved: autoApprove,
+      approvedAt: autoApprove ? new Date() : null,
       emailVerifiedAt: emailVerified ? new Date() : null,
     },
     select: { id: true },
