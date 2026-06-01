@@ -27,6 +27,10 @@ describe('system-settings', () => {
 
     vi.stubEnv('DIDIT_WORKFLOW_ID', ' ')
     expect(isDiditConfigured()).toBe(false)
+
+    vi.stubEnv('DIDIT_API_KEY', '')
+    vi.stubEnv('DIDIT_WORKFLOW_ID', 'workflow-id')
+    expect(isDiditConfigured()).toBe(false)
   })
 
   it('exige prueba de vida salvo en test o bypass explícito', () => {
