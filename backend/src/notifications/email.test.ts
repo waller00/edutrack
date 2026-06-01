@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendMailSpy = vi.fn();
 const createTransportSpy = vi.fn(() => ({ sendMail: sendMailSpy }));
@@ -10,6 +10,12 @@ vi.mock("nodemailer", () => ({
 }));
 
 describe("email", () => {
+  const previousFrontendUrl = process.env.FRONTEND_URL;
+  afterEach(() => {
+    if (previousFrontendUrl === undefined) delete process.env.FRONTEND_URL;
+    else process.env.FRONTEND_URL = previousFrontendUrl;
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();

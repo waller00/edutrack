@@ -61,7 +61,7 @@ Este manual cubre:
                     │              │                     │
                     └──────────────┴─────────────────────┘
                                    Docker Compose
-                                   pg + auth + web
+                          pg + redis + keycloak + auth + web
 ```
 
 \* IP de ejemplo usada en el proyecto; debe coincidir con el secret `SSH_HOST_TESTING`.
@@ -75,7 +75,7 @@ Este manual cubre:
 | **Producción** | Droplet de Terraform (o equivalente). IP en `SSH_HOST`. Rama `main`. Cloudflare recomendado. |
 | **Pipeline deploy** | `deploy.yml`: job `validate` (typecheck frontend) → deploy por SSH. |
 | **Pipeline CI** | `ci.yml`: en cada push/PR — frontend y backend (typecheck, lint, tests, build). **No bloquea** el deploy si falla en otra rama, pero debe estar en verde antes de merge. |
-| **Servicios** | `pg` (PostgreSQL 16), `auth` (API Node.js + Prisma), `web` (Next.js). |
+| **Servicios** | `pg`, `redis`, `keycloak-db`, `keycloak`, `auth` (API), `web` (Next.js) |
 | **ADMS biométrico** | Integrado en `auth`, puerto **4000** (`ZKTECO_ICLOCK_PORT=0`). Sin proceso aparte en nube. |
 
 ---
@@ -116,9 +116,14 @@ Ejemplos (ajustar por entorno):
 ```env
 # Base
 DATABASE_URL=postgresql://postgres:...@pg:5432/asistencias?schema=public
-JWT_SECRET=...
+REDIS_URL=redis://redis:6379
 FRONTEND_URL=http://138.197.35.2.nip.io:3000
 NEXT_PUBLIC_API_URL=http://138.197.35.2.nip.io:4000
+
+# Keycloak (ajustar URLs públicas por entorno)
+KEYCLOAK_ISSUER_URL=http://138.197.35.2.nip.io:8089/realms/edutrack
+KEYCLOAK_CLIENT_SECRET=...
+KEYCLOAK_REDIRECT_URI=http://138.197.35.2.nip.io:4000/auth/callback
 
 # Prisma al arrancar auth (testing tras cambios de schema)
 PRISMA_DB_PUSH_FLAGS=--accept-data-loss
@@ -130,10 +135,7 @@ ZKTECO_ICLOCK_PORT=0
 COOKIE_SECURE=false
 COOKIE_SAMESITE=lax
 
-# OAuth, SMTP, etc. según entorno
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_CALLBACK_URL=http://138.197.35.2.nip.io:4000/auth/google/callback
+# SMTP, Didit, Sentry, etc. según entorno
 ```
 
 **Importante:** solo las variables listadas en `environment:` de `docker-compose.cloud.yml` entran al contenedor. Tras editar `.env`, recrear servicios:
@@ -243,21 +245,33 @@ Archivo base: **`docker-compose.cloud.yml`**
 - Volumen persistente `pgdata`
 - Healthcheck antes de levantar `auth`
 
-### 8.2 Backend (`auth`)
+### 8.2 Redis (`redis`)
+
+- Imagen Redis 7 (persistencia AOF).
+- Sesiones BFF del backend (`REDIS_URL` obligatorio para login).
+
+### 8.3 Keycloak (`keycloak` + `keycloak-db`)
+
+- Realm import: `keycloak/realm-edutrack.json`.
+- Tema login: `keycloak/themes/edutrack/`.
+- Google IdP y TOTP se configuran en Keycloak.
+- En cloud, exponer URL pública alineada con `KEYCLOAK_ISSUER_URL`.
+
+### 8.4 Backend (`auth`)
 
 - Build: `./backend`
 - Comando de arranque: `npx prisma db push ${PRISMA_DB_PUSH_FLAGS}` + `npm start`
 - Puerto **4000** expuesto
-- Incluye: API REST, OAuth, webhooks, **protocolo ADMS ZKTeco** (`/iclock/*`, alias `/cdata`, `/getrequest`)
-- Variables: JWT, DB, cookies, OAuth, `ZKTECO_ICLOCK_PORT`, etc.
+- Incluye: API REST, OIDC BFF, webhooks, **protocolo ADMS ZKTeco** (`/iclock/*`, alias `/cdata`, `/getrequest`)
+- Variables: DB, Redis, Keycloak, cookies, `ZKTECO_ICLOCK_PORT`, etc.
 
-### 8.3 Frontend (`web`)
+### 8.5 Frontend (`web`)
 
 - Build: `./frontend/web` con `NEXT_PUBLIC_API_URL` en **build time**
 - Puerto **3000**
 - Tras cambiar `NEXT_PUBLIC_*` en `.env` → **rebuild** de `web`
 
-### 8.4 Biométrico ZKTeco F22 (ADMS)
+### 8.6 Biométrico ZKTeco F22 (ADMS)
 
 - **Sin** contenedor ni ngrok adicional en nube
 - El reloj hace push HTTP al API público (puerto 4000)
@@ -297,7 +311,7 @@ Configuración típica del F22 (testing HTTP):
 | 2 | API viva | `curl -s http://127.0.0.1:4000/health` → `{"ok":true}` |
 | 3 | UI carga | Abrir URL del front; pantalla de login sin 500 |
 | 4 | API desde navegador | F12 → Red: peticiones al API no fallan por CORS/red |
-| 5 | Login | Email/contraseña o Google; `/auth/me` con sesión → no 401 |
+| 5 | Login | Redirige a Keycloak; tras login `/auth/me` → no 401 |
 | 6 | (Opcional) ADMS | `curl "http://<API>:4000/iclock/getrequest?SN=<serial>"` → `OK` |
 | 7 | (Opcional) Biométrico | Fichada en F22 → visible en Asistencias |
 
@@ -345,7 +359,7 @@ docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d 
 |---------|----------------|--------|
 | Pipeline SSH falla | Secrets, firewall 22, droplet caído | Revisar Actions; reiniciar droplet |
 | `auth` Exited (1) al deploy | `prisma db push` pide flags | `PRISMA_DB_PUSH_FLAGS=--accept-data-loss` en `.env` + recreate `auth` |
-| Login OK pero sin sesión (testing) | Cookies HTTPS en HTTP | `COOKIE_SECURE=false`, URLs alineadas |
+| Login OK pero sin sesión (testing) | Redis caído, cookies HTTPS en HTTP | Verificar `redis` Up; `COOKIE_SECURE=false`, URLs alineadas |
 | Front no ve API | `NEXT_PUBLIC_API_URL` viejo | Rebuild `web` |
 | F22 no conecta ADMS | Puerto 80 vs 4000, URL mal parseada | IP `138.197.35.2`, puerto **4000**, HTTPS OFF |
 | Vincular huella no aparece | Sin dispositivos en BD | Ejecutar `seed-biometric-adms.mjs` |
@@ -355,7 +369,7 @@ docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d 
 
 ## 13. Buenas prácticas de seguridad
 
-- No commitear `.env`, claves JWT ni secretos de dispositivos biométricos.
+- No commitear `.env`, `KEYCLOAK_CLIENT_SECRET` ni secretos de dispositivos biométricos.
 - Usar GitHub Secrets para SSH.
 - Rotar claves periódicamente.
 - Mínimo privilegio en SSH y en Cloudflare.
@@ -392,6 +406,7 @@ Con backups, smoke tests y el troubleshooting de este manual, la plataforma pued
 
 ## Anexo B — Referencias en el repositorio
 
+- `docs/README.md` — Índice de documentación
 - `/.github/workflows/deploy.yml` — Deploy
 - `/.github/workflows/ci.yml` — Integración continua
 - `/docker-compose.cloud.yml` — Servicios nube

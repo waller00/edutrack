@@ -38,7 +38,7 @@
 
 - 29 usuarios con rol **TEACHER** (`OrgRole.code`, etiqueta «Docente»).
 - Perfil **`TeacherProfile`** (`displayName`, `isActive`) vinculado 1:1 a `User`.
-- Email: `usuario@liceo.test` — contraseña inicial: **`docente123`** (hash Argon2id).
+- Email: `usuario@liceo.test` — contraseña inicial en **Keycloak**: **`docente123`** (ver `sync-keycloak-users.ts`).
 - `emailVerifiedAt`, `isApproved`, `isActive` en true al cargar el seed.
 
 ## Activar 2 EMS u otra oferta en otro año

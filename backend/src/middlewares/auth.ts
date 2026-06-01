@@ -9,6 +9,21 @@ export async function authGuard(req: Request, res: Response, next: NextFunction)
     try {
       const session = await getSession(sid);
       if (!session) return res.status(401).json({ message: "Sesión expirada" });
+
+      // Una sesión válida en Redis no alcanza: el usuario pudo ser dado de baja,
+      // dejado pendiente o bloqueado por un admin después de iniciar sesión.
+      const account = await prisma.user.findUnique({
+        where: { id: session.userId },
+        select: { isActive: true, isApproved: true, lockUntil: true },
+      });
+      if (!account) return res.status(401).json({ message: "No autorizado" });
+      if (!account.isActive || !account.isApproved) {
+        return res.status(403).json({ message: "Cuenta inhabilitada" });
+      }
+      if (account.lockUntil && account.lockUntil.getTime() > Date.now()) {
+        return res.status(403).json({ message: "Cuenta bloqueada" });
+      }
+
       (req as any).user = {
         sub: session.userId,
         id: session.userId,

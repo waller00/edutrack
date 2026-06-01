@@ -33,6 +33,7 @@ import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { ensureMoodleUserById } from '../services/moodle.js'
 import { createKeycloakUser, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
+import { deleteSessionsForUser } from '../auth/session-store.js'
 import adminStudentsRoutes from './admin-students.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
 
@@ -688,6 +689,14 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
     entityId: id,
     metadata: { fieldsChanged: fieldsChangedSemantic },
   })
+  // Si el usuario fue dado de baja, dejado pendiente o se le cambió el rol, sus
+  // sesiones BFF actuales deben invalidarse para que el cambio tenga efecto ya.
+  const deactivated = data.isActive === false
+  const unapproved = data.isApproved === false
+  const roleChanged = typeof data.roleId === 'string' && data.roleId !== beforeSnapshot.roleId
+  if (deactivated || unapproved || roleChanged) {
+    void deleteSessionsForUser(id)
+  }
   if (
     beforeSnapshot.isApproved === false &&
     parsed.data.isApproved === true
@@ -713,6 +722,9 @@ r.put('/users/:id/lock', requirePermission('users.security', 'all'), async (req,
     where: { id },
     data: { lockUntil: lock ? new Date(Date.now() + 15 * 60 * 1000) : null, failedLoginAttempts: 0 },
   })
+  if (lock) {
+    void deleteSessionsForUser(id)
+  }
   recordAuditEvent({
     action: AuditAction.USER_ACCOUNT_LOCK_TOGGLED,
     actorUserId: (req as any).user?.id ?? null,
@@ -741,6 +753,8 @@ r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), 
     console.error('[admin] keycloak password reset:', e)
     return res.status(502).json({ message: 'No se pudo enviar el restablecimiento de contraseña (Keycloak).' })
   }
+  // Forzar re-login: invalidamos sesiones BFF activas del usuario.
+  void deleteSessionsForUser(id)
   recordAuditEvent({
     action: AuditAction.ADMIN_PASSWORD_RESET_ISSUED,
     actorUserId: (req as any).user?.id ?? null,

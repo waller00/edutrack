@@ -75,6 +75,12 @@ r.post("/adms-ingest", async (req, res) => {
           punchId: result.punchId,
         });
       }
+      if (result.reason === "NON_WORKING_DAY") {
+        return res.status(403).json({
+          message: "Marcación biométrica no permitida: día no laborable / feriado",
+          punchId: result.punchId,
+        });
+      }
       return res.status(403).json({
         message: "Marcación biométrica no permitida por licencia médica activa",
         punchId: result.punchId,

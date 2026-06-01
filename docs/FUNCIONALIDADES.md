@@ -25,10 +25,11 @@ EduTrack es una **plataforma de gestión administrativa integral** orientada a i
 |------|------------|
 | Backend | Node.js 20, Express, Prisma, PostgreSQL |
 | Frontend | Next.js (App Router), TypeScript, Tailwind CSS |
-| Autenticación | JWT en cookies HttpOnly, Argon2id, refresh tokens, OAuth Google, 2FA TOTP opcional |
+| Identidad | Keycloak (OIDC) + patrón **BFF**: tokens en Redis, cookie `sid` HttpOnly |
+| Sesiones | Redis (`backend/src/auth/session-store.ts`) |
 | Despliegue | Docker Compose (`docker-compose.yml` local, `docker-compose.cloud.yml` cloud) |
 | Moodle (opcional) | Contenedor Bitnami, red Docker `edutrack_moodle-net`, Web Services REST |
-| Biométrico | Endpoint `POST /biometric/adms-ingest` (dispositivos tipo F22 / ADMS) |
+| Biométrico | `POST /biometric/adms-ingest` + protocolo ADMS `/iclock/*` (F22) |
 
 ---
 
@@ -44,7 +45,7 @@ EduTrack es una **plataforma de gestión administrativa integral** orientada a i
 | `STUDENT` | Estudiante | Rol reconocido en modelo; **sin panel operativo** en home (lista vacía) |
 | Perfiles personalizados | Configurables | Matriz de permisos editable por administrador |
 
-> **Nota:** El README histórico menciona roles PADRE/DOCENTE; en código los roles built-in de permisos son **ADMIN, TEACHER y STAFF**. Los estudiantes del liceo se gestionan en **Estudiantes (matrícula)** sin cuenta de login obligatoria.
+> **Nota:** Los roles built-in de permisos son **ADMIN, TEACHER y STAFF**. `STUDENT` existe en el modelo pero sin panel operativo. No hay rol `PADRE` ni `DOCENTE` (ese era nomenclatura antigua).
 
 ### 3.2 Sistema de permisos granulares
 
@@ -72,29 +73,33 @@ En vistas de administración, el **año lectivo activo** filtra listados (asiste
 
 ## 4. Autenticación, registro e identidad
 
-### 4.1 Inicio de sesión
+### 4.1 Inicio de sesión (Keycloak + BFF)
 
-- Email o usuario + contraseña (hash Argon2id).
-- **OAuth Google** (Passport).
-- **2FA TOTP** opcional: configuración, confirmación, códigos de respaldo, paso extra en login.
-- Cookies de sesión HttpOnly; refresh token.
-- Rate limiting en endpoints sensibles (login, 2FA).
+- Pantalla de login en **Keycloak** (tema `edutrack`), redirigida desde `GET /auth/login`.
+- Flujo OIDC Authorization Code + PKCE; callback en `GET /auth/callback`.
+- Cookie HttpOnly `sid` → sesión server-side en **Redis** (tokens OIDC no van al navegador).
+- **Google OAuth** como identity provider en Keycloak (`?provider=google`).
+- **2FA TOTP** configurable en Keycloak (portal de cuenta vía `/auth/account/2fa`).
+- Refresh de tokens OIDC: `POST /auth/refresh`.
+- Rate limiting en `/auth/login`.
+- Frontend: `/login` comprueba sesión con `/auth/me` o redirige al BFF.
 
 ### 4.2 Registro de nuevos usuarios
 
-- Alta con datos de perfil (nombre, documento, teléfono, fecha de nacimiento, etc.).
+- Alta en la app (`POST /auth/register`) con datos de perfil.
+- Contraseña creada en **Keycloak** (`createKeycloakUser`).
 - **Verificación de email** (enlace/código).
-- **Cloudflare Turnstile** en registro/recupero cuando está configurado.
-- **Prueba de vida / Didit** (workflow configurable): obligatoria salvo bypass de desarrollo (`ALLOW_REGISTER_WITHOUT_DIDIT`) o entorno de tests.
+- **Cloudflare Turnstile** en registro cuando está configurado.
+- **Prueba de vida / Didit** (workflow configurable): obligatoria salvo bypass de desarrollo o entorno de tests.
 - Flujos UI: `/register`, `/register-step-by-step`, `/register/didit-return`, `/verify`.
-- Tras registro: estado **pendiente de aprobación** hasta que un admin apruebe la cuenta.
+- Tras registro: **pendiente de aprobación** hasta que un admin apruebe la cuenta.
 
 ### 4.3 Recupero y seguridad de cuenta
 
-- Olvido de contraseña (`/forgot`) y restablecimiento (`/reset`).
-- Bloqueo/desbloqueo y reset de contraseña por administrador.
-- Onboarding y completado de perfil (`/onboarding`, `/profile`).
-- Auditoría de acciones sensibles (login fallido, cambios de seguridad, etc.).
+- Recupero y cambio de contraseña: flujos de **Keycloak** (`/auth/account/password`, portal de cuenta).
+- Bloqueo/desbloqueo y reset de contraseña por administrador (Admin API Keycloak).
+- Onboarding y perfil (`/onboarding`, `/profile`).
+- Auditoría de acciones sensibles.
 
 ### 4.4 Procesamiento de documento (DNI)
 
@@ -332,7 +337,9 @@ EduTrack **no** sincroniza calificaciones ni contenidos de cursos Moodle en esta
 ## 19. Pantallas y rutas web (mapa)
 
 ### Públicas / auth
-`/login`, `/register`, `/register-step-by-step`, `/forgot`, `/reset`, `/verify`, `/onboarding`, `/register/didit-return`
+`/login`, `/register`, `/register-step-by-step`, `/verify`, `/onboarding`, `/register/didit-return`
+
+`/forgot` y `/reset` redirigen al login de Keycloak (recupero gestionado en el IdP).
 
 ### Administración
 `/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/analytics`, `/admin/query-assistant`, `/admin/settings`, `/admin/profiles`, `/admin/audit`, `/admin/train-dni`, `/admin/test-preprocessing`
@@ -354,7 +361,7 @@ El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por ro
 
 | Prefijo / módulo | Responsabilidad |
 |------------------|-----------------|
-| `auth` | Login, registro, 2FA, Google OAuth, refresh, perfil |
+| `auth` | Login/logout OIDC (BFF), registro, verificación email, perfil, cuenta Keycloak |
 | `admin` | Usuarios, aprobaciones, ajustes sistema, perfiles |
 | `admin-school-years` | Ciclos lectivos |
 | `admin-students` | Matrícula y cuotas |
@@ -373,23 +380,24 @@ El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por ro
 | `non-working-days` | Calendario |
 | Query assistant | Endpoint interno vía servicio (admin) |
 
-Todas las rutas protegidas validan JWT y, donde aplica, permisos granulares.
+Todas las rutas protegidas validan sesión BFF (`authGuard` + cookie `sid`) y, donde aplica, permisos granulares.
 
 ---
 
 ## 21. Operación, despliegue y datos
 
-- **Local:** `docker compose up` → Postgres + API (`:4000`) + Web (`:3000`).
+- **Local:** `docker compose up` → Postgres + Redis + Keycloak + API (`:4000`) + Web (`:3000`).
 - **Cloud/testing:** `docker-compose.cloud.yml`; Moodle manual con `docker-compose.moodle.yml`.
 - Esquema BD: `backend/prisma/schema.prisma`; `prisma db push` al arrancar auth.
-- Copias de seguridad y restore: scripts en `scripts/` y `docs/TESTING_DB_RESTORE.md`, `docs/CIBERSEGURIDAD_CONTINUIDAD.md`.
+- Copias de seguridad y restore: `scripts/` + `docs/TESTING_DB_RESTORE.md` + `docs/CIBERSEGURIDAD_CONTINUIDAD.md`.
 - Zona horaria operativa: **Uruguay** para días de asistencia y bloques de clase.
+- Índice de docs: `docs/README.md`.
 
 ---
 
 ## 22. Funcionalidades no implementadas o fuera de alcance actual
 
-Para evitar confusiones con documentación antigua (`docs/ALCANCE.md`, README):
+Funcionalidades **no** implementadas:
 
 | Tema | Estado |
 |------|--------|

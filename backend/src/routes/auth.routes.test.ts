@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
@@ -83,6 +83,14 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     });
     process.env.FRONTEND_URL = "http://frontend.local";
     process.env.NODE_ENV = "test";
+  });
+
+  // Evita filtrar FRONTEND_URL a otros archivos de test (vitest corre en un único
+  // fork, sin paralelismo de archivos: el env global es compartido).
+  const previousFrontendUrl = process.env.FRONTEND_URL;
+  afterEach(() => {
+    if (previousFrontendUrl === undefined) delete process.env.FRONTEND_URL;
+    else process.env.FRONTEND_URL = previousFrontendUrl;
   });
 
   it("GET /auth/check-username nombre corto", async () => {

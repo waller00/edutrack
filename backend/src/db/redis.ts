@@ -16,7 +16,9 @@ export function getRedis(): Redis | null {
   client = new Redis(url, {
     lazyConnect: false,
     maxRetriesPerRequest: 2,
-    enableOfflineQueue: true,
+    // Si Redis está caído, fallar rápido en vez de encolar comandos: el flujo
+    // de login/sesiones prefiere un 503 claro a un timeout colgado.
+    enableOfflineQueue: false,
   });
 
   client.on("error", (err) => {

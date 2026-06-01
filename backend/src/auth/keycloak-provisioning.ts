@@ -34,30 +34,35 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
   const claimUsername = normalizeUsername(claims.preferred_username ?? claims.username, email);
   if (!email && !claimUsername) throw new Error("Claims sin email ni username");
 
-  const roleCode = pickRealmRole(claims) || DEFAULT_ROLE;
-  const roleId = await resolveRoleIdByCodeEnsuring(roleCode);
-
   const firstName = claims.given_name ?? null;
   const lastName = claims.family_name ?? null;
   const fullName = claims.name ?? ([firstName, lastName].filter(Boolean).join(" ") || null);
   const emailVerified = claims.email_verified === true;
 
-  const existing = await prisma.user.findFirst({
-    where: {
-      OR: [
-        ...(email ? [{ email }] : []),
-        ...(claimUsername ? [{ username: claimUsername }] : []),
-      ],
-    },
-    select: { id: true, email: true, username: true, firstName: true, lastName: true },
-  });
+  // Prioriza el match por email (clave estable de Keycloak); el username es respaldo.
+  const userSelect = {
+    id: true,
+    email: true,
+    username: true,
+    firstName: true,
+    lastName: true,
+    orgRole: { select: { code: true } },
+  } as const;
+  let existing = email
+    ? await prisma.user.findUnique({ where: { email }, select: userSelect })
+    : null;
+  if (!existing && claimUsername) {
+    existing = await prisma.user.findUnique({ where: { username: claimUsername }, select: userSelect });
+  }
 
   if (existing) {
+    // Postgres es la fuente de verdad de autorización: NO sobreescribimos el
+    // rol del usuario existente con el rol del realm (evita revertir cambios de
+    // rol hechos por un admin). Keycloak solo siembra el rol al crear la cuenta.
     const nextUsername = existing.username || claimUsername || undefined;
     await prisma.user.update({
       where: { id: existing.id },
       data: {
-        roleId,
         ...(email && existing.email !== email ? { email } : {}),
         ...(nextUsername && !existing.username ? { username: nextUsername } : {}),
         ...(firstName ? { firstName } : {}),
@@ -73,11 +78,19 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
       firstName: firstName || existing.firstName,
       lastName: lastName || existing.lastName,
     }).catch((error) => console.warn("[keycloak] sync user identity skipped:", error));
-    return { id: existing.id, email: email || existing.email, role: roleCode };
+    return {
+      id: existing.id,
+      email: email || existing.email,
+      role: existing.orgRole?.code || DEFAULT_ROLE,
+    };
   }
 
   if (!email) throw new Error("Claims sin email para crear usuario local");
 
+  // Usuario nuevo por SSO (sin registro previo en la app): el rol inicial sale
+  // del realm, pero queda PENDIENTE de aprobación igual que el registro normal.
+  const roleCode = pickRealmRole(claims) || DEFAULT_ROLE;
+  const roleId = await resolveRoleIdByCodeEnsuring(roleCode);
   const created = await prisma.user.create({
     data: {
       email,
@@ -87,7 +100,8 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
       name: fullName,
       roleId,
       isActive: true,
-      isApproved: true,
+      isApproved: false,
+      approvedAt: null,
       emailVerifiedAt: emailVerified ? new Date() : null,
     },
     select: { id: true },

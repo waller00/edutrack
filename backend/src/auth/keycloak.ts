@@ -362,6 +362,9 @@ async function findKeycloakUserIdByEmail(token: string, email: string): Promise<
   );
   if (!res.ok) return null;
   const users = (await res.json()) as { id?: string }[];
+  if (users.length > 1) {
+    console.warn(`[keycloak] búsqueda por email devolvió ${users.length} usuarios para ${email}; se usa el primero`);
+  }
   return users[0]?.id ?? null;
 }
 

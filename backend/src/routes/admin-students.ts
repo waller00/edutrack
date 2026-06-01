@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
-import { ensureCourseOffering, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
+import { assertCourseOfferedInSchoolYear, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
 
@@ -591,7 +591,10 @@ r.post('/', async (req, res) => {
       return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
     }
     if (body.courseId) {
-      const offering = await ensureCourseOffering(prisma, body.courseId, resolvedSchoolYearId)
+      const offering = await assertCourseOfferedInSchoolYear(prisma, body.courseId, resolvedSchoolYearId)
+      if (!offering) {
+        return res.status(400).json({ message: 'El curso no está ofertado en este ciclo lectivo' })
+      }
       resolvedCourseOfferingId = offering.id
     }
 
@@ -778,7 +781,10 @@ r.put('/:id', async (req, res) => {
       (await getActiveSchoolYearId(prisma))
     if (body.courseId !== undefined) {
       if (body.courseId && targetSchoolYearId) {
-        const offering = await ensureCourseOffering(prisma, body.courseId, targetSchoolYearId)
+        const offering = await assertCourseOfferedInSchoolYear(prisma, body.courseId, targetSchoolYearId)
+        if (!offering) {
+          return res.status(400).json({ message: 'El curso no está ofertado en este ciclo lectivo' })
+        }
         nextCourseOfferingId = offering.id
       } else {
         nextCourseOfferingId = null

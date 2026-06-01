@@ -1,14 +1,13 @@
 import type { PrismaClient } from '@prisma/client'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
-/** Mezcla `schoolYearId` en `where.event` para consultas Prisma sobre Attendance. */
+/**
+ * Filtra Attendance por ciclo lectivo usando la columna directa `schoolYearId`.
+ * Antes se filtraba vía `where.event.schoolYearId`, lo que ocultaba las marcas sin
+ * evento (manual / biométrica fuera de horario). Ahora se segmenta por la columna propia.
+ */
 export function mergeSchoolYearIntoAttendanceEventWhere(where: any, schoolYearId: string) {
-  const existing = where.event
-  if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
-    where.event = { ...existing, schoolYearId }
-  } else {
-    where.event = { schoolYearId }
-  }
+  where.schoolYearId = schoolYearId
 }
 
 /**

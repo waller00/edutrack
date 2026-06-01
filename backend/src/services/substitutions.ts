@@ -92,6 +92,7 @@ export async function createSubstitution(params: {
       type: true,
       status: true,
       assignedUserId: true,
+      schoolYearId: true,
       courseOfferingId: true,
       subjectId: true,
       startDate: true,
@@ -184,6 +185,7 @@ export async function createSubstitution(params: {
           data: {
             userId: event.assignedUserId!,
             eventId: event.id,
+            schoolYearId: event.schoolYearId,
             date: occurrence.attendanceDate,
             time: occurrence.startTime,
             type: "CHECK_IN",

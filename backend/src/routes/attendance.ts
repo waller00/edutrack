@@ -5,7 +5,6 @@ import { authGuard, requirePermission, userPermissionScope } from '../middleware
 import {
   getDuplicateAttendanceMessage,
   getAttendanceStatus,
-  buildBiometricAttendancePayload,
 } from '../attendance/attendance-logic.js';
 import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveReconciliation.js';
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
@@ -14,10 +13,6 @@ import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
 import { uruguayStartOfDayFromInstant } from '../config/app-timezone.js';
-import {
-  isLateAgainstEventStart,
-  resolveBiometricAttendanceLinkage,
-} from '../services/biometric-ingest-core.js';
 import { justifyAttendance } from '../services/attendance-justifications.js';
 import { recordAuditEventNow } from '../services/audit-log.js';
 
@@ -191,8 +186,8 @@ function shouldCountIncidentAbsencesInStats(query: Record<string, unknown>) {
   return true
 }
 
-// Registrar asistencia (CHECK_IN o CHECK_OUT)
-r.post('/register', authGuard, requirePermission('attendance.read'), async (req, res) => {
+// Registrar asistencia (CHECK_IN o CHECK_OUT) — alta de un registro propio.
+r.post('/register', authGuard, requirePermission('attendance.create'), async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
@@ -216,6 +211,7 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
         type: true,
         status: true,
         assignedUserId: true,
+        schoolYearId: true,
       },
     });
 
@@ -297,6 +293,7 @@ r.post('/register', authGuard, requirePermission('attendance.read'), async (req,
         time: actualTime,
         notes,
         eventId,
+        schoolYearId: event.schoolYearId,
         status: status as any,
       },
       include: {
@@ -654,235 +651,6 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
   }
 });
 
-// Registrar asistencia automática (desde sistema biométrico)
-r.post('/biometric', authGuard, requirePermission('attendance.biometric', 'all'), async (req, res) => {
-  try {
-    const { userId, timestamp, deviceId } = req.body;
-    
-    if (!userId || !timestamp) {
-      return res.status(400).json({ message: 'userId y timestamp son requeridos' });
-    }
-
-    const attendanceTime = new Date(timestamp);
-    const attendanceDate = new Date(attendanceTime);
-    attendanceDate.setHours(0, 0, 0, 0); // Solo la fecha, sin hora
-
-    const licBio = await findApprovedLicenseCoveringEventTime(userId, attendanceTime, attendanceTime);
-    if (licBio) {
-      return res.status(403).json({
-        message:
-          'Marcación biométrica no permitida: instante cubierto por licencia médica aprobada. Debe figurar como inasistencia justificada.',
-        code: 'BIOMETRIC_BLOCKED_BY_LICENSE',
-        licenseId: licBio.id,
-      });
-    }
-
-    const nonWorkingDay = await findNonWorkingDayForDate(attendanceTime)
-    if (nonWorkingDay) {
-      return res.status(403).json({
-        message: `Marcación biométrica no permitida: ${nonWorkingDay.reason}`,
-        code: 'BIOMETRIC_BLOCKED_BY_NON_WORKING_DAY',
-        nonWorkingDayId: nonWorkingDay.id,
-      });
-    }
-
-    const runtimeSettings = await getAttendanceOperationalSettings()
-
-    // Verificar si ya existe una entrada para este usuario en esta fecha
-    const existingEntry = await prisma.attendance.findFirst({
-      where: {
-        userId,
-        date: attendanceDate,
-        type: 'CHECK_IN'
-      }
-    });
-
-    if (existingEntry) {
-      const existingExit = await prisma.attendance.findFirst({
-        where: {
-          userId,
-          date: attendanceDate,
-          type: 'CHECK_OUT'
-        }
-      });
-
-      if (existingExit) {
-        const exitTime = existingExit.time ? new Date(existingExit.time) : null
-        const withinDuplicateWindow =
-          exitTime &&
-          runtimeSettings.biometricDuplicateWindowMinutes > 0 &&
-          Math.abs(attendanceTime.getTime() - exitTime.getTime()) <= runtimeSettings.biometricDuplicateWindowMinutes * 60 * 1000
-
-        if (!withinDuplicateWindow) {
-          return res.status(400).json({
-            message: 'Ya existe registro de entrada y salida para este usuario en esta fecha'
-          });
-        }
-
-        if (exitTime && attendanceTime.getTime() > exitTime.getTime()) {
-          const linkage = await resolveBiometricAttendanceLinkage(prisma, {
-            userId,
-            occurredAt: attendanceTime,
-            punchType: 'CHECK_OUT',
-            attendanceDate,
-            bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
-          })
-          const status = getAttendanceStatus({
-            type: 'CHECK_OUT',
-            actualTime: attendanceTime,
-            endTime: linkage.exitReference?.endTime,
-            hasApprovedLicense: false,
-            lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
-          })
-          const resolvedStatus = linkage.attendanceEventId ? status : 'OUT_OF_SCHEDULE'
-          const payload = buildBiometricAttendancePayload({
-            userId,
-            attendanceDate,
-            attendanceTime,
-            deviceId,
-            eventId: linkage.attendanceEventId || undefined,
-            status: resolvedStatus as any,
-            type: 'CHECK_OUT',
-          })
-          const updatedExit = await prisma.attendance.update({
-            where: { id: existingExit.id },
-            data: {
-              date: attendanceDate,
-              time: attendanceTime,
-              eventId: linkage.attendanceEventId || undefined,
-              status: resolvedStatus as any,
-              notes: linkage.attendanceEventId ? payload.notes : `Marcación sin horario asignado - Dispositivo: ${deviceId || 'N/A'}`,
-            },
-            include: {
-              user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
-              event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
-            },
-          })
-
-          return res.status(200).json({
-            type: 'CHECK_OUT',
-            duplicate: true,
-            attendance: mapAttendanceUser(updatedExit as any),
-            message: 'Salida repetida dentro de la ventana: se conservó la última marca',
-          })
-        }
-
-        return res.status(200).json({
-          type: 'CHECK_OUT',
-          duplicate: true,
-          attendance: existingExit,
-          message: 'Salida repetida dentro de la ventana: se mantiene la marca existente',
-        })
-      }
-
-      const entryTime = existingEntry.time ? new Date(existingEntry.time) : null
-      if (
-        entryTime &&
-        runtimeSettings.biometricDuplicateWindowMinutes > 0 &&
-        Math.abs(attendanceTime.getTime() - entryTime.getTime()) <= runtimeSettings.biometricDuplicateWindowMinutes * 60 * 1000
-      ) {
-        return res.status(200).json({
-          type: 'CHECK_IN',
-          duplicate: true,
-          attendance: existingEntry,
-          message: 'Entrada repetida dentro de la ventana: se conservó la primera marca',
-        })
-      }
-
-      const linkage = await resolveBiometricAttendanceLinkage(prisma, {
-        userId,
-        occurredAt: attendanceTime,
-        punchType: 'CHECK_OUT',
-        attendanceDate,
-        bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
-      })
-      const status = getAttendanceStatus({
-        type: 'CHECK_OUT',
-        actualTime: attendanceTime,
-        endTime: linkage.exitReference?.endTime,
-        hasApprovedLicense: false,
-        lateToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
-      })
-      const resolvedStatus = linkage.attendanceEventId ? status : 'OUT_OF_SCHEDULE'
-      const exitAttendance = await prisma.attendance.create({
-        data: {
-          ...buildBiometricAttendancePayload({
-            userId,
-            attendanceDate,
-            attendanceTime,
-            deviceId,
-            eventId: linkage.attendanceEventId || undefined,
-            status: resolvedStatus as any,
-            type: 'CHECK_OUT',
-          }),
-          ...(!linkage.attendanceEventId
-            ? { notes: `Marcación sin horario asignado - Dispositivo: ${deviceId || 'N/A'}` }
-            : {}),
-        },
-        include: {
-          user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
-          event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
-        }
-      });
-
-      return res.status(201).json({
-        type: 'CHECK_OUT',
-        attendance: mapAttendanceUser(exitAttendance as any),
-        message: resolvedStatus === 'EARLY_EXIT' ? 'Salida anticipada registrada automáticamente' : 'Salida registrada automáticamente'
-      });
-    }
-
-    const linkage = await resolveBiometricAttendanceLinkage(prisma, {
-      userId,
-      occurredAt: attendanceTime,
-      punchType: 'CHECK_IN',
-      attendanceDate,
-      bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
-    })
-    const isLate = linkage.lateReference?.startTime
-      ? isLateAgainstEventStart(attendanceTime, linkage.lateReference.startTime, runtimeSettings.lateToleranceMinutes)
-      : false
-    const minutesLate = linkage.lateReference?.startTime
-      ? Math.max(0, Math.floor((attendanceTime.getTime() - new Date(linkage.lateReference.startTime).getTime()) / (1000 * 60)))
-      : null
-    const isVeryLate = isLate && minutesLate !== null && minutesLate >= Math.max(1, runtimeSettings.noShowGraceMinutes)
-    
-    const entryAttendance = await prisma.attendance.create({
-      data: {
-        ...buildBiometricAttendancePayload({
-          userId,
-          attendanceDate,
-          attendanceTime,
-          deviceId,
-          eventId: linkage.attendanceEventId || undefined,
-          isLate,
-          status: linkage.attendanceEventId ? undefined : 'OUT_OF_SCHEDULE',
-          type: 'CHECK_IN',
-        }),
-        ...(!linkage.attendanceEventId
-          ? { notes: `Marcación sin horario asignado - Dispositivo: ${deviceId || 'N/A'}` }
-          : {}),
-        ...(isVeryLate && minutesLate !== null
-          ? { notes: `Llegada muy tarde: ${minutesLate} min tarde - Dispositivo: ${deviceId || 'N/A'}` }
-          : {}),
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
-        event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
-      }
-    });
-
-    return res.status(201).json({
-      type: 'CHECK_IN',
-      attendance: mapAttendanceUser(entryAttendance as any),
-      message: isLate ? 'Entrada registrada - RETRASO detectado' : 'Entrada registrada correctamente',
-      isLate
-    });
-  } catch (error) {
-    console.error('Error registrando asistencia biométrica:', error);
-    res.status(500).json({ message: 'Error interno del servidor' });
-  }
-});
 
 // Agregar nota a asistencia existente (para retrasos o salidas anticipadas)
 r.post('/:id/note', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
@@ -1039,6 +807,7 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
               time: new Date(event.startTime),
               notes: 'Ausencia prevista sin justificar (suplida): clase cubierta oficialmente',
               eventId: event.id,
+              schoolYearId: event.schoolYearId,
             },
           });
           markedAbsences++;
@@ -1083,7 +852,8 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
             : isExpectedAbsence
               ? 'Ausencia prevista sin justificar - Registrada por administración antes del bloque'
               : 'Ausencia automática - Sin asistencia registrada',
-          eventId: event.id
+          eventId: event.id,
+          schoolYearId: event.schoolYearId,
         }
       });
 

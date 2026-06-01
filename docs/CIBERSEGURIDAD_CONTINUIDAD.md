@@ -8,30 +8,31 @@ EduTrack maneja informacion sensible: datos personales, cedula de identidad, asi
 
 ## Alcance tecnico
 
-La arquitectura actual del proyecto incluye:
+La arquitectura actual incluye:
 
 - Frontend web en Next.js.
-- Backend API en Node.js/Express.
+- Backend API en Node.js/Express (patrón BFF para autenticación).
+- Keycloak como proveedor de identidad (OIDC).
+- Redis para sesiones server-side del BFF.
 - Base de datos PostgreSQL administrada por Prisma.
 - Contenedores Docker mediante `docker-compose.yml` y `docker-compose.cloud.yml`.
-- Despliegue cloud en un Droplet Ubuntu con Docker Compose.
-- Integraciones externas: Google OAuth, SMTP/SendGrid, Didit, Web Push y APIs de IA opcionales.
-- Scripts de exportacion, importacion y restauracion de base de datos.
-- Analisis de seguridad en CI con Trivy.
+- Despliegue cloud en Droplet Ubuntu con Docker Compose.
+- Integraciones externas: Google (vía Keycloak), SMTP/SendGrid, Didit, Web Push y APIs de IA opcionales.
+- Scripts de exportación, importación y restauración de base de datos.
+- Análisis de seguridad en CI con Trivy.
 
 ## Principios de seguridad aplicados
 
 ### Confidencialidad
 
-Los datos deben ser accesibles solo por usuarios autorizados. Para eso el sistema utiliza:
+Los datos deben ser accesibles solo por usuarios autorizados. Controles:
 
-- Autenticacion con usuario/email y contrasena.
-- Hash de contrasenas con Argon2id.
-- Google OAuth como alternativa de autenticacion.
-- Cookies HTTP-only para tokens, reduciendo exposicion ante XSS.
-- Variables de entorno para secretos como `JWT_SECRET`, credenciales SMTP, Google OAuth, Didit, VAPID y claves de IA.
-- Separacion de permisos por roles institucionales.
-- Validacion de identidad durante el registro mediante Didit (verificacion de documento y prueba de vida).
+- Autenticación OIDC vía Keycloak (usuario/contraseña, Google, TOTP en el IdP).
+- Patrón BFF: tokens OIDC en Redis; cookie HttpOnly `sid` en el navegador.
+- Contraseñas gestionadas en Keycloak (no en Postgres).
+- Variables de entorno para secretos (`KEYCLOAK_CLIENT_SECRET`, SMTP, Didit, VAPID, etc.).
+- Permisos granulares por `orgRole` en Postgres.
+- Verificación de identidad en registro mediante Didit (documento y prueba de vida).
 
 ### Integridad
 
@@ -60,9 +61,9 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 
 | Area | Control | Implementacion actual |
 | --- | --- | --- |
-| Autenticacion | Login local y Google OAuth | Rutas `/auth`, Passport Google, JWT |
-| Sesiones | Tokens en cookies HTTP-only | Backend Express |
-| Contrasenas | Hash seguro | Argon2id |
+| Autenticacion | OIDC Keycloak + BFF | `routes/auth-keycloak.ts`, tema `edutrack` |
+| Sesiones | Cookie `sid` + Redis | `session-store.ts`, `middlewares/auth.ts` |
+| Contrasenas | IdP Keycloak | Admin API + portal de cuenta |
 | Autorizacion | Roles y permisos | `OrgRole`, `Permission`, `RolePermission` |
 | Datos personales | Validacion de cedula e identidad | Didit |
 | Auditoria | Registro de acciones criticas | Modelo `AuditLog` |
@@ -80,7 +81,7 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 | Exposicion de secretos | Alto | Variables de entorno | Rotacion periodica y gestor de secretos |
 | Caida del Droplet | Alto | Infraestructura documentada con Terraform | Snapshots, backups externos y plan de redeploy |
 | Vulnerabilidades en dependencias | Medio/alto | Trivy en CI | Dependabot/Renovate y politicas de actualizacion |
-| Acceso indebido | Alto | Roles, permisos, JWT, cookies | MFA para administradores |
+| Acceso indebido | Alto | Roles, permisos, sesion BFF | TOTP en Keycloak para administradores |
 | Error humano en despliegue | Medio | Docker Compose y scripts | Runbook de despliegue y rollback |
 | Webhook falso de identidad | Alto | Validacion HMAC Didit | Monitoreo de errores y alertas |
 | Indisponibilidad de email/push | Medio | Canales separados | Cola de reintentos y fallback operativo |
@@ -259,7 +260,7 @@ Para produccion se recomienda:
 - No exponer PostgreSQL publicamente.
 - Restringir SSH por clave publica y deshabilitar login por contrasena.
 - Mantener firewall con puertos minimos: 80/443 y SSH restringido.
-- Rotar `JWT_SECRET`, credenciales SMTP, Didit, Google y VAPID ante sospecha de exposicion.
+- Rotar `KEYCLOAK_CLIENT_SECRET`, credenciales SMTP, Didit y VAPID ante sospecha de exposicion.
 - Mantener `.env` fuera de Git.
 - Activar backups automaticos del proveedor cloud.
 - Monitorear uso de CPU, RAM, disco y disponibilidad HTTP.
@@ -268,7 +269,7 @@ Para produccion se recomienda:
 
 ## Evidencias utiles del proyecto
 
-- `docker-compose.cloud.yml`: define servicios productivos `pg`, `auth` y `web`.
+- `docker-compose.cloud.yml`: servicios `pg`, `redis`, `keycloak-db`, `keycloak`, `auth`, `web`.
 - `.github/workflows/ci-security.yml`: ejecuta escaneos Trivy de filesystem e imagenes Docker.
 - `backend/prisma/schema.prisma`: define usuarios, roles, auditoria, sesiones, asistencias, biometria y licencias.
 - `backend/src/app.ts`: configura CORS, Helmet, rutas protegidas e integraciones.
@@ -283,7 +284,7 @@ Para produccion se recomienda:
 | Alta | Automatizar backups diarios fuera del Droplet | Reduce perdida de datos ante falla total |
 | Alta | Probar restore mensualmente | Asegura que el RTO/RPO sean reales |
 | Alta | Configurar monitoreo y alertas | Reduce tiempo de deteccion |
-| Media | Agregar MFA para administradores | Reduce riesgo de acceso indebido |
+| Media | TOTP en Keycloak para administradores | Reduce riesgo de acceso indebido |
 | Media | Implementar rotacion formal de secretos | Mejora respuesta ante filtraciones |
 | Media | Agregar Dependabot/Renovate | Mejora gestion de vulnerabilidades |
 | Media | Documentar rollback de despliegue | Reduce tiempo de recuperacion |
@@ -291,6 +292,6 @@ Para produccion se recomienda:
 
 ## Conclusion
 
-EduTrack ya cuenta con una base solida de seguridad: autenticacion, autorizacion por roles, hashes seguros, cookies HTTP-only, auditoria, validacion de identidad, controles HTTP, escaneo de vulnerabilidades y scripts de respaldo/restauracion. Para completar la continuidad del negocio, la accion mas importante es automatizar backups externos, probar restauraciones y definir responsables ante incidentes.
+EduTrack cuenta con autenticación OIDC (Keycloak), sesiones BFF en Redis, autorización por roles, auditoría, validación de identidad, controles HTTP, escaneo de vulnerabilidades y scripts de respaldo/restauración. Para completar la continuidad del negocio, la accion mas importante es automatizar backups externos, probar restauraciones y definir responsables ante incidentes.
 
 Con la politica propuesta de RTO 2 horas y RPO 24 horas, el proyecto queda alineado con una etapa inicial de produccion. Para un uso institucional mas exigente, se recomienda evolucionar hacia monitoreo con alertas, backups incrementales, pruebas periodicas de disaster recovery y MFA para cuentas administrativas.

@@ -54,19 +54,13 @@ export function getBiometricStatus(type: 'CHECK_IN' | 'CHECK_OUT', isLate?: bool
   return isLate ? 'LATE' : 'PRESENT'
 }
 
-export function isBiometricLate(attendanceTime: Date) {
-  return (
-    attendanceTime.getHours() > 8 ||
-    (attendanceTime.getHours() === 8 && attendanceTime.getMinutes() > 30)
-  )
-}
-
 export function buildBiometricAttendancePayload(params: {
   userId: string
   attendanceDate: Date
   attendanceTime: Date
   deviceId?: string
   eventId?: string
+  schoolYearId?: string | null
   isLate?: boolean
   isEarlyExit?: boolean
   status?: RegisterStatus
@@ -83,6 +77,7 @@ export function buildBiometricAttendancePayload(params: {
     date: params.attendanceDate,
     time: params.attendanceTime,
     eventId: params.eventId,
+    schoolYearId: params.schoolYearId ?? undefined,
     notes: `${baseNote}${lateNote}${earlyExitNote} - Dispositivo: ${params.deviceId || 'N/A'}`,
   }
 }
