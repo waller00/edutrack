@@ -26,11 +26,21 @@
   }
 
   function frontendOrigin() {
+    try {
+      var explicit = new URLSearchParams(window.location.search).get('frontend_origin')
+      if (explicit) return new URL(explicit).origin
+    } catch (_e) { /* sigue al heuristico */ }
+
     var raw = authReturnUrl()
     try {
       var url = new URL(raw)
       if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
         return url.protocol + '//' + url.hostname + ':3000'
+      }
+      if (url.hostname.indexOf('api.') === 0) {
+        var rest = url.hostname.slice(4)
+        var port = url.port && url.port !== '80' && url.port !== '443' ? ':' + url.port : ''
+        return url.protocol + '//' + rest + port
       }
       if (url.port === '4000') {
         return url.protocol + '//' + url.hostname + ':3000'

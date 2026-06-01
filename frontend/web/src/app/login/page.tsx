@@ -29,8 +29,16 @@ export default function LoginPage() {
       .then(() => {
         if (alive) router.replace(returnTo)
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!alive) return
+        const status = typeof err === 'object' && err !== null && 'status' in err
+          ? Number((err as { status?: number }).status)
+          : undefined
+        if (status === 403) {
+          setExternalError('account')
+          setSessionPending(false)
+          return
+        }
         if (error || loggedOutParam) {
           setSessionPending(false)
           return
@@ -63,10 +71,14 @@ export default function LoginPage() {
               <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              {loggedOut ? 'Sesión cerrada' : 'No se pudo iniciar sesión'}
+              {loggedOut ? 'Sesión cerrada' : externalError === 'account' ? 'Cuenta no habilitada' : 'No se pudo iniciar sesión'}
             </h1>
             <p className="text-gray-600">
-              {loggedOut ? 'Podés volver a ingresar cuando lo necesites.' : 'El proveedor de identidad no completó el ingreso.'}
+              {loggedOut
+                ? 'Podés volver a ingresar cuando lo necesites.'
+                : externalError === 'account'
+                  ? 'Tu cuenta está pendiente de aprobación o fue inhabilitada. Contactá a un administrador.'
+                  : 'El proveedor de identidad no completó el ingreso.'}
             </p>
           </div>
           {loggedOut && (
@@ -75,7 +87,7 @@ export default function LoginPage() {
               <p className="text-sm text-emerald-800">Tu sesión local y la sesión de Keycloak fueron cerradas.</p>
             </div>
           )}
-          {externalError && (
+          {externalError && externalError !== 'account' && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
               <p className="text-sm text-red-700">Intentá nuevamente. Si el problema continúa, revisá la configuración de Keycloak.</p>
