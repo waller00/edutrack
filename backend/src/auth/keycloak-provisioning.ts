@@ -35,8 +35,10 @@ function normalizeUsername(value: unknown, email?: string): string | undefined {
 /**
  * Sincroniza (o crea) el usuario local a partir de los claims de Keycloak.
  *
- * Keycloak es la fuente de verdad de autenticacion e identidad de rol; los
- * permisos granulares siguen viviendo en Postgres (orgRole + grants).
+ * Keycloak es la fuente de verdad de autenticación e identidad (email, nombre).
+ * El rol y los permisos viven en Postgres (orgRole + grants): los realm roles de
+ * Keycloak solo siembran el rol al crear la cuenta y NO se reaplican en logins
+ * posteriores (ver más abajo). Postgres manda en autorización.
  */
 export async function provisionUserFromClaims(claims: Record<string, any>): Promise<ProvisionedUser> {
   const email = cleanClaim(claims.email)?.toLowerCase();

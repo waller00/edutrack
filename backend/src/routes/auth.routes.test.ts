@@ -269,7 +269,9 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     const res = await request(app()).get("/auth/me").set(authHeader());
     expect(res.status).toBe(200);
     expect(res.body.needsProfileCompletion).toBe(true);
-    expect(res.body.navLinks).toEqual([]);
+    // El menú lo arma el frontend a partir de `permissions`; ya no se devuelve navLinks.
+    expect(res.body.navLinks).toBeUndefined();
+    expect(Array.isArray(res.body.permissions)).toBe(true);
   });
 
   it("GET /auth/registration-options informa estado de liveness/Didit", async () => {

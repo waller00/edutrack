@@ -76,7 +76,7 @@ services:
     environment:
       PORT: 4000
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://edutrack-uy.com,https://www.edutrack-uy.com}
       JWT_SECRET: ${JWT_SECRET}
       TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY:-}
       TWO_FACTOR_ISSUER: ${TWO_FACTOR_ISSUER:-EduTrack}

@@ -426,6 +426,10 @@ r.post('/profiles', requirePermission('profiles.manage', 'all'), async (req, res
   return res.status(201).json(await buildProfilePayload())
 })
 
+// No invalidamos sesiones al editar la matriz: los permisos se evalúan en vivo
+// contra la BD en cada request (requirePermission → userPermissionScope) y en cada
+// GET /auth/me, así que el cambio tiene efecto inmediato. Solo el cambio de rol del
+// usuario invalida sesión, porque ahí sí se cachea `session.role`.
 r.put('/profiles/:role/permissions', requirePermission('profiles.manage', 'all'), async (req, res) => {
   await ensureDefaultProfilePermissionsIfNeeded()
   const exists = await resolveActiveOrgRole(req.params.role)

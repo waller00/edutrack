@@ -120,11 +120,3 @@ export function requirePermission(permissionCode: string, requiredScope?: "own" 
   };
 }
 
-export function requireAnyRoleOrPermission(roles: string[], permissionCode: string) {
-  const byPermission = requirePermission(permissionCode);
-  return (req: Request, res: Response, next: NextFunction) => {
-    const u = (req as any).user;
-    if (u && roles.includes(u.role)) return next();
-    void byPermission(req, res, next);
-  };
-}

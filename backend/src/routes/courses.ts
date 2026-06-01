@@ -2,7 +2,7 @@ import { Router } from 'express'
 import type { Request } from 'express'
 import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
-import { authGuard, requireAnyRoleOrPermission, requirePermission } from '../middlewares/auth.js'
+import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { ensureCourseOffering, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
 const r = Router()
@@ -167,7 +167,7 @@ async function resolveCourseOfferingIdFromQuery(
   return offering?.id ?? null
 }
 
-r.get('/orientations', authGuard, requireAnyRoleOrPermission(['ADMIN', 'STAFF', 'TEACHER'], 'courses.manage'), async (req, res) => {
+r.get('/orientations', authGuard, requirePermission('courses.read'), async (req, res) => {
   try {
     const includeInactive = req.query.all === '1' && req.user?.role === 'ADMIN'
     const where: any = {}
@@ -259,7 +259,7 @@ r.delete('/orientations/:orientationId', authGuard, requirePermission('courses.m
 })
 
 /** Cursos del ciclo lectivo seleccionado (query `schoolYearId` para ADMIN/STAFF; por defecto año activo). `?allYears=1` solo ADMIN ignora el ciclo. */
-r.get('/', authGuard, requireAnyRoleOrPermission(['ADMIN', 'STAFF', 'TEACHER'], 'courses.manage'), async (req, res) => {
+r.get('/', authGuard, requirePermission('courses.read'), async (req, res) => {
   try {
     const includeInactive = req.query.all === '1' && req.user?.role === 'ADMIN'
     const includeNotOffered = req.query.includeNotOffered === '1' && req.user?.role === 'ADMIN'
@@ -480,7 +480,7 @@ r.delete('/:courseId', authGuard, requirePermission('courses.manage', 'all'), as
   }
 })
 
-r.get('/:courseId/orientations', authGuard, requireAnyRoleOrPermission(['ADMIN', 'STAFF', 'TEACHER'], 'courses.manage'), async (req, res) => {
+r.get('/:courseId/orientations', authGuard, requirePermission('courses.read'), async (req, res) => {
   try {
     const user = req.user
     if (!user) return res.status(401).json({ message: 'No autorizado' })
@@ -613,7 +613,7 @@ r.delete('/:courseId/orientations/:courseOrientationId', authGuard, requirePermi
 })
 
 /** Asignaturas de un curso (tabla `asignaturas`). */
-r.get('/:courseId/subjects', authGuard, requireAnyRoleOrPermission(['ADMIN', 'STAFF', 'TEACHER'], 'courses.manage'), async (req, res) => {
+r.get('/:courseId/subjects', authGuard, requirePermission('courses.read'), async (req, res) => {
   try {
     const user = req.user
     if (!user) return res.status(401).json({ message: 'No autorizado' })

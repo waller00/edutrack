@@ -6,7 +6,9 @@ describe("App HTTP (integración ligera)", () => {
   // `frontendUrl()` se lee en runtime; fijamos el valor esperado para no depender
   // de otros archivos de test que muten FRONTEND_URL (vitest corre en un fork).
   beforeEach(() => {
+    process.env.NODE_ENV = "test";
     process.env.FRONTEND_URL = "http://localhost:3000";
+    delete process.env.CORS_ORIGINS;
   });
 
   it("GET /health responde ok", async () => {
@@ -18,6 +20,34 @@ describe("App HTTP (integración ligera)", () => {
   it("GET /auth/login inicia flujo OIDC (redirect o error si falta Redis)", async () => {
     const res = await request(app).get("/auth/login");
     expect([302, 303, 503]).toContain(res.status);
+  });
+
+  it("OPTIONS /auth/register permite el origen público del frontend", async () => {
+    process.env.FRONTEND_URL = "https://api.edutrack-uy.com";
+    process.env.CORS_ORIGINS = "https://edutrack-uy.com,https://www.edutrack-uy.com";
+
+    const res = await request(app)
+      .options("/auth/register")
+      .set("Origin", "https://edutrack-uy.com")
+      .set("Access-Control-Request-Method", "POST");
+
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe("https://edutrack-uy.com");
+    expect(res.headers["access-control-allow-credentials"]).toBe("true");
+  });
+
+  it("OPTIONS /auth/register permite edutrack-uy.com en producción aunque CORS_ORIGINS esté viejo", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.FRONTEND_URL = "http://localhost:3000";
+    process.env.CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000";
+
+    const res = await request(app)
+      .options("/auth/register")
+      .set("Origin", "https://edutrack-uy.com")
+      .set("Access-Control-Request-Method", "POST");
+
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe("https://edutrack-uy.com");
   });
 
   it("GET /auth/account/security sin sesión redirige al login de la app", async () => {

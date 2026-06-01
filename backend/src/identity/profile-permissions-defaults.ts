@@ -29,6 +29,9 @@ function perm(
   return { id, module, action, label, enabled, scope }
 }
 
+// STAFF y TEACHER comparten matriz de permisos a propósito: se mantienen como roles
+// separados porque TEACHER se usa para segmentar métricas/reportes docentes, aunque hoy
+// puedan hacer lo mismo. No fusionar.
 export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly DefaultProfilePermission[]> = {
   ADMIN: [
     perm('users.read', 'Usuarios', 'read', 'Ver usuarios', true, 'all'),
@@ -52,6 +55,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('reports.read', 'Reportes', 'read', 'Ver reportes', true, 'all'),
     perm('exports.create', 'Exportaciones', 'create', 'Crear exportaciones', true, 'all'),
     perm('school-years.manage', 'Ciclos lectivos', 'manage', 'Gestionar ciclos lectivos', true, 'all'),
+    perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('courses.manage', 'Cursos', 'manage', 'Gestionar cursos y materias', true, 'all'),
     perm('students.manage', 'Estudiantes', 'manage', 'Gestionar estudiantes', true, 'all'),
     perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
@@ -64,12 +68,14 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
+    perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
   ],
   STAFF: [
     perm('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
     perm('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
+    perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
   ],
 } as const
 

@@ -209,19 +209,6 @@ export async function buildLogoutUrl(idToken?: string, postLogoutRedirectUri?: s
   }
 }
 
-/**
- * Extrae los roles de realm desde los claims y devuelve el primero que mapee a
- * un orgRole conocido (ADMIN > STAFF > TEACHER).
- */
-export function pickRealmRole(claims: Record<string, any>): string | null {
-  const roles: string[] = claims?.realm_access?.roles ?? [];
-  const priority = ["ADMIN", "STAFF", "TEACHER"];
-  for (const code of priority) {
-    if (roles.includes(code)) return code;
-  }
-  return roles[0] ?? null;
-}
-
 // ---------------------------------------------------------------------------
 // Admin API (provisioning de usuarios)
 // ---------------------------------------------------------------------------
