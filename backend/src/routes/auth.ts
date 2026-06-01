@@ -19,7 +19,8 @@ import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/
 import { syncLivenessSessionFromDiditApi } from "../integrations/didit/sync-session.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
 import { ensureDefaultProfilePermissionsIfNeeded } from "../identity/profile-permissions-repository.js";
-import { createKeycloakUser } from "../auth/keycloak.js";
+import { createKeycloakUser, syncRegisteredSsoUser } from "../auth/keycloak.js";
+import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
 
 const r = Router();
 
@@ -31,7 +32,7 @@ const NAV_LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
 
 const registerSchema = z.object({
   email: z.string().email(),
-  password: strongPasswordSchema,
+  password: strongPasswordSchema.optional(),
   nationalId: z.string().min(6).max(20).optional(),
   firstName: z.string().min(1).max(80),
   lastName: z.string().min(1).max(80),
@@ -40,6 +41,7 @@ const registerSchema = z.object({
   nationalIdDocumentExpiresAt: z.string().min(8).max(40).optional(),
   role: z.enum(["ADMIN", "STAFF", "TEACHER"]).optional(),
   livenessToken: z.string().uuid().optional(),
+  ssoRegistrationToken: z.string().min(20).max(128).optional(),
 });
 
 async function enabledPermissionsForRole(roleCode: string) {
@@ -200,6 +202,21 @@ r.get("/check-username", async (req, res) => {
   return res.json({ available: !exist, valid: true });
 });
 
+r.get("/register/sso", async (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  const profile = await getSsoRegistration(token);
+  if (!profile) return res.status(404).json({ message: "Registro con Google vencido o inválido." });
+  return res.json({
+    email: profile.email,
+    username: profile.username ?? "",
+    firstName: profile.firstName ?? "",
+    lastName: profile.lastName ?? "",
+    name: profile.name ?? "",
+    emailLocked: true,
+    provider: "google",
+  });
+});
+
 r.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
@@ -215,7 +232,19 @@ r.post("/register", async (req, res) => {
     nationalIdDocumentExpiresAt,
     role,
     livenessToken,
+    ssoRegistrationToken,
   } = parsed.data;
+
+  const ssoProfile = ssoRegistrationToken ? await getSsoRegistration(ssoRegistrationToken) : null;
+  if (ssoRegistrationToken && !ssoProfile) {
+    return res.status(400).json({ message: "El registro con Google venció. Iniciá nuevamente con Google." });
+  }
+  if (!ssoProfile && !password) {
+    return res.status(400).json({ message: "La contraseña es obligatoria." });
+  }
+  if (ssoProfile && ssoProfile.email.toLowerCase() !== email.trim().toLowerCase()) {
+    return res.status(400).json({ message: "El email de registro no coincide con la cuenta de Google." });
+  }
 
   const [byEmail, byNational] = await Promise.all([
     prisma.user.findUnique({ where: { email } }),
@@ -253,8 +282,12 @@ r.post("/register", async (req, res) => {
     livenessRowId = ls.id;
   }
 
-  if (byEmail) return res.status(409).json({ message: "Email ya registrado" });
-  if (byNational) return res.status(409).json({ message: "Cédula/Documento ya registrado" });
+  const canCompleteSsoPlaceholder =
+    Boolean(ssoProfile && byEmail && byEmail.isActive && !byEmail.isApproved);
+  if (byEmail && !canCompleteSsoPlaceholder) return res.status(409).json({ message: "Email ya registrado" });
+  if (byNational && (!canCompleteSsoPlaceholder || byNational.id !== byEmail?.id)) {
+    return res.status(409).json({ message: "Cédula/Documento ya registrado" });
+  }
   if (nationalId && !isValidUruguayanCI(nationalId)) return res.status(400).json({ message: "Cédula inválida" });
 
   if (phone != null && String(phone).trim() !== "") {
@@ -284,25 +317,33 @@ r.post("/register", async (req, res) => {
 
   const nowLv = livenessRequired && livenessRowId ? new Date() : null;
   const user = await prisma.$transaction(async (tx) => {
-    const generatedUsername = await generateUniqueUsername(firstName, lastName, tx);
-    const u = await tx.user.create({
-      data: {
-        email,
-        username: generatedUsername,
-        nationalId: nationalId ? onlyDigits(nationalId) : null,
-        firstName,
-        lastName,
-        name: `${firstName} ${lastName}`,
-        phone: normalizePhoneUY(phone) ?? null,
-        birthdate: birthdate ? new Date(birthdate) : null,
-        nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAtDate ?? null,
-        roleId: registerRoleId,
-        isApproved: false,
-        approvedAt: null,
-        isActive: true,
-        livenessVerifiedAt: nowLv,
-      },
-    });
+    const generatedUsername = byEmail?.username || (await generateUniqueUsername(firstName, lastName, tx));
+    const userData = {
+      email,
+      username: generatedUsername,
+      nationalId: nationalId ? onlyDigits(nationalId) : null,
+      googleId: ssoProfile?.kcId ?? null,
+      firstName,
+      lastName,
+      name: `${firstName} ${lastName}`,
+      phone: normalizePhoneUY(phone) ?? null,
+      birthdate: birthdate ? new Date(birthdate) : null,
+      nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAtDate ?? null,
+      roleId: registerRoleId,
+      isApproved: false,
+      approvedAt: null,
+      isActive: true,
+      emailVerifiedAt: ssoProfile?.emailVerified ? new Date() : null,
+      livenessVerifiedAt: nowLv,
+    };
+    const u = canCompleteSsoPlaceholder && byEmail
+      ? await tx.user.update({
+        where: { id: byEmail.id },
+        data: userData,
+      })
+      : await tx.user.create({
+        data: userData,
+      });
     if (livenessRequired && livenessRowId) {
       await tx.livenessSession.update({
         where: { id: livenessRowId },
@@ -312,30 +353,45 @@ r.post("/register", async (req, res) => {
     return u;
   });
 
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
-  await prisma.emailVerification.create({ data: { token, userId: user.id, expiresAt } });
-  const verifyUrl = `${process.env.FRONTEND_URL}/verify?token=${token}`;
-  try {
-    await sendMail({
-      to: email,
-      subject: "Verifica tu email",
-      html: `<p>Bienvenido/a. Verifica tu correo haciendo clic aquí:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
-    });
-  } catch (e) {
-    console.error("SMTP send error (verify):", e);
+  if (!ssoProfile?.emailVerified) {
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
+    await prisma.emailVerification.create({ data: { token, userId: user.id, expiresAt } });
+    const verifyUrl = `${process.env.FRONTEND_URL}/verify?token=${token}`;
+    try {
+      await sendMail({
+        to: email,
+        subject: "Verifica tu email",
+        html: `<p>Bienvenido/a. Verifica tu correo haciendo clic aquí:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
+      });
+    } catch (e) {
+      console.error("SMTP send error (verify):", e);
+    }
   }
 
   try {
-    await createKeycloakUser({
-      email,
-      username: user.username,
-      firstName,
-      lastName,
-      password,
-      role: registerRoleCode,
-      emailVerified: false,
-    });
+    if (ssoProfile) {
+      await syncRegisteredSsoUser({
+        kcId: ssoProfile.kcId,
+        email,
+        username: user.username,
+        firstName,
+        lastName,
+        role: registerRoleCode,
+        emailVerified: ssoProfile.emailVerified,
+      });
+      if (ssoRegistrationToken) await consumeSsoRegistration(ssoRegistrationToken);
+    } else {
+      await createKeycloakUser({
+        email,
+        username: user.username,
+        firstName,
+        lastName,
+        password,
+        role: registerRoleCode,
+        emailVerified: false,
+      });
+    }
   } catch (e) {
     console.error("[register] keycloak create user:", e);
     return res.status(502).json({ message: "No se pudo crear la cuenta en el proveedor de identidad." });

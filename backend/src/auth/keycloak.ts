@@ -201,6 +201,7 @@ export async function buildLogoutUrl(idToken?: string, postLogoutRedirectUri?: s
   try {
     const params: Record<string, string> = {};
     if (idToken) params.id_token_hint = idToken;
+    else params.client_id = clientId();
     if (postLogoutRedirectUri) params.post_logout_redirect_uri = postLogoutRedirectUri;
     return oidc.buildEndSessionUrl(config, params).href;
   } catch {
@@ -312,6 +313,7 @@ export type SyncKeycloakUserIdentityInput = {
   username?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  emailVerified?: boolean;
 };
 
 export async function syncKeycloakUserIdentity(input: SyncKeycloakUserIdentityInput): Promise<void> {
@@ -332,6 +334,7 @@ export async function syncKeycloakUserIdentity(input: SyncKeycloakUserIdentityIn
     ...(input.username ? { username: input.username } : {}),
     ...(input.firstName ? { firstName: input.firstName } : {}),
     ...(input.lastName ? { lastName: input.lastName } : {}),
+    ...(input.emailVerified === true ? { emailVerified: true } : {}),
   };
 
   const updateRes = await fetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
@@ -353,6 +356,15 @@ export async function syncKeycloakUserIdentityByEmail(
   const kcId = await findKeycloakUserIdByEmail(token, email);
   if (!kcId) return;
   await syncKeycloakUserIdentity({ kcId, email, ...input });
+}
+
+export async function syncRegisteredSsoUser(input: SyncKeycloakUserIdentityInput & { role: string }): Promise<void> {
+  if (!input.kcId) return;
+  const token = await getAdminToken();
+  await syncKeycloakUserIdentity(input);
+  await assignRealmRole(token, input.kcId, input.role).catch((error) => {
+    console.warn("[keycloak] assign SSO role skipped:", error);
+  });
 }
 
 async function assignRealmRole(token: string, kcUserId: string, roleName: string): Promise<void> {

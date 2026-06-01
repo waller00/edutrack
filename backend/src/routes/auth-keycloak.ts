@@ -15,7 +15,8 @@ import {
   newSessionId,
   saveSession,
 } from "../auth/session-store.js";
-import { provisionUserFromClaims } from "../auth/keycloak-provisioning.js";
+import { provisionUserFromClaims, SsoRegistrationRequiredError } from "../auth/keycloak-provisioning.js";
+import { createSsoRegistration } from "../auth/sso-registration.js";
 
 /**
  * Rutas de autenticacion del patron BFF (Keycloak como IdP).
@@ -168,7 +169,16 @@ r.get("/callback", async (req, res) => {
     }
 
     const tokens = await exchangeCode(currentUrl, codeVerifier, state);
-    await startSessionFromTokens(res, tokens);
+    try {
+      await startSessionFromTokens(res, tokens);
+    } catch (error) {
+      if (error instanceof SsoRegistrationRequiredError) {
+        const token = await createSsoRegistration(error.profile);
+        clearSessionCookie(res);
+        return res.redirect(`${frontendUrl()}/register?sso=${encodeURIComponent(token)}`);
+      }
+      throw error;
+    }
 
     const safeReturn = returnTo && returnTo.startsWith("/") ? returnTo : "/";
     res.redirect(`${frontendUrl()}${safeReturn}`);
@@ -219,7 +229,7 @@ r.get("/account/password", async (req, res) => {
 r.get("/account/2fa", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
-  await beginLoginFlow(res, { requiredAction: "CONFIGURE_TOTP", returnTo: "/profile" });
+  res.redirect(buildAccountConsoleUrl("account-security/signing-in"));
 });
 
 r.get("/account/security", async (req, res) => {

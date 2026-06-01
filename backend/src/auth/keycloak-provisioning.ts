@@ -1,7 +1,6 @@
 import { prisma } from "../db/prisma.js";
-import { ensureBuiltinOrgRoles } from "../identity/org-role-seed.js";
-import { resolveRoleIdByCode } from "../identity/org-role-service.js";
-import { pickRealmRole, syncKeycloakUserIdentity } from "./keycloak.js";
+import { syncKeycloakUserIdentity } from "./keycloak.js";
+import type { SsoRegistrationProfile } from "./sso-registration.js";
 
 export type ProvisionedUser = {
   id: string;
@@ -10,6 +9,16 @@ export type ProvisionedUser = {
 };
 
 const DEFAULT_ROLE = "TEACHER";
+
+export class SsoRegistrationRequiredError extends Error {
+  profile: SsoRegistrationProfile;
+
+  constructor(profile: SsoRegistrationProfile) {
+    super("SSO_REGISTRATION_REQUIRED");
+    this.name = "SsoRegistrationRequiredError";
+    this.profile = profile;
+  }
+}
 
 function cleanClaim(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -87,41 +96,13 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
 
   if (!email) throw new Error("Claims sin email para crear usuario local");
 
-  // Usuario nuevo por SSO (sin registro previo en la app): el rol inicial sale
-  // del realm, pero queda PENDIENTE de aprobación igual que el registro normal.
-  const roleCode = pickRealmRole(claims) || DEFAULT_ROLE;
-  const roleId = await resolveRoleIdByCodeEnsuring(roleCode);
-  const autoApprove = roleCode === "ADMIN";
-  const created = await prisma.user.create({
-    data: {
-      email,
-      username: claimUsername ?? null,
-      firstName,
-      lastName,
-      name: fullName,
-      roleId,
-      isActive: true,
-      isApproved: autoApprove,
-      approvedAt: autoApprove ? new Date() : null,
-      emailVerifiedAt: emailVerified ? new Date() : null,
-    },
-    select: { id: true },
+  throw new SsoRegistrationRequiredError({
+    kcId: String(claims.sub || ""),
+    email,
+    username: claimUsername ?? null,
+    firstName,
+    lastName,
+    name: fullName,
+    emailVerified,
   });
-
-  return { id: created.id, email, role: roleCode };
-}
-
-async function resolveRoleIdByCodeEnsuring(code: string): Promise<string> {
-  let id = await resolveRoleIdByCode(code);
-  if (!id) {
-    await ensureBuiltinOrgRoles();
-    id = await resolveRoleIdByCode(code);
-  }
-  if (!id) {
-    // Ultima red: caer al rol por defecto si el codigo no existe.
-    await ensureBuiltinOrgRoles();
-    id = await resolveRoleIdByCode(DEFAULT_ROLE);
-  }
-  if (!id) throw new Error(`No se pudo resolver orgRole para ${code}`);
-  return id;
 }

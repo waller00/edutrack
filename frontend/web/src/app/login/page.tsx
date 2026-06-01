@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
-import { loginUrl } from '@/lib/auth/urls'
+import { loginUrl, logoutUrl } from '@/lib/auth/urls'
 
 function safeReturnTo(value: string | null): string {
   return value && value.startsWith('/') && !value.startsWith('//') ? value : '/'
@@ -96,9 +96,11 @@ export default function LoginPage() {
           <button
             className="btn-primary w-full justify-center"
             type="button"
-            onClick={() => { window.location.href = loginUrl('/') }}
+            onClick={() => {
+              window.location.href = externalError === 'account' ? logoutUrl() : loginUrl('/')
+            }}
           >
-            Ingresar
+            {externalError === 'account' ? 'Cerrar sesión y cambiar cuenta' : 'Ingresar'}
           </button>
           <div className="mt-6 text-center">
             <a href="/register" className="text-emerald-600 hover:text-emerald-700 font-medium text-sm">
