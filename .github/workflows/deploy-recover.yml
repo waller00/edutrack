@@ -1,0 +1,84 @@
+name: Recover EduTrack (emergencia)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Entorno a recuperar (solo levanta contenedores, sin rebuild)"
+        type: choice
+        options:
+          - production
+          - testing
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  recover-production:
+    if: github.event.inputs.target_env == 'production'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recover production stack
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 120s
+          command_timeout: 20m
+          script: |
+            set -e
+            compose() {
+              if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose" >&2; exit 1; fi
+            }
+            cd /root/edutrack
+            CF="-f docker-compose.cloud.yml"
+            docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
+            compose $CF up -d
+            for i in $(seq 1 60); do
+              api_ok=0; web_ok=0
+              curl -sf http://127.0.0.1:4000/health >/dev/null && api_ok=1
+              curl -sf http://127.0.0.1:3000/ >/dev/null && web_ok=1
+              if [ "$api_ok" = 1 ] && [ "$web_ok" = 1 ]; then break; fi
+              echo "Esperando servicios ($i/60)..."
+              sleep 5
+            done
+            curl -sf http://127.0.0.1:4000/health
+            curl -sf http://127.0.0.1:3000/ >/dev/null
+            echo "Producción recuperada"
+
+  recover-testing:
+    if: github.event.inputs.target_env == 'testing'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recover testing stack
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST_TESTING }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
+          port: 22
+          timeout: 120s
+          command_timeout: 20m
+          script: |
+            set -e
+            compose() {
+              if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose" >&2; exit 1; fi
+            }
+            cd /root/edutrack
+            CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
+            docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
+            compose $CF up -d
+            for i in $(seq 1 60); do
+              api_ok=0; web_ok=0
+              curl -sf http://127.0.0.1:4000/health >/dev/null && api_ok=1
+              curl -sf http://127.0.0.1:3000/ >/dev/null && web_ok=1
+              if [ "$api_ok" = 1 ] && [ "$web_ok" = 1 ]; then break; fi
+              echo "Esperando servicios ($i/60)..."
+              sleep 5
+            done
+            curl -sf http://127.0.0.1:4000/health
+            curl -sf http://127.0.0.1:3000/ >/dev/null
+            echo "Testing recuperado"
