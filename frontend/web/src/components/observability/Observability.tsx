@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { registerLogRocketUserIdentify } from '@/lib/observability/user-session'
 
 /**
  * Inicializa LogRocket (session replay) SOLO en produccion y solo si hay App ID.
@@ -41,6 +42,9 @@ export function Observability() {
             return response
           },
         },
+      })
+      registerLogRocketUserIdentify((userId) => {
+        LogRocket.identify(userId)
       })
     })
 
