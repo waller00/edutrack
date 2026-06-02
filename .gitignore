@@ -35,10 +35,15 @@ test-results/
 data.sql
 data.sql.gz
 # Dumps Postgres (copias locales / restores; no versionar)
+*.dump
 prod-asistencias*.dump
 testing_asistencias.dump
 moodle-local-backup.sql
 
 # Word / documentos binarios (no versionar)
 *.docx
+*.traineddata
+cookies.txt
+__pycache__/
+docs/postman/postman-run-report.json
 frontend/web/tsconfig.tsbuildinfo

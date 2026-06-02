@@ -247,10 +247,10 @@ export default function AdminUsersPage() {
     if (u.role === 'ADMIN') return null
     const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
     const iconActionBtn =
-      'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-400'
+      'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2'
     const biometricButtonClass = u.biometricLinked
-      ? `${iconActionBtn} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700`
-      : `${iconActionBtn} border-emerald-300 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100`
+      ? `${iconActionBtn} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-400`
+      : `${iconActionBtn} border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100 focus:ring-amber-300`
 
     return (
       <tr key={u.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
@@ -310,7 +310,7 @@ export default function AdminUsersPage() {
             <button
               type="button"
               onClick={() => void resetPassword(u)}
-              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
               aria-label="Restablecer contraseña"
               title="Generar enlace de restablecimiento de contraseña"
             >
@@ -319,7 +319,7 @@ export default function AdminUsersPage() {
             <button
               type="button"
               onClick={() => openEdit(u)}
-              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
               aria-label="Editar usuario"
               title="Editar datos del usuario"
             >
@@ -328,7 +328,7 @@ export default function AdminUsersPage() {
             <button
               type="button"
               onClick={() => toggleLock(u)}
-              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
+              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
               aria-label={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
               title={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
             >
