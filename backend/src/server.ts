@@ -1,4 +1,4 @@
-import "./instrument.js";
+// Sentry se carga via `node --import ./dist/instrument.js` (ESM requiere esto antes que Express).
 import http from "node:http";
 import app from "./app.js";
 import { prisma } from "./db/prisma.js";
