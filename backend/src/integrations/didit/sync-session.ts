@@ -8,6 +8,10 @@ function isTerminal(s: LivenessSessionStatus) {
   return s === 'APPROVED' || s === 'DECLINED' || s === 'ABANDONED' || s === 'EXPIRED' || s === 'ERROR'
 }
 
+function diditTimeoutSignal() {
+  return AbortSignal.timeout(Number(process.env.DIDIT_TIMEOUT_MS || 8000))
+}
+
 /**
  * Si el webhook no actualizó la fila, consultamos el estado en Didit y persistimos (misma lógica de fusión que el webhook).
  */
@@ -21,7 +25,7 @@ export async function syncLivenessSessionFromDiditApi(internalRowId: string): Pr
   let body: { status?: string }
   try {
     const url = `${DIDIT_DECISION_BASE}${encodeURIComponent(found.diditSessionId.trim())}/decision/`
-    const dr = await fetch(url, { headers: { 'x-api-key': apiKey } })
+    const dr = await fetch(url, { headers: { 'x-api-key': apiKey }, signal: diditTimeoutSignal() })
     const text = await dr.text()
     try {
       body = text ? JSON.parse(text) : {}
@@ -62,7 +66,7 @@ export async function fetchDiditDecisionJson(diditSessionId: string): Promise<un
   if (!apiKey || !diditSessionId.trim()) return null
   try {
     const url = `${DIDIT_DECISION_BASE}${encodeURIComponent(diditSessionId.trim())}/decision/`
-    const dr = await fetch(url, { headers: { 'x-api-key': apiKey } })
+    const dr = await fetch(url, { headers: { 'x-api-key': apiKey }, signal: diditTimeoutSignal() })
     const text = await dr.text()
     if (!dr.ok) {
       console.warn('[Didit fetch decision]', dr.status, text?.slice(0, 240))

@@ -37,6 +37,34 @@ const registerSchema = z.object({
   ssoRegistrationToken: z.string().min(20).max(128).optional(),
 });
 
+function errorCode(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function handleRegisterUnexpectedError(error: unknown, res: any) {
+  console.error("[register] unexpected:", error);
+  if (res.headersSent) return undefined;
+
+  const code = errorCode(error);
+  if (code === "P2002") {
+    return res.status(409).json({ message: "Ese email, usuario o cédula ya está registrado." });
+  }
+  if (code === "P2003" || errorMessage(error).startsWith("ROLE_NOT_FOUND:")) {
+    return res.status(400).json({ message: "Rol inválido." });
+  }
+  if (code === "P2025") {
+    return res.status(400).json({ message: "La sesión de verificación ya no está disponible. Iniciá el proceso otra vez." });
+  }
+
+  return res.status(500).json({
+    message: "No se pudo completar el registro. Revisá los datos e intentá nuevamente.",
+  });
+}
+
 async function enabledPermissionsForRole(roleCode: string) {
   if (!roleCode) return [];
   try {
@@ -211,6 +239,7 @@ r.get("/register/sso", async (req, res) => {
 });
 
 r.post("/register", async (req, res) => {
+  try {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) });
 
@@ -397,6 +426,9 @@ r.post("/register", async (req, res) => {
   }
 
   return res.json({ id: user.id, email: user.email, username: user.username, role: registerRoleCode });
+  } catch (error) {
+    return handleRegisterUnexpectedError(error, res);
+  }
 });
 
 r.post("/verify", async (req, res) => {

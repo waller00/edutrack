@@ -286,6 +286,29 @@ export async function createKeycloakUser(input: CreateKeycloakUserInput): Promis
     }),
   });
 
+  if (createRes.status === 409) {
+    const existingKcId = await findKeycloakUserIdByEmail(token, input.email);
+    if (existingKcId) {
+      await syncKeycloakUserIdentity({
+        kcId: existingKcId,
+        email: input.email,
+        username: input.username,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        emailVerified: input.emailVerified,
+      });
+      if (input.password) {
+        await setKeycloakUserPassword(token, existingKcId, input.password);
+      }
+      if (input.role) {
+        await assignRealmRole(token, existingKcId, input.role).catch((e) => {
+          console.error("[keycloak] assign existing user role:", e);
+        });
+      }
+      return existingKcId;
+    }
+  }
+
   if (createRes.status !== 201) {
     const detail = await createRes.text().catch(() => "");
     throw new Error(`Keycloak create user error ${createRes.status}: ${detail}`);
@@ -302,6 +325,20 @@ export async function createKeycloakUser(input: CreateKeycloakUserInput): Promis
   }
 
   return kcId;
+}
+
+async function setKeycloakUserPassword(token: string, kcUserId: string, password: string): Promise<void> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}/reset-password`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ type: "password", value: password, temporary: false }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak reset password error ${res.status}: ${detail}`);
+  }
 }
 
 export type SyncKeycloakUserIdentityInput = {
