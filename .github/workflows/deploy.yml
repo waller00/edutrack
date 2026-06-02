@@ -56,9 +56,6 @@ jobs:
           command_timeout: 40m
           script: |
             set -e
-            compose() {
-              if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
-            }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
             REPO_DIR="/root/edutrack"
             git_sync_from_url() {
@@ -92,6 +89,7 @@ jobs:
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
             git_sync_from_url "$REPO_HTTPS" origin/develop
+            . scripts/deploy-compose-functions.sh
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             # Red compartida con auth (MOODLE) y docker-compose.moodle.yml; debe existir antes de up
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
@@ -122,9 +120,6 @@ jobs:
           command_timeout: 40m
           script: |
             set -e
-            compose() {
-              if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
-            }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
             REPO_DIR="/root/edutrack"
             git_sync_from_url() {
@@ -158,12 +153,13 @@ jobs:
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
             git_sync_from_url "$REPO_HTTPS" origin/main
+            . scripts/deploy-compose-functions.sh
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
             # Build con la app aún arriba; no hacer `compose down` (deja el sitio en 521 si falla el build).
             compose $CF build web auth
-            compose $CF up -d --no-build --force-recreate web auth
+            compose_recreate_services $CF web auth
             bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack actualizado en PRODUCCION"
@@ -185,9 +181,6 @@ jobs:
           command_timeout: 40m
           script: |
             set -e
-            compose() {
-              if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
-            }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
             REPO_DIR="/root/edutrack"
             TARGET_REF="${{ github.event.inputs.git_ref }}"
@@ -222,6 +215,7 @@ jobs:
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
             git_sync_from_url "$REPO_HTTPS" "$TARGET_REF"
+            . scripts/deploy-compose-functions.sh
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF build auth
@@ -250,9 +244,6 @@ jobs:
           command_timeout: 40m
           script: |
             set -e
-            compose() {
-              if docker compose version >/dev/null 2>&1; then docker compose "$@"; elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"; else echo "Falta docker compose (plugin) o docker-compose" >&2; exit 1; fi
-            }
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
             REPO_DIR="/root/edutrack"
             TARGET_REF="${{ github.event.inputs.git_ref }}"
@@ -287,11 +278,12 @@ jobs:
             exec 200>"$LOCK_FILE"
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
             git_sync_from_url "$REPO_HTTPS" "$TARGET_REF"
+            . scripts/deploy-compose-functions.sh
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
             compose $CF build web auth
-            compose $CF up -d --no-build --force-recreate web auth
+            compose_recreate_services $CF web auth
             bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack producción actualizado manualmente a $TARGET_REF"
