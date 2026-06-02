@@ -5,8 +5,8 @@ import { nodeProfilingIntegration } from "@sentry/profiling-node";
 /**
  * Inicializacion de Sentry para el backend.
  *
- * Debe importarse ANTES que cualquier otro modulo (ver server.ts) para que la
- * instrumentacion automatica de Express/HTTP/Prisma funcione correctamente.
+ * Debe cargarse con `node --import ./dist/instrument.js` (ver Dockerfile / npm start).
+ * En ESM no alcanza con importarlo desde server.ts: Express queda sin instrumentar.
  *
  * Se activa solo si SENTRY_DSN esta definido, asi en local/CI no envia nada.
  */
