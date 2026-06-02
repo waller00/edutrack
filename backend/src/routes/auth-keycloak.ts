@@ -229,7 +229,7 @@ r.get("/account/password", async (req, res) => {
 r.get("/account/2fa", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
-  res.redirect(buildAccountConsoleUrl("account-security/signing-in"));
+  await beginLoginFlow(res, { requiredAction: "CONFIGURE_TOTP", returnTo: "/profile" });
 });
 
 r.get("/account/security", async (req, res) => {

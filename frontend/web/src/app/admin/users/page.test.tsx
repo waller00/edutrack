@@ -74,8 +74,9 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
 
     const button = await screen.findByRole('button', { name: 'Vincular huella' })
-    expect(button).toHaveClass('bg-emerald-50')
-    expect(button).toHaveClass('text-emerald-700')
+    expect(button).toHaveClass('bg-amber-50')
+    expect(button).toHaveClass('text-amber-700')
+    expect(button).not.toHaveClass('bg-emerald-600')
     expect(button).toHaveClass('h-9')
     expect(button).toHaveClass('w-9')
   })
