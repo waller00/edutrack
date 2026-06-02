@@ -477,6 +477,7 @@ export default function AdminSchoolYearsPage() {
             className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center"
             role="presentation"
             onClick={() => setEditing(null)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setEditing(null) }}
           >
             <div
               className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
@@ -513,6 +514,7 @@ export default function AdminSchoolYearsPage() {
             className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center"
             role="presentation"
             onClick={() => setCopyTarget(null)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setCopyTarget(null) }}
           >
             <div
               className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"

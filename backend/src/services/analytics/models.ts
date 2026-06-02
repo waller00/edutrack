@@ -1,4 +1,4 @@
-import type { AttendanceStatus, AttendanceType, EventStatus, EventType, RecurrenceType } from '@prisma/client'
+import type { EventStatus, EventType } from '@prisma/client'
 
 export type RoleParam = string | undefined
 

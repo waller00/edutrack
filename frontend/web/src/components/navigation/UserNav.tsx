@@ -388,7 +388,12 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
 
   return (
     <div className="min-h-screen bg-slate-50/80">
-      <div className={`fixed inset-0 z-40 bg-slate-950/40 transition-opacity lg:hidden ${mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`} onClick={() => setMobileOpen(false)} />
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 z-40 bg-slate-950/40 transition-opacity lg:hidden ${mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        onClick={() => setMobileOpen(false)}
+        onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setMobileOpen(false) }}
+      />
       <div className={`lg:block ${mobileOpen ? 'block' : 'hidden'}`}>{sidebar}</div>
       <div className="min-h-screen lg:pl-72">
         <header className="header-modern sticky top-0 z-30 bg-white/90">

@@ -26,6 +26,22 @@ export default defineConfig({
       exclude: [
         "src/**/*.test.ts",
         "src/**/*.d.ts",
+        // Bootstrap / wiring / observabilidad: no es lógica unit-testeable.
+        "src/server.ts",
+        "src/app.ts",
+        "src/instrument.ts",
+        // Integraciones externas (Moodle API, generación/stream de archivos, rate-limit Redis):
+        // validadas por integración/e2e, mismo criterio que las demás integraciones.
+        "src/services/moodle.ts",
+        "src/routes/exports.ts",
+        "src/middlewares/rate-limit.ts",
+        // Catálogo académico (cursos/materias/orientaciones): Prisma CRUD + transacciones,
+        // validado por courses-subjects.routes.test.ts e integración; mismo criterio que admin-students.
+        "src/routes/courses.ts",
+        // CRUD admin de ciclos lectivos: Prisma puro, mismo criterio que admin-students.
+        "src/routes/admin-school-years.ts",
+        // Token de registro SSO en Redis (BFF): integración, mismo criterio que session-store.
+        "src/auth/sso-registration.ts",
         // Integraciones externas y webhooks: se validan con contratos/manual en entorno real.
         "src/integrations/didit/**",
         "src/routes/didit-*.ts",
@@ -55,14 +71,25 @@ export default defineConfig({
         "src/services/substitutions.ts",
         "src/routes/attendance-incidents.ts",
         "src/services/attendance-incidents.ts",
+        // Reconciliación automática de asistencias por licencia (Prisma cross-entity):
+        // mismo criterio que attendance-incidents, validado por integración/e2e.
+        "src/services/medicalLeaveReconciliation.ts",
+        // Capa de integración de hardware biométrico (protocolo ZKTeco ADMS, ingesta de
+        // huellas, vinculación de dispositivos): se valida con dispositivo real (e2e) y los
+        // *.routes.test.ts; mismo criterio que integrations/zkteco.
+        "src/services/biometric-ingest-core.ts",
+        "src/services/biometric-link.ts",
+        "src/routes/biometric-link.ts",
+        "src/routes/biometric-adms.ts",
+        "src/routes/zkteco-iclock.ts",
       ],
       thresholds: {
-        // Tras eliminar el auth legacy (JWT/Passport/2FA) se borró código muy testeado;
-        // la superficie restante es más chica y las ramas de handlers Prisma quedan ~68%.
-        lines: 68,
-        statements: 68,
-        functions: 60,
-        branches: 68,
+        // La cobertura mide la capa de dominio/lógica (la integración/IO se excluye arriba).
+        // Umbrales con margen sobre el estado actual (~89% líneas) para evitar regresiones.
+        lines: 85,
+        statements: 85,
+        functions: 85,
+        branches: 70,
       },
     },
   },

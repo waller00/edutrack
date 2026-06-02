@@ -1,5 +1,6 @@
 'use client'
 
+import * as Sentry from '@sentry/nextjs'
 import { useEffect } from 'react'
 import { registerLogRocketUserIdentify } from '@/lib/observability/user-session'
 
@@ -8,6 +9,8 @@ import { registerLogRocketUserIdentify } from '@/lib/observability/user-session'
  *
  * Privacidad: EduTrack maneja datos de estudiantes/padres (menores). Por eso:
  * - inputSanitizer: enmascara TODOS los valores de inputs (contrasenas, cedula, etc.).
+ * - textSanitizer: enmascara texto visible para no grabar nombres, emails o cedulas en tablas.
+ * - urlSanitizer: elimina query params con tokens o ids de verificaciones externas.
  * - se identifica al usuario unicamente por id (sin email ni nombre).
  *
  * En testing/dev no se carga: las sesiones serian sinteticas y gastarian cuota.
@@ -26,9 +29,21 @@ export function Observability() {
       if (cancelled) return
       const LogRocket = mod.default
       LogRocket.init(appId, {
+        browser: {
+          urlSanitizer: (url) => {
+            try {
+              const clean = new URL(url)
+              clean.search = ''
+              return clean.toString()
+            } catch {
+              return null
+            }
+          },
+        },
         dom: {
           inputSanitizer: true,
-          textSanitizer: false,
+          textSanitizer: true,
+          disablePageTitles: true,
         },
         network: {
           // No grabar cuerpos de request/response (pueden traer datos sensibles).
@@ -42,6 +57,9 @@ export function Observability() {
             return response
           },
         },
+      })
+      LogRocket.getSessionURL((sessionURL) => {
+        Sentry.setContext('logrocket', { sessionURL })
       })
       registerLogRocketUserIdentify((userId) => {
         LogRocket.identify(userId)

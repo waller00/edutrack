@@ -54,6 +54,9 @@ const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock
       findFirst: vi.fn(),
       findUnique: vi.fn(),
     },
+    systemSettings: {
+      upsert: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -685,5 +688,186 @@ describe("admin routes (prisma mock)", () => {
       .send({ question: "horas en octubre" });
     expect(res.status).toBe(503);
     expect(res.body.message).toMatch(/OPENAI_API_KEY/i);
+  });
+
+  describe("CRUD /admin/org-roles", () => {
+    it("GET lista roles", async () => {
+      prismaMock.orgRole.findMany.mockResolvedValueOnce([
+        { id: "rid-ADMIN", code: "ADMIN", label: "Administrador", builtIn: true, active: true, sortOrder: 0 },
+        { id: "rid-COORD", code: "COORD", label: "Coordinación", builtIn: false, active: true, sortOrder: 101 },
+      ]);
+      const res = await request(app()).get("/admin/org-roles").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(2);
+      expect(res.body[1].code).toBe("COORD");
+    });
+
+    it("POST 400 body inválido", async () => {
+      const res = await request(app()).post("/admin/org-roles").set(adminHdr()).send({ code: "X" });
+      expect(res.status).toBe(400);
+    });
+
+    it("POST 400 código inválido", async () => {
+      const res = await request(app())
+        .post("/admin/org-roles")
+        .set(adminHdr())
+        .send({ code: "A-B", label: "Inválido" });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/inválido/i);
+    });
+
+    it("POST 201 crea rol custom", async () => {
+      prismaMock.orgRole.create.mockResolvedValueOnce({
+        id: "rid-COORD", code: "COORD", label: "Coordinación", builtIn: false, active: true, sortOrder: 100,
+      });
+      const res = await request(app())
+        .post("/admin/org-roles")
+        .set(adminHdr())
+        .send({ code: "coord", label: "Coordinación" });
+      expect(res.status).toBe(201);
+      expect(res.body.code).toBe("COORD");
+    });
+
+    it("POST 409 si el código ya existe (P2002)", async () => {
+      prismaMock.orgRole.create.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "x" }),
+      );
+      const res = await request(app())
+        .post("/admin/org-roles")
+        .set(adminHdr())
+        .send({ code: "COORD", label: "Coordinación" });
+      expect(res.status).toBe(409);
+    });
+
+    it("PATCH 404 rol inexistente", async () => {
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce(null);
+      const res = await request(app()).patch("/admin/org-roles/COORD").set(adminHdr()).send({ label: "Nuevo" });
+      expect(res.status).toBe(404);
+    });
+
+    it("PATCH 403 no desactivar rol del sistema", async () => {
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce({ id: "rid-ADMIN", code: "ADMIN", builtIn: true });
+      const res = await request(app()).patch("/admin/org-roles/ADMIN").set(adminHdr()).send({ active: false });
+      expect(res.status).toBe(403);
+    });
+
+    it("PATCH 200 actualiza label", async () => {
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce({ id: "rid-COORD", code: "COORD", builtIn: false });
+      prismaMock.orgRole.update.mockResolvedValueOnce({ id: "rid-COORD", code: "COORD", label: "Coordinación X" });
+      const res = await request(app()).patch("/admin/org-roles/COORD").set(adminHdr()).send({ label: "Coordinación X" });
+      expect(res.status).toBe(200);
+      expect(res.body.label).toBe("Coordinación X");
+    });
+
+    it("DELETE 404 rol inexistente", async () => {
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce(null);
+      const res = await request(app()).delete("/admin/org-roles/COORD").set(adminHdr());
+      expect(res.status).toBe(404);
+    });
+
+    it("DELETE 403 rol del sistema", async () => {
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce({ id: "rid-ADMIN", code: "ADMIN", builtIn: true });
+      const res = await request(app()).delete("/admin/org-roles/ADMIN").set(adminHdr());
+      expect(res.status).toBe(403);
+    });
+
+    it("DELETE 409 si hay usuarios con el rol", async () => {
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce({ id: "rid-COORD", code: "COORD", builtIn: false });
+      prismaMock.user.count.mockResolvedValueOnce(3);
+      const res = await request(app()).delete("/admin/org-roles/COORD").set(adminHdr());
+      expect(res.status).toBe(409);
+    });
+
+    it("DELETE 200 elimina rol custom sin usuarios", async () => {
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce({ id: "rid-COORD", code: "COORD", builtIn: false });
+      prismaMock.user.count.mockResolvedValueOnce(0);
+      prismaMock.orgRole.delete.mockResolvedValueOnce({ id: "rid-COORD" });
+      const res = await request(app()).delete("/admin/org-roles/COORD").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+    });
+  });
+
+  describe("POST /admin/profiles (alta de perfil)", () => {
+    it("409 si el código es un rol built-in", async () => {
+      const res = await request(app())
+        .post("/admin/profiles")
+        .set(adminHdr())
+        .send({ code: "ADMIN", label: "Duplicado", permissions: [] });
+      expect(res.status).toBe(409);
+    });
+
+    it("400 si el código es inválido", async () => {
+      const res = await request(app())
+        .post("/admin/profiles")
+        .set(adminHdr())
+        .send({ code: "A-B", label: "Inválido", permissions: [] });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("GET/PUT /admin/system-settings", () => {
+    const settingsRow = {
+      id: "default",
+      livenessCheckEnabled: false,
+      attendanceNoShowGraceMinutes: 15,
+      attendanceLateToleranceMinutes: 5,
+      attendanceEarlyExitToleranceMinutes: 5,
+      attendanceClassBridgeGapMinutes: 60,
+      attendanceMonitorEnabled: true,
+      attendanceMonitorIntervalMs: 120000,
+      biometricLateHour: 8,
+      biometricLateMinute: 30,
+      biometricDuplicateWindowMinutes: 5,
+    };
+
+    it("GET devuelve la configuración", async () => {
+      prismaMock.systemSettings.upsert.mockResolvedValueOnce(settingsRow);
+      const res = await request(app()).get("/admin/system-settings").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body.attendanceLateToleranceMinutes).toBe(5);
+      expect(res.body).toHaveProperty("diditConfigured");
+    });
+
+    it("PUT 400 con valores fuera de rango", async () => {
+      const res = await request(app())
+        .put("/admin/system-settings")
+        .set(adminHdr())
+        .send({ attendanceLateToleranceMinutes: 999 });
+      expect(res.status).toBe(400);
+    });
+
+    it("PUT 200 actualiza parámetros", async () => {
+      prismaMock.systemSettings.upsert.mockResolvedValueOnce({ ...settingsRow, attendanceLateToleranceMinutes: 10 });
+      const res = await request(app())
+        .put("/admin/system-settings")
+        .set(adminHdr())
+        .send({ attendanceLateToleranceMinutes: 10, attendanceMonitorEnabled: false });
+      expect(res.status).toBe(200);
+      expect(res.body.attendanceLateToleranceMinutes).toBe(10);
+      expect(prismaMock.systemSettings.upsert).toHaveBeenCalled();
+    });
+  });
+
+  describe("GET /admin/audit-logs filtros", () => {
+    it("400 con tipo de acción inválido", async () => {
+      const res = await request(app()).get("/admin/audit-logs?action=NOPE_INVALID").set(adminHdr());
+      expect(res.status).toBe(400);
+    });
+
+    it("400 con fecha 'from' inválida", async () => {
+      const res = await request(app()).get("/admin/audit-logs?from=no-fecha").set(adminHdr());
+      expect(res.status).toBe(400);
+    });
+
+    it("filtra por rango de fechas y actor", async () => {
+      prismaMock.auditLog.count.mockResolvedValueOnce(0);
+      prismaMock.auditLog.findMany.mockResolvedValueOnce([]);
+      const res = await request(app())
+        .get("/admin/audit-logs?from=2026-01-01&to=2026-02-01&actorUserId=11111111-1111-4111-8111-111111111111")
+        .set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    });
   });
 });
