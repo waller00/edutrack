@@ -24,9 +24,11 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { logoutUrl } from '@/lib/auth/urls'
+import { clearObservabilityUser, identifyObservabilityUser } from '@/lib/observability/user-session'
 import { getRoleLabel } from '@/lib/roles/display'
 
 type MeUser = {
+  id?: string
   role: string
   name?: string
   email?: string
@@ -179,8 +181,10 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     try {
       const u = await api<MeUser>('/auth/me')
       setMe(u)
+      if (u.id) identifyObservabilityUser(u.id)
     } catch {
       setMe(null)
+      clearObservabilityUser()
     }
   }
 
@@ -225,6 +229,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
 
   async function logout() {
     setMe(null)
+    clearObservabilityUser()
     window.location.href = logoutUrl()
   }
 
