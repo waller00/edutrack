@@ -343,6 +343,26 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.status).toBe(502);
   });
 
+  it("POST /auth/register devuelve 409 si Prisma detecta duplicado durante el alta", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const duplicate = new Error("Unique constraint failed") as Error & { code?: string };
+    duplicate.code = "P2002";
+    prismaMock.user.create.mockRejectedValueOnce(duplicate);
+
+    const res = await request(app())
+      .post("/auth/register")
+      .send({
+        email: "race@example.com",
+        password: "Segura123!",
+        firstName: "Race",
+        lastName: "Condition",
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/registrado/i);
+    expect(createKeycloakUserMock).not.toHaveBeenCalled();
+  });
+
   it("POST /auth/verify rechaza token vencido", async () => {
     prismaMock.emailVerification.findUnique.mockResolvedValue({
       token: "12345678901234567890123456789012",
