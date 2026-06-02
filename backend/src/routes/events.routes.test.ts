@@ -7,9 +7,11 @@ import { signAccessToken } from "../test-utils/bearer-token.js";
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     $transaction: vi.fn(async (cb) => cb(prismaMock)),
+    user: { findFirst: vi.fn() },
     course: { findFirst: vi.fn() },
-    courseOffering: { findFirst: vi.fn() },
-    subject: { findFirst: vi.fn() },
+    courseOffering: { findFirst: vi.fn(), findUnique: vi.fn() },
+    courseOrientation: { findFirst: vi.fn() },
+    subject: { findFirst: vi.fn(), findMany: vi.fn() },
     schoolYear: { findUnique: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
     inAppNotification: { create: vi.fn().mockResolvedValue({ id: "n1" }) },
@@ -769,5 +771,192 @@ describe("events routes (prisma mock)", () => {
       }),
     );
     expect(prismaMock.event.delete).not.toHaveBeenCalled();
+  });
+
+  describe("POST /events/import", () => {
+    beforeEach(() => {
+      // Aísla del estado dejado por otros tests: mockReset limpia también la cola "once"
+      // (clearAllMocks no lo hace), evitando fugas de mockResolvedValueOnce previas.
+      for (const m of [
+        prismaMock.schoolYear.findUnique,
+        prismaMock.user.findFirst,
+        prismaMock.course.findFirst,
+        prismaMock.courseOffering.findFirst,
+        prismaMock.courseOffering.findUnique,
+        prismaMock.courseOrientation.findFirst,
+        prismaMock.subject.findMany,
+        prismaMock.subject.findFirst,
+        prismaMock.event.create,
+      ]) {
+        m.mockReset();
+      }
+      isYmdWithinSchoolYearMock.mockReturnValue(true);
+      prismaMock.schoolYear.findUnique.mockResolvedValue(null);
+      prismaMock.user.findFirst.mockResolvedValue(null);
+      prismaMock.course.findFirst.mockResolvedValue(null);
+      prismaMock.courseOffering.findFirst.mockResolvedValue(null);
+      prismaMock.courseOffering.findUnique.mockResolvedValue(null);
+      prismaMock.courseOrientation.findFirst.mockResolvedValue(null);
+      prismaMock.subject.findMany.mockResolvedValue([]);
+      prismaMock.event.create.mockResolvedValue({ id: "ev-x", title: "X" });
+    });
+    const adminTok = () => signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const row = (over: Record<string, unknown> = {}) => ({
+      titulo: "Reunión importada",
+      tipo: "REUNION",
+      fecha: "2026-05-10",
+      hora_inicio: "10:00",
+      hora_fin: "11:00",
+      ...over,
+    });
+
+    it("400 si el body no valida (rows vacío)", async () => {
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [] });
+      expect(res.status).toBe(400);
+    });
+
+    it("400 si el ciclo lectivo de la query no existe", async () => {
+      prismaMock.schoolYear.findUnique.mockResolvedValueOnce(null);
+      const res = await request(app())
+        .post("/events/import?schoolYearId=sy-x")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row()] });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/no encontrado/i);
+    });
+
+    it("400 si el ciclo lectivo está cerrado", async () => {
+      prismaMock.schoolYear.findUnique.mockResolvedValueOnce({ id: "sy-x", status: "CLOSED" });
+      const res = await request(app())
+        .post("/events/import?schoolYearId=sy-x")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row()] });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/cerrado/i);
+    });
+
+    it("400 acumulando errores de fila (falta título, hora inválida)", async () => {
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [{ tipo: "REUNION", fecha: "2026-05-10", hora_inicio: "x", hora_fin: "11:00" }] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors).toHaveLength(1);
+      expect(res.body.errors[0].message).toMatch(/titulo|hora_inicio/i);
+    });
+
+    it("400 si hora_fin <= hora_inicio", async () => {
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ hora_inicio: "11:00", hora_fin: "10:00" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/hora_fin/i);
+    });
+
+    it("dryRun: valida sin crear", async () => {
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ dryRun: true, rows: [row()] });
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      expect(res.body.validCount).toBe(1);
+      expect(prismaMock.event.create).not.toHaveBeenCalled();
+    });
+
+    it("201 crea los eventos válidos (incluye fila recurrente)", async () => {
+      prismaMock.event.create
+        .mockResolvedValueOnce({ id: "ev-1", title: "Reunión importada" })
+        .mockResolvedValueOnce({ id: "ev-2", title: "Clase semanal" });
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({
+          rows: [
+            row(),
+            row({ titulo: "Clase semanal", tipo: "CLASE", repite: "si", dias: "lunes,miercoles", fin_repeticion: "2026-06-10" }),
+          ],
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.createdCount).toBe(2);
+      expect(prismaMock.event.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("400 si fin_repeticion es anterior a la fecha", async () => {
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ repite: "si", fin_repeticion: "2026-05-01" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/fin_repeticion/i);
+    });
+
+    it("500 si la transacción falla", async () => {
+      prismaMock.event.create.mockRejectedValueOnce(new Error("db down"));
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row()] });
+      expect(res.status).toBe(500);
+    });
+
+    it("201 resolviendo asignado, curso y orientación", async () => {
+      prismaMock.user.findFirst.mockResolvedValue({ id: "u9" });
+      prismaMock.course.findFirst.mockResolvedValue({ id: "c1" });
+      prismaMock.courseOffering.findFirst.mockResolvedValue({ id: "off1" });
+      prismaMock.courseOrientation.findFirst.mockResolvedValue({ id: "co1", orientationId: "o1" });
+      prismaMock.event.create.mockResolvedValueOnce({ id: "ev-imp", title: "Reunión importada" });
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ asignado_a: "jdoe", curso: "1A", orientacion: "Científico", tipo: "CLASE" })] });
+      expect(res.status).toBe(201);
+      expect(res.body.createdCount).toBe(1);
+    });
+
+    it("400 si la asignatura no pertenece al alcance (resolveImportSubject)", async () => {
+      prismaMock.course.findFirst.mockResolvedValue({ id: "c1" });
+      prismaMock.courseOffering.findFirst.mockResolvedValue({ id: "off1" });
+      prismaMock.subject.findMany.mockResolvedValue([]); // ningún candidato
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ curso: "1A", asignatura: "Inexistente" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/asignatura no pertenece/i);
+    });
+
+    it("400 si asignado_a no existe", async () => {
+      prismaMock.user.findFirst.mockResolvedValue(null);
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ asignado_a: "fantasma" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/asignado_a no encontrado/i);
+    });
+
+    it("400 si el curso no existe/ofertado", async () => {
+      prismaMock.course.findFirst.mockResolvedValue(null);
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ curso: "ZZZ" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/curso no encontrado/i);
+    });
+
+    it("400 si la orientación no requiere curso o la asignatura no tiene curso", async () => {
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ orientacion: "Científico", asignatura: "Mate" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/orientacion requiere curso|asignatura requiere curso/i);
+    });
   });
 });

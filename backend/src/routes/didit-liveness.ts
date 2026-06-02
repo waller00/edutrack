@@ -8,6 +8,13 @@ import { buildRegisterVerificationComparison } from '../integrations/didit/regis
 
 const r = Router()
 
+/** Aplana a una sola línea para logs: evita inyección de CR/LF desde datos externos. */
+function oneLineForLog(value: unknown, max = 400): string {
+  const s = typeof value === 'string' ? value : JSON.stringify(value)
+  // Quita saltos de linea y caracteres de control (evita CRLF injection en logs).
+  return (s ?? '').replace(/[\u0000-\u001F]+/g, ' ').slice(0, max)
+}
+
 const DIDIT_SESSION_URL = 'https://verification.didit.me/v3/session/'
 
 const LIVENESS_TTL_MS = 24 * 60 * 60 * 1000
@@ -102,7 +109,7 @@ r.post('/didit/liveness-session', async (req, res) => {
           : typeof didit?.error === 'string'
             ? didit.error
             : text?.slice(0, 200)
-      console.error('[Didit] create session', dr.status, text)
+      console.error('[Didit] create session', dr.status, oneLineForLog(text))
       await prisma.livenessSession
         .update({ where: { id: row.id }, data: { status: 'ERROR', diditStatusRaw: `http_${dr.status}` } })
         .catch(() => {})
@@ -149,7 +156,7 @@ r.post('/didit/liveness-session', async (req, res) => {
         : typeof didit?.error === 'string'
           ? didit.error
           : JSON.stringify(didit).slice(0, 400)
-    console.error('[Didit] respuesta sin session_id/verification_url', hint)
+    console.error('[Didit] respuesta sin session_id/verification_url', oneLineForLog(hint))
     await prisma.livenessSession
       .update({ where: { id: row.id }, data: { status: 'ERROR', diditStatusRaw: 'bad_response' } })
       .catch(() => {})

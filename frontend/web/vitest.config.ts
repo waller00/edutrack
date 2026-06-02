@@ -19,25 +19,24 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       reportsDirectory: './coverage',
-      include: ['src/**/*.{ts,tsx}'],
+      // La cobertura unitaria mide la capa de LÓGICA pura (src/lib). La capa de UI
+      // (app/, components/, contexts/) se valida con Playwright e2e y pruebas manuales;
+      // mismo recorte declarado en sonar.coverage.exclusions.
+      include: ['src/lib/**/*.ts'],
       exclude: [
         'src/**/*.test.{ts,tsx}',
         'src/test/**',
-        // Páginas y paneles admin: UI densa; cubiertos por e2e y pruebas manuales.
-        'src/app/admin/**',
-        'src/components/admin/**',
-        // Web push y tipos de suplencias: integración navegador / solo tipos.
+        // Integración navegador / solo tipos (no unit-testeable).
         'src/lib/notifications/**',
         'src/lib/substitutions/**',
         'src/lib/medical-leaves/certificate-client.ts',
-        // Marcación en vivo del día: depende de /events y /attendance en runtime.
-        'src/components/personal/MyAttendanceMarkingPanel.tsx',
+        'src/lib/attendance/incidents-types.ts',
       ],
       thresholds: {
-        lines: 45,
-        statements: 45,
-        functions: 40,
-        branches: 35,
+        lines: 90,
+        statements: 90,
+        functions: 90,
+        branches: 85,
       },
     },
   },

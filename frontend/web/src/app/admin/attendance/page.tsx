@@ -7,7 +7,6 @@ import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import {
   buildAdminAttendanceAllQueryString,
-  buildAttendanceExportReportQueryString,
   getAdminAttendancePlannedTimeLabel,
   getAdminAttendanceStatusLabel,
   getAdminAttendanceStatusStyle,
@@ -898,14 +897,16 @@ export default function AdminAttendance() {
                           placeholder="Buscar por username..."
                           className="w-full border border-gray-300 rounded px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
-                        <div 
+                        <button
+                          type="button"
+                          aria-label="Mostrar/ocultar lista de usuarios"
                           className="absolute inset-y-0 right-0 flex items-center pr-2 cursor-pointer"
                           onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
                         >
                           <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
-                        </div>
+                        </button>
                       </div>
                       {isUserDropdownOpen && !selectedUserName && (
                         <div className="mt-1 max-h-40 overflow-y-auto border border-gray-300 rounded bg-white shadow-lg z-10">
@@ -916,17 +917,18 @@ export default function AdminAttendance() {
                               (user.name && user.name.toLowerCase().includes(filters.userSearch.toLowerCase()))
                             )
                             .map(user => (
-                              <div
+                              <button
+                                type="button"
                                 key={user.id}
                                 onClick={() => {
                                   setFilters({ ...filters, userId: user.id, userSearch: user.username || user.name || '' })
                                   setSelectedUserName(user.username || user.name || '')
                                   setIsUserDropdownOpen(false)
                                 }}
-                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                                className="block w-full text-left px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
                               >
                                 {user.username ? `@${user.username}` : (user.name || 'Sin nombre')}
-                              </div>
+                              </button>
                             ))}
                         </div>
                       )}
@@ -961,29 +963,32 @@ export default function AdminAttendance() {
                   disabled={!filters.userId}
                   className="w-full border border-gray-300 rounded px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
-                <div 
+                <button
+                  type="button"
+                  aria-label="Mostrar/ocultar lista de eventos"
                   className="absolute inset-y-0 right-0 flex items-center pr-2 cursor-pointer"
                   onClick={() => setIsEventDropdownOpen(!isEventDropdownOpen)}
                 >
                   <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
-                </div>
+                </button>
               </div>
               {isEventDropdownOpen && !selectedEventName && filters.userId && (
                 <div className="mt-1 max-h-40 overflow-y-auto border border-gray-300 rounded bg-white shadow-lg z-10">
                   {userEvents.map(event => (
-                    <div
+                    <button
+                      type="button"
                       key={event.id}
                       onClick={() => {
                         setFilters({ ...filters, eventId: event.id })
                         setSelectedEventName(event.title)
                         setIsEventDropdownOpen(false)
                       }}
-                      className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                      className="block w-full text-left px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
                     >
                       {event.title} ({event.type})
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}

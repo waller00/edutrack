@@ -238,6 +238,27 @@ r.get("/account/security", async (req, res) => {
   res.redirect(buildAccountConsoleUrl("account-security/signing-in"));
 });
 
+/**
+ * Construye una URL de retorno dentro del frontend a partir de `returnTo`.
+ * Resuelve el path contra el origen del frontend y verifica que el origen final
+ * coincida, de modo que un valor controlado por el usuario nunca pueda redirigir
+ * a un host externo (open redirect).
+ */
+function safeFrontendReturnUrl(returnTo: unknown): string {
+  const base = frontendUrl();
+  const fallback = `${base}/login?loggedOut=1`;
+  if (typeof returnTo !== "string" || !returnTo.startsWith("/") || returnTo.startsWith("//")) {
+    return fallback;
+  }
+  try {
+    const resolved = new URL(returnTo, base);
+    if (resolved.origin !== new URL(base).origin) return fallback;
+    return `${base}${resolved.pathname}${resolved.search}`;
+  } catch {
+    return fallback;
+  }
+}
+
 async function handleLogout(req: any, res: any) {
   const sid = req.cookies?.sid as string | undefined;
   let idToken: string | undefined;
@@ -248,12 +269,7 @@ async function handleLogout(req: any, res: any) {
   }
   clearSessionCookie(res);
 
-  const returnTo = typeof req.query.returnTo === "string" &&
-    req.query.returnTo.startsWith("/") &&
-    !req.query.returnTo.startsWith("//")
-    ? req.query.returnTo
-    : "";
-  const postLogout = returnTo ? `${frontendUrl()}${returnTo}` : `${frontendUrl()}/login?loggedOut=1`;
+  const postLogout = safeFrontendReturnUrl(req.query.returnTo);
   const logoutUrl = await buildLogoutUrl(idToken, postLogout);
   if (req.method === "GET" && logoutUrl) {
     return res.redirect(logoutUrl);

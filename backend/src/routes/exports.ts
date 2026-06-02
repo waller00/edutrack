@@ -4,11 +4,8 @@ import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { createPendingExport, getDownloadUrl, getExport, markDone, markFailed } from '../services/exports/exportStore.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
-import { generateAttendanceDetailCsv, generateAttendanceDetailXlsx } from '../services/analytics/exports/attendanceDetailExport.js'
 import {
   generateAttendanceDetailCsvFromAttendances,
-  generateAttendanceDetailPdfFromAttendances,
-  generateAttendanceDetailXlsxFromAttendances,
 } from '../services/analytics/exports/attendanceDetailFromAttendancesExport.js'
 import {
   generateAttendanceAssistanceReportPdfFromAttendances,

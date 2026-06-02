@@ -3,14 +3,12 @@
 import { api } from '@/lib/api/client'
 import {
   Check,
-  ChevronDown,
   Eye,
   Plus,
   RotateCcw,
   Save,
   ShieldCheck,
   SlidersHorizontal,
-  UserCog,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 

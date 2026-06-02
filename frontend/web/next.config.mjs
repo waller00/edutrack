@@ -18,9 +18,14 @@ export default withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,
+  tunnelRoute: '/monitoring',
   silent: !process.env.CI,
   widenClientFileUpload: true,
-  disableLogger: true,
+  webpack: {
+    treeshake: {
+      removeDebugLogging: true,
+    },
+  },
   // No subir source maps si falta el token (evita romper el build).
   sourcemaps: {
     disable: !process.env.SENTRY_AUTH_TOKEN,

@@ -4,7 +4,6 @@ import type { AttendanceStatus, AttendanceType, EventType } from '@prisma/client
 import { prisma } from '../../../db/prisma.js'
 import { mergeSchoolYearIntoAttendanceEventWhere } from '../../../attendance/attendance-school-year.js'
 import { selectOrgRoleCode } from '../../../identity/user-role-prisma.js'
-import type { ResolvedAttendanceByInstance } from '../models.js'
 
 const COLUMNS = [
   'Fecha',
