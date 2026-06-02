@@ -7,11 +7,41 @@ ensure_compose_v2() {
   if docker compose version >/dev/null 2>&1; then
     return 0
   fi
-  echo "Docker Compose v2 no encontrado; intentando instalar plugin..." >&2
-  if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq
-    apt-get install -y -qq docker-compose-plugin
+  echo "Docker Compose v2 no encontrado; intentando instalar plugin local..." >&2
+
+  local arch compose_arch compose_version plugin_dir plugin_path
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) compose_arch="x86_64" ;;
+    aarch64|arm64) compose_arch="aarch64" ;;
+    *)
+      echo "WARN: arquitectura no soportada para instalacion automatica de Compose: $arch" >&2
+      compose_arch=""
+      ;;
+  esac
+
+  compose_version="${DOCKER_COMPOSE_VERSION:-v2.29.7}"
+  plugin_dir="${DOCKER_CONFIG:-$HOME/.docker}/cli-plugins"
+  plugin_path="$plugin_dir/docker-compose"
+
+  if [ -n "$compose_arch" ] && { command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; }; then
+    mkdir -p "$plugin_dir"
+    local compose_url
+    compose_url="https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-${compose_arch}"
+    if command -v curl >/dev/null 2>&1 && curl -fsSL "$compose_url" -o "$plugin_path"; then
+      chmod +x "$plugin_path"
+    elif command -v wget >/dev/null 2>&1 && wget -q "$compose_url" -O "$plugin_path"; then
+      chmod +x "$plugin_path"
+    else
+      rm -f "$plugin_path"
+      echo "WARN: no se pudo descargar Docker Compose ${compose_version}; pruebo apt si esta disponible" >&2
+    fi
   fi
+
+  if ! docker compose version >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq docker-compose-plugin || true
+  fi
+
   if ! docker compose version >/dev/null 2>&1; then
     echo "ERROR: se requiere 'docker compose' (v2). docker-compose v1 no es compatible." >&2
     exit 1
