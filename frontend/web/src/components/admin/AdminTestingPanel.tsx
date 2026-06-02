@@ -1,7 +1,8 @@
 'use client'
 
+import * as Sentry from '@sentry/nextjs'
 import { api } from '@/lib/api/client'
-import { AlertTriangle, Loader2, LogIn, LogOut, Trash2 } from 'lucide-react'
+import { AlertTriangle, Bug, Loader2, LogIn, LogOut, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 type TestingUser = {
@@ -55,6 +56,7 @@ export default function AdminTestingPanel() {
   const [punchType, setPunchType] = useState<'CHECK_IN' | 'CHECK_OUT'>('CHECK_IN')
   const [timestampLocal, setTimestampLocal] = useState('')
   const [simulating, setSimulating] = useState(false)
+  const [sendingSentryTest, setSendingSentryTest] = useState(false)
 
   const [wipeConfirm, setWipeConfirm] = useState('')
   const [resetConfirm, setResetConfirm] = useState('')
@@ -125,6 +127,21 @@ export default function AdminTestingPanel() {
       setError(e instanceof Error ? e.message : 'Error simulando marcación.')
     } finally {
       setSimulating(false)
+    }
+  }
+
+  async function sendSentryTestEvent() {
+    setSendingSentryTest(true)
+    setMsg(null)
+    setError(null)
+    try {
+      Sentry.captureException(new Error('Sentry frontend smoke test'))
+      await Sentry.flush(2000)
+      setMsg('Evento de prueba enviado a Sentry. Revisá el proyecto en unos segundos.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo enviar el evento de prueba a Sentry.')
+    } finally {
+      setSendingSentryTest(false)
     }
   }
 
@@ -213,6 +230,28 @@ export default function AdminTestingPanel() {
           {msg}
         </div>
       )}
+
+      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Observabilidad</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Envía un error controlado desde el frontend para verificar Sentry y el túnel de monitoreo.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={sendingSentryTest}
+          onClick={() => void sendSentryTestEvent()}
+          className="btn-secondary inline-flex items-center gap-2 disabled:opacity-50"
+        >
+          {sendingSentryTest ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Bug className="h-4 w-4" aria-hidden />
+          )}
+          Enviar error de prueba a Sentry
+        </button>
+      </section>
 
       <section className="space-y-5 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
         <div>
