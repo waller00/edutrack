@@ -95,7 +95,8 @@ jobs:
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF build auth
             compose $CF build web
-            compose $CF up -d --no-build
+            compose $CF up -d --no-build pg redis keycloak-db
+            compose_recreate_services $CF keycloak auth web
             bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack actualizado en TESTING"
 
@@ -220,7 +221,8 @@ jobs:
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF build auth
             compose $CF build web
-            compose $CF up -d --no-build
+            compose $CF up -d --no-build pg redis keycloak-db
+            compose_recreate_services $CF keycloak auth web
             bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack testing actualizado manualmente a $TARGET_REF"
 

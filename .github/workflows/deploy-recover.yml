@@ -32,10 +32,28 @@ jobs:
             set -e
             if [ ! -d /root/edutrack ]; then echo "Falta /root/edutrack en el servidor" >&2; exit 1; fi
             cd /root/edutrack
-            if [ -f scripts/deploy-compose-functions.sh ]; then . scripts/deploy-compose-functions.sh; else compose() { docker compose "$@"; }; fi
+            if [ -f scripts/deploy-compose-functions.sh ]; then
+              . scripts/deploy-compose-functions.sh
+            else
+              compose() { docker compose "$@"; }
+              compose_recreate_services() {
+                local compose_args=()
+                local services=()
+                local arg skip_next=0
+                for arg in "$@"; do
+                  if [ "$skip_next" -eq 1 ]; then compose_args+=(-f "$arg"); skip_next=0; continue; fi
+                  if [ "$arg" = "-f" ]; then skip_next=1; continue; fi
+                  services+=("$arg")
+                done
+                compose "${compose_args[@]}" stop "${services[@]}" 2>/dev/null || true
+                compose "${compose_args[@]}" rm -f "${services[@]}" 2>/dev/null || true
+                compose "${compose_args[@]}" up -d "${services[@]}"
+              }
+            fi
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
-            compose $CF up -d
+            compose $CF up -d pg redis keycloak-db
+            compose_recreate_services $CF keycloak auth web
             for i in $(seq 1 60); do
               api_ok=0; web_ok=0
               curl -sf http://127.0.0.1:4000/health >/dev/null && api_ok=1
@@ -64,10 +82,28 @@ jobs:
           script: |
             set -e
             cd /root/edutrack
-            if [ -f scripts/deploy-compose-functions.sh ]; then . scripts/deploy-compose-functions.sh; else compose() { docker compose "$@"; }; fi
+            if [ -f scripts/deploy-compose-functions.sh ]; then
+              . scripts/deploy-compose-functions.sh
+            else
+              compose() { docker compose "$@"; }
+              compose_recreate_services() {
+                local compose_args=()
+                local services=()
+                local arg skip_next=0
+                for arg in "$@"; do
+                  if [ "$skip_next" -eq 1 ]; then compose_args+=(-f "$arg"); skip_next=0; continue; fi
+                  if [ "$arg" = "-f" ]; then skip_next=1; continue; fi
+                  services+=("$arg")
+                done
+                compose "${compose_args[@]}" stop "${services[@]}" 2>/dev/null || true
+                compose "${compose_args[@]}" rm -f "${services[@]}" 2>/dev/null || true
+                compose "${compose_args[@]}" up -d "${services[@]}"
+              }
+            fi
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
-            compose $CF up -d
+            compose $CF up -d pg redis keycloak-db
+            compose_recreate_services $CF keycloak auth web
             for i in $(seq 1 60); do
               api_ok=0; web_ok=0
               curl -sf http://127.0.0.1:4000/health >/dev/null && api_ok=1
