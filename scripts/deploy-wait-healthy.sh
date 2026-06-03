@@ -4,7 +4,8 @@ set -euo pipefail
 
 API_URL="${DEPLOY_HEALTH_API_URL:-http://127.0.0.1:4000/health}"
 WEB_URL="${DEPLOY_HEALTH_WEB_URL:-http://127.0.0.1:3000/}"
-MAX_ATTEMPTS="${DEPLOY_HEALTH_ATTEMPTS:-60}"
+# Tras cambios de schema, `prisma db push` puede tardar varios minutos en tablas grandes.
+MAX_ATTEMPTS="${DEPLOY_HEALTH_ATTEMPTS:-120}"
 SLEEP_SEC="${DEPLOY_HEALTH_SLEEP_SEC:-5}"
 
 attempt=0

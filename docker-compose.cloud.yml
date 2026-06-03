@@ -72,7 +72,8 @@ services:
   auth:
     build: ./backend
     # Este comando asegura que las tablas se creen antes de iniciar el servidor
-    command: sh -c "npx prisma db push ${PRISMA_DB_PUSH_FLAGS:-} && npm start"
+    # --skip-generate: el client ya se generó en el build; evita EACCES en node_modules (USER node).
+    command: sh -c "npx prisma db push --skip-generate ${PRISMA_DB_PUSH_FLAGS:-} && npm start"
     environment:
       PORT: 4000
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
