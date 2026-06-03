@@ -30,8 +30,8 @@ export default defineConfig({
         "src/server.ts",
         "src/app.ts",
         "src/instrument.ts",
-        // Integraciones externas (Moodle API, generación/stream de archivos, rate-limit Redis):
-        // validadas por integración/e2e, mismo criterio que las demás integraciones.
+        // Integración Moodle (REST + outbox + reconciliación): validada en entorno real / e2e.
+        "src/integrations/moodle/**",
         "src/services/moodle.ts",
         "src/routes/exports.ts",
         "src/middlewares/rate-limit.ts",
