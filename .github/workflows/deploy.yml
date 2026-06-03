@@ -161,7 +161,7 @@ jobs:
             # Build con la app aún arriba; no hacer `compose down` (deja el sitio en 521 si falla el build).
             compose $CF build web auth
             compose_recreate_services $CF web auth
-            bash scripts/deploy-wait-healthy.sh
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack actualizado en PRODUCCION"
 
@@ -286,6 +286,6 @@ jobs:
             bash scripts/validate-production-routes.sh --env .env --production
             compose $CF build web auth
             compose_recreate_services $CF web auth
-            bash scripts/deploy-wait-healthy.sh
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
             echo "EduTrack producción actualizado manualmente a $TARGET_REF"
