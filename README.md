@@ -93,6 +93,14 @@ docker compose -f docker-compose.sonarqube.yml up -d
 
 Analiza `backend/src` y `frontend/web/src`. CI: `.github/workflows/sonar.yml` (objetivo cobertura global ≥ 70%).
 
+## Moodle
+
+Sincronización idempotente y resiliente del dominio académico hacia Moodle (usuarios, cursos,
+inscripciones) vía servicios web REST. Outbox con reintentos + reconciliación periódica; se
+activa con `MOODLE_BASE_URL` + `MOODLE_WS_TOKEN` y los flags `moodle*` de `SystemSettings`.
+
+Detalle: [docs/MOODLE_INTEGRACION.md](docs/MOODLE_INTEGRACION.md)
+
 ## Observabilidad
 
 - **Sentry:** backend (`backend/src/instrument.ts`) y frontend — activo si hay DSN.
