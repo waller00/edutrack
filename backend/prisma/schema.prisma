@@ -366,10 +366,6 @@ model Attendance {
   @@index([date])
   @@index([eventId])
   @@index([schoolYearId])
-  @@index([userId, date, time])
-  @@index([userId, date, type, eventId])
-  @@index([schoolYearId, date, time])
-  @@index([schoolYearId, type, status, date])
 }
 
 enum AttendanceJustificationType {
@@ -436,8 +432,6 @@ model AttendanceIncident {
   @@index([eventId])
   @@index([userId])
   @@index([detectedAt])
-  @@index([status, type, detectedAt])
-  @@index([userId, eventId, type, status])
 }
 
 model BiometricDevice {
@@ -524,8 +518,6 @@ model BiometricPunch {
   @@unique([deviceId, externalId])
   @@index([processStatus])
   @@index([occurredAt])
-  @@index([userId, occurredAt])
-  @@index([processStatus, occurredAt])
 }
 
 // Sistema de Eventos y Turnos
@@ -830,8 +822,6 @@ model StudentEnrollment {
   @@unique([studentId, schoolYearId])
   @@index([schoolYearId, enrollmentStatus])
   @@index([courseOfferingId])
-  @@index([schoolYearId, courseOfferingId, enrollmentStatus], map: "StudentEnrollment_sy_offering_status_idx")
-  @@index([studentId, createdAt])
 }
 
 /// Cuota por año calendario del ciclo (ej. 2025); permite consultar años anteriores.
@@ -875,7 +865,6 @@ model StudentTuitionMonth {
   @@unique([studentId, year, month])
   @@index([year, month])
   @@index([schoolYearId])
-  @@index([year, month, paid])
 }
 
 model Event {
@@ -923,13 +912,8 @@ model Event {
   @@index([orientationId])
   @@index([courseOrientationId])
   @@index([subjectId])
-  @@index([parentEventId])
   @@index([startDate])
   @@index([type])
-  @@index([assignedUserId, schoolYearId, startDate])
-  @@index([userId, schoolYearId, startDate])
-  @@index([assignedUserId, type, status, startTime])
-  @@index([schoolYearId, type, status, startDate])
 }
 
 model Substitution {
@@ -1011,5 +995,4 @@ model MedicalLeave {
   @@index([userId])
   @@index([startDate])
   @@index([status])
-  @@index([userId, status, startDate, endDate])
 }
