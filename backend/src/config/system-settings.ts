@@ -33,9 +33,22 @@ export async function getOrCreateSystemSettings() {
       biometricLateHour: 8,
       biometricLateMinute: 30,
       biometricDuplicateWindowMinutes: 5,
+      moodleSyncEnabled: false,
+      moodleReconcileIntervalMs: 900000,
+      moodleSyncStudents: false,
     } as any,
     update: {},
   })
+}
+
+/** Configuración operativa de la integración Moodle (worker outbox + reconciliación). */
+export async function getMoodleOperationalSettings() {
+  const row = (await getOrCreateSystemSettings()) as Record<string, unknown>
+  return {
+    syncEnabled: row.moodleSyncEnabled === true,
+    reconcileIntervalMs: Math.max(Number(row.moodleReconcileIntervalMs ?? 900000), 60000),
+    syncStudents: row.moodleSyncStudents === true,
+  }
 }
 
 export async function getAttendanceOperationalSettings() {

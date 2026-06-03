@@ -5,7 +5,16 @@ import { prisma } from "./db/prisma.js";
 import { ensureDefaultSchoolYear } from "./services/school-year-service.js";
 import { ensureDefaultProfilePermissionsIfNeeded } from "./identity/profile-permissions-repository.js";
 import { scanAndCreateTeacherNoShowIncidents } from "./services/attendance-incidents.js";
-import { getAttendanceOperationalSettings } from "./config/system-settings.js";
+import {
+  getAttendanceOperationalSettings,
+  getMoodleOperationalSettings,
+} from "./config/system-settings.js";
+import {
+  isMoodleIntegrationEnabled,
+  processOutboxOnce,
+  reconcileMoodle,
+  releaseStaleLocks,
+} from "./integrations/moodle/index.js";
 
 // API principal (4000) y puerto ADMS ZKTeco (8081, mismo proceso HTTP)
 const port = Number(process.env.PORT || 4000);
@@ -52,3 +61,31 @@ const attendanceMonitorInterval = setInterval(() => {
   });
 }, monitorTickMs);
 attendanceMonitorInterval.unref?.();
+
+// --- Integración Moodle: outbox (reintentos) + reconciliación periódica ---
+// Mismo patrón que el monitor de asistencia: un tick frecuente, gateado por SystemSettings.
+let lastReconcileAt = 0;
+const moodleTickMs = 30000;
+const moodleSyncInterval = setInterval(() => {
+  void (async () => {
+    if (!isMoodleIntegrationEnabled()) return;
+    const settings = await getMoodleOperationalSettings();
+    if (!settings.syncEnabled) return;
+
+    // 1) Outbox: procesa upserts de usuario pendientes (baja latencia para el caso común).
+    await releaseStaleLocks();
+    await processOutboxOnce(20);
+
+    // 2) Reconciliación completa según intervalo (cursos + inscripciones + reparación de drift).
+    const now = Date.now();
+    if (now - lastReconcileAt < settings.reconcileIntervalMs) return;
+    lastReconcileAt = now;
+    const summary = await reconcileMoodle({ syncStudents: settings.syncStudents });
+    console.log(
+      `[moodle] reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} estudiantes=${summary.studentEnrolments} errores=${summary.errors}`,
+    );
+  })().catch((error) => {
+    console.error("moodle sync tick:", error);
+  });
+}, moodleTickMs);
+moodleSyncInterval.unref?.();

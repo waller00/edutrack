@@ -75,6 +75,8 @@ model User {
   phone                       String?
   birthdate                   DateTime?
   googleId                    String?                @unique
+  /// Id del usuario espejo en Moodle (integración). Fuente de verdad sigue siendo EduTrack.
+  moodleUserId                Int?                   @unique
   roleId                      String
   orgRole                     OrgRole                @relation(fields: [roleId], references: [id], onDelete: Restrict)
   createdAt                   DateTime               @default(now())
@@ -184,7 +186,70 @@ model SystemSettings {
   biometricLateHour                   Int      @default(8)
   biometricLateMinute                 Int      @default(30)
   biometricDuplicateWindowMinutes     Int      @default(5)
+  /// Integración Moodle: habilita el worker de outbox y la reconciliación periódica.
+  moodleSyncEnabled                   Boolean  @default(false)
+  /// Intervalo (ms) de la reconciliación completa EduTrack→Moodle.
+  moodleReconcileIntervalMs           Int      @default(900000)
+  /// Sincroniza también estudiantes (matrícula) como usuarios/inscripciones de Moodle.
+  moodleSyncStudents                  Boolean  @default(false)
   updatedAt                           DateTime @updatedAt
+}
+
+/// Cola persistente (patrón outbox) para sincronizar entidades con Moodle con reintentos.
+/// Garantiza que un fallo transitorio no desincronice de forma permanente y silenciosa.
+model MoodleSyncTask {
+  id          String           @id @default(uuid())
+  type        MoodleSyncTaskType
+  /// Clave de deduplicación (p. ej. "user:<uuid>"): evita encolar duplicados pendientes.
+  dedupeKey   String           @unique
+  payload     Json
+  status      MoodleSyncStatus @default(PENDING)
+  attempts    Int              @default(0)
+  maxAttempts Int              @default(8)
+  lastError   String?          @db.Text
+  /// No procesar antes de este instante (backoff exponencial).
+  runAfter    DateTime         @default(now())
+  /// Marca de claim para evitar doble procesamiento entre ticks.
+  lockedAt    DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([status, runAfter])
+}
+
+enum MoodleSyncTaskType {
+  USER_UPSERT
+}
+
+enum MoodleSyncStatus {
+  PENDING
+  DONE
+  FAILED
+}
+
+/// Mapeo persistente entre entidades de EduTrack y objetos de Moodle (categorías, cursos,
+/// estudiantes-espejo). Da idempotencia y permite detectar/reparar divergencias (drift).
+model MoodleObjectMap {
+  id         String           @id @default(uuid())
+  objectType MoodleObjectType
+  /// Id local en EduTrack (uuid de Course/CourseOffering/SchoolYear/Student).
+  localId    String
+  /// Id numérico del objeto en Moodle.
+  moodleId   Int
+  /// idnumber canónico usado en Moodle (ej. "et-offering-<uuid>").
+  idnumber   String
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([objectType, localId])
+  @@unique([objectType, idnumber])
+  @@index([objectType])
+}
+
+enum MoodleObjectType {
+  CATEGORY
+  COURSE
+  STUDENT
 }
 
 enum LivenessSessionStatus {
@@ -301,6 +366,10 @@ model Attendance {
   @@index([date])
   @@index([eventId])
   @@index([schoolYearId])
+  @@index([userId, date, time])
+  @@index([userId, date, type, eventId])
+  @@index([schoolYearId, date, time])
+  @@index([schoolYearId, type, status, date])
 }
 
 enum AttendanceJustificationType {
@@ -367,6 +436,8 @@ model AttendanceIncident {
   @@index([eventId])
   @@index([userId])
   @@index([detectedAt])
+  @@index([status, type, detectedAt])
+  @@index([userId, eventId, type, status])
 }
 
 model BiometricDevice {
@@ -453,6 +524,8 @@ model BiometricPunch {
   @@unique([deviceId, externalId])
   @@index([processStatus])
   @@index([occurredAt])
+  @@index([userId, occurredAt])
+  @@index([processStatus, occurredAt])
 }
 
 // Sistema de Eventos y Turnos
@@ -757,6 +830,8 @@ model StudentEnrollment {
   @@unique([studentId, schoolYearId])
   @@index([schoolYearId, enrollmentStatus])
   @@index([courseOfferingId])
+  @@index([schoolYearId, courseOfferingId, enrollmentStatus], map: "StudentEnrollment_sy_offering_status_idx")
+  @@index([studentId, createdAt])
 }
 
 /// Cuota por año calendario del ciclo (ej. 2025); permite consultar años anteriores.
@@ -800,6 +875,7 @@ model StudentTuitionMonth {
   @@unique([studentId, year, month])
   @@index([year, month])
   @@index([schoolYearId])
+  @@index([year, month, paid])
 }
 
 model Event {
@@ -847,8 +923,13 @@ model Event {
   @@index([orientationId])
   @@index([courseOrientationId])
   @@index([subjectId])
+  @@index([parentEventId])
   @@index([startDate])
   @@index([type])
+  @@index([assignedUserId, schoolYearId, startDate])
+  @@index([userId, schoolYearId, startDate])
+  @@index([assignedUserId, type, status, startTime])
+  @@index([schoolYearId, type, status, startDate])
 }
 
 model Substitution {
@@ -930,4 +1011,5 @@ model MedicalLeave {
   @@index([userId])
   @@index([startDate])
   @@index([status])
+  @@index([userId, status, startDate, endDate])
 }
