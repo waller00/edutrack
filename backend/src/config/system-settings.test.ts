@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getAttendanceOperationalSettings,
+  getMoodleOperationalSettings,
   isBiometricLateBySettings,
   isDiditConfigured,
   isLivenessRequiredForRegistration,
@@ -51,6 +52,22 @@ describe('system-settings', () => {
     expect(isBiometricLateBySettings(new Date('2025-06-01T08:30:00'), settings)).toBe(false)
     expect(isBiometricLateBySettings(new Date('2025-06-01T08:31:00'), settings)).toBe(true)
     expect(isBiometricLateBySettings(new Date('2025-06-01T09:00:00'), settings)).toBe(true)
+  })
+
+  it('normaliza flags operativos de Moodle desde la fila global', async () => {
+    vi.mocked(prisma.systemSettings.upsert).mockResolvedValueOnce({
+      id: 'default',
+      moodleSyncEnabled: true,
+      moodleReconcileIntervalMs: 30_000,
+      moodleSyncStudents: true,
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    } as never)
+
+    await expect(getMoodleOperationalSettings()).resolves.toEqual({
+      syncEnabled: true,
+      reconcileIntervalMs: 60_000,
+      syncStudents: true,
+    })
   })
 
   it('normaliza límites operativos de asistencia desde la fila global', async () => {
