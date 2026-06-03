@@ -372,7 +372,7 @@ docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d 
 |---------|----------------|--------|
 | Pipeline SSH falla | Secrets, firewall 22, droplet caído | Revisar Actions; reiniciar droplet |
 | `auth` Exited (1) al deploy | `prisma db push` pide flags por cambio de schema | Solo en **testing**: `PRISMA_DB_PUSH_FLAGS=--accept-data-loss` temporal + recreate `auth`. En produccion no usar flags destructivos. |
-| Timeout deploy: Web ok, API ok=0 | `db push` lento o sin `--skip-generate` (EACCES en generate) | Rebuild `auth`; compose cloud usa `--skip-generate`. Subir `DEPLOY_HEALTH_ATTEMPTS` si el push de índices tarda. |
+| Timeout deploy: Web ok, API ok=0 | `db push` bloqueado creando índices en tablas grandes | Rebuild `auth` (entrypoint: schema rápido + `db:optimize` en background). Ver `docker logs edutrack-auth-1`. |
 | Login OK pero sin sesión (testing) | Redis caído, cookies HTTPS en HTTP | Verificar `redis` Up; `COOKIE_SECURE=false`, URLs alineadas |
 | Front no ve API | `NEXT_PUBLIC_API_URL` viejo | Rebuild `web` |
 | F22 no conecta ADMS | Puerto 80 vs 4000, URL mal parseada | IP `138.197.35.2`, puerto **4000**, HTTPS OFF |
