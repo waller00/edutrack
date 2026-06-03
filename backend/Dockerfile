@@ -30,10 +30,13 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/prisma ./prisma
 
+# node_modules viene del stage build como root; sin chown, `prisma generate` en runtime falla (EACCES).
+RUN chown -R node:node /app
+
 # Usamos un usuario con menos privilegios por seguridad
 USER node
 
 EXPOSE 4000
 
 # Script de inicio: sincroniza esquema, aplica optimizaciones SQL idempotentes y arranca el servidor
-CMD ["sh", "-c", "npx prisma db push --skip-generate ${PRISMA_DB_PUSH_FLAGS:-} && npm run db:optimize && node --import ./dist/instrument.js dist/server.js"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate ${PRISMA_DB_PUSH_FLAGS:-} && (npm run db:optimize || true) && node --import ./dist/instrument.js dist/server.js"]
