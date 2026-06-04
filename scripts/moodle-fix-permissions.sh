@@ -34,17 +34,22 @@ echo "Volumen moodledata: $VOL"
 
 # UID/GID del usuario Apache en la imagen Bitnami
 read -r APACHE_UID APACHE_GID <<<"$(
-  docker run --rm docker.io/bitnamilegacy/moodle:5.0.2 bash -c 'id -u daemon; id -g daemon'
+  docker run --rm --entrypoint bash docker.io/bitnamilegacy/moodle:5.0.2 \
+    -c 'id -u daemon; id -g daemon'
 )"
 
 echo "Usuario moodle/apache: daemon ($APACHE_UID:$APACHE_GID)"
+if [[ -z "$APACHE_UID" || -z "$APACHE_GID" ]]; then
+  echo "No se pudo leer UID/GID de daemon (¿salida contaminada por el entrypoint?)." >&2
+  exit 1
+fi
 
 "${COMPOSE[@]}" stop moodle 2>/dev/null || true
 
-docker run --rm -u root \
+docker run --rm -u root --entrypoint bash \
   -v "${VOL}:/bitnami/moodledata" \
   docker.io/bitnamilegacy/moodle:5.0.2 \
-  bash -c "
+  -c "
     set -e
     mkdir -p /bitnami/moodledata/{temp,cache,localcache,sessions,filedir,lang,trashdir}
     chown -R ${APACHE_UID}:${APACHE_GID} /bitnami/moodledata
@@ -67,8 +72,8 @@ for i in $(seq 1 30); do
 done
 
 docker exec -u root "$CONTAINER" chown -R "${APACHE_UID}:${APACHE_GID}" /bitnami/moodledata /bitnami/moodle 2>/dev/null || true
-docker exec -u root "$CONTAINER" rm -rf /bitnami/moodledata/localcache/* /bitnami/moodledata/temp/* 2>/dev/null || true
-docker exec "$CONTAINER" php /opt/bitnami/moodle/admin/cli/purge_caches.php 2>/dev/null || true
+docker exec -u root "$CONTAINER" rm -rf /bitnami/moodledata/localcache/* /bitnami/moodledata/temp/* /bitnami/moodledata/cache/* 2>/dev/null || true
+docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/purge_caches.php 2>/dev/null || true
 
 echo "Probar:"
 echo "  curl -sI 'http://127.0.0.1:8080/theme/styles.php/boost/1/all' | head -3"
