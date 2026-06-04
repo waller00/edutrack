@@ -36,7 +36,7 @@
 #   5) Administración > Servidor > Servicios web > Tokens > Crear token: usuario (p. ej. admin), servicio = el de EduTrack
 #   Poner el token en .env del backend como MOODLE_WS_TOKEN=...
 #
-# Producción (VPS + dominio HTTPS): copiá docs/moodle.env.example → .env con MOODLE_HOST=moodle.edutrack-uy.com
+# Producción: cp -n docs/moodle.env.example .env.moodle (NO copiar sobre ~/edutrack/.env principal)
 # y MOODLE_SSLPROXY=yes. Si la BD ya se instaló con localhost:8080, ejecutá una vez:
 #   MOODLE_PUBLIC_URL=https://moodle.edutrack-uy.com ./scripts/moodle-fix-production.sh
 #
@@ -109,9 +109,9 @@ services:
       MOODLE_EMAIL: admin@edutrack.local
       # Nombre del sitio en la primera instalación (default Bitnami: "New Site").
       MOODLE_SITE_NAME: "Los Olivos"
-      # Host público (sin :443). Producción: moodle.edutrack-uy.com — ver docs/moodle.env.example
+      # Host público (sin :443). Producción: moodle.edutrack-uy.com — ver docs/moodle.env.example → .env.moodle
       MOODLE_HOST: ${MOODLE_HOST:-localhost:8080}
-      # Detrás de nginx/Caddy con HTTPS (producción: yes — ver docs/moodle.env.example)
+      # Detrás de nginx/Caddy con HTTPS (producción: yes — ver .env.moodle)
       MOODLE_SSLPROXY: ${MOODLE_SSLPROXY:-no}
       MOODLE_REVERSEPROXY: ${MOODLE_REVERSEPROXY:-no}
       MOODLE_SSL_PROXY: ${MOODLE_SSL_PROXY:-no}
