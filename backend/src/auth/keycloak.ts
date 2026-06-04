@@ -368,7 +368,7 @@ export async function syncKeycloakUserIdentity(input: SyncKeycloakUserIdentityIn
     ...(input.username ? { username: input.username } : {}),
     ...(input.firstName ? { firstName: input.firstName } : {}),
     ...(input.lastName ? { lastName: input.lastName } : {}),
-    ...(input.emailVerified === true ? { emailVerified: true } : {}),
+    ...(typeof input.emailVerified === "boolean" ? { emailVerified: input.emailVerified } : {}),
   };
 
   const updateRes = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(input.kcId)}`, {
