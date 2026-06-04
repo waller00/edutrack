@@ -32,10 +32,20 @@ $content = preg_replace(
 $content = preg_replace('/\$CFG->wwwroot\s*=\s*[^;]+;\s*\n?/', '', $content) ?? $content;
 
 $wwwrootLine = '$CFG->wwwroot = ' . var_export($publicUrl, true) . ';';
-$marker = "require_once(dirname(__FILE__) . '/lib/setup.php');";
-if (str_contains($content, $marker)) {
-    $content = str_replace($marker, $wwwrootLine . "\n\n" . $marker, $content);
-} else {
+$inserted = false;
+foreach (
+    [
+        "require_once(dirname(__FILE__) . '/lib/setup.php');",
+        "require_once(__DIR__ . '/lib/setup.php');",
+    ] as $marker
+) {
+    if (str_contains($content, $marker)) {
+        $content = str_replace($marker, $wwwrootLine . "\n\n" . $marker, $content);
+        $inserted = true;
+        break;
+    }
+}
+if (!$inserted) {
     $content = rtrim($content) . "\n" . $wwwrootLine . "\n";
 }
 
