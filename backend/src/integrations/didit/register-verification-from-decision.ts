@@ -126,6 +126,25 @@ function isIsoDateBeforeLocalToday(isoYyyyMmDd: string): boolean {
   return doc.getTime() < today.getTime()
 }
 
+/** Valida vencimiento del documento con el JSON de Didit (no se persiste en User). */
+export function getDocumentExpiryValidationErrorFromDecision(
+  decision: unknown,
+  birthYyyyMmDd: string | undefined,
+): string | null {
+  const birth = birthYyyyMmDd?.trim()
+  if (!birth) {
+    return 'Falta la fecha de nacimiento para validar el vencimiento del documento con Didit.'
+  }
+  const expiryIso = extractLikelyExpiryIsoFromDecision(decision, birth)
+  if (!expiryIso) {
+    return 'No pudimos determinar la fecha de vencimiento del documento con Didit. Reiniciá la verificación.'
+  }
+  if (isIsoDateBeforeLocalToday(expiryIso)) {
+    return `El documento figura vencido (vencimiento ${expiryIso}). No podés crear la cuenta hasta renovar la cédula.`
+  }
+  return null
+}
+
 /** Construye el mismo formato “card” que el paso OCR (mensajes ✓). Sin fecha de vencimiento manual: se infiere de Didit. */
 export function buildRegisterVerificationComparison(
   decision: unknown,

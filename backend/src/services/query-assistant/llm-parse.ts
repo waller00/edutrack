@@ -1,7 +1,8 @@
 import OpenAI, { APIError } from 'openai'
 import { enrichPayloadFromQuestion } from './enrich-payload.js'
+import { heuristicIntentFromQuestion } from './question-heuristics.js'
 import { loosenLlmIntentJson } from './llm-json-loosen.js'
-import { DATABASE_CONTEXT } from './schema-context.js'
+import { SEMANTIC_SYNONYMS } from './schema-context.js'
 import { llmIntentSchema, type LlmIntentPayload } from './schemas.js'
 
 const SYSTEM_PROMPT = `Sos un clasificador de consultas administrativas para EduTrack (asistencias, eventos, licencias, biométrico, usuarios, auditoría).
@@ -55,6 +56,16 @@ function currentContextLine(defaultYear = new Date().getUTCFullYear()) {
 }
 
 export async function parseQuestionWithLlm(question: string, options?: { defaultYear?: number }): Promise<LlmIntentPayload> {
+  // Fast path sin tokens: si las heurísticas locales clasifican con confianza la consulta
+  // (frases comunes como "horas trabajadas mayo", "licencias activas", "lista de usuarios"),
+  // resolvemos sin llamar al modelo. Solo caemos al LLM cuando la heurística no está segura.
+  if (process.env.QUERY_ASSISTANT_DISABLE_HEURISTIC !== '1') {
+    const fast = heuristicIntentFromQuestion(question.trim(), options?.defaultYear)
+    if (fast) {
+      return enrichPayloadFromQuestion(fast, question.trim(), { defaultYear: options?.defaultYear })
+    }
+  }
+
   const apiKey = process.env.OPENAI_API_KEY?.trim()
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY_NOT_CONFIGURED')
@@ -75,8 +86,11 @@ export async function parseQuestionWithLlm(question: string, options?: { default
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${SYSTEM_PROMPT}\n\n${DATABASE_CONTEXT}\n${currentContextLine(options?.defaultYear)}` },
-        { role: 'user', content: question.trim().slice(0, 2000) },
+        // System 100% estático (clasificador + sinónimos) → prefijo cacheable por OpenAI.
+        // Sin el esquema completo de tablas: el clasificador no lo necesita.
+        { role: 'system', content: `${SYSTEM_PROMPT}\n\n${SEMANTIC_SYNONYMS}` },
+        // Lo volátil (fecha, año por defecto) va en el mensaje del usuario.
+        { role: 'user', content: `${currentContextLine(options?.defaultYear)}\n\nConsulta: ${question.trim().slice(0, 2000)}` },
       ],
     })
   } catch (e: unknown) {

@@ -282,7 +282,7 @@ export async function generateExcelReport(data: any, res: any, filters: any) { /
   
   // Tabla principal con los registros filtrados (igual que se ve en pantalla)
   const tableHeaders = [
-    'Fecha', 'Hora', 'Usuario', 'Email', 'Rol', 
+    'Fecha', 'Hora', 'Usuario', 'Correo', 'Rol', 
     'Evento', 'Tipo Evento', 'Tipo', 'Estado', 'Notas'
   ]
   
@@ -354,7 +354,7 @@ export async function generateExcelReport(data: any, res: any, filters: any) { /
     if (index === 0) column.width = 15 // Fecha (agrandada)
     else if (index === 1) column.width = 12 // Hora (un poco más grande)
     else if (index === 2) column.width = 25 // Usuario
-    else if (index === 3) column.width = 35 // Email
+    else if (index === 3) column.width = 35 // Correo
     else if (index === 4) column.width = 12 // Rol
     else if (index === 5) column.width = 30 // Evento
     else if (index === 6) column.width = 15 // Tipo Evento
@@ -484,7 +484,7 @@ export async function generatePDFReport(data: any, res: any, filters: any) { // 
   
   // Encabezados de tabla mejorados
   const headers = [
-    'Usuario', 'Email', 'Rol', 'Total', 'Pres', 'Tarde', 
+    'Usuario', 'Correo', 'Rol', 'Total', 'Pres', 'Tarde', 
     'Aus NJ', 'Aus J', 'Sal', 'SA', 'Ev', 'As', '%'
   ]
   

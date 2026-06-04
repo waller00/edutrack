@@ -706,13 +706,13 @@ export default function AdminAttendance() {
           exportDone = true
           break
         }
-        if (st.status === 'FAILED') throw new Error(st.errorMessage || 'Error generando export')
+        if (st.status === 'FAILED') throw new Error(st.errorMessage || 'Error generando exportación')
         await new Promise((r) => setTimeout(r, 250))
       }
-      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
+      if (!exportDone) throw new Error('La exportación tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
-      if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
+      if (!dl.ok) throw new Error(`Error descargando exportación: ${dl.status}`)
 
       const blob = await dl.blob()
       const url = window.URL.createObjectURL(blob)
@@ -727,7 +727,7 @@ export default function AdminAttendance() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
 
-      setMessage(`✅ Export ${format.toUpperCase()} generado correctamente`)
+      setMessage(`✅ Exportación ${format.toUpperCase()} generada correctamente`)
     } catch (error: any) {
       console.error('Error completo:', error)
       setMessage(`❌ Error: ${error.message || 'Error al exportar el reporte'}`)

@@ -37,7 +37,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('users.read', 'Usuarios', 'read', 'Ver usuarios', true, 'all'),
     perm('users.create', 'Usuarios', 'create', 'Crear usuarios', true, 'all'),
     perm('users.update', 'Usuarios', 'update', 'Editar usuarios', true, 'all'),
-    perm('users.security', 'Usuarios', 'security', 'Bloquear usuarios y resetear contraseñas', true, 'all'),
+    perm('users.security', 'Usuarios', 'security', 'Bloquear usuarios y restablecer contraseñas', true, 'all'),
     perm('attendance.read', 'Asistencias', 'read', 'Ver asistencias', true, 'all'),
     perm('attendance.update', 'Asistencias', 'update', 'Editar asistencias', true, 'all'),
     perm('attendance.delete', 'Asistencias', 'delete', 'Eliminar asistencias', true, 'all'),

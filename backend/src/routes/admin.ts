@@ -4,7 +4,6 @@ import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
-import { validateNationalIdDocumentExpiresAtUpdate } from '../auth/auth-profile-pure.js'
 import { isDiditConfigured } from '../config/system-settings.js'
 import { getOrCreateSystemSettings } from '../config/system-settings.js'
 import { normalizePermissionId } from '../identity/profile-permissions-defaults.js'
@@ -48,7 +47,6 @@ async function buildAdminUserUpdateData(id: string, payload: {
   role?: string
   username?: string
   nationalId?: string
-  nationalIdDocumentExpiresAt?: string
   firstName?: string
   lastName?: string
   isApproved?: boolean
@@ -74,9 +72,6 @@ async function buildAdminUserUpdateData(id: string, payload: {
   if (payload.nationalId) {
     if (!isValidUruguayanCI(payload.nationalId)) throw new Error('INVALID_CI')
     data.nationalId = onlyDigits(payload.nationalId)
-  }
-  if (payload.nationalIdDocumentExpiresAt !== undefined) {
-    data.nationalIdDocumentExpiresAt = validateNationalIdDocumentExpiresAtUpdate(payload.nationalIdDocumentExpiresAt) ?? null
   }
   if (typeof payload.isApproved === 'boolean') {
     data.isApproved = payload.isApproved
@@ -176,7 +171,7 @@ function messageForUniqueViolation(err: Prisma.PrismaClientKnownRequestError): s
     return 'Ese nombre de usuario ya está en uso por otro usuario.'
   }
   if (joined.includes('email')) {
-    return 'Ese email ya está registrado en otro usuario.'
+    return 'Ese correo ya está registrado en otro usuario.'
   }
   return 'Ese dato ya existe en otro usuario (restricción única en la base).'
 }
@@ -527,7 +522,7 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
 
   const { email, username } = parsed.data
   const exist = await prisma.user.findUnique({ where: { email } })
-  if (exist) return res.status(409).json({ message: 'Email ya registrado' })
+  if (exist) return res.status(409).json({ message: 'Correo ya registrado' })
   const user = await prisma.user.create({
     data: {
       email,
@@ -547,7 +542,7 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
     })
   } catch (e) {
     console.error('[admin] keycloak create user:', e)
-    return res.status(502).json({ message: 'Usuario local creado, pero no se pudo crear la cuenta en Keycloak.' })
+    return res.status(502).json({ message: 'Usuario local creado, pero no se pudo activar el acceso.' })
   }
   recordAuditEvent({
     action: AuditAction.USER_CREATED_BY_ADMIN,
@@ -569,7 +564,6 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
       role: z.string().min(2).optional(),
       username: z.string().min(3).max(30).optional(),
       nationalId: z.string().min(6).max(20).optional(),
-      nationalIdDocumentExpiresAt: z.string().min(8).max(40).nullable().optional(),
       firstName: z.string().min(1).max(80).optional(),
       lastName: z.string().min(1).max(80).optional(),
       isApproved: z.boolean().optional(),
@@ -611,9 +605,6 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
   } catch (error) {
     if (error instanceof Error && error.message === 'INVALID_CI') {
       return res.status(400).json({ message: 'Cédula inválida' })
-    }
-    if (error instanceof Error && error.message === 'INVALID_NATIONAL_ID_DOCUMENT_EXPIRES_AT') {
-      return res.status(400).json({ message: 'Vencimiento de documento inválido' })
     }
     if (error instanceof Error && error.message === 'UNKNOWN_ROLE_CODE') {
       return res.status(400).json({ message: 'Rol no encontrado o inactivo' })
@@ -747,14 +738,14 @@ r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), 
   })
   if (!u) return res.status(404).json({ message: 'Usuario no encontrado' })
   if ((u.orgRole?.code ?? '') === 'ADMIN') {
-    return res.status(403).json({ message: 'No se puede resetear la contraseña del administrador desde esta pantalla.' })
+    return res.status(403).json({ message: 'No se puede restablecer la contraseña del administrador desde esta pantalla.' })
   }
   try {
     const { triggerKeycloakPasswordReset } = await import('../auth/keycloak.js')
     await triggerKeycloakPasswordReset(u.email)
   } catch (e) {
     console.error('[admin] keycloak password reset:', e)
-    return res.status(502).json({ message: 'No se pudo enviar el restablecimiento de contraseña (Keycloak).' })
+    return res.status(502).json({ message: 'No se pudo enviar el restablecimiento de contraseña.' })
   }
   // Forzar re-login: invalidamos sesiones BFF activas del usuario.
   void deleteSessionsForUser(id)
@@ -766,7 +757,7 @@ r.post('/users/:id/password/reset', requirePermission('users.security', 'all'), 
     entityId: id,
     metadata: { via: 'keycloak' },
   })
-  res.json({ ok: true, message: 'Se envió un correo de restablecimiento de contraseña (Keycloak).' })
+  res.json({ ok: true, message: 'Se envió un correo de restablecimiento de contraseña.' })
 })
 
 r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_req, res) => {

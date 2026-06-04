@@ -115,7 +115,6 @@ describe('buildProfilePayload', () => {
       lastName: 'b',
       phoneLocal: '',
       birthdate: '',
-      nationalIdDocumentExpiresAt: '',
       nationalId: '1.234.567-8',
       isAdmin: false,
     })
@@ -130,14 +129,12 @@ describe('buildProfilePayload', () => {
       lastName: 'B',
       phoneLocal: '099123456',
       birthdate: '2000-01-15',
-      nationalIdDocumentExpiresAt: '2032-03-10',
       nationalId: 'x',
       isAdmin: true,
     })
     expect(p.phone).toBe('+59899123456')
     expect(String(p.birthdate)).toMatch(/2000-01/)
     expect(p.nationalId).toBe('x')
-    expect(String(p.nationalIdDocumentExpiresAt)).toMatch(/2032-03/)
   })
 })
 

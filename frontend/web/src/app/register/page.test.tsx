@@ -75,7 +75,7 @@ describe('RegisterPage', () => {
     render(<RegisterPage />)
     await screen.findByText('Crear Cuenta')
     fireEvent.submit(document.querySelector('form') as HTMLFormElement)
-    expect(await screen.findByText(/Email inválido/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Correo inválido/i)).toBeInTheDocument()
   })
 
   it('usa el Cancelar existente para salir del registro con Google', async () => {

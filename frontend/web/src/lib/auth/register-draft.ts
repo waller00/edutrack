@@ -16,7 +16,6 @@ export type RegisterDraftSnapshot = {
   lastName: string
   phoneLocal: string
   birthdate: string
-  nationalIdDocumentExpiresAt: string
   role: RegisterRole
   verificationStep: number
   verificationResults: RegisterVerificationResults | null

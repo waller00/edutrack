@@ -1283,7 +1283,7 @@ export function HomeGenericHint() {
     >
       <div className="px-5 py-10 sm:px-6">
         <p className="mx-auto max-w-md text-center text-sm leading-relaxed text-slate-600">
-          Si tenés alertas arriba (email, perfil o aprobación), resolvelas primero. Después podés usar el menú para navegar.
+          Si tenés alertas arriba (correo, perfil o aprobación), resolvelas primero. Después podés usar el menú para navegar.
         </p>
       </div>
     </HomePanelShell>

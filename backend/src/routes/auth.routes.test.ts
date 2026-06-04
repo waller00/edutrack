@@ -306,7 +306,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
         lastName: "Tido",
       });
     expect(res.status).toBe(409);
-    expect(res.body.message).toMatch(/Email/i);
+    expect(res.body.message).toMatch(/Correo/i);
   });
 
   it("POST /auth/register rechaza celular inválido", async () => {

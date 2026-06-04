@@ -16,7 +16,7 @@ import {
 } from '@/lib/auth/onboarding-form-helpers'
 import {
   getRegisterBirthdateValidationError,
-  getRegisterDocumentExpiryCapturedError,
+  getRegisterDocumentExpiryVerificationError,
   getRegisterVerificationFieldLabel,
   getRegisterVerificationMessageClass,
   getRegisterVerificationMessageIcon,
@@ -49,7 +49,6 @@ type Me = {
   lastName?: string
   nationalId?: string
   birthdate?: string
-  nationalIdDocumentExpiresAt?: string
   phone?: string
   role: 'ADMIN' | 'STAFF' | 'TEACHER'
 }
@@ -63,7 +62,6 @@ export default function OnboardingPage() {
   const [lastName, setLastName] = useState('')
   const [phoneLocal, setPhoneLocal] = useState('')
   const [birthdate, setBirthdate] = useState('')
-  const [nationalIdDocumentExpiresAt, setNationalIdDocumentExpiresAt] = useState('')
   const [role, setRole] = useState<'STAFF' | 'TEACHER'>('STAFF')
   const [verificationResults, setVerificationResults] = useState<RegisterVerificationResults | null>(null)
   const [error, setError] = useState('')
@@ -130,11 +128,6 @@ export default function OnboardingPage() {
         setLastName(data.lastName || '')
         setNationalId(data.nationalId ? formatUruguayanCI(data.nationalId) : '')
         setBirthdate(data.birthdate ? new Date(data.birthdate).toISOString().split('T')[0] : '')
-        setNationalIdDocumentExpiresAt(
-          data.nationalIdDocumentExpiresAt
-            ? new Date(data.nationalIdDocumentExpiresAt).toISOString().split('T')[0]
-            : '',
-        )
         setRole(data.role === 'TEACHER' ? 'TEACHER' : 'STAFF')
         setPhoneLocal(formatLocalMobileInputFromE164(data.phone))
       })
@@ -154,7 +147,6 @@ export default function OnboardingPage() {
     setLastName(d.lastName)
     setPhoneLocal(d.phoneLocal)
     setBirthdate(d.birthdate)
-    setNationalIdDocumentExpiresAt(d.nationalIdDocumentExpiresAt)
     setRole(d.role === 'TEACHER' ? 'TEACHER' : 'STAFF')
     if (d.verificationResults) setVerificationResults(d.verificationResults)
     if (d.identityVerificationMethod === 'didit') setIdentityVerificationMethod('didit')
@@ -238,10 +230,6 @@ export default function OnboardingPage() {
           verifiedFields: response.verifiedFields ?? 0,
           totalFields: response.totalFields ?? 0,
         })
-        const exRaw = response.verification?.nationalIdDocumentExpiresAt?.extracted
-        if (typeof exRaw === 'string' && /\d{4}-\d{2}-\d{2}/.test(exRaw)) {
-          setNationalIdDocumentExpiresAt(exRaw.trim().slice(0, 10))
-        }
         setIdentityVerificationMethod('didit')
         setError('')
       } else {
@@ -415,7 +403,7 @@ export default function OnboardingPage() {
 
   const startDiditLiveness = useCallback(async () => {
     if (!me?.email?.trim()) {
-      setLivenessPollError('No hay email asociado a la sesión.')
+      setLivenessPollError('No hay correo asociado a la sesión.')
       return
     }
     const idErr = validateRegisterIdentityBeforeVerification({
@@ -456,7 +444,6 @@ export default function OnboardingPage() {
         lastName,
         phoneLocal,
         birthdate,
-        nationalIdDocumentExpiresAt,
         role,
         verificationStep: 0,
         verificationResults,
@@ -483,7 +470,6 @@ export default function OnboardingPage() {
     firstName,
     lastName,
     birthdate,
-    nationalIdDocumentExpiresAt,
     phoneLocal,
     role,
     verificationResults,
@@ -504,7 +490,7 @@ export default function OnboardingPage() {
       return 'Por ahora el alta no está disponible sin verificación en línea. Escribinos si necesitás ayuda.'
     }
     if (!verificationResults) return 'Debés confirmar tu identidad antes de continuar.'
-    const expErr = getRegisterDocumentExpiryCapturedError(nationalIdDocumentExpiresAt)
+    const expErr = getRegisterDocumentExpiryVerificationError(verificationResults)
     if (expErr) return expErr
     if (identityVerificationMethod !== 'didit') {
       return 'Debés confirmar tu identidad con el proceso indicado antes de continuar.'
@@ -536,9 +522,6 @@ export default function OnboardingPage() {
           lastName,
           phone: phoneLocal ? `+598${normalizeLocalPhoneUY(phoneLocal)}` : undefined,
           birthdate: new Date(birthdate).toISOString(),
-          nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAt.trim()
-            ? new Date(nationalIdDocumentExpiresAt).toISOString()
-            : undefined,
           role,
         }),
       })
@@ -572,7 +555,7 @@ export default function OnboardingPage() {
           </div>
 
           <div className="mb-6 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            Email asociado: <span className="font-semibold">{me.email}</span>
+            Correo asociado: <span className="font-semibold">{me.email}</span>
           </div>
 
           <form onSubmit={onSubmit} className="space-y-6">
@@ -750,7 +733,6 @@ export default function OnboardingPage() {
                         onClick={() => {
                           setVerificationResults(null)
                           setIdentityVerificationMethod(null)
-                          setNationalIdDocumentExpiresAt('')
                           setError('')
                         }}
                         className="btn-secondary text-sm px-3 py-1"

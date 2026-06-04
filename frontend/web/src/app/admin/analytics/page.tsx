@@ -419,13 +419,13 @@ export default function AdminAnalyticsPage() {
           exportDone = true
           break
         }
-        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando export')
+        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando exportación')
         await new Promise((r) => setTimeout(r, 250))
       }
-      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
+      if (!exportDone) throw new Error('La exportación tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
-      if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
+      if (!dl.ok) throw new Error(`Error descargando exportación: ${dl.status}`)
       const blob = await dl.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -440,7 +440,7 @@ export default function AdminAnalyticsPage() {
       document.body.removeChild(a)
       setExportNotice(`✅ Exportación ${format} lista.`)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Error exportando.'
+      const msg = e instanceof Error ? e.message : 'Error al exportar.'
       setError(msg)
     } finally {
       setExportingKind(null)
@@ -474,13 +474,13 @@ export default function AdminAnalyticsPage() {
           exportDone = true
           break
         }
-        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando export')
+        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando exportación')
         await new Promise((r) => setTimeout(r, 250))
       }
-      if (!exportDone) throw new Error('El export tardó demasiado en generarse')
+      if (!exportDone) throw new Error('La exportación tardó demasiado en generarse')
 
       const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
-      if (!dl.ok) throw new Error(`Error descargando export: ${dl.status}`)
+      if (!dl.ok) throw new Error(`Error descargando exportación: ${dl.status}`)
       const blob = await dl.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -492,7 +492,7 @@ export default function AdminAnalyticsPage() {
       document.body.removeChild(a)
       setExportNotice('✅ PDF mensual listo.')
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Error exportando PDF.'
+      const msg = e instanceof Error ? e.message : 'Error al exportar PDF.'
       setError(msg)
     } finally {
       setExportingKind(null)
@@ -952,7 +952,7 @@ export default function AdminAnalyticsPage() {
                     Trayectorias semanales
                   </h2>
                   <p className="mt-1 max-w-prose text-sm text-gray-600">
-                    Serie construida con la misma lógica de conciliación usada por exportaciones; sirve comparar períodos institucionalmente relativos dentro de EduTrack, no benchmarking externo.
+                    Serie construida con la misma lógica de conciliación usada por exportaciones; sirve comparar períodos institucionalmente relativos dentro de EduTrack, no comparación externa.
                   </p>
                 </div>
               </div>

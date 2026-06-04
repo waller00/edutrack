@@ -60,7 +60,6 @@ export default function RegisterPage() {
   const [lastName, setLastName] = useState('')
   const [phoneLocal, setPhoneLocal] = useState('')
   const [birthdate, setBirthdate] = useState('')
-  const [nationalIdDocumentExpiresAt, setNationalIdDocumentExpiresAt] = useState('')
   const [role, setRole] = useState<RegisterRole>('')
   const [error, setError] = useState('')
   const [ok, setOk] = useState(false)
@@ -82,8 +81,6 @@ export default function RegisterPage() {
   const [ssoPrefillLoading, setSsoPrefillLoading] = useState(false)
 
   const registerDraftRestoredRef = useRef(false)
-  /** Último email con el que contamos para la regla “no cambiar correo tras Didit” (evita falso positivo al hidratar borrador). */
-  const lastEmailForLivenessRef = useRef<string | null>(null)
   const diditVerifySeqRef = useRef(0)
   const livenessTokenRef = useRef<string | null>(null)
   const identityFieldsRef = useRef({
@@ -134,13 +131,11 @@ export default function RegisterPage() {
     if (!d) return
     registerDraftRestoredRef.current = true
     setEmail(d.email)
-    lastEmailForLivenessRef.current = d.email
     setNationalId(d.nationalId)
     setFirstName(d.firstName)
     setLastName(d.lastName)
     setPhoneLocal(d.phoneLocal)
     setBirthdate(d.birthdate)
-    setNationalIdDocumentExpiresAt(d.nationalIdDocumentExpiresAt)
     setRole(d.role)
     if (d.verificationResults) setVerificationResults(d.verificationResults)
     if (d.identityVerificationMethod === 'didit') setIdentityVerificationMethod('didit')
@@ -187,7 +182,6 @@ export default function RegisterPage() {
       .then((profile) => {
         if (!alive) return
         setEmail(profile.email || '')
-        lastEmailForLivenessRef.current = profile.email || ''
         setFirstName(profile.firstName || '')
         setLastName(profile.lastName || '')
         setSsoEmailLocked(profile.emailLocked !== false)
@@ -283,10 +277,6 @@ export default function RegisterPage() {
           verifiedFields: response.verifiedFields ?? 0,
           totalFields: response.totalFields ?? 0,
         })
-        const exRaw = response.verification?.nationalIdDocumentExpiresAt?.extracted
-        if (typeof exRaw === 'string' && /\d{4}-\d{2}-\d{2}/.test(exRaw)) {
-          setNationalIdDocumentExpiresAt(exRaw.trim().slice(0, 10))
-        }
         setIdentityVerificationMethod('didit')
         setError('')
       } else {
@@ -346,26 +336,6 @@ export default function RegisterPage() {
     }, 2500)
     return () => window.clearInterval(t)
   }, [livenessToken, livenessApproved, pollLiveness])
-
-  useEffect(() => {
-    if (!livenessCheckEnabled) {
-      lastEmailForLivenessRef.current = email
-      return
-    }
-    const prev = lastEmailForLivenessRef.current
-    /** Vacío cuenta como “sin email fijo aún”: al hidratar desde borrador '' → mismo correo de Didit no es un cambio. */
-    const hadCommittedEmail =
-      prev !== null && prev !== ''
-    if (hadCommittedEmail && prev !== email && (livenessToken != null || livenessApproved)) {
-      setLivenessToken(null)
-      setLivenessApproved(false)
-      setLivenessPollError('Cambiaste el email: volvé a hacer la prueba de vida con el nuevo correo.')
-      try {
-        window.sessionStorage.removeItem('edutrack_liveness_token')
-      } catch { /* */ }
-    }
-    lastEmailForLivenessRef.current = email
-  }, [email, livenessCheckEnabled, livenessToken, livenessApproved])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -432,7 +402,6 @@ export default function RegisterPage() {
       role,
       phoneLocal,
       birthdate,
-      nationalIdDocumentExpiresAt,
       verificationResults,
       identityVerificationMethod: identityVerificationMethod ?? undefined,
       livenessCheckEnabled,
@@ -446,7 +415,7 @@ export default function RegisterPage() {
 
   const startDiditLiveness = useCallback(async () => {
     if (!email.trim()) {
-      setLivenessPollError('Completá tu email arriba antes de iniciar la prueba de vida.')
+      setLivenessPollError('Completá tu correo arriba antes de iniciar la prueba de vida.')
       return
     }
     const idErr = validateRegisterIdentityBeforeVerification({
@@ -485,7 +454,6 @@ export default function RegisterPage() {
         lastName,
         phoneLocal,
         birthdate,
-        nationalIdDocumentExpiresAt,
         role,
         verificationStep: 0,
         verificationResults,
@@ -511,7 +479,6 @@ export default function RegisterPage() {
     firstName,
     lastName,
     birthdate,
-    nationalIdDocumentExpiresAt,
     phoneLocal,
     role,
     verificationResults,
@@ -536,9 +503,6 @@ export default function RegisterPage() {
         lastName,
         phone: phoneLocal ? `+598${normalizeLocalPhoneUY(phoneLocal)}` : undefined,
         birthdate: new Date(birthdate).toISOString(),
-        nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAt.trim()
-          ? new Date(nationalIdDocumentExpiresAt).toISOString()
-          : undefined,
         role,
       }
       if (!ssoRegistrationToken) {
@@ -581,7 +545,7 @@ export default function RegisterPage() {
         if (!isBareStatus && apiMsg) {
           setError(apiMsg)
         } else if (err.status === 409) {
-          setError('Ese email, usuario o cédula ya está registrado.')
+          setError('Ese correo, usuario o cédula ya está registrado.')
         } else {
           setError('No se pudo registrar. Intenta nuevamente.')
         }
@@ -658,7 +622,7 @@ export default function RegisterPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Correo</label>
                 <input 
                   value={email} 
                   onChange={e=>setEmail(e.target.value)} 
@@ -666,7 +630,7 @@ export default function RegisterPage() {
                   required 
                   disabled={ssoEmailLocked}
                   className="input-field"
-                  placeholder="tu@email.com"
+                  placeholder="tu@correo.com"
                 />
               </div>
 
@@ -877,7 +841,6 @@ export default function RegisterPage() {
                         onClick={() => {
                           setVerificationResults(null)
                           setIdentityVerificationMethod(null)
-                          setNationalIdDocumentExpiresAt('')
                           setError('')
                         }}
                         className="btn-secondary text-sm px-3 py-1"

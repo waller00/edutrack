@@ -1,4 +1,8 @@
-export const DATABASE_CONTEXT = `Contexto de base de datos disponible (estructura, sin datos reales):
+/**
+ * Estructura técnica de tablas/columnas. Solo se necesita para generar SQL libre
+ * (modo `sql`); el clasificador de intents no la usa, para ahorrar tokens.
+ */
+export const DATABASE_SCHEMA = `Contexto de base de datos disponible (estructura, sin datos reales):
 - Tabla "User": personas/cuentas del sistema. Campos útiles: "id", "email", "username", "firstName", "lastName", "name", "nationalIdDocumentExpiresAt", "isApproved", "isActive", "lockUntil", "createdAt", "roleId". Relación con "OrgRole" por "roleId". Usá búsquedas por nombre, apellido, username o email.
 - Tabla "OrgRole": rol organizacional. Campos: "id", "code", "label". Códigos esperados: ADMIN, TEACHER, STAFF, STUDENT u otros roles configurados.
 - Tabla "Attendance": marcas de asistencia. Campos: "id", "userId", "eventId", "type", "status", "date", "time", "notes". "type": CHECK_IN/CHECK_OUT. "status" incluye PRESENT, LATE, ABSENT_NOT_JUSTIFIED, ABSENT_JUSTIFIED, EXIT, EARLY_EXIT, JUSTIFIED, FREE, PENDING_REVIEW, SUBSTITUTED, SUSPENDED, OUT_OF_SCHEDULE, UNIDENTIFIED_PUNCH.
@@ -16,9 +20,14 @@ export const DATABASE_CONTEXT = `Contexto de base de datos disponible (estructur
 - Tabla "StudentTuitionYear": cuota anual por estudiante. Campos: "studentId", "year", "paid", "paidAt", "amountCents", "notes". Un registro por par (studentId, year).
 - Tabla "MedicalLeave": licencias o permisos. Campos: "id", "userId", "type", "status", "startDate", "endDate", "reason", "doctorName". "status": ACTIVE/INACTIVE. El período de licencia se interpreta por solapamiento con el rango pedido.
 - Tabla "BiometricPunch": marcas crudas del reloj biométrico. Campos: "id", "userId", "deviceUserId", "occurredAt", "punchType", "processStatus", "processError". "processStatus": PENDING, PROCESSED, FAILED, DUPLICATE.
-- Tabla "AuditLog": auditoría del sistema. Campos: "id", "occurredAt", "action", "actorUserId", "actorIp", "source", "entityType", "entityId", "metadata".
+- Tabla "AuditLog": auditoría del sistema. Campos: "id", "occurredAt", "action", "actorUserId", "actorIp", "source", "entityType", "entityId", "metadata".`
 
-Mapa semántico:
+/**
+ * Mapa de sinónimos/lenguaje natural → entidades del dominio. Es liviano y lo comparten
+ * tanto el clasificador de intents como el generador de SQL: ayuda a interpretar como
+ * la gente habla ("profe", "fichada", "no vino") sin arrastrar el esquema completo.
+ */
+export const SEMANTIC_SYNONYMS = `Mapa semántico:
 - Sinónimos de personas/roles: "docente", "profesor", "profe", "maestro", "educador", "tutor" suelen mapear a usuarios con rol TEACHER; "funcionario", "personal", "staff", "administrativo", "adscripto", "bedel" suelen mapear a STAFF o personal no estudiante; "alumno", "estudiante", "chico", "gurí" suelen mapear a Student si preguntan matrícula/cursos.
 - Sinónimos de eventos: "clase", "materia", "asignatura", "curso", "turno", "jornada", "reunión", "actividad" suelen mapear a Event y Course/CourseOffering/Subject según contexto.
 - Sinónimos de asistencia: "marca", "marcación", "fichada", "registro", "entrada", "ingreso", "llegada", "salida", "retiro".
@@ -28,3 +37,8 @@ Mapa semántico:
 - "docentes con más faltas", "ranking de ausencias", "quién faltó más" requiere agrupar por usuario y contar incidencias TEACHER_NO_SHOW.
 - "licencias activas/vigentes" mapea a "MedicalLeave"."status" = 'ACTIVE'.
 - "usuarios pendientes", "cuentas bloqueadas", "documento por vencer" mapea a "User" con isApproved/isActive/lockUntil/nationalIdDocumentExpiresAt.`
+
+/** Contexto completo (esquema + sinónimos) para el modo de SQL libre. */
+export const DATABASE_CONTEXT = `${DATABASE_SCHEMA}
+
+${SEMANTIC_SYNONYMS}`
