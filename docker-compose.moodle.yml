@@ -36,6 +36,10 @@
 #   5) Administración > Servidor > Servicios web > Tokens > Crear token: usuario (p. ej. admin), servicio = el de EduTrack
 #   Poner el token en .env del backend como MOODLE_WS_TOKEN=...
 #
+# Producción (VPS + dominio HTTPS): copiá docs/moodle.env.example → .env con MOODLE_HOST=moodle.edutrack-uy.com
+# y MOODLE_SSLPROXY=yes. Si la BD ya se instaló con localhost:8080, ejecutá una vez:
+#   MOODLE_PUBLIC_URL=https://moodle.edutrack-uy.com ./scripts/moodle-fix-production.sh
+#
 # Contraseñas por defecto SOLO para local — rotá si exponés el puerto 8080.
 #
 # --- Persistencia (que no se “borre solo” el Moodle local) ---
@@ -105,8 +109,13 @@ services:
       MOODLE_EMAIL: admin@edutrack.local
       # Nombre del sitio en la primera instalación (default Bitnami: "New Site").
       MOODLE_SITE_NAME: "Los Olivos"
-      # Host público con puerto (ej. en servidor: MOODLE_HOST=138.197.35.2.nip.io:8080 en .env junto a este compose)
+      # Host público (sin :443). Producción: moodle.edutrack-uy.com — ver docs/moodle.env.example
       MOODLE_HOST: ${MOODLE_HOST:-localhost:8080}
+      # Detrás de nginx/Caddy con HTTPS (producción: yes — ver docs/moodle.env.example)
+      MOODLE_SSLPROXY: ${MOODLE_SSLPROXY:-no}
+      MOODLE_REVERSEPROXY: ${MOODLE_REVERSEPROXY:-no}
+      MOODLE_SSL_PROXY: ${MOODLE_SSL_PROXY:-no}
+      MOODLE_REVERSE_PROXY: ${MOODLE_REVERSE_PROXY:-no}
       # "yes" solo recuperación: BD ya tiene Moodle pero faltan archivos persistidos (ver comentarios arriba).
       # Por defecto "no"; instalación nueva con BD vacía debe dejar esto en no.
       MOODLE_SKIP_BOOTSTRAP: ${MOODLE_RECOVER_EXISTING_DB:-no}

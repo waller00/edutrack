@@ -71,6 +71,32 @@ core_enrol_get_enrolled_users
 
 Activá el protocolo **REST** y generá el token (ver cabecera de `docker-compose.moodle.yml`).
 
+## Despliegue en VPS (producción)
+
+Moodle corre en un servidor aparte con `docker-compose.moodle.yml` (Bitnami). Si al abrir
+`https://moodle.edutrack-uy.com` te redirige a `localhost:8080`, el `config.php` quedó con el
+`wwwroot` de desarrollo.
+
+1. En el VPS Moodle, copiá [`docs/moodle.env.example`](moodle.env.example) a `.env` y ajustá
+   `MOODLE_HOST=moodle.edutrack-uy.com`, `MOODLE_SSLPROXY=yes`, `MOODLE_REVERSEPROXY=yes`.
+2. El proxy (nginx/Caddy) debe enviar `Host`, `X-Forwarded-Proto: https` y `X-Forwarded-Host`.
+3. **Instancia ya instalada** (caso habitual): desde la raíz del repo en el VPS:
+
+   ```bash
+   git pull
+   MOODLE_PUBLIC_URL=https://moodle.edutrack-uy.com ./scripts/moodle-fix-production.sh
+   ```
+
+4. En el VPS de EduTrack (`.env` del compose cloud):
+
+   ```env
+   MOODLE_BASE_URL=https://moodle.edutrack-uy.com
+   MOODLE_CANONICAL_HOST=moodle.edutrack-uy.com
+   ```
+
+Desarrollo local sigue usando `MOODLE_HOST=localhost:8080` y, si hace falta, el parche dinámico
+[`scripts/patch-moodle-wwwroot-dynamic.php`](../scripts/patch-moodle-wwwroot-dynamic.php).
+
 ## SSO con Keycloak (identidad unificada)
 
 EduTrack ya usa Keycloak (OIDC) como IdP. Para que el login de Moodle use el mismo IdP y no
