@@ -48,6 +48,18 @@ if ($content === $original) {
 }
 
 file_put_contents($configFile, $content);
+
+$check = file_get_contents($configFile);
+$wwwrootCount = preg_match_all('/\$CFG->wwwroot\s*=/', $check);
+if ($wwwrootCount !== 1) {
+    fwrite(STDERR, "config.php tiene $wwwrootCount asignaciones wwwroot (esperado 1). Revisá el archivo.\n");
+    exit(1);
+}
+if (preg_match('/\$CFG->wwwroot\s*=[^;]*localhost/i', $check)) {
+    fwrite(STDERR, "config.php sigue referenciando localhost en wwwroot.\n");
+    exit(1);
+}
+
 echo "ok wwwroot=$publicUrl sslproxy=1 reverseproxy=1\n";
 
 function setCfgBool(string $content, string $key, bool $value): string
