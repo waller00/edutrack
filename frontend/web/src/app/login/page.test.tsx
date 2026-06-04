@@ -55,6 +55,8 @@ describe('LoginPage (Keycloak)', () => {
     render(<LoginPage />)
 
     const btn = await screen.findByRole('button', { name: /Ingresar/i })
+    expect(screen.queryByText(/Keycloak|proveedor de identidad/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/contactá al soporte de EduTrack/i)).toBeInTheDocument()
     expect(errorLocationMock.href).toBe('')
     fireEvent.click(btn)
     expect(errorLocationMock.href).toContain('/auth/login')
@@ -70,6 +72,8 @@ describe('LoginPage (Keycloak)', () => {
     render(<LoginPage />)
 
     expect(await screen.findByRole('heading', { name: /Sesión cerrada/i })).toBeInTheDocument()
+    expect(screen.queryByText(/Keycloak|proveedor de identidad/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Cerramos tu sesión correctamente/i)).toBeInTheDocument()
     expect(loggedOutLocationMock.href).toBe('')
   })
 

@@ -57,7 +57,7 @@ export default function Home() {
               <AlertTriangle className="h-3.5 w-3.5 text-white" strokeWidth={2.5} aria-hidden />
             </div>
             <div className="flex-1">
-              <p className="text-sm font-medium text-yellow-800">Email no verificado</p>
+              <p className="text-sm font-medium text-yellow-800">Correo no verificado</p>
               <p className="text-sm text-yellow-700">Revisa tu bandeja o reenvía el correo de verificación.</p>
             </div>
             <button

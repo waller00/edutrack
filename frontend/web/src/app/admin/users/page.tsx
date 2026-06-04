@@ -140,14 +140,6 @@ export default function AdminUsersPage() {
     )
     if (!proceed) return
 
-    let docPayload: string | null = null
-    const raw = edit.nationalIdDocumentExpiresAt
-    if (raw != null && String(raw).trim() !== '') {
-      const s = String(raw).trim()
-      docPayload = s.length <= 12 && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : formatYmdDate(s)
-      if (docPayload === '—') docPayload = null
-    }
-
     setSaving(true)
     setMsg('')
     try {
@@ -157,7 +149,6 @@ export default function AdminUsersPage() {
           role: edit.role,
           username: edit.username,
           nationalId: edit.nationalId,
-          nationalIdDocumentExpiresAt: docPayload,
           firstName: edit.firstName,
           lastName: edit.lastName,
           isApproved: edit.isApproved,
@@ -186,7 +177,7 @@ export default function AdminUsersPage() {
           username: createForm.username.trim() || undefined,
         }),
       })
-      setMsg('Usuario creado. Debe completar registro / contraseña por correo o reset.')
+      setMsg('Usuario creado. Debe completar el registro o definir su contraseña por correo.')
       setCreating(false)
       setCreateForm({ email: '', username: '', role: 'TEACHER' })
       await load(filters)
@@ -198,7 +189,7 @@ export default function AdminUsersPage() {
   }
 
   async function resetPassword(u: AdminUserRow) {
-    if (!confirm(`¿Enviar correo de restablecimiento de contraseña (Keycloak) a ${u.email}?`)) return
+    if (!confirm(`¿Enviar correo de restablecimiento de contraseña a ${u.email}?`)) return
     try {
       const res = await api<{ ok: boolean; message?: string }>(`/admin/users/${u.id}/password/reset`, {
         method: 'POST',
@@ -377,7 +368,7 @@ export default function AdminUsersPage() {
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Alta de usuario</h2>
             <form onSubmit={createUser} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="sm:col-span-2">
-                <label className="mb-1 block text-xs font-medium text-slate-600">Email</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Correo</label>
                 <input
                   type="email"
                   required
@@ -437,7 +428,7 @@ export default function AdminUsersPage() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') applyFilters()
                   }}
-                  placeholder="Email, usuario, nombre o apellido"
+                  placeholder="Correo, usuario, nombre o apellido"
                   className="w-full rounded-lg border border-slate-200 bg-slate-50/80 py-2 pl-9 pr-3 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                 />
               </div>
@@ -494,7 +485,7 @@ export default function AdminUsersPage() {
             </div>
             <div>
               <label htmlFor="filter-verified" className="mb-1 block text-xs font-medium text-slate-600">
-                Email verificado
+                Correo verificado
               </label>
               <select
                 id="filter-verified"
@@ -683,26 +674,6 @@ export default function AdminUsersPage() {
                     onChange={(e) => setEdit({ ...edit, nationalId: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                   />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Vencimiento documento (CI)</label>
-                  <input
-                    type="date"
-                    value={(() => {
-                      const x = edit.nationalIdDocumentExpiresAt
-                      if (!x) return ''
-                      const s = String(x).trim()
-                      return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : formatYmdDate(s) === '—' ? '' : formatYmdDate(s)
-                    })()}
-                    onChange={(e) =>
-                      setEdit({
-                        ...edit,
-                        nationalIdDocumentExpiresAt: e.target.value || null,
-                      })
-                    }
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                  />
-                  <p className="mt-1 text-xs text-slate-400">Dejar vacío para no definir fecha de vencimiento en este paso.</p>
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-600">Aprobación</label>

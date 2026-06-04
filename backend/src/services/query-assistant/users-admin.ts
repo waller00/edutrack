@@ -66,7 +66,7 @@ export async function executeUsersAdminSnapshot(
     summary: payload.reply || title,
     columns: [
       { key: 'persona', label: 'Persona' },
-      { key: 'email', label: 'Email' },
+      { key: 'email', label: 'Correo' },
       { key: 'rol', label: 'Rol' },
       { key: 'aprobado', label: 'Aprobado' },
       { key: 'activo', label: 'Activo' },

@@ -102,15 +102,43 @@ function referencedTables(sql: string): string[] {
   return [...found]
 }
 
-function validateReadOnlySql(sql: string): string {
+/**
+ * Reemplaza por espacios el contenido de los literales de string ('...'), conservando
+ * la longitud. Así los chequeos de palabras prohibidas, comentarios y `;` no dan falsos
+ * positivos cuando esas secuencias aparecen dentro de un dato (p. ej. un apellido
+ * 'Delete' o una nota con '--' o ';'). Los identificadores entre comillas dobles se
+ * dejan intactos porque se necesitan para detectar las tablas referenciadas.
+ */
+function blankStringLiterals(sql: string): string {
+  let out = ''
+  let inString = false
+  for (const ch of sql) {
+    if (ch === "'") {
+      // Una comilla simple alterna dentro/fuera de string. Las comillas escapadas ('')
+      // alternan dos veces y dejan el contenido intermedio igualmente blanqueado.
+      inString = !inString
+      out += "'"
+    } else {
+      out += inString ? ' ' : ch
+    }
+  }
+  return out
+}
+
+export function validateReadOnlySql(sql: string): string {
   const cleaned = stripTrailingSemicolon(sql)
   if (!/^select\b/i.test(cleaned)) throw new Error('QUERY_ASSISTANT_SQL_NOT_SELECT')
-  if (cleaned.includes(';')) throw new Error('QUERY_ASSISTANT_SQL_MULTIPLE_STATEMENTS')
-  if (cleaned.includes('--') || cleaned.includes('/*') || cleaned.includes('*/')) {
+
+  // Chequeos de seguridad sobre el SQL sin contenido de literales de string, para no
+  // rechazar datos legítimos que contengan ';', '--' o palabras reservadas.
+  const skeleton = blankStringLiterals(cleaned)
+  if (skeleton.includes(';')) throw new Error('QUERY_ASSISTANT_SQL_MULTIPLE_STATEMENTS')
+  if (skeleton.includes('--') || skeleton.includes('/*') || skeleton.includes('*/')) {
     throw new Error('QUERY_ASSISTANT_SQL_COMMENTS_FORBIDDEN')
   }
-  if (FORBIDDEN_SQL.test(cleaned)) throw new Error('QUERY_ASSISTANT_SQL_FORBIDDEN_KEYWORD')
+  if (FORBIDDEN_SQL.test(skeleton)) throw new Error('QUERY_ASSISTANT_SQL_FORBIDDEN_KEYWORD')
 
+  // Las tablas se detectan sobre los identificadores intactos del SQL original.
   const tables = referencedTables(cleaned)
   const unknown = tables.filter((t) => !ALLOWED_TABLES.has(t))
   if (unknown.length > 0) throw new Error(`QUERY_ASSISTANT_SQL_UNKNOWN_TABLE:${unknown.join(',')}`)
@@ -147,23 +175,25 @@ function rowsToTableResult(title: string, summary: string, rows: Record<string, 
   }
 }
 
-export async function runNaturalLanguageSqlQuery(
-  question: string,
-  scope?: QueryAssistantScope,
-): Promise<QueryAssistantTableResult> {
-  const client = getOpenAiClient()
-  const model = process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini'
+/** Modelo para generación de SQL. Permite uno más capaz que el de clasificación. */
+function sqlModel(): string {
+  return process.env.OPENAI_SQL_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini'
+}
 
+type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+
+async function requestSqlPlan(
+  client: OpenAI,
+  model: string,
+  messages: ChatMessage[],
+): Promise<z.infer<typeof sqlPlanSchema>> {
   let completion
   try {
     completion = await client.chat.completions.create({
       model,
       temperature: 0,
       response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: `${SQL_SYSTEM_PROMPT}\n\n${DATABASE_CONTEXT}\n${currentSqlContextLine(scope)}` },
-        { role: 'user', content: question.trim().slice(0, 2000) },
-      ],
+      messages,
     })
   } catch (e: unknown) {
     if (e instanceof APIError) {
@@ -185,9 +215,52 @@ export async function runNaturalLanguageSqlQuery(
   } catch {
     throw new Error('OPENAI_INVALID_JSON')
   }
+  return sqlPlanSchema.parse(parsedJson)
+}
 
-  const plan = sqlPlanSchema.parse(parsedJson)
-  const safeSql = validateReadOnlySql(plan.sql)
-  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(limitedSql(safeSql))
-  return rowsToTableResult(plan.title, plan.summary, rows)
+/** Si el error de Postgres delata SQL inválido (columna/función/sintaxis), conviene reintentar. */
+function isRepairableDbError(message: string): boolean {
+  return /column .* does not exist|does not exist|syntax error|relation .* does not exist|function .* does not exist|operator does not exist|invalid input syntax/i.test(
+    message,
+  )
+}
+
+const MAX_SQL_REPAIRS = 1
+
+export async function runNaturalLanguageSqlQuery(
+  question: string,
+  scope?: QueryAssistantScope,
+): Promise<QueryAssistantTableResult> {
+  const client = getOpenAiClient()
+  const model = sqlModel()
+
+  const messages: ChatMessage[] = [
+    // System 100% estático (instrucciones + esquema + sinónimos) → prefijo cacheable por OpenAI.
+    { role: 'system', content: `${SQL_SYSTEM_PROMPT}\n\n${DATABASE_CONTEXT}` },
+    // Lo volátil (fecha, ciclo lectivo) va con la pregunta del usuario.
+    { role: 'user', content: `${currentSqlContextLine(scope)}\n\nPregunta: ${question.trim().slice(0, 2000)}` },
+  ]
+
+  let lastError: unknown
+  for (let attempt = 0; attempt <= MAX_SQL_REPAIRS; attempt += 1) {
+    const plan = await requestSqlPlan(client, model, messages)
+    const safeSql = validateReadOnlySql(plan.sql)
+    try {
+      const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(limitedSql(safeSql))
+      return rowsToTableResult(plan.title, plan.summary, rows)
+    } catch (e: unknown) {
+      lastError = e
+      const message = e instanceof Error ? e.message : String(e)
+      if (attempt >= MAX_SQL_REPAIRS || !isRepairableDbError(message)) throw e
+      // Una sola ronda de auto-corrección: le devolvemos el SQL y el error de la base.
+      messages.push(
+        { role: 'assistant', content: JSON.stringify(plan) },
+        {
+          role: 'user',
+          content: `La consulta SQL anterior falló al ejecutarse en PostgreSQL con este error: ${message.slice(0, 500)}. Corregí el SQL respetando el esquema y las reglas, y devolvé de nuevo el JSON con title, summary y sql.`,
+        },
+      )
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('QUERY_ASSISTANT_SQL_FAILED')
 }

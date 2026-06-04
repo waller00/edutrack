@@ -176,11 +176,11 @@ export default function AdminTestingPanel() {
         method: 'POST',
         body: JSON.stringify({ confirm: resetConfirm }),
       })
-      setMsg(`${res.message} Login: ${res.admin.username} / ${res.admin.password}`)
+      setMsg(`${res.message} Acceso: ${res.admin.username} / ${res.admin.password}`)
       setResetConfirm('')
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo resetear la base.')
+      setError(e instanceof Error ? e.message : 'No se pudo reiniciar la base.')
     } finally {
       setResetting(false)
     }

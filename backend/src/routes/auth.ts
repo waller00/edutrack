@@ -11,12 +11,12 @@ import {
   validateRoleUpdate,
   validatePhoneUpdate,
   validateBirthdateUpdate,
-  validateNationalIdDocumentExpiresAtUpdate,
   mapProfileUpdateError,
 } from "../auth/auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
 import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/system-settings.js";
-import { syncLivenessSessionFromDiditApi } from "../integrations/didit/sync-session.js";
+import { syncLivenessSessionFromDiditApi, fetchDiditDecisionJson } from "../integrations/didit/sync-session.js";
+import { getDocumentExpiryValidationErrorFromDecision } from "../integrations/didit/register-verification-from-decision.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
 import { createKeycloakUser, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
@@ -31,7 +31,6 @@ const registerSchema = z.object({
   lastName: z.string().min(1).max(80),
   phone: z.string().min(7).max(20).optional(),
   birthdate: z.string().datetime().optional(),
-  nationalIdDocumentExpiresAt: z.string().min(8).max(40).optional(),
   role: z.enum(["ADMIN", "STAFF", "TEACHER"]).optional(),
   livenessToken: z.string().uuid().optional(),
   ssoRegistrationToken: z.string().min(20).max(128).optional(),
@@ -51,7 +50,7 @@ function handleRegisterUnexpectedError(error: unknown, res: any) {
 
   const code = errorCode(error);
   if (code === "P2002") {
-    return res.status(409).json({ message: "Ese email, usuario o cédula ya está registrado." });
+    return res.status(409).json({ message: "Ese correo, usuario o cédula ya está registrado." });
   }
   if (code === "P2003" || errorMessage(error).startsWith("ROLE_NOT_FOUND:")) {
     return res.status(400).json({ message: "Rol inválido." });
@@ -159,7 +158,6 @@ async function validateAndBuildProfileUpdate(data: {
   lastName?: string;
   phone?: string;
   birthdate?: string;
-  nationalIdDocumentExpiresAt?: string;
   role?: "ADMIN" | "STAFF" | "TEACHER";
 }) {
   const update: Record<string, unknown> = {};
@@ -196,13 +194,6 @@ async function validateAndBuildProfileUpdate(data: {
 
   const birthdate = validateBirthdateUpdate(data.birthdate);
   if (birthdate !== undefined) update.birthdate = birthdate;
-
-  const nationalIdDocumentExpiresAt = validateNationalIdDocumentExpiresAtUpdate(
-    data.nationalIdDocumentExpiresAt,
-  );
-  if (nationalIdDocumentExpiresAt !== undefined) {
-    update.nationalIdDocumentExpiresAt = nationalIdDocumentExpiresAt;
-  }
 
   return update;
 }
@@ -251,7 +242,6 @@ r.post("/register", async (req, res) => {
     lastName,
     phone,
     birthdate,
-    nationalIdDocumentExpiresAt,
     role,
     livenessToken,
     ssoRegistrationToken,
@@ -265,7 +255,7 @@ r.post("/register", async (req, res) => {
     return res.status(400).json({ message: "La contraseña es obligatoria." });
   }
   if (ssoProfile && ssoProfile.email.toLowerCase() !== email.trim().toLowerCase()) {
-    return res.status(400).json({ message: "El email de registro no coincide con la cuenta de Google." });
+    return res.status(400).json({ message: "El correo de registro no coincide con la cuenta de Google." });
   }
 
   const [byEmail, byNational] = await Promise.all([
@@ -298,15 +288,25 @@ r.post("/register", async (req, res) => {
     if (ls.expiresAt < new Date()) {
       return res.status(400).json({ message: "La prueba de vida venció. Iniciá una nueva sesión." });
     }
-    if (ls.email && ls.email.toLowerCase() !== email.trim().toLowerCase()) {
-      return res.status(400).json({ message: "El email de registro no coincide con el de la prueba de vida." });
+    const diditId = ls.diditSessionId?.trim();
+    if (!diditId) {
+      return res.status(400).json({ message: "Sesión Didit incompleta. Reiniciá la verificación." });
+    }
+    const decision = await fetchDiditDecisionJson(diditId);
+    if (!decision) {
+      return res.status(400).json({ message: "No se pudo validar el documento con Didit. Reintentá en un momento." });
+    }
+    const birthIso = birthdate ? String(birthdate).slice(0, 10) : "";
+    const expiryErr = getDocumentExpiryValidationErrorFromDecision(decision, birthIso);
+    if (expiryErr) {
+      return res.status(400).json({ message: expiryErr });
     }
     livenessRowId = ls.id;
   }
 
   const canCompleteSsoPlaceholder =
     Boolean(ssoProfile && byEmail && byEmail.isActive && !byEmail.isApproved);
-  if (byEmail && !canCompleteSsoPlaceholder) return res.status(409).json({ message: "Email ya registrado" });
+  if (byEmail && !canCompleteSsoPlaceholder) return res.status(409).json({ message: "Correo ya registrado" });
   if (byNational && (!canCompleteSsoPlaceholder || byNational.id !== byEmail?.id)) {
     return res.status(409).json({ message: "Cédula/Documento ya registrado" });
   }
@@ -320,13 +320,6 @@ r.post("/register", async (req, res) => {
           "Celular inválido. Debe ser uruguayo: 9 dígitos empezando con 09 (sin cédula en este campo).",
       });
     }
-  }
-
-  let nationalIdDocumentExpiresAtDate: Date | undefined;
-  try {
-    nationalIdDocumentExpiresAtDate = validateNationalIdDocumentExpiresAtUpdate(nationalIdDocumentExpiresAt);
-  } catch {
-    return res.status(400).json({ message: "Vencimiento de documento inválido" });
   }
 
   const registerRoleCode = normalizeOrgRoleCode(role || "STAFF");
@@ -350,7 +343,6 @@ r.post("/register", async (req, res) => {
       name: `${firstName} ${lastName}`,
       phone: normalizePhoneUY(phone) ?? null,
       birthdate: birthdate ? new Date(birthdate) : null,
-      nationalIdDocumentExpiresAt: nationalIdDocumentExpiresAtDate ?? null,
       roleId: registerRoleId,
       isApproved: false,
       approvedAt: null,
@@ -402,7 +394,7 @@ r.post("/register", async (req, res) => {
     }
   } catch (e) {
     console.error("[register] keycloak create user:", e);
-    return res.status(502).json({ message: "No se pudo crear la cuenta en el proveedor de identidad." });
+    return res.status(502).json({ message: "No se pudo activar el acceso de la cuenta." });
   }
 
   // Correo de verificación: best-effort y en segundo plano. No bloquea la respuesta,
@@ -475,7 +467,6 @@ r.put("/profile", authGuard, async (req, res) => {
     lastName: z.string().min(1).max(80).optional(),
     phone: z.string().min(7).max(20).optional(),
     birthdate: z.string().min(8).max(32).optional(),
-    nationalIdDocumentExpiresAt: z.string().min(8).max(40).optional(),
     role: z.enum(["ADMIN", "STAFF", "TEACHER"]).optional(),
   });
   const parsed = bodySchema.safeParse(req.body);

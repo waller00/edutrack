@@ -27,7 +27,7 @@ describe('VerifyPage', () => {
 
     render(<VerifyPage />)
 
-    expect(await screen.findByText('Email verificado')).toBeInTheDocument()
+    expect(await screen.findByText('Correo verificado')).toBeInTheDocument()
     expect(api).toHaveBeenCalledWith('/auth/verify', {
       method: 'POST',
       body: JSON.stringify({ token: 'abc123' }),

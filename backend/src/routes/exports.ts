@@ -95,7 +95,7 @@ r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, r
     const exportFilenameBase = (() => {
       if (reportKey === 'attendance_detail') return `EduTrack_Asistencia_Detallada_${from}_${to}${filterSuffix}`
       if (reportKey === 'monthly_summary') return `EduTrack_Asistencia_Resumen_Mensual_${from.slice(0, 7)}${filterSuffix}`
-      return `EduTrack_Export_${from}_${to}${filterSuffix}`
+      return `EduTrack_Exportacion_${from}_${to}${filterSuffix}`
     })()
 
     const contentType =
@@ -152,15 +152,15 @@ r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, r
         const buffer = await generateAttendanceAssistanceReportPdfFromAttendances({ filters: attendanceFiltersForBackend })
         markDone(exportId, buffer)
       } else {
-        markFailed(exportId, 'Formato inválido para attendance_detail')
-        return res.status(400).json({ message: 'Formato inválido para attendance_detail' })
+        markFailed(exportId, 'Formato inválido para el detalle de asistencia')
+        return res.status(400).json({ message: 'Formato inválido para el detalle de asistencia' })
       }
     }
 
     if (reportKey === 'monthly_summary') {
       if (format !== 'PDF') {
-        markFailed(exportId, 'Format not allowed for monthly_summary')
-        return res.status(400).json({ message: 'Formato inválido para monthly_summary' })
+        markFailed(exportId, 'Formato inválido para el resumen mensual')
+        return res.status(400).json({ message: 'Formato inválido para el resumen mensual' })
       }
       let resolvedPlannedSchoolYearId: string | undefined
       if (!allYearsExport) {
@@ -201,7 +201,7 @@ r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, r
 r.get('/:exportId', authGuard, requirePermission('exports.create', 'all'), (req, res) => {
   const exportId = req.params.exportId
   const e = getExport(exportId)
-  if (!e) return res.status(404).json({ message: 'Export no encontrada' })
+  if (!e) return res.status(404).json({ message: 'Exportación no encontrada' })
   const downloadUrl = e.status === 'DONE' ? getDownloadUrl(exportId) : null
   res.json({ exportId: e.exportId, status: e.status, downloadUrl, errorMessage: e.errorMessage })
 })
@@ -209,8 +209,8 @@ r.get('/:exportId', authGuard, requirePermission('exports.create', 'all'), (req,
 r.get('/:exportId/download', authGuard, requirePermission('exports.create', 'all'), (req, res) => {
   const exportId = req.params.exportId
   const e = getExport(exportId)
-  if (!e) return res.status(404).json({ message: 'Export no encontrada' })
-  if (e.status !== 'DONE' || !e.buffer) return res.status(409).json({ message: 'Export no lista aún' })
+  if (!e) return res.status(404).json({ message: 'Exportación no encontrada' })
+  if (e.status !== 'DONE' || !e.buffer) return res.status(409).json({ message: 'Exportación no lista aún' })
   res.setHeader('Content-Type', e.contentType)
   res.setHeader('Content-Disposition', `attachment; filename="${e.filename}"`)
   res.send(e.buffer)

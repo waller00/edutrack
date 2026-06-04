@@ -23,7 +23,6 @@ export default function ProfilePage() {
   const [lastName, setLastName] = useState('')
   const [phoneLocal, setPhoneLocal] = useState('')
   const [birthdate, setBirthdate] = useState('')
-  const [nationalIdDocumentExpiresAt, setNationalIdDocumentExpiresAt] = useState('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -39,9 +38,6 @@ export default function ProfilePage() {
       setLastName(u.lastName || '')
       setPhoneLocal(formatLocalMobileInputFromE164(u.phone))
       setBirthdate(u.birthdate ? String(u.birthdate).slice(0, 10) : '')
-      setNationalIdDocumentExpiresAt(
-        u.nationalIdDocumentExpiresAt ? String(u.nationalIdDocumentExpiresAt).slice(0, 10) : '',
-      )
     }).catch(() => { window.location.href = '/login' })
   }, [])
 
@@ -64,7 +60,6 @@ export default function ProfilePage() {
         lastName,
         phoneLocal,
         birthdate,
-        nationalIdDocumentExpiresAt,
         nationalId,
         isAdmin: canEditNationalId(me?.role),
       })
@@ -149,15 +144,6 @@ export default function ProfilePage() {
             onPhoneChange={setPhoneLocal}
             onBirthdateChange={setBirthdate}
           />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Vencimiento del DNI</label>
-            <input
-              value={nationalIdDocumentExpiresAt}
-              onChange={e => setNationalIdDocumentExpiresAt(e.target.value)}
-              type="date"
-              className="input-field"
-            />
-          </div>
         </div>
         <div className="flex justify-end pt-6 border-t border-gray-200">
           <button

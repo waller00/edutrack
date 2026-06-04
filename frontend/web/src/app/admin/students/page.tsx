@@ -698,7 +698,7 @@ export default function AdminStudentsPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email contacto</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Correo de contacto</label>
                   <input
                     className="w-full rounded-lg border border-gray-200 px-3 py-2"
                     value={form.contactEmail ?? ''}

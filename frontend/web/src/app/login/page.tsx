@@ -78,19 +78,19 @@ export default function LoginPage() {
                 ? 'Podés volver a ingresar cuando lo necesites.'
                 : externalError === 'account'
                   ? 'Tu cuenta está pendiente de aprobación o fue inhabilitada. Contactá a un administrador.'
-                  : 'El proveedor de identidad no completó el ingreso.'}
+                  : 'El ingreso venció o fue interrumpido antes de completarse.'}
             </p>
           </div>
           {loggedOut && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
-              <p className="text-sm text-emerald-800">Tu sesión local y la sesión de Keycloak fueron cerradas.</p>
+              <p className="text-sm text-emerald-800">Cerramos tu sesión correctamente.</p>
             </div>
           )}
           {externalError && externalError !== 'account' && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
-              <p className="text-sm text-red-700">Intentá nuevamente. Si el problema continúa, revisá la configuración de Keycloak.</p>
+              <p className="text-sm text-red-700">Volvé a intentar. Si el problema continúa, contactá al soporte de EduTrack.</p>
             </div>
           )}
           <button

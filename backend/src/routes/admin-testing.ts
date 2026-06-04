@@ -118,7 +118,7 @@ r.post('/reset-all', async (req, res) => {
 
   const { admin, schoolYear, password } = await resetDatabaseToSingleAdmin()
   return res.json({
-    message: 'Base reseteada: solo queda el usuario administrador.',
+    message: 'Base reiniciada: solo queda el usuario administrador.',
     admin: {
       id: admin.id,
       username: admin.username,

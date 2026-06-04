@@ -8,7 +8,7 @@ import {
   getRegisterVerificationMessageIcon,
   isValidRegisterEmail,
   isWarningRegisterVerificationMessage,
-  getRegisterDocumentExpiryCapturedError,
+  getRegisterDocumentExpiryVerificationError,
   validateRegisterDniUploadInput,
   validateRegisterForm,
   type RegisterVerificationResults,
@@ -25,14 +25,16 @@ const baseForm = {
   role: 'TEACHER' as const,
   phoneLocal: '',
   birthdate: '1990-01-15',
-  nationalIdDocumentExpiresAt: '2030-06-01',
   livenessCheckEnabled: true,
   livenessApproved: true,
   identityVerificationMethod: 'didit' as const,
   verificationResults: {
     verifiedFields: 5,
     totalFields: 5,
-    verification: { a: { provided: '', message: '✓' } },
+    verification: {
+      a: { provided: '', message: '✓' },
+      nationalIdDocumentExpiresAt: { provided: '', extracted: '2030-06-01', message: '✓' },
+    },
   } satisfies RegisterVerificationResults,
 }
 
@@ -146,13 +148,37 @@ describe('getRegisterIdentityValidationError', () => {
   })
 })
 
-describe('getRegisterDocumentExpiryCapturedError', () => {
+describe('getRegisterDocumentExpiryVerificationError', () => {
   it('vacío o vencido', () => {
-    expect(getRegisterDocumentExpiryCapturedError('')).toContain('verificación de identidad')
-    expect(getRegisterDocumentExpiryCapturedError('2000-01-01')).toContain('vencido')
+    expect(getRegisterDocumentExpiryVerificationError(null)).toContain('verificación de identidad')
+    expect(
+      getRegisterDocumentExpiryVerificationError({
+        verifiedFields: 1,
+        totalFields: 1,
+        verification: {
+          nationalIdDocumentExpiresAt: {
+            provided: '',
+            extracted: '2000-01-01',
+            message: '✗ Documento vencido',
+          },
+        },
+      }),
+    ).toContain('vencido')
   })
   it('vigente', () => {
-    expect(getRegisterDocumentExpiryCapturedError('2099-01-15')).toBeNull()
+    expect(
+      getRegisterDocumentExpiryVerificationError({
+        verifiedFields: 1,
+        totalFields: 1,
+        verification: {
+          nationalIdDocumentExpiresAt: {
+            provided: '',
+            extracted: '2099-01-15',
+            message: '✓',
+          },
+        },
+      }),
+    ).toBeNull()
   })
 })
 
@@ -170,8 +196,8 @@ describe('validateRegisterForm', () => {
   it('formulario completo válido', () => {
     expect(validateRegisterForm(baseForm)).toBeNull()
   })
-  it('email password', () => {
-    expect(validateRegisterForm({ ...baseForm, email: 'bad' })).toContain('Email')
+  it('correo y contraseña', () => {
+    expect(validateRegisterForm({ ...baseForm, email: 'bad' })).toContain('Correo')
     expect(validateRegisterForm({ ...baseForm, password: 'weak' })).toContain('contraseña')
     expect(validateRegisterForm({ ...baseForm, confirm: 'Xyz78901' })).toContain('coinciden')
   })
@@ -185,7 +211,16 @@ describe('validateRegisterForm', () => {
     expect(validateRegisterForm({ ...baseForm, phoneLocal: '41234563' })).toContain('cédula')
   })
   it('sin vencimiento capturado por verificación', () => {
-    expect(validateRegisterForm({ ...baseForm, nationalIdDocumentExpiresAt: '' })).toContain('verificación de identidad')
+    expect(
+      validateRegisterForm({
+        ...baseForm,
+        verificationResults: {
+          verifiedFields: 4,
+          totalFields: 5,
+          verification: { a: { provided: '', message: '✓' } },
+        },
+      }),
+    ).toContain('verificación de identidad')
   })
   it('liveness exigida', () => {
     expect(

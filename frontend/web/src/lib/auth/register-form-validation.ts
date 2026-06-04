@@ -142,20 +142,35 @@ export function getRegisterNationalIdDocumentExpiresAtValidationError(nationalId
   return null
 }
 
-/** Vencimiento solo por verificación Didit/OCR (no hay campo en el formulario). */
-export function getRegisterDocumentExpiryCapturedError(nationalIdDocumentExpiresAt: string): string | null {
-  const t = nationalIdDocumentExpiresAt?.trim()
-  if (!t) {
-    return 'El vencimiento del DNI debe confirmarse con la verificación de identidad (Didit o foto del documento).'
+/** Vencimiento validado solo en Didit (no se persiste en la cuenta). */
+export function getRegisterDocumentExpiryVerificationError(
+  verificationResults: RegisterVerificationResults | null,
+): string | null {
+  const entry = verificationResults?.verification?.nationalIdDocumentExpiresAt
+  if (!entry) {
+    return 'El vencimiento del DNI debe confirmarse con la verificación de identidad (Didit).'
   }
-  const d = new Date(t.slice(0, 10) + 'T12:00:00')
-  if (Number.isNaN(d.getTime())) return 'Fecha de vencimiento inválida tras la verificación.'
-  const today = new Date()
-  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  if (d.getTime() < startToday.getTime()) {
+  const msg = String(entry.message || '')
+  if (msg.includes('✗')) {
     return 'El documento aparece vencido; no podés crear la cuenta hasta renovar la cédula.'
   }
-  return null
+  if (msg.includes('⚠️ No pudimos determinar')) {
+    return 'No pudimos confirmar el vencimiento del DNI con Didit. Volvé a verificar.'
+  }
+  if (msg.includes('✓')) return null
+  const extracted = entry.extracted?.trim().slice(0, 10)
+  if (extracted) {
+    const d = new Date(extracted + 'T12:00:00')
+    if (!Number.isNaN(d.getTime())) {
+      const today = new Date()
+      const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+      if (d.getTime() < startToday.getTime()) {
+        return 'El documento aparece vencido; no podés crear la cuenta hasta renovar la cédula.'
+      }
+      return null
+    }
+  }
+  return 'Confirmá el vencimiento del DNI con Didit antes de continuar.'
 }
 
 export function getRegisterIdentityValidationError(params: {
@@ -182,7 +197,6 @@ export function validateRegisterForm(params: {
   role: RegisterRole
   phoneLocal: string
   birthdate: string
-  nationalIdDocumentExpiresAt: string
   verificationResults: RegisterVerificationResults | null
   /** Siempre Didit cuando el servidor expone esta opción. */
   identityVerificationMethod?: 'didit' | 'dni-photo' | null
@@ -191,7 +205,7 @@ export function validateRegisterForm(params: {
   livenessApproved?: boolean
   passwordRequired?: boolean
 }): string | null {
-  if (!isValidRegisterEmail(params.email)) return 'Email inválido'
+  if (!isValidRegisterEmail(params.email)) return 'Correo inválido'
   if (params.passwordRequired !== false) {
     if (!isStrongPassword(params.password)) {
       return STRONG_PASSWORD_MESSAGE
@@ -214,7 +228,7 @@ export function validateRegisterForm(params: {
     return 'Por ahora el registro completo no está disponible sin verificación en línea. Escribinos si necesitás ayuda.'
   }
   if (!params.verificationResults) return 'Debés confirmar tu identidad antes de crear la cuenta.'
-  const expiryCap = getRegisterDocumentExpiryCapturedError(params.nationalIdDocumentExpiresAt)
+  const expiryCap = getRegisterDocumentExpiryVerificationError(params.verificationResults)
   if (expiryCap) return expiryCap
   if (params.identityVerificationMethod !== 'didit') {
     return 'Debés confirmar tu identidad con el proceso indicado antes de crear la cuenta.'

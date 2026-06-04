@@ -62,7 +62,6 @@ export function buildProfilePayload(params: {
   lastName: string
   phoneLocal: string
   birthdate: string
-  nationalIdDocumentExpiresAt: string
   nationalId: string
   isAdmin: boolean
 }): Record<string, unknown> {
@@ -72,9 +71,6 @@ export function buildProfilePayload(params: {
     lastName: params.lastName,
     phone: params.phoneLocal ? `+598${normalizeLocalPhoneUY(params.phoneLocal)}` : undefined,
     birthdate: params.birthdate ? new Date(params.birthdate).toISOString() : undefined,
-    nationalIdDocumentExpiresAt: params.nationalIdDocumentExpiresAt
-      ? new Date(params.nationalIdDocumentExpiresAt).toISOString()
-      : undefined,
   }
   if (params.isAdmin) {
     payload.nationalId = params.nationalId

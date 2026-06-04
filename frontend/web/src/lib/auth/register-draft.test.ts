@@ -19,7 +19,6 @@ function snapshot(): RegisterDraftSnapshot {
     lastName: 'B',
     phoneLocal: '099123456',
     birthdate: '1990-01-01',
-    nationalIdDocumentExpiresAt: '2030-01-01',
     role: 'TEACHER',
     verificationStep: 0,
     verificationResults: null,

@@ -217,11 +217,6 @@ r.post('/didit/register-field-verify', async (req, res) => {
   if (!ls) {
     return res.status(404).json({ message: 'Sesión no encontrada' })
   }
-  const bodyEmail = parsed.data.email?.trim().toLowerCase()
-  if (ls.email && bodyEmail && ls.email.toLowerCase() !== bodyEmail) {
-    return res.status(400).json({ message: 'El email no coincide con la sesión de Didit.' })
-  }
-
   if (ls.diditSessionId) {
     await syncLivenessSessionFromDiditApi(ls.id)
     const refetched = await prisma.livenessSession.findUnique({ where: { id: ls.id } })

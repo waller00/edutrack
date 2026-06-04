@@ -20,7 +20,7 @@ export default function VerifyPage() {
         {status === 'loading' && <p>Verificando…</p>}
         {status === 'ok' && (
           <>
-            <h1 className="text-xl font-semibold mb-2">Email verificado</h1>
+            <h1 className="text-xl font-semibold mb-2">Correo verificado</h1>
             <p className="text-sm text-gray-600">Tu correo ha sido verificado correctamente.</p>
             <a href="/" className="inline-block mt-4 px-4 py-2 bg-black text-white rounded">Ir al inicio</a>
           </>
