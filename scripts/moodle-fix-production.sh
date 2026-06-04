@@ -54,8 +54,8 @@ docker exec -e "MOODLE_PUBLIC_URL=$MOODLE_PUBLIC_URL" "$CONTAINER" php /tmp/fix-
 echo "wwwroot en config.php:"
 docker exec "$CONTAINER" grep wwwroot /bitnami/moodle/config.php
 
-docker exec -u root "$CONTAINER" chown -R daemon:root /bitnami/moodledata /bitnami/moodle
-docker exec "$CONTAINER" php /opt/bitnami/moodle/admin/cli/purge_caches.php
+docker exec -u root "$CONTAINER" chown -R daemon:daemon /bitnami/moodledata /bitnami/moodle
+docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/purge_caches.php
 
 if [[ -f "$MOODLE_ENV_FILE" ]]; then
   echo "Recreando moodle con --env-file $MOODLE_ENV_FILE ..."
