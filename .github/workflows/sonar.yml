@@ -1,4 +1,4 @@
-name: SonarQube
+name: SonarCloud
 
 on:
   push:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   analysis:
-    name: Static analysis + coverage gate
+    name: Code Analysis
     runs-on: ubuntu-latest
     # Sin SONAR_TOKEN el analisis no puede publicar: se omite el job en vez de fallar el pipeline.
     if: ${{ github.actor != 'dependabot[bot]' }}
@@ -62,19 +62,9 @@ jobs:
           npm ci
           npm run test:coverage
 
-      - name: SonarQube scan
+      - name: SonarCloud scan
         if: steps.guard.outputs.skip == 'false'
         uses: SonarSource/sonarqube-scan-action@v4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-
-      # Requiere token de usuario (no solo token de analisis). Si falla con 403, el scan igual queda en SonarCloud.
-      - name: SonarQube Quality Gate
-        if: steps.guard.outputs.skip == 'false'
-        uses: SonarSource/sonarqube-quality-gate-action@v1
-        continue-on-error: true
-        timeout-minutes: 5
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_HOST_URL: https://sonarcloud.io

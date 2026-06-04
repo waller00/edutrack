@@ -84,10 +84,18 @@ describe('ProfilePage', () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({})
     render(<ProfilePage />)
     await screen.findByText('Mi Perfil')
+    expect(screen.getByLabelText(/correo/i)).toHaveValue(baseMe.email)
     fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
     await waitFor(() => {
       expect(screen.getByText('Perfil actualizado')).toBeInTheDocument()
     })
+    expect(mockedApi).toHaveBeenLastCalledWith(
+      '/auth/profile',
+      expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"email":"t@school.edu"'),
+      }),
+    )
   })
 
   it('muestra acciones para contraseña y 2FA', async () => {

@@ -8,6 +8,7 @@ const {
   prismaMock,
   sendMailMock,
   createKeycloakUserMock,
+  syncKeycloakUserIdentityMock,
   syncRegisteredSsoUserMock,
   getSsoRegistrationMock,
   consumeSsoRegistrationMock,
@@ -40,6 +41,7 @@ const {
   },
   sendMailMock: vi.fn().mockResolvedValue(undefined),
   createKeycloakUserMock: vi.fn().mockResolvedValue("kc-id-1"),
+  syncKeycloakUserIdentityMock: vi.fn().mockResolvedValue(undefined),
   syncRegisteredSsoUserMock: vi.fn().mockResolvedValue(undefined),
   getSsoRegistrationMock: vi.fn().mockResolvedValue(null),
   consumeSsoRegistrationMock: vi.fn().mockResolvedValue(null),
@@ -50,6 +52,7 @@ vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../notifications/email.js", () => ({ sendMail: sendMailMock }));
 vi.mock("../auth/keycloak.js", () => ({
   createKeycloakUser: createKeycloakUserMock,
+  syncKeycloakUserIdentity: syncKeycloakUserIdentityMock,
   syncRegisteredSsoUser: syncRegisteredSsoUserMock,
 }));
 vi.mock("../auth/sso-registration.js", () => ({
@@ -87,6 +90,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     vi.clearAllMocks();
     sendMailMock.mockResolvedValue(undefined);
     createKeycloakUserMock.mockResolvedValue("kc-id-1");
+    syncKeycloakUserIdentityMock.mockResolvedValue(undefined);
     syncRegisteredSsoUserMock.mockResolvedValue(undefined);
     getSsoRegistrationMock.mockResolvedValue(null);
     consumeSsoRegistrationMock.mockResolvedValue(null);
@@ -392,6 +396,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
   it("PUT /auth/profile actualiza nombre", async () => {
     prismaMock.user.findUnique.mockResolvedValue({
       id: "user-1",
+      email: "user-1@example.com",
       nationalId: "12345678",
       firstName: "Viejo",
       lastName: "Nombre",
@@ -405,6 +410,29 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(prismaMock.user.update).toHaveBeenCalled();
+  });
+
+  it("PUT /auth/profile actualiza correo desde datos personales", async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce({
+        id: "user-1",
+        email: "viejo@example.com",
+        nationalId: "12345678",
+        firstName: "Viejo",
+        lastName: "Nombre",
+        isApproved: false,
+      })
+      .mockResolvedValueOnce(null);
+    prismaMock.user.update.mockResolvedValue({ id: "user-1" });
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ email: "Nuevo@Example.com" });
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: { email: "nuevo@example.com", emailVerifiedAt: null },
+    });
   });
 
   it("PUT /auth/profile permite a un ADMIN cambiar el rol", async () => {

@@ -18,8 +18,9 @@ import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/
 import { syncLivenessSessionFromDiditApi, fetchDiditDecisionJson } from "../integrations/didit/sync-session.js";
 import { getDocumentExpiryValidationErrorFromDecision } from "../integrations/didit/register-verification-from-decision.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
-import { createKeycloakUser, syncRegisteredSsoUser } from "../auth/keycloak.js";
+import { createKeycloakUser, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
+import { saveSession } from "../auth/session-store.js";
 
 const r = Router();
 
@@ -134,6 +135,16 @@ async function validateUniqueUsername(userId: string, username?: string) {
   return username;
 }
 
+async function validateUniqueEmail(userId: string, email?: string) {
+  if (!email) return undefined;
+  const normalized = email.trim().toLowerCase();
+  const parsed = z.string().email().safeParse(normalized);
+  if (!parsed.success) throw new Error("INVALID_EMAIL");
+  const exist = await prisma.user.findUnique({ where: { email: normalized } });
+  if (exist && exist.id !== userId) throw new Error("EMAIL_CONFLICT");
+  return normalized;
+}
+
 async function validateNationalIdUpdate(
   userId: string,
   nationalId: string | undefined,
@@ -152,6 +163,7 @@ async function validateNationalIdUpdate(
 async function validateAndBuildProfileUpdate(data: {
   userId: string;
   userRole: string;
+  email?: string;
   username?: string;
   nationalId?: string;
   firstName?: string;
@@ -165,6 +177,12 @@ async function validateAndBuildProfileUpdate(data: {
   if (!me) throw new Error("NOT_FOUND");
   const isAdmin = data.userRole === "ADMIN";
   const isSettingInitialNationalId = !me?.nationalId;
+
+  const email = await validateUniqueEmail(data.userId, data.email);
+  if (email !== undefined && email !== me.email) {
+    update.email = email;
+    update.emailVerifiedAt = null;
+  }
 
   const username = await validateUniqueUsername(data.userId, data.username);
   if (username !== undefined) update.username = username;
@@ -461,6 +479,7 @@ r.post("/verify/resend", authGuard, async (req, res) => {
 r.put("/profile", authGuard, async (req, res) => {
   const u = (req as any).user;
   const bodySchema = z.object({
+    email: z.string().email().optional(),
     username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_.-]+$/).optional(),
     nationalId: z.string().min(6).max(20).optional(),
     firstName: z.string().min(1).max(80).optional(),
@@ -494,7 +513,26 @@ r.put("/profile", authGuard, async (req, res) => {
     }
   }
 
+  if (typeof data.email === "string") {
+    const session = (req as any).bffSession as { kcId?: string } | undefined;
+    if (session?.kcId) {
+      try {
+        await syncKeycloakUserIdentity({ kcId: session.kcId, email: data.email, emailVerified: false });
+      } catch (error) {
+        console.error("[profile] no se pudo sincronizar correo:", error);
+        return res.status(502).json({ message: "No se pudo actualizar el correo de acceso." });
+      }
+    }
+  }
+
   const updated = await prisma.user.update({ where: { id: u.sub }, data });
+  const session = (req as any).bffSession as { email?: string } | undefined;
+  if (session && typeof data.email === "string") {
+    session.email = data.email;
+    await saveSession(session as Parameters<typeof saveSession>[0]).catch((error) => {
+      console.warn("[profile] no se pudo actualizar el correo de la sesión:", error);
+    });
+  }
   return res.json({ ok: true, id: updated.id });
 });
 

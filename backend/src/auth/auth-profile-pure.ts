@@ -76,8 +76,12 @@ export function validateNationalIdDocumentExpiresAtUpdate(input?: string) {
 export function mapProfileUpdateError(error: Error, res: { status: (n: number) => { json: (b: any) => any } }) {
   if (error.message === "USERNAME_CONFLICT")
     return res.status(409).json({ message: "Usuario ya en uso" });
+  if (error.message === "EMAIL_CONFLICT")
+    return res.status(409).json({ message: "Correo ya registrado" });
   if (error.message === "CI_CONFLICT")
     return res.status(409).json({ message: "Cédula ya registrada" });
+  if (error.message === "INVALID_EMAIL")
+    return res.status(400).json({ message: "Correo inválido" });
   if (error.message === "INVALID_CI") return res.status(400).json({ message: "Cédula inválida" });
   if (error.message === "INVALID_PHONE")
     return res.status(400).json({ message: "Teléfono inválido" });

@@ -17,6 +17,7 @@ import {
 
 export default function ProfilePage() {
   const [me, setMe] = useState<any>(null)
+  const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [nationalId, setNationalId] = useState('')
   const [firstName, setFirstName] = useState('')
@@ -32,6 +33,7 @@ export default function ProfilePage() {
   useEffect(() => {
     api('/auth/me').then((u: any) => {
       setMe(u)
+      setEmail(u.email || '')
       setUsername(u.username || '')
       setNationalId(u.nationalId || '')
       setFirstName(u.firstName || '')
@@ -44,6 +46,7 @@ export default function ProfilePage() {
   async function saveProfile() {
     setMsg('')
     const validationError = validateProfileForm({
+      email,
       username,
       nationalId,
       firstName,
@@ -55,6 +58,7 @@ export default function ProfilePage() {
     setSaving(true)
     try {
       const payload = buildProfilePayload({
+        email,
         username,
         firstName,
         lastName,
@@ -109,6 +113,17 @@ export default function ProfilePage() {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label htmlFor="profile-email" className="block text-sm font-medium text-gray-700 mb-2">Correo</label>
+            <input
+              id="profile-email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="input-field"
+              placeholder="tu@correo.com"
+              type="email"
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Usuario</label>
             <input

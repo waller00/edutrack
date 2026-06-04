@@ -1,5 +1,5 @@
 import { isValidLocalPhoneUY, normalizeLocalPhoneUY } from '@/lib/forms/uruguay-forms'
-import { REGISTER_USERNAME_REGEX } from '@/lib/auth/register-form-validation'
+import { isValidRegisterEmail, REGISTER_USERNAME_REGEX } from '@/lib/auth/register-form-validation'
 
 export function onlyDigits(v: string): string {
   return v.replace(/\D/g, '')
@@ -44,7 +44,7 @@ export { isStrongPassword, STRONG_PASSWORD_MESSAGE } from '@/lib/auth/password-s
 
 export function getProfileErrorMessage(error: unknown): string {
   const message = String((error as { message?: string })?.message || '')
-  if (message.includes('409')) return 'Usuario o cédula ya registrados'
+  if (message.includes('409')) return 'Usuario, correo o cédula ya registrados'
   if (message.includes('403')) return 'No tienes permisos para cambiar cédula/rol'
   return 'Error al guardar'
 }
@@ -57,6 +57,7 @@ export function getPasswordErrorMessage(error: unknown): string {
 }
 
 export function buildProfilePayload(params: {
+  email: string
   username: string
   firstName: string
   lastName: string
@@ -66,6 +67,7 @@ export function buildProfilePayload(params: {
   isAdmin: boolean
 }): Record<string, unknown> {
   const payload: Record<string, unknown> = {
+    email: params.email.trim().toLowerCase(),
     username: params.username,
     firstName: params.firstName,
     lastName: params.lastName,
@@ -79,6 +81,7 @@ export function buildProfilePayload(params: {
 }
 
 export function validateProfileForm(params: {
+  email: string
   username: string
   nationalId: string
   firstName: string
@@ -86,6 +89,7 @@ export function validateProfileForm(params: {
   phoneLocal: string
   canEditCi: boolean
 }): string | null {
+  if (!isValidRegisterEmail(params.email)) return 'Correo inválido'
   if (!REGISTER_USERNAME_REGEX.test(params.username)) return 'Usuario inválido'
   if (params.canEditCi && !validCI(params.nationalId)) return 'Cédula inválida'
   if (!params.firstName.trim() || !params.lastName.trim()) return 'Nombre y apellido obligatorios'

@@ -110,6 +110,7 @@ describe('getProfileErrorMessage / getPasswordErrorMessage', () => {
 describe('buildProfilePayload', () => {
   it('sin admin no incluye nationalId', () => {
     const p = buildProfilePayload({
+      email: 'A@B.COM',
       username: 'u',
       firstName: 'a',
       lastName: 'b',
@@ -119,11 +120,13 @@ describe('buildProfilePayload', () => {
       isAdmin: false,
     })
     expect(p.nationalId).toBeUndefined()
+    expect(p.email).toBe('a@b.com')
     expect(p.phone).toBeUndefined()
   })
 
   it('con teléfono y fecha', () => {
     const p = buildProfilePayload({
+      email: 'user@example.com',
       username: 'user_ok',
       firstName: 'A',
       lastName: 'B',
@@ -140,6 +143,7 @@ describe('buildProfilePayload', () => {
 
 describe('validateProfileForm', () => {
   const base = {
+    email: 'a@b.co',
     username: 'good_user',
     nationalId: '1.111.111-1',
     firstName: 'A',
@@ -147,6 +151,10 @@ describe('validateProfileForm', () => {
     phoneLocal: '',
     canEditCi: false,
   }
+
+  it('correo inválido', () => {
+    expect(validateProfileForm({ ...base, email: 'bad' })).toBe('Correo inválido')
+  })
 
   it('usuario inválido', () => {
     expect(validateProfileForm({ ...base, username: 'ab' })).toBe('Usuario inválido')
