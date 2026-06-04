@@ -40,11 +40,12 @@ fi
 echo "Contenedor: $CONTAINER"
 echo "URL pública: $MOODLE_PUBLIC_URL"
 
-if [[ ! -f .env ]]; then
-  echo "AVISO: no hay .env — Bitnami vuelve a poner localhost:8080 en cada restart." >&2
-  echo "  cp docs/moodle.env.example .env" >&2
-elif grep -qE '^MOODLE_HOST=(localhost|127\.0\.0\.1)' .env 2>/dev/null; then
-  echo "AVISO: .env tiene MOODLE_HOST local — cambiá a moodle.edutrack-uy.com antes de reiniciar." >&2
+MOODLE_ENV_FILE="${MOODLE_ENV_FILE:-.env.moodle}"
+if [[ ! -f "$MOODLE_ENV_FILE" ]]; then
+  echo "AVISO: no hay $MOODLE_ENV_FILE — Bitnami vuelve a poner localhost:8080 en cada restart." >&2
+  echo "  cp -n docs/moodle.env.example $MOODLE_ENV_FILE   # -n no sobrescribe" >&2
+elif grep -qE '^MOODLE_HOST=(localhost|127\.0\.0\.1)' "$MOODLE_ENV_FILE" 2>/dev/null; then
+  echo "AVISO: $MOODLE_ENV_FILE tiene MOODLE_HOST local — usá moodle.edutrack-uy.com." >&2
 fi
 
 docker cp "$FIX_PHP" "$CONTAINER:/tmp/fix-moodle-config-production.php"
@@ -56,11 +57,11 @@ docker exec "$CONTAINER" grep wwwroot /bitnami/moodle/config.php
 docker exec -u root "$CONTAINER" chown -R daemon:root /bitnami/moodledata /bitnami/moodle
 docker exec "$CONTAINER" php /opt/bitnami/moodle/admin/cli/purge_caches.php
 
-if [[ -f .env ]]; then
-  echo "Recreando moodle con --env-file .env (evita que Bitnami regenere localhost)..."
-  docker compose -f docker-compose.moodle.yml --env-file .env up -d moodle
+if [[ -f "$MOODLE_ENV_FILE" ]]; then
+  echo "Recreando moodle con --env-file $MOODLE_ENV_FILE ..."
+  docker compose -f docker-compose.moodle.yml --env-file "$MOODLE_ENV_FILE" up -d moodle
 else
-  echo "NO reinicies moodle sin .env correcto o volverá localhost:8080." >&2
+  echo "NO reinicies moodle sin $MOODLE_ENV_FILE o volverá localhost:8080." >&2
 fi
 
 echo "Listo. Probá en el navegador: $MOODLE_PUBLIC_URL"

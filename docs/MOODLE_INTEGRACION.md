@@ -77,19 +77,20 @@ Moodle corre en un servidor aparte con `docker-compose.moodle.yml` (Bitnami). Si
 `https://moodle.edutrack-uy.com` te redirige a `localhost:8080`, el `config.php` quedó con el
 `wwwroot` de desarrollo.
 
-1. En el VPS Moodle, copiá [`docs/moodle.env.example`](moodle.env.example) a `.env` y ajustá
-   `MOODLE_HOST=moodle.edutrack-uy.com`, `MOODLE_SSLPROXY=yes`, `MOODLE_REVERSEPROXY=yes`.
+1. Variables de Moodle en un archivo **aparte** (no pisar el `.env` de producción de EduTrack):
+   [`docs/moodle.env.example`](moodle.env.example) → `.env.moodle` en el VPS.
 2. El proxy (nginx/Caddy) debe enviar `Host`, `X-Forwarded-Proto: https` y `X-Forwarded-Host`.
-3. **Instancia ya instalada** (caso habitual): desde la raíz del repo en el VPS.
-   Primero el `.env` (si no, cada `restart` de Bitnami vuelve a escribir `localhost:8080`):
+3. **Instancia ya instalada** (caso habitual): desde la raíz del repo en el VPS:
 
    ```bash
    git pull
-   cp docs/moodle.env.example .env
+   # NUNCA: cp ... .env  (sobrescribe el .env principal de EduTrack)
+   cp -n docs/moodle.env.example .env.moodle   # -n = no sobrescribir si ya existe
    MOODLE_PUBLIC_URL=https://moodle.edutrack-uy.com ./scripts/moodle-fix-production.sh
+   docker compose -f docker-compose.moodle.yml --env-file .env.moodle up -d moodle
    ```
 
-   Debe quedar **una sola** línea `wwwroot` (sin `localhost`). Si ves dos, no hiciste `git pull` o reiniciaste sin `--env-file .env`.
+   Debe quedar **una sola** línea `wwwroot` (sin `localhost`).
 
 4. En el VPS de EduTrack (`.env` del compose cloud):
 
