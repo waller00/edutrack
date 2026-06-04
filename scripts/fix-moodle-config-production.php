@@ -28,16 +28,15 @@ $content = preg_replace(
     $content
 ) ?? $content;
 
+// Quitar TODAS las asignaciones wwwroot (Bitnami suele dejar localhost después del parche).
+$content = preg_replace('/\$CFG->wwwroot\s*=\s*[^;]+;\s*\n?/', '', $content) ?? $content;
+
 $wwwrootLine = '$CFG->wwwroot = ' . var_export($publicUrl, true) . ';';
-if (preg_match('/\$CFG->wwwroot\s*=\s*[^;]+;/', $content)) {
-    $content = preg_replace('/\$CFG->wwwroot\s*=\s*[^;]+;/', $wwwrootLine, $content, 1) ?? $content;
+$marker = "require_once(dirname(__FILE__) . '/lib/setup.php');";
+if (str_contains($content, $marker)) {
+    $content = str_replace($marker, $wwwrootLine . "\n\n" . $marker, $content);
 } else {
-    $marker = "require_once(dirname(__FILE__) . '/lib/setup.php');";
-    if (str_contains($content, $marker)) {
-        $content = str_replace($marker, $wwwrootLine . "\n\n" . $marker, $content);
-    } else {
-        $content = rtrim($content) . "\n" . $wwwrootLine . "\n";
-    }
+    $content = rtrim($content) . "\n" . $wwwrootLine . "\n";
 }
 
 $content = setCfgBool($content, 'sslproxy', true);
