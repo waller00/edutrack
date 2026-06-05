@@ -11,6 +11,7 @@ $THEME->scss = function($theme) {
 };
 $THEME->prescsscallback = 'theme_edutrack_get_pre_scss';
 $THEME->extrascsscallback = 'theme_edutrack_get_extra_scss';
+$THEME->javascripts_footer = ['edutrack-login'];
 $THEME->layouts = [
     'base' => ['file' => 'drawers.php', 'regions' => []],
     'standard' => ['file' => 'drawers.php', 'regions' => ['side-pre'], 'defaultregion' => 'side-pre'],
