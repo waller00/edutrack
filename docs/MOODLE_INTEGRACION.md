@@ -121,3 +121,36 @@ con su cuenta de Keycloak sin gestionar credenciales aparte.
 
 > Nota: el SSO es configuración de Moodle/Keycloak; EduTrack sólo provisiona el usuario y fija
 > el método de auth. No hay forma de automatizarlo enteramente desde el backend.
+
+## Tema visual EduTrack
+
+El repo incluye un tema Moodle versionado en [`moodle/theme/edutrack`](../moodle/theme/edutrack).
+Es un tema hijo de Boost: mantiene compatibilidad con Moodle 5 y aplica la estética de EduTrack
+(verde esmeralda, tarjetas blancas, bordes suaves, navegación sobria y controles consistentes).
+
+El `docker-compose.moodle.yml` monta el tema en el contenedor:
+
+```yaml
+./moodle/theme/edutrack:/bitnami/moodle/theme/edutrack
+```
+
+Después de levantar o actualizar Moodle, activalo con:
+
+```bash
+./scripts/moodle-apply-edutrack-theme.sh
+```
+
+En producción, desde la raíz del repo en el VPS:
+
+```bash
+git pull
+docker compose -f docker-compose.moodle.yml --env-file .env.moodle up -d moodle
+MOODLE_ENV_FILE=.env.moodle ./scripts/moodle-apply-edutrack-theme.sh
+```
+
+Ese script ejecuta el upgrade de plugins, fija `theme=edutrack` y limpia cachés. Si sólo tocás
+SCSS/visual, alcanza con correrlo de nuevo o, como mínimo:
+
+```bash
+docker exec -u daemon <contenedor-moodle> php /opt/bitnami/moodle/admin/cli/purge_caches.php
+```
