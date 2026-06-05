@@ -490,6 +490,36 @@ textarea:focus {
   content: "";
 }
 
+.pagelayout-login .edutrack-login-brand {
+  margin: -.25rem 0 1.15rem;
+  text-align: center;
+}
+
+.pagelayout-login .edutrack-login-brand strong {
+  display: block;
+  color: var(--et-green-700);
+  font-size: .9rem;
+  font-weight: 900;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+.pagelayout-login .edutrack-login-brand span {
+  display: block;
+  margin-top: .15rem;
+  color: var(--et-gray-500);
+  font-size: .86rem;
+  font-weight: 600;
+}
+
+.pagelayout-login .edutrack-hide-login-extra,
+.pagelayout-login .login-signup,
+.pagelayout-login .login-guest,
+.pagelayout-login .potentialidplist + .login-divider,
+.pagelayout-login .login-divider:last-of-type {
+  display: none !important;
+}
+
 #page-footer {
   margin-top: 2rem;
   border-top: 1px solid var(--et-border);
