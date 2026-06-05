@@ -35,7 +35,18 @@ fi
 
 echo "Contenedor Moodle: $CONTAINER"
 
-docker exec "$CONTAINER" test -f /bitnami/moodle/theme/edutrack/version.php
+if ! test -f "$ROOT/moodle/theme/edutrack/version.php"; then
+  echo "No se encontro el tema en el repo: $ROOT/moodle/theme/edutrack/version.php" >&2
+  echo "Asegurate de estar en el repo actualizado y de haber hecho git pull." >&2
+  exit 1
+fi
+
+if ! docker exec "$CONTAINER" test -f /bitnami/moodle/theme/edutrack/version.php; then
+  echo "El tema no esta montado dentro del contenedor Moodle." >&2
+  echo "Recrea el servicio para que tome el volumen del docker-compose.moodle.yml:" >&2
+  echo "  ${COMPOSE[*]} up -d --force-recreate moodle" >&2
+  exit 1
+fi
 
 docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/upgrade.php --non-interactive
 docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=theme --set=edutrack
