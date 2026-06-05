@@ -106,6 +106,8 @@ docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=la
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=guestloginbutton --set=0
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=registerauth --set=
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=auth_instructions --set=
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=slasharguments --set=0
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=themedesignermode --set=0
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/purge_caches.php"
 
 echo "Tema activo:"
