@@ -22,3 +22,8 @@ function theme_edutrack_get_pre_scss($theme) {
 function theme_edutrack_get_extra_scss($theme) {
     return '';
 }
+
+function theme_edutrack_get_precompiled_css() {
+    global $CFG;
+    return file_get_contents($CFG->dirroot . '/theme/boost/style/moodle.css');
+}

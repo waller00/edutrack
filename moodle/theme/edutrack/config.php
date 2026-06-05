@@ -11,6 +11,7 @@ $THEME->scss = function($theme) {
 };
 $THEME->prescsscallback = 'theme_edutrack_get_pre_scss';
 $THEME->extrascsscallback = 'theme_edutrack_get_extra_scss';
+$THEME->precompiledcsscallback = 'theme_edutrack_get_precompiled_css';
 $THEME->javascripts_footer = ['edutrack-login'];
 $THEME->rendererfactory = 'theme_overridden_renderer_factory';
 $THEME->layouts = [
