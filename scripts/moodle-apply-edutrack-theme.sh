@@ -35,6 +35,17 @@ fi
 
 echo "Contenedor Moodle: $CONTAINER"
 
+resolve_moodle_dir() {
+  if docker exec "$CONTAINER" test -f /bitnami/moodle/admin/cli/cfg.php 2>/dev/null; then
+    echo "/bitnami/moodle"
+    return
+  fi
+  if docker exec "$CONTAINER" test -f /opt/bitnami/moodle/admin/cli/cfg.php 2>/dev/null; then
+    echo "/opt/bitnami/moodle"
+    return
+  fi
+}
+
 echo "Esperando config.php de Moodle..."
 for i in $(seq 1 90); do
   if docker exec "$CONTAINER" test -f /opt/bitnami/moodle/config.php 2>/dev/null; then
@@ -52,6 +63,14 @@ if ! docker exec "$CONTAINER" test -f /opt/bitnami/moodle/config.php 2>/dev/null
   echo "Revisa logs: ${COMPOSE[*]} logs --tail=80 moodle" >&2
   exit 1
 fi
+
+MOODLE_DIR="$(resolve_moodle_dir)"
+if [[ -z "$MOODLE_DIR" ]]; then
+  echo "No se encontro el CLI de Moodle dentro del contenedor." >&2
+  echo "Revisa si existe /bitnami/moodle/admin/cli/cfg.php o /opt/bitnami/moodle/admin/cli/cfg.php." >&2
+  exit 1
+fi
+echo "Directorio Moodle: $MOODLE_DIR"
 
 if ! test -f "$ROOT/moodle/theme/edutrack/version.php"; then
   echo "No se encontro el tema en el repo: $ROOT/moodle/theme/edutrack/version.php" >&2
@@ -77,19 +96,19 @@ if [[ -n "${MOODLE_PUBLIC_URL:-}" ]]; then
   docker exec -e "MOODLE_PUBLIC_URL=$MOODLE_PUBLIC_URL" "$CONTAINER" php /tmp/fix-moodle-config-production.php
 fi
 
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/upgrade.php --non-interactive
-if docker exec "$CONTAINER" test -f /opt/bitnami/moodle/admin/tool/langimport/cli/import.php 2>/dev/null; then
-  docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/tool/langimport/cli/import.php --lang=es || true
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/upgrade.php" --non-interactive
+if docker exec "$CONTAINER" test -f "$MOODLE_DIR/admin/tool/langimport/cli/import.php" 2>/dev/null; then
+  docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/tool/langimport/cli/import.php" --lang=es || true
 fi
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=theme --set=edutrack
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=lang --set=es
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=langmenu --set=0
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=guestloginbutton --set=0
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=registerauth --set=
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=auth_instructions --set=
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/purge_caches.php
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=theme --set=edutrack
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=lang --set=es
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=langmenu --set=0
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=guestloginbutton --set=0
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=registerauth --set=
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=auth_instructions --set=
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/purge_caches.php"
 
 echo "Tema activo:"
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=theme
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=theme
 echo "Idioma activo:"
-docker exec -u daemon "$CONTAINER" php /opt/bitnami/moodle/admin/cli/cfg.php --name=lang
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=lang
