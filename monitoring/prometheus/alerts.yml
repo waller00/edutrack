@@ -1,0 +1,55 @@
+groups:
+  - name: edutrack-availability
+    rules:
+      - alert: EduTrackEndpointDown
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "EduTrack endpoint unavailable"
+          description: "{{ $labels.instance }} is not responding with an HTTP 2xx status."
+
+      - alert: PostgresExporterDown
+        expr: up{job="postgres"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres exporter unavailable"
+          description: "Prometheus cannot scrape postgres-exporter."
+
+  - name: edutrack-infrastructure
+    rules:
+      - alert: HostDiskSpaceLow
+        expr: |
+          min(
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|proc|sysfs|devtmpfs"}
+            /
+            node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|proc|sysfs|devtmpfs"}
+          ) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host disk space below 15%"
+          description: "The Docker host is running low on disk space."
+
+      - alert: HostMemoryHigh
+        expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host memory usage above 90%"
+          description: "The Docker host memory usage is high."
+
+      - alert: ContainerCpuHigh
+        expr: |
+          sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[5m])) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container CPU usage high"
+          description: "Container {{ $labels.name }} has sustained high CPU usage."
