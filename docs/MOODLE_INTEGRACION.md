@@ -86,8 +86,8 @@ Moodle corre en un servidor aparte con `docker-compose.moodle.yml` (Bitnami). Si
    git pull
    # NUNCA: cp ... .env  (sobrescribe el .env principal de EduTrack)
    cp -n docs/moodle.env.example .env.moodle   # -n = no sobrescribir si ya existe
-   MOODLE_PUBLIC_URL=https://moodle.edutrack-uy.com ./scripts/moodle-fix-production.sh
-   docker compose -f docker-compose.moodle.yml --env-file .env.moodle up -d moodle
+   docker compose -f docker-compose.moodle.yml --env-file .env.moodle up -d --force-recreate moodle
+   MOODLE_PUBLIC_URL=https://moodle.edutrack-uy.com MOODLE_ENV_FILE=.env.moodle ./scripts/moodle-apply-edutrack-theme.sh
    ```
 
    Debe quedar **una sola** línea `wwwroot` (sin `localhost`).
