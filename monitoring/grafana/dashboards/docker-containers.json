@@ -1,0 +1,41 @@
+{
+  "uid": "edutrack-docker-containers",
+  "title": "Docker Containers",
+  "tags": ["edutrack", "docker", "cadvisor"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "CPU by container",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "targets": [{ "expr": "topk(10, sum by (id) (rate(container_cpu_usage_seconds_total{id!=\"/\", cpu=\"total\"}[5m])))", "legendFormat": "{{ id }}", "refId": "A" }]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Memory by container",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "targets": [{ "expr": "topk(10, container_memory_usage_bytes{id!=\"/\"})", "legendFormat": "{{ id }}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Network receive/transmit",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "sum by (interface) (rate(container_network_receive_bytes_total[5m]))", "legendFormat": "{{ interface }} rx", "refId": "A" },
+        { "expr": "sum by (interface) (rate(container_network_transmit_bytes_total[5m]))", "legendFormat": "{{ interface }} tx", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] }
+    }
+  ]
+}
