@@ -31,8 +31,9 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/prisma ./prisma
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
+# Normaliza CRLF si el build se hace desde Windows; sin esto el shebang falla en Linux.
 # node_modules viene del stage build como root; sin chown, `prisma generate` en runtime falla (EACCES).
-RUN chmod +x /app/docker-entrypoint.sh && chown -R node:node /app
+RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh && chown -R node:node /app
 
 # Usamos un usuario con menos privilegios por seguridad
 USER node
