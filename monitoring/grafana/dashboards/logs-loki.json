@@ -1,0 +1,53 @@
+{
+  "uid": "edutrack-logs-loki",
+  "title": "Logs Loki",
+  "tags": ["edutrack", "logs", "loki"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "logs",
+      "title": "Auth logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "targets": [{ "expr": "{compose_service=\"auth\"}", "refId": "A" }],
+      "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true }
+    },
+    {
+      "id": 2,
+      "type": "logs",
+      "title": "Web logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 10 },
+      "targets": [{ "expr": "{compose_service=\"web\"}", "refId": "A" }],
+      "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Auth 5xx log rate",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({compose_service=\"auth\"} |~ \"5[0-9][0-9]\" [5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "Auth recent 5xx logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [{ "expr": "{compose_service=\"auth\"} |~ \"5[0-9][0-9]\"", "refId": "A" }],
+      "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true }
+    }
+  ]
+}
