@@ -82,7 +82,9 @@ const moodleSyncInterval = setInterval(() => {
     lastReconcileAt = now;
     const summary = await reconcileMoodle({ syncStudents: settings.syncStudents });
     console.log(
-      `[moodle] reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} estudiantes=${summary.studentEnrolments} errores=${summary.errors}`,
+      `[moodle] reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} ` +
+        `suplentes=${summary.substituteEnrolments} revocados=${summary.substituteRevocations} ` +
+        `estudiantes=${summary.studentEnrolments} errores=${summary.errors}`,
     );
   })().catch((error) => {
     console.error("moodle sync tick:", error);

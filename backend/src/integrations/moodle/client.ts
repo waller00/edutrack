@@ -41,6 +41,16 @@ export function moodleStudentRoleId(): number {
   return Number(process.env.MOODLE_ROLE_STUDENT_ID || 5) || 5;
 }
 
+/**
+ * Id de rol con el que se inscribe a un docente suplente. Si no se configura
+ * `MOODLE_ROLE_SUBSTITUTE_TEACHER_ID`, se reutiliza el rol docente titular.
+ */
+export function moodleSubstituteTeacherRoleId(): number {
+  const raw = process.env.MOODLE_ROLE_SUBSTITUTE_TEACHER_ID?.trim();
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : moodleTeacherRoleId();
+}
+
 /** Id de categoría raíz donde se crean las categorías de EduTrack (0 = nivel superior). */
 export function moodleRootCategoryId(): number {
   return Number(process.env.MOODLE_ROOT_CATEGORY_ID || 0) || 0;

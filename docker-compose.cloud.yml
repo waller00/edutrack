@@ -128,6 +128,8 @@ services:
       MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
       MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
       MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
+      # Rol Moodle del docente suplente (default: el rol de titular, MOODLE_ROLE_TEACHER_ID)
+      MOODLE_ROLE_SUBSTITUTE_TEACHER_ID: ${MOODLE_ROLE_SUBSTITUTE_TEACHER_ID:-}
       # ADMS ZKTeco: 0 = mismo puerto que PORT (4000). El reloj usa la URL pública HTTPS del API.
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-0}
       # Observabilidad (Sentry backend)

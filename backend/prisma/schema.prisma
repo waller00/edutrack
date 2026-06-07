@@ -98,6 +98,7 @@ model User {
   substitutionsAsOriginal     Substitution[]          @relation("SubstitutionOriginalTeacher")
   substitutionsAsSubstitute   Substitution[]          @relation("SubstitutionSubstituteTeacher")
   auditEvents                 AuditLog[]
+  moodleEnrolments            MoodleEnrolmentMap[]
   teacherProfile              TeacherProfile?
   // security
   emailVerifiedAt             DateTime?
@@ -249,7 +250,48 @@ model MoodleObjectMap {
 enum MoodleObjectType {
   CATEGORY
   COURSE
+  /// Curso de Moodle por asignatura dentro de curso/año (+ orientación opcional).
+  SUBJECT_COURSE
   STUDENT
+}
+
+/// Origen del acceso docente otorgado en Moodle (para revocación segura y trazable).
+enum MoodleEnrolmentSource {
+  TEACHER_EVENT
+  SUBSTITUTE
+  STUDENT_ENROLLMENT
+}
+
+enum MoodleEnrolmentStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// Tracking fino de las inscripciones que la integración otorga en Moodle.
+/// Permite saber qué acceso fue creado por titularidad de evento vs. suplencia vs. matrícula,
+/// y revocar de forma idempotente sin depender únicamente del estado remoto de Moodle.
+model MoodleEnrolmentMap {
+  id             String                @id @default(uuid())
+  userId         String
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moodleUserId   Int
+  moodleCourseId Int
+  roleId         Int
+  sourceType     MoodleEnrolmentSource
+  /// Referencia opcional al origen (p. ej. eventId); el dedupe lógico es (sourceType,userId,curso).
+  sourceId       String?
+  /// Ventana de acceso efectiva (suplencias): se refleja en timestart/timeend de Moodle.
+  startsAt       DateTime?
+  endsAt         DateTime?
+  status         MoodleEnrolmentStatus @default(ACTIVE)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([sourceType, userId, moodleCourseId])
+  @@index([sourceType, status])
+  @@index([moodleCourseId])
+  @@index([userId])
+  @@index([status, endsAt])
 }
 
 enum LivenessSessionStatus {
@@ -653,6 +695,7 @@ model Orientation {
   courses     CourseOrientation[]
   subjectAssignments SubjectCourseAssignment[]
   events      Event[]
+  studentEnrollments StudentEnrollment[]
 
   @@index([isActive])
   @@index([sortOrder, name])
@@ -698,6 +741,7 @@ model CourseOrientation {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   events        Event[]
+  studentEnrollments StudentEnrollment[]
 
   @@unique([courseId, orientationId, schoolYearId])
   @@index([courseId, isActive])
@@ -812,6 +856,10 @@ model StudentEnrollment {
   schoolYear             SchoolYear              @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
   courseOfferingId       String
   courseOffering         CourseOffering          @relation(fields: [courseOfferingId], references: [id], onDelete: Restrict)
+  orientationId          String?
+  orientation            Orientation?            @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  courseOrientationId    String?
+  courseOrientation      CourseOrientation?      @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
   enrollmentStatus       StudentEnrollmentStatus @default(ACTIVE)
   withdrawnAt            DateTime?
   withdrawalAcademicYear Int?
@@ -822,6 +870,8 @@ model StudentEnrollment {
   @@unique([studentId, schoolYearId])
   @@index([schoolYearId, enrollmentStatus])
   @@index([courseOfferingId])
+  @@index([orientationId])
+  @@index([courseOrientationId])
 }
 
 /// Cuota por año calendario del ciclo (ej. 2025); permite consultar años anteriores.

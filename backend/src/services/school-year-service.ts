@@ -12,27 +12,9 @@ export async function getActiveSchoolYearId(prisma: PrismaClient): Promise<strin
   return y?.id ?? null
 }
 
-/** Garantiza al menos un ciclo ACTIVE. Idempotente. */
+/** Mantiene compatibilidad con el arranque histórico sin crear ni reactivar ciclos. */
 export async function ensureDefaultSchoolYear(prisma: PrismaClient): Promise<void> {
-  let active = await getActiveSchoolYear(prisma)
-  if (!active) {
-    const code = new Date().getUTCFullYear()
-    const existing = await prisma.schoolYear.findUnique({ where: { code } })
-    if (existing) {
-      active = await prisma.schoolYear.update({
-        where: { id: existing.id },
-        data: { status: 'ACTIVE' },
-      })
-    } else {
-      active = await prisma.schoolYear.create({
-        data: {
-          code,
-          label: `Ciclo lectivo ${code}`,
-          status: 'ACTIVE',
-        },
-      })
-    }
-  }
+  await getActiveSchoolYear(prisma)
 }
 
 export const ensureDefaultSchoolYearAndBackfill = ensureDefaultSchoolYear
@@ -43,6 +25,11 @@ export function assertValidSchoolYearDates(startsOn?: Date | null, endsOn?: Date
   if (startsOn && endsOn && startsOn.getTime() > endsOn.getTime()) {
     throw new Error('SCHOOL_YEAR_DATES_OUT_OF_ORDER')
   }
+}
+
+export async function assertCanCreateSchoolYear(prisma: PrismaClient): Promise<void> {
+  const active = await prisma.schoolYear.findFirst({ where: { status: 'ACTIVE' }, select: { id: true } })
+  if (active) throw new Error('ACTIVE_SCHOOL_YEAR_EXISTS')
 }
 
 /** ADMIN/STAFF puede elegir año por query. Otros roles: siempre el año activo. */

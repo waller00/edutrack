@@ -137,6 +137,8 @@ services:
       MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
       MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
       MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
+      # Rol Moodle del docente suplente (default: el rol de titular, MOODLE_ROLE_TEACHER_ID)
+      MOODLE_ROLE_SUBSTITUTE_TEACHER_ID: ${MOODLE_ROLE_SUBSTITUTE_TEACHER_ID:-}
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-8081}
       # Observabilidad (Sentry backend): vacio = deshabilitado
       SENTRY_DSN: ${SENTRY_DSN:-}

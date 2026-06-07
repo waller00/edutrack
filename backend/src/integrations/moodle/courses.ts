@@ -72,15 +72,19 @@ export async function ensureCategory(
   return id;
 }
 
-/** Curso de Moodle = unidad enseñable de EduTrack (típicamente un CourseOffering). */
+/**
+ * Curso de Moodle = unidad enseñable de EduTrack. `objectType` distingue el curso legacy por
+ * `CourseOffering` (`COURSE`) del curso por asignatura/orientación (`SUBJECT_COURSE`).
+ */
 export async function ensureCourse(
   localId: string,
   idnumber: string,
   fullname: string,
   shortname: string,
   categoryId: number,
+  objectType: MoodleObjectType = "COURSE",
 ): Promise<number> {
-  const mapped = await getMappedId("COURSE", localId);
+  const mapped = await getMappedId(objectType, localId);
   if (mapped != null) return mapped;
 
   const found = await moodleRest("core_course_get_courses_by_field", {
@@ -92,7 +96,7 @@ export async function ensureCourse(
     if (Array.isArray(courses) && courses.length > 0) {
       const id = numericField(courses[0], "id");
       if (id != null) {
-        await saveMapping("COURSE", localId, id, idnumber);
+        await saveMapping(objectType, localId, id, idnumber);
         return id;
       }
     }
@@ -108,8 +112,28 @@ export async function ensureCourse(
   if (id == null) {
     throw new Error(`MOODLE_CREATE_COURSE_UNEXPECTED: ${JSON.stringify(created).slice(0, 300)}`);
   }
-  await saveMapping("COURSE", localId, id, idnumber);
+  await saveMapping(objectType, localId, id, idnumber);
   return id;
+}
+
+/**
+ * Curso de Moodle por asignatura (dentro de curso/año, con orientación opcional). El `idnumber`
+ * canónico (estable e idempotente) se usa también como `localId` del mapeo y como `shortname`.
+ */
+export async function ensureSubjectCourse(args: {
+  idnumber: string;
+  fullname: string;
+  shortname: string;
+  categoryId: number;
+}): Promise<number> {
+  return ensureCourse(
+    args.idnumber,
+    args.idnumber,
+    args.fullname,
+    args.shortname,
+    args.categoryId,
+    "SUBJECT_COURSE",
+  );
 }
 
 export type StudentMirrorInput = {
