@@ -71,7 +71,7 @@ describe('ProfilePage', () => {
   })
 
   it('muestra validación de usuario al guardar', async () => {
-    mockedApi.mockResolvedValueOnce({ ...baseMe, username: 'ab' })
+    mockedApi.mockResolvedValueOnce({ ...baseMe, username: 'ab' }).mockResolvedValueOnce({ enabled: false })
     render(<ProfilePage />)
     await screen.findByText('Mi Perfil')
     fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
@@ -81,7 +81,7 @@ describe('ProfilePage', () => {
   })
 
   it('guarda perfil correctamente', async () => {
-    mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({})
+    mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false }).mockResolvedValueOnce({})
     render(<ProfilePage />)
     await screen.findByText('Mi Perfil')
     expect(screen.getByLabelText(/correo/i)).toHaveValue(baseMe.email)
@@ -99,7 +99,7 @@ describe('ProfilePage', () => {
   })
 
   it('muestra acciones para contraseña y 2FA', async () => {
-    mockedApi.mockResolvedValueOnce({ ...baseMe })
+    mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
     render(<ProfilePage />)
     expect(await screen.findByText('Seguridad de la cuenta')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /cambiar contraseña/i })).toHaveAttribute(
@@ -109,6 +109,27 @@ describe('ProfilePage', () => {
     expect(screen.getByRole('link', { name: /configurar 2fa/i })).toHaveAttribute(
       'href',
       'http://localhost:4000/auth/account/2fa',
+    )
+  })
+
+  it('permite desactivar 2FA con contraseña si ya está activo', async () => {
+    mockedApi
+      .mockResolvedValueOnce({ ...baseMe })
+      .mockResolvedValueOnce({ enabled: true })
+      .mockResolvedValueOnce({ ok: true, removed: 1 })
+    render(<ProfilePage />)
+
+    expect(await screen.findByRole('button', { name: /desactivar 2fa/i })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /administrar 2fa/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /desactivar 2fa/i }))
+    fireEvent.change(screen.getByLabelText(/contraseña actual/i), { target: { value: 'Secret123!' } })
+    fireEvent.click(screen.getByRole('button', { name: /^desactivar$/i }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        '/auth/account/2fa',
+        expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ password: 'Secret123!' }) }),
+      ),
     )
   })
 })

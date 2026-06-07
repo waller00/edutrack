@@ -4,9 +4,14 @@ import {
   buildAccountConsoleUrl,
   buildLoginUrl,
   buildLogoutUrl,
+  deleteKeycloakUserOtpCredentials,
   exchangeCode,
+  getKeycloakUserLoginName,
+  getKeycloakUserOtpStatus,
   redirectUri,
   refreshTokens,
+  triggerKeycloakPasswordReset,
+  verifyKeycloakPassword,
 } from "../auth/keycloak.js";
 import {
   BffSession,
@@ -116,13 +121,15 @@ async function beginLoginFlow(
   res: any,
   options: {
     identityProvider?: "google";
-    requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP";
+    requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP" | "CONFIGURE_RECOVERY_AUTHN_CODES";
+    prompt?: "login";
     returnTo?: string;
   } = {},
 ) {
   const { codeVerifier, state, authUrl } = await buildLoginUrl({
     identityProvider: options.identityProvider,
     requiredAction: options.requiredAction,
+    prompt: options.prompt,
   });
   const redis = getRedis();
   if (!redis) {
@@ -180,6 +187,11 @@ r.get("/callback", async (req, res) => {
       throw error;
     }
 
+    if (req.query.kc_action === "CONFIGURE_TOTP" && req.query.kc_action_status === "success") {
+      await beginLoginFlow(res, { requiredAction: "CONFIGURE_RECOVERY_AUTHN_CODES", returnTo: "/profile" });
+      return;
+    }
+
     const safeReturn = returnTo && returnTo.startsWith("/") ? returnTo : "/";
     res.redirect(`${frontendUrl()}${safeReturn}`);
   } catch (error) {
@@ -223,19 +235,68 @@ r.get("/account", async (req, res) => {
 r.get("/account/password", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
-  await beginLoginFlow(res, { requiredAction: "UPDATE_PASSWORD", returnTo: "/profile" });
+  await beginLoginFlow(res, { requiredAction: "UPDATE_PASSWORD", prompt: "login", returnTo: "/profile" });
 });
 
 r.get("/account/2fa", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
-  await beginLoginFlow(res, { requiredAction: "CONFIGURE_TOTP", returnTo: "/profile" });
+  await beginLoginFlow(res, { requiredAction: "CONFIGURE_TOTP", prompt: "login", returnTo: "/profile" });
+});
+
+r.get("/account/recovery-codes", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  await beginLoginFlow(res, { requiredAction: "CONFIGURE_RECOVERY_AUTHN_CODES", prompt: "login", returnTo: "/profile" });
+});
+
+r.get("/account/2fa/status", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  try {
+    const status = await getKeycloakUserOtpStatus(session.kcId);
+    res.json(status);
+  } catch (error) {
+    console.error("[auth/account/2fa/status] keycloak:", error);
+    res.status(502).json({ message: "No se pudo consultar el estado de 2FA." });
+  }
+});
+
+r.delete("/account/2fa", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  if (!password) return res.status(400).json({ message: "Ingresá tu contraseña actual." });
+  try {
+    const loginName = (await getKeycloakUserLoginName(session.kcId)) || session.email;
+    const ok = await verifyKeycloakPassword(loginName, password);
+    if (!ok) return res.status(401).json({ message: "Contraseña incorrecta." });
+    const removed = await deleteKeycloakUserOtpCredentials(session.kcId);
+    res.json({ ok: true, removed });
+  } catch (error) {
+    console.error("[auth/account/2fa] disable:", error);
+    res.status(502).json({ message: "No se pudo desactivar 2FA." });
+  }
 });
 
 r.get("/account/security", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
   res.redirect(buildAccountConsoleUrl("account-security/signing-in"));
+});
+
+r.post("/forgot-password", async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ message: "Ingresá un correo válido." });
+  }
+  try {
+    await triggerKeycloakPasswordReset(email);
+  } catch (error) {
+    // No revelamos si el correo existe, pero sí dejamos log para diagnosticar SMTP/Keycloak.
+    console.error("[auth/forgot-password] keycloak:", error);
+  }
+  res.json({ ok: true });
 });
 
 /**

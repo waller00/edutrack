@@ -49,7 +49,7 @@ services:
       - appnet
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.3.3
     restart: unless-stopped
     # start-dev: arranque tolerante para testing/local. En produccion endurecida
     # cambiar a `start` con KC_HOSTNAME y SSL via proxy (Cloudflare).
@@ -113,7 +113,7 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:4000/auth/google/callback}
       SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_PORT: ${SMTP_PORT:-2525}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
@@ -137,8 +137,12 @@ services:
       MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
       MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
       MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
+      MOODLE_ROLE_TEACHER_ID: ${MOODLE_ROLE_TEACHER_ID:-3}
+      MOODLE_ROLE_STUDENT_ID: ${MOODLE_ROLE_STUDENT_ID:-5}
       # Rol Moodle del docente suplente (default: el rol de titular, MOODLE_ROLE_TEACHER_ID)
       MOODLE_ROLE_SUBSTITUTE_TEACHER_ID: ${MOODLE_ROLE_SUBSTITUTE_TEACHER_ID:-}
+      MOODLE_ROOT_CATEGORY_ID: ${MOODLE_ROOT_CATEGORY_ID:-0}
+      MOODLE_USER_AUTH: ${MOODLE_USER_AUTH:-manual}
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-8081}
       # Observabilidad (Sentry backend): vacio = deshabilitado
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -149,7 +153,6 @@ services:
       - "4000:4000"
       - "8081:8081"
       - "80:8081"
-      - "8080:8081"
       - "8088:8081"
     # Moodle en el host (puerto 8080): fuerza IPv4; sin esto Node puede resolver host.docker.internal solo a IPv6 y fallar.
     extra_hosts:

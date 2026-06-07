@@ -43,7 +43,7 @@ services:
     networks: [net]
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.3.3
     restart: unless-stopped
     # start-dev: arranque tolerante. Endurecer a `start` con KC_HOSTNAME real + SSL via Cloudflare.
     command: ["start-dev", "--import-realm"]
@@ -103,7 +103,7 @@ services:
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
       # Correo (recuperación de contraseña, verificación): definir en .env del servidor
       SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_PORT: ${SMTP_PORT:-2525}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
@@ -128,8 +128,12 @@ services:
       MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
       MOODLE_CANONICAL_HOST: ${MOODLE_CANONICAL_HOST:-}
       MOODLE_WS_TOKEN: ${MOODLE_WS_TOKEN:-}
+      MOODLE_ROLE_TEACHER_ID: ${MOODLE_ROLE_TEACHER_ID:-3}
+      MOODLE_ROLE_STUDENT_ID: ${MOODLE_ROLE_STUDENT_ID:-5}
       # Rol Moodle del docente suplente (default: el rol de titular, MOODLE_ROLE_TEACHER_ID)
       MOODLE_ROLE_SUBSTITUTE_TEACHER_ID: ${MOODLE_ROLE_SUBSTITUTE_TEACHER_ID:-}
+      MOODLE_ROOT_CATEGORY_ID: ${MOODLE_ROOT_CATEGORY_ID:-0}
+      MOODLE_USER_AUTH: ${MOODLE_USER_AUTH:-manual}
       # ADMS ZKTeco: 0 = mismo puerto que PORT (4000). El reloj usa la URL pública HTTPS del API.
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-0}
       # Observabilidad (Sentry backend)

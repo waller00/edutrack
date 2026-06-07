@@ -23,6 +23,7 @@ import {
   formatTimeInUruguay,
   formatClockHhMmInUruguayFromIso,
   getTodayYmdInUruguay,
+  APP_TIMEZONE,
 } from '@/lib/forms/datetime-uy'
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
 import type { SubstitutionListResponse } from '@/lib/substitutions/types'
@@ -273,6 +274,88 @@ function parseCsvRows(text: string): Record<string, string>[] {
 /** Horas 00–23 (formato 24 h civil; no AM/PM). */
 const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+const WEEKDAY_OPTIONS = [
+  { value: 0, short: 'Dom', long: 'Domingo' },
+  { value: 1, short: 'Lun', long: 'Lunes' },
+  { value: 2, short: 'Mar', long: 'Martes' },
+  { value: 3, short: 'Mié', long: 'Miércoles' },
+  { value: 4, short: 'Jue', long: 'Jueves' },
+  { value: 5, short: 'Vie', long: 'Viernes' },
+  { value: 6, short: 'Sáb', long: 'Sábado' },
+] as const
+const WEEKDAY_SHORT_BY_VALUE = new Map(WEEKDAY_OPTIONS.map((d) => [d.value, d.short]))
+
+function weekdayNumberInUruguay(value?: string | null): number | null {
+  if (!value) return null
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (ymd) return new Date(Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]))).getUTCDay()
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(value))
+  const y = Number(parts.find((p) => p.type === 'year')?.value)
+  const m = Number(parts.find((p) => p.type === 'month')?.value)
+  const d = Number(parts.find((p) => p.type === 'day')?.value)
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+}
+
+function uniqueSortedDays(days: number[]): number[] {
+  return Array.from(new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))).sort((a, b) => a - b)
+}
+
+function eventAssignedWeekdays(event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'daysOfWeek' | 'startDate'>): number[] {
+  if (event.isRecurring && event.recurrenceType === 'DAILY') return WEEKDAY_OPTIONS.map((d) => d.value)
+  if (event.isRecurring && event.recurrenceType === 'WEEKLY' && event.daysOfWeek.length > 0) {
+    return uniqueSortedDays(event.daysOfWeek)
+  }
+  const day = weekdayNumberInUruguay(event.startDate)
+  return day === null ? [] : [day]
+}
+
+function formatWeekdayList(days: number[]): string {
+  const sorted = uniqueSortedDays(days)
+  if (sorted.length === 0) return 'Sin días definidos'
+  if (sorted.length === 7) return 'Todos los días'
+  return sorted.map((d) => WEEKDAY_SHORT_BY_VALUE.get(d) ?? String(d)).join(', ')
+}
+
+function formatEventTimeRange(event: Pick<Event, 'startTime' | 'endTime'>): string {
+  const start = event.startTime ? formatClockHhMmInUruguayFromIso(event.startTime) : 'Sin inicio'
+  const end = event.endTime ? formatClockHhMmInUruguayFromIso(event.endTime) : 'sin fin'
+  return `${start}-${end}`
+}
+
+function formatEventRecurrenceLabel(event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'recurrenceEnd'>): string {
+  if (!event.isRecurring || event.recurrenceType === 'NONE') return 'Evento único'
+  const type =
+    event.recurrenceType === 'DAILY'
+      ? 'Diario'
+      : event.recurrenceType === 'MONTHLY'
+        ? 'Mensual'
+        : 'Semanal'
+  const end = event.recurrenceEnd ? `hasta ${formatDateInUruguay(event.recurrenceEnd)}` : 'hasta cierre del ciclo'
+  return `${type}, ${end}`
+}
+
+function formatEventScheduleSummary(event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'daysOfWeek' | 'startDate' | 'startTime' | 'endTime' | 'recurrenceEnd'>): string {
+  return `${formatWeekdayList(eventAssignedWeekdays(event))} · ${formatEventTimeRange(event)} · ${formatEventRecurrenceLabel(event)}`
+}
+
+function buildWeekdayEventSummary(events: Event[]) {
+  return WEEKDAY_OPTIONS.map((day) => {
+    const dayEvents = events.filter((event) => eventAssignedWeekdays(event).includes(day.value))
+    const visible = dayEvents.slice(0, 3).map((event) => ({
+      id: event.id,
+      title: event.title,
+      time: formatEventTimeRange(event),
+      assigned: event.assignedUser?.username || event.assignedUser?.name || 'Sin asignar',
+    }))
+    return { ...day, count: dayEvents.length, visible, hiddenCount: Math.max(dayEvents.length - visible.length, 0) }
+  })
+}
 
 function parseHhMm(value: string): { h: string; m: string } {
   if (!value || typeof value !== 'string') return { h: '09', m: '00' }
@@ -419,6 +502,7 @@ export default function AdminEvents() {
   const [portalReady, setPortalReady] = useState(false)
   const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
   const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
+  const weekdaySummary = buildWeekdayEventSummary(events)
 
   useEffect(() => {
     loadEvents()
@@ -991,6 +1075,45 @@ export default function AdminEvents() {
               </button>
             </div>
           </div>
+          {!loading && events.length > 0 ? (
+            <div className="border-b bg-slate-50 px-4 py-4 sm:px-6">
+              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">Vista rápida por día</h3>
+                  <p className="text-xs text-slate-500">
+                    Resumen de las actividades visibles en esta página, usando los días de repetición cuando existen.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
+                {weekdaySummary.map((day) => (
+                  <div key={day.value} className="min-h-[6.5rem] rounded border border-slate-200 bg-white px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-slate-900">{day.long}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                        {day.count}
+                      </span>
+                    </div>
+                    {day.visible.length > 0 ? (
+                      <ul className="mt-2 space-y-1">
+                        {day.visible.map((event) => (
+                          <li key={`${day.value}-${event.id}`} className="min-w-0 text-xs text-slate-600">
+                            <span className="block truncate font-medium text-slate-800">{event.title}</span>
+                            <span className="block truncate">{event.time} · {event.assigned}</span>
+                          </li>
+                        ))}
+                        {day.hiddenCount > 0 ? (
+                          <li className="text-xs font-medium text-slate-500">+{day.hiddenCount} más</li>
+                        ) : null}
+                      </ul>
+                    ) : (
+                      <div className="mt-2 text-xs text-slate-400">Sin actividades</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           
           {loading ? (
             <div className="p-4 text-center text-gray-500 sm:p-6">Cargando agenda…</div>
@@ -1086,6 +1209,9 @@ export default function AdminEvents() {
                       <td className="px-4 py-4 align-top text-sm text-gray-900">
                         <div className="space-y-1">
                           <div>{formatDateInUruguay(event.startDate)}</div>
+                          <div className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-900">
+                            {formatEventScheduleSummary(event)}
+                          </div>
                           {event.startTime && (
                             <div className="text-xs text-gray-500">
                               Inicio {formatTimeInUruguay(event.startTime)}
@@ -1495,15 +1621,7 @@ export default function AdminEvents() {
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Días de la Semana</label>
                     <div className="grid grid-cols-7 gap-2">
-                      {[
-                        { value: 0, label: 'Dom' },
-                        { value: 1, label: 'Lun' },
-                        { value: 2, label: 'Mar' },
-                        { value: 3, label: 'Mié' },
-                        { value: 4, label: 'Jue' },
-                        { value: 5, label: 'Vie' },
-                        { value: 6, label: 'Sáb' }
-                      ].map(day => (
+                      {WEEKDAY_OPTIONS.map(day => (
                         <label key={day.value} className="flex flex-col items-center">
                           <input
                             type="checkbox"
@@ -1516,9 +1634,13 @@ export default function AdminEvents() {
                             }}
                             className="mb-1"
                           />
-                          <span className="text-xs text-gray-600">{day.label}</span>
+                          <span className="text-xs text-gray-600">{day.short}</span>
                         </label>
                       ))}
+                    </div>
+                    <div className="mt-3 rounded-md border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-950">
+                      <span className="font-medium">Queda asignado:</span>{' '}
+                      {formatEventScheduleSummary(newEvent)}
                     </div>
                   </div>
                 )}

@@ -118,7 +118,8 @@ export type AuthRequestState = {
 
 export type LoginUrlOptions = {
   identityProvider?: string;
-  requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP";
+  requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP" | "CONFIGURE_RECOVERY_AUTHN_CODES";
+  prompt?: "login";
 };
 
 export async function buildLoginUrl(options: LoginUrlOptions = {}): Promise<AuthRequestState> {
@@ -150,6 +151,9 @@ export async function buildLoginUrl(options: LoginUrlOptions = {}): Promise<Auth
   }
   if (options.requiredAction) {
     params.kc_action = options.requiredAction;
+  }
+  if (options.prompt) {
+    params.prompt = options.prompt;
   }
 
   const authUrl = oidc.buildAuthorizationUrl(config, params).href;
@@ -429,6 +433,103 @@ async function findKeycloakUserIdByEmail(token: string, email: string): Promise<
     console.warn(`[keycloak] búsqueda por email devolvió ${users.length} usuarios para ${email}; se usa el primero`);
   }
   return users[0]?.id ?? null;
+}
+
+type KeycloakCredential = {
+  id?: string;
+  type?: string;
+  userLabel?: string;
+  createdDate?: number;
+};
+
+type KeycloakUserProfile = {
+  id?: string;
+  username?: string;
+  email?: string;
+};
+
+export async function getKeycloakUserLoginName(kcUserId: string): Promise<string | null> {
+  if (!kcUserId) return null;
+  const token = await getAdminToken();
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak user error ${res.status}: ${detail}`);
+  }
+  const user = (await res.json()) as KeycloakUserProfile;
+  return user.username || user.email || null;
+}
+
+export async function getKeycloakUserOtpStatus(kcUserId: string): Promise<{ enabled: boolean; count: number }> {
+  if (!kcUserId) return { enabled: false, count: 0 };
+  const token = await getAdminToken();
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}/credentials`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak credentials error ${res.status}: ${detail}`);
+  }
+  const credentials = (await res.json()) as KeycloakCredential[];
+  const otp = credentials.filter((credential) => credential.type === "otp");
+  return { enabled: otp.length > 0, count: otp.length };
+}
+
+export async function verifyKeycloakPassword(usernameOrEmail: string, password: string): Promise<boolean> {
+  const base = adminBaseUrl();
+  const body = new URLSearchParams({
+    grant_type: "password",
+    client_id: clientId(),
+    username: usernameOrEmail,
+    password,
+  });
+  const secret = clientSecret();
+  if (secret) body.set("client_secret", secret);
+  const res = await kcFetch(`${base}/realms/${adminRealm()}/protocol/openid-connect/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (res.ok) return true;
+  if (res.status === 400 || res.status === 401) return false;
+  const detail = await res.text().catch(() => "");
+  throw new Error(`Keycloak password verify error ${res.status}: ${detail}`);
+}
+
+export async function deleteKeycloakUserOtpCredentials(kcUserId: string): Promise<number> {
+  if (!kcUserId) return 0;
+  const token = await getAdminToken();
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const credentialsRes = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}/credentials`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!credentialsRes.ok) {
+    const detail = await credentialsRes.text().catch(() => "");
+    throw new Error(`Keycloak credentials error ${credentialsRes.status}: ${detail}`);
+  }
+  const credentials = (await credentialsRes.json()) as KeycloakCredential[];
+  const otpCredentials = credentials.filter((credential) => credential.type === "otp" && credential.id);
+  for (const credential of otpCredentials) {
+    const res = await kcFetch(
+      `${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}/credentials/${encodeURIComponent(credential.id!)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Keycloak delete OTP error ${res.status}: ${detail}`);
+    }
+  }
+  return otpCredentials.length;
 }
 
 /** Envía el email de actualización de contraseña de Keycloak al usuario. */
