@@ -12,28 +12,77 @@ Código: [`backend/src/integrations/moodle/`](../backend/src/integrations/moodle
 |------|---------|-----|
 | Cliente REST | `client.ts` | HTTP + protocolo REST de Moodle; lee la config de entorno. |
 | Usuarios | `users.ts` | Crea/recupera el usuario espejo (`idnumber` = UUID EduTrack) y persiste `User.moodleUserId`. |
-| Cursos | `courses.ts` | Categorías y cursos con mapeo persistente `MoodleObjectMap`; usuario espejo de estudiantes. |
-| Inscripciones | `enrolments.ts` | Matriculación manual (`enrol_manual_enrol_users`). |
+| Scope académico | `scope.ts` | Resuelve el curso Moodle por **asignatura/orientación** de un evento (`idnumber` idempotente). |
+| Cursos | `courses.ts` | Categorías y cursos (legacy por oferta y por asignatura) con mapeo `MoodleObjectMap`. |
+| Inscripciones | `enrolments.ts` | Matriculación manual: `enrol_manual_enrol_users` (con ventana) y `enrol_manual_unenrol_users`. |
+| Tracking | `enrolment-map.ts` | Registra qué acceso otorgó la integración (`MoodleEnrolmentMap`) para revocar con seguridad. |
 | Outbox | `outbox.ts` | Cola persistente con reintentos + backoff (reemplaza el *fire-and-forget*). |
-| Reconciliación | `reconcile.ts` | Estado deseado EduTrack→Moodle: cursos + inscripciones + reparación de *drift*. |
+| Reconciliación | `reconcile.ts` | Estado deseado EduTrack→Moodle: cursos + titulares + suplencias + revocación + *drift*. |
 
 ### Modelos de datos (Prisma)
 
 - `User.moodleUserId` — id del usuario espejo (idempotencia y detección de *drift*).
 - `MoodleSyncTask` — outbox: `type`, `dedupeKey`, `payload`, `status`, `attempts`, `runAfter`, `lastError`.
-- `MoodleObjectMap` — mapeo `(objectType, localId) → moodleId` para categorías, cursos y estudiantes.
+- `MoodleObjectMap` — mapeo `(objectType, localId) → moodleId` para categorías, cursos (legacy y por
+  asignatura: `SUBJECT_COURSE`) y estudiantes.
+- `MoodleEnrolmentMap` — tracking fino de las inscripciones otorgadas: `userId`, `moodleUserId`,
+  `moodleCourseId`, `roleId`, `sourceType` (`TEACHER_EVENT` | `SUBSTITUTE` | `STUDENT_ENROLLMENT`),
+  `sourceId`, `startsAt`, `endsAt`, `status` (`ACTIVE` | `REVOKED`). Clave lógica
+  `(sourceType, userId, moodleCourseId)`. Permite saber qué acceso fue creado por titularidad,
+  suplencia o matrícula y revocar sin depender sólo del estado remoto de Moodle.
 
 ### Mapeo de entidades
 
 | EduTrack | Moodle | `idnumber` |
 |----------|--------|------------|
 | `SchoolYear` | Categoría | `et-year-<id>` |
-| `CourseOffering` | Curso | `et-offering-<id>` |
+| Asignatura en curso/año (general) | Curso `SUBJECT_COURSE` | `et-subject-offering-<offering>-<subject>` |
+| Asignatura con `orientationId` | Curso `SUBJECT_COURSE` | `…-<subject>-orientation-<orientationId>` |
+| Asignatura con `courseOrientationId` | Curso `SUBJECT_COURSE` | `…-<subject>-corientation-<courseOrientationId>` |
+| `CourseOffering` (legacy / fallback) | Curso | `et-offering-<id>` |
 | `User` (docente) | Usuario, rol *editingteacher* | UUID del User |
 | `Student` | Usuario *nologin*, rol *student* | `et-student-<id>` |
 
-- **Profesores → curso**: se derivan de las clases asignadas (`Event.assignedUserId` + `courseOfferingId`).
-- **Estudiantes → curso**: de la matrícula activa (`StudentEnrollment` con estado `ACTIVE`). Sólo si `moodleSyncStudents` está activo, porque los estudiantes no tienen cuenta de login en EduTrack y se crean usuarios espejo `nologin`.
+El `shortname` del curso por asignatura es el propio `idnumber` (estable y único); el `fullname` es
+legible: `Asignatura - Curso [- Orientación] (Año)` (p. ej. `Biología - 4to EMS - Ciencias Biológicas (2026)`).
+
+#### Cómo se derivan los accesos docentes
+
+El acceso docente en Moodle se deriva de los **eventos académicos** de EduTrack; nunca se inscribe a
+un docente al `CourseOffering` completo salvo el fallback legacy.
+
+- **Curso por asignatura/orientación** (`scope.ts`): un evento con `courseOfferingId` + `subjectId`
+  mapea a un curso Moodle por asignatura. Si tiene `courseOrientationId` (precedencia) u
+  `orientationId`, mapea al curso específico de esa orientación; si no, al espacio **general** de la
+  asignatura. Así no se mezclan permisos entre asignaturas ni entre orientaciones.
+- **Docente titular** (`MoodleEnrolmentMap.sourceType = TEACHER_EVENT`): se inscribe (rol
+  `MOODLE_ROLE_TEACHER_ID`) en el curso de cada clase asignada (`Event.assignedUserId` +
+  `courseOfferingId` + `subjectId`). Dedupe por `(assignedUserId, curso)`.
+- **Fallback legacy**: un evento **sin** `subjectId` no puede resolverse a un curso por asignatura;
+  se usa el curso por `CourseOffering` (`et-offering-<id>`). Documentado y testeado para no perder
+  cobertura de datos viejos.
+- **Estudiantes → curso**: de la matrícula activa (`StudentEnrollment` con estado `ACTIVE`), sobre el
+  curso **legacy** por `CourseOffering`. Sólo si `moodleSyncStudents` está activo (los estudiantes no
+  tienen cuenta de login en EduTrack y se crean usuarios espejo `nologin`). El modelo por
+  asignatura/orientación para estudiantes queda como **fase posterior** (no resoluble de forma segura
+  en esta iteración); la prioridad fue permisos docentes y suplencias.
+
+#### Suplencias (acceso temporal del suplente)
+
+- Por cada `Substitution` vigente (`endTime >= ahora`) el suplente se inscribe (rol
+  `MOODLE_ROLE_SUBSTITUTE_TEACHER_ID`, o el de titular si no está configurado) en el **mismo** curso
+  Moodle que corresponde a la clase cubierta (asignatura + orientación si aplica).
+- La inscripción lleva **ventana temporal** (`timestart`/`timeend` de `enrol_manual_enrol_users`). Si
+  la suplencia cubre varias clases, la ventana va del primer inicio al **fin del último** evento
+  cubierto (`MoodleEnrolmentMap.sourceType = SUBSTITUTE`).
+- **Revocación** (idempotente y segura): la reconciliación detecta filas `SUBSTITUTE` activas que ya
+  no corresponden a ninguna suplencia vigente (vencida, cancelada o suplente cambiado) y llama a
+  `enrol_manual_unenrol_users`. No revoca si el usuario:
+  - es **titular** del mismo curso por un evento vigente (sólo marca la fila como `REVOKED`, conserva
+    el acceso titular), o
+  - tiene **otra suplencia vigente/futura** en el mismo curso.
+  Sólo se revocan accesos que la integración otorgó como suplencia (los `timeend` de Moodle son la
+  primera línea de expiración; la reconciliación es la red de seguridad).
 
 ## Fiabilidad (outbox)
 
@@ -46,7 +95,8 @@ La reconciliación periódica recupera cualquier divergencia que el outbox no cu
 
 1. Variables de entorno (ver `.env.compose.example`):
    `MOODLE_BASE_URL`, `MOODLE_WS_TOKEN`, opcionalmente `MOODLE_CANONICAL_HOST`,
-   `MOODLE_ROLE_TEACHER_ID`, `MOODLE_ROLE_STUDENT_ID`, `MOODLE_ROOT_CATEGORY_ID`, `MOODLE_USER_AUTH`.
+   `MOODLE_ROLE_TEACHER_ID`, `MOODLE_ROLE_STUDENT_ID`, `MOODLE_ROLE_SUBSTITUTE_TEACHER_ID`
+   (default: el rol de titular), `MOODLE_ROOT_CATEGORY_ID`, `MOODLE_USER_AUTH`.
 2. Flags en `SystemSettings` (BD):
    - `moodleSyncEnabled` — habilita el worker (outbox + reconciliación). Default `false`.
    - `moodleReconcileIntervalMs` — intervalo de reconciliación completa. Default 900000 (15 min).
@@ -66,8 +116,12 @@ core_course_create_categories
 core_course_get_courses_by_field
 core_course_create_courses
 enrol_manual_enrol_users
+enrol_manual_unenrol_users
 core_enrol_get_enrolled_users
 ```
+
+> `enrol_manual_unenrol_users` es nueva: la usa la revocación de suplencias. Si falta, las
+> inscripciones de suplente sólo expirarán por `timeend` y la red de seguridad no podrá quitarlas.
 
 Activá el protocolo **REST** y generá el token (ver cabecera de `docker-compose.moodle.yml`).
 

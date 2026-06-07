@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   assertValidSchoolYearDates,
+  assertCanCreateSchoolYear,
   isYmdWithinSchoolYear,
   resolveSchoolYearIdForList,
   ensureDefaultSchoolYear,
@@ -82,6 +83,20 @@ describe("assertValidSchoolYearDates", () => {
   });
 });
 
+describe("assertCanCreateSchoolYear", () => {
+  it("acepta crear si no hay ciclo activo", async () => {
+    const p = fakePrisma() as any;
+    p.schoolYear.findFirst.mockResolvedValue(null);
+    await expect(assertCanCreateSchoolYear(p)).resolves.toBeUndefined();
+  });
+
+  it("rechaza crear si ya hay un ciclo activo", async () => {
+    const p = fakePrisma() as any;
+    p.schoolYear.findFirst.mockResolvedValue({ id: "active" });
+    await expect(assertCanCreateSchoolYear(p)).rejects.toThrow("ACTIVE_SCHOOL_YEAR_EXISTS");
+  });
+});
+
 describe("resolveSchoolYearIdForList", () => {
   it("ADMIN con schoolYearId válido lo usa", async () => {
     const prisma = {
@@ -135,22 +150,18 @@ describe("ensureDefaultSchoolYear", () => {
     await ensureDefaultSchoolYear(p);
     expect(p.schoolYear.create).not.toHaveBeenCalled();
   });
-  it("reactiva un ciclo del año actual si existe", async () => {
+  it("no reactiva ciclos cerrados o planificados al arrancar", async () => {
     const p = fakePrisma() as any;
     p.schoolYear.findFirst.mockResolvedValue(null);
-    p.schoolYear.findUnique.mockResolvedValue({ id: "sy-existing" });
-    p.schoolYear.update.mockResolvedValue({ id: "sy-existing", status: "ACTIVE" });
     await ensureDefaultSchoolYear(p);
-    expect(p.schoolYear.update).toHaveBeenCalled();
+    expect(p.schoolYear.update).not.toHaveBeenCalled();
     expect(p.schoolYear.create).not.toHaveBeenCalled();
   });
-  it("crea uno nuevo si no hay ninguno", async () => {
+  it("no crea ciclos automáticamente si no hay activo", async () => {
     const p = fakePrisma() as any;
     p.schoolYear.findFirst.mockResolvedValue(null);
-    p.schoolYear.findUnique.mockResolvedValue(null);
-    p.schoolYear.create.mockResolvedValue({ id: "sy-new", status: "ACTIVE" });
     await ensureDefaultSchoolYear(p);
-    expect(p.schoolYear.create).toHaveBeenCalled();
+    expect(p.schoolYear.create).not.toHaveBeenCalled();
   });
 });
 

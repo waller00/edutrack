@@ -5,6 +5,7 @@ import {
   moodleCanonicalHostHeader,
   moodleRootCategoryId,
   moodleStudentRoleId,
+  moodleSubstituteTeacherRoleId,
   moodleTeacherRoleId,
   moodleToken,
   moodleUserAuthMethod,
@@ -16,6 +17,7 @@ const MOODLE_ENV_KEYS = [
   "MOODLE_CANONICAL_HOST",
   "MOODLE_ROLE_TEACHER_ID",
   "MOODLE_ROLE_STUDENT_ID",
+  "MOODLE_ROLE_SUBSTITUTE_TEACHER_ID",
   "MOODLE_ROOT_CATEGORY_ID",
   "MOODLE_USER_AUTH",
 ] as const;
@@ -84,6 +86,14 @@ describe("moodle client config", () => {
   it("un override no numérico cae al default", () => {
     process.env.MOODLE_ROLE_TEACHER_ID = "abc";
     expect(moodleTeacherRoleId()).toBe(3);
+  });
+
+  it("el rol suplente reutiliza el rol titular si no se configura", () => {
+    expect(moodleSubstituteTeacherRoleId()).toBe(3);
+    process.env.MOODLE_ROLE_TEACHER_ID = "7";
+    expect(moodleSubstituteTeacherRoleId()).toBe(7); // hereda el titular
+    process.env.MOODLE_ROLE_SUBSTITUTE_TEACHER_ID = "12";
+    expect(moodleSubstituteTeacherRoleId()).toBe(12); // override explícito
   });
 
   it("moodleUserAuthMethod por defecto es manual", () => {
