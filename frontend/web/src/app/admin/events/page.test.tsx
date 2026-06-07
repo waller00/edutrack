@@ -118,6 +118,30 @@ describe('AdminEvents', () => {
     expect(within(modal).getByText('Mismo día que la fecha del evento.')).toBeInTheDocument()
   })
 
+  it('muestra resumen de días para eventos repetitivos', async () => {
+    const recurringEvent = {
+      ...baseEvent,
+      isRecurring: true,
+      recurrenceType: 'WEEKLY' as const,
+      daysOfWeek: [1, 3],
+      recurrenceEnd: '2025-12-15T00:00:00.000Z',
+    }
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('events/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [recurringEvent] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      return {}
+    })
+
+    render(<AdminEvents />)
+
+    expect(await screen.findByText('Vista rápida por día')).toBeInTheDocument()
+    expect(screen.getByText(/Lun, Mié/)).toBeInTheDocument()
+    expect(screen.getByText('Lunes')).toBeInTheDocument()
+    expect(screen.getByText('Miércoles')).toBeInTheDocument()
+  })
+
   it('elimina eventos seleccionados tras confirmar', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('events/all')) {

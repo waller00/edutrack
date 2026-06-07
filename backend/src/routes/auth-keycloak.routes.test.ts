@@ -24,6 +24,12 @@ const { redisMock, buildLoginUrlMock, getSessionMock } = vi.hoisted(() => ({
   }),
 }));
 
+const { getKeycloakUserLoginNameMock, verifyKeycloakPasswordMock, deleteKeycloakUserOtpCredentialsMock } = vi.hoisted(() => ({
+  getKeycloakUserLoginNameMock: vi.fn().mockResolvedValue("jorge.marrero"),
+  verifyKeycloakPasswordMock: vi.fn().mockResolvedValue(true),
+  deleteKeycloakUserOtpCredentialsMock: vi.fn().mockResolvedValue(1),
+}));
+
 vi.mock("../db/redis.js", () => ({
   getRedis: () => redisMock,
 }));
@@ -39,9 +45,14 @@ vi.mock("../auth/keycloak.js", () => ({
   buildLoginUrl: buildLoginUrlMock,
   buildLogoutUrl: vi.fn().mockResolvedValue(null),
   buildAccountConsoleUrl: vi.fn((path = "") => `https://auth.local/account/${path}`),
+  deleteKeycloakUserOtpCredentials: deleteKeycloakUserOtpCredentialsMock,
   exchangeCode: vi.fn(),
+  getKeycloakUserLoginName: getKeycloakUserLoginNameMock,
+  getKeycloakUserOtpStatus: vi.fn().mockResolvedValue({ enabled: true, count: 1 }),
   redirectUri: vi.fn(() => "http://localhost:4000/auth/callback"),
   refreshTokens: vi.fn(),
+  triggerKeycloakPasswordReset: vi.fn(),
+  verifyKeycloakPassword: verifyKeycloakPasswordMock,
 }));
 
 vi.mock("../auth/keycloak-provisioning.js", () => ({
@@ -57,6 +68,7 @@ import keycloakAuthRoutes from "./auth-keycloak.js";
 
 function app() {
   const a = express();
+  a.use(express.json());
   a.use(cookieParser());
   a.use("/auth", keycloakAuthRoutes);
   return a;
@@ -73,12 +85,24 @@ describe("auth-keycloak account routes", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toContain("CONFIGURE_TOTP");
-    expect(buildLoginUrlMock).toHaveBeenCalledWith({ requiredAction: "CONFIGURE_TOTP" });
+    expect(buildLoginUrlMock).toHaveBeenCalledWith({ requiredAction: "CONFIGURE_TOTP", prompt: "login" });
     expect(redisMock.set).toHaveBeenCalledWith(
       "bff:oauth:state-1",
       expect.stringContaining('"returnTo":"/profile"'),
       "EX",
       600,
     );
+  });
+
+  it("DELETE /auth/account/2fa valida contraseña con username real de Keycloak", async () => {
+    const res = await request(app())
+      .delete("/auth/account/2fa")
+      .set("Cookie", "sid=sid-1")
+      .send({ password: "Secret123!" });
+
+    expect(res.status).toBe(200);
+    expect(getKeycloakUserLoginNameMock).toHaveBeenCalledWith("kc-1");
+    expect(verifyKeycloakPasswordMock).toHaveBeenCalledWith("jorge.marrero", "Secret123!");
+    expect(deleteKeycloakUserOtpCredentialsMock).toHaveBeenCalledWith("kc-1");
   });
 });

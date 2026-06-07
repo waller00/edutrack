@@ -26,6 +26,19 @@
   }
 
   function frontendOrigin() {
+    var params = new URLSearchParams(window.location.search)
+    var explicit = params.get('frontend_origin')
+    if (explicit) {
+      try {
+        var explicitUrl = new URL(explicit)
+        if (explicitUrl.protocol === 'http:' || explicitUrl.protocol === 'https:') {
+          return explicitUrl.origin
+        }
+      } catch (_error) {
+        /* cae al redirect_uri */
+      }
+    }
+
     var raw = authReturnUrl()
     try {
       var url = new URL(raw)
