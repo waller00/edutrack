@@ -13,6 +13,13 @@ const {
   getSsoRegistrationMock,
   consumeSsoRegistrationMock,
   ensureDefaultPermissionsMock,
+  livenessRequiredMock,
+  diditConfiguredMock,
+  syncLivenessMock,
+  fetchDecisionMock,
+  expiryErrorMock,
+  getOrgRoleIdMock,
+  saveSessionMock,
 } = vi.hoisted(() => ({
   prismaMock: {
     user: {
@@ -46,6 +53,13 @@ const {
   getSsoRegistrationMock: vi.fn().mockResolvedValue(null),
   consumeSsoRegistrationMock: vi.fn().mockResolvedValue(null),
   ensureDefaultPermissionsMock: vi.fn().mockResolvedValue(undefined),
+  livenessRequiredMock: vi.fn().mockReturnValue(false),
+  diditConfiguredMock: vi.fn().mockReturnValue(false),
+  syncLivenessMock: vi.fn().mockResolvedValue(undefined),
+  fetchDecisionMock: vi.fn().mockResolvedValue(null),
+  expiryErrorMock: vi.fn().mockReturnValue(null),
+  getOrgRoleIdMock: vi.fn().mockResolvedValue("mock-org-role-id"),
+  saveSessionMock: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
@@ -59,13 +73,21 @@ vi.mock("../auth/sso-registration.js", () => ({
   getSsoRegistration: getSsoRegistrationMock,
   consumeSsoRegistration: consumeSsoRegistrationMock,
 }));
+vi.mock("../auth/session-store.js", () => ({ saveSession: saveSessionMock }));
 vi.mock("../identity/org-role-service.js", () => ({
   normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
-  getOrgRoleIdByCodeOrThrow: vi.fn().mockResolvedValue("mock-org-role-id"),
+  getOrgRoleIdByCodeOrThrow: getOrgRoleIdMock,
 }));
 vi.mock("../config/system-settings.js", () => ({
-  isLivenessRequiredForRegistration: () => false,
-  isDiditConfigured: () => false,
+  isLivenessRequiredForRegistration: livenessRequiredMock,
+  isDiditConfigured: diditConfiguredMock,
+}));
+vi.mock("../integrations/didit/sync-session.js", () => ({
+  syncLivenessSessionFromDiditApi: syncLivenessMock,
+  fetchDiditDecisionJson: fetchDecisionMock,
+}));
+vi.mock("../integrations/didit/register-verification-from-decision.js", () => ({
+  getDocumentExpiryValidationErrorFromDecision: expiryErrorMock,
 }));
 vi.mock("../identity/profile-permissions-repository.js", () => ({
   ensureDefaultProfilePermissionsIfNeeded: ensureDefaultPermissionsMock,
@@ -95,6 +117,13 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     getSsoRegistrationMock.mockResolvedValue(null);
     consumeSsoRegistrationMock.mockResolvedValue(null);
     ensureDefaultPermissionsMock.mockResolvedValue(undefined);
+    livenessRequiredMock.mockReturnValue(false);
+    diditConfiguredMock.mockReturnValue(false);
+    syncLivenessMock.mockResolvedValue(undefined);
+    fetchDecisionMock.mockResolvedValue(null);
+    expiryErrorMock.mockReturnValue(null);
+    getOrgRoleIdMock.mockResolvedValue("mock-org-role-id");
+    saveSessionMock.mockResolvedValue(undefined);
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {
         return (arg as (tx: { user: typeof prismaMock.user; livenessSession: { update: ReturnType<typeof vi.fn> } }) => Promise<unknown>)({
@@ -508,5 +537,455 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
       .set(authHeader())
       .send({ username: "tomado" });
     expect(res.status).toBe(409);
+  });
+
+  // --- Registro: manejo de errores inesperados ---
+  function registerBody(extra: Record<string, unknown> = {}) {
+    return {
+      email: "err@example.com",
+      password: "Segura123!",
+      firstName: "Err",
+      lastName: "Handler",
+      ...extra,
+    };
+  }
+
+  it("POST /auth/register mapea P2003 a 400 (rol inválido)", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const e = new Error("fk") as Error & { code?: string };
+    e.code = "P2003";
+    prismaMock.user.create.mockRejectedValueOnce(e);
+    const res = await request(app()).post("/auth/register").send(registerBody());
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Rol/i);
+  });
+
+  it("POST /auth/register mapea ROLE_NOT_FOUND a 400", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockRejectedValueOnce(new Error("ROLE_NOT_FOUND: STAFF"));
+    const res = await request(app()).post("/auth/register").send(registerBody());
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /auth/register mapea P2025 a 400 (sesión no disponible)", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const e = new Error("missing") as Error & { code?: string };
+    e.code = "P2025";
+    prismaMock.user.create.mockRejectedValueOnce(e);
+    const res = await request(app()).post("/auth/register").send(registerBody());
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /auth/register devuelve 500 ante error inesperado", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockRejectedValueOnce(new Error("boom"));
+    const res = await request(app()).post("/auth/register").send(registerBody());
+    expect(res.status).toBe(500);
+  });
+
+  // --- Registro SSO: token vencido y email que no coincide ---
+  it("POST /auth/register con ssoToken vencido devuelve 400", async () => {
+    getSsoRegistrationMock.mockResolvedValue(null);
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ ssoRegistrationToken: "x".repeat(30), password: undefined }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Google/i);
+  });
+
+  it("POST /auth/register exige contraseña cuando no hay SSO", async () => {
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ password: undefined }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/contraseña/i);
+  });
+
+  it("POST /auth/register rechaza email que no coincide con Google", async () => {
+    getSsoRegistrationMock.mockResolvedValue({
+      kcId: "kc-1",
+      email: "otro@example.com",
+      emailVerified: true,
+    });
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ ssoRegistrationToken: "x".repeat(30), password: undefined }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/no coincide/i);
+  });
+
+  // --- Registro con prueba de vida (Didit) ---
+  const validUuid = "11111111-1111-4111-8111-111111111111";
+  function livenessOn() {
+    livenessRequiredMock.mockReturnValue(true);
+    diditConfiguredMock.mockReturnValue(true);
+    prismaMock.user.findUnique.mockResolvedValue(null);
+  }
+
+  it("POST /auth/register devuelve 503 si liveness requerido pero Didit sin configurar", async () => {
+    livenessRequiredMock.mockReturnValue(true);
+    diditConfiguredMock.mockReturnValue(false);
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const res = await request(app()).post("/auth/register").send(registerBody());
+    expect(res.status).toBe(503);
+  });
+
+  it("POST /auth/register exige livenessToken cuando hay prueba de vida", async () => {
+    livenessOn();
+    const res = await request(app()).post("/auth/register").send(registerBody());
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/prueba de vida/i);
+  });
+
+  it("POST /auth/register rechaza sesión de liveness no aprobada", async () => {
+    livenessOn();
+    prismaMock.livenessSession.findFirst.mockResolvedValue({
+      id: "ls1",
+      status: "PENDING",
+      consumedAt: null,
+      diditSessionId: null,
+      expiresAt: new Date(Date.now() + 100000),
+    });
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ livenessToken: validUuid }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/no válida|aprobada/i);
+  });
+
+  it("POST /auth/register rechaza liveness vencido", async () => {
+    livenessOn();
+    prismaMock.livenessSession.findFirst.mockResolvedValue({
+      id: "ls1",
+      status: "APPROVED",
+      consumedAt: null,
+      diditSessionId: "d1",
+      expiresAt: new Date(Date.now() - 100000),
+    });
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ livenessToken: validUuid }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/venció/i);
+  });
+
+  it("POST /auth/register rechaza liveness sin documento validado por Didit", async () => {
+    livenessOn();
+    prismaMock.livenessSession.findFirst.mockResolvedValue({
+      id: "ls1",
+      status: "APPROVED",
+      consumedAt: null,
+      diditSessionId: "d1",
+      expiresAt: new Date(Date.now() + 100000),
+    });
+    fetchDecisionMock.mockResolvedValue(null);
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ livenessToken: validUuid }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/documento/i);
+  });
+
+  it("POST /auth/register rechaza documento vencido según Didit", async () => {
+    livenessOn();
+    prismaMock.livenessSession.findFirst.mockResolvedValue({
+      id: "ls1",
+      status: "APPROVED",
+      consumedAt: null,
+      diditSessionId: "d1",
+      expiresAt: new Date(Date.now() + 100000),
+    });
+    fetchDecisionMock.mockResolvedValue({ decision: {} });
+    expiryErrorMock.mockReturnValue("El documento está vencido");
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ livenessToken: validUuid, birthdate: "1990-01-01T00:00:00.000Z" }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/vencido/i);
+  });
+
+  it("POST /auth/register completa con liveness aprobado (sincroniza desde Didit)", async () => {
+    livenessOn();
+    prismaMock.livenessSession.findFirst.mockResolvedValue({
+      id: "ls1",
+      status: "PENDING",
+      consumedAt: null,
+      diditSessionId: "d1",
+      expiresAt: new Date(Date.now() + 100000),
+    });
+    prismaMock.livenessSession.findUnique.mockResolvedValue({
+      id: "ls1",
+      status: "APPROVED",
+      consumedAt: null,
+      diditSessionId: "d1",
+      expiresAt: new Date(Date.now() + 100000),
+    });
+    fetchDecisionMock.mockResolvedValue({ decision: {} });
+    expiryErrorMock.mockReturnValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "u-lv", email: "err@example.com", username: "err.handler" });
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ livenessToken: validUuid }));
+    expect(res.status).toBe(200);
+    expect(syncLivenessMock).toHaveBeenCalledWith("ls1");
+  });
+
+  // --- Perfil: cédula y rol ---
+  const validCi = "12345672";
+
+  it("PUT /auth/profile rechaza cédula con formato inválido", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: "user-1",
+      email: "u@example.com",
+      nationalId: null,
+      firstName: "U",
+      lastName: "T",
+    });
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ nationalId: "123456" });
+    expect(res.status).not.toBe(200);
+  });
+
+  it("PUT /auth/profile devuelve conflicto si la cédula ya existe", async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce({ id: "user-1", email: "u@example.com", nationalId: null })
+      .mockResolvedValueOnce({ id: "otro", nationalId: validCi });
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ nationalId: validCi });
+    expect(res.status).not.toBe(200);
+  });
+
+  it("PUT /auth/profile prohíbe a no-admin cambiar una cédula ya establecida", async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce({ id: "user-1", email: "u@example.com", nationalId: "87654321" })
+      .mockResolvedValueOnce(null);
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ nationalId: validCi });
+    expect(res.status).not.toBe(200);
+  });
+
+  it("PUT /auth/profile devuelve 400 si el rol no se puede resolver", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "admin-1",
+      nationalId: "12345678",
+      firstName: "Admin",
+      lastName: "User",
+      isApproved: true,
+    });
+    getOrgRoleIdMock.mockRejectedValueOnce(new Error("ROLE_NOT_FOUND"));
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader("ADMIN", "admin-1"))
+      .send({ role: "TEACHER" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Rol/i);
+  });
+
+  // --- Perfil: sincronización de correo con Keycloak (requiere bffSession) ---
+  function appWithSession(session: Record<string, unknown>) {
+    const a = express();
+    a.use(express.json());
+    a.use(cookieParser());
+    a.use((req, _res, next) => {
+      (req as any).bffSession = session;
+      next();
+    });
+    a.use("/auth", authRoutes);
+    return a;
+  }
+
+  it("PUT /auth/profile sincroniza correo en Keycloak y actualiza la sesión", async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce({ id: "user-1", email: "viejo@example.com", nationalId: "12345678" })
+      .mockResolvedValueOnce(null);
+    prismaMock.user.update.mockResolvedValue({ id: "user-1" });
+    const session: Record<string, unknown> = { kcId: "kc-1", email: "viejo@example.com" };
+    const res = await request(appWithSession(session))
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ email: "nuevo@example.com" });
+    expect(res.status).toBe(200);
+    expect(syncKeycloakUserIdentityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ kcId: "kc-1", email: "nuevo@example.com" }),
+    );
+    expect(saveSessionMock).toHaveBeenCalled();
+  });
+
+  it("PUT /auth/profile devuelve 502 si falla la sincronización de correo en Keycloak", async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce({ id: "user-1", email: "viejo@example.com", nationalId: "12345678" })
+      .mockResolvedValueOnce(null);
+    syncKeycloakUserIdentityMock.mockRejectedValueOnce(new Error("kc down"));
+    const res = await request(appWithSession({ kcId: "kc-1" }))
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ email: "nuevo@example.com" });
+    expect(res.status).toBe(502);
+  });
+
+  // --- verify/resend: casos sin envío ---
+  it("POST /auth/verify/resend responde ok aunque el usuario no exista", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const res = await request(app()).post("/auth/verify/resend").set(authHeader());
+    expect(res.status).toBe(200);
+    expect(prismaMock.emailVerification.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/verify/resend no reenvía si el correo ya está verificado", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      email: "u@example.com",
+      emailVerifiedAt: new Date(),
+    });
+    const res = await request(app()).post("/auth/verify/resend").set(authHeader());
+    expect(res.status).toBe(200);
+    expect(prismaMock.emailVerification.create).not.toHaveBeenCalled();
+  });
+
+  it("GET /auth/register/sso devuelve 404 si el token no existe", async () => {
+    getSsoRegistrationMock.mockResolvedValue(null);
+    const res = await request(app()).get("/auth/register/sso").query({ token: "no-existe" });
+    expect(res.status).toBe(404);
+  });
+
+  // --- /me: permisos por rol ---
+  function meRow(extra: Record<string, unknown> = {}) {
+    return {
+      id: "user-1",
+      email: "u@example.com",
+      name: "Usuario",
+      emailVerifiedAt: new Date(),
+      username: "u.test",
+      nationalId: "12345678",
+      nationalIdDocumentExpiresAt: null,
+      firstName: "U",
+      lastName: "Test",
+      phone: null,
+      birthdate: new Date("1990-01-01"),
+      isApproved: true,
+      approvedAt: new Date(),
+      isActive: true,
+      orgRole: { code: "STAFF" },
+      ...extra,
+    };
+  }
+
+  it("GET /auth/me mapea permisos con scope ALL y own", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(meRow());
+    prismaMock.rolePermission.findMany.mockResolvedValueOnce([
+      { permission: { code: "events.read" }, scope: "ALL" },
+      { permission: { code: "events.write" }, scope: "OWN" },
+    ]);
+    const res = await request(app()).get("/auth/me").set(authHeader());
+    expect(res.status).toBe(200);
+    expect(res.body.permissions).toEqual([
+      { id: "events.read", scope: "all" },
+      { id: "events.write", scope: "own" },
+    ]);
+    expect(res.body.permissionIds).toEqual(["events.read", "events.write"]);
+  });
+
+  it("GET /auth/me tolera fallo al consultar permisos", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(meRow());
+    prismaMock.rolePermission.findMany.mockRejectedValueOnce(new Error("db down"));
+    const res = await request(app()).get("/auth/me").set(authHeader());
+    expect(res.status).toBe(200);
+    expect(res.body.permissions).toEqual([]);
+  });
+
+  it("GET /auth/me devuelve 401 si el usuario no existe", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const res = await request(app()).get("/auth/me").set(authHeader());
+    expect(res.status).toBe(401);
+  });
+
+  // --- Registro: rol inválido, placeholder SSO, diditId faltante, username con 2do apellido ---
+  it("POST /auth/register devuelve 400 si el rol no se resuelve", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    getOrgRoleIdMock.mockRejectedValueOnce(new Error("ROLE_NOT_FOUND"));
+    const res = await request(app()).post("/auth/register").send(registerBody());
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Rol/i);
+  });
+
+  it("POST /auth/register completa cuenta placeholder de Google", async () => {
+    getSsoRegistrationMock.mockResolvedValue({
+      kcId: "kc-ph",
+      email: "ph@example.com",
+      emailVerified: true,
+    });
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u-ph",
+      email: "ph@example.com",
+      username: "ph.user",
+      isActive: true,
+      isApproved: false,
+    });
+    prismaMock.user.update.mockResolvedValue({ id: "u-ph", email: "ph@example.com", username: "ph.user" });
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ email: "ph@example.com", password: undefined, ssoRegistrationToken: "x".repeat(30) }));
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalled();
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/register rechaza sesión Didit sin diditSessionId", async () => {
+    livenessOn();
+    prismaMock.livenessSession.findFirst.mockResolvedValue({
+      id: "ls1",
+      status: "APPROVED",
+      consumedAt: null,
+      diditSessionId: null,
+      expiresAt: new Date(Date.now() + 100000),
+    });
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ livenessToken: validUuid }));
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /auth/register genera username con inicial del segundo apellido", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "u-2", email: "dl@example.com", username: "dario.de" });
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ email: "dl@example.com", firstName: "Dario", lastName: "De Leon" }));
+    expect(res.status).toBe(200);
+  });
+
+  // --- Perfil: cédula válida seteada por admin, body inválido ---
+  it("PUT /auth/profile permite a un ADMIN setear la cédula", async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce({ id: "admin-1", email: "a@example.com", nationalId: null, isApproved: true })
+      .mockResolvedValueOnce(null);
+    prismaMock.user.update.mockResolvedValue({ id: "admin-1" });
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader("ADMIN", "admin-1"))
+      .send({ nationalId: validCi });
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ nationalId: validCi }) }),
+    );
+  });
+
+  it("PUT /auth/profile rechaza username con caracteres inválidos", async () => {
+    const res = await request(app())
+      .put("/auth/profile")
+      .set(authHeader())
+      .send({ username: "no validos!" });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /auth/verify rechaza body inválido", async () => {
+    const res = await request(app()).post("/auth/verify").send({ token: "corto" });
+    expect(res.status).toBe(400);
   });
 });
