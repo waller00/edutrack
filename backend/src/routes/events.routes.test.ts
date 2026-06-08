@@ -230,6 +230,202 @@ describe("events routes (prisma mock)", () => {
     expect(res.status).toBe(500);
   });
 
+  it("POST /events 400 si el ciclo de la query no existe", async () => {
+    prismaMock.schoolYear.findUnique.mockResolvedValueOnce(null);
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events?schoolYearId=sy-x")
+      .set("Authorization", `Bearer ${tok}`)
+      .send(minimalEvent);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/no encontrado/i);
+  });
+
+  it("POST /events 400 si el ciclo de la query está cerrado", async () => {
+    prismaMock.schoolYear.findUnique.mockResolvedValueOnce({ id: "sy-x", status: "CLOSED" });
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events?schoolYearId=sy-x")
+      .set("Authorization", `Bearer ${tok}`)
+      .send(minimalEvent);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/cerrado/i);
+  });
+
+  it("POST /events resuelve courseOrientationId", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c1";
+    prismaMock.courseOffering.findFirst.mockResolvedValueOnce({ id: "off-1", courseId, schoolYearId: "sy-default" });
+    prismaMock.courseOrientation.findFirst.mockResolvedValueOnce({ id: "co1", orientationId: "or1", courseId });
+    prismaMock.event.create.mockResolvedValue({ id: "ev1", title: "X", userId: "adm", user: {}, assignedUser: null });
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, courseId, courseOrientationId: "00000000-0000-4000-8000-0000000000a1" });
+    expect(res.status).toBe(200);
+  });
+
+  it("POST /events 400 si courseOrientationId no está disponible", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c1";
+    prismaMock.courseOffering.findFirst.mockResolvedValueOnce({ id: "off-1", courseId, schoolYearId: "sy-default" });
+    prismaMock.courseOrientation.findFirst.mockResolvedValueOnce(null);
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, courseId, courseOrientationId: "00000000-0000-4000-8000-0000000000a1" });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /events resuelve orientationId con curso", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c1";
+    prismaMock.courseOffering.findFirst.mockResolvedValueOnce({ id: "off-1", courseId, schoolYearId: "sy-default" });
+    prismaMock.courseOrientation.findFirst.mockResolvedValueOnce({ id: "co1" });
+    prismaMock.event.create.mockResolvedValue({ id: "ev1", title: "X", userId: "adm", user: {}, assignedUser: null });
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, courseId, orientationId: "00000000-0000-4000-8000-0000000000b1" });
+    expect(res.status).toBe(200);
+  });
+
+  it("POST /events 400 si hora fin <= hora inicio", async () => {
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, startTime: "11:00", endTime: "10:00" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Hora fin/i);
+  });
+
+  it("POST /events 400 si es repetitivo sin recurrenceType", async () => {
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, isRecurring: true, recurrenceType: "NONE" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/recurrenceType/i);
+  });
+
+  it("POST /events recurrente semanal infiere el día desde la fecha base", async () => {
+    prismaMock.event.create.mockResolvedValue({ id: "ev1", title: "X", userId: "adm", user: {}, assignedUser: null });
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, isRecurring: true, recurrenceType: "WEEKLY", daysOfWeek: [] });
+    expect(res.status).toBe(200);
+    const data = prismaMock.event.create.mock.calls.at(-1)?.[0].data;
+    expect(data.daysOfWeek.length).toBeGreaterThan(0);
+  });
+
+  it("POST /events 400 si recurrenceEnd es anterior a la fecha base", async () => {
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, isRecurring: true, recurrenceType: "WEEKLY", daysOfWeek: [1], recurrenceEnd: "2025-12-01" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/recurrenceEnd/i);
+  });
+
+  it("POST /events resuelve asignatura activa en el curso", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c1";
+    const subjectId = "00000000-0000-4000-8000-0000000000d1";
+    prismaMock.courseOffering.findFirst.mockResolvedValueOnce({ id: "off-1", courseId, schoolYearId: "sy-default" });
+    prismaMock.courseOffering.findUnique.mockResolvedValueOnce({ schoolYearId: "sy-default", course: { level: "CICLO_BASICO" } });
+    prismaMock.subject.findFirst.mockResolvedValueOnce({
+      id: subjectId,
+      courseId,
+      courseAssignments: [
+        { associationType: "DIRECT", level: "CICLO_BASICO", courseId, orientationId: null, schoolYearId: "sy-default", isActive: true, isOffered: true, visibleInFilters: true },
+      ],
+    });
+    prismaMock.event.create.mockResolvedValue({ id: "ev1", title: "X", userId: "adm", user: {}, assignedUser: null });
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ ...minimalEvent, courseId, subjectId });
+    expect(res.status).toBe(200);
+  });
+
+  it("PUT /events/:id valida asignatura contra el curso", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c0";
+    const subjectId = "00000000-0000-4000-8000-0000000000d2";
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: "e1",
+      userId: "u1",
+      assignedUserId: null,
+      schoolYearId: "sy-2025",
+      courseOfferingId: "off-1",
+      courseOffering: { courseId },
+      orientationId: null,
+      courseOrientationId: null,
+      subjectId: null,
+      _count: { attendances: 0 },
+      startDate: new Date("2025-12-15T13:00:00.000Z"),
+      startTime: new Date("2025-12-15T13:00:00.000Z"),
+      endTime: new Date("2025-12-15T14:00:00.000Z"),
+      isRecurring: false,
+      recurrenceType: "NONE",
+      recurrenceEnd: null,
+      daysOfWeek: [],
+      status: "SCHEDULED",
+    });
+    prismaMock.courseOffering.findUnique.mockResolvedValueOnce({ schoolYearId: "sy-2025", course: { level: "CICLO_BASICO" } });
+    prismaMock.subject.findFirst.mockResolvedValueOnce({
+      id: subjectId,
+      courseId,
+      courseAssignments: [
+        { associationType: "DIRECT", level: "CICLO_BASICO", courseId, orientationId: null, schoolYearId: "sy-2025", isActive: true, isOffered: true, visibleInFilters: true },
+      ],
+    });
+    prismaMock.event.update.mockResolvedValue({ id: "e1" });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ subjectId });
+    expect(res.status).toBe(200);
+  });
+
+  it("PUT /events/:id 400 si la asignatura no pertenece al curso", async () => {
+    const courseId = "00000000-0000-4000-8000-0000000000c0";
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: "e1",
+      userId: "u1",
+      assignedUserId: null,
+      schoolYearId: "sy-2025",
+      courseOfferingId: "off-1",
+      courseOffering: { courseId },
+      orientationId: null,
+      courseOrientationId: null,
+      subjectId: null,
+      _count: { attendances: 0 },
+      startDate: new Date("2025-12-15T13:00:00.000Z"),
+      startTime: new Date("2025-12-15T13:00:00.000Z"),
+      endTime: new Date("2025-12-15T14:00:00.000Z"),
+      isRecurring: false,
+      recurrenceType: "NONE",
+      recurrenceEnd: null,
+      daysOfWeek: [],
+      status: "SCHEDULED",
+    });
+    prismaMock.courseOffering.findUnique.mockResolvedValueOnce({ schoolYearId: "sy-2025", course: { level: "CICLO_BASICO" } });
+    prismaMock.subject.findFirst.mockResolvedValueOnce(null);
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({ subjectId: "00000000-0000-4000-8000-0000000000d2" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Asignatura/i);
+  });
+
   it("GET /events/my-events expande lista", async () => {
     prismaMock.event.findMany.mockResolvedValue([
       {
@@ -273,6 +469,74 @@ describe("events routes (prisma mock)", () => {
     expect(res.status).toBe(200);
     const where = prismaMock.event.findMany.mock.calls[0][0].where;
     expect(where.courseOffering.courseId).toBe(cid);
+  });
+
+  it("GET /events/my-events incluye suplencias y filtra por rango", async () => {
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.substitution.findMany.mockResolvedValueOnce([
+      {
+        date: new Date("2025-12-16T00:00:00.000Z"),
+        startTime: new Date("2025-12-16T13:00:00.000Z"),
+        endTime: new Date("2025-12-16T14:00:00.000Z"),
+        event: {
+          id: "ev-sup",
+          title: "Clase cubierta",
+          startDate: new Date("2025-12-16T13:00:00.000Z"),
+          user: {},
+          assignedUser: null,
+        },
+      },
+    ]);
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const res = await request(app())
+      .get("/events/my-events?startDate=2025-12-15&endDate=2025-12-20&type=CLASE")
+      .set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(200);
+    expect(res.body.some((e: { isSubstitution?: boolean }) => e.isSubstitution)).toBe(true);
+  });
+
+  it("GET /events/my-events 500 si falla la consulta", async () => {
+    prismaMock.event.findMany.mockRejectedValueOnce(new Error("db"));
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const res = await request(app())
+      .get("/events/my-events")
+      .set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(500);
+  });
+
+  it("GET /events/my-events admite courseId repetido en la query", async () => {
+    prismaMock.event.findMany.mockResolvedValue([]);
+    const cid = "00000000-0000-4000-8000-0000000000c1";
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "STAFF" });
+    const res = await request(app())
+      .get(`/events/my-events?courseId=${cid}&courseId=${cid}`)
+      .set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("GET /events/all con allYears y filtros de usuario", async () => {
+    prismaMock.event.count.mockResolvedValue(0);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .get("/events/all?allYears=1&userId=u1&assignedUserId=u2")
+      .set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(200);
+    const where = prismaMock.event.findMany.mock.calls[0][0].where;
+    expect(where.userId).toBe("u1");
+    expect(where.assignedUserId).toBe("u2");
+    expect(where.schoolYearId).toBeUndefined();
+  });
+
+  it("GET /events/all tolera fallo al marcar vencidos", async () => {
+    prismaMock.event.updateMany.mockRejectedValueOnce(new Error("db"));
+    prismaMock.event.count.mockResolvedValue(0);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .get("/events/all")
+      .set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(200);
   });
 
   it("GET /events/all ADMIN", async () => {
@@ -407,6 +671,80 @@ describe("events routes (prisma mock)", () => {
       .set("Authorization", `Bearer ${tok}`);
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("e1");
+  });
+
+  it("PUT /events/:id reemplazo histórico copia los campos enviados", async () => {
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: "e1",
+      title: "Clase vieja",
+      description: "desc vieja",
+      type: "CLASE",
+      userId: "u1",
+      assignedUserId: null,
+      location: "Aula 1",
+      schoolYearId: "sy-2025",
+      courseOfferingId: "off-1",
+      courseOffering: { courseId: "00000000-0000-4000-8000-0000000000c0" },
+      orientationId: null,
+      courseOrientationId: null,
+      subjectId: null,
+      _count: { attendances: 1 },
+      startDate: new Date("2025-12-15T13:00:00.000Z"),
+      startTime: new Date("2025-12-15T13:00:00.000Z"),
+      endTime: new Date("2025-12-15T14:00:00.000Z"),
+      isRecurring: true,
+      recurrenceType: "WEEKLY",
+      recurrenceEnd: null,
+      daysOfWeek: [1],
+      status: "SCHEDULED",
+    });
+    prismaMock.event.create.mockResolvedValueOnce({ id: "e2", title: "Clase nueva", assignedUserId: "00000000-0000-4000-8000-000000000099", user: {}, assignedUser: null });
+    prismaMock.event.update.mockResolvedValueOnce({ id: "e1", status: "CANCELLED" });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({
+        title: "Clase nueva",
+        description: "desc nueva",
+        type: "CLASE",
+        assignedUserId: "00000000-0000-4000-8000-000000000099",
+        startDate: iso,
+        startTime: "09:00",
+        endTime: "10:00",
+        isRecurring: true,
+        recurrenceType: "WEEKLY",
+        daysOfWeek: [2],
+        recurrenceEnd: "2026-06-10",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.historicalReplacement).toBe(true);
+    expect(prismaMock.event.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ title: "Clase nueva", type: "CLASE" }) }),
+    );
+  });
+
+  it("GET /events/:id ADMIN devuelve evento con relaciones expandidas", async () => {
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: "e1",
+      title: "Clase",
+      userId: "u9",
+      assignedUserId: "u8",
+      courseOffering: { id: "off-1", courseId: "c1", course: { id: "c1", name: "1A", code: "1A" } },
+      user: { id: "u9", name: "Dueño", email: "d@d.com", orgRole: { code: "TEACHER" } },
+      assignedUser: { id: "u8", name: "Asignado", email: "a@a.com", orgRole: { code: "STAFF" } },
+      attendances: [
+        { id: "att-1", user: { id: "u8", name: "Asignado", email: "a@a.com", orgRole: { code: "STAFF" } } },
+      ],
+    });
+    const tok = signAccessToken({ sub: "adm", email: "adm@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .get("/events/e1")
+      .set("Authorization", `Bearer ${tok}`);
+    expect(res.status).toBe(200);
+    expect(res.body.courseId).toBe("c1");
+    expect(res.body.user.role).toBe("TEACHER");
+    expect(res.body.assignedUser.role).toBe("STAFF");
   });
 
   it("PUT /events/:id 400 con body inválido", async () => {
@@ -631,6 +969,133 @@ describe("events routes (prisma mock)", () => {
       .set("Authorization", `Bearer ${tok}`)
       .send({ title: "Nuevo" });
     expect(res.status).toBe(500);
+  });
+
+  const existingForPut = (extra: Record<string, unknown> = {}) => ({
+    id: "e1",
+    title: "Clase",
+    description: null,
+    type: "CLASE",
+    userId: "u1",
+    assignedUserId: null,
+    location: null,
+    schoolYearId: "sy-2025",
+    courseOfferingId: "off-1",
+    courseOffering: { courseId: "00000000-0000-4000-8000-0000000000c0" },
+    orientationId: null,
+    courseOrientationId: null,
+    subjectId: null,
+    _count: { attendances: 0 },
+    startDate: new Date("2025-12-15T13:00:00.000Z"),
+    startTime: new Date("2025-12-15T13:00:00.000Z"),
+    endTime: new Date("2025-12-15T14:00:00.000Z"),
+    isRecurring: false,
+    recurrenceType: "NONE",
+    recurrenceEnd: null,
+    daysOfWeek: [],
+    status: "SCHEDULED",
+    ...extra,
+  });
+  const putTok = () => signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+
+  it("PUT /events/:id resuelve courseOrientationId válido", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(existingForPut());
+    prismaMock.courseOrientation.findFirst.mockResolvedValueOnce({ id: "co1", orientationId: "or1" });
+    prismaMock.event.update.mockResolvedValue({ id: "e1" });
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${putTok()}`)
+      .send({ courseOrientationId: "00000000-0000-4000-8000-0000000000a1" });
+    expect(res.status).toBe(200);
+    expect(prismaMock.event.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ courseOrientationId: "co1", orientationId: "or1" }) }),
+    );
+  });
+
+  it("PUT /events/:id 400 si la courseOrientationId no está disponible", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(existingForPut());
+    prismaMock.courseOrientation.findFirst.mockResolvedValueOnce(null);
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${putTok()}`)
+      .send({ courseOrientationId: "00000000-0000-4000-8000-0000000000a1" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Orientación no disponible/i);
+  });
+
+  it("PUT /events/:id limpia la orientación con courseOrientationId null", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(existingForPut({ courseOrientationId: "co-old" }));
+    prismaMock.event.update.mockResolvedValue({ id: "e1" });
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${putTok()}`)
+      .send({ courseOrientationId: null });
+    expect(res.status).toBe(200);
+    expect(prismaMock.event.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ courseOrientationId: null }) }),
+    );
+  });
+
+  it("PUT /events/:id resuelve orientationId válido para el curso", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(existingForPut());
+    prismaMock.courseOrientation.findFirst.mockResolvedValueOnce({ id: "co1" });
+    prismaMock.event.update.mockResolvedValue({ id: "e1" });
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${putTok()}`)
+      .send({ orientationId: "00000000-0000-4000-8000-0000000000b1" });
+    expect(res.status).toBe(200);
+  });
+
+  it("PUT /events/:id 400 si la orientationId no está disponible", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(existingForPut());
+    prismaMock.courseOrientation.findFirst.mockResolvedValueOnce(null);
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${putTok()}`)
+      .send({ orientationId: "00000000-0000-4000-8000-0000000000b1" });
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT /events/:id 400 si orientationId sin curso resuelto", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(
+      existingForPut({ courseOfferingId: null, courseOffering: null }),
+    );
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${putTok()}`)
+      .send({ orientationId: "00000000-0000-4000-8000-0000000000b1" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/requiere curso/i);
+  });
+
+  it("PUT /events/:id 400 si subjectId sin curso asociado", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(
+      existingForPut({ courseOfferingId: null, courseOffering: null }),
+    );
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${putTok()}`)
+      .send({ subjectId: "00000000-0000-4000-8000-0000000000d1" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Seleccioná un curso/i);
+  });
+
+  it("PUT /events/:id limpia curso, asignatura y orientación con courseId null", async () => {
+    prismaMock.event.findUnique.mockResolvedValue(
+      existingForPut({ subjectId: "s-old", orientationId: "or-old" }),
+    );
+    prismaMock.event.update.mockResolvedValue({ id: "e1" });
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${putTok()}`)
+      .send({ courseId: null });
+    expect(res.status).toBe(200);
+    expect(prismaMock.event.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ subjectId: null, orientationId: null, courseOrientationId: null }),
+      }),
+    );
   });
 
   it("PUT /events/:id/cancel 404 si no existe", async () => {
@@ -884,6 +1349,45 @@ describe("events routes (prisma mock)", () => {
       expect(res.status).toBe(201);
       expect(res.body.createdCount).toBe(2);
       expect(prismaMock.event.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("201 acepta fecha DD/MM/YYYY y tipo 'jornada-laboral'", async () => {
+      prismaMock.event.create.mockResolvedValue({ id: "ev-dd", title: "Jornada" });
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ titulo: "Jornada", tipo: "jornada-laboral", fecha: "10/05/2026" })] });
+      expect(res.status).toBe(201);
+      expect(res.body.createdCount).toBe(1);
+    });
+
+    it("201 con fin_repeticion 'ciclo' no fija fecha de fin", async () => {
+      prismaMock.event.create.mockResolvedValue({ id: "ev-c", title: "Clase" });
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ tipo: "CLASE", repite: "si", dias: "lunes", fin_repeticion: "ciclo" })] });
+      expect(res.status).toBe(201);
+      const data = prismaMock.event.create.mock.calls.at(-1)?.[0].data;
+      expect(data.recurrenceEnd).toBeNull();
+    });
+
+    it("400 si fin_repeticion no es una fecha válida", async () => {
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ tipo: "CLASE", repite: "si", dias: "lunes", fin_repeticion: "basura" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/fin_repeticion inválido/i);
+    });
+
+    it("400 si fin_repeticion es anterior a la fecha base", async () => {
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ tipo: "CLASE", repite: "si", dias: "lunes", fecha: "2026-05-10", fin_repeticion: "2026-05-01" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/posterior/i);
     });
 
     it("400 si fin_repeticion es anterior a la fecha", async () => {
