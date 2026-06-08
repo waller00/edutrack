@@ -70,7 +70,12 @@ describe('LicensesPage', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
+
+    // El botón está disabled mientras no haya selección aplicada; esperar a que
+    // el estado se refleje evita un click no-op en CI (timing) que no dispara el DELETE.
+    const deleteButton = screen.getByRole('button', { name: 'Eliminar seleccionadas' })
+    await waitFor(() => expect(deleteButton).toBeEnabled())
+    fireEvent.click(deleteButton)
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/medical-leaves/lic1', expect.objectContaining({ method: 'DELETE' })),
