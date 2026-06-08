@@ -13,19 +13,36 @@ vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 
+/**
+ * Mock de api resuelto por URL (no por orden de llamada). Evita flakiness:
+ * el componente dispara /auth/me y /notifications/in-app/unread-count desde
+ * efectos independientes, y bajo CI el orden/cantidad puede variar.
+ */
+function mockApiByUrl(me: Record<string, unknown> | Error, unreadCount = 0) {
+  vi.mocked(api).mockImplementation(async (url: string) => {
+    const u = String(url)
+    if (u.includes('/auth/me')) {
+      if (me instanceof Error) throw me
+      return me
+    }
+    if (u.includes('unread-count')) return { count: unreadCount }
+    return {}
+  })
+}
+
 describe('UserNav', () => {
   beforeEach(() => {
     vi.mocked(api).mockReset()
     mockUsePathname.mockReset()
     mockUsePathname.mockReturnValue('/dashboard')
-    Object.defineProperty(window, 'location', {
+    Object.defineProperty(globalThis, 'location', {
       configurable: true,
       value: { href: 'http://localhost/dashboard' },
     })
   })
 
   it('shows auth links when there is no session', async () => {
-    vi.mocked(api).mockRejectedValueOnce(new Error('unauthorized'))
+    mockApiByUrl(new Error('unauthorized'))
 
     render(<UserNav />)
 
@@ -36,16 +53,14 @@ describe('UserNav', () => {
   })
 
   it('no muestra barra de módulos; campana y menú de usuario para docente aprobado', async () => {
-    vi.mocked(api)
-      .mockResolvedValueOnce({
-        role: 'TEACHER',
-        name: 'Ana',
-        email: 'ana@example.com',
-        isApproved: true,
-        isActive: true,
-        needsProfileCompletion: false,
-      })
-      .mockResolvedValueOnce({ count: 0 })
+    mockApiByUrl({
+      role: 'TEACHER',
+      name: 'Ana',
+      email: 'ana@example.com',
+      isApproved: true,
+      isActive: true,
+      needsProfileCompletion: false,
+    })
 
     render(<UserNav />)
 
@@ -56,17 +71,14 @@ describe('UserNav', () => {
 
   it('admin puede abrir menú y cerrar sesión', async () => {
     mockUsePathname.mockReturnValue('/login')
-    vi.mocked(api)
-      .mockResolvedValueOnce({
-        role: 'ADMIN',
-        email: 'admin@example.com',
-        isApproved: true,
-        isActive: true,
-        needsProfileCompletion: false,
-        permissions: [{ id: 'settings.manage', scope: 'all' }],
-      })
-      .mockResolvedValueOnce({ count: 0 })
-      .mockResolvedValueOnce({})
+    mockApiByUrl({
+      role: 'ADMIN',
+      email: 'admin@example.com',
+      isApproved: true,
+      isActive: true,
+      needsProfileCompletion: false,
+      permissions: [{ id: 'settings.manage', scope: 'all' }],
+    })
 
     render(<UserNav />)
 
@@ -80,11 +92,11 @@ describe('UserNav', () => {
     expect(screen.getByRole('link', { name: /configuración del sistema/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /cerrar sesión/i }))
 
-    await waitFor(() => expect(window.location.href).toContain('/auth/logout'))
+    await waitFor(() => expect(globalThis.location.href).toContain('/auth/logout'))
   })
 
   it('does not show protected modules for users without access', async () => {
-    vi.mocked(api).mockResolvedValueOnce({
+    mockApiByUrl({
       role: 'ADMIN',
       email: 'admin@example.com',
       isApproved: false,
@@ -100,22 +112,20 @@ describe('UserNav', () => {
 
   it('admin con permisos globales no ve atajos "Mis…" de otros roles en el menú lateral', async () => {
     mockUsePathname.mockReturnValue('/admin/licenses')
-    vi.mocked(api)
-      .mockResolvedValueOnce({
-        role: 'ADMIN',
-        name: 'Admin',
-        email: 'admin@example.com',
-        isApproved: true,
-        isActive: true,
-        needsProfileCompletion: false,
-        permissions: [
-          { id: 'attendance.read', scope: 'all' },
-          { id: 'events.read', scope: 'all' },
-          { id: 'licenses.read', scope: 'all' },
-          { id: 'users.read', scope: 'all' },
-        ],
-      })
-      .mockResolvedValueOnce({ count: 0 })
+    mockApiByUrl({
+      role: 'ADMIN',
+      name: 'Admin',
+      email: 'admin@example.com',
+      isApproved: true,
+      isActive: true,
+      needsProfileCompletion: false,
+      permissions: [
+        { id: 'attendance.read', scope: 'all' },
+        { id: 'events.read', scope: 'all' },
+        { id: 'licenses.read', scope: 'all' },
+        { id: 'users.read', scope: 'all' },
+      ],
+    })
 
     render(<UserNav />)
 
@@ -130,16 +140,14 @@ describe('UserNav', () => {
 
   it('muestra módulos por permiso aunque el rol no sea ADMIN', async () => {
     mockUsePathname.mockReturnValue('/admin/users')
-    vi.mocked(api)
-      .mockResolvedValueOnce({
-        role: 'STAFF',
-        email: 'staff@example.com',
-        isApproved: true,
-        isActive: true,
-        needsProfileCompletion: false,
-        permissions: [{ id: 'users.read', scope: 'all' }],
-      })
-      .mockResolvedValueOnce({ count: 0 })
+    mockApiByUrl({
+      role: 'STAFF',
+      email: 'staff@example.com',
+      isApproved: true,
+      isActive: true,
+      needsProfileCompletion: false,
+      permissions: [{ id: 'users.read', scope: 'all' }],
+    })
 
     render(<UserNav />)
 
