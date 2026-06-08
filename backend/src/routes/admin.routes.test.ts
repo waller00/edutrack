@@ -869,5 +869,377 @@ describe("admin routes (prisma mock)", () => {
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual([]);
     });
+
+    it("400 con fecha 'hasta' inválida", async () => {
+      const res = await request(app())
+        .get("/admin/audit-logs?from=2026-01-01&to=no-fecha")
+        .set(adminHdr());
+      expect(res.status).toBe(400);
+    });
+
+    it("mapea actor y action en los registros", async () => {
+      prismaMock.auditLog.count.mockResolvedValueOnce(1);
+      prismaMock.auditLog.findMany.mockResolvedValueOnce([
+        {
+          id: "log-1",
+          occurredAt: new Date("2026-01-01T10:00:00.000Z"),
+          action: "USER_CREATED_BY_ADMIN",
+          actorUserId: "adm",
+          actor: { id: "adm", name: "Admin", email: "a@a.com" },
+          actorIp: "1.2.3.4",
+          userAgent: "ua",
+          source: "web",
+          entityType: "User",
+          entityId: "u1",
+          metadata: {},
+        },
+      ]);
+      const res = await request(app()).get("/admin/audit-logs").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body.data[0]).toMatchObject({ actorName: "Admin", actorEmail: "a@a.com" });
+    });
+  });
+
+  describe("POST /admin/query-assistant errores del servicio", () => {
+    it("503 si la clave OpenAI tiene formato inválido", async () => {
+      runAdminQueryAssistantMock.mockRejectedValueOnce(
+        new Error("OPENAI_API_KEY_INVALID_FORMAT: La clave no tiene el formato esperado"),
+      );
+      const res = await request(app())
+        .post("/admin/query-assistant")
+        .set(adminHdr())
+        .send({ question: "¿Cuántos alumnos hay?" });
+      expect(res.status).toBe(503);
+      expect(res.body.message).toMatch(/formato esperado/i);
+    });
+
+    it("500 ante error inesperado del asistente", async () => {
+      runAdminQueryAssistantMock.mockRejectedValueOnce(new Error("boom"));
+      const res = await request(app())
+        .post("/admin/query-assistant")
+        .set(adminHdr())
+        .send({ question: "¿Cuántos alumnos hay?" });
+      expect(res.status).toBe(500);
+    });
+  });
+
+  describe("PUT /admin/users/:id ramas adicionales", () => {
+    it("403 no cambiar el rol del administrador", async () => {
+      prismaMock.user.findUnique.mockResolvedValue({ id: "adm", orgRole: { code: "ADMIN" } });
+      const res = await request(app())
+        .put("/admin/users/adm")
+        .set(adminHdr())
+        .send({ role: "STAFF" });
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/rol del administrador/i);
+    });
+
+    it("403 no marcar como pendiente al administrador", async () => {
+      prismaMock.user.findUnique.mockResolvedValue({ id: "adm", orgRole: { code: "ADMIN" } });
+      const res = await request(app())
+        .put("/admin/users/adm")
+        .set(adminHdr())
+        .send({ isApproved: false });
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/pendiente/i);
+    });
+
+    it("400 si el rol indicado no existe o está inactivo", async () => {
+      prismaMock.user.findUnique.mockResolvedValue({ id: "u1", orgRole: { code: "TEACHER" } });
+      prismaMock.orgRole.findFirst.mockResolvedValueOnce(null);
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ role: "COORD" });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/inactivo|no encontrado/i);
+    });
+
+    it("409 si el username ya está en uso por otro", async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: "u1",
+        orgRole: { code: "TEACHER" },
+        firstName: "A",
+        lastName: "B",
+      });
+      prismaMock.user.findFirst.mockResolvedValueOnce({ id: "otro" });
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ username: "tomado" });
+      expect(res.status).toBe(409);
+      expect(res.body.message).toMatch(/nombre de usuario/i);
+    });
+
+    it("devuelve ok sin auditar cuando no hay cambios semánticos", async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: "u1",
+        orgRole: { code: "TEACHER" },
+        roleId: orgRoleRowId("TEACHER"),
+        email: "u1@a.com",
+        username: "teacher1",
+        firstName: "A",
+        lastName: "B",
+        name: "A B",
+        nationalId: null,
+        nationalIdDocumentExpiresAt: null,
+        isApproved: true,
+        approvedAt: new Date("2020-01-01T00:00:00.000Z"),
+        isActive: true,
+      });
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ isActive: true });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /admin/users ramas adicionales", () => {
+    it("400 si el código de rol es inválido", async () => {
+      const res = await request(app())
+        .post("/admin/users")
+        .set(adminHdr())
+        .send({ email: "nuevo@a.com", role: "A!" });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Código de rol|Datos/i);
+    });
+
+    it("400 si el rol no existe", async () => {
+      prismaMock.orgRole.findFirst.mockResolvedValueOnce(null);
+      const res = await request(app())
+        .post("/admin/users")
+        .set(adminHdr())
+        .send({ email: "nuevo@a.com", role: "COORD" });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Rol no encontrado/i);
+    });
+
+    it("502 si falla la creación en Keycloak", async () => {
+      prismaMock.user.findUnique.mockResolvedValueOnce(null);
+      prismaMock.user.create.mockResolvedValueOnce({ id: "u-new", email: "nuevo@a.com" });
+      createKeycloakUserMock.mockRejectedValueOnce(new Error("kc down"));
+      const res = await request(app())
+        .post("/admin/users")
+        .set(adminHdr())
+        .send({ email: "nuevo@a.com", role: "STAFF" });
+      expect(res.status).toBe(502);
+    });
+  });
+
+  describe("GET /admin/users filtros opuestos", () => {
+    it("aplica approved=true, active=false, verified=false, locked=true y busca por cédula", async () => {
+      prismaMock.user.count.mockResolvedValue(0);
+      prismaMock.user.findMany.mockResolvedValue([]);
+      const res = await request(app())
+        .get("/admin/users?approved=true&active=false&verified=false&locked=true&q=1234567")
+        .set(adminHdr());
+      expect(res.status).toBe(200);
+      const and = prismaMock.user.findMany.mock.calls[0][0].where.AND;
+      expect(and).toEqual(
+        expect.arrayContaining([
+          { isApproved: true },
+          { isActive: false },
+          { emailVerifiedAt: null },
+          { lockUntil: { gt: expect.any(Date) } },
+          expect.objectContaining({
+            OR: expect.arrayContaining([
+              { nationalId: { contains: "1234567", mode: "insensitive" } },
+            ]),
+          }),
+        ]),
+      );
+    });
+  });
+
+  describe("org-roles PATCH ramas adicionales", () => {
+    it("400 con body inválido", async () => {
+      const res = await request(app())
+        .patch("/admin/org-roles/COORD")
+        .set(adminHdr())
+        .send({ label: "x" });
+      expect(res.status).toBe(400);
+    });
+
+    it("200 alterna el estado activo de un rol custom", async () => {
+      prismaMock.orgRole.findUnique.mockResolvedValueOnce({ code: "COORD", builtIn: false });
+      prismaMock.orgRole.update.mockResolvedValueOnce({ code: "COORD", active: true });
+      const res = await request(app())
+        .patch("/admin/org-roles/COORD")
+        .set(adminHdr())
+        .send({ active: true });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("PUT /admin/users/:id más ramas", () => {
+    const fullUser = (extra: Record<string, unknown> = {}) => ({
+      id: "u1",
+      orgRole: { code: "TEACHER" },
+      roleId: orgRoleRowId("TEACHER"),
+      email: "u1@a.com",
+      username: "teacher1",
+      firstName: "Ana",
+      lastName: "Bel",
+      name: "Ana Bel",
+      nationalId: null,
+      nationalIdDocumentExpiresAt: null,
+      isApproved: true,
+      approvedAt: new Date("2020-01-01T00:00:00.000Z"),
+      isActive: true,
+      ...extra,
+    });
+
+    it("400 con body inválido", async () => {
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ username: "ab" });
+      expect(res.status).toBe(400);
+    });
+
+    it("400 si el código de rol tiene formato inválido", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(fullUser());
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ role: "A!" });
+      expect(res.status).toBe(400);
+    });
+
+    it("actualiza solo el nombre (usa apellido actual)", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(fullUser());
+      prismaMock.user.update.mockResolvedValue({ id: "u1" });
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ firstName: "Nueva" });
+      expect(res.status).toBe(200);
+      expect(syncKeycloakUserIdentityByEmailMock).toHaveBeenCalled();
+    });
+
+    it("actualiza solo el apellido (usa nombre actual)", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(fullUser());
+      prismaMock.user.update.mockResolvedValue({ id: "u1" });
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ lastName: "Nuevo" });
+      expect(res.status).toBe(200);
+    });
+
+    it("cambia el rol e invalida sesiones", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(fullUser());
+      prismaMock.user.update.mockResolvedValue({ id: "u1" });
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ role: "STAFF" });
+      expect(res.status).toBe(200);
+      expect(prismaMock.user.update).toHaveBeenCalled();
+    });
+
+    it("aprueba a un usuario pendiente y dispara alta en Moodle", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(
+        fullUser({ isApproved: false, approvedAt: null }),
+      );
+      prismaMock.user.update.mockResolvedValue({ id: "u1" });
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ isApproved: true });
+      expect(res.status).toBe(200);
+      expect(prismaMock.user.update).toHaveBeenCalled();
+    });
+  });
+
+  describe("lock y password reset: usuario inexistente", () => {
+    it("PUT lock 404 si el usuario no existe", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+      const res = await request(app()).put("/admin/users/missing/lock?lock=true").set(adminHdr());
+      expect(res.status).toBe(404);
+    });
+
+    it("POST password/reset 404 si el usuario no existe", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+      const res = await request(app()).post("/admin/users/missing/password/reset").set(adminHdr());
+      expect(res.status).toBe(404);
+    });
+
+    it("POST password/reset 502 si Keycloak falla", async () => {
+      prismaMock.user.findUnique.mockResolvedValue({ orgRole: { code: "TEACHER" }, email: "u1@a.com" });
+      triggerKeycloakPasswordResetMock.mockRejectedValueOnce(new Error("kc down"));
+      const res = await request(app()).post("/admin/users/u1/password/reset").set(adminHdr());
+      expect(res.status).toBe(502);
+    });
+  });
+
+  describe("system-settings: fallbacks de campos opcionales", () => {
+    const minimalRow = {
+      id: "default",
+      livenessCheckEnabled: false,
+      attendanceNoShowGraceMinutes: 15,
+      attendanceLateToleranceMinutes: 7,
+      attendanceClassBridgeGapMinutes: 60,
+      attendanceMonitorEnabled: true,
+      attendanceMonitorIntervalMs: 120000,
+      biometricLateHour: 8,
+      biometricLateMinute: 30,
+    };
+
+    it("GET usa el late tolerance como fallback del early exit", async () => {
+      prismaMock.systemSettings.upsert.mockResolvedValueOnce(minimalRow);
+      const res = await request(app()).get("/admin/system-settings").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body.attendanceEarlyExitToleranceMinutes).toBe(7);
+      expect(res.body.biometricDuplicateWindowMinutes).toBe(5);
+    });
+
+    it("PUT usa fallbacks cuando upsert no devuelve esos campos", async () => {
+      prismaMock.systemSettings.upsert.mockResolvedValueOnce(minimalRow);
+      const res = await request(app())
+        .put("/admin/system-settings")
+        .set(adminHdr())
+        .send({ attendanceMonitorEnabled: true });
+      expect(res.status).toBe(200);
+      expect(res.body.attendanceEarlyExitToleranceMinutes).toBe(7);
+      expect(res.body.biometricDuplicateWindowMinutes).toBe(5);
+    });
+  });
+
+  describe("audit-logs y query-assistant: ramas restantes", () => {
+    it("audit-logs devuelve actor nulo como null", async () => {
+      prismaMock.auditLog.count.mockResolvedValueOnce(1);
+      prismaMock.auditLog.findMany.mockResolvedValueOnce([
+        {
+          id: "l1",
+          occurredAt: new Date("2026-01-01T00:00:00.000Z"),
+          action: "USER_CREATED_BY_ADMIN",
+          actorUserId: null,
+          actor: null,
+          actorIp: null,
+          userAgent: null,
+          source: null,
+          entityType: "User",
+          entityId: "u1",
+          metadata: {},
+        },
+      ]);
+      const res = await request(app()).get("/admin/audit-logs").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body.data[0].actorName).toBeNull();
+      expect(res.body.data[0].actorEmail).toBeNull();
+    });
+
+    it("query-assistant 500 ante rechazo que no es Error", async () => {
+      runAdminQueryAssistantMock.mockRejectedValueOnce("explosión");
+      const res = await request(app())
+        .post("/admin/query-assistant")
+        .set(adminHdr())
+        .send({ question: "hola" });
+      expect(res.status).toBe(500);
+    });
   });
 });
