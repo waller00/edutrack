@@ -81,6 +81,42 @@ describe('buildAdminUserEditChanges', () => {
     expect(c.some((x) => x.includes('Usuario'))).toBe(true)
     expect(c.some((x) => x.includes('Cédula'))).toBe(true)
   })
+
+  it('detecta cambios de nombre, apellido, documento, aprobación y estado', () => {
+    const orig = u({
+      id: '1',
+      email: 'a',
+      firstName: 'Ana',
+      lastName: 'G',
+      nationalIdDocumentExpiresAt: '2030-01-01',
+      isApproved: false,
+      isActive: false,
+    })
+    const ed = {
+      ...orig,
+      firstName: 'Beatriz',
+      lastName: 'P',
+      nationalIdDocumentExpiresAt: '2031-02-02',
+      isApproved: true,
+      isActive: true,
+    }
+    const c = buildAdminUserEditChanges(orig, ed)
+    expect(c.some((x) => x.includes('Nombre'))).toBe(true)
+    expect(c.some((x) => x.includes('Apellido'))).toBe(true)
+    expect(c.some((x) => x.includes('Venc. documento'))).toBe(true)
+    expect(c.some((x) => x.includes('Aprobación'))).toBe(true)
+    expect(c.some((x) => x.includes('Estado'))).toBe(true)
+  })
+})
+
+describe('getLockLabel', () => {
+  it('sin bloqueo / bloqueado con fecha / bloqueado sin fecha válida', () => {
+    expect(getLockLabel(null)).toBe('Sin bloqueo')
+    const future = new Date(Date.now() + 3_600_000).toISOString()
+    expect(getLockLabel(future)).toContain('Bloqueado hasta')
+    // fecha inválida pero "bloqueado": año lejano para que isAccountLocked sea true
+    expect(getLockLabel('9999-12-31T00:00:00.000Z')).toContain('Bloqueado')
+  })
 })
 
 describe('getAdminUserSaveErrorMessage', () => {
