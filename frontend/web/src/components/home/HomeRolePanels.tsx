@@ -138,6 +138,14 @@ function labelAttendanceStatus(status: string): string {
     ABSENT_JUSTIFIED: 'Ausente justif.',
     EXIT: 'Salida',
     EARLY_EXIT: 'Salida anticipada',
+    OUT_OF_SCHEDULE: 'Fuera de horario',
+    SUBSTITUTED: 'Suplido',
+    PENDING: 'Pendiente',
+    FREE: 'Libre',
+    SUSPENDED: 'Suspendido',
+    UNIDENTIFIED: 'No identificado',
+    JUSTIFIED: 'Justificado',
+    REGISTERED: 'Registrado',
   }
   return m[status] ?? status
 }

@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, FileText, KeyRound, Save, ShieldCheck, User } from 'lucide-react'
+import { ExternalLink, FileText, KeyRound, Mail, Save, ShieldCheck, User } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
-import { accountPasswordUrl, accountRecoveryCodesUrl, accountTwoFactorUrl } from '@/lib/auth/urls'
+import { accountPasswordUrl, accountRecoveryCodesUrl, accountTwoFactorDisableUrl, accountTwoFactorUrl } from '@/lib/auth/urls'
 import PhoneBirthdateFields from '@/components/forms/PhoneBirthdateFields'
 import WebPushSection from '@/components/notifications/WebPushSection'
 import { formatLocalMobileInputFromE164 } from '@/lib/forms/uruguay-forms'
@@ -28,9 +28,7 @@ export default function ProfilePage() {
   const [msg, setMsg] = useState('')
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [twoFactorLoading, setTwoFactorLoading] = useState(true)
-  const [disable2faOpen, setDisable2faOpen] = useState(false)
-  const [disable2faPassword, setDisable2faPassword] = useState('')
-  const [disable2faBusy, setDisable2faBusy] = useState(false)
+  const [disableEmailBusy, setDisableEmailBusy] = useState(false)
 
   const ci = useMemo(() => formatCI(nationalId), [nationalId])
   useEffect(() => { setNationalId(ci) }, [ci])
@@ -49,6 +47,23 @@ export default function ProfilePage() {
   }, [])
 
   useEffect(() => {
+    const href = typeof window !== 'undefined' ? window.location.href : ''
+    const query = href.includes('?') ? href.slice(href.indexOf('?')) : ''
+    const params = new URLSearchParams(query)
+    if (params.has('twoFactorDisabled')) {
+      setMsg('2FA desactivado')
+      setTwoFactorEnabled(false)
+    } else if (params.has('twoFactorDisableError')) {
+      setMsg('No se pudo desactivar 2FA. Reintentá o solicitá la confirmación por correo.')
+    }
+    // Limpiamos los params para que un refresh o "atrás" no re-dispare el aviso
+    // ni vuelva a forzar el estado de 2FA en cada montaje.
+    if (params.has('twoFactorDisabled') || params.has('twoFactorDisableError')) {
+      window.history.replaceState(null, '', '/profile')
+    }
+  }, [])
+
+  useEffect(() => {
     if (!me) return
     setTwoFactorLoading(true)
     api<{ enabled: boolean }>('/auth/account/2fa/status')
@@ -61,7 +76,7 @@ export default function ProfilePage() {
     setMsg('')
     const validationError = validateProfileForm({
       email,
-      username,
+      username: undefined,
       nationalId,
       firstName,
       lastName,
@@ -73,7 +88,7 @@ export default function ProfilePage() {
     try {
       const payload = buildProfilePayload({
         email,
-        username,
+        username: undefined,
         firstName,
         lastName,
         phoneLocal,
@@ -90,22 +105,16 @@ export default function ProfilePage() {
     }
   }
 
-  async function disableTwoFactor() {
+  async function requestDisableTwoFactorEmail() {
     setMsg('')
-    setDisable2faBusy(true)
+    setDisableEmailBusy(true)
     try {
-      await api('/auth/account/2fa', {
-        method: 'DELETE',
-        body: JSON.stringify({ password: disable2faPassword }),
-      })
-      setTwoFactorEnabled(false)
-      setDisable2faOpen(false)
-      setDisable2faPassword('')
-      setMsg('2FA desactivado')
+      await api('/auth/account/2fa/disable-email', { method: 'POST', body: JSON.stringify({}) })
+      setMsg('Te enviamos un correo para confirmar la desactivación de 2FA.')
     } catch (e: any) {
-      setMsg(e?.data?.message || e?.message || 'No se pudo desactivar 2FA')
+      setMsg(e?.data?.message || e?.message || 'No se pudo enviar el correo de confirmación')
     } finally {
-      setDisable2faBusy(false)
+      setDisableEmailBusy(false)
     }
   }
 
@@ -161,8 +170,9 @@ export default function ProfilePage() {
             <label className="block text-sm font-medium text-gray-700 mb-2">Usuario</label>
             <input
               value={username}
-              onChange={e => setUsername(e.target.value)}
-              className="input-field"
+              readOnly
+              aria-readonly="true"
+              className="input-field cursor-not-allowed bg-gray-50 text-gray-600"
               placeholder="Ingresa tu nombre de usuario"
             />
           </div>
@@ -255,8 +265,28 @@ export default function ProfilePage() {
                     Códigos de respaldo
                     <ExternalLink className="h-4 w-4" aria-hidden />
                   </a>
-                  <button type="button" onClick={() => setDisable2faOpen(true)} className="btn-secondary w-full border-red-200 text-red-700 hover:bg-red-50 sm:w-auto">
-                    Desactivar 2FA
+                  {/* POST (no enlace GET): con SameSite=lax la cookie no viaja
+                      en envíos cross-site, evitando un disparo CSRF drive-by. */}
+                  <form method="post" action={accountTwoFactorDisableUrl()} className="w-full sm:w-auto">
+                    <button
+                      type="submit"
+                      className="btn-secondary w-full justify-center border-red-200 text-red-700 hover:bg-red-50 sm:w-auto"
+                    >
+                      Desactivar 2FA
+                      <ExternalLink className="h-4 w-4" aria-hidden />
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    onClick={requestDisableTwoFactorEmail}
+                    disabled={disableEmailBusy}
+                    className="btn-secondary w-full justify-center sm:w-auto disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <PendingButtonContent
+                      pending={disableEmailBusy}
+                      pendingText="Enviando…"
+                      idle={<><Mail className="h-4 w-4" aria-hidden />No tengo mi 2FA</>}
+                    />
                   </button>
                 </>
               ) : (
@@ -269,46 +299,6 @@ export default function ProfilePage() {
           </div>
         </div>
       </section>
-
-      {disable2faOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-950">Desactivar 2FA</h3>
-            <p className="mt-2 text-sm text-gray-600">Ingresá tu contraseña actual para confirmar.</p>
-            <label className="mt-4 block text-sm font-medium text-gray-700">
-              Contraseña actual
-              <input
-                type="password"
-                value={disable2faPassword}
-                onChange={(e) => setDisable2faPassword(e.target.value)}
-                className="input-field mt-1"
-                autoFocus
-              />
-            </label>
-            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setDisable2faOpen(false)
-                  setDisable2faPassword('')
-                }}
-                className="btn-secondary"
-                disabled={disable2faBusy}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={disableTwoFactor}
-                disabled={disable2faBusy || !disable2faPassword}
-                className="btn-primary bg-red-600 hover:bg-red-700 disabled:opacity-60"
-              >
-                <PendingButtonContent pending={disable2faBusy} pendingText="Desactivando…" idle="Desactivar" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <WebPushSection />
     </main>

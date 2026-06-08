@@ -148,6 +148,15 @@
   function localizeActionScreens() {
     var flags = screenFlags()
 
+    if (flags.isAction) {
+      var username = document.querySelector('#username')
+      if (username && username.value) {
+        username.readOnly = true
+        username.setAttribute('aria-readonly', 'true')
+        username.classList.add('et-readonly-username')
+      }
+    }
+
     if (flags.isTotp) {
       replaceText('#kc-page-title', 'Configurar 2FA')
       replaceText('label[for="totp"] .pf-v5-c-form__label-text', 'Código de verificación')
@@ -202,9 +211,17 @@
     var google = document.querySelector('#social-google')
     if (!google || google.querySelector('.et-google-label')) return
 
+    while (google.firstChild) google.removeChild(google.firstChild)
+
+    var mark = document.createElement('span')
+    mark.className = 'et-google-mark'
+    mark.textContent = 'G'
+
     var label = document.createElement('span')
     label.className = 'et-google-label'
     label.textContent = 'Continuar con Google'
+
+    google.appendChild(mark)
     google.appendChild(label)
     google.setAttribute('aria-label', 'Continuar con Google')
   }

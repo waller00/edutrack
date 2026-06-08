@@ -12,13 +12,19 @@ export type AdminEventStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANC
 export type AdminEventCreatorRole = 'TEACHER' | 'STAFF' | ''
 
 export function getAdminEventTypeLabel(type: string): string {
-  switch (type as AdminEventType) {
+  switch (type) {
     case 'JORNADA_LABORAL':
       return 'Jornada laboral'
     case 'REUNION':
       return 'Reunión'
     case 'CLASE':
       return 'Clase'
+    case 'EVENTO':
+      return 'Evento'
+    case 'CAPACITACION':
+      return 'Capacitación'
+    case 'CITA_MEDICA':
+      return 'Cita médica'
     default:
       return type
   }
@@ -42,7 +48,7 @@ export function getAdminEventStatusStyle(status: string): string {
 }
 
 export function getAdminEventStatusLabel(status: string): string {
-  switch (status as AdminEventStatus) {
+  switch (status) {
     case 'SCHEDULED':
       return 'Programado'
     case 'IN_PROGRESS':
