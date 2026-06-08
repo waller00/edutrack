@@ -112,26 +112,33 @@ describe('ProfilePage', () => {
     )
   })
 
-  it('ofrece reautenticación y recuperación por correo para desactivar 2FA', async () => {
+  it('pide código OTP y mantiene recuperación por correo para desactivar 2FA', async () => {
     mockedApi
       .mockResolvedValueOnce({ ...baseMe })
       .mockResolvedValueOnce({ enabled: true })
       .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
     render(<ProfilePage />)
 
-    // "Desactivar 2FA" ahora es un POST (form), no un enlace GET, para que
-    // SameSite=lax bloquee un disparo CSRF cross-site.
-    const disableButton = await screen.findByRole('button', { name: /desactivar 2fa/i })
-    const disableForm = disableButton.closest('form')!
-    expect(disableForm.getAttribute('method')).toBe('post')
-    expect(disableForm.getAttribute('action')).toBe('http://localhost:4000/auth/account/2fa/disable')
-    expect(screen.queryByRole('link', { name: /desactivar 2fa/i })).not.toBeInTheDocument()
+    await screen.findByLabelText(/código de 2fa/i)
     fireEvent.click(screen.getByRole('button', { name: /desactivar por correo/i }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/auth/account/2fa/disable-email', expect.objectContaining({ method: 'POST' })),
     )
     expect(await screen.findByText(/te enviamos un correo/i)).toBeInTheDocument()
+
+    const codeInput = await screen.findByLabelText(/código de 2fa/i)
+    fireEvent.change(codeInput, { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: /desactivar 2fa/i }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/auth/account/2fa/disable', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ code: '123456' }),
+      })),
+    )
+    expect(await screen.findByText('2FA desactivado')).toBeInTheDocument()
   })
 
   it('muestra el aviso y limpia los params de la URL tras desactivar 2FA', async () => {

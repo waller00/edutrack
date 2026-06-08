@@ -54,6 +54,15 @@
     }
   }
 
+  function apiOrigin() {
+    var raw = authReturnUrl()
+    try {
+      return new URL(raw).origin
+    } catch (_error) {
+      return 'http://localhost:4000'
+    }
+  }
+
   function themeResourceUrl(relativePath) {
     var script = document.currentScript || document.querySelector('script[src*="edutrack-login.js"]')
     if (!script || !script.src) return relativePath
@@ -99,12 +108,17 @@
     var isOtpChallenge = window.location.href.indexOf('LOGIN_OTP') >= 0 ||
       document.querySelector('#otp') ||
       document.querySelector('#kc-otp-login-form')
+    var isRecoveryCodeChallenge = !!document.querySelector('#kc-recovery-code-login-form') ||
+      !!document.querySelector('#recoveryCodeInput')
+    var isAuthenticatorSelection = !!document.querySelector('input[name="authenticationExecution"]')
     var isPasswordUpdate = window.location.href.indexOf('UPDATE_PASSWORD') >= 0 || document.querySelector('#password-new')
-    var isAction = isRequiredActionScreen() || isTotp || isPasswordUpdate || isOtpChallenge
+    var isAction = isRequiredActionScreen() || isTotp || isPasswordUpdate || isOtpChallenge || isRecoveryCodeChallenge || isAuthenticatorSelection
     return {
       isAction: isAction,
       isTotp: isTotp,
       isOtpChallenge: isOtpChallenge,
+      isRecoveryCodeChallenge: isRecoveryCodeChallenge,
+      isAuthenticatorSelection: isAuthenticatorSelection,
       isPasswordUpdate: isPasswordUpdate,
       isLogin: !isAction && !!document.querySelector('#kc-form-login'),
     }
@@ -117,6 +131,8 @@
     if (flags.isAction) document.body.classList.add('et-required-action-screen')
     if (flags.isTotp) document.body.classList.add('et-totp-screen')
     if (flags.isOtpChallenge) document.body.classList.add('et-otp-screen')
+    if (flags.isRecoveryCodeChallenge) document.body.classList.add('et-recovery-code-screen')
+    if (flags.isAuthenticatorSelection) document.body.classList.add('et-authenticator-selection-screen')
     if (flags.isPasswordUpdate) document.body.classList.add('et-password-update-screen')
     if (flags.isLogin) document.body.classList.add('et-login-screen')
   }
@@ -225,6 +241,26 @@
       replaceVisibleText('Submit', 'Confirmar')
     }
 
+    if (flags.isRecoveryCodeChallenge) {
+      replaceText('#kc-page-title', 'Código de recuperación')
+      replaceText('label[for="recoveryCodeInput"] .pf-v5-c-form__label-text', 'Código de recuperación')
+      replaceText('label[for="recoveryCodeInput"]', 'Código de recuperación')
+      replaceValue('#kc-login', 'Confirmar')
+      replaceValues('input[type="submit"]', 'Confirmar')
+      replaceVisibleTextContaining('Recovery code #', 'Código de recuperación')
+      replaceVisibleText('Login with a recovery authentication code', 'Código de recuperación')
+      replaceVisibleText('Recovery Authentication Code', 'Código de recuperación')
+      replaceVisibleText('Enter a recovery authentication code from a previously generated list.', 'Usá un código de respaldo de un solo uso.')
+    }
+
+    if (flags.isAuthenticatorSelection) {
+      replaceText('#kc-page-title', 'Elegí cómo verificarte')
+      replaceVisibleText('Recovery Authentication Code', 'Código de recuperación')
+      replaceVisibleText('Enter a recovery authentication code from a previously generated list.', 'Usá un código de respaldo de un solo uso.')
+      replaceVisibleText('Authenticator Application', 'Aplicación autenticadora')
+      replaceVisibleText('Enter a verification code from authenticator application.', 'Usá el código de tu app autenticadora.')
+    }
+
     if (flags.isPasswordUpdate) {
       replaceText('#kc-page-title', 'Cambiar contraseña')
       replaceText('label[for="password-new"] .pf-v5-c-form__label-text', 'Contraseña nueva')
@@ -282,12 +318,80 @@
     footer.appendChild(block)
   }
 
+  function attemptedUsername() {
+    var attempted = document.querySelector('#kc-attempted-username')
+    if (attempted && attempted.value) return attempted.value
+    var username = document.querySelector('#username')
+    if (username && username.value) return username.value
+    return ''
+  }
+
+  function addLostTwoFactorEmailRecovery() {
+    var flags = screenFlags()
+    if (!(flags.isOtpChallenge || flags.isRecoveryCodeChallenge || flags.isAuthenticatorSelection)) return
+    var container = document.querySelector('.pf-v5-c-login__main-body') || document.querySelector('#kc-content-wrapper')
+    if (!container || container.querySelector('.et-2fa-email-recovery')) return
+
+    var form = document.createElement('form')
+    form.className = 'et-2fa-email-recovery'
+    form.method = 'post'
+    form.action = apiOrigin() + '/auth/account/2fa/disable-email-public'
+
+    var title = document.createElement('div')
+    title.className = 'et-2fa-email-recovery__title'
+    title.textContent = '¿Perdiste el acceso a 2FA?'
+
+    var text = document.createElement('p')
+    text.textContent = 'Te podemos enviar un enlace al correo verificado para desactivar 2FA y volver a entrar.'
+
+    var identifier = attemptedUsername()
+    var input = document.createElement('input')
+    input.type = identifier ? 'hidden' : 'text'
+    input.name = 'identifier'
+    input.value = identifier
+    input.autocomplete = 'username'
+    input.placeholder = 'Correo o usuario'
+    input.className = 'pf-v5-c-form-control'
+    if (!identifier) input.setAttribute('aria-label', 'Correo o usuario')
+
+    var button = document.createElement('button')
+    button.type = 'submit'
+    button.className = 'et-2fa-email-recovery__button'
+    button.textContent = 'Enviarme correo de recuperación'
+
+    form.appendChild(title)
+    form.appendChild(text)
+    form.appendChild(input)
+    form.appendChild(button)
+    container.appendChild(form)
+  }
+
+  function dedupeAuthenticatorSelection() {
+    if (!screenFlags().isAuthenticatorSelection) return
+    var seen = {}
+    document.querySelectorAll('li').forEach(function (item) {
+      if (!item.querySelector('input[name="authenticationExecution"]')) return
+      var heading = item.querySelector('h2')
+      var description = item.querySelector('[class*="description"], .pf-v5-c-data-list__cell')
+      var key = ((heading && heading.textContent) || '') + '|' + ((description && description.textContent) || '')
+      key = key.replace(/\s+/g, ' ').trim().toLowerCase()
+      if (!key) return
+      if (seen[key]) {
+        item.classList.add('et-duplicate-authenticator')
+        return
+      }
+      seen[key] = true
+    })
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     installEduTrackFavicon()
     applyScreenClasses()
     localizeVisibleText()
     localizeActionScreens()
     enhanceGoogleButton()
+    dedupeAuthenticatorSelection()
+    addLostTwoFactorEmailRecovery()
     if (!screenFlags().isAction) addRegisterLink()
   })
 })()

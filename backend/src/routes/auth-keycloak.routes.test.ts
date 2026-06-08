@@ -29,14 +29,19 @@ const { redisMock, buildLoginUrlMock, getSessionMock, prismaMock, sendMailMock }
         email: "u@example.com",
         emailVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
       }),
+      findFirst: vi.fn().mockResolvedValue({
+        id: "user-1",
+        email: "u@example.com",
+        emailVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
+      }),
     },
   },
   sendMailMock: vi.fn().mockResolvedValue(undefined),
 }));
 
-const { getKeycloakUserLoginNameMock, verifyKeycloakPasswordMock, deleteKeycloakUserOtpCredentialsMock } = vi.hoisted(() => ({
-  getKeycloakUserLoginNameMock: vi.fn().mockResolvedValue("jorge.marrero"),
-  verifyKeycloakPasswordMock: vi.fn().mockResolvedValue(true),
+const { getKeycloakUserIdByEmailMock, verifyKeycloakUserOtpCodeMock, deleteKeycloakUserOtpCredentialsMock } = vi.hoisted(() => ({
+  getKeycloakUserIdByEmailMock: vi.fn().mockResolvedValue("kc-1"),
+  verifyKeycloakUserOtpCodeMock: vi.fn().mockResolvedValue(true),
   deleteKeycloakUserOtpCredentialsMock: vi.fn().mockResolvedValue(1),
 }));
 
@@ -65,12 +70,12 @@ vi.mock("../auth/keycloak.js", () => ({
   buildAccountConsoleUrl: vi.fn((path = "") => `https://auth.local/account/${path}`),
   deleteKeycloakUserOtpCredentials: deleteKeycloakUserOtpCredentialsMock,
   exchangeCode: vi.fn(),
-  getKeycloakUserLoginName: getKeycloakUserLoginNameMock,
+  getKeycloakUserIdByEmail: getKeycloakUserIdByEmailMock,
   getKeycloakUserOtpStatus: vi.fn().mockResolvedValue({ enabled: true, count: 1 }),
   redirectUri: vi.fn(() => "http://localhost:4000/auth/callback"),
   refreshTokens: vi.fn(),
   triggerKeycloakPasswordReset: vi.fn(),
-  verifyKeycloakPassword: verifyKeycloakPasswordMock,
+  verifyKeycloakUserOtpCode: verifyKeycloakUserOtpCodeMock,
 }));
 
 vi.mock("../auth/keycloak-provisioning.js", () => ({
@@ -87,6 +92,7 @@ import keycloakAuthRoutes from "./auth-keycloak.js";
 function app() {
   const a = express();
   a.use(express.json());
+  a.use(express.urlencoded({ extended: true }));
   a.use(cookieParser());
   a.use("/auth", keycloakAuthRoutes);
   return a;
@@ -98,6 +104,11 @@ describe("auth-keycloak account routes", () => {
     process.env.FRONTEND_URL = "http://localhost:3000";
     process.env.TWO_FACTOR_DISABLE_EMAIL_SECRET = "test-2fa-disable-secret";
     redisMock.set.mockResolvedValue("OK");
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "user-1",
+      email: "u@example.com",
+      emailVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
   });
 
   it("GET /auth/account/2fa inicia required action CONFIGURE_TOTP con sesión válida", async () => {
@@ -114,27 +125,27 @@ describe("auth-keycloak account routes", () => {
     );
   });
 
-  it("DELETE /auth/account/2fa valida contraseña con username real de Keycloak", async () => {
+  it("POST /auth/account/2fa/disable valida el código OTP antes de borrar 2FA", async () => {
     const res = await request(app())
-      .delete("/auth/account/2fa")
+      .post("/auth/account/2fa/disable")
       .set("Cookie", "sid=sid-1")
-      .send({ password: "Secret123!" });
+      .send({ code: "123456" });
 
     expect(res.status).toBe(200);
-    expect(getKeycloakUserLoginNameMock).toHaveBeenCalledWith("kc-1");
-    expect(verifyKeycloakPasswordMock).toHaveBeenCalledWith("jorge.marrero", "Secret123!");
+    expect(verifyKeycloakUserOtpCodeMock).toHaveBeenCalledWith("kc-1", "123456");
     expect(deleteKeycloakUserOtpCredentialsMock).toHaveBeenCalledWith("kc-1");
   });
 
-  it("POST /auth/account/2fa/disable inicia reautenticación con binding a la sesión origen", async () => {
-    const res = await request(app()).post("/auth/account/2fa/disable").set("Cookie", "sid=sid-1");
+  it("POST /auth/account/2fa/disable no borra 2FA con código OTP inválido", async () => {
+    verifyKeycloakUserOtpCodeMock.mockResolvedValueOnce(false);
+    const res = await request(app())
+      .post("/auth/account/2fa/disable")
+      .set("Cookie", "sid=sid-1")
+      .send({ code: "000000" });
 
-    expect(res.status).toBe(302);
-    expect(buildLoginUrlMock).toHaveBeenCalledWith(expect.objectContaining({ prompt: "login" }));
-    const [, stored] = redisMock.set.mock.calls.find(([key]) => key === "bff:oauth:state-1")!;
-    expect(stored).toContain('"postLoginAction":"DISABLE_TOTP"');
-    // Bindeado al kcId de la sesión que origina el flujo (anti account-confusion).
-    expect(stored).toContain('"originKcId":"kc-1"');
+    expect(res.status).toBe(401);
+    expect(res.body.message).toBe("Código de 2FA incorrecto.");
+    expect(deleteKeycloakUserOtpCredentialsMock).not.toHaveBeenCalled();
   });
 
   it("POST /auth/account/2fa/disable-email envía correo de confirmación", async () => {
@@ -157,7 +168,34 @@ describe("auth-keycloak account routes", () => {
     delete process.env.SESSION_SECRET;
     const res = await request(app()).post("/auth/account/2fa/disable-email").set("Cookie", "sid=sid-1").send({});
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(502);
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/account/2fa/disable-email-public envía correo sin sesión y responde genérico", async () => {
+    const res = await request(app())
+      .post("/auth/account/2fa/disable-email-public")
+      .type("form")
+      .send({ identifier: "u@example.com" });
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("Revisá tu correo");
+    expect(getKeycloakUserIdByEmailMock).toHaveBeenCalledWith("u@example.com");
+    expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: "u@example.com",
+      subject: "Confirmar desactivación de 2FA",
+    }));
+  });
+
+  it("POST /auth/account/2fa/disable-email-public no revela cuentas inexistentes", async () => {
+    prismaMock.user.findFirst.mockResolvedValueOnce(null);
+    const res = await request(app())
+      .post("/auth/account/2fa/disable-email-public")
+      .type("form")
+      .send({ identifier: "nadie@example.com" });
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("Revisá tu correo");
     expect(sendMailMock).not.toHaveBeenCalled();
   });
 
@@ -192,8 +230,8 @@ describe("auth-keycloak account routes", () => {
     const token = await issueDisableEmailToken();
     const ok = await request(app()).post("/auth/account/2fa/disable-email/confirm").send({ token });
 
-    expect(ok.status).toBe(302);
-    expect(ok.headers.location).toContain("twoFactorDisabled=email");
+    expect(ok.status).toBe(200);
+    expect(ok.text).toContain("2FA desactivado correctamente");
     expect(deleteKeycloakUserOtpCredentialsMock).toHaveBeenCalledWith("kc-1");
     expect(redisMock.set).toHaveBeenCalledWith(
       expect.stringContaining("bff:2fa-disable-used:"),
