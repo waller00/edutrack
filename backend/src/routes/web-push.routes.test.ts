@@ -179,4 +179,44 @@ describe("web-push routes", () => {
     const res = await request(app()).delete("/notifications/web-push/subscribe").set(auth()).send({});
     expect(res.status).toBe(200);
   });
+
+  it("GET /status 500 si falla la consulta", async () => {
+    prismaMock.webPushSubscription.count.mockRejectedValue(new Error("db down"));
+    const res = await request(app()).get("/notifications/web-push/status").set(auth());
+    expect(res.status).toBe(500);
+  });
+
+  it("POST /subscribe 500 si falla el upsert", async () => {
+    withVapid();
+    prismaMock.webPushSubscription.upsert.mockRejectedValue(new Error("db down"));
+    const res = await request(app()).post("/notifications/web-push/subscribe").set(auth()).send({
+      subscription: { endpoint: "https://push.example.com/abc", keys: { p256dh: "p", auth: "a" } },
+    });
+    expect(res.status).toBe(500);
+  });
+
+  it("DELETE /subscribe ignora endpoint inválido y borra todas", async () => {
+    prismaMock.webPushSubscription.deleteMany.mockResolvedValue({ count: 3 });
+    const res = await request(app())
+      .delete("/notifications/web-push/subscribe")
+      .set(auth())
+      .send({ endpoint: "no-es-url" });
+    expect(res.status).toBe(200);
+    expect(prismaMock.webPushSubscription.deleteMany).toHaveBeenCalledWith({
+      where: { userId: uid },
+    });
+  });
+
+  it("DELETE /subscribe 500 si falla el borrado", async () => {
+    prismaMock.webPushSubscription.deleteMany.mockRejectedValue(new Error("db down"));
+    const res = await request(app()).delete("/notifications/web-push/subscribe").set(auth()).send({});
+    expect(res.status).toBe(500);
+  });
+
+  it("POST /test 500 si falla el envío", async () => {
+    withVapid();
+    prismaMock.webPushSubscription.findMany.mockRejectedValue(new Error("db down"));
+    const res = await request(app()).post("/notifications/web-push/test").set(auth()).send({});
+    expect(res.status).toBe(500);
+  });
 });
