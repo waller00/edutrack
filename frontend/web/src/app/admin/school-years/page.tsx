@@ -891,14 +891,13 @@ export default function AdminSchoolYearsPage() {
           <div
             className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center"
             role="presentation"
-            onClick={() => setEditing(null)}
+            onClick={(e) => { if (e.target === e.currentTarget) setEditing(null) }}
             onKeyDown={(e) => { if (e.key === 'Escape') setEditing(null) }}
           >
             <div
               className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
               role="dialog"
               aria-modal="true"
-              onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-lg font-semibold text-gray-900">Editar ciclo {editing.code}</h3>
               <p className="text-xs text-gray-500">El código (año) no se modifica desde acá.</p>
@@ -928,14 +927,13 @@ export default function AdminSchoolYearsPage() {
           <div
             className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center"
             role="presentation"
-            onClick={() => setDeleteTarget(null)}
+            onClick={(e) => { if (e.target === e.currentTarget) setDeleteTarget(null) }}
             onKeyDown={(e) => { if (e.key === 'Escape') setDeleteTarget(null) }}
           >
             <div
               className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
               role="dialog"
               aria-modal="true"
-              onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-lg font-semibold text-gray-900">Borrar ciclo {deleteTarget.code}</h3>
               <p className="mt-1 text-sm text-gray-600">
@@ -963,8 +961,8 @@ export default function AdminSchoolYearsPage() {
           <div
             className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-3 sm:items-center sm:p-4"
             role="presentation"
-            onClick={() => {
-              if (!starting) closeStartWizard()
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !starting) closeStartWizard()
             }}
             onKeyDown={(e) => { if (e.key === 'Escape' && !starting) closeStartWizard() }}
           >
@@ -972,7 +970,6 @@ export default function AdminSchoolYearsPage() {
               className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
               role="dialog"
               aria-modal="true"
-              onClick={(e) => e.stopPropagation()}
             >
               <div className="border-b border-gray-100 px-4 py-4 sm:px-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1306,14 +1303,13 @@ export default function AdminSchoolYearsPage() {
           <div
             className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center"
             role="presentation"
-            onClick={() => setCopyTarget(null)}
+            onClick={(e) => { if (e.target === e.currentTarget) setCopyTarget(null) }}
             onKeyDown={(e) => { if (e.key === 'Escape') setCopyTarget(null) }}
           >
             <div
               className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
               role="dialog"
               aria-modal="true"
-              onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-lg font-semibold text-gray-900">Replicar oferta hacia {copyTarget.code}</h3>
               <p className="mt-1 text-sm text-gray-600">

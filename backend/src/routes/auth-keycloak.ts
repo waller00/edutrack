@@ -432,6 +432,11 @@ function renderDisable2faConfirmPage(confirmUrl: string, token: string): string 
 // con GET no pueden borrar el 2FA antes de que el usuario confirme.
 r.get("/account/2fa/disable-email", (req, res) => {
   const token = typeof req.query.token === "string" ? req.query.token : "";
+  // Allowlist estricto antes de reflejar: el token es <base64url>.<base64url>,
+  // sin metacaracteres HTML. Restringir el alfabeto corta cualquier XSS reflejado.
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) {
+    return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
+  }
   const data = verifyDisable2faEmailToken(token);
   if (!data) return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
   const confirmUrl = `${publicApiUrl(req)}/auth/account/2fa/disable-email/confirm`;
@@ -513,7 +518,7 @@ r.get("/account/security", async (req, res) => {
 
 r.post("/forgot-password", async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!email || !/^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,255}$/.test(email)) {
     return res.status(400).json({ message: "Ingresá un correo válido." });
   }
   try {
