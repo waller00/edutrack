@@ -8,12 +8,12 @@ import {
   buildLogoutUrl,
   deleteKeycloakUserOtpCredentials,
   exchangeCode,
-  getKeycloakUserLoginName,
+  getKeycloakUserIdByEmail,
   getKeycloakUserOtpStatus,
   redirectUri,
   refreshTokens,
   triggerKeycloakPasswordReset,
-  verifyKeycloakPassword,
+  verifyKeycloakUserOtpCode,
 } from "../auth/keycloak.js";
 import { sendMail } from "../notifications/email.js";
 import {
@@ -42,8 +42,6 @@ const r = Router();
 
 const OAUTH_PREFIX = "bff:oauth:";
 const OAUTH_TTL_SECONDS = 600;
-
-type PostLoginAction = "DISABLE_TOTP";
 
 function frontendUrl(): string {
   return (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -130,11 +128,6 @@ async function beginLoginFlow(
     requiredAction?: "UPDATE_PASSWORD" | "CONFIGURE_TOTP" | "CONFIGURE_RECOVERY_AUTHN_CODES";
     prompt?: "login";
     returnTo?: string;
-    postLoginAction?: PostLoginAction;
-    // Identidad (kcId) de la sesion que origina el flujo. Para acciones
-    // sensibles (DISABLE_TOTP) el callback exige que el sujeto reautenticado
-    // coincida con este valor, de modo que el flujo nunca opere sobre otra cuenta.
-    originKcId?: string;
   } = {},
 ) {
   const { codeVerifier, state, authUrl } = await buildLoginUrl({
@@ -150,7 +143,7 @@ async function beginLoginFlow(
   const returnTo = options.returnTo && options.returnTo.startsWith("/") ? options.returnTo : "/";
   await redis.set(
     OAUTH_PREFIX + state,
-    JSON.stringify({ codeVerifier, returnTo, postLoginAction: options.postLoginAction, originKcId: options.originKcId }),
+    JSON.stringify({ codeVerifier, returnTo }),
     "EX",
     OAUTH_TTL_SECONDS,
   );
@@ -178,11 +171,9 @@ r.get("/callback", async (req, res) => {
     const stored = await redis.get(OAUTH_PREFIX + state);
     if (!stored) return res.redirect(`${frontendUrl()}/login?error=state`);
     await redis.del(OAUTH_PREFIX + state);
-    const { codeVerifier, returnTo, postLoginAction, originKcId } = JSON.parse(stored) as {
+    const { codeVerifier, returnTo } = JSON.parse(stored) as {
       codeVerifier: string;
       returnTo: string;
-      postLoginAction?: PostLoginAction;
-      originKcId?: string;
     };
 
     const currentUrl = new URL(redirectUri());
@@ -201,24 +192,6 @@ r.get("/callback", async (req, res) => {
         return res.redirect(`${frontendUrl()}/register?sso=${encodeURIComponent(token)}`);
       }
       throw error;
-    }
-
-    if (postLoginAction === "DISABLE_TOTP") {
-      const kcId = String(tokens.claims.sub || "");
-      // El sujeto que reautentico en Keycloak debe ser el mismo que origino el
-      // pedido. Sin este binding, un dispositivo compartido o un inicio cruzado
-      // podria borrar el 2FA de otra cuenta.
-      if (!originKcId || kcId !== originKcId) {
-        console.warn("[auth/callback] disable 2FA: identidad no coincide con la que origino el flujo");
-        return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=identity`);
-      }
-      try {
-        await deleteKeycloakUserOtpCredentials(kcId);
-        return res.redirect(`${frontendUrl()}/profile?twoFactorDisabled=1`);
-      } catch (error) {
-        console.error("[auth/callback] disable 2FA:", error);
-        return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=1`);
-      }
     }
 
     if (req.query.kc_action === "CONFIGURE_TOTP" && req.query.kc_action_status === "success") {
@@ -284,12 +257,17 @@ r.get("/account/2fa", async (req, res) => {
 r.post("/account/2fa/disable", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
-  await beginLoginFlow(res, {
-    prompt: "login",
-    returnTo: "/profile",
-    postLoginAction: "DISABLE_TOTP",
-    originKcId: session.kcId,
-  });
+  const code = typeof req.body?.code === "string" ? req.body.code : "";
+  if (!code) return res.status(400).json({ message: "Ingresá el código de 2FA." });
+  try {
+    const ok = await verifyKeycloakUserOtpCode(session.kcId, code);
+    if (!ok) return res.status(401).json({ message: "Código de 2FA incorrecto." });
+    const removed = await deleteKeycloakUserOtpCredentials(session.kcId);
+    res.json({ ok: true, removed });
+  } catch (error) {
+    console.error("[auth/account/2fa/disable] disable:", error);
+    res.status(502).json({ message: "No se pudo desactivar 2FA." });
+  }
 });
 
 function publicApiUrl(req: any): string {
@@ -371,25 +349,45 @@ r.post("/account/2fa/disable-email", async (req, res) => {
     return res.status(400).json({ message: "Tenés que verificar tu correo antes de usar esta recuperación." });
   }
 
-  let token: string;
   try {
-    token = createDisable2faEmailToken({ kcId: session.kcId, userId: user.id, email: user.email });
-  } catch (error) {
-    console.error("[auth/account/2fa/disable-email] secret:", error);
-    return res.status(500).json({ message: "La recuperación por correo no está disponible en este momento." });
-  }
-  const url = `${publicApiUrl(req)}/auth/account/2fa/disable-email?token=${encodeURIComponent(token)}`;
-  try {
-    await sendMail({
-      to: user.email,
-      subject: "Confirmar desactivación de 2FA",
-      html: `<p>Recibimos una solicitud para desactivar la verificación en dos pasos de tu cuenta EduTrack.</p><p>Si fuiste vos, confirmalo desde este enlace válido por 15 minutos:</p><p><a href="${url}">${url}</a></p><p>Si no fuiste vos, ignorá este correo.</p>`,
-      text: `Confirmá la desactivación de 2FA desde este enlace válido por 15 minutos: ${url}`,
-    });
-    res.json({ ok: true });
+    await sendDisable2faEmail({ req, kcId: session.kcId, userId: user.id, email: user.email });
   } catch (error) {
     console.error("[auth/account/2fa/disable-email] mail:", error);
-    res.status(502).json({ message: "No se pudo enviar el correo de confirmación." });
+    return res.status(502).json({ message: "No se pudo enviar el correo de confirmación." });
+  }
+  res.json({ ok: true });
+});
+
+r.post("/account/2fa/disable-email-public", async (req, res) => {
+  const identifier = typeof req.body?.identifier === "string" ? req.body.identifier.trim() : "";
+  res.set("Content-Type", "text/html; charset=utf-8");
+  const generic = () => res.send(renderDisable2faRequestSentPage());
+  if (!identifier || identifier.length > 255) return generic();
+
+  try {
+    const normalizedEmail = identifier.toLowerCase();
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: normalizedEmail },
+          { username: identifier },
+        ],
+      },
+      select: { id: true, email: true, emailVerifiedAt: true },
+    });
+    if (!user?.email || !user.emailVerifiedAt) return generic();
+
+    const kcId = await getKeycloakUserIdByEmail(user.email);
+    if (!kcId) return generic();
+
+    const status = await getKeycloakUserOtpStatus(kcId);
+    if (!status.enabled) return generic();
+
+    await sendDisable2faEmail({ req, kcId, userId: user.id, email: user.email });
+    return generic();
+  } catch (error) {
+    console.error("[auth/account/2fa/disable-email-public]:", error);
+    return generic();
   }
 });
 
@@ -425,6 +423,59 @@ function renderDisable2faConfirmPage(confirmUrl: string, token: string): string 
 </main>
 </body>
 </html>`;
+}
+
+function renderDisable2faStatusPage(input: { title: string; message: string; buttonText: string; buttonHref: string }): string {
+  const title = escapeHtml(input.title);
+  const message = escapeHtml(input.message);
+  const buttonText = escapeHtml(input.buttonText);
+  const buttonHref = escapeHtml(input.buttonHref);
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>${title}</title>
+<style>body{font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#f8fafc;color:#0f172a;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}main{max-width:28rem;background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:2rem;box-shadow:0 10px 25px rgba(15,23,42,.06)}h1{font-size:1.25rem;margin:0 0 .75rem}p{color:#475569;line-height:1.5}a{display:block;margin-top:1.25rem;width:100%;box-sizing:border-box;text-align:center;text-decoration:none;padding:.75rem 1rem;border-radius:.5rem;background:#047857;color:#fff;font-size:1rem;font-weight:600}</style>
+</head>
+<body>
+<main>
+<h1>${title}</h1>
+<p>${message}</p>
+<a href="${buttonHref}">${buttonText}</a>
+</main>
+</body>
+</html>`;
+}
+
+function renderDisable2faRequestSentPage(): string {
+  return renderDisable2faStatusPage({
+    title: "Revisá tu correo",
+    message: "Si la cuenta existe, tiene el correo verificado y mantiene 2FA activo, te enviamos un enlace para desactivarlo. El enlace vence en 15 minutos.",
+    buttonText: "Volver al ingreso",
+    buttonHref: `${frontendUrl()}/login`,
+  });
+}
+
+function renderDisable2faSuccessPage(): string {
+  return renderDisable2faStatusPage({
+    title: "2FA desactivado correctamente",
+    message: "La verificación en dos pasos fue desactivada. Ya podés iniciar sesión nuevamente con tu usuario y contraseña.",
+    buttonText: "Iniciar sesión",
+    buttonHref: `${frontendUrl()}/login`,
+  });
+}
+
+async function sendDisable2faEmail(input: { req: any; kcId: string; userId: string; email: string }): Promise<void> {
+  const token = createDisable2faEmailToken({ kcId: input.kcId, userId: input.userId, email: input.email });
+  const url = `${publicApiUrl(input.req)}/auth/account/2fa/disable-email?token=${encodeURIComponent(token)}`;
+  await sendMail({
+    to: input.email,
+    subject: "Confirmar desactivación de 2FA",
+    html: `<p>Recibimos una solicitud para desactivar la verificación en dos pasos de tu cuenta EduTrack.</p><p>Si fuiste vos, confirmalo desde este enlace válido por 15 minutos:</p><p><a href="${url}">${url}</a></p><p>Si no fuiste vos, ignorá este correo.</p>`,
+    text: `Confirmá la desactivación de 2FA desde este enlace válido por 15 minutos: ${url}`,
+  });
 }
 
 // GET no muta: solo renderiza una pantalla de confirmacion. Asi los escaneres de
@@ -468,7 +519,8 @@ r.post("/account/2fa/disable-email/confirm", async (req, res) => {
       return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
     }
     await deleteKeycloakUserOtpCredentials(data.kcId);
-    return res.redirect(`${frontendUrl()}/profile?twoFactorDisabled=email`);
+    res.set("Content-Type", "text/html; charset=utf-8");
+    return res.send(renderDisable2faSuccessPage());
   } catch (error) {
     console.error("[auth/account/2fa/disable-email/confirm] disable:", error);
     return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=1`);
@@ -496,12 +548,11 @@ r.get("/account/2fa/status", async (req, res) => {
 r.delete("/account/2fa", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
-  const password = typeof req.body?.password === "string" ? req.body.password : "";
-  if (!password) return res.status(400).json({ message: "Ingresá tu contraseña actual." });
+  const code = typeof req.body?.code === "string" ? req.body.code : "";
+  if (!code) return res.status(400).json({ message: "Ingresá el código de 2FA." });
   try {
-    const loginName = (await getKeycloakUserLoginName(session.kcId)) || session.email;
-    const ok = await verifyKeycloakPassword(loginName, password);
-    if (!ok) return res.status(401).json({ message: "Contraseña incorrecta." });
+    const ok = await verifyKeycloakUserOtpCode(session.kcId, code);
+    if (!ok) return res.status(401).json({ message: "Código de 2FA incorrecto." });
     const removed = await deleteKeycloakUserOtpCredentials(session.kcId);
     res.json({ ok: true, removed });
   } catch (error) {
