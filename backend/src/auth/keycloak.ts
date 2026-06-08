@@ -532,6 +532,30 @@ export async function deleteKeycloakUserOtpCredentials(kcUserId: string): Promis
   return otpCredentials.length;
 }
 
+/**
+ * Quita CONFIGURE_TOTP de las required actions persistidas del usuario.
+ * El 2FA es opcional (se activa/desactiva desde el perfil): si quedó una acción
+ * de configuración de 2FA pendiente, Keycloak la encadena al terminar cualquier
+ * flujo (p. ej. el reset de contraseña), forzando el "Configurar 2FA" sin sentido.
+ */
+async function clearPendingTotpRequiredAction(token: string, kcUserId: string): Promise<void> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const userRes = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!userRes.ok) return;
+  const user = (await userRes.json()) as { requiredActions?: string[] };
+  const current = Array.isArray(user.requiredActions) ? user.requiredActions : [];
+  if (!current.includes("CONFIGURE_TOTP")) return;
+  const next = current.filter((action) => action !== "CONFIGURE_TOTP");
+  await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ requiredActions: next }),
+  });
+}
+
 /** Envía el email de actualización de contraseña de Keycloak al usuario. */
 export async function triggerKeycloakPasswordReset(email: string): Promise<void> {
   const token = await getAdminToken();
@@ -539,6 +563,8 @@ export async function triggerKeycloakPasswordReset(email: string): Promise<void>
   if (!kcId) throw new Error("Usuario no encontrado en Keycloak");
   const base = adminBaseUrl();
   const realm = adminRealm();
+  // El reset solo debe cambiar la contraseña; nunca encadenar la config de 2FA.
+  await clearPendingTotpRequiredAction(token, kcId);
   const res = await kcFetch(`${base}/admin/realms/${realm}/users/${kcId}/execute-actions-email`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

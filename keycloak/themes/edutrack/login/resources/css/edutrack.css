@@ -7,7 +7,14 @@
    ========================================================================= */
 
 /* ── 1. Variables de marca + anulación total de variables PF azules ─────── */
-:root {
+/* Se aplican también en .pf-v5-theme-dark: el template base activa el modo
+   oscuro de PatternFly según el SO, lo que reintroduce azules que sólo
+   pisábamos en :root. Forzamos esquema claro y marca EduTrack en ambos. */
+:root,
+.pf-v5-theme-dark {
+  color-scheme: light;
+  /* Mata el borde azul superior de keycloak.v2 (.pf-v5-c-login__main-header) */
+  --keycloak-card-top-color: transparent;
   /* Paleta EduTrack */
   --et-green:        #10b981;
   --et-green-50:     #ecfdf5;
@@ -943,26 +950,28 @@ a[id^="social-"] {
   max-width: none !important;
 }
 
-#social-google svg,
-a[id^="social-"] svg {
+#social-google svg:not(.google),
+a[id^="social-"] svg:not(.google) {
   width: 1.05rem !important;
   height: 1.05rem !important;
   fill: #4b5563 !important;
 }
 
+/* Contenedor del logo oficial multicolor de Google (lo inyecta el JS). */
 .et-google-mark {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 1.15rem !important;
-  height: 1.15rem !important;
-  border-radius: 9999px !important;
-  background: #ffffff !important;
-  color: #4285f4 !important;
-  font-size: 0.82rem !important;
-  font-weight: 700 !important;
-  line-height: 1 !important;
-  box-shadow: inset 0 0 0 1px #e5e7eb !important;
+  width: 18px !important;
+  height: 18px !important;
+  flex-shrink: 0 !important;
+}
+
+.et-google-mark svg.google {
+  display: block !important;
+  width: 18px !important;
+  height: 18px !important;
+  filter: none !important;
 }
 
 #social-google .et-google-label {
