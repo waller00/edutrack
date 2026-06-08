@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { Bell, LogOut, User } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 
 type NavLink = { href: string; label: string }
 

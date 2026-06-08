@@ -84,7 +84,7 @@ describe('AdminEvents', () => {
     })
 
     render(<AdminEvents />)
-    await screen.findByText('Clase matutina')
+    await screen.findAllByText('Clase matutina')
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
 
@@ -108,7 +108,7 @@ describe('AdminEvents', () => {
 
     render(<AdminEvents />)
 
-    expect(await screen.findByText('Clase matutina')).toBeInTheDocument()
+    expect((await screen.findAllByText('Clase matutina')).length).toBeGreaterThan(0)
     expect(screen.getByText(/Fin/)).toHaveTextContent(/\d/)
     expect(screen.queryByText('Sin fecha fin')).not.toBeInTheDocument()
 
@@ -153,7 +153,7 @@ describe('AdminEvents', () => {
     })
 
     render(<AdminEvents />)
-    await screen.findByText('Clase matutina')
+    await screen.findAllByText('Clase matutina')
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar actividad Clase matutina' }))
     fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
@@ -173,7 +173,7 @@ describe('AdminEvents', () => {
     })
 
     render(<AdminEvents />)
-    await screen.findByText('Clase matutina')
+    await screen.findAllByText('Clase matutina')
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todas las actividades' }))
 
@@ -193,7 +193,7 @@ describe('AdminEvents', () => {
     })
 
     render(<AdminEvents />)
-    await screen.findByText('Clase matutina')
+    await screen.findAllByText('Clase matutina')
 
     fireEvent.click(screen.getByRole('button', { name: 'Reactivar' }))
 
@@ -221,7 +221,7 @@ describe('AdminEvents', () => {
     })
 
     render(<AdminEvents />)
-    await screen.findByText('Clase matutina')
+    await screen.findAllByText('Clase matutina')
 
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
     const modal = await screen.findByRole('heading', { name: 'Editar actividad' }).then((h) => h.closest('div')!.parentElement!)
