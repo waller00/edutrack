@@ -156,7 +156,12 @@ describe('AdminEvents', () => {
     await screen.findAllByText('Clase matutina')
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar actividad Clase matutina' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
+
+    // Esperar a que el botón se habilite (selección aplicada) evita un click
+    // no-op por timing en CI que dejaría el DELETE sin disparar.
+    const deleteButton = screen.getByRole('button', { name: 'Eliminar seleccionadas' })
+    await waitFor(() => expect(deleteButton).toBeEnabled())
+    fireEvent.click(deleteButton)
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/events/e1', expect.objectContaining({ method: 'DELETE' })),
