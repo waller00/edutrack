@@ -54,6 +54,35 @@
     }
   }
 
+  function themeResourceUrl(relativePath) {
+    var script = document.currentScript || document.querySelector('script[src*="edutrack-login.js"]')
+    if (!script || !script.src) return relativePath
+    try {
+      return new URL(relativePath, script.src).href
+    } catch (_error) {
+      return relativePath
+    }
+  }
+
+  function installEduTrackFavicon() {
+    var href = themeResourceUrl('../img/logo.svg')
+    document.querySelectorAll('link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]').forEach(function (link) {
+      link.parentElement && link.parentElement.removeChild(link)
+    })
+
+    var icon = document.createElement('link')
+    icon.rel = 'icon'
+    icon.type = 'image/svg+xml'
+    icon.href = href
+    document.head.appendChild(icon)
+
+    var shortcut = document.createElement('link')
+    shortcut.rel = 'shortcut icon'
+    shortcut.type = 'image/svg+xml'
+    shortcut.href = href
+    document.head.appendChild(shortcut)
+  }
+
   function replaceText(selector, text) {
     var element = document.querySelector(selector)
     if (element) element.textContent = text
@@ -254,6 +283,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    installEduTrackFavicon()
     applyScreenClasses()
     localizeVisibleText()
     localizeActionScreens()
