@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   saveRegisterDraft,
   loadRegisterDraft,
@@ -72,5 +72,21 @@ describe('onboarding draft', () => {
   it('descarta v distinto', () => {
     window.sessionStorage.setItem('edutrack_onboarding_draft', JSON.stringify({ v: 9 }))
     expect(loadOnboardingDraft()).toBeNull()
+  })
+
+  it('loadOnboardingDraft devuelve null ante JSON inválido', () => {
+    window.sessionStorage.setItem('edutrack_onboarding_draft', '{no-json')
+    expect(loadOnboardingDraft()).toBeNull()
+  })
+})
+
+describe('register draft — fallos de storage (rama catch)', () => {
+  it('no propaga errores cuando setItem falla (cuota llena)', () => {
+    const spy = vi.spyOn(window.sessionStorage, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceeded')
+    })
+    expect(() => saveRegisterDraft(snapshot())).not.toThrow()
+    expect(() => saveOnboardingDraft(snapshot())).not.toThrow()
+    spy.mockRestore()
   })
 })
