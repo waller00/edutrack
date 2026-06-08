@@ -1,16 +1,10 @@
 import { prisma } from "../db/prisma.js";
 import { getAttendanceOperationalSettings } from "../config/system-settings.js";
 import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
-import {
-  buildContiguousClassBlocks,
-  fetchTeacherClassSlotsForUruguayDay,
-  findBlockContainingEventId,
-} from "./teacher-class-blocks.js";
+import { toYmdUtc } from "./analytics/dateRange.js";
+import { buildPresenceSpans, resolveOccurrenceOutcome } from "./attendance/coverage-spans.js";
+import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
 import { isNonWorkingDate } from "./non-working-days.js";
-
-function minutesDiff(a: Date, b: Date) {
-  return Math.floor((a.getTime() - b.getTime()) / (1000 * 60));
-}
 
 async function notifyAdminsAttendanceIncident(title: string, body: string, actionUrl = "/admin/attendance") {
   const admins = await prisma.user.findMany({
@@ -92,129 +86,6 @@ export async function findAssignedEventNearAttendanceInstant(
   return active[0] ?? rows[0] ?? null;
 }
 
-export async function maybeCreateLateArrivalIncident(params: {
-  tx: any;
-  userId: string;
-  eventId?: string | null;
-  eventType?: string | null;
-  eventTitle?: string | null;
-  attendanceId: string;
-  biometricPunchId?: string | null;
-  attendanceTime: Date;
-  eventStartTime?: Date | null;
-  lateToleranceMinutes: number;
-}) {
-  const {
-    tx,
-    userId,
-    eventId,
-    eventType,
-    eventTitle,
-    attendanceId,
-    biometricPunchId,
-    attendanceTime,
-    eventStartTime,
-    lateToleranceMinutes,
-  } = params;
-  if (!eventId || !eventType || !eventStartTime) return null;
-
-  const minsLate = minutesDiff(attendanceTime, new Date(eventStartTime));
-  if (minsLate <= lateToleranceMinutes) return null;
-
-  const alreadyOpen = await tx.attendanceIncident.findFirst({
-    where: { userId, eventId, type: "LATE_ARRIVAL", status: "OPEN" },
-    select: { id: true },
-  });
-  if (alreadyOpen) return alreadyOpen;
-
-  const incident = await tx.attendanceIncident.create({
-    data: {
-      type: "LATE_ARRIVAL",
-      status: "OPEN",
-      severity: "MEDIUM",
-      title: "Docente con llegada tarde",
-      description: `Llegada ${minsLate} min tarde en clase${eventTitle ? `: ${eventTitle}` : ""}.`,
-      userId,
-      eventId,
-      attendanceId,
-      biometricPunchId: biometricPunchId || null,
-    },
-    select: { id: true, title: true, description: true },
-  });
-
-  await notifyAdminsAttendanceIncident(incident.title, incident.description || "Incidente de asistencia detectado.");
-  return incident;
-}
-
-export async function maybeCreateEarlyExitIncident(params: {
-  tx: any;
-  userId: string;
-  eventId?: string | null;
-  eventType?: string | null;
-  eventTitle?: string | null;
-  attendanceId: string;
-  biometricPunchId?: string | null;
-  attendanceTime: Date;
-  eventEndTime?: Date | null;
-  earlyExitToleranceMinutes: number;
-}) {
-  const {
-    tx,
-    userId,
-    eventId,
-    eventType,
-    eventTitle,
-    attendanceId,
-    biometricPunchId,
-    attendanceTime,
-    eventEndTime,
-    earlyExitToleranceMinutes,
-  } = params;
-  if (!eventId || !eventType || !eventEndTime) return null;
-
-  const minsEarly = minutesDiff(new Date(eventEndTime), attendanceTime);
-  if (minsEarly <= earlyExitToleranceMinutes) return null;
-
-  const alreadyOpen = await tx.attendanceIncident.findFirst({
-    where: { userId, eventId, type: "EARLY_EXIT", status: "OPEN" },
-    select: { id: true },
-  });
-  if (alreadyOpen) return alreadyOpen;
-
-  const incident = await tx.attendanceIncident.create({
-    data: {
-      type: "EARLY_EXIT",
-      status: "OPEN",
-      severity: "MEDIUM",
-      title: "Docente con retiro anticipado",
-      description: `Salida ${minsEarly} min antes de finalizar la clase${eventTitle ? `: ${eventTitle}` : ""}.`,
-      userId,
-      eventId,
-      attendanceId,
-      biometricPunchId: biometricPunchId || null,
-    },
-    select: { id: true, title: true, description: true },
-  });
-
-  await notifyAdminsAttendanceIncident(incident.title, incident.description || "Incidente de asistencia detectado.");
-  return incident;
-}
-
-export async function resolveNoShowIncidentsForEvents(
-  tx: any,
-  userId: string,
-  eventIds: (string | null | undefined)[],
-) {
-  let n = 0;
-  const seen = new Set<string>();
-  for (const id of eventIds) {
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    n += await resolveNoShowIncidentIfAny(tx, userId, id);
-  }
-  return n;
-}
-
 export async function findOpenNoShowIncidentForEvents(
   tx: any,
   userId: string,
@@ -253,14 +124,68 @@ export async function resolveNoShowIncidentIfAny(tx: any, userId: string, eventI
   return 1;
 }
 
+type NoShowCandidate = {
+  id: string;
+  title: string;
+  assignedUserId: string | null;
+  startDate: Date;
+  startTime: Date | null;
+  endTime: Date | null;
+};
+
+async function hasSubstitutionForDay(tx: any, eventId: string, userId: string, day: Date) {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT "id"
+    FROM "Substitution"
+    WHERE "eventId" = ${eventId}
+      AND "originalTeacherUserId" = ${userId}
+      AND "date" = ${day}
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+/** Spans de presencia (CHECK_IN/CHECK_OUT) del docente en el día civil indicado. */
+async function buildDayPresenceSpans(tx: any, userId: string, day: Date) {
+  const rows = await tx.attendance.findMany({
+    where: { userId, date: day, type: { in: ["CHECK_IN", "CHECK_OUT"] } },
+    select: { id: true, userId: true, eventId: true, date: true, time: true, type: true, status: true, notes: true },
+  });
+  return buildPresenceSpans(rows);
+}
+
+/** Abre un TEACHER_NO_SHOW si no existe ya uno abierto para la ocurrencia. Devuelve 1 si abrió. */
+async function openNoShowIfAbsent(tx: any, userId: string, ev: NoShowCandidate, graceMinutes: number) {
+  const existingOpen = await tx.attendanceIncident.findFirst({
+    where: { userId, eventId: ev.id, type: "TEACHER_NO_SHOW", status: "OPEN" },
+    select: { id: true },
+  });
+  if (existingOpen) return 0;
+
+  const created = await tx.attendanceIncident.create({
+    data: {
+      type: "TEACHER_NO_SHOW",
+      status: "OPEN",
+      severity: "HIGH",
+      title: "Docente no presente en aula",
+      description: `No hay presencia registrada para la clase "${ev.title}" tras ${graceMinutes} min de tolerancia.`,
+      userId,
+      eventId: ev.id,
+    },
+    select: { id: true, title: true, description: true },
+  });
+  await notifyAdminsAttendanceIncident(created.title, created.description || "Incidente de asistencia detectado.");
+  return 1;
+}
+
 export async function scanAndCreateTeacherNoShowIncidents(now = new Date()) {
   const tx = prisma;
   const runtime = await getAttendanceOperationalSettings();
-  const NO_SHOW_GRACE_MINUTES = runtime.noShowGraceMinutes;
-  const threshold = new Date(now.getTime() - NO_SHOW_GRACE_MINUTES * 60 * 1000);
+  const graceMinutes = runtime.noShowGraceMinutes;
+  const threshold = new Date(now.getTime() - graceMinutes * 60 * 1000);
   const lookback = new Date(now.getTime() - 8 * 60 * 60 * 1000);
 
-  const candidateEvents = await tx.event.findMany({
+  const candidateEvents: NoShowCandidate[] = await tx.event.findMany({
     where: {
       type: { in: ["CLASE", "JORNADA_LABORAL", "REUNION"] },
       status: { in: ["SCHEDULED", "IN_PROGRESS"] },
@@ -268,78 +193,38 @@ export async function scanAndCreateTeacherNoShowIncidents(now = new Date()) {
       startTime: { lte: threshold, gte: lookback },
       endTime: { gte: now },
     },
-    select: {
-      id: true,
-      title: true,
-      assignedUserId: true,
-      startDate: true,
-      startTime: true,
-    },
+    select: { id: true, title: true, assignedUserId: true, startDate: true, startTime: true, endTime: true },
   });
 
   let opened = 0;
   let resolved = 0;
 
-  const bridgeGap = runtime.classBridgeGapMinutes;
-
   for (const ev of candidateEvents) {
-    const userId = ev.assignedUserId!;
-    const anchorTime = ev.startTime ?? ev.startDate;
-    if (await isNonWorkingDate(new Date(anchorTime))) continue;
+    const userId = ev.assignedUserId;
+    if (!userId) continue;
+    const anchorTime = new Date(ev.startTime ?? ev.startDate);
+    if (await isNonWorkingDate(anchorTime)) continue;
+    const day = uruguayStartOfDayFromInstant(anchorTime);
+    if (await hasSubstitutionForDay(tx, ev.id, userId, day)) continue;
 
-    const day = uruguayStartOfDayFromInstant(new Date(anchorTime));
+    const license =
+      ev.startTime && ev.endTime
+        ? await findApprovedLicenseCoveringEventTime(userId, new Date(ev.startTime), new Date(ev.endTime))
+        : null;
+    const spans = await buildDayPresenceSpans(tx, userId, day);
+    const outcome = resolveOccurrenceOutcome(
+      { userId, ymd: toYmdUtc(day), plannedStart: ev.startTime, plannedEnd: ev.endTime },
+      spans,
+      { hasSubstitution: false, hasLicense: Boolean(license), lateToleranceMinutes: runtime.lateToleranceMinutes },
+    );
 
-    const substitutions = await tx.$queryRaw<{ id: string }[]>`
-      SELECT "id"
-      FROM "Substitution"
-      WHERE "eventId" = ${ev.id}
-        AND "originalTeacherUserId" = ${userId}
-        AND "date" = ${day}
-      LIMIT 1
-    `;
-    if (substitutions.length > 0) continue;
-
-    const slots = await fetchTeacherClassSlotsForUruguayDay(tx, userId, new Date(anchorTime));
-    const blocks = buildContiguousClassBlocks(slots, bridgeGap);
-    const block = findBlockContainingEventId(ev.id, blocks);
-    const blockEventIds = block?.map((e) => e.id) ?? [ev.id];
-
-    const checkIn = await tx.attendance.findFirst({
-      where: {
-        userId,
-        type: "CHECK_IN",
-        date: day,
-        eventId: { in: blockEventIds },
-      },
-      select: { id: true },
-    });
-
-    if (checkIn) {
+    // Solo ABSENT_NOT_JUSTIFIED es no-show accionable; cualquier presencia/justificación lo resuelve.
+    if (outcome === "ABSENT_NOT_JUSTIFIED") {
+      opened += await openNoShowIfAbsent(tx, userId, ev, graceMinutes);
+    } else {
       resolved += await resolveNoShowIncidentIfAny(tx, userId, ev.id);
-      continue;
     }
-
-    const existingOpen = await tx.attendanceIncident.findFirst({
-      where: { userId, eventId: ev.id, type: "TEACHER_NO_SHOW", status: "OPEN" },
-      select: { id: true },
-    });
-    if (existingOpen) continue;
-
-    const created = await tx.attendanceIncident.create({
-      data: {
-        type: "TEACHER_NO_SHOW",
-        status: "OPEN",
-        severity: "HIGH",
-        title: "Docente no presente en aula",
-        description: `No hay marcación de entrada para la clase "${ev.title}" tras ${NO_SHOW_GRACE_MINUTES} min de tolerancia.`,
-        userId,
-        eventId: ev.id,
-      },
-      select: { id: true, title: true, description: true },
-    });
-    opened += 1;
-    await notifyAdminsAttendanceIncident(created.title, created.description || "Incidente de asistencia detectado.");
   }
 
-  return { scanned: candidateEvents.length, opened, resolved, graceMinutes: NO_SHOW_GRACE_MINUTES };
+  return { scanned: candidateEvents.length, opened, resolved, graceMinutes };
 }

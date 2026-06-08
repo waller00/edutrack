@@ -2,6 +2,7 @@ import { prisma } from '../../db/prisma.js'
 import type { EventStatus, EventType } from '@prisma/client'
 import type { PlannedInstance } from './models.js'
 import { parseYmdToUtcRange, toYmdUtc } from './dateRange.js'
+import { effectiveWindowIncludesYmd } from '../events/event-versioning.js'
 
 function combineDateWithUtcTime(plannedDateYmd: string, time: Date | null | undefined) {
   if (!time) return null
@@ -22,6 +23,80 @@ function combineDateWithUtcTime(plannedDateYmd: string, time: Date | null | unde
 
 function dateRangeToYmd(fromDate: Date, toDate: Date) {
   return { fromYmd: toYmdUtc(fromDate), toYmd: toYmdUtc(toDate) }
+}
+
+type EventRow = {
+  id: string
+  title: string
+  type: EventType
+  status: EventStatus
+  startDate: Date
+  startTime: Date | null
+  endTime: Date | null
+  isRecurring: boolean
+  recurrenceEnd: Date | null
+  daysOfWeek: number[]
+  effectiveFrom: Date | null
+  effectiveUntil: Date | null
+  assignedUserId: string | null
+  courseOfferingId: string | null
+  courseOffering: { id: string; course: { name: string; code: string | null } } | null
+  subject: { name: string } | null
+}
+
+type AcademicContext = Pick<PlannedInstance, 'courseOfferingId' | 'courseLabel' | 'subjectLabel'>
+
+function academicContextOf(ev: EventRow): AcademicContext {
+  const course = ev.courseOffering?.course
+  return {
+    courseOfferingId: ev.courseOfferingId ?? null,
+    courseLabel: course ? course.name || course.code || null : null,
+    subjectLabel: ev.subject?.name ?? null,
+  }
+}
+
+function buildInstance(ev: EventRow, ymd: string, isRecurringInstance: boolean, academic: AcademicContext): PlannedInstance {
+  return {
+    plannedInstanceId: `${ev.id}_${ymd}`,
+    eventId: ev.id,
+    eventTitle: ev.title,
+    eventType: ev.type,
+    eventStatus: ev.status,
+    isRecurringInstance,
+    plannedDate: ymd,
+    plannedStartTime: combineDateWithUtcTime(ymd, ev.startTime),
+    plannedEndTime: combineDateWithUtcTime(ymd, ev.endTime),
+    userIdRequired: ev.assignedUserId,
+    ...academic,
+  }
+}
+
+/** Expande un evento (único o recurrente) a sus instancias dentro del rango [fromYmd, toYmd]. */
+function expandEventInstances(ev: EventRow, fromYmd: string, toYmd: string, toDate: Date): PlannedInstance[] {
+  const academic = academicContextOf(ev)
+  const evStartYmd = toYmdUtc(ev.startDate)
+  const inWindow = (ymd: string) => effectiveWindowIncludesYmd(ev.effectiveFrom, ev.effectiveUntil, ymd)
+
+  if (!ev.isRecurring || !ev.daysOfWeek || ev.daysOfWeek.length === 0) {
+    if (evStartYmd < fromYmd || evStartYmd > toYmd || !inWindow(evStartYmd)) return []
+    return [buildInstance(ev, evStartYmd, false, academic)]
+  }
+
+  const recurrenceEndDate = ev.recurrenceEnd ? new Date(ev.recurrenceEnd) : toDate
+  const rangeStartYmd = evStartYmd > fromYmd ? evStartYmd : fromYmd
+  const rangeEndYmd = toYmd < toYmdUtc(recurrenceEndDate) ? toYmd : toYmdUtc(recurrenceEndDate)
+
+  const out: PlannedInstance[] = []
+  const cursor = new Date(`${rangeStartYmd}T00:00:00.000Z`)
+  const final = new Date(`${rangeEndYmd}T00:00:00.000Z`)
+  while (cursor <= final) {
+    const ymd = toYmdUtc(cursor)
+    if (ev.daysOfWeek.includes(cursor.getUTCDay()) && inWindow(ymd)) {
+      out.push(buildInstance(ev, ymd, true, academic))
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return out
 }
 
 export async function getPlannedInstances(params: {
@@ -56,63 +131,18 @@ export async function getPlannedInstances(params: {
       isRecurring: true,
       recurrenceEnd: true,
       daysOfWeek: true,
+      effectiveFrom: true,
+      effectiveUntil: true,
       assignedUserId: true,
+      courseOfferingId: true,
+      courseOffering: { select: { id: true, course: { select: { name: true, code: true } } } },
+      subject: { select: { name: true } },
     },
   })
 
   const instances: PlannedInstance[] = []
-
   for (const ev of events) {
-    const evStartYmd = toYmdUtc(ev.startDate)
-    if (!ev.isRecurring || !ev.daysOfWeek || ev.daysOfWeek.length === 0) {
-      // Evento único: solo se incluye si cae dentro del rango.
-      if (evStartYmd < fromYmd || evStartYmd > toYmd) continue
-      const plannedStartTime = combineDateWithUtcTime(evStartYmd, ev.startTime)
-      const plannedEndTime = combineDateWithUtcTime(evStartYmd, ev.endTime)
-      instances.push({
-        plannedInstanceId: `${ev.id}_${evStartYmd}`,
-        eventId: ev.id,
-        eventTitle: ev.title,
-        eventType: ev.type,
-        eventStatus: ev.status,
-        isRecurringInstance: false,
-        plannedDate: evStartYmd,
-        plannedStartTime,
-        plannedEndTime,
-        userIdRequired: ev.assignedUserId,
-      })
-      continue
-    }
-
-    // Recurrente: expandimos por días de la semana.
-    const recurrenceEndDate = ev.recurrenceEnd ? new Date(ev.recurrenceEnd) : toDate
-    const rangeStartYmd = evStartYmd > fromYmd ? evStartYmd : fromYmd
-    const rangeEndYmd = toYmd < toYmdUtc(recurrenceEndDate) ? toYmd : toYmdUtc(recurrenceEndDate)
-
-    // Iteración día a día en UTC.
-    let cursor = new Date(`${rangeStartYmd}T00:00:00.000Z`)
-    const final = new Date(`${rangeEndYmd}T00:00:00.000Z`)
-    while (cursor <= final) {
-      const ymd = toYmdUtc(cursor)
-      const dow = cursor.getUTCDay() // 0=Domingo
-      if (ev.daysOfWeek.includes(dow)) {
-        const plannedStartTime = combineDateWithUtcTime(ymd, ev.startTime)
-        const plannedEndTime = combineDateWithUtcTime(ymd, ev.endTime)
-        instances.push({
-          plannedInstanceId: `${ev.id}_${ymd}`,
-          eventId: ev.id,
-          eventTitle: ev.title,
-          eventType: ev.type,
-          eventStatus: ev.status,
-          isRecurringInstance: true,
-          plannedDate: ymd,
-          plannedStartTime,
-          plannedEndTime,
-          userIdRequired: ev.assignedUserId,
-        })
-      }
-      cursor.setUTCDate(cursor.getUTCDate() + 1)
-    }
+    instances.push(...expandEventInstances(ev, fromYmd, toYmd, toDate))
   }
 
   // Orden determinístico para export.

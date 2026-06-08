@@ -1,9 +1,15 @@
 import { prisma } from '../../db/prisma.js'
 import type {
+  AttendanceStatusResolved,
+  DashboardBreakdownRow,
+  DashboardBreakdowns,
   DashboardKpis,
   DashboardTopRiskEvent,
   DashboardTopRiskPerson,
   ResolvedAttendanceByInstance,
+  SeriesGranularity,
+  SeriesPointMulti,
+  StatusDistribution,
 } from './models.js'
 import { toYmdUtc, parseYmdToUtcRange } from './dateRange.js'
 
@@ -99,6 +105,157 @@ export function computeSeriesByWeek(resolvedInstances: ResolvedAttendanceByInsta
     cursorYmd = toYmdUtc(endDate)
   }
   return series
+}
+
+function monthStartUtc(ymd: string) {
+  return `${ymd.slice(0, 7)}-01`
+}
+
+function bucketStartFor(ymd: string, granularity: SeriesGranularity) {
+  if (granularity === 'day') return ymd
+  if (granularity === 'month') return monthStartUtc(ymd)
+  return weekStartUtc(ymd)
+}
+
+function advanceBucket(cursorYmd: string, granularity: SeriesGranularity) {
+  const d = new Date(`${cursorYmd}T00:00:00.000Z`)
+  if (granularity === 'day') d.setUTCDate(d.getUTCDate() + 1)
+  else if (granularity === 'month') d.setUTCMonth(d.getUTCMonth() + 1)
+  else d.setUTCDate(d.getUTCDate() + 7)
+  return toYmdUtc(d)
+}
+
+/** Serie multi-métrica (tardanza/ausentismo/cobertura) agrupada por día, semana o mes. */
+export function computeSeriesByGranularity(
+  resolved: ResolvedAttendanceByInstance[],
+  from: string,
+  to: string,
+  granularity: SeriesGranularity,
+): SeriesPointMulti[] {
+  const byBucket = new Map<string, ResolvedAttendanceByInstance[]>()
+  for (const i of resolved) {
+    const key = bucketStartFor(i.planned.plannedDate, granularity)
+    const arr = byBucket.get(key)
+    if (arr) arr.push(i)
+    else byBucket.set(key, [i])
+  }
+
+  const series: SeriesPointMulti[] = []
+  let cursor = bucketStartFor(from, granularity)
+  const last = bucketStartFor(to, granularity)
+  while (cursor <= last) {
+    const chunk = byBucket.get(cursor) ?? []
+    const k = computeRangeKpis(chunk, { plannedInstancesCount: chunk.length })
+    series.push({ period: cursor, lateRate: k.M2_LATE_RATE_pct, aop: k.M4_AOP_pct, coverage: k.M6_COVERAGE_CP_pct })
+    cursor = advanceBucket(cursor, granularity)
+  }
+  return series
+}
+
+/** Desglose de KPIs agrupando por una dimensión arbitraria (rol, tipo, curso…). */
+export function computeBreakdown(
+  resolved: ResolvedAttendanceByInstance[],
+  keyFn: (r: ResolvedAttendanceByInstance) => string | null,
+  labelFn: (r: ResolvedAttendanceByInstance) => string,
+): DashboardBreakdownRow[] {
+  const groups = new Map<string, { label: string; items: ResolvedAttendanceByInstance[] }>()
+  for (const r of resolved) {
+    const key = keyFn(r)
+    if (!key) continue
+    let g = groups.get(key)
+    if (!g) {
+      g = { label: labelFn(r), items: [] }
+      groups.set(key, g)
+    }
+    g.items.push(r)
+  }
+
+  const rows: DashboardBreakdownRow[] = [...groups.entries()].map(([key, g]) => {
+    const k = computeRangeKpis(g.items, { plannedInstancesCount: g.items.length })
+    return {
+      key,
+      label: g.label,
+      plannedCount: g.items.length,
+      punctualityPct: k.M1_PUNCTUALITY_pct,
+      lateRatePct: k.M2_LATE_RATE_pct,
+      aopPct: k.M4_AOP_pct,
+      coveragePct: k.M6_COVERAGE_CP_pct,
+    }
+  })
+
+  rows.sort((a, b) => b.plannedCount - a.plannedCount || a.label.localeCompare(b.label))
+  return rows
+}
+
+const ROLE_BREAKDOWN_LABELS: Record<string, string> = {
+  TEACHER: 'Docentes',
+  STAFF: 'Equipo administrativo',
+  ADMIN: 'Administradores',
+}
+
+const EVENT_TYPE_BREAKDOWN_LABELS: Record<string, string> = {
+  JORNADA_LABORAL: 'Jornada laboral',
+  REUNION: 'Reunión',
+  CLASE: 'Clase',
+  EVENTO: 'Evento',
+  CAPACITACION: 'Capacitación',
+  CITA_MEDICA: 'Cita médica',
+}
+
+/** Construye los tres desgloses estándar del dashboard (rol, tipo de evento, curso). */
+export function buildDashboardBreakdowns(resolved: ResolvedAttendanceByInstance[]): DashboardBreakdowns {
+  return {
+    byRole: computeBreakdown(
+      resolved,
+      (r) => r.userRole || null,
+      (r) => ROLE_BREAKDOWN_LABELS[r.userRole] ?? (r.userRole || '—'),
+    ),
+    byEventType: computeBreakdown(
+      resolved,
+      (r) => r.planned.eventType,
+      (r) => EVENT_TYPE_BREAKDOWN_LABELS[r.planned.eventType] ?? r.planned.eventType,
+    ),
+    byCourse: computeBreakdown(
+      resolved,
+      (r) => r.planned.courseOfferingId,
+      (r) => r.planned.courseLabel ?? 'Curso sin nombre',
+    ),
+  }
+}
+
+const STATUS_DISTRIBUTION_ORDER: AttendanceStatusResolved[] = [
+  'PRESENT',
+  'LATE',
+  'ABSENT_NOT_JUSTIFIED',
+  'ABSENT_JUSTIFIED',
+  'SUBSTITUTED',
+]
+
+/** Distribución de estados de entrada (check-in) sobre el total planificado. */
+export function computeStatusDistribution(resolved: ResolvedAttendanceByInstance[]): StatusDistribution {
+  const totalPlanned = resolved.length
+  const counts = new Map<AttendanceStatusResolved, number>()
+  for (const r of resolved) {
+    const s = r.checkInStatusResolved
+    counts.set(s, (counts.get(s) ?? 0) + 1)
+  }
+  const rows = STATUS_DISTRIBUTION_ORDER.map((status) => {
+    const count = counts.get(status) ?? 0
+    return { status, count, pct: roundTo(pct(count, totalPlanned), 2) }
+  }).filter((r) => r.count > 0)
+  return { totalPlanned, rows }
+}
+
+/** Diferencia KPI a KPI entre período actual y anterior (para mostrar deltas). */
+export function computeKpiDeltas(current: DashboardKpis, previous: DashboardKpis): DashboardKpis {
+  return {
+    M1_PUNCTUALITY_pct: roundTo(current.M1_PUNCTUALITY_pct - previous.M1_PUNCTUALITY_pct, 2),
+    M2_LATE_RATE_pct: roundTo(current.M2_LATE_RATE_pct - previous.M2_LATE_RATE_pct, 2),
+    M4_AOP_pct: roundTo(current.M4_AOP_pct - previous.M4_AOP_pct, 2),
+    M6_COVERAGE_CP_pct: roundTo(current.M6_COVERAGE_CP_pct - previous.M6_COVERAGE_CP_pct, 2),
+    M8_HOURS_DELTA_pct: roundTo(current.M8_HOURS_DELTA_pct - previous.M8_HOURS_DELTA_pct, 2),
+    PC_count: current.PC_count - previous.PC_count,
+  }
 }
 
 export async function computePCCount(params: { from: string; to: string }) {

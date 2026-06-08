@@ -29,6 +29,8 @@ import {
   isYmdWithinSchoolYear,
 } from '../services/school-year-service.js';
 import { ensureMoodleUserById } from '../services/moodle.js';
+import { conflictKindBetween, findEventOverlapConflict, type EventSchedule } from '../services/events/event-overlap.js';
+import { splitEventDefinitionForEdit, todayUruguayYmd } from '../services/events/event-versioning.js';
 
 const r = Router();
 
@@ -439,6 +441,7 @@ r.post('/import', authGuard, requirePermission('events.create', 'all'), async (r
 
     const errors: Array<{ row: number; message: string }> = []
     const prepared: any[] = []
+    const batchSchedules: EventSchedule[] = []
 
     for (let idx = 0; idx < parsed.data.rows.length; idx += 1) {
       const source = parsed.data.rows[idx]
@@ -542,6 +545,41 @@ r.post('/import', authGuard, requirePermission('events.create', 'all'), async (r
         continue
       }
 
+      const recurrenceEnd = recurrenceEndYmd ? parseRecurrenceEndInclusive(recurrenceEndYmd) : null
+      const candidateSchedule: EventSchedule = {
+        type,
+        assignedUserId,
+        startTime: startDate,
+        endTime,
+        startDate,
+        isRecurring,
+        daysOfWeek,
+        recurrenceEnd,
+        schoolYearId,
+        courseOfferingId,
+        courseOrientationId,
+      }
+
+      // Doble-reserva con otra fila del mismo archivo (aún no persistida).
+      const batchConflict = batchSchedules.find((s) => conflictKindBetween(candidateSchedule, s) !== null)
+      if (batchConflict) {
+        errors.push({ row: rowNumber, message: 'se superpone con otra fila del archivo' })
+        continue
+      }
+      // Doble-reserva contra eventos ya existentes en la base.
+      const dbConflict = await findEventOverlapConflict(prisma, candidateSchedule)
+      if (dbConflict) {
+        errors.push({
+          row: rowNumber,
+          message:
+            dbConflict.kind === 'TEACHER'
+              ? 'el docente ya tiene un evento que se superpone en ese horario'
+              : 'el grupo ya tiene otra clase en ese horario',
+        })
+        continue
+      }
+      batchSchedules.push(candidateSchedule)
+
       prepared.push({
         row: rowNumber,
         data: {
@@ -563,7 +601,7 @@ r.post('/import', authGuard, requirePermission('events.create', 'all'), async (r
           isRecurring,
           recurrenceType: isRecurring ? 'WEEKLY' : 'NONE',
           daysOfWeek,
-          recurrenceEnd: recurrenceEndYmd ? parseRecurrenceEndInclusive(recurrenceEndYmd) : null,
+          recurrenceEnd,
         },
       })
     }
@@ -755,6 +793,33 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       }
     }
 
+    const recurrenceEndUtc = eventData.recurrenceEnd ? parseRecurrenceEndInclusive(eventData.recurrenceEnd) : null;
+
+    const overlapCandidate: EventSchedule = {
+      type: eventData.type,
+      assignedUserId: eventData.assignedUserId ?? null,
+      startTime: startDateUtc,
+      endTime: endTimeUtc,
+      startDate: startDateUtc,
+      isRecurring,
+      daysOfWeek: eventData.daysOfWeek ?? [],
+      recurrenceEnd: recurrenceEndUtc,
+      schoolYearId: resolvedSchoolYearId,
+      courseOfferingId: resolvedCourseOfferingId,
+      courseOrientationId: resolvedCourseOrientationId,
+    };
+    const conflict = await findEventOverlapConflict(prisma, overlapCandidate);
+    if (conflict) {
+      return res.status(409).json({
+        message:
+          conflict.kind === 'TEACHER'
+            ? 'El docente ya tiene otro evento que se superpone en ese horario'
+            : 'El grupo ya tiene otra clase en ese horario',
+        code: 'EVENT_OVERLAP',
+        conflict,
+      });
+    }
+
     const event = (await prisma.event.create({
       data: {
         title: eventData.title,
@@ -768,7 +833,7 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
         endTime: endTimeUtc,
         endDate: null,
         recurrenceType,
-        recurrenceEnd: eventData.recurrenceEnd ? parseRecurrenceEndInclusive(eventData.recurrenceEnd) : null,
+        recurrenceEnd: recurrenceEndUtc,
         isRecurring,
         daysOfWeek: eventData.daysOfWeek ?? [],
         courseOfferingId: resolvedCourseOfferingId,
@@ -1232,6 +1297,8 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
         recurrenceEnd: true,
         daysOfWeek: true,
         status: true,
+        revisionOf: true,
+        effectiveFrom: true,
       }
     });
 
@@ -1488,9 +1555,47 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       }
     }
 
+    // Validación de doble-reserva sobre la agenda resultante (excluye el propio evento y su familia).
+    const mergedStartTime = updateData.startTime ?? existingEvent.startTime ?? existingEvent.startDate
+    const mergedEndTime = updateData.endTime ?? existingEvent.endTime
+    if (mergedStartTime && mergedEndTime) {
+      const overlapCandidate: EventSchedule = {
+        id: existingEvent.id,
+        type: updateData.type ?? existingEvent.type,
+        assignedUserId:
+          updateData.assignedUserId !== undefined ? updateData.assignedUserId : existingEvent.assignedUserId,
+        startTime: mergedStartTime,
+        endTime: mergedEndTime,
+        startDate: updateData.startDate ?? existingEvent.startDate,
+        isRecurring: updateData.isRecurring !== undefined ? updateData.isRecurring : existingEvent.isRecurring,
+        daysOfWeek: updateData.daysOfWeek ?? existingEvent.daysOfWeek ?? [],
+        recurrenceEnd: updateData.recurrenceEnd !== undefined ? updateData.recurrenceEnd : existingEvent.recurrenceEnd,
+        effectiveFrom: existingEvent.effectiveFrom ?? null,
+        schoolYearId: updateData.schoolYearId ?? existingEvent.schoolYearId,
+        courseOfferingId: finalCourseOfferingId,
+        courseOrientationId: finalCourseOrientationId,
+        revisionOf: existingEvent.revisionOf ?? null,
+      }
+      const conflict = await findEventOverlapConflict(prisma, overlapCandidate)
+      if (conflict) {
+        return res.status(409).json({
+          message:
+            conflict.kind === 'TEACHER'
+              ? 'El docente ya tiene otro evento que se superpone en ese horario'
+              : 'El grupo ya tiene otra clase en ese horario',
+          code: 'EVENT_OVERLAP',
+          conflict,
+        })
+      }
+    }
+
     if (requiresHistoricalReplacement) {
-      const replacement = await prisma.$transaction(async (tx) => {
-        const created = await (tx as any).event.create({
+      // Split de vigencia: la versión actual conserva sus ocurrencias pasadas (con asistencia)
+      // y se crea una nueva versión vigente desde hoy con los cambios. No se corrompen históricos.
+      const newVersion = await prisma.$transaction(async (tx) =>
+        splitEventDefinitionForEdit(tx, {
+          existing: { id: existingEvent.id, revisionOf: existingEvent.revisionOf ?? null },
+          cutoffYmd: todayUruguayYmd(),
           data: {
             title: updateData.title ?? existingEvent.title,
             description: updateData.description !== undefined ? updateData.description : existingEvent.description,
@@ -1507,49 +1612,49 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
             schoolYearId: updateData.schoolYearId ?? existingEvent.schoolYearId,
             courseOfferingId:
               updateData.courseOfferingId !== undefined ? updateData.courseOfferingId : existingEvent.courseOfferingId,
+            orientationId:
+              updateData.orientationId !== undefined ? updateData.orientationId : existingEvent.orientationId,
+            courseOrientationId:
+              updateData.courseOrientationId !== undefined
+                ? updateData.courseOrientationId
+                : existingEvent.courseOrientationId,
             subjectId: updateData.subjectId !== undefined ? updateData.subjectId : existingEvent.subjectId,
             recurrenceType: updateData.recurrenceType ?? existingEvent.recurrenceType,
             recurrenceEnd:
               updateData.recurrenceEnd !== undefined ? updateData.recurrenceEnd : existingEvent.recurrenceEnd,
-            isRecurring:
-              updateData.isRecurring !== undefined ? updateData.isRecurring : existingEvent.isRecurring,
+            isRecurring: updateData.isRecurring !== undefined ? updateData.isRecurring : existingEvent.isRecurring,
             daysOfWeek: updateData.daysOfWeek ?? existingEvent.daysOfWeek ?? [],
           },
           include: {
-            user: {
-              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
-            },
-            assignedUser: {
-              select: { id: true, name: true, email: true, ...selectOrgRoleCode }
-            },
+            user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+            assignedUser: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
             courseOffering: eventCourseOfferingInclude,
             orientation: eventOrientationInclude,
             subject: eventSubjectInclude,
-          }
-        })
+          },
+        }),
+      )
 
-        const marker = `[Reemplazado logicamente por edicion: ${created.id}]`
-        const description = existingEvent.description?.includes(marker)
-          ? existingEvent.description
-          : `${existingEvent.description || ''}\n\n${marker}`.trim()
-        await (tx as any).event.update({
-          where: { id },
-          data: { status: 'CANCELLED', description },
-        })
-        return created
-      })
-
-      if (replacement.assignedUserId) {
-        void ensureMoodleUserById(replacement.assignedUserId)
+      if (newVersion.assignedUserId) {
+        void ensureMoodleUserById(newVersion.assignedUserId)
       }
 
-      const mapped = mapNestedEventUsers(replacement as unknown as Record<string, unknown>)
+      recordAuditEvent({
+        action: AuditAction.EVENT_CREATED,
+        actorUserId: user.sub,
+        req,
+        entityType: 'Event',
+        entityId: newVersion.id,
+        metadata: { supersedesEventId: id, reason: 'Split de vigencia por edición con asistencias' },
+      })
+
+      const mapped = mapNestedEventUsers(newVersion as unknown as Record<string, unknown>)
       return res.json({
         ...mapped,
         historicalReplacement: true,
         replacedEventId: id,
         message:
-          'El evento original tenia asistencias, por eso se cancelo logicamente y se creo un evento nuevo con los cambios.',
+          'El evento tenía asistencias: se conservó la versión histórica y se creó una nueva versión vigente desde hoy con los cambios.',
       })
     }
 
