@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { DateTime } from 'luxon';
 import { prisma } from '../db/prisma.js';
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js';
 import {
@@ -12,9 +13,11 @@ import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attenda
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
-import { uruguayStartOfDayFromInstant } from '../config/app-timezone.js';
+import { APP_TIMEZONE, uruguayStartOfDayFromInstant } from '../config/app-timezone.js';
 import { justifyAttendance } from '../services/attendance-justifications.js';
 import { recordAuditEventNow } from '../services/audit-log.js';
+import { getPlannedInstances } from '../services/analytics/planInstances.js';
+import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -184,6 +187,96 @@ function shouldCountIncidentAbsencesInStats(query: Record<string, unknown>) {
   if (query.type && query.type !== 'CHECK_IN') return false
   if (query.status && query.status !== 'ABSENT_NOT_JUSTIFIED') return false
   return true
+}
+
+const ABSENCE_RESOLVED_STATUSES = ['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED'] as const
+
+function queryDateToUruguayYmd(value: unknown, fallback: Date) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const date = value ? new Date(String(value)) : fallback
+  const safeDate = Number.isNaN(date.getTime()) ? fallback : date
+  return DateTime.fromJSDate(safeDate, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+}
+
+function queryAllowsVirtualAbsenceRows(query: Record<string, unknown>) {
+  if (!wantsIncidentRows(query)) return false
+  if (query.type && query.type !== 'CHECK_IN') return false
+  if (query.status && !ABSENCE_RESOLVED_STATUSES.includes(query.status as any)) return false
+  return true
+}
+
+async function userIdsForRole(role: unknown) {
+  if (!role) return undefined
+  const rows = await prisma.user.findMany({
+    where: { orgRole: { code: String(role).toUpperCase() } },
+    select: { id: true },
+  })
+  return rows.map((row) => row.id)
+}
+
+function mapResolvedAbsenceAsFeedRow(row: Awaited<ReturnType<typeof resolveAttendanceAndJustification>>[number]) {
+  const plannedStart = row.planned.plannedStartTime ?? new Date(`${row.planned.plannedDate}T00:00:00.000Z`)
+  const plannedEnd = row.planned.plannedEndTime ?? plannedStart
+  const status = row.checkInStatusResolved
+  return {
+    id: `absence:${row.planned.plannedInstanceId}`,
+    kind: 'VIRTUAL_ABSENCE',
+    type: 'CHECK_IN',
+    status,
+    date: new Date(`${row.planned.plannedDate}T00:00:00.000Z`),
+    time: plannedStart,
+    notes:
+      status === 'ABSENT_JUSTIFIED'
+        ? 'Ausencia justificada por licencia médica para este evento vencido'
+        : 'Ausencia pendiente: no se registró asistencia para este evento vencido',
+    user: {
+      id: row.planned.userIdRequired,
+      name: row.userDisplayName,
+      email: row.userEmail,
+      role: row.userRole,
+    },
+    event: {
+      id: row.planned.eventId,
+      title: row.planned.eventTitle,
+      type: row.planned.eventType,
+      startTime: plannedStart,
+      endTime: plannedEnd,
+    },
+  }
+}
+
+async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanceWhere: any) {
+  if (!queryAllowsVirtualAbsenceRows(query)) return []
+
+  const now = new Date()
+  const from = queryDateToUruguayYmd(query.startDate, now)
+  const to = queryDateToUruguayYmd(query.endDate, now)
+  const schoolYearId = typeof attendanceWhere.schoolYearId === 'string' ? attendanceWhere.schoolYearId : undefined
+  const userIds = query.userId ? undefined : await userIdsForRole(query.role)
+  const plannedInstances = await getPlannedInstances({
+    from,
+    to,
+    userId: typeof query.userId === 'string' ? query.userId : undefined,
+    userIds,
+    eventType: typeof query.eventType === 'string' ? (query.eventType as any) : undefined,
+    schoolYearId,
+  })
+
+  const filteredPlannedInstances = plannedInstances.filter((planned) => {
+    if (typeof query.eventId === 'string' && planned.eventId !== query.eventId) return false
+    if (!planned.userIdRequired) return false
+    if (!planned.plannedEndTime) return false
+    return new Date(planned.plannedEndTime).getTime() <= now.getTime()
+  })
+
+  const resolved = await resolveAttendanceAndJustification({ plannedInstances: filteredPlannedInstances })
+  return resolved
+    .filter((row) => {
+      if (!ABSENCE_RESOLVED_STATUSES.includes(row.checkInStatusResolved as any)) return false
+      if (query.status && row.checkInStatusResolved !== query.status) return false
+      return true
+    })
+    .map(mapResolvedAbsenceAsFeedRow)
 }
 
 // Registrar asistencia (CHECK_IN o CHECK_OUT) — alta de un registro propio.
@@ -364,7 +457,7 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
     if (wantsIncidentRows(q)) {
       const incidentWhere = buildAdminAttendanceIncidentWhere(q, where)
       const fetchForMerge = page * pageSize
-      const [attendanceTotal, incidentTotal, attendanceRows, incidentRows] = await Promise.all([
+      const [attendanceTotal, incidentTotal, attendanceRows, incidentRows, virtualAbsenceRows] = await Promise.all([
         prisma.attendance.count({ where }),
         prisma.attendanceIncident.count({ where: incidentWhere }),
         prisma.attendance.findMany({
@@ -393,9 +486,14 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
           orderBy: { detectedAt: 'desc' },
           take: fetchForMerge,
         }),
+        buildVirtualAbsenceRows(q, where),
       ]);
 
-      const merged = [...attendanceRows.map(mapAttendanceUser), ...incidentRows.map(mapAttendanceIncidentAsFeedRow)]
+      const merged = [
+        ...attendanceRows.map(mapAttendanceUser),
+        ...incidentRows.map(mapAttendanceIncidentAsFeedRow),
+        ...virtualAbsenceRows,
+      ]
         .sort((a: any, b: any) => {
           const aTime = new Date(a.time ?? a.date).getTime()
           const bTime = new Date(b.time ?? b.date).getTime()
@@ -403,7 +501,7 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
         })
         .slice((page - 1) * pageSize, page * pageSize)
 
-      return res.json({ total: attendanceTotal + incidentTotal, page, pageSize, data: merged });
+      return res.json({ total: attendanceTotal + incidentTotal + virtualAbsenceRows.length, page, pageSize, data: merged });
     }
 
     const [total, attendances] = await Promise.all([
@@ -586,9 +684,10 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
 
     const where = await buildAttendanceStatsWhereAsync(req.query as Record<string, unknown>, user)
 
-    const includeIncidentAbsences = shouldCountIncidentAbsencesInStats(req.query as Record<string, unknown>)
+    const q = req.query as Record<string, unknown>
+    const includeIncidentAbsences = shouldCountIncidentAbsencesInStats(q)
     const incidentWhere = includeIncidentAbsences
-      ? buildAdminAttendanceIncidentWhere(req.query as Record<string, unknown>, where)
+      ? buildAdminAttendanceIncidentWhere(q, where)
       : null
 
     const [
@@ -601,6 +700,7 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       exitCount,
       earlyExitCount,
       incidentAbsentCount,
+      virtualAbsenceRows,
     ] = await Promise.all([
       prisma.attendance.count({ where }),
       prisma.attendance.count({ where: { ...where, status: 'PRESENT' } }),
@@ -625,17 +725,20 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       prisma.attendance.count({ where: { ...where, status: 'EXIT' } }),
       prisma.attendance.count({ where: { ...where, status: 'EARLY_EXIT' } }),
       incidentWhere ? prisma.attendanceIncident.count({ where: incidentWhere }) : Promise.resolve(0),
+      buildVirtualAbsenceRows(q, where),
     ])
 
-    const totalAttendances = attendanceTotal + incidentAbsentCount
-    const absentCount = attendanceAbsentCount + incidentAbsentCount
+    const virtualAbsentCount = virtualAbsenceRows.length
+    const virtualMedicalLeaveCount = virtualAbsenceRows.filter((row: any) => row.status === 'ABSENT_JUSTIFIED').length
+    const totalAttendances = attendanceTotal + incidentAbsentCount + virtualAbsentCount
+    const absentCount = attendanceAbsentCount + incidentAbsentCount + virtualAbsentCount
 
     res.json({
       totalAttendances,
       presentCount,
       absentCount,
       lateCount,
-      medicalLeaveCount,
+      medicalLeaveCount: medicalLeaveCount + virtualMedicalLeaveCount,
       expectedAbsenceCount,
       exitCount,
       earlyExitCount,

@@ -816,8 +816,6 @@ describe("admin routes (prisma mock)", () => {
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
-      biometricLateHour: 8,
-      biometricLateMinute: 30,
       biometricDuplicateWindowMinutes: 5,
     };
 
@@ -1185,8 +1183,6 @@ describe("admin routes (prisma mock)", () => {
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
-      biometricLateHour: 8,
-      biometricLateMinute: 30,
     };
 
     it("GET usa el late tolerance como fallback del early exit", async () => {

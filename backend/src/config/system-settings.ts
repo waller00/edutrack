@@ -30,8 +30,6 @@ export async function getOrCreateSystemSettings() {
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
-      biometricLateHour: 8,
-      biometricLateMinute: 30,
       biometricDuplicateWindowMinutes: 5,
       moodleSyncEnabled: false,
       moodleReconcileIntervalMs: 900000,
@@ -64,16 +62,6 @@ export async function getAttendanceOperationalSettings() {
     classBridgeGapMinutes: Math.min(Math.max(row.attendanceClassBridgeGapMinutes ?? 60, 1), 24 * 60),
     monitorEnabled: row.attendanceMonitorEnabled !== false,
     monitorIntervalMs: Math.max(row.attendanceMonitorIntervalMs ?? 120000, 30000),
-    biometricLateHour: Math.min(Math.max(row.biometricLateHour ?? 8, 0), 23),
-    biometricLateMinute: Math.min(Math.max(row.biometricLateMinute ?? 30, 0), 59),
     biometricDuplicateWindowMinutes: Math.min(Math.max(settings.biometricDuplicateWindowMinutes ?? 5, 0), 120),
   }
-}
-
-export function isBiometricLateBySettings(attendanceTime: Date, settings: { biometricLateHour: number; biometricLateMinute: number }) {
-  return (
-    attendanceTime.getHours() > settings.biometricLateHour ||
-    (attendanceTime.getHours() === settings.biometricLateHour &&
-      attendanceTime.getMinutes() > settings.biometricLateMinute)
-  )
 }

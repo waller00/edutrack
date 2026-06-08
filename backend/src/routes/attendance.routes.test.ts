@@ -26,7 +26,7 @@ const { prismaMock } = vi.hoisted(() => ({
     auditLog: { create: vi.fn() },
     medicalLeave: { findFirst: vi.fn(), findMany: vi.fn() },
     systemSettings: { upsert: vi.fn() },
-    user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    user: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -67,6 +67,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.event.findMany.mockResolvedValue([]);
     prismaMock.event.findFirst.mockResolvedValue(null);
     prismaMock.attendance.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([]);
     prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     prismaMock.systemSettings.upsert.mockResolvedValue({
       id: "default",
@@ -75,8 +76,6 @@ describe("attendance /register (prisma mock)", () => {
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
-      biometricLateHour: 8,
-      biometricLateMinute: 30,
       biometricDuplicateWindowMinutes: 5,
     });
   });
@@ -171,8 +170,6 @@ describe("attendance /register (prisma mock)", () => {
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
-      biometricLateHour: 8,
-      biometricLateMinute: 30,
       biometricDuplicateWindowMinutes: 5,
     });
     prismaMock.event.findUnique.mockResolvedValue({
@@ -320,6 +317,62 @@ describe("attendance /register (prisma mock)", () => {
         where: expect.objectContaining({ type: "TEACHER_NO_SHOW", status: "OPEN" }),
       }),
     );
+  });
+
+  it("GET /attendance/all muestra ausencias virtuales de eventos vencidos sin convertirlas en incidencias", async () => {
+    prismaMock.attendance.count.mockResolvedValue(0);
+    prismaMock.attendanceIncident.count.mockResolvedValue(0);
+    prismaMock.attendance.findMany.mockResolvedValueOnce([]);
+    prismaMock.attendanceIncident.findMany.mockResolvedValue([]);
+    prismaMock.event.findMany.mockResolvedValueOnce([
+      {
+        id: "ev-absent",
+        title: "Ingles Tercero C",
+        type: "CLASE",
+        status: "SCHEDULED",
+        startDate: new Date("2026-05-20T00:00:00.000Z"),
+        startTime: new Date("2026-05-20T18:00:00.000Z"),
+        endTime: new Date("2026-05-20T19:00:00.000Z"),
+        isRecurring: false,
+        recurrenceEnd: null,
+        daysOfWeek: [],
+        effectiveFrom: null,
+        effectiveUntil: null,
+        assignedUserId: "teacher-1",
+        courseOfferingId: "co-1",
+        courseOffering: { id: "co-1", course: { name: "Tercero C", code: "3C" } },
+        subject: { name: "Ingles" },
+      },
+    ]);
+    prismaMock.attendance.findMany.mockResolvedValueOnce([]);
+    prismaMock.user.findMany.mockResolvedValueOnce([
+      {
+        id: "teacher-1",
+        name: "Jorge Marrero",
+        email: "jorge@example.com",
+        username: "jorge",
+        firstName: null,
+        lastName: null,
+        orgRole: { code: "TEACHER" },
+      },
+    ]);
+    prismaMock.medicalLeave.findMany.mockResolvedValueOnce([]);
+
+    const res = await request(app())
+      .get("/attendance/all?includeIncidents=true&startDate=2026-05-20&endDate=2026-05-20")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.data[0]).toMatchObject({
+      id: "absence:ev-absent_2026-05-20",
+      kind: "VIRTUAL_ABSENCE",
+      type: "CHECK_IN",
+      status: "ABSENT_NOT_JUSTIFIED",
+      user: { id: "teacher-1", name: "Jorge Marrero", role: "TEACHER" },
+      event: { id: "ev-absent", title: "Ingles Tercero C", type: "CLASE" },
+    });
+    expect(prismaMock.attendanceIncident.findMany).toHaveBeenCalled();
   });
 
   it("GET /attendance/all filtra por ciclo lectivo en la columna directa schoolYearId", async () => {
@@ -668,6 +721,61 @@ describe("attendance /register (prisma mock)", () => {
         where: expect.objectContaining({ type: "TEACHER_NO_SHOW", status: "OPEN" }),
       }),
     );
+  });
+
+  it("GET /attendance/stats suma ausencias virtuales de eventos vencidos", async () => {
+    prismaMock.attendance.count
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0);
+    prismaMock.attendanceIncident.count.mockResolvedValueOnce(0);
+    prismaMock.event.findMany.mockResolvedValueOnce([
+      {
+        id: "ev-absent",
+        title: "Ingles Tercero C",
+        type: "CLASE",
+        status: "SCHEDULED",
+        startDate: new Date("2026-05-20T00:00:00.000Z"),
+        startTime: new Date("2026-05-20T18:00:00.000Z"),
+        endTime: new Date("2026-05-20T19:00:00.000Z"),
+        isRecurring: false,
+        recurrenceEnd: null,
+        daysOfWeek: [],
+        effectiveFrom: null,
+        effectiveUntil: null,
+        assignedUserId: "teacher-1",
+        courseOfferingId: "co-1",
+        courseOffering: { id: "co-1", course: { name: "Tercero C", code: "3C" } },
+        subject: { name: "Ingles" },
+      },
+    ]);
+    prismaMock.attendance.findMany.mockResolvedValueOnce([]);
+    prismaMock.user.findMany.mockResolvedValueOnce([
+      {
+        id: "teacher-1",
+        name: "Jorge Marrero",
+        email: "jorge@example.com",
+        username: "jorge",
+        firstName: null,
+        lastName: null,
+        orgRole: { code: "TEACHER" },
+      },
+    ]);
+    prismaMock.medicalLeave.findMany.mockResolvedValueOnce([]);
+
+    const res = await request(app())
+      .get("/attendance/stats?includeIncidents=true&startDate=2026-05-20&endDate=2026-05-20")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.totalAttendances).toBe(3);
+    expect(res.body.absentCount).toBe(1);
+    expect(res.body.presentCount).toBe(1);
   });
 
   it("GET /attendance/stats 500 si falla el conteo", async () => {

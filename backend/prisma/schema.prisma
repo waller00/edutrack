@@ -184,8 +184,6 @@ model SystemSettings {
   attendanceClassBridgeGapMinutes     Int      @default(60)
   attendanceMonitorEnabled            Boolean  @default(true)
   attendanceMonitorIntervalMs         Int      @default(120000)
-  biometricLateHour                   Int      @default(8)
-  biometricLateMinute                 Int      @default(30)
   biometricDuplicateWindowMinutes     Int      @default(5)
   /// Integración Moodle: habilita el worker de outbox y la reconciliación periódica.
   moodleSyncEnabled                   Boolean  @default(false)

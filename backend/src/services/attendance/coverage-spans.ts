@@ -59,6 +59,7 @@ export type ClassEventSlot = {
   type: string
   startTime: Date
   endTime: Date
+  schoolYearId?: string | null
 }
 
 export function userDateKey(userId: string, ymd: string) {
@@ -189,6 +190,7 @@ export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: strin
   const ymd = DateTime.fromJSDate(at, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
   const dayStart = uruguayWallToUtc(ymd, 0, 0)
   const dayEnd = uruguayYmdEndOfDayToUtc(ymd)
+  const weekday = DateTime.fromISO(ymd, { zone: APP_TIMEZONE }).weekday % 7
   const rows = await tx.event.findMany({
     where: {
       assignedUserId: userId,
@@ -196,9 +198,22 @@ export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: strin
       status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
       startTime: { not: null },
       endTime: { not: null },
-      AND: [{ startTime: { lte: dayEnd } }, { endTime: { gte: dayStart } }],
+      startDate: { lte: dayEnd },
+      OR: [{ endDate: null }, { endDate: { gte: dayStart } }, { recurrenceEnd: { gte: dayStart } }],
     },
-    select: { id: true, title: true, type: true, startTime: true, endTime: true },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      startDate: true,
+      endDate: true,
+      startTime: true,
+      endTime: true,
+      isRecurring: true,
+      daysOfWeek: true,
+      recurrenceEnd: true,
+      schoolYearId: true,
+    },
     orderBy: { startTime: 'asc' },
   })
   const substitutionRows = await tx.$queryRaw<
@@ -215,14 +230,40 @@ export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: strin
     ORDER BY s."startTime" ASC
   `
 
+  function wallTimeOnDay(stored: Date) {
+    const wall = DateTime.fromJSDate(stored, { zone: 'utc' }).setZone(APP_TIMEZONE)
+    return uruguayWallToUtc(ymd, wall.hour, wall.minute)
+  }
+
+  function eventOccursOnDay(row: {
+    startDate: Date
+    endDate: Date | null
+    recurrenceEnd: Date | null
+    isRecurring: boolean
+    daysOfWeek: number[]
+    startTime: Date
+  }) {
+    if (row.isRecurring) {
+      const recurrenceLimit = row.recurrenceEnd ?? row.endDate
+      if (toYmdUtc(row.startDate) > ymd) return false
+      if (recurrenceLimit && toYmdUtc(recurrenceLimit) < ymd) return false
+      const days = row.daysOfWeek.length ? row.daysOfWeek : [DateTime.fromJSDate(row.startTime, { zone: 'utc' }).setZone(APP_TIMEZONE).weekday % 7]
+      return days.includes(weekday)
+    }
+    return toYmdUtc(row.startTime) === ymd
+  }
+
   return [
-    ...rows.map((r: { id: string; title: string; type: string; startTime: Date; endTime: Date }) => ({
-      id: r.id,
-      title: r.title,
-      type: r.type,
-      startTime: new Date(r.startTime),
-      endTime: new Date(r.endTime),
-    })),
+    ...rows
+      .filter(eventOccursOnDay)
+      .map((r: { id: string; title: string; type: string; startTime: Date; endTime: Date; schoolYearId?: string | null }) => ({
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        startTime: wallTimeOnDay(new Date(r.startTime)),
+        endTime: wallTimeOnDay(new Date(r.endTime)),
+        schoolYearId: r.schoolYearId ?? null,
+      })),
     ...substitutionRows.map((r) => ({
       id: r.eventId,
       title: `${r.title} (suplencia)`,
