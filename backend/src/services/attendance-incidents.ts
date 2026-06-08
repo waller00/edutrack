@@ -218,10 +218,10 @@ export async function scanAndCreateTeacherNoShowIncidents(now = new Date()) {
       { hasSubstitution: false, hasLicense: Boolean(license), lateToleranceMinutes: runtime.lateToleranceMinutes },
     );
 
-    // Solo ABSENT_NOT_JUSTIFIED es no-show accionable; cualquier presencia/justificación lo resuelve.
-    if (outcome === "ABSENT_NOT_JUSTIFIED") {
-      opened += await openNoShowIfAbsent(tx, userId, ev, graceMinutes);
-    } else {
+    // Las ausencias/tardanzas/salidas anticipadas viven en Attendance.status.
+    // AttendanceIncident queda reservado para anomalías de marcación biométrica
+    // (por ejemplo, salida sin entrada abierta), no para faltas esperables.
+    if (outcome !== "ABSENT_NOT_JUSTIFIED") {
       resolved += await resolveNoShowIncidentIfAny(tx, userId, ev.id);
     }
   }

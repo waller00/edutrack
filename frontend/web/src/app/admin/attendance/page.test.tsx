@@ -66,6 +66,44 @@ describe('AdminAttendance', () => {
     expect(row?.textContent).toMatch(/Sin salida/)
   })
 
+  it('muestra ausencias virtuales sin permitir editarlas ni borrarlas', async () => {
+    const rec = {
+      id: 'absence:ev1_2026-05-20',
+      type: 'CHECK_IN' as const,
+      status: 'ABSENT_NOT_JUSTIFIED' as const,
+      date: '2026-05-20',
+      time: '2026-05-20T18:00:00.000Z',
+      notes: 'Ausencia pendiente: no se registró asistencia para este evento vencido',
+      user: { id: 'u1', name: 'Jorge', email: 'j@b.com', role: 'TEACHER' },
+      event: {
+        id: 'ev1',
+        title: 'Ingles Tercero C',
+        type: 'CLASE',
+        startTime: '2026-05-20T18:00:00.000Z',
+        endTime: '2026-05-20T19:00:00.000Z',
+      },
+    }
+
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('attendance/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [rec] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 1, presentCount: 0, absentCount: 1, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 100 }
+      return {}
+    })
+
+    render(<AdminAttendance />)
+
+    expect(await screen.findByText('Ingles Tercero C')).toBeInTheDocument()
+    const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Jorge'))
+    expect(row?.textContent).toMatch(/Ausente/)
+    expect(row?.textContent).toMatch(/Sin salida/)
+    expect(row?.textContent).not.toMatch(/Editar/)
+    expect(screen.queryByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' })).not.toBeInTheDocument()
+  })
+
   it('agrupa entrada y salida de una misma asistencia en una fila', async () => {
     const entry = {
       id: 'a1',

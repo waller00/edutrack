@@ -775,8 +775,6 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     attendanceClassBridgeGapMinutes: row.attendanceClassBridgeGapMinutes,
     attendanceMonitorEnabled: row.attendanceMonitorEnabled,
     attendanceMonitorIntervalMs: row.attendanceMonitorIntervalMs,
-    biometricLateHour: row.biometricLateHour,
-    biometricLateMinute: row.biometricLateMinute,
     biometricDuplicateWindowMinutes: settings.biometricDuplicateWindowMinutes ?? 5,
   })
 })
@@ -791,8 +789,6 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       attendanceClassBridgeGapMinutes: z.number().int().min(15).max(240).optional(),
       attendanceMonitorEnabled: z.boolean().optional(),
       attendanceMonitorIntervalMs: z.number().int().min(30000).max(3600000).optional(),
-      biometricLateHour: z.number().int().min(0).max(23).optional(),
-      biometricLateMinute: z.number().int().min(0).max(59).optional(),
       biometricDuplicateWindowMinutes: z.number().int().min(0).max(120).optional(),
     })
     .safeParse(req.body)
@@ -810,8 +806,6 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       attendanceClassBridgeGapMinutes: data.attendanceClassBridgeGapMinutes ?? 60,
       attendanceMonitorEnabled: data.attendanceMonitorEnabled ?? true,
       attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs ?? 120000,
-      biometricLateHour: data.biometricLateHour ?? 8,
-      biometricLateMinute: data.biometricLateMinute ?? 30,
       biometricDuplicateWindowMinutes: data.biometricDuplicateWindowMinutes ?? 5,
     } as any,
     update: data as any,
@@ -839,8 +833,6 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     attendanceClassBridgeGapMinutes: updated.attendanceClassBridgeGapMinutes,
     attendanceMonitorEnabled: updated.attendanceMonitorEnabled,
     attendanceMonitorIntervalMs: updated.attendanceMonitorIntervalMs,
-    biometricLateHour: updated.biometricLateHour,
-    biometricLateMinute: updated.biometricLateMinute,
     biometricDuplicateWindowMinutes: updatedSettings.biometricDuplicateWindowMinutes ?? 5,
   })
 })

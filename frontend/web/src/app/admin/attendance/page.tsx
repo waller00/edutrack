@@ -138,6 +138,14 @@ function isIncidentRow(attendance: AttendanceRecord): boolean {
   return attendance.type === 'INCIDENT' || attendance.id.startsWith('incident:')
 }
 
+function isVirtualAbsenceRow(attendance: AttendanceRecord): boolean {
+  return attendance.id.startsWith('absence:')
+}
+
+function isSelectableAttendanceRow(attendance: AttendanceRecord): boolean {
+  return !isIncidentRow(attendance) && !isVirtualAbsenceRow(attendance)
+}
+
 function getAttendanceDayGroupKey(attendance: AttendanceRecord): string {
   const dateKey = attendance.date ? attendance.date.slice(0, 10) : attendance.time.slice(0, 10)
   return `${attendance.user.id}:${dateKey}`
@@ -260,11 +268,13 @@ function renderAttendanceMark(
       <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
         {getAttendanceRowStatusLabel(attendance)}
       </span>
-      <div>
-        <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
-          Editar
-        </button>
-      </div>
+      {!isVirtualAbsenceRow(attendance) ? (
+        <div>
+          <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
+            Editar
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -377,13 +387,14 @@ function renderAttendancesTable(
             const ids = [row.checkIn?.id, row.checkOut?.id].filter(Boolean) as string[]
             const selected = ids.length > 0 && ids.every((id) => selectedAttendanceIds.includes(id))
             const primaryAttendance = row.incident ?? row.checkIn ?? row.checkOut
+            const selectable = ids.length > 0 && ids.every((id) => !id.startsWith('absence:') && !id.startsWith('incident:'))
 
             if (!primaryAttendance) return null
 
             return (
               <tr key={row.key} className={row.incident ? 'bg-red-50/20' : undefined}>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {row.incident ? (
+                  {!selectable ? (
                     <span className="text-xs text-gray-400">—</span>
                   ) : (
                     <input
@@ -628,14 +639,14 @@ export default function AdminAttendance() {
   }
 
   function toggleAttendanceSelection(id: string) {
-    if (id.startsWith('incident:')) return
+    if (id.startsWith('incident:') || id.startsWith('absence:')) return
     setSelectedAttendanceIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
     )
   }
 
   function toggleAllAttendancesSelection() {
-    const selectableIds = attendances.filter((attendance) => !isIncidentRow(attendance)).map((attendance) => attendance.id)
+    const selectableIds = attendances.filter(isSelectableAttendanceRow).map((attendance) => attendance.id)
     setSelectedAttendanceIds((prev) =>
       selectableIds.every((id) => prev.includes(id)) ? [] : selectableIds,
     )
