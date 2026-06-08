@@ -126,7 +126,7 @@ describe('ProfilePage', () => {
     expect(disableForm.getAttribute('method')).toBe('post')
     expect(disableForm.getAttribute('action')).toBe('http://localhost:4000/auth/account/2fa/disable')
     expect(screen.queryByRole('link', { name: /desactivar 2fa/i })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /no tengo mi 2fa/i }))
+    fireEvent.click(screen.getByRole('button', { name: /desactivar por correo/i }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/auth/account/2fa/disable-email', expect.objectContaining({ method: 'POST' })),

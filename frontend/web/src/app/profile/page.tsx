@@ -256,36 +256,38 @@ export default function ProfilePage() {
                 </p>
               </div>
             </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
               {twoFactorLoading ? (
                 <span className="btn-secondary w-full cursor-wait justify-center opacity-70 sm:w-auto">Consultando…</span>
               ) : twoFactorEnabled ? (
                 <>
-                  <a href={accountRecoveryCodesUrl()} className="btn-secondary w-full sm:w-auto">
-                    Códigos de respaldo
-                    <ExternalLink className="h-4 w-4" aria-hidden />
-                  </a>
-                  {/* POST (no enlace GET): con SameSite=lax la cookie no viaja
-                      en envíos cross-site, evitando un disparo CSRF drive-by. */}
-                  <form method="post" action={accountTwoFactorDisableUrl()} className="w-full sm:w-auto">
-                    <button
-                      type="submit"
-                      className="btn-secondary w-full justify-center border-red-200 text-red-700 hover:bg-red-50 sm:w-auto"
-                    >
-                      Desactivar 2FA
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                    <a href={accountRecoveryCodesUrl()} className="btn-secondary w-full sm:w-auto">
+                      Códigos de respaldo
                       <ExternalLink className="h-4 w-4" aria-hidden />
-                    </button>
-                  </form>
+                    </a>
+                    {/* POST (no enlace GET): con SameSite=lax la cookie no viaja
+                        en envíos cross-site, evitando un disparo CSRF drive-by. */}
+                    <form method="post" action={accountTwoFactorDisableUrl()} className="w-full sm:w-auto">
+                      <button
+                        type="submit"
+                        className="btn-secondary w-full justify-center border-red-200 text-red-700 hover:bg-red-50 sm:w-auto"
+                      >
+                        Desactivar 2FA
+                        <ExternalLink className="h-4 w-4" aria-hidden />
+                      </button>
+                    </form>
+                  </div>
                   <button
                     type="button"
                     onClick={requestDisableTwoFactorEmail}
                     disabled={disableEmailBusy}
-                    className="btn-secondary w-full justify-center sm:w-auto disabled:cursor-wait disabled:opacity-60"
+                    className="inline-flex items-center gap-1.5 self-start text-sm text-gray-500 underline-offset-2 hover:text-emerald-700 hover:underline disabled:cursor-wait disabled:opacity-60 sm:self-end"
                   >
                     <PendingButtonContent
                       pending={disableEmailBusy}
-                      pendingText="Enviando…"
-                      idle={<><Mail className="h-4 w-4" aria-hidden />No tengo mi 2FA</>}
+                      pendingText="Enviando correo…"
+                      idle={<><Mail className="h-3.5 w-3.5" aria-hidden />¿Sin acceso a tu autenticador? Desactivar por correo</>}
                     />
                   </button>
                 </>
