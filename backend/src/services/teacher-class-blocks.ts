@@ -68,7 +68,7 @@ export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: strin
   const rows = await tx.event.findMany({
     where: {
       assignedUserId: userId,
-      type: 'CLASE',
+      type: { in: ['CLASE', 'JORNADA_LABORAL', 'REUNION'] },
       status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
       startTime: { not: null },
       endTime: { not: null },
@@ -86,7 +86,7 @@ export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: strin
     WHERE s."substituteUserId" = ${userId}
       AND s."date" >= ${dayStart}
       AND s."date" <= ${dayEnd}
-      AND e."type" = 'CLASE'::"EventType"
+      AND e."type" IN ('CLASE'::"EventType", 'JORNADA_LABORAL'::"EventType", 'REUNION'::"EventType")
       AND e."status" IN ('SCHEDULED'::"EventStatus", 'IN_PROGRESS'::"EventStatus")
     ORDER BY s."startTime" ASC
   `

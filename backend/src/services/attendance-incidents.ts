@@ -41,7 +41,7 @@ export async function findAssignedEventForAttendanceInstant(tx: any, userId: str
   return tx.event.findFirst({
     where: {
       assignedUserId: userId,
-      type: "CLASE",
+      type: { in: ["CLASE", "JORNADA_LABORAL", "REUNION"] },
       status: { in: ["SCHEDULED", "IN_PROGRESS"] },
       startTime: { lte: at },
       endTime: { gte: at },
@@ -68,7 +68,7 @@ export async function findAssignedEventNearAttendanceInstant(
   const rows = await tx.event.findMany({
     where: {
       assignedUserId: userId,
-      type: "CLASE",
+      type: { in: ["CLASE", "JORNADA_LABORAL", "REUNION"] },
       status: { in: ["SCHEDULED", "IN_PROGRESS"] },
       startTime: { not: null, lte: latestStart },
       endTime: { not: null, gte: at },
@@ -116,7 +116,7 @@ export async function maybeCreateLateArrivalIncident(params: {
     eventStartTime,
     lateToleranceMinutes,
   } = params;
-  if (!eventId || eventType !== "CLASE" || !eventStartTime) return null;
+  if (!eventId || !eventType || !eventStartTime) return null;
 
   const minsLate = minutesDiff(attendanceTime, new Date(eventStartTime));
   if (minsLate <= lateToleranceMinutes) return null;
@@ -170,7 +170,7 @@ export async function maybeCreateEarlyExitIncident(params: {
     eventEndTime,
     earlyExitToleranceMinutes,
   } = params;
-  if (!eventId || eventType !== "CLASE" || !eventEndTime) return null;
+  if (!eventId || !eventType || !eventEndTime) return null;
 
   const minsEarly = minutesDiff(new Date(eventEndTime), attendanceTime);
   if (minsEarly <= earlyExitToleranceMinutes) return null;
@@ -262,7 +262,7 @@ export async function scanAndCreateTeacherNoShowIncidents(now = new Date()) {
 
   const candidateEvents = await tx.event.findMany({
     where: {
-      type: "CLASE",
+      type: { in: ["CLASE", "JORNADA_LABORAL", "REUNION"] },
       status: { in: ["SCHEDULED", "IN_PROGRESS"] },
       assignedUserId: { not: null },
       startTime: { lte: threshold, gte: lookback },

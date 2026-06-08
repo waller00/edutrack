@@ -319,7 +319,7 @@ function formatWeekdayList(days: number[]): string {
   const sorted = uniqueSortedDays(days)
   if (sorted.length === 0) return 'Sin días definidos'
   if (sorted.length === 7) return 'Todos los días'
-  return sorted.map((d) => WEEKDAY_SHORT_BY_VALUE.get(d) ?? String(d)).join(', ')
+  return sorted.map((d) => WEEKDAY_SHORT_BY_VALUE.get(d as 0 | 1 | 2 | 3 | 4 | 5 | 6) ?? String(d)).join(', ')
 }
 
 function formatEventTimeRange(event: Pick<Event, 'startTime' | 'endTime'>): string {

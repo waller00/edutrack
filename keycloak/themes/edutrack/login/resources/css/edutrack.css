@@ -675,6 +675,32 @@ ul#kc-totp-supported-apps > li {
   max-width: none !important;
   padding: 0 1.5rem 0.85rem !important;
   text-align: center !important;
+  border: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+  background-image: none !important;
+  --pf-v5-c-login__main-header--BorderTopColor: transparent;
+  --pf-v5-c-login__main-header--BorderTopWidth: 0;
+  --pf-v5-c-login__main-header--BorderBottomColor: transparent;
+  --pf-v5-c-login__main-header--BorderBottomWidth: 0;
+}
+
+.pf-v5-c-login__main-header::before,
+.pf-v5-c-login__main-header::after,
+#kc-content-wrapper::before,
+#kc-content-wrapper::after,
+#kc-form-wrapper::before,
+#kc-form-wrapper::after,
+#kc-page-title::before,
+#kc-page-title::after,
+.pf-v5-c-divider,
+.pf-v5-c-divider::before,
+.pf-v5-c-divider::after {
+  display: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .et-login-no-page-title .pf-v5-c-login__main-header {
@@ -749,6 +775,24 @@ input[readonly] {
   background: #f9fafb !important;
   color: #4b5563 !important;
   -webkit-text-fill-color: #4b5563 !important;
+}
+
+.et-required-action-screen input#username.et-readonly-username,
+.et-required-action-screen input#username[readonly] {
+  cursor: not-allowed !important;
+  background: #f3f4f6 !important;
+  color: #4b5563 !important;
+  -webkit-text-fill-color: #4b5563 !important;
+}
+
+.et-required-action-screen input#username.et-readonly-username:focus,
+.et-required-action-screen input#username[readonly]:focus {
+  border-color: #d1d5db !important;
+  box-shadow: none !important;
+}
+
+.et-required-action-screen #reset-login {
+  display: none !important;
 }
 
 .pf-v5-c-form-control > input,
@@ -894,6 +938,9 @@ a[id^="social-"] {
   color: #1f2937 !important;
   border-color: #d1d5db !important;
   box-shadow: none !important;
+  gap: 0.55rem !important;
+  width: 100% !important;
+  max-width: none !important;
 }
 
 #social-google svg,
@@ -901,6 +948,21 @@ a[id^="social-"] svg {
   width: 1.05rem !important;
   height: 1.05rem !important;
   fill: #4b5563 !important;
+}
+
+.et-google-mark {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 1.15rem !important;
+  height: 1.15rem !important;
+  border-radius: 9999px !important;
+  background: #ffffff !important;
+  color: #4285f4 !important;
+  font-size: 0.82rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  box-shadow: inset 0 0 0 1px #e5e7eb !important;
 }
 
 #social-google .et-google-label {

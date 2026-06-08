@@ -58,7 +58,7 @@ export function getPasswordErrorMessage(error: unknown): string {
 
 export function buildProfilePayload(params: {
   email: string
-  username: string
+  username?: string
   firstName: string
   lastName: string
   phoneLocal: string
@@ -68,12 +68,12 @@ export function buildProfilePayload(params: {
 }): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     email: params.email.trim().toLowerCase(),
-    username: params.username,
     firstName: params.firstName,
     lastName: params.lastName,
     phone: params.phoneLocal ? `+598${normalizeLocalPhoneUY(params.phoneLocal)}` : undefined,
     birthdate: params.birthdate ? new Date(params.birthdate).toISOString() : undefined,
   }
+  if (params.username !== undefined) payload.username = params.username
   if (params.isAdmin) {
     payload.nationalId = params.nationalId
   }
@@ -82,7 +82,7 @@ export function buildProfilePayload(params: {
 
 export function validateProfileForm(params: {
   email: string
-  username: string
+  username?: string
   nationalId: string
   firstName: string
   lastName: string
@@ -90,7 +90,7 @@ export function validateProfileForm(params: {
   canEditCi: boolean
 }): string | null {
   if (!isValidRegisterEmail(params.email)) return 'Correo inválido'
-  if (!REGISTER_USERNAME_REGEX.test(params.username)) return 'Usuario inválido'
+  if (params.username !== undefined && !REGISTER_USERNAME_REGEX.test(params.username)) return 'Usuario inválido'
   if (params.canEditCi && !validCI(params.nationalId)) return 'Cédula inválida'
   if (!params.firstName.trim() || !params.lastName.trim()) return 'Nombre y apellido obligatorios'
   if (params.phoneLocal && !isValidLocalPhoneUY(params.phoneLocal)) {
