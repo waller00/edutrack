@@ -10,17 +10,9 @@ import {
   findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
   findAssignedEventNearAttendanceInstant,
-  maybeCreateEarlyExitIncident,
-  maybeCreateLateArrivalIncident,
-  resolveNoShowIncidentsForEvents,
+  resolveNoShowIncidentIfAny,
 } from "./attendance-incidents.js";
-import {
-  buildContiguousClassBlocks,
-  earlyEntryWindowMinutes,
-  fetchTeacherClassSlotsForUruguayDay,
-  findBlockContainingEventId,
-  findBlockContainingInstant,
-} from "./teacher-class-blocks.js";
+import { earlyEntryWindowMinutes } from "./attendance/coverage-spans.js";
 
 export function hashBiometricSecret(raw: string) {
   return crypto.createHash("sha256").update(raw).digest("hex");
@@ -111,76 +103,11 @@ async function getOpenCheckInAnchorEventId(tx: any, userId: string, attendanceDa
   return openAnchor;
 }
 
-async function materializeAttendanceForBlockEvents(
-  tx: any,
-  params: {
-    userId: string;
-    attendanceDate: Date;
-    attendanceTime: Date;
-    type: "CHECK_IN" | "CHECK_OUT";
-    anchorEventId?: string | null;
-    blockEventIds: string[];
-    deviceCode: string;
-    lateToleranceMinutes: number;
-    earlyExitToleranceMinutes: number;
-  },
-) {
-  const ids = Array.from(new Set(params.blockEventIds.filter((id) => id && id !== params.anchorEventId)));
-  if (ids.length === 0) return 0;
-
-  const events = await tx.event.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, startTime: true, endTime: true, schoolYearId: true },
-  });
-
-  let created = 0;
-  for (const ev of events) {
-    const existing = await tx.attendance.findFirst({
-      where: {
-        userId: params.userId,
-        date: params.attendanceDate,
-        type: params.type,
-        eventId: ev.id,
-      },
-      select: { id: true },
-    });
-    if (existing) continue;
-
-    const status =
-      params.type === "CHECK_IN"
-        ? getAttendanceStatus({
-            type: "CHECK_IN",
-            actualTime: params.attendanceTime,
-            startTime: ev.startTime,
-            hasApprovedLicense: false,
-            lateToleranceMinutes: params.lateToleranceMinutes,
-          })
-        : getAttendanceStatus({
-            type: "CHECK_OUT",
-            actualTime: params.attendanceTime,
-            endTime: ev.endTime,
-            hasApprovedLicense: false,
-            lateToleranceMinutes: params.earlyExitToleranceMinutes,
-          });
-
-    await tx.attendance.create({
-      data: buildBiometricAttendancePayload({
-        userId: params.userId,
-        attendanceDate: params.attendanceDate,
-        attendanceTime: params.attendanceTime,
-        deviceId: params.deviceCode,
-        eventId: ev.id,
-        schoolYearId: ev.schoolYearId,
-        status: status as any,
-        type: params.type,
-      }),
-    });
-    created += 1;
-  }
-
-  return created;
-}
-
+/**
+ * Vincula una marca biométrica a UNA ocurrencia por solape simple del instante con la clase.
+ * Ya no fragmenta la jornada en bloques ni materializa asistencias para otras clases del día:
+ * la cobertura del resto se deriva en lectura por spans (coverage-spans).
+ */
 export async function resolveBiometricAttendanceLinkage(
   tx: any,
   params: {
@@ -188,65 +115,36 @@ export async function resolveBiometricAttendanceLinkage(
     occurredAt: Date;
     punchType: "CHECK_IN" | "CHECK_OUT";
     attendanceDate: Date;
-    bridgeGapMinutes: number;
+    earlyWindowMinutes: number;
   },
 ) {
-  const { userId, occurredAt, punchType, attendanceDate, bridgeGapMinutes } = params;
-  const slots = await fetchTeacherClassSlotsForUruguayDay(tx, userId, occurredAt);
-  const blocks = buildContiguousClassBlocks(slots, bridgeGapMinutes);
-  const early = earlyEntryWindowMinutes(bridgeGapMinutes);
+  const { userId, occurredAt, punchType, attendanceDate, earlyWindowMinutes } = params;
+
+  // Caso normal: la marca cae dentro del horario de una clase asignada.
+  const overlapping = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
+  if (overlapping?.id) {
+    return punchType === "CHECK_IN"
+      ? { attendanceEventId: overlapping.id, lateReference: overlapping, exitReference: null }
+      : { attendanceEventId: overlapping.id, lateReference: null, exitReference: overlapping };
+  }
 
   if (punchType === "CHECK_IN") {
-    const block = findBlockContainingInstant(occurredAt, blocks, early);
-    if (block?.length) {
-      const first = block[0]!;
-      return {
-        attendanceEventId: first.id,
-        lateReference: first,
-        exitReference: null,
-        blockEventIds: block.map((e) => e.id),
-      };
-    }
-    const near = await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, early);
-    if (near?.id) {
-      return {
-        attendanceEventId: near.id,
-        lateReference: near,
-        exitReference: null,
-        blockEventIds: [near.id],
-      };
-    }
-    const fb = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
-    return {
-      attendanceEventId: fb?.id,
-      lateReference: fb,
-      exitReference: null,
-      blockEventIds: fb?.id ? [fb.id] : [],
-    };
+    // Entrada anticipada: próxima clase dentro de la ventana temprana.
+    const near = await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, earlyWindowMinutes);
+    return { attendanceEventId: near?.id ?? null, lateReference: near, exitReference: null };
   }
 
+  // Salida fuera de toda clase: anclar a la clase del CHECK_IN abierto, si lo hay.
   const openId = await getOpenCheckInAnchorEventId(tx, userId, attendanceDate);
   if (openId) {
-    const block = findBlockContainingEventId(openId, blocks);
-    if (block?.length) {
-      const last = block[block.length - 1]!;
-      return {
-        attendanceEventId: last.id,
-        lateReference: null,
-        exitReference: last,
-        blockEventIds: block.map((e) => e.id),
-      };
-    }
+    const anchor = await tx.event.findUnique({
+      where: { id: openId },
+      select: { id: true, title: true, type: true, startTime: true, endTime: true },
+    });
+    if (anchor) return { attendanceEventId: anchor.id, lateReference: null, exitReference: anchor };
   }
-  const fb =
-    (await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, early)) ??
-    (await findAssignedEventForAttendanceInstant(tx, userId, occurredAt));
-  return {
-    attendanceEventId: fb?.id,
-    lateReference: null,
-    exitReference: fb,
-    blockEventIds: fb?.id ? [fb.id] : [],
-  };
+  const near = await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, earlyWindowMinutes);
+  return { attendanceEventId: near?.id ?? null, lateReference: null, exitReference: near };
 }
 
 export type BiometricIngestParams = {
@@ -328,6 +226,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
 
   const attendanceDate = uruguayStartOfDayFromInstant(occurredAt);
   const runtimeSettings = await getAttendanceOperationalSettings();
+  const earlyWindow = earlyEntryWindowMinutes(runtimeSettings.classBridgeGapMinutes);
 
   try {
     const created = await prisma.$transaction(async (tx) => {
@@ -413,7 +312,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
             occurredAt,
             punchType: "CHECK_OUT",
             attendanceDate,
-            bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+            earlyWindowMinutes: earlyWindow,
           });
           const status = getAttendanceStatus({
             type: "CHECK_OUT",
@@ -485,7 +384,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
               occurredAt,
               punchType: "CHECK_OUT",
               attendanceDate,
-              bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+              earlyWindowMinutes: earlyWindow,
             });
             const status = getAttendanceStatus({
               type: "CHECK_OUT",
@@ -525,7 +424,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
         occurredAt,
         punchType: resolvedType,
         attendanceDate,
-        bridgeGapMinutes: runtimeSettings.classBridgeGapMinutes,
+        earlyWindowMinutes: earlyWindow,
       });
       const lateRef = linkage.lateReference;
       const isLate =
@@ -536,7 +435,7 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
           : false;
       const openNoShow =
         resolvedType === "CHECK_IN"
-          ? await findOpenNoShowIncidentForEvents(tx, mapping.userId, linkage.blockEventIds)
+          ? await findOpenNoShowIncidentForEvents(tx, mapping.userId, [linkage.attendanceEventId])
           : null;
       const minutesLate = resolvedType === "CHECK_IN" ? minutesLateAgainstEventStart(occurredAt, lateRef?.startTime) : null;
       const isVeryLate =
@@ -599,46 +498,11 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
         select: { id: true },
       });
 
-      if (resolvedType === "CHECK_IN") {
-        await maybeCreateLateArrivalIncident({
-          tx,
-          userId: mapping.userId,
-          eventId: lateRef?.id,
-          eventType: lateRef?.type,
-          eventTitle: lateRef?.title,
-          attendanceId: attendance.id,
-          biometricPunchId: punch.id,
-          attendanceTime: occurredAt,
-          eventStartTime: lateRef?.startTime || null,
-          lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
-        });
-      } else {
-        await maybeCreateEarlyExitIncident({
-          tx,
-          userId: mapping.userId,
-          eventId: linkage.exitReference?.id,
-          eventType: linkage.exitReference?.type,
-          eventTitle: linkage.exitReference?.title,
-          attendanceId: attendance.id,
-          biometricPunchId: punch.id,
-          attendanceTime: occurredAt,
-          eventEndTime: linkage.exitReference?.endTime || null,
-          earlyExitToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
-        });
+      // Tarde/salida anticipada ya quedan reflejadas en Attendance.status; no se crean
+      // incidencias redundantes. Una entrada que cubre la clase resuelve su no-show abierto.
+      if (resolvedType === "CHECK_IN" && linkage.attendanceEventId) {
+        await resolveNoShowIncidentIfAny(tx, mapping.userId, linkage.attendanceEventId);
       }
-
-      await materializeAttendanceForBlockEvents(tx, {
-        userId: mapping.userId,
-        attendanceDate,
-        attendanceTime: occurredAt,
-        type: resolvedType,
-        anchorEventId: attendance.eventId,
-        blockEventIds: linkage.blockEventIds,
-        deviceCode,
-        lateToleranceMinutes: runtimeSettings.lateToleranceMinutes,
-        earlyExitToleranceMinutes: runtimeSettings.earlyExitToleranceMinutes,
-      });
-      await resolveNoShowIncidentsForEvents(tx, mapping.userId, linkage.blockEventIds);
 
       await tx.biometricDevice.update({
         where: { id: deviceDbId },

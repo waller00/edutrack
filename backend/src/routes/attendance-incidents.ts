@@ -9,7 +9,9 @@ const r = Router();
 
 const listQuerySchema = z.object({
   status: z.enum(["OPEN", "ACKNOWLEDGED", "RESOLVED"]).optional(),
-  type: z.enum(["LATE_ARRIVAL", "TEACHER_NO_SHOW", "EARLY_EXIT"]).optional(),
+  // Solo TEACHER_NO_SHOW es una incidencia accionable; tarde/salida anticipada se derivan
+  // del status de la asistencia, no se persisten como incidencias.
+  type: z.enum(["TEACHER_NO_SHOW"]).optional(),
   userId: z.string().uuid().optional(),
   eventId: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),

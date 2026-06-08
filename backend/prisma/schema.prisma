@@ -949,6 +949,14 @@ model Event {
   parentEventId       String?
   parentEvent         Event?               @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
   childEvents         Event[]              @relation("EventRecurrence")
+  // Versionado temporal de la definición: permite editar una serie a futuro sin
+  // reescribir las ocurrencias pasadas (que conservan su asistencia histórica).
+  effectiveFrom       DateTime?            // Inicio de vigencia de esta versión (null = desde siempre)
+  effectiveUntil      DateTime?            // Fin de vigencia inclusivo de esta versión (null = sin fin)
+  supersededById      String?              // Versión que reemplaza a esta (corte de edición)
+  supersededBy        Event?               @relation("EventSupersession", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersedes          Event[]              @relation("EventSupersession")
+  revisionOf          String?              // Id de la definición raíz de la serie (agrupa versiones)
   attendances         Attendance[]
   attendanceIncidents AttendanceIncident[]
   substitutions       Substitution[]
@@ -964,6 +972,8 @@ model Event {
   @@index([subjectId])
   @@index([startDate])
   @@index([type])
+  @@index([revisionOf])
+  @@index([effectiveFrom])
 }
 
 model Substitution {

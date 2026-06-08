@@ -5,11 +5,16 @@ import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
 import {
+  buildDashboardBreakdowns,
   computeDashboardKpis,
+  computeKpiDeltas,
+  computeSeriesByGranularity,
   computeSeriesByWeek,
+  computeStatusDistribution,
   computeTopRiskEvents,
   computeTopRiskPeople,
 } from '../services/analytics/metrics.js'
+import type { ResolvedAttendanceByInstance } from '../services/analytics/models.js'
 import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { APP_TIMEZONE, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../config/app-timezone.js'
@@ -74,6 +79,7 @@ const dashboardQuerySchema = z.object({
     .enum(['JORNADA_LABORAL', 'REUNION', 'CLASE', 'EVENTO', 'CAPACITACION', 'CITA_MEDICA'])
     .optional(),
   granularity: z.enum(['day', 'week', 'month']).optional(),
+  compareToPrevious: z.union([z.literal('1'), z.literal('true'), z.literal('0'), z.literal('false')]).optional(),
   schoolYearId: z.string().uuid().optional(),
   allYears: z.union([z.literal('1'), z.literal('true')]).optional(),
 })
@@ -606,12 +612,46 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
   }
 }
 
+type ResolveScope = {
+  userId?: string
+  userIds?: string[]
+  eventType?: ParsedDashboardQuery['eventType']
+  schoolYearId?: string
+}
+
+async function resolveInstancesForRange(
+  from: string,
+  to: string,
+  scope: ResolveScope,
+): Promise<ResolvedAttendanceByInstance[]> {
+  const plannedInstances = await getPlannedInstances({
+    from,
+    to,
+    userId: scope.userId,
+    userIds: scope.userIds,
+    eventType: scope.eventType,
+    schoolYearId: scope.schoolYearId,
+  })
+  return resolveAttendanceAndJustification({ plannedInstances })
+}
+
+/** Rango previo de igual longitud, inmediatamente anterior a [from, to]. */
+function previousRangeOf(from: string, to: string) {
+  const fromD = new Date(`${from}T00:00:00.000Z`)
+  const toD = new Date(`${to}T00:00:00.000Z`)
+  const days = Math.round((toD.getTime() - fromD.getTime()) / 86_400_000) + 1
+  const prevTo = new Date(fromD)
+  prevTo.setUTCDate(prevTo.getUTCDate() - 1)
+  const prevFrom = new Date(prevTo)
+  prevFrom.setUTCDate(prevFrom.getUTCDate() - (days - 1))
+  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  return { previousFrom: fmt(prevFrom), previousTo: fmt(prevTo) }
+}
+
 async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
   const { from, to, role, userId, eventType } = data
   const granularity = data.granularity || 'week'
-  if (granularity !== 'week') {
-    // Fase 1: se implementa week; las otras granularidades se soportan en el builder en Fase 2.
-  }
+  const compareToPrevious = data.compareToPrevious !== '0' && data.compareToPrevious !== 'false'
 
   const userIds = await scopeUserIds({ role, userId })
   const schoolYearId = data.allYears
@@ -620,25 +660,50 @@ async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
         role: 'ADMIN',
         requestedSchoolYearId: data.schoolYearId,
       })
-  const plannedInstances = await getPlannedInstances({
-    from,
-    to,
+
+  const scope: ResolveScope = {
     userId,
     userIds: userIds || undefined,
     eventType,
     schoolYearId: schoolYearId || undefined,
-  })
-  const resolvedInstances = await resolveAttendanceAndJustification({ plannedInstances })
+  }
+
+  const resolvedInstances = await resolveInstancesForRange(from, to, scope)
   const kpis = await computeDashboardKpis({ from, to, resolvedInstances })
 
+  // Serie legacy (semanal) para no romper consumidores existentes.
   const seriesRaw = computeSeriesByWeek(resolvedInstances, from, to)
   const series = {
     lateRateByPeriod: seriesRaw.map((s) => ({ period: s.period, value: s.lateRate })),
     aopByPeriod: seriesRaw.map((s) => ({ period: s.period, value: s.aop })),
   }
+  const seriesMulti = computeSeriesByGranularity(resolvedInstances, from, to, granularity)
+
+  const breakdowns = buildDashboardBreakdowns(resolvedInstances)
+  const statusDistribution = computeStatusDistribution(resolvedInstances)
 
   const topRiskPeople = computeTopRiskPeople(resolvedInstances, { limit: 10 })
   const topRiskEvents = computeTopRiskEvents(resolvedInstances, { limit: 10 })
+
+  let comparison: {
+    previousFrom: string
+    previousTo: string
+    current: typeof kpis
+    previous: typeof kpis
+    deltas: typeof kpis
+  } | null = null
+  if (compareToPrevious) {
+    const { previousFrom, previousTo } = previousRangeOf(from, to)
+    const prevResolved = await resolveInstancesForRange(previousFrom, previousTo, scope)
+    const prevKpis = await computeDashboardKpis({ from: previousFrom, to: previousTo, resolvedInstances: prevResolved })
+    comparison = {
+      previousFrom,
+      previousTo,
+      current: kpis,
+      previous: prevKpis,
+      deltas: computeKpiDeltas(kpis, prevKpis),
+    }
+  }
 
   return {
     meta: {
@@ -649,10 +714,15 @@ async function computeAdminAnalyticsBody(data: ParsedDashboardQuery) {
       eventTypeFilter: eventType ?? null,
       schoolYearId: schoolYearId ?? null,
       allYears: Boolean(data.allYears),
+      granularity,
       generatedAt: new Date().toISOString(),
     },
     kpis,
     series,
+    seriesMulti,
+    breakdowns,
+    statusDistribution,
+    comparison,
     topLists: { topRiskPeople, topRiskEvents },
   }
 }

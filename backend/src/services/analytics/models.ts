@@ -34,6 +34,10 @@ export type PlannedInstance = {
   plannedStartTime: Date | null
   plannedEndTime: Date | null
   userIdRequired: string | null
+  // Contexto académico (opcional) para desgloses por curso/asignatura.
+  courseOfferingId: string | null
+  courseLabel: string | null
+  subjectLabel: string | null
 }
 
 export type ResolvedAttendanceByInstance = {
@@ -88,4 +92,53 @@ export type DashboardTopRiskEvent = {
   absentOverPlanPct: number
   /** Suma tardanza + absentismo para ordenar rankings. */
   focusScore: number
+}
+
+/** Fila de desglose de KPIs por una dimensión (rol, tipo de evento, curso…). */
+export type DashboardBreakdownRow = {
+  key: string
+  label: string
+  plannedCount: number
+  punctualityPct: number
+  lateRatePct: number
+  aopPct: number
+  coveragePct: number
+}
+
+/** Conteo + porcentaje de cada estado de entrada sobre el total planificado. */
+export type StatusDistributionRow = {
+  status: AttendanceStatusResolved
+  count: number
+  pct: number
+}
+
+export type StatusDistribution = {
+  totalPlanned: number
+  rows: StatusDistributionRow[]
+}
+
+export type SeriesGranularity = 'day' | 'week' | 'month'
+
+/** Punto de serie multi-métrica para gráficos de tendencia combinados. */
+export type SeriesPointMulti = {
+  period: string // YYYY-MM-DD (inicio del bucket, UTC)
+  lateRate: number
+  aop: number
+  coverage: number
+}
+
+/** Comparación período actual vs período anterior de igual longitud. */
+export type PeriodComparison = {
+  previousFrom: string
+  previousTo: string
+  current: DashboardKpis
+  previous: DashboardKpis
+  deltas: DashboardKpis
+}
+
+/** Conjunto de desgloses por dimensión incluidos en el dashboard. */
+export type DashboardBreakdowns = {
+  byRole: DashboardBreakdownRow[]
+  byEventType: DashboardBreakdownRow[]
+  byCourse: DashboardBreakdownRow[]
 }

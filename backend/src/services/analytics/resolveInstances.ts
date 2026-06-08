@@ -3,15 +3,16 @@ import type { Attendance, AttendanceStatus } from '@prisma/client'
 import { attachRoleCode, selectOrgRoleCode } from '../../identity/user-role-prisma.js'
 import type { PlannedInstance, ResolvedAttendanceByInstance } from './models.js'
 import { toYmdUtc } from './dateRange.js'
+import {
+  buildPresenceSpans,
+  clampedOverlapMinutes,
+  findCoveringSpan,
+  userDateKey,
+  type AttendanceRowLite,
+  type PresenceSpan,
+} from '../attendance/coverage-spans.js'
 
 type AttendanceRow = Pick<Attendance, 'id' | 'userId' | 'eventId' | 'date' | 'time' | 'type' | 'status' | 'notes'>
-
-type AttendanceSpan = {
-  userId: string
-  plannedDate: string
-  checkIn: AttendanceRow
-  checkOut: AttendanceRow
-}
 
 function formatUserDisplayName(u: {
   name: string | null
@@ -25,71 +26,30 @@ function formatUserDisplayName(u: {
   return u.username || 'Sin nombre'
 }
 
-function clampNonNegativeMinutes(msDelta: number) {
-  const mins = msDelta / (1000 * 60)
-  return mins <= 0 ? 0 : mins
-}
-
 function normalizeAttendanceStatus(status: AttendanceStatus): ResolvedAttendanceByInstance['checkInStatusResolved'] {
   return status as any
 }
 
-function userDateKey(userId: string, plannedDate: string) {
-  return `${userId}_${plannedDate}`
-}
-
-function buildAttendanceSpans(attendances: AttendanceRow[]) {
-  const byUserDate = new Map<string, AttendanceRow[]>()
-  for (const att of attendances) {
-    const key = userDateKey(att.userId, toYmdUtc(att.date))
-    if (!byUserDate.has(key)) byUserDate.set(key, [])
-    byUserDate.get(key)!.push(att)
-  }
-
-  const spansByUserDate = new Map<string, AttendanceSpan[]>()
-  for (const [key, rows] of byUserDate) {
-    const sorted = [...rows].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-    const spans: AttendanceSpan[] = []
-    let openCheckIn: AttendanceRow | null = null
-
-    for (const row of sorted) {
-      if (row.type === 'CHECK_IN') {
-        openCheckIn = row
-        continue
-      }
-      if (row.type === 'CHECK_OUT' && openCheckIn) {
-        spans.push({
-          userId: row.userId,
-          plannedDate: toYmdUtc(row.date),
-          checkIn: openCheckIn,
-          checkOut: row,
-        })
-        openCheckIn = null
-      }
-    }
-
-    spansByUserDate.set(key, spans)
-  }
-
-  return spansByUserDate
-}
-
-function findSpanCoveringPlannedInstance(planned: PlannedInstance, spansByUserDate: Map<string, AttendanceSpan[]>) {
+/** Span de presencia (posiblemente abierto) que cubre la ventana planificada de la instancia. */
+function findSpanCoveringPlannedInstance(
+  planned: PlannedInstance,
+  spansByUserDate: Map<string, PresenceSpan[]>,
+): PresenceSpan | null {
   if (!planned.userIdRequired || !planned.plannedStartTime || !planned.plannedEndTime) return null
   const spans = spansByUserDate.get(userDateKey(planned.userIdRequired, planned.plannedDate)) ?? []
-  const plannedStart = new Date(planned.plannedStartTime).getTime()
-  const plannedEnd = new Date(planned.plannedEndTime).getTime()
-  return (
-    spans.find((span) => {
-      const actualIn = new Date(span.checkIn.time).getTime()
-      const actualOut = new Date(span.checkOut.time).getTime()
-      return actualIn <= plannedEnd && actualOut >= plannedStart
-    }) ?? null
+  return findCoveringSpan(
+    {
+      userId: planned.userIdRequired,
+      ymd: planned.plannedDate,
+      plannedStart: new Date(planned.plannedStartTime),
+      plannedEnd: new Date(planned.plannedEndTime),
+    },
+    spans,
   )
 }
 
 function resolveDerivedCheckInStatus(params: {
-  attendance: AttendanceRow
+  attendance: AttendanceRowLite
   plannedStartTime: Date | null
 }): ResolvedAttendanceByInstance['checkInStatusResolved'] {
   if (params.plannedStartTime && new Date(params.attendance.time).getTime() <= new Date(params.plannedStartTime).getTime()) {
@@ -99,25 +59,13 @@ function resolveDerivedCheckInStatus(params: {
 }
 
 function resolveDerivedCheckOutStatus(params: {
-  attendance: AttendanceRow
+  attendance: AttendanceRowLite
   plannedEndTime: Date | null
 }): ResolvedAttendanceByInstance['checkOutStatusResolved'] {
   if (params.plannedEndTime && new Date(params.attendance.time).getTime() < new Date(params.plannedEndTime).getTime()) {
     return 'EARLY_EXIT'
   }
   return 'EXIT'
-}
-
-function resolveInstanceDurationMinutes(params: {
-  actualInTime: Date | null
-  actualOutTime: Date | null
-  plannedStartTime: Date | null
-  plannedEndTime: Date | null
-}) {
-  if (!params.actualInTime || !params.actualOutTime) return 0
-  const start = params.plannedStartTime && params.actualInTime < params.plannedStartTime ? params.plannedStartTime : params.actualInTime
-  const end = params.plannedEndTime && params.actualOutTime > params.plannedEndTime ? params.plannedEndTime : params.actualOutTime
-  return clampNonNegativeMinutes(end.getTime() - start.getTime())
 }
 
 export async function resolveAttendanceAndJustification(params: {
@@ -190,7 +138,7 @@ export async function resolveAttendanceAndJustification(params: {
 
   const checkInByPlannedId = new Map<string, AttendanceRow[]>()
   const checkOutByPlannedId = new Map<string, AttendanceRow[]>()
-  const spansByUserDate = buildAttendanceSpans(attendances as AttendanceRow[])
+  const spansByUserDate = buildPresenceSpans(attendances)
 
   for (const att of attendances) {
     if (!att.eventId) continue
@@ -279,12 +227,12 @@ export async function resolveAttendanceAndJustification(params: {
       checkOutStatusResolved = planned.plannedEndTime ? 'EXIT' : 'PRESENT'
     }
 
-    const durationMinutes = resolveInstanceDurationMinutes({
+    const durationMinutes = clampedOverlapMinutes(
       actualInTime,
       actualOutTime,
-      plannedStartTime: planned.plannedStartTime,
-      plannedEndTime: planned.plannedEndTime,
-    })
+      planned.plannedStartTime,
+      planned.plannedEndTime,
+    )
 
     resolved.push({
       planned,

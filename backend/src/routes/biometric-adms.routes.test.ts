@@ -58,9 +58,7 @@ vi.mock("../services/attendance-incidents.js", () => ({
   findOpenNoShowIncidentForEvents: vi.fn(),
   findAssignedEventForAttendanceInstant: vi.fn(),
   findAssignedEventNearAttendanceInstant: vi.fn(),
-  maybeCreateLateArrivalIncident: vi.fn(),
-  maybeCreateEarlyExitIncident: vi.fn(),
-  resolveNoShowIncidentsForEvents: vi.fn(),
+  resolveNoShowIncidentIfAny: vi.fn(),
 }));
 
 import { findApprovedLicenseCoveringEventTime } from "../services/medicalLeaveReconciliation.js";
@@ -68,17 +66,13 @@ import {
   findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
   findAssignedEventNearAttendanceInstant,
-  maybeCreateLateArrivalIncident,
-  maybeCreateEarlyExitIncident,
-  resolveNoShowIncidentsForEvents,
+  resolveNoShowIncidentIfAny,
 } from "../services/attendance-incidents.js";
 const findLicenseMock = vi.mocked(findApprovedLicenseCoveringEventTime);
 const findOpenNoShowMock = vi.mocked(findOpenNoShowIncidentForEvents);
 const findAssignedEventMock = vi.mocked(findAssignedEventForAttendanceInstant);
 const findAssignedEventNearMock = vi.mocked(findAssignedEventNearAttendanceInstant);
-const lateIncidentMock = vi.mocked(maybeCreateLateArrivalIncident);
-const earlyExitIncidentMock = vi.mocked(maybeCreateEarlyExitIncident);
-const resolveNoShowMock = vi.mocked(resolveNoShowIncidentsForEvents);
+const resolveNoShowMock = vi.mocked(resolveNoShowIncidentIfAny);
 
 function sha256(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
@@ -105,8 +99,6 @@ describe("biometric ADMS ingest", () => {
     findOpenNoShowMock.mockResolvedValue(null);
     findAssignedEventMock.mockResolvedValue(null);
     findAssignedEventNearMock.mockResolvedValue(null);
-    lateIncidentMock.mockResolvedValue(null);
-    earlyExitIncidentMock.mockResolvedValue(null);
     resolveNoShowMock.mockResolvedValue(0);
     prismaMock.$queryRaw.mockResolvedValue([]);
     prismaMock.systemSettings.upsert.mockResolvedValue({
@@ -282,15 +274,14 @@ describe("biometric ADMS ingest", () => {
     prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
     prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
     prismaMock.attendance.findFirst.mockResolvedValue(null);
-    prismaMock.event.findMany.mockResolvedValue([
-      {
-        id: "event-1",
-        title: "Clase",
-        type: "CLASE",
-        startTime: new Date("2026-05-05T13:00:00.000Z"),
-        endTime: new Date("2026-05-05T14:00:00.000Z"),
-      },
-    ]);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    findAssignedEventMock.mockResolvedValue({
+      id: "event-1",
+      title: "Clase",
+      type: "CLASE",
+      startTime: new Date("2026-05-05T13:00:00.000Z"),
+      endTime: new Date("2026-05-05T14:00:00.000Z"),
+    });
     findOpenNoShowMock.mockResolvedValue({ id: "inc-1", eventId: "event-1" });
     prismaMock.attendance.create.mockResolvedValue({
       id: "att-1",
@@ -312,7 +303,7 @@ describe("biometric ADMS ingest", () => {
     expect(prismaMock.attendance.create.mock.calls[0][0].data.notes).toBe(
       "Llegada muy tarde: 10 min tarde - Dispositivo: F22-TEST-01",
     );
-    expect(resolveNoShowMock).toHaveBeenCalledWith(prismaMock, "user-1", ["event-1"]);
+    expect(resolveNoShowMock).toHaveBeenCalledWith(prismaMock, "user-1", "event-1");
   });
 
   it("200 cuando llega duplicado (idempotencia)", async () => {

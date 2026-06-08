@@ -152,7 +152,7 @@ export default function AdminOperationalSettingsPanel({
               />
             </label>
             <label className="block space-y-2">
-              <span className={labelCls}>Puente entre clases (min)</span>
+              <span className={labelCls}>Cierre de jornada sin salida (min)</span>
               <input
                 type="number"
                 min={15}
@@ -161,6 +161,11 @@ export default function AdminOperationalSettingsPanel({
                 value={data.attendanceClassBridgeGapMinutes}
                 onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceClassBridgeGapMinutes: Number(e.target.value) || 60 } : prev))}
               />
+              <span className="block text-xs text-slate-500">
+                Ventana para auto-cerrar una entrada sin salida. La presencia ahora se calcula por
+                solapamiento de cada clase con los intervalos de marcación; las horas de espera entre
+                clases no se pagan.
+              </span>
             </label>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-2">

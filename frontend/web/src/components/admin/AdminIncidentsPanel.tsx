@@ -77,11 +77,17 @@ export default function AdminIncidentsPanel({ onMessage }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-sm text-slate-600">
-          <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden />
-          <span>
-            {total} incidencia{total === 1 ? '' : 's'}
-            {statusFilter === 'OPEN' ? ' abiertas' : ''}
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden />
+            <span>
+              {total} incidencia{total === 1 ? '' : 's'}
+              {statusFilter === 'OPEN' ? ' abiertas' : ''}
+            </span>
+          </div>
+          <span className="text-xs text-slate-500">
+            Ausencias docentes sin justificar. Tardanzas y salidas anticipadas se ven en la grilla de
+            asistencia (estado de la marcación), no aquí.
           </span>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -74,6 +74,8 @@ describe("events routes (prisma mock)", () => {
     prismaMock.course.findFirst.mockResolvedValue(null);
     prismaMock.courseOffering.findFirst.mockResolvedValue(null);
     prismaMock.subject.findFirst.mockResolvedValue(null);
+    // Por defecto, la agenda está libre: la validación de solapes no encuentra conflictos.
+    prismaMock.event.findMany.mockResolvedValue([]);
   });
 
   it("POST /events 400 validación zod", async () => {
@@ -872,10 +874,11 @@ describe("events routes (prisma mock)", () => {
         data: expect.objectContaining({ schoolYearId: "sy-2026", courseOfferingId: "off-new" }),
       }),
     );
+    // Versionado: la versión vieja se cierra (effectiveUntil) y apunta a la nueva (supersededById).
     expect(prismaMock.event.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "e1" },
-        data: expect.objectContaining({ status: "CANCELLED" }),
+        data: expect.objectContaining({ supersededById: "e2" }),
       }),
     );
   });
@@ -918,7 +921,7 @@ describe("events routes (prisma mock)", () => {
     expect(prismaMock.event.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "e1" },
-        data: expect.objectContaining({ status: "CANCELLED" }),
+        data: expect.objectContaining({ supersededById: "e2" }),
       }),
     );
   });
@@ -1461,6 +1464,54 @@ describe("events routes (prisma mock)", () => {
         .send({ rows: [row({ orientacion: "Científico", asignatura: "Mate" })] });
       expect(res.status).toBe(400);
       expect(res.body.errors[0].message).toMatch(/orientacion requiere curso|asignatura requiere curso/i);
+    });
+
+    it("400 si dos filas del mismo archivo se superponen para el mismo docente", async () => {
+      prismaMock.user.findFirst.mockResolvedValue({ id: "u-dup" });
+      prismaMock.event.findMany.mockResolvedValue([]); // sin conflictos en base
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({
+          rows: [
+            row({ titulo: "Clase A", tipo: "CLASE", asignado_a: "jdoe", hora_inicio: "10:00", hora_fin: "11:00" }),
+            row({ titulo: "Clase B", tipo: "CLASE", asignado_a: "jdoe", hora_inicio: "10:30", hora_fin: "11:30" }),
+          ],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/se superpone con otra fila/i);
+      expect(prismaMock.event.create).not.toHaveBeenCalled();
+    });
+
+    it("400 si una fila choca con un evento ya existente del docente", async () => {
+      prismaMock.user.findFirst.mockResolvedValue({ id: "u-existing" });
+      prismaMock.event.findMany.mockResolvedValue([
+        {
+          id: "ev-existente",
+          title: "Clase previa",
+          type: "CLASE",
+          assignedUserId: "u-existing",
+          startTime: new Date("2026-05-10T13:00:00.000Z"), // 10:00 hora Uruguay
+          endTime: new Date("2026-05-10T14:00:00.000Z"),
+          startDate: new Date("2026-05-10T13:00:00.000Z"),
+          isRecurring: false,
+          daysOfWeek: [],
+          effectiveFrom: null,
+          effectiveUntil: null,
+          recurrenceEnd: null,
+          schoolYearId: "sy-default",
+          courseOfferingId: null,
+          courseOrientationId: null,
+          revisionOf: null,
+        },
+      ]);
+      const res = await request(app())
+        .post("/events/import")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ rows: [row({ titulo: "Clase nueva", tipo: "CLASE", asignado_a: "jdoe", hora_inicio: "10:30", hora_fin: "11:30" })] });
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].message).toMatch(/docente ya tiene un evento que se superpone/i);
+      expect(prismaMock.event.create).not.toHaveBeenCalled();
     });
   });
 });
