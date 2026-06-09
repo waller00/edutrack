@@ -143,7 +143,7 @@ function isVirtualAbsenceRow(attendance: AttendanceRecord): boolean {
 }
 
 function isSelectableAttendanceRow(attendance: AttendanceRecord): boolean {
-  return !isIncidentRow(attendance) && !isVirtualAbsenceRow(attendance)
+  return !isIncidentRow(attendance)
 }
 
 function getAttendanceDayGroupKey(attendance: AttendanceRecord): string {
@@ -268,13 +268,11 @@ function renderAttendanceMark(
       <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
         {getAttendanceRowStatusLabel(attendance)}
       </span>
-      {!isVirtualAbsenceRow(attendance) ? (
-        <div>
-          <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
-            Editar
-          </button>
-        </div>
-      ) : null}
+      <div>
+        <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
+          Editar
+        </button>
+      </div>
     </div>
   )
 }
@@ -387,7 +385,7 @@ function renderAttendancesTable(
             const ids = [row.checkIn?.id, row.checkOut?.id].filter(Boolean) as string[]
             const selected = ids.length > 0 && ids.every((id) => selectedAttendanceIds.includes(id))
             const primaryAttendance = row.incident ?? row.checkIn ?? row.checkOut
-            const selectable = ids.length > 0 && ids.every((id) => !id.startsWith('absence:') && !id.startsWith('incident:'))
+            const selectable = ids.length > 0 && ids.every((id) => !id.startsWith('incident:'))
 
             if (!primaryAttendance) return null
 
@@ -620,15 +618,59 @@ export default function AdminAttendance() {
     }
   }
 
+  async function openAttendanceEditor(attendance: AttendanceRecord) {
+    if (!isVirtualAbsenceRow(attendance)) {
+      setEditing(attendance)
+      return
+    }
+
+    if (!attendance.event?.id) {
+      setMessage('❌ Error: la ausencia no tiene evento asociado para editarla')
+      return
+    }
+
+    try {
+      const materialized = await api<AttendanceRecord>('/attendance/materialize-absence', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: attendance.user.id,
+          eventId: attendance.event.id,
+          date: attendance.date.slice(0, 10),
+          status: attendance.status,
+          notes: attendance.notes,
+        }),
+      })
+      setEditing(materialized)
+      await loadAttendances()
+      await loadStats()
+    } catch (error: any) {
+      setMessage(`❌ Error: ${error.message || 'Error al preparar la ausencia para edición'}`)
+    }
+  }
+
   async function deleteSelectedAttendances() {
     if (selectedAttendanceIds.length === 0) return
-    if (!confirm(`¿Estás seguro de eliminar ${selectedAttendanceIds.length} asistencias seleccionadas?`)) return
+    const realAttendanceIds = selectedAttendanceIds.filter((id) => !id.startsWith('absence:') && !id.startsWith('incident:'))
+    const virtualAbsenceCount = selectedAttendanceIds.length - realAttendanceIds.length
+
+    if (realAttendanceIds.length === 0) {
+      setMessage('ℹ️ Las ausencias calculadas se pueden seleccionar, pero no eliminar hasta registrarlas como asistencia real.')
+      return
+    }
+
+    const detail =
+      virtualAbsenceCount > 0
+        ? ` Se omitirán ${virtualAbsenceCount} ausencias calculadas sin registro real.`
+        : ''
+    if (!confirm(`¿Estás seguro de eliminar ${realAttendanceIds.length} asistencias seleccionadas?${detail}`)) return
 
     setDeletingSelected(true)
     setMessage('')
     try {
-      await Promise.all(selectedAttendanceIds.map((id) => api(`/attendance/${id}`, { method: 'DELETE' })))
-      setMessage(`✅ Se eliminaron ${selectedAttendanceIds.length} asistencias seleccionadas`)
+      await Promise.all(realAttendanceIds.map((id) => api(`/attendance/${id}`, { method: 'DELETE' })))
+      const suffix =
+        virtualAbsenceCount > 0 ? ` (${virtualAbsenceCount} ausencias calculadas omitidas)` : ''
+      setMessage(`✅ Se eliminaron ${realAttendanceIds.length} asistencias seleccionadas${suffix}`)
       setSelectedAttendanceIds([])
       await loadAttendances()
     } catch (error: any) {
@@ -639,7 +681,7 @@ export default function AdminAttendance() {
   }
 
   function toggleAttendanceSelection(id: string) {
-    if (id.startsWith('incident:') || id.startsWith('absence:')) return
+    if (id.startsWith('incident:')) return
     setSelectedAttendanceIds((prev) =>
       prev.includes(id) ? prev.filter((currentId) => currentId !== id) : [...prev, id],
     )
@@ -1258,9 +1300,9 @@ export default function AdminAttendance() {
               toggleAttendanceSelection,
               expandedAttendanceRows,
               toggleExpandedAttendanceRow,
-              setEditing,
-              attendances.some((attendance) => !isIncidentRow(attendance)) &&
-                selectedAttendanceIds.length === attendances.filter((attendance) => !isIncidentRow(attendance)).length,
+              openAttendanceEditor,
+              attendances.some(isSelectableAttendanceRow) &&
+                selectedAttendanceIds.length === attendances.filter(isSelectableAttendanceRow).length,
             )}
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />

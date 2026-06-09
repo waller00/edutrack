@@ -330,7 +330,7 @@ describe("attendance /register (prisma mock)", () => {
         title: "Ingles Tercero C",
         type: "CLASE",
         status: "SCHEDULED",
-        startDate: new Date("2026-05-20T00:00:00.000Z"),
+        startDate: new Date("2026-05-20T18:00:00.000Z"),
         startTime: new Date("2026-05-20T18:00:00.000Z"),
         endTime: new Date("2026-05-20T19:00:00.000Z"),
         isRecurring: false,
@@ -583,6 +583,20 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("POST /attendance/mark-absences trata YYYY-MM-DD como día completo de Uruguay", async () => {
+    prismaMock.event.findMany.mockResolvedValue([]);
+
+    const res = await request(app())
+      .post("/attendance/mark-absences")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`)
+      .send({ startDate: "2025-06-01", endDate: "2025-06-01" });
+
+    expect(res.status).toBe(200);
+    const where = prismaMock.event.findMany.mock.calls[0][0].where;
+    expect(where.startDate.gte.toISOString()).toBe("2025-06-01T03:00:00.000Z");
+    expect(where.startDate.lte.toISOString()).toBe("2025-06-02T02:59:59.999Z");
+  });
+
   it("POST /attendance/mark-absences crea ausencias justificadas y no justificadas", async () => {
     prismaMock.event.findMany.mockResolvedValue([
       {
@@ -740,7 +754,7 @@ describe("attendance /register (prisma mock)", () => {
         title: "Ingles Tercero C",
         type: "CLASE",
         status: "SCHEDULED",
-        startDate: new Date("2026-05-20T00:00:00.000Z"),
+        startDate: new Date("2026-05-20T18:00:00.000Z"),
         startTime: new Date("2026-05-20T18:00:00.000Z"),
         endTime: new Date("2026-05-20T19:00:00.000Z"),
         isRecurring: false,
@@ -1057,6 +1071,73 @@ describe("attendance /register (prisma mock)", () => {
       .set("Authorization", `Bearer ${tok("ADMIN")}`);
     expect(res.status).toBe(200);
     expect(res.body.data[0].notes).toBeNull();
+  });
+
+  it("GET /attendance/all filtra YYYY-MM-DD como día completo de Uruguay", async () => {
+    prismaMock.attendance.count.mockResolvedValue(0);
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+
+    const res = await request(app())
+      .get("/attendance/all?startDate=2025-06-01&endDate=2025-06-01")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    const where = prismaMock.attendance.count.mock.calls[0][0].where;
+    expect(where.date.gte.toISOString()).toBe("2025-06-01T03:00:00.000Z");
+    expect(where.date.lte.toISOString()).toBe("2025-06-02T02:59:59.999Z");
+  });
+
+  it("POST /attendance/materialize-absence crea una ausencia editable desde una virtual", async () => {
+    const eventId = "00000000-0000-4000-8000-0000000000e2";
+    const userId = "00000000-0000-4000-8000-000000000011";
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eventId,
+      title: "Clase nocturna",
+      type: "CLASE",
+      startTime: new Date("2026-06-09T01:21:00.000Z"),
+      endTime: new Date("2026-06-09T01:30:00.000Z"),
+      assignedUserId: userId,
+      schoolYearId: "sy1",
+    });
+    prismaMock.attendance.findFirst.mockResolvedValueOnce(null);
+    prismaMock.attendance.create.mockResolvedValue({
+      id: "att-abs",
+      userId,
+      eventId,
+      type: "CHECK_IN",
+      status: "ABSENT_NOT_JUSTIFIED",
+      date: new Date("2026-06-08T03:00:00.000Z"),
+      time: new Date("2026-06-09T01:21:00.000Z"),
+      notes: "Ausencia pendiente",
+      user: { id: userId, name: "Joaquin", email: "j@example.com", orgRole: { code: "TEACHER" } },
+      event: { id: eventId, title: "Clase nocturna", type: "CLASE", startTime: new Date("2026-06-09T01:21:00.000Z"), endTime: new Date("2026-06-09T01:30:00.000Z") },
+    });
+
+    const res = await request(app())
+      .post("/attendance/materialize-absence")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`)
+      .send({
+        userId,
+        eventId,
+        date: "2026-06-08",
+        status: "ABSENT_NOT_JUSTIFIED",
+        notes: "Ausencia pendiente",
+      });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.attendance.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId,
+          eventId,
+          type: "CHECK_IN",
+          status: "ABSENT_NOT_JUSTIFIED",
+          date: new Date("2026-06-08T03:00:00.000Z"),
+          time: new Date("2026-06-09T01:21:00.000Z"),
+        }),
+      }),
+    );
+    expect(res.body.id).toBe("att-abs");
   });
 
   it("GET /attendance/all feed mixto con todos los filtros", async () => {

@@ -13,7 +13,13 @@ import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attenda
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
-import { APP_TIMEZONE, uruguayStartOfDayFromInstant } from '../config/app-timezone.js';
+import {
+  APP_TIMEZONE,
+  isYmdDateString,
+  uruguayStartOfDayFromInstant,
+  uruguayWallToUtc,
+  uruguayYmdEndOfDayToUtc,
+} from '../config/app-timezone.js';
 import { justifyAttendance } from '../services/attendance-justifications.js';
 import { recordAuditEventNow } from '../services/audit-log.js';
 import { getPlannedInstances } from '../services/analytics/planInstances.js';
@@ -62,8 +68,28 @@ const attendanceJustificationSchema = z.object({
   attachment: z.string().optional(),
 });
 
+const materializeAbsenceSchema = z.object({
+  userId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  status: z.enum(['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED']).optional(),
+  notes: z.string().optional(),
+});
+
 function normalizeAttendanceDate(date: string) {
   return new Date(date)
+}
+
+function parseAttendanceRangeStart(value: unknown) {
+  const raw = typeof value === 'string' ? value : value != null ? String(value) : ''
+  if (isYmdDateString(raw)) return uruguayWallToUtc(raw, 0, 0)
+  return new Date(raw)
+}
+
+function parseAttendanceRangeEnd(value: unknown) {
+  const raw = typeof value === 'string' ? value : value != null ? String(value) : ''
+  if (isYmdDateString(raw)) return uruguayYmdEndOfDayToUtc(raw)
+  return new Date(raw)
 }
 
 function applyDateRangeFilter(where: any, startDate?: unknown, endDate?: unknown) {
@@ -72,11 +98,11 @@ function applyDateRangeFilter(where: any, startDate?: unknown, endDate?: unknown
   where.date = {}
 
   if (startDate) {
-    where.date.gte = new Date(startDate as string)
+    where.date.gte = parseAttendanceRangeStart(startDate)
   }
 
   if (endDate) {
-    where.date.lte = new Date(endDate as string)
+    where.date.lte = parseAttendanceRangeEnd(endDate)
   }
 }
 
@@ -529,6 +555,91 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
   }
 })
 
+r.post('/materialize-absence', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
+  try {
+    const parsed = materializeAbsenceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
+    }
+
+    const { userId, eventId, date, status = 'ABSENT_NOT_JUSTIFIED', notes } = parsed.data;
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        startTime: true,
+        endTime: true,
+        assignedUserId: true,
+        schoolYearId: true,
+      },
+    });
+
+    if (!event) return res.status(404).json({ message: 'Evento no encontrado' });
+    if (event.assignedUserId !== userId) {
+      return res.status(400).json({ message: 'La persona no está asignada a este evento' });
+    }
+
+    const attendanceDate = uruguayWallToUtc(date, 0, 0);
+    const existing = await prisma.attendance.findFirst({
+      where: {
+        userId,
+        eventId,
+        date: attendanceDate,
+        type: 'CHECK_IN',
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+        event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
+      },
+    });
+
+    if (existing) {
+      return res.json(mapAttendanceUser(existing as any));
+    }
+
+    const attendance = await prisma.attendance.create({
+      data: {
+        userId,
+        eventId,
+        type: 'CHECK_IN',
+        status: status as any,
+        date: attendanceDate,
+        time: event.startTime ?? attendanceDate,
+        schoolYearId: event.schoolYearId,
+        notes:
+          notes?.trim() ||
+          'Ausencia registrada manualmente desde gestión de asistencias',
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+        event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
+      },
+    });
+
+    await recordAuditEventNow({
+      action: 'ATTENDANCE_MANUAL_UPDATED' as any,
+      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      req,
+      entityType: 'Attendance',
+      entityId: attendance.id,
+      metadata: {
+        reason: 'Materialización manual de ausencia virtual',
+        previousStatus: null,
+        newStatus: attendance.status,
+        eventId,
+        userId,
+      },
+    });
+
+    res.status(201).json(mapAttendanceUser(attendance as any));
+  } catch (error) {
+    console.error('Error materializando ausencia:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
 // Actualizar asistencia (solo ADMIN)
 r.put('/:id', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
   try {
@@ -834,8 +945,8 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
       return res.status(400).json({ message: 'startDate y endDate son requeridos' });
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = parseAttendanceRangeStart(startDate);
+    const end = parseAttendanceRangeEnd(endDate);
 
     const allYears = bodyAllYears === true || bodyAllYears === '1';
     const resolvedSchoolYearId = allYears
