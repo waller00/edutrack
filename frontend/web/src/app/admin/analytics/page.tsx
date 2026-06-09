@@ -34,6 +34,16 @@ type OrgRoleFilter = 'ADMIN' | 'STAFF' | 'TEACHER'
 
 const EVENT_TYPES = ['JORNADA_LABORAL', 'REUNION', 'CLASE'] as const
 
+type AnalyticsUserOption = {
+  id: string
+  username?: string | null
+  name?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  email?: string | null
+  orgRole?: { code?: string | null } | null
+}
+
 type DashboardMeta = {
   resolvedInstanceCount: number
   rangeFrom: string
@@ -130,6 +140,20 @@ const GRANULARITY_OPTIONS: { value: SeriesGranularity; label: string }[] = [
 
 function formatPct(v: number) {
   return `${v.toFixed(2)}%`
+}
+
+function userDisplayLabel(user: AnalyticsUserOption) {
+  const fullName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
+  return user.name || fullName || user.username || user.email || 'Sin nombre'
+}
+
+function sanitizeFilenamePart(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || 'persona'
 }
 
 type KpiTone = 'emerald' | 'amber' | 'red' | 'slate'
@@ -287,6 +311,11 @@ export default function AdminAnalyticsPage() {
   const [roleFilter, setRoleFilter] = useState<string>('')
   const [eventType, setEventType] = useState<string>('')
   const [granularity, setGranularity] = useState<SeriesGranularity>('week')
+  const [users, setUsers] = useState<AnalyticsUserOption[]>([])
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [userSearch, setUserSearch] = useState('')
+  const [selectedUserName, setSelectedUserName] = useState('')
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -302,7 +331,8 @@ export default function AdminAnalyticsPage() {
     setError(null)
     try {
       const params = new URLSearchParams({ from, to, granularity })
-      if (roleFilter) params.set('role', roleFilter)
+      if (selectedUserId) params.set('userId', selectedUserId)
+      else if (roleFilter) params.set('role', roleFilter)
       if (eventType) params.set('eventType', eventType)
       if (syCtx?.allYears) params.set('allYears', '1')
       else if (analyticsSchoolYearId) params.set('schoolYearId', analyticsSchoolYearId)
@@ -315,11 +345,27 @@ export default function AdminAnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [from, to, granularity, roleFilter, eventType, syCtx?.allYears, analyticsSchoolYearId])
+  }, [from, to, granularity, roleFilter, selectedUserId, eventType, syCtx?.allYears, analyticsSchoolYearId])
 
   useEffect(() => {
     void loadDashboard()
   }, [loadDashboard])
+
+  useEffect(() => {
+    let active = true
+    async function loadUsers() {
+      try {
+        const data = await api<{ data: AnalyticsUserOption[] }>('/admin/users?pageSize=200')
+        if (active) setUsers(data.data)
+      } catch {
+        if (active) setUsers([])
+      }
+    }
+    void loadUsers()
+    return () => {
+      active = false
+    }
+  }, [])
 
   const decisionSignals = useMemo(() => {
     if (!dashboard) return []
@@ -334,7 +380,7 @@ export default function AdminAnalyticsPage() {
     : null
 
   const exportFilters = () => ({
-    ...(roleFilter ? { role: roleFilter } : {}),
+    ...(selectedUserId ? { userId: selectedUserId } : roleFilter ? { role: roleFilter } : {}),
     ...(eventType ? { eventType } : {}),
     ...(syCtx?.allYears ? { allYears: '1' } : {}),
     ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
@@ -393,15 +439,25 @@ export default function AdminAnalyticsPage() {
       format === 'XLSX' ? 'xlsx' : 'csv',
       'attendance_detail',
       format,
-      `EduTrack_Asistencia_detallada_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`,
-      `✅ Exportación ${format} lista.`,
+      selectedUserName
+        ? `EduTrack_Asistencia_detallada_${sanitizeFilenamePart(selectedUserName)}_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`
+        : `EduTrack_Asistencia_detallada_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`,
+      selectedUserName ? `✅ Detalle ${format} de ${selectedUserName} listo.` : `✅ Exportación ${format} lista.`,
     )
 
   const runExportMonthly = () =>
     runExport('pdf', 'monthly_summary', 'PDF', `EduTrack_Resumen_mensual_${from.slice(0, 7)}.pdf`, '✅ PDF mensual listo.')
 
   const runExportPerson = () =>
-    runExport('person', 'person_report', 'XLSX', `EduTrack_Reporte_por_persona_${from}_${to}.xlsx`, '✅ Reporte por persona listo.')
+    runExport(
+      'person',
+      'person_report',
+      'XLSX',
+      selectedUserName
+        ? `EduTrack_Reporte_persona_${sanitizeFilenamePart(selectedUserName)}_${from}_${to}.xlsx`
+        : `EduTrack_Reporte_por_persona_${from}_${to}.xlsx`,
+      selectedUserName ? `✅ Reporte de ${selectedUserName} listo.` : '✅ Reporte por persona listo.',
+    )
 
   const runExportCourse = () =>
     runExport('course', 'course_report', 'XLSX', `EduTrack_Reporte_por_curso_${from}_${to}.xlsx`, '✅ Reporte por curso listo.')
@@ -414,6 +470,10 @@ export default function AdminAnalyticsPage() {
     setRoleFilter('')
     setEventType('')
     setGranularity('week')
+    setSelectedUserId('')
+    setUserSearch('')
+    setSelectedUserName('')
+    setIsUserDropdownOpen(false)
     setExportNotice('')
   }
 
@@ -433,6 +493,26 @@ export default function AdminAnalyticsPage() {
   const statusRows = dashboard?.statusDistribution?.rows ?? []
   const deltas = dashboard?.comparison?.deltas ?? null
   const granularityLabel = GRANULARITY_OPTIONS.find((g) => g.value === granularity)?.label ?? 'Semana'
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase()
+    return users
+      .filter((user) => {
+        if (roleFilter && !selectedUserId && user.orgRole?.code !== roleFilter) return false
+        if (!q) return true
+        return userDisplayLabel(user).toLowerCase().includes(q) || (user.email || '').toLowerCase().includes(q)
+      })
+      .slice(0, 30)
+  }, [users, userSearch, roleFilter, selectedUserId])
+
+  function selectAnalyticsUser(user: AnalyticsUserOption | TopRiskPerson) {
+    const label = 'displayName' in user ? user.displayName : userDisplayLabel(user)
+    setSelectedUserId('userId' in user ? user.userId : user.id)
+    setSelectedUserName(label)
+    setUserSearch(label)
+    setRoleFilter('')
+    setIsUserDropdownOpen(false)
+    setExportNotice('')
+  }
 
   return (
     <RoleGuard permission="analytics.read" permissionScope="all">
@@ -469,8 +549,30 @@ export default function AdminAnalyticsPage() {
                   </span>
                   <div>
                     <span className="text-gray-500">Ámbito de rol</span>
-                    <span className="ml-2 font-semibold">{roleChipLabel(roleFilter)}</span>
+                    <span className="ml-2 font-semibold">{selectedUserName ? 'Persona seleccionada' : roleChipLabel(roleFilter)}</span>
                   </div>
+                  {selectedUserName ? (
+                    <>
+                      <span className="hidden text-gray-300 sm:inline" aria-hidden>
+                        ·
+                      </span>
+                      <div>
+                        <span className="text-gray-500">Persona</span>
+                        <span className="ml-2 font-semibold text-emerald-800">{selectedUserName}</span>
+                      </div>
+                    </>
+                  ) : null}
+                  {eventType ? (
+                    <>
+                      <span className="hidden text-gray-300 sm:inline" aria-hidden>
+                        ·
+                      </span>
+                      <div>
+                        <span className="text-gray-500">Actividad</span>
+                        <span className="ml-2 font-semibold">{getAdminEventTypeLabel(eventType)}</span>
+                      </div>
+                    </>
+                  ) : null}
                   {generatedLabel ? (
                     <>
                       <span className="hidden text-gray-300 sm:inline" aria-hidden>
@@ -509,7 +611,7 @@ export default function AdminAnalyticsPage() {
                 ) : (
                   <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
                 )}
-                Excel
+                {selectedUserName ? 'Excel detalle' : 'Excel'}
               </button>
               <button
                 type="button"
@@ -522,7 +624,7 @@ export default function AdminAnalyticsPage() {
                 ) : (
                   <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
                 )}
-                CSV
+                {selectedUserName ? 'CSV detalle' : 'CSV'}
               </button>
               <button
                 type="button"
@@ -565,7 +667,10 @@ export default function AdminAnalyticsPage() {
               </button>
             </div>
             <p className="max-w-sm text-right text-xs text-gray-500">
-              Las exportaciones reutilizan el motor institucional de reportes sobre el mismo rango vigente.</p>
+              {selectedUserName
+                ? `Excel/CSV descargan el detalle filtrado de ${selectedUserName}; “Por persona” descarga su resumen.`
+                : 'Las exportaciones reutilizan el motor institucional de reportes sobre el mismo rango vigente.'}
+            </p>
           </div>
         </header>
 
@@ -588,7 +693,7 @@ export default function AdminAnalyticsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
             <div className="lg:col-span-1">
               <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
@@ -605,7 +710,17 @@ export default function AdminAnalyticsPage() {
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Rol asignado al evento</label>
-              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="select-field">
+              <select
+                value={roleFilter}
+                onChange={(e) => {
+                  setRoleFilter(e.target.value)
+                  setSelectedUserId('')
+                  setSelectedUserName('')
+                  setUserSearch('')
+                  setExportNotice('')
+                }}
+                className="select-field"
+              >
                 <option value="">Todos los roles</option>
                 <option value="TEACHER">Docentes</option>
                 <option value="STAFF">Equipo administrativo</option>
@@ -614,6 +729,64 @@ export default function AdminAnalyticsPage() {
               <p className="mt-1 text-xs text-gray-500">
                 Equivalente operativo del filtro utilizado también en otros módulos de control de personal.
               </p>
+            </div>
+            <div className="relative">
+              <label className="mb-2 block text-sm font-medium text-gray-700">Persona</label>
+              <input
+                type="text"
+                value={userSearch}
+                onChange={(e) => {
+                  setUserSearch(e.target.value)
+                  setSelectedUserId('')
+                  setSelectedUserName('')
+                  setIsUserDropdownOpen(true)
+                  setExportNotice('')
+                }}
+                onFocus={() => setIsUserDropdownOpen(true)}
+                placeholder="Buscar persona..."
+                className="input-field"
+              />
+              {isUserDropdownOpen && !selectedUserId ? (
+                <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                  {filteredUsers.length > 0 ? (
+                    filteredUsers.map((user) => (
+                      <button
+                        type="button"
+                        key={user.id}
+                        onClick={() => selectAnalyticsUser(user)}
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-emerald-50"
+                      >
+                        <span className="block font-medium text-gray-900">{userDisplayLabel(user)}</span>
+                        <span className="block truncate text-xs text-gray-500">
+                          {[user.email, roleChipLabel(user.orgRole?.code || '')].filter(Boolean).join(' · ')}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-gray-500">Sin coincidencias</div>
+                  )}
+                </div>
+              ) : null}
+              {selectedUserName ? (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm">
+                  <span className="truncate font-medium text-emerald-900">{selectedUserName}</span>
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs font-semibold text-red-700 hover:text-red-900"
+                    onClick={() => {
+                      setSelectedUserId('')
+                      setSelectedUserName('')
+                      setUserSearch('')
+                      setIsUserDropdownOpen(false)
+                      setExportNotice('')
+                    }}
+                  >
+                    Quitar
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-gray-500">Filtra indicadores y exportaciones al historial de una persona.</p>
+              )}
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Tipo de actividad</label>
@@ -814,6 +987,9 @@ export default function AdminAnalyticsPage() {
                             <th scope="col" className="whitespace-nowrap px-4 py-3 text-right font-semibold text-emerald-800" title="Heurística: tarde ×1 + aus NJ ×2">
                               Prioridad Σ
                             </th>
+                            <th scope="col" className="px-4 py-3 text-right">
+                              Reporte
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
@@ -836,6 +1012,15 @@ export default function AdminAnalyticsPage() {
                                 >
                                   {p.riskScore}
                                 </span>
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  className="rounded-md border border-emerald-200 px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                                  onClick={() => selectAnalyticsUser(p)}
+                                >
+                                  Ver detalle
+                                </button>
                               </td>
                             </tr>
                           ))}

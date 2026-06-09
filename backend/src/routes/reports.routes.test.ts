@@ -193,7 +193,7 @@ describe("reports helpers", () => {
     expect(where.event.type).toBe("CLASE");
     expect(where.type).toBe("CHECK_IN");
     expect(where.status).toBe("PRESENT");
-    expect(where.user.role).toBe("STAFF");
+    expect(where.user.orgRole.code).toBe("STAFF");
   });
 
   it("builds detailed records and user/event stats", () => {

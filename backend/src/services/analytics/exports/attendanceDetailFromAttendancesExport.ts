@@ -1,5 +1,3 @@
-import ExcelJS from 'exceljs'
-import PDFDocument from 'pdfkit'
 import type { AttendanceStatus, AttendanceType, EventType } from '@prisma/client'
 import { prisma } from '../../../db/prisma.js'
 import { mergeSchoolYearIntoAttendanceEventWhere } from '../../../attendance/attendance-school-year.js'
@@ -27,29 +25,6 @@ const COLUMNS = [
   'Licencia Asociada ID',
   'Licencia Asociada Estado',
 ] as const
-
-type AttendanceRowSource = {
-  attendanceId: string
-  userId: string
-  userDisplayName: string
-  userRole: string
-  userEmail: string
-  type: AttendanceType
-  status: AttendanceStatus
-  date: Date
-  time: Date
-  notes: string | null
-  eventId: string | null
-  eventTitle: string | null
-  eventType: EventType | null
-  plannedStartTimeTemplate: Date | null
-  plannedEndTimeTemplate: Date | null
-}
-
-type PlannedTimes = {
-  plannedStartTime: Date | null
-  plannedEndTime: Date | null
-}
 
 function ymdUtc(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -96,7 +71,7 @@ function isAbsenceStatus(status: AttendanceStatus) {
   return value === 'ABSENT_NOT_JUSTIFIED' || value === 'ABSENT_JUSTIFIED' || value === 'SUBSTITUTED'
 }
 
-export async function buildAttendanceDetailRowsFromAttendances(params: {
+async function buildAttendanceDetailRowsFromAttendances(params: {
   filters: {
     from: string
     to: string
@@ -245,31 +220,6 @@ export async function buildAttendanceDetailRowsFromAttendances(params: {
   return rows
 }
 
-export async function generateAttendanceDetailXlsxFromAttendances(params: {
-  filters: {
-    from: string
-    to: string
-    userId?: string
-    eventId?: string
-    eventType?: EventType
-    type?: AttendanceType
-    status?: AttendanceStatus
-    role?: string
-    schoolYearId?: string
-  }
-}) {
-  const rows = await buildAttendanceDetailRowsFromAttendances({ filters: params.filters })
-  const workbook = new ExcelJS.Workbook()
-  const sheet = workbook.addWorksheet('Asistencia_Detallada')
-
-  sheet.addRow([...COLUMNS])
-  for (const r of rows) {
-    sheet.addRow(COLUMNS.map((c) => (r as any)[c]))
-  }
-  sheet.getRow(1).font = { bold: true }
-  return workbook.xlsx.writeBuffer()
-}
-
 export async function generateAttendanceDetailCsvFromAttendances(params: {
   filters: {
     from: string
@@ -287,199 +237,4 @@ export async function generateAttendanceDetailCsvFromAttendances(params: {
   const header = COLUMNS.map((c) => c).join(',')
   const lines = rows.map((r) => COLUMNS.map((c) => csvEscape((r as any)[c])).join(','))
   return `${header}\n${lines.join('\n')}\n`
-}
-
-export async function generateAttendanceDetailPdfFromAttendances(params: {
-  filters: {
-    from: string
-    to: string
-    userId?: string
-    eventId?: string
-    eventType?: EventType
-    type?: AttendanceType
-    status?: AttendanceStatus
-    role?: string
-    schoolYearId?: string
-  }
-}) {
-  const rows = await buildAttendanceDetailRowsFromAttendances({ filters: params.filters })
-  const doc = new PDFDocument({ size: 'A4', margin: 40 })
-  const chunks: Buffer[] = []
-  doc.on('data', (c) => chunks.push(c as Buffer))
-
-  const usableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right
-
-  let userNameForFilter: string | null = null
-  if (params.filters.userId) {
-    const row = rows.find((x) => String((x as any)['Usuario ID']) === params.filters.userId)
-    userNameForFilter = row ? String((row as any)['Usuario'] || '') : null
-
-    if (!userNameForFilter) {
-      const u = await prisma.user.findUnique({
-        where: { id: params.filters.userId },
-        select: { id: true, name: true, username: true, email: true, firstName: true, lastName: true },
-      })
-      userNameForFilter =
-        u?.name ||
-        u?.username ||
-        u?.email ||
-        `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim() ||
-        null
-    }
-  }
-
-  doc.fontSize(16).font('Helvetica-Bold').text('EduTrack - Asistencia Detallada', { width: usableWidth })
-  doc.moveDown(0.2)
-  doc.fontSize(10).font('Helvetica').text(`Periodo: ${params.filters.from} a ${params.filters.to}`, { width: usableWidth })
-
-  const filterParts: string[] = []
-  if (params.filters.role) filterParts.push(`Rol=${params.filters.role}`)
-  if (params.filters.userId) filterParts.push(`Usuario=${userNameForFilter || params.filters.userId}`)
-  if (params.filters.eventType) filterParts.push(`TipoEvento=${params.filters.eventType}`)
-  if (params.filters.eventId) filterParts.push(`Evento=${params.filters.eventId}`)
-  if (params.filters.type) filterParts.push(`Tipo=${params.filters.type}`)
-  if (params.filters.status) filterParts.push(`Estado=${params.filters.status}`)
-  if (filterParts.length) doc.fontSize(9).font('Helvetica').text(`Filtros: ${filterParts.join(' | ')}`, { width: usableWidth })
-
-  doc.moveDown(0.4)
-
-  const get = (r: Record<string, any>, k: (typeof COLUMNS)[number]) => r[k] ?? ''
-  const collapseWhitespace = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim()
-  const cut = (s: unknown, max = 80) => {
-    const t = collapseWhitespace(s)
-    if (!t) return ''
-    return t.length > max ? `${t.slice(0, max)}...` : t
-  }
-
-  // Resumen + mini gráfico (para que el PDF no sea solo “texto por registro”)
-  const estadoCounts: Record<string, number> = {}
-  for (const r of rows) {
-    const st = String((r as any)['Estado'] ?? '')
-    estadoCounts[st] = (estadoCounts[st] ?? 0) + 1
-  }
-
-  const present: number = estadoCounts['PRESENT'] ?? 0
-  const late: number = estadoCounts['LATE'] ?? 0
-  const absentNotJustified: number = estadoCounts['ABSENT_NOT_JUSTIFIED'] ?? 0
-  const absentJustified: number = estadoCounts['ABSENT_JUSTIFIED'] ?? 0
-  const exit: number = estadoCounts['EXIT'] ?? 0
-  const earlyExit: number = estadoCounts['EARLY_EXIT'] ?? 0
-
-  const isCheckIn = !params.filters.type || params.filters.type === 'CHECK_IN'
-  const summaryTotal = isCheckIn ? present + late + absentNotJustified + absentJustified : exit + earlyExit
-  const presenceRate = isCheckIn && summaryTotal > 0 ? (present / summaryTotal) * 100 : 0
-  const lateRate = isCheckIn && summaryTotal > 0 ? (late / summaryTotal) * 100 : 0
-  const absenceRate = isCheckIn && summaryTotal > 0 ? ((absentNotJustified + absentJustified) / summaryTotal) * 100 : 0
-
-  doc.font('Helvetica-Bold').fontSize(10).text('Resumen (filtro actual)', { width: usableWidth })
-  doc.font('Helvetica').fontSize(9)
-  doc.text(
-    isCheckIn
-      ? `Total: ${summaryTotal} | Presencia: ${Number(presenceRate.toFixed(2))}% | Tarde: ${Number(lateRate.toFixed(2))}% | Ausencias: ${Number(absenceRate.toFixed(2))}%`
-      : `Total: ${summaryTotal} | Salida: ${exit} | Salida Anticipada: ${earlyExit}`,
-    { width: usableWidth },
-  )
-
-  if (isCheckIn) {
-    // Gráfico de barras simple (PRESENT / LATE / ABSENT)
-    const max = Math.max(1, present, late, absentNotJustified + absentJustified)
-    const baseX = doc.page.margins.left
-    const baseY = doc.y + 6
-    const chartHeight = 70
-    const barW = 110
-    const gap = 12
-    const bar1H = (present / max) * chartHeight
-    const bar2H = (late / max) * chartHeight
-    const bar3H = ((absentNotJustified + absentJustified) / max) * chartHeight
-
-    doc.fontSize(8)
-    // Etiquetas arriba
-    const drawBar = (x: number, label: string, value: number, h: number) => {
-      const y = baseY + (chartHeight - h)
-      doc.rect(x, y, barW, h).fill('#16a34a') // green
-      doc.fillColor('black')
-      doc.text(label, x, baseY + chartHeight + 2, { width: barW, align: 'center' })
-      doc.text(String(value), x, y - 10, { width: barW, align: 'center' })
-      doc.fillColor('black')
-    }
-
-    // PRESENT
-    doc.fillColor('#16a34a')
-    drawBar(baseX, 'Presente', present, bar1H)
-    // LATE
-    doc.fillColor('#f59e0b')
-    drawBar(baseX + barW + gap, 'Tarde', late, bar2H)
-    // ABSENT
-    doc.fillColor('#dc2626')
-    drawBar(baseX + (barW + gap) * 2, 'Ausente', absentNotJustified + absentJustified, bar3H)
-
-    doc.moveDown(1.1)
-  } else {
-    const max = Math.max(1, exit, earlyExit)
-    const baseX = doc.page.margins.left
-    const baseY = doc.y + 6
-    const chartHeight = 70
-    const barW = 200
-    const gap = 10
-    const bar1H = (exit / max) * chartHeight
-    const bar2H = (earlyExit / max) * chartHeight
-
-    doc.fontSize(8)
-    const drawBar2 = (x: number, label: string, value: number, h: number, color: string) => {
-      const y = baseY + (chartHeight - h)
-      doc.rect(x, y, barW, h).fill(color)
-      doc.fillColor('black')
-      doc.text(label, x, baseY + chartHeight + 2, { width: barW, align: 'center' })
-      doc.text(String(value), x, y - 10, { width: barW, align: 'center' })
-      doc.fillColor('black')
-    }
-
-    doc.fillColor('#2563eb') // blue
-    drawBar2(baseX, 'Salida', exit, bar1H, '#2563eb')
-    doc.fillColor('#f97316') // orange
-    drawBar2(baseX + barW + gap, 'Anticipada', earlyExit, bar2H, '#f97316')
-
-    doc.moveDown(1.1)
-  }
-
-  // Cabecera “tabla”
-  doc.font('Helvetica-Bold').fontSize(9)
-  doc.text('Fecha | Usuario | Estado | Hora | Duración(min) | Brecha(min) | Notas', { width: usableWidth })
-  doc.moveDown(0.1)
-  doc.font('Helvetica').fontSize(8.5)
-
-  for (const r of rows) {
-    // Una “fila” compacta con 1-2 líneas máximo para que no sea un monstruo ilegible
-    const fecha = get(r as any, 'Fecha')
-    const usuario = cut(get(r as any, 'Usuario'), 24)
-    const estado = get(r as any, 'Estado')
-    const hora = cut(get(r as any, 'Hora Registro'), 22)
-    const dur = get(r as any, 'Duración Real (min)')
-    const brecha = get(r as any, 'Brecha (min)')
-    const notas = cut(get(r as any, 'Notas'), 60) || '—'
-
-    doc.text(`${fecha} | ${usuario} | ${estado} | ${hora} | ${dur} | ${brecha} | ${notas}`, { width: usableWidth })
-
-    const evento = cut(get(r as any, 'Evento'), 28)
-    const turno = cut(get(r as any, 'Turno/Tipo Evento'), 18)
-    const licenciaEstado = get(r as any, 'Licencia Asociada Estado')
-    const licenciaId = get(r as any, 'Licencia Asociada ID')
-    const licencia = licenciaEstado ? `${licenciaEstado}${licenciaId ? ` (ID:${licenciaId})` : ''}` : ''
-
-    const line2Parts = [
-      evento ? `Evento: ${evento}` : '',
-      turno ? `Turno: ${turno}` : '',
-      licencia ? `Licencia: ${licencia}` : '',
-    ].filter(Boolean)
-    if (line2Parts.length) doc.text(line2Parts.join(' | '), { width: usableWidth })
-  }
-
-  doc.end()
-
-  await new Promise<void>((resolve, reject) => {
-    doc.on('end', () => resolve())
-    doc.on('error', (e) => reject(e))
-  })
-
-  return Buffer.concat(chunks)
 }

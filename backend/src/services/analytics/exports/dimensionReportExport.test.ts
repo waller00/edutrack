@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import ExcelJS from 'exceljs'
 import type { PlannedInstance, ResolvedAttendanceByInstance } from '../models.js'
 import { generateDimensionReportPdf, generateDimensionReportXlsx } from './dimensionReportExport.js'
 
@@ -60,6 +61,14 @@ describe('dimensionReportExport', () => {
     const buf = await generateDimensionReportXlsx({ resolvedInstances: instances, from: '2026-05-01', to: '2026-05-31', dimension: 'person' })
     expect(Buffer.isBuffer(buf)).toBe(true)
     expect(buf.length).toBeGreaterThan(0)
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(buf)
+    const rawSheet = workbook.getWorksheet('Datos')
+    expect(rawSheet).toBeTruthy()
+    expect(rawSheet!.getRow(1).getCell(1).value).toBe('Fecha')
+    expect(rawSheet!.getRow(2).getCell(2).value).toBe('Ada Lovelace')
+    expect(rawSheet!.getColumn(2).width).toBeGreaterThan(10)
   })
 
   it('genera XLSX por curso con contenido', async () => {
