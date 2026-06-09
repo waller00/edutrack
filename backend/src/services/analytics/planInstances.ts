@@ -1,28 +1,15 @@
 import { prisma } from '../../db/prisma.js'
 import type { EventStatus, EventType } from '@prisma/client'
 import type { PlannedInstance } from './models.js'
-import { parseYmdToUtcRange, toYmdUtc } from './dateRange.js'
+import { DateTime } from 'luxon'
+import { APP_TIMEZONE, uruguayWallToUtc } from '../../config/app-timezone.js'
+import { addDaysUtc, parseYmdToUtcRange, toYmdInUruguay } from './dateRange.js'
 import { effectiveWindowIncludesYmd } from '../events/event-versioning.js'
 
 function combineDateWithUtcTime(plannedDateYmd: string, time: Date | null | undefined) {
   if (!time) return null
-  const base = new Date(`${plannedDateYmd}T00:00:00.000Z`)
-  // `time` se persiste en DB como DateTime; usamos componentes UTC para evitar drift.
-  return new Date(
-    Date.UTC(
-      base.getUTCFullYear(),
-      base.getUTCMonth(),
-      base.getUTCDate(),
-      time.getUTCHours(),
-      time.getUTCMinutes(),
-      time.getUTCSeconds(),
-      time.getUTCMilliseconds(),
-    ),
-  )
-}
-
-function dateRangeToYmd(fromDate: Date, toDate: Date) {
-  return { fromYmd: toYmdUtc(fromDate), toYmd: toYmdUtc(toDate) }
+  const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(APP_TIMEZONE)
+  return uruguayWallToUtc(plannedDateYmd, wall.hour, wall.minute)
 }
 
 type EventRow = {
@@ -74,7 +61,7 @@ function buildInstance(ev: EventRow, ymd: string, isRecurringInstance: boolean, 
 /** Expande un evento (único o recurrente) a sus instancias dentro del rango [fromYmd, toYmd]. */
 function expandEventInstances(ev: EventRow, fromYmd: string, toYmd: string, toDate: Date): PlannedInstance[] {
   const academic = academicContextOf(ev)
-  const evStartYmd = toYmdUtc(ev.startDate)
+  const evStartYmd = toYmdInUruguay(ev.startDate)
   const inWindow = (ymd: string) => effectiveWindowIncludesYmd(ev.effectiveFrom, ev.effectiveUntil, ymd)
 
   if (!ev.isRecurring || !ev.daysOfWeek || ev.daysOfWeek.length === 0) {
@@ -84,17 +71,17 @@ function expandEventInstances(ev: EventRow, fromYmd: string, toYmd: string, toDa
 
   const recurrenceEndDate = ev.recurrenceEnd ? new Date(ev.recurrenceEnd) : toDate
   const rangeStartYmd = evStartYmd > fromYmd ? evStartYmd : fromYmd
-  const rangeEndYmd = toYmd < toYmdUtc(recurrenceEndDate) ? toYmd : toYmdUtc(recurrenceEndDate)
+  const recurrenceEndYmd = toYmdInUruguay(recurrenceEndDate)
+  const rangeEndYmd = toYmd < recurrenceEndYmd ? toYmd : recurrenceEndYmd
 
   const out: PlannedInstance[] = []
-  const cursor = new Date(`${rangeStartYmd}T00:00:00.000Z`)
-  const final = new Date(`${rangeEndYmd}T00:00:00.000Z`)
-  while (cursor <= final) {
-    const ymd = toYmdUtc(cursor)
-    if (ev.daysOfWeek.includes(cursor.getUTCDay()) && inWindow(ymd)) {
-      out.push(buildInstance(ev, ymd, true, academic))
+  let cursorYmd = rangeStartYmd
+  while (cursorYmd <= rangeEndYmd) {
+    const weekday = DateTime.fromISO(cursorYmd, { zone: APP_TIMEZONE }).weekday % 7
+    if (ev.daysOfWeek.includes(weekday) && inWindow(cursorYmd)) {
+      out.push(buildInstance(ev, cursorYmd, true, academic))
     }
-    cursor.setUTCDate(cursor.getUTCDate() + 1)
+    cursorYmd = addDaysUtc(cursorYmd, 1)
   }
   return out
 }
@@ -107,8 +94,9 @@ export async function getPlannedInstances(params: {
   eventType?: EventType
   schoolYearId?: string
 }) {
-  const { fromDate, toDate } = parseYmdToUtcRange(params.from, params.to)
-  const { fromYmd, toYmd } = dateRangeToYmd(fromDate, toDate)
+  const { toDate } = parseYmdToUtcRange(params.from, params.to)
+  const fromYmd = params.from
+  const toYmd = params.to
 
   const events = await prisma.event.findMany({
     where: {

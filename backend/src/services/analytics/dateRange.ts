@@ -1,7 +1,10 @@
+import { DateTime } from 'luxon'
+import { APP_TIMEZONE, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../../config/app-timezone.js'
+
 export function parseYmdToUtcRange(from: string, to: string) {
-  // Esperamos YYYY-MM-DD.
-  const fromDate = new Date(`${from}T00:00:00.000Z`)
-  const toDate = new Date(`${to}T23:59:59.999Z`)
+  // Esperamos YYYY-MM-DD del día civil operativo de Uruguay.
+  const fromDate = uruguayWallToUtc(from, 0, 0)
+  const toDate = uruguayYmdEndOfDayToUtc(to)
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
     throw new Error('INVALID_DATE_RANGE')
   }
@@ -14,9 +17,12 @@ export function toYmdUtc(d: Date) {
     .slice(0, 10)
 }
 
+export function toYmdInUruguay(d: Date) {
+  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+}
+
 export function addDaysUtc(ymd: string, days: number) {
   const base = new Date(`${ymd}T00:00:00.000Z`)
   base.setUTCDate(base.getUTCDate() + days)
   return base.toISOString().slice(0, 10)
 }
-

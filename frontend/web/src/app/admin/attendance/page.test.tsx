@@ -66,7 +66,7 @@ describe('AdminAttendance', () => {
     expect(row?.textContent).toMatch(/Sin salida/)
   })
 
-  it('muestra ausencias virtuales sin permitir editarlas ni borrarlas', async () => {
+  it('muestra ausencias virtuales y permite seleccionarlas', async () => {
     const rec = {
       id: 'absence:ev1_2026-05-20',
       type: 'CHECK_IN' as const,
@@ -100,8 +100,94 @@ describe('AdminAttendance', () => {
     const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Jorge'))
     expect(row?.textContent).toMatch(/Ausente/)
     expect(row?.textContent).toMatch(/Sin salida/)
-    expect(row?.textContent).not.toMatch(/Editar/)
-    expect(screen.queryByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' })).not.toBeInTheDocument()
+    expect(row?.textContent).toMatch(/Editar/)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' }))
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' })).toBeChecked()
+    expect(screen.getByText('1 seleccionadas')).toBeInTheDocument()
+  })
+
+  it('no intenta borrar ausencias virtuales porque no tienen registro real', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const rec = {
+      id: 'absence:ev1_2026-05-20',
+      type: 'CHECK_IN' as const,
+      status: 'ABSENT_NOT_JUSTIFIED' as const,
+      date: '2026-05-20',
+      time: '2026-05-20T18:00:00.000Z',
+      notes: 'Ausencia pendiente: no se registró asistencia para este evento vencido',
+      user: { id: 'u1', name: 'Jorge', email: 'j@b.com', role: 'TEACHER' },
+      event: {
+        id: 'ev1',
+        title: 'Ingles Tercero C',
+        type: 'CLASE',
+        startTime: '2026-05-20T18:00:00.000Z',
+        endTime: '2026-05-20T19:00:00.000Z',
+      },
+    }
+
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('attendance/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [rec] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 1, presentCount: 0, absentCount: 1, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 100 }
+      return {}
+    })
+
+    render(<AdminAttendance />)
+    await screen.findByText('Ingles Tercero C')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
+
+    expect(await screen.findByText(/no eliminar hasta registrarlas/)).toBeInTheDocument()
+    expect(mockedApi).not.toHaveBeenCalledWith('/attendance/absence:ev1_2026-05-20', expect.anything())
+    expect(window.confirm).not.toHaveBeenCalled()
+  })
+
+  it('materializa una ausencia virtual antes de editarla', async () => {
+    const rec = {
+      id: 'absence:ev1_2026-05-20',
+      type: 'CHECK_IN' as const,
+      status: 'ABSENT_NOT_JUSTIFIED' as const,
+      date: '2026-05-20',
+      time: '2026-05-20T18:00:00.000Z',
+      notes: 'Ausencia pendiente: no se registró asistencia para este evento vencido',
+      user: { id: '00000000-0000-4000-8000-000000000011', name: 'Jorge', email: 'j@b.com', role: 'TEACHER' },
+      event: {
+        id: '00000000-0000-4000-8000-0000000000e1',
+        title: 'Ingles Tercero C',
+        type: 'CLASE',
+        startTime: '2026-05-20T18:00:00.000Z',
+        endTime: '2026-05-20T19:00:00.000Z',
+      },
+    }
+    const materialized = { ...rec, id: 'att-1' }
+
+    mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('attendance/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [rec] }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      if (String(url).includes('attendance/stats'))
+        return { totalAttendances: 1, presentCount: 0, absentCount: 1, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 100 }
+      if (String(url) === '/attendance/materialize-absence' && init?.method === 'POST') return materialized
+      return {}
+    })
+
+    render(<AdminAttendance />)
+    await screen.findByText('Ingles Tercero C')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        '/attendance/materialize-absence',
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    )
+    expect(await screen.findByText('Editar Asistencia')).toBeInTheDocument()
   })
 
   it('agrupa entrada y salida de una misma asistencia en una fila', async () => {
