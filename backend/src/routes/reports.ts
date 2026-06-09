@@ -3,6 +3,7 @@ import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { prisma } from '../db/prisma.js'
 import { selectOrgRoleCode } from '../identity/user-role-prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
+import { addNoDataRow, formatWorksheetForExport } from '../services/analytics/exports/excel-format.js'
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 
@@ -23,7 +24,7 @@ export function applyReportFilters(where: any, query: any) {
   }
   if (type) where.type = type
   if (status) where.status = status
-  if (role) where.user = { role }
+  if (role) where.user = { orgRole: { code: role } }
 }
 
 export function buildDetailedRecord(att: any) {
@@ -348,27 +349,12 @@ export async function generateExcelReport(data: any, res: any, filters: any) { /
       }
     })
   })
+
+  if (data.detailedRecords.length === 0) {
+    addNoDataRow(mainSheet, tableHeaders.length)
+  }
   
-  // Ajustar ancho de columnas automáticamente para mejor visualización
-  mainSheet.columns.forEach((column, index) => {
-    if (index === 0) column.width = 15 // Fecha (agrandada)
-    else if (index === 1) column.width = 12 // Hora (un poco más grande)
-    else if (index === 2) column.width = 25 // Usuario
-    else if (index === 3) column.width = 35 // Correo
-    else if (index === 4) column.width = 12 // Rol
-    else if (index === 5) column.width = 30 // Evento
-    else if (index === 6) column.width = 15 // Tipo Evento
-    else if (index === 7) column.width = 10 // Tipo
-    else if (index === 8) column.width = 18 // Estado
-    else if (index === 9) column.width = 40 // Notas
-  })
-  
-  // Configurar altura de filas para mejor visualización
-  mainSheet.eachRow((row, rowNumber) => {
-    if (rowNumber > 1) { // No aplicar a la fila de encabezados
-      row.height = 25
-    }
-  })
+  formatWorksheetForExport(mainSheet, { headerRow: headerRow.number, maxWidth: 44 })
   
   // Configurar respuesta
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

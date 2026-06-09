@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 import { buildDashboardBreakdowns, computeBreakdown, computeStatusDistribution } from '../metrics.js'
 import type { DashboardBreakdownRow, ResolvedAttendanceByInstance, StatusDistribution } from '../models.js'
+import { addNoDataRow, formatWorksheetForExport } from './excel-format.js'
 
 export type DimensionReport = 'person' | 'course'
 
@@ -41,6 +42,10 @@ function primaryColumnHeader(dimension: DimensionReport) {
   return dimension === 'person' ? 'Persona' : 'Curso / Asignatura'
 }
 
+function safeIso(d: Date | null) {
+  return d ? d.toISOString() : ''
+}
+
 type DimensionReportInput = {
   resolvedInstances: ResolvedAttendanceByInstance[]
   from: string
@@ -61,18 +66,23 @@ export async function generateDimensionReportXlsx(params: DimensionReportInput):
   summary.addRow([`Período: ${params.from} a ${params.to}`])
   summary.addRow([`Generado: ${new Date().toISOString()}`])
   summary.addRow([`Instancias planificadas: ${params.resolvedInstances.length}`])
+  formatWorksheetForExport(summary, { autoFilter: false, freezeHeader: false, maxWidth: 56 })
 
   const detail = workbook.addWorksheet('Desglose')
   detail.addRow([primaryColumnHeader(params.dimension), 'Planificadas', 'Puntualidad %', 'Tarde %', 'Ausentismo %', 'Cobertura %'])
   for (const row of rows) {
     detail.addRow([row.label, row.plannedCount, row.punctualityPct, row.lateRatePct, row.aopPct, row.coveragePct])
   }
+  if (rows.length === 0) addNoDataRow(detail, 6)
+  formatWorksheetForExport(detail, { maxWidth: 40 })
 
   const statusSheet = workbook.addWorksheet('Estados')
   statusSheet.addRow(['Estado', 'Cantidad', '% del plan'])
   for (const s of distribution.rows) {
     statusSheet.addRow([STATUS_LABELS[s.status] ?? s.status, s.count, s.pct])
   }
+  if (distribution.rows.length === 0) addNoDataRow(statusSheet, 3)
+  formatWorksheetForExport(statusSheet, { maxWidth: 28 })
 
   // Desgloses transversales (rol y tipo de evento) para contexto.
   const crossSheet = workbook.addWorksheet('Desgloses')
@@ -87,6 +97,54 @@ export async function generateDimensionReportXlsx(params: DimensionReportInput):
   for (const row of breakdowns.byEventType) {
     crossSheet.addRow([row.label, row.plannedCount, row.lateRatePct, row.aopPct])
   }
+  formatWorksheetForExport(crossSheet, { headerRow: 2, maxWidth: 32, autoFilter: false, freezeHeader: false })
+
+  const rawSheet = workbook.addWorksheet('Datos')
+  const rawHeaders = [
+    'Fecha',
+    'Persona',
+    'Rol',
+    'Correo',
+    'Curso',
+    'Asignatura',
+    'Evento',
+    'Tipo Evento',
+    'Entrada Estado',
+    'Salida Estado',
+    'Hora Planificada Inicio',
+    'Hora Planificada Fin',
+    'Hora Real Entrada',
+    'Hora Real Salida',
+    'Duración (min)',
+    'Licencia ID',
+    'Notas Entrada',
+    'Notas Salida',
+  ]
+  rawSheet.addRow(rawHeaders)
+  for (const instance of params.resolvedInstances) {
+    rawSheet.addRow([
+      instance.planned.plannedDate,
+      instance.userDisplayName,
+      instance.userRole,
+      instance.userEmail,
+      instance.planned.courseLabel ?? '',
+      instance.planned.subjectLabel ?? '',
+      instance.planned.eventTitle,
+      instance.planned.eventType,
+      instance.checkInStatusResolved,
+      instance.checkOutStatusResolved,
+      safeIso(instance.planned.plannedStartTime),
+      safeIso(instance.planned.plannedEndTime),
+      safeIso(instance.actualInTime),
+      safeIso(instance.actualOutTime),
+      Number(instance.durationMinutes.toFixed(2)),
+      instance.licenseIdJustifying || '',
+      instance.checkInNotes || '',
+      instance.checkOutNotes || '',
+    ])
+  }
+  if (params.resolvedInstances.length === 0) addNoDataRow(rawSheet, rawHeaders.length)
+  formatWorksheetForExport(rawSheet, { maxWidth: 38 })
 
   const out = await workbook.xlsx.writeBuffer()
   return Buffer.from(out)
