@@ -142,6 +142,39 @@ describe('AdminEvents', () => {
     expect(screen.getByText('Miércoles')).toBeInTheDocument()
   })
 
+  it('abre una lista completa al hacer click en un día del resumen', async () => {
+    const mondayEvents = ['Clase 1', 'Clase 2', 'Clase 3', 'Clase 4'].map((title, index) => ({
+      ...baseEvent,
+      id: `monday-${index + 1}`,
+      title,
+      isRecurring: true,
+      recurrenceType: 'WEEKLY' as const,
+      daysOfWeek: [1],
+      startTime: `2025-06-02T${String(8 + index).padStart(2, '0')}:00:00.000Z`,
+      endTime: `2025-06-02T${String(9 + index).padStart(2, '0')}:00:00.000Z`,
+      course: { id: 'c1', name: 'Tercero C', code: '3C' },
+      subject: { id: 's1', name: 'Matemática', code: 'MAT' },
+    }))
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('events/all')) {
+        return { total: mondayEvents.length, page: 1, pageSize: 20, data: mondayEvents }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      return {}
+    })
+
+    render(<AdminEvents />)
+
+    expect(await screen.findByText('+1 más')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Lunes/ }))
+
+    const detail = await screen.findByRole('region', { name: 'Actividades de Lunes' })
+    for (const event of mondayEvents) {
+      expect(within(detail).getByText(event.title)).toBeInTheDocument()
+    }
+    expect(within(detail).getAllByText(/Tercero C · Matemática/)).toHaveLength(4)
+  })
+
   it('elimina eventos seleccionados tras confirmar', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('events/all')) {
