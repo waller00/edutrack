@@ -30,6 +30,7 @@ import biometricLinkRoutes from "./routes/biometric-link.js";
 import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 import substitutionsRoutes from "./routes/substitutions.js";
+import { prisma } from "./db/prisma.js";
 
 dns.setDefaultResultOrder("ipv4first");
 
@@ -173,6 +174,15 @@ app.use("/attendance-incidents", attendanceIncidentsRoutes);
 app.use("/substitutions", substitutionsRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/ready", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[ready] database:", error);
+    res.status(503).json({ ok: false, dependency: "database" });
+  }
+});
 
 // Captura de errores de Express en Sentry (no-op si SENTRY_DSN no esta definido).
 Sentry.setupExpressErrorHandler(app);

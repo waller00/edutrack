@@ -2,7 +2,7 @@
 # Espera a que API y frontend respondan en localhost (post-deploy / recover).
 set -euo pipefail
 
-API_URL="${DEPLOY_HEALTH_API_URL:-http://127.0.0.1:4000/health}"
+API_URL="${DEPLOY_HEALTH_API_URL:-http://127.0.0.1:4000/ready}"
 WEB_URL="${DEPLOY_HEALTH_WEB_URL:-http://127.0.0.1:3000/}"
 # Tras cambios de schema, `prisma db push` puede tardar varios minutos en tablas grandes.
 MAX_ATTEMPTS="${DEPLOY_HEALTH_ATTEMPTS:-120}"
