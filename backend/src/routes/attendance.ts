@@ -350,8 +350,8 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
     }
 
     const attendanceDateForSubstitution = uruguayStartOfDayFromInstant(new Date(date))
-    const substitutionRows = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT "id"
+    const substitutionRows = await prisma.$queryRaw<{ id: string; startTime: Date; endTime: Date }[]>`
+      SELECT "id", "startTime", "endTime"
       FROM "Substitution"
       WHERE "eventId" = ${eventId}
         AND "substituteUserId" = ${user.sub}
@@ -363,6 +363,7 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
     if (event.assignedUserId !== user.sub && substitutionRows.length === 0) {
       return res.status(403).json({ message: 'No estás asignado a este evento' });
     }
+    const substitutionSchedule = event.assignedUserId !== user.sub ? substitutionRows[0] : null
 
     // Un mismo usuario no debe tener más de una entrada/salida para el mismo evento
     // en el mismo día civil. La hora exacta puede variar entre UI, biométrico y API.
@@ -380,8 +381,8 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       return res.status(409).json({ message: getDuplicateAttendanceMessage(type) });
     }
 
-    const evStart = event.startTime ? new Date(event.startTime) : new Date(event.startDate)
-    const evEnd = event.endTime ? new Date(event.endTime) : evStart
+    const evStart = substitutionSchedule?.startTime ?? (event.startTime ? new Date(event.startTime) : new Date(event.startDate))
+    const evEnd = substitutionSchedule?.endTime ?? (event.endTime ? new Date(event.endTime) : evStart)
     const nonWorkingDay = await findNonWorkingDayForDate(evStart)
     if (nonWorkingDay) {
       return res.status(403).json({
@@ -406,8 +407,8 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
     const status = getAttendanceStatus({
       type,
       actualTime,
-      startTime: event.startTime,
-      endTime: event.endTime,
+      startTime: evStart,
+      endTime: evEnd,
       hasApprovedLicense: false,
       lateToleranceMinutes:
         type === 'CHECK_OUT' ? runtimeSettings.earlyExitToleranceMinutes : runtimeSettings.lateToleranceMinutes,

@@ -6,6 +6,7 @@ import {
   applyEventStartDateFilter,
   buildMyEventsBaseFilter,
   applyMyEventsDateFilter,
+  deriveOccurrenceStatus,
   expandRecurringEvent,
 } from '../events/events-query.js';
 import {
@@ -1024,6 +1025,7 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
         startDate: sub.date,
         startTime: sub.startTime,
         endTime: sub.endTime,
+        status: deriveOccurrenceStatus(ev.status, new Date(sub.startTime), new Date(sub.endTime)),
         isSubstitution: true,
       })
     }

@@ -54,6 +54,13 @@ PATCH="$(jq '{
   rememberMe,
   verifyEmail,
   passwordPolicy,
+  accessTokenLifespan,
+  ssoSessionIdleTimeout,
+  ssoSessionMaxLifespan,
+  ssoSessionIdleTimeoutRememberMe,
+  ssoSessionMaxLifespanRememberMe,
+  clientSessionIdleTimeout,
+  clientSessionMaxLifespan,
   internationalizationEnabled,
   supportedLocales,
   defaultLocale
@@ -70,8 +77,11 @@ curl -fsS -X PUT \
 AFTER="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$KC_URL/admin/realms/$REALM_NAME")"
 AFTER_THEME="$(printf '%s' "$AFTER" | jq -r '.loginTheme')"
 AFTER_PASSWORD_POLICY="$(printf '%s' "$AFTER" | jq -r '.passwordPolicy')"
+AFTER_SSO_IDLE="$(printf '%s' "$AFTER" | jq -r '.ssoSessionIdleTimeout')"
+AFTER_SSO_MAX="$(printf '%s' "$AFTER" | jq -r '.ssoSessionMaxLifespan')"
 echo ">> OK. loginTheme del realm '$REALM_NAME' = $AFTER_THEME"
 echo ">> OK. passwordPolicy del realm '$REALM_NAME' = $AFTER_PASSWORD_POLICY"
+echo ">> OK. ssoSessionIdleTimeout=$AFTER_SSO_IDLE ssoSessionMaxLifespan=$AFTER_SSO_MAX"
 
 CLIENT_ID="${KEYCLOAK_CLIENT_ID:-$(env_get KEYCLOAK_CLIENT_ID)}"
 CLIENT_ID="${CLIENT_ID:-edutrack-web}"

@@ -10,7 +10,12 @@ import {
   findAssignedEventForAttendanceInstant,
   findAssignedEventNearAttendanceInstant,
 } from "./attendance-incidents.js";
-import { coverageForOccurrence, earlyEntryWindowMinutes, fetchTeacherClassSlotsForUruguayDay } from "./attendance/coverage-spans.js";
+import {
+  coverageForOccurrence,
+  earlyEntryWindowMinutes,
+  fetchTeacherClassSlotsForUruguayDay,
+  type ClassEventSlot,
+} from "./attendance/coverage-spans.js";
 
 export function hashBiometricSecret(raw: string) {
   return crypto.createHash("sha256").update(raw).digest("hex");
@@ -210,6 +215,104 @@ async function materializeCoveredEventAttendances(tx: any, params: {
   return created;
 }
 
+async function materializeOriginalTeacherSubstitutionAbsence(tx: any, params: {
+  substituteUserId: string;
+  eventId: string | null;
+  attendanceDate: Date;
+}) {
+  if (!params.eventId) return null;
+
+  const rows = await tx.$queryRaw<
+    {
+      id: string;
+      originalTeacherUserId: string;
+      reason: string;
+      startTime: Date;
+      schoolYearId: string | null;
+    }[]
+  >`
+    SELECT s."id", s."originalTeacherUserId", s."reason", s."startTime", e."schoolYearId"
+    FROM "Substitution" s
+    JOIN "Event" e ON e."id" = s."eventId"
+    WHERE s."eventId" = ${params.eventId}
+      AND s."substituteUserId" = ${params.substituteUserId}
+      AND s."date" = ${params.attendanceDate}
+    LIMIT 1
+  `;
+  const substitution = rows[0];
+  if (!substitution) return null;
+
+  const notes = `Ausencia prevista sin justificar (suplida): ${substitution.reason || "clase cubierta oficialmente"}`;
+  const existing = await tx.attendance.findFirst({
+    where: {
+      userId: substitution.originalTeacherUserId,
+      eventId: params.eventId,
+      date: params.attendanceDate,
+      type: "CHECK_IN",
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return tx.attendance.update({
+      where: { id: existing.id },
+      data: {
+        status: "SUBSTITUTED" as any,
+        time: substitution.startTime,
+        schoolYearId: substitution.schoolYearId ?? undefined,
+        notes,
+      },
+      select: { id: true },
+    });
+  }
+
+  return tx.attendance.create({
+    data: {
+      userId: substitution.originalTeacherUserId,
+      eventId: params.eventId,
+      schoolYearId: substitution.schoolYearId ?? undefined,
+      date: params.attendanceDate,
+      time: substitution.startTime,
+      type: "CHECK_IN",
+      status: "SUBSTITUTED" as any,
+      notes,
+    },
+    select: { id: true },
+  });
+}
+
+function slotReference(slot: ClassEventSlot) {
+  return {
+    id: slot.id,
+    title: slot.title,
+    type: slot.type,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+  };
+}
+
+function findOverlappingSlot(slots: ClassEventSlot[], at: Date) {
+  const atMs = at.getTime();
+  const slot = [...slots]
+    .filter((candidate) => candidate.startTime.getTime() <= atMs && candidate.endTime.getTime() >= atMs)
+    .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
+  return slot ? slotReference(slot) : null;
+}
+
+function findNearSlot(slots: ClassEventSlot[], at: Date, earlyWindowMinutes: number) {
+  const atMs = at.getTime();
+  const latestStartMs = atMs + earlyWindowMinutes * 60 * 1000;
+  const candidates = slots
+    .filter((slot) => slot.startTime.getTime() <= latestStartMs && slot.endTime.getTime() >= atMs)
+    .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+  if (!candidates.length) return null;
+
+  const active = candidates
+    .filter((slot) => slot.startTime.getTime() <= atMs)
+    .sort((a, b) => b.startTime.getTime() - a.startTime.getTime());
+  return slotReference(active[0] ?? candidates[0]);
+}
+
 /**
  * Vincula una marca biométrica a UNA ocurrencia por solape simple del instante con la clase.
  * Ya no fragmenta la jornada en bloques ni materializa asistencias para otras clases del día:
@@ -226,9 +329,10 @@ export async function resolveBiometricAttendanceLinkage(
   },
 ) {
   const { userId, occurredAt, punchType, attendanceDate, earlyWindowMinutes } = params;
+  const slots = await fetchTeacherClassSlotsForUruguayDay(tx, userId, attendanceDate);
 
-  // Caso normal: la marca cae dentro del horario de una clase asignada.
-  const overlapping = await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
+  // Caso normal: la marca cae dentro del horario de una clase asignada o suplida.
+  const overlapping = findOverlappingSlot(slots, occurredAt) ?? await findAssignedEventForAttendanceInstant(tx, userId, occurredAt);
   if (overlapping?.id) {
     return punchType === "CHECK_IN"
       ? { attendanceEventId: overlapping.id, lateReference: overlapping, exitReference: null }
@@ -236,13 +340,13 @@ export async function resolveBiometricAttendanceLinkage(
   }
 
   if (punchType === "CHECK_IN") {
-    // Entrada anticipada: próxima clase dentro de la ventana temprana.
-    const near = await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, earlyWindowMinutes);
+    // Entrada anticipada: próxima clase o suplencia dentro de la ventana temprana.
+    const near = findNearSlot(slots, occurredAt, earlyWindowMinutes) ??
+      await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, earlyWindowMinutes);
     return { attendanceEventId: near?.id ?? null, lateReference: near, exitReference: null };
   }
 
   // Salida fuera de toda clase: anclar al último evento iniciado del día cubierto por la permanencia.
-  const slots = await fetchTeacherClassSlotsForUruguayDay(tx, userId, attendanceDate);
   const previousSlot = [...slots]
     .filter((slot) => slot.startTime.getTime() <= occurredAt.getTime())
     .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
@@ -259,7 +363,8 @@ export async function resolveBiometricAttendanceLinkage(
     });
     if (anchor) return { attendanceEventId: anchor.id, lateReference: null, exitReference: anchor };
   }
-  const near = await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, earlyWindowMinutes);
+  const near = findNearSlot(slots, occurredAt, earlyWindowMinutes) ??
+    await findAssignedEventNearAttendanceInstant(tx, userId, occurredAt, earlyWindowMinutes);
   return { attendanceEventId: near?.id ?? null, lateReference: null, exitReference: near };
 }
 
@@ -643,6 +748,14 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
         },
         select: { id: true, type: true, status: true, date: true, time: true, eventId: true, notes: true },
       });
+
+      if (resolvedType === "CHECK_IN" && linkage.attendanceEventId) {
+        await materializeOriginalTeacherSubstitutionAbsence(tx, {
+          substituteUserId: mapping.userId,
+          eventId: linkage.attendanceEventId,
+          attendanceDate,
+        });
+      }
 
       const punch = await tx.biometricPunch.create({
         data: {

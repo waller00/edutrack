@@ -7,9 +7,14 @@ import {
 } from './substitution-occurrence.js'
 
 describe('helpers de substitution-occurrence', () => {
-  it('combineDateWithUtcTime: combina fecha + hora UTC', () => {
+  it('combineDateWithUtcTime: combina fecha civil Uruguay + hora civil del evento', () => {
     const r = combineDateWithUtcTime('2026-05-05', new Date('1970-01-01T15:30:45.000Z'))
-    expect(r.toISOString()).toBe('2026-05-05T15:30:45.000Z')
+    expect(r.toISOString()).toBe('2026-05-05T15:30:00.000Z')
+  })
+
+  it('combineDateWithUtcTime: preserva la fecha civil Uruguay aunque el horario sea del día UTC siguiente', () => {
+    const r = combineDateWithUtcTime('2026-06-09', new Date('2026-06-10T02:08:00.000Z'))
+    expect(r.toISOString()).toBe('2026-06-10T02:08:00.000Z')
   })
 
   it('jsWeekdayInUruguayYmd: 0=domingo … 6=sábado', () => {

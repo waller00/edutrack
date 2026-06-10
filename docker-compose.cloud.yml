@@ -152,6 +152,12 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
     networks:
       - net
       - moodle-net
@@ -185,7 +191,7 @@ services:
       - "3000:3000"
     depends_on:
       auth:
-        condition: service_started
+        condition: service_healthy
     networks: [net]
 
 volumes:

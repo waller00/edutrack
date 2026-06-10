@@ -61,6 +61,32 @@ describe('MyAssignedEventsPage', () => {
     )
   })
 
+  it('muestra chip de suplencia cuando el evento viene como suplido', async () => {
+    mockedApi
+      .mockResolvedValueOnce({ id: 'user-1' } as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'event-sub-1',
+          title: 'Prueba suplencia',
+          type: 'CLASE',
+          status: 'SCHEDULED',
+          startDate: '2026-06-10T00:00:00.000Z',
+          startTime: '2026-06-10T08:30:00.000Z',
+          endTime: '2026-06-10T09:00:00.000Z',
+          isRecurring: false,
+          isSubstitution: true,
+          daysOfWeek: [],
+          user: { id: 'admin-1', name: 'Admin', email: 'admin@test.com', role: 'ADMIN' },
+          assignedUser: { id: 'titular-1', name: 'Titular', email: 'titular@test.com', role: 'TEACHER' },
+        },
+      ] as never)
+
+    render(<MyAssignedEventsPage role="TEACHER" />)
+
+    expect(await screen.findByText('Prueba suplencia')).toBeInTheDocument()
+    expect(screen.getByText('Suplencia')).toBeInTheDocument()
+  })
+
   it('reloads without week range when switching to all events', async () => {
     mockedApi.mockImplementation((path: string) => {
       if (path === '/auth/me') return Promise.resolve({ id: 'user-1' } as never)

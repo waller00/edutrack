@@ -5,6 +5,7 @@ import {
   applyEventStartDateFilter,
   buildMyEventsBaseFilter,
   applyMyEventsDateFilter,
+  deriveOccurrenceStatus,
   resolveRecurringRangeEnd,
   expandRecurringEvent,
   generateRecurringInstances,
@@ -59,6 +60,22 @@ describe("events-query", () => {
   it("resolveRecurringRangeEnd prioriza endDate query", () => {
     const ev = { startDate: "2020-01-01", recurrenceEnd: null };
     expect(resolveRecurringRangeEnd(ev, "2025-12-31")).toEqual(new Date("2025-12-31"));
+  });
+
+  it("deriveOccurrenceStatus calcula estado por horario de ocurrencia", () => {
+    const now = Date.now();
+    expect(
+      deriveOccurrenceStatus("SCHEDULED", new Date(now - 60_000), new Date(now + 60_000)),
+    ).toBe("IN_PROGRESS");
+    expect(
+      deriveOccurrenceStatus("SCHEDULED", new Date(now - 120_000), new Date(now - 60_000)),
+    ).toBe("COMPLETED");
+    expect(
+      deriveOccurrenceStatus("SCHEDULED", new Date(now + 60_000), new Date(now + 120_000)),
+    ).toBe("SCHEDULED");
+    expect(
+      deriveOccurrenceStatus("CANCELLED", new Date(now + 60_000), new Date(now + 120_000)),
+    ).toBe("CANCELLED");
   });
 
   it("resolveRecurringRangeEnd usa recurrenceEnd del evento o startDate si no existe", () => {
