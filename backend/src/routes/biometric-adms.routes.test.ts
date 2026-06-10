@@ -274,6 +274,7 @@ describe("biometric ADMS ingest", () => {
     prismaMock.attendance.findFirst
       .mockResolvedValueOnce({ id: "att-in", type: "CHECK_IN", time: new Date("2026-05-05T12:00:00.000Z") })
       .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: "att-in" })
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
@@ -432,6 +433,42 @@ describe("biometric ADMS ingest", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           processStatus: "DUPLICATE",
+          punchType: "CHECK_IN",
+        }),
+      }),
+    );
+  });
+
+  it("200 e ignora segunda entrada explicita del mismo evento aunque esté fuera de la ventana", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "last-out", type: "CHECK_OUT", time: new Date("2026-05-05T13:00:00.000Z") })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "att-event-in", type: "CHECK_IN", time: new Date("2026-05-05T13:10:00.000Z") });
+    findAssignedEventMock.mockResolvedValue({
+      id: "event-1",
+      title: "Clase",
+      type: "CLASE",
+      startTime: new Date("2026-05-05T13:00:00.000Z"),
+      endTime: new Date("2026-05-05T14:00:00.000Z"),
+    });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-duplicate-event" });
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send({ ...payload, punchType: "CHECK_IN", timestamp: "2026-05-05T13:30:00.000Z" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+    expect(res.body.attendanceId).toBe("att-event-in");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+    expect(prismaMock.biometricPunch.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          processStatus: "DUPLICATE",
+          processError: expect.stringContaining("mismo evento"),
           punchType: "CHECK_IN",
         }),
       }),

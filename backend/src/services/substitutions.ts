@@ -80,7 +80,7 @@ export async function createSubstitution(params: {
 }) {
   const reason = params.reason.trim();
   if (!params.eventId || !params.substituteUserId || !reason) {
-    throw new SubstitutionError("La suplencia requiere docente, grupo/asignatura, fecha, horario y motivo");
+    throw new SubstitutionError("La suplencia requiere titular, suplente, fecha, horario y motivo");
   }
 
   const event = await prisma.event.findUnique({
@@ -105,9 +105,6 @@ export async function createSubstitution(params: {
   if (event.type !== "CLASE") throw new SubstitutionError("Solo se pueden registrar suplencias sobre clases");
   if (event.status === "CANCELLED") throw new SubstitutionError("No se puede registrar suplencia sobre una clase cancelada");
   if (!event.assignedUserId) throw new SubstitutionError("La clase no tiene docente titular asignado");
-  if (!event.courseOfferingId || !event.subjectId) {
-    throw new SubstitutionError("La clase debe tener grupo y asignatura para registrar suplencia");
-  }
   if (!event.startTime || !event.endTime) {
     throw new SubstitutionError("La clase debe tener fecha y horario para registrar suplencia");
   }

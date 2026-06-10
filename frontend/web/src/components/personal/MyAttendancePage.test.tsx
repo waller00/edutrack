@@ -43,16 +43,27 @@ describe('MyAttendancePage', () => {
           time: '2026-03-10T08:30:00.000Z',
           notes: 'En horario',
         },
+        {
+          id: 'att-2',
+          type: 'CHECK_OUT',
+          status: 'EXIT',
+          date: '2026-03-10T00:00:00.000Z',
+          time: '2026-03-10T10:30:00.000Z',
+          notes: 'Salida ok',
+        },
       ] as never)
 
     render(<MyAttendancePage role="TEACHER" />)
 
     expect(screen.getByText('Cargando...')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText('Total: 1 registros')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Total: 2 registros')).toBeInTheDocument())
     expect(screen.getByRole('heading', { name: 'Mis Asistencias' })).toBeInTheDocument()
     expect(screen.getByText('Entrada')).toBeInTheDocument()
     expect(screen.getByText('Presente')).toBeInTheDocument()
     expect(screen.getByText('En horario')).toBeInTheDocument()
+    expect(screen.getAllByText('Salida').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('Salida ok')).toBeInTheDocument()
+    expect(screen.queryByText('Ausente')).not.toBeInTheDocument()
   })
 
   it('shows the empty state when there are no attendance records', async () => {

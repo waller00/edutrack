@@ -106,6 +106,13 @@ function applyDateRangeFilter(where: any, startDate?: unknown, endDate?: unknown
   }
 }
 
+function attendanceDayRangeForInstant(value: string | Date) {
+  const start = uruguayStartOfDayFromInstant(typeof value === 'string' ? new Date(value) : value)
+  const end = new Date(start)
+  end.setUTCHours(23, 59, 59, 999)
+  return { start, end }
+}
+
 function buildAdminAttendanceWhere(query: Record<string, unknown>) {
   const { startDate, endDate, userId, eventId, eventType, type, status, role } = query
   const where: any = {}
@@ -357,12 +364,14 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       return res.status(403).json({ message: 'No estás asignado a este evento' });
     }
 
-    // Verificar si ya existe una asistencia del mismo tipo en la misma fecha
+    // Un mismo usuario no debe tener más de una entrada/salida para el mismo evento
+    // en el mismo día civil. La hora exacta puede variar entre UI, biométrico y API.
+    const duplicateDay = attendanceDayRangeForInstant(date)
     const existingAttendance = await prisma.attendance.findFirst({
       where: {
         userId: user.sub,
         type,
-        date: new Date(date),
+        date: { gte: duplicateDay.start, lte: duplicateDay.end },
         eventId: eventId,
       },
     });

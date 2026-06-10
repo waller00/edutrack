@@ -32,6 +32,8 @@ import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { ensureMoodleUserById } from '../services/moodle.js'
 import { createKeycloakUser, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
 import { deleteSessionsForUser } from '../auth/session-store.js'
+import { usernameSchema } from '../auth/account-validation.js'
+import { firstZodIssueMessage } from '../auth/password-policy.js'
 import adminStudentsRoutes from './admin-students.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
 
@@ -201,7 +203,7 @@ r.post('/org-roles', requirePermission('profiles.manage', 'all'), async (req, re
     code: z.string().min(2).max(48),
     label: z.string().min(2).max(80),
   }).safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
   try {
     const code = normalizeOrgRoleCode(parsed.data.code)
     validateOrgRoleCode(code)
@@ -232,7 +234,7 @@ r.patch('/org-roles/:code', requirePermission('profiles.manage', 'all'), async (
     label: z.string().min(2).max(80).optional(),
     active: z.boolean().optional(),
   }).safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
   try {
     const existing = await prisma.orgRole.findUnique({ where: { code } })
     if (!existing) return res.status(404).json({ message: 'Rol no encontrado' })
@@ -392,7 +394,7 @@ r.post('/profiles', requirePermission('profiles.manage', 'all'), async (req, res
     label: z.string().min(2).max(80),
     permissions: z.array(profileGrantSchema).default([]),
   }).safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
 
   const code = normalizeOrgRoleCode(parsed.data.code)
   try {
@@ -432,7 +434,7 @@ r.put('/profiles/:role/permissions', requirePermission('profiles.manage', 'all')
   const parsed = z.object({
     permissions: z.array(profileGrantSchema),
   }).safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
 
   const updated = await replaceRolePermissionGrants(exists.code, profileGrantsFromBody(parsed.data.permissions))
   if (updated && 'error' in updated && updated.error === 'NO_ROLE') {
@@ -504,10 +506,10 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
     .object({
       email: z.string().email(),
       role: z.string().min(2),
-      username: z.string().min(3).max(30).optional(),
+      username: usernameSchema.optional(),
     })
     .safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
   const roleCode = normalizeOrgRoleCode(parsed.data.role)
   if (roleCode === 'ADMIN') return res.status(400).json({ message: 'Rol inválido' })
 
@@ -562,7 +564,7 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
   const parsed = z
     .object({
       role: z.string().min(2).optional(),
-      username: z.string().min(3).max(30).optional(),
+      username: usernameSchema.optional(),
       nationalId: z.string().min(6).max(20).optional(),
       firstName: z.string().min(1).max(80).optional(),
       lastName: z.string().min(1).max(80).optional(),
@@ -570,7 +572,7 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
       isActive: z.boolean().optional(),
     })
     .safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' })
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
   const target = await prisma.user.findUnique({
     where: { id },
     select: {

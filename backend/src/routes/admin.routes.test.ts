@@ -416,6 +416,15 @@ describe("admin routes (prisma mock)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("POST /admin/users 400 si username tiene caracteres inválidos", async () => {
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "mal usuario!" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Usuario inválido/i);
+  });
+
   it("POST /admin/users 201 crea", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     prismaMock.user.create.mockResolvedValue({ id: "new-id" });
@@ -1096,6 +1105,15 @@ describe("admin routes (prisma mock)", () => {
         .set(adminHdr())
         .send({ username: "ab" });
       expect(res.status).toBe(400);
+    });
+
+    it("400 si el username tiene caracteres inválidos", async () => {
+      const res = await request(app())
+        .put("/admin/users/u1")
+        .set(adminHdr())
+        .send({ username: "no validos!" });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Usuario inválido/i);
     });
 
     it("400 si el código de rol tiene formato inválido", async () => {

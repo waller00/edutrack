@@ -25,6 +25,8 @@ import {
   type AdminUsersListFilters,
   type TriState,
 } from '@/lib/admin/users-display'
+import { getRoleLabel } from '@/lib/roles/display'
+import { REGISTER_USERNAME_PATTERN, REGISTER_USERNAME_REGEX } from '@/lib/auth/register-form-validation'
 import { ChevronLeft, ChevronRight, Fingerprint, KeyRound, Loader2, Pencil, Search, Users } from 'lucide-react'
 
 type OrgRoleRow = { code: string; label: string; active: boolean }
@@ -105,7 +107,7 @@ export default function AdminUsersPage() {
       ? roleChoicesFromApi
       : [
           { code: 'TEACHER', label: 'Docente', active: true },
-          { code: 'STAFF', label: 'Administrativo', active: true },
+          { code: 'STAFF', label: 'Personal', active: true },
         ]
 
   function applyFilters() {
@@ -134,6 +136,11 @@ export default function AdminUsersPage() {
 
   async function saveEdit() {
     if (!edit) return
+    const username = edit.username?.trim() ?? ''
+    if (username && !REGISTER_USERNAME_REGEX.test(username)) {
+      setMsg('Usuario inválido. Usá 3 a 30 caracteres: letras, números, punto, guion bajo o guion.')
+      return
+    }
     const changes = buildAdminUserEditChanges(editOrig, edit)
     const proceed = confirm(
       changes.length ? `Confirmar cambios:\n - ${changes.join('\n - ')}` : 'No hay cambios. ¿Guardar igualmente?',
@@ -147,7 +154,7 @@ export default function AdminUsersPage() {
         method: 'PUT',
         body: JSON.stringify({
           role: edit.role,
-          username: edit.username,
+          username: username || undefined,
           nationalId: edit.nationalId,
           firstName: edit.firstName,
           lastName: edit.lastName,
@@ -166,6 +173,11 @@ export default function AdminUsersPage() {
 
   async function createUser(e: React.FormEvent) {
     e.preventDefault()
+    const username = createForm.username.trim()
+    if (username && !REGISTER_USERNAME_REGEX.test(username)) {
+      setMsg('Usuario inválido. Usá 3 a 30 caracteres: letras, números, punto, guion bajo o guion.')
+      return
+    }
     setCreateSaving(true)
     setMsg('')
     try {
@@ -174,7 +186,7 @@ export default function AdminUsersPage() {
         body: JSON.stringify({
           email: createForm.email.trim(),
           role: createForm.role,
-          username: createForm.username.trim() || undefined,
+          username: username || undefined,
         }),
       })
       setMsg('Usuario creado. Debe completar el registro o definir su contraseña por correo.')
@@ -248,7 +260,7 @@ export default function AdminUsersPage() {
         <td className="px-3 py-3 align-middle font-mono text-xs text-slate-700">{u.username || '—'}</td>
         <td className="px-3 py-3 align-middle">
           <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-700">
-            {u.role}
+            {getRoleLabel(u.role)}
           </span>
         </td>
         <td className="px-3 py-3 align-middle text-sm">
@@ -384,6 +396,9 @@ export default function AdminUsersPage() {
                   onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                   placeholder="Opcional"
+                  minLength={3}
+                  maxLength={30}
+                  pattern={REGISTER_USERNAME_PATTERN}
                 />
               </div>
               <div>
@@ -628,6 +643,8 @@ export default function AdminUsersPage() {
                     onChange={(e) => setEdit({ ...edit, username: e.target.value })}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                     minLength={3}
+                    maxLength={30}
+                    pattern={REGISTER_USERNAME_PATTERN}
                   />
                 </div>
                 <div>
@@ -649,7 +666,7 @@ export default function AdminUsersPage() {
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-600">Rol</label>
                   {edit.role === 'ADMIN' ? (
-                    <input value="ADMIN" disabled className="w-full rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500" />
+                    <input value={getRoleLabel('ADMIN')} disabled className="w-full rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500" />
                   ) : (
                     <select
                       value={edit.role}
@@ -657,7 +674,7 @@ export default function AdminUsersPage() {
                       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                     >
                       {!roleChoices.some((r) => r.code === edit.role) && edit.role !== 'ADMIN' ? (
-                        <option value={edit.role}>{edit.role}</option>
+                        <option value={edit.role}>{getRoleLabel(edit.role)}</option>
                       ) : null}
                       {roleChoices.map((r) => (
                         <option key={r.code} value={r.code}>
