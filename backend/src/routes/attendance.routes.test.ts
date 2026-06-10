@@ -118,6 +118,49 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.status).toBe(403);
   });
 
+  it("permite registrar asistencia al suplente oficial usando el horario de la suplencia", async () => {
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eid,
+      assignedUserId: "titular-1",
+      type: "CLASE",
+      status: "SCHEDULED",
+      startDate: new Date("2026-05-01T03:00:00.000Z"),
+      startTime: new Date("2026-05-01T08:00:00.000Z"),
+      endTime: new Date("2026-05-01T09:00:00.000Z"),
+      schoolYearId: "sy-1",
+    });
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          id: "sub-1",
+          startTime: new Date("2026-05-05T13:00:00.000Z"),
+          endTime: new Date("2026-05-05T14:00:00.000Z"),
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    prismaMock.attendance.create.mockResolvedValue({
+      id: "a-sub-1",
+      status: "PRESENT",
+      user: {},
+      event: {},
+    });
+
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({
+        ...validBody,
+        date: "2026-05-05T03:00:00.000Z",
+        time: "2026-05-05T13:04:00.000Z",
+      });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBe(eid);
+  });
+
   it("409 duplicado mismo día y tipo", async () => {
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,

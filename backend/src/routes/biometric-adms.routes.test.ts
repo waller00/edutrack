@@ -169,6 +169,61 @@ describe("biometric ADMS ingest", () => {
     expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBeUndefined();
   });
 
+  it("201 vincula marcación biométrica a una clase suplida", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "substitute-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          eventId: "event-sub-1",
+          title: "Matemática",
+          type: "CLASE",
+          startTime: new Date("2026-05-05T13:00:00.000Z"),
+          endTime: new Date("2026-05-05T14:00:00.000Z"),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "sub-1",
+          originalTeacherUserId: "joaquin-1",
+          reason: "Licencia del titular",
+          startTime: new Date("2026-05-05T13:00:00.000Z"),
+          schoolYearId: "sy-1",
+        },
+      ]);
+    prismaMock.attendance.create.mockResolvedValue({
+      id: "att-1",
+      type: "CHECK_IN",
+      status: "PRESENT",
+      date: new Date("2026-05-05T03:00:00.000Z"),
+      time: new Date(payload.timestamp),
+      eventId: "event-sub-1",
+    });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-1" });
+    prismaMock.biometricDevice.update.mockResolvedValue({});
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send(payload);
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("LATE");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBe("event-sub-1");
+    expect(prismaMock.attendance.create.mock.calls[1][0].data).toEqual(
+      expect.objectContaining({
+        userId: "joaquin-1",
+        eventId: "event-sub-1",
+        status: "SUBSTITUTED",
+        notes: "Ausencia prevista sin justificar (suplida): Licencia del titular",
+      }),
+    );
+    expect(findAssignedEventMock).not.toHaveBeenCalled();
+  });
+
   it("vincula evento cercano y deja presente si la marca fue antes del inicio", async () => {
     prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
     prismaMock.biometricPunch.findUnique.mockResolvedValue(null);

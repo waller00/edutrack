@@ -20,8 +20,12 @@
   "otpPolicyDigits": 6,
   "otpPolicyPeriod": 30,
   "accessTokenLifespan": 300,
-  "ssoSessionIdleTimeout": 1800,
-  "ssoSessionMaxLifespan": 36000,
+  "ssoSessionIdleTimeout": 604800,
+  "ssoSessionMaxLifespan": 604800,
+  "ssoSessionIdleTimeoutRememberMe": 2592000,
+  "ssoSessionMaxLifespanRememberMe": 2592000,
+  "clientSessionIdleTimeout": 604800,
+  "clientSessionMaxLifespan": 604800,
   "roles": {
     "realm": [
       { "name": "ADMIN", "description": "Administrador EduTrack" },

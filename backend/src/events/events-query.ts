@@ -57,7 +57,7 @@ export function resolveRecurringRangeEnd(event: any, endDate?: unknown) {
   return new Date(Math.max(Date.now(), new Date(event.startDate).getTime()));
 }
 
-function deriveOccurrenceStatus(baseStatus: any, occStartAt: Date, occEndAt: Date) {
+export function deriveOccurrenceStatus(baseStatus: any, occStartAt: Date, occEndAt: Date) {
   if (baseStatus === 'CANCELLED') return 'CANCELLED'
   if (baseStatus === 'EXPIRED') return 'EXPIRED'
   const now = new Date()
