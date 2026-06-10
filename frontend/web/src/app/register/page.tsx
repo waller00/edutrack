@@ -11,7 +11,7 @@ import {
 import { PasswordVisibilityToggle } from '@/components/common/PasswordVisibilityToggle'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { loginUrl, logoutUrl } from '@/lib/auth/urls'
-import { getPasswordStrength, getStrengthBarClass } from '@/lib/auth/password-strength'
+import { PASSWORD_MAX_LENGTH, getPasswordStrength, getStrengthBarClass } from '@/lib/auth/password-strength'
 import {
   getRegisterVerificationFieldLabel,
   getRegisterVerificationMessageClass,
@@ -646,6 +646,7 @@ export default function RegisterPage() {
                         required
                         className="input-field pr-10"
                         placeholder="Mín 8, Aa y 0-9"
+                        maxLength={PASSWORD_MAX_LENGTH}
                       />
                       <PasswordVisibilityToggle visible={showPwd} onToggle={() => setShowPwd((s) => !s)} />
                     </div>
@@ -664,6 +665,7 @@ export default function RegisterPage() {
                         required
                         className="input-field pr-10"
                         placeholder="Repite tu contraseña"
+                        maxLength={PASSWORD_MAX_LENGTH}
                       />
                       <PasswordVisibilityToggle
                         visible={showConfirm}

@@ -47,6 +47,12 @@ function isWithinDuplicateWindow(a: Date, b: Date, windowMinutes: number) {
   return windowMinutes > 0 && Math.abs(a.getTime() - b.getTime()) <= windowMinutes * 60 * 1000;
 }
 
+function endOfUtcDay(startOfDay: Date) {
+  const end = new Date(startOfDay);
+  end.setUTCHours(23, 59, 59, 999);
+  return end;
+}
+
 async function createDuplicatePunch(
   tx: any,
   params: {
@@ -178,7 +184,7 @@ async function materializeCoveredEventAttendances(tx: any, params: {
     const existing = await tx.attendance.findFirst({
       where: {
         userId: params.userId,
-        date: params.attendanceDate,
+        date: { gte: params.attendanceDate, lte: endOfUtcDay(params.attendanceDate) },
         eventId: slot.id,
         type: "CHECK_IN",
       },
@@ -564,6 +570,54 @@ export async function processBiometricIngest(params: BiometricIngestParams): Pro
             : "PRESENT";
       const status = linkage.attendanceEventId ? computedStatus : "OUT_OF_SCHEDULE";
       const schoolYearId = await resolveAttendanceSchoolYearId(tx, linkage.attendanceEventId);
+
+      const existingEventAttendance = linkage.attendanceEventId
+        ? await tx.attendance.findFirst({
+            where: {
+              userId: mapping.userId,
+              date: { gte: attendanceDate, lte: endOfUtcDay(attendanceDate) },
+              eventId: linkage.attendanceEventId,
+              type: resolvedType,
+            },
+            select: { id: true, type: true, time: true },
+          })
+        : null;
+
+      if (existingEventAttendance) {
+        const duplicatePunch = await createDuplicatePunch(tx, {
+          deviceDbId,
+          mappingId: mapping.id,
+          userId: mapping.userId,
+          deviceUserId,
+          externalId,
+          occurredAt,
+          punchType: resolvedType,
+          processError: `Marcación ${resolvedType} repetida para el mismo evento`,
+          payload,
+        });
+
+        if (resolvedType === "CHECK_OUT" && occurredAt.getTime() > new Date(existingEventAttendance.time).getTime()) {
+          await tx.attendance.update({
+            where: { id: existingEventAttendance.id },
+            data: {
+              time: occurredAt,
+              schoolYearId: schoolYearId ?? undefined,
+              status: status as any,
+              notes: buildBiometricAttendancePayload({
+                userId: mapping.userId,
+                attendanceDate,
+                attendanceTime: occurredAt,
+                deviceId: deviceCode,
+                eventId: linkage.attendanceEventId,
+                status: status as any,
+                type: "CHECK_OUT",
+              }).notes,
+            },
+          });
+        }
+
+        return { duplicate: true as const, punchId: duplicatePunch.id, attendanceId: existingEventAttendance.id };
+      }
 
       const attendance = await tx.attendance.create({
         data: {

@@ -287,7 +287,7 @@ function roleChipLabel(role: string | undefined | null) {
     case 'TEACHER':
       return 'Docentes'
     case 'STAFF':
-      return 'Equipo administrativo'
+      return 'Personal'
     case 'ADMIN':
       return 'Administradores'
     case '':
@@ -723,7 +723,7 @@ export default function AdminAnalyticsPage() {
               >
                 <option value="">Todos los roles</option>
                 <option value="TEACHER">Docentes</option>
-                <option value="STAFF">Equipo administrativo</option>
+                <option value="STAFF">Personal</option>
                 <option value="ADMIN">Administradores</option>
               </select>
               <p className="mt-1 text-xs text-gray-500">

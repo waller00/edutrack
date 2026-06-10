@@ -10,7 +10,7 @@ import {
   getAttendanceTypeStyle,
   getAttendanceTypeLabel,
   getAttendanceStatusStyle,
-  getAttendanceStatusLabel,
+  getAttendanceStatusLabelForType,
   type MyAttendanceType,
   type MyAttendanceStatus,
 } from '@/lib/attendance/my-attendance-display'
@@ -29,7 +29,7 @@ function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
   if (attendance.status === 'LATE' && attendance.notes?.toLowerCase().includes('llegada muy tarde')) {
     return 'Llegada muy tarde'
   }
-  return getAttendanceStatusLabel(attendance.status)
+  return getAttendanceStatusLabelForType(attendance.type, attendance.status)
 }
 
 export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {

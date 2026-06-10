@@ -134,6 +134,19 @@ describe("attendance /register (prisma mock)", () => {
       .send(validBody);
     expect(res.status).toBe(409);
     expect(String(res.body.message)).toMatch(/entrada|registro/i);
+    expect(prismaMock.attendance.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: "user-1",
+          eventId: eid,
+          type: "CHECK_IN",
+          date: expect.objectContaining({
+            gte: expect.any(Date),
+            lte: expect.any(Date),
+          }),
+        }),
+      }),
+    );
   });
 
   it("201 registro feliz", async () => {

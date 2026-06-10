@@ -120,6 +120,22 @@ describe('AdminUsersPage', () => {
     await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(`/admin/users/${row.id}`, expect.any(Object)))
   })
 
+  it('no guarda edición con usuario inválido', async () => {
+    mockedApi
+      .mockResolvedValueOnce(orgRoles)
+      .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [row] })
+
+    render(<AdminUsersPage />)
+    await screen.findByText('user1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar usuario' }))
+    fireEvent.change(screen.getByDisplayValue('user1'), { target: { value: 'no valido!' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+
+    expect(await screen.findByText(/Usuario inválido/i)).toBeInTheDocument()
+    expect(mockedApi).not.toHaveBeenCalledWith(`/admin/users/${row.id}`, expect.any(Object))
+  })
+
   it('error al guardar', async () => {
     mockedApi
       .mockResolvedValueOnce(orgRoles)
