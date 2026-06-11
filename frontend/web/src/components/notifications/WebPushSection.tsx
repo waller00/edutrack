@@ -1,14 +1,14 @@
 'use client'
 
-import { Bell, BellOff, Send } from 'lucide-react'
+import { Bell, BellOff } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import {
+  getCurrentDeviceWebPushState,
   getWebPushServerStatusWithRetry,
   getWebPushSupportState,
-  sendWebPushTest,
   subscribeCurrentDeviceToWebPush,
-  unsubscribeAllWebPushForUser,
+  unsubscribeCurrentDeviceFromWebPush,
   type WebPushSupportCode,
 } from '@/lib/notifications/web-push-client'
 
@@ -30,24 +30,27 @@ function unsupportedExplanation(code: WebPushSupportCode): string {
 export default function WebPushSection() {
   const [supportCode, setSupportCode] = useState<WebPushSupportCode>('pending')
   const [configured, setConfigured] = useState(false)
-  const [subscriptionCount, setSubscriptionCount] = useState(0)
+  const [deviceSubscribed, setDeviceSubscribed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [testBusy, setTestBusy] = useState(false)
   const [note, setNote] = useState('')
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setNote('')
     try {
-      const s = await getWebPushServerStatusWithRetry()
-      setConfigured(s.configured)
-      setSubscriptionCount(s.subscriptionCount)
+      const [serverStatus, localStatus] = await Promise.all([
+        getWebPushServerStatusWithRetry(),
+        getCurrentDeviceWebPushState(),
+      ])
+      setConfigured(serverStatus.configured)
+      setDeviceSubscribed(localStatus.subscribed)
     } catch {
       setNote(
         'No se pudo consultar el estado de notificaciones. Si acabás de iniciar sesión, recargá la página o probá de nuevo en unos segundos.',
       )
-      // No poner el contador en 0: suele confundir (la suscripción en servidor puede seguir existiendo).
+      const localStatus = await getCurrentDeviceWebPushState()
+      setDeviceSubscribed(localStatus.subscribed)
     } finally {
       setLoading(false)
     }
@@ -58,51 +61,28 @@ export default function WebPushSection() {
     void refresh()
   }, [refresh])
 
-  async function onEnable() {
+  async function onToggle() {
     setBusy(true)
     setNote('')
     try {
-      const r = await subscribeCurrentDeviceToWebPush()
-      if (!r.ok) {
-        setNote(r.error)
-        return
+      if (deviceSubscribed) {
+        await unsubscribeCurrentDeviceFromWebPush()
+        setDeviceSubscribed(false)
+        setNote('Notificaciones desactivadas en este dispositivo.')
+      } else {
+        const r = await subscribeCurrentDeviceToWebPush()
+        if (!r.ok) {
+          setNote(r.error)
+          return
+        }
+        setDeviceSubscribed(true)
+        setNote('Notificaciones activadas en este dispositivo.')
       }
-      setNote('Notificaciones activadas en este dispositivo.')
-      await refresh()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onDisableAll() {
-    if (!confirm('¿Quitar todas las suscripciones push de tu cuenta (todos los dispositivos)?')) return
-    setBusy(true)
-    setNote('')
-    try {
-      await unsubscribeAllWebPushForUser()
-      setNote('Suscripciones eliminadas.')
       await refresh()
     } catch (e: unknown) {
-      setNote(e instanceof Error ? e.message : 'Error al desactivar.')
+      setNote(e instanceof Error ? e.message : 'Error al cambiar el estado de las notificaciones.')
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function onTest() {
-    setTestBusy(true)
-    setNote('')
-    try {
-      const r = await sendWebPushTest()
-      setNote(
-        r.sent > 0
-          ? `Enviada notificación de prueba (${r.sent} dispositivo(s)).`
-          : 'No hay suscripciones activas o el envío falló en todos los dispositivos.',
-      )
-    } catch (e: unknown) {
-      setNote(e instanceof Error ? e.message : 'No se pudo enviar la prueba.')
-    } finally {
-      setTestBusy(false)
     }
   }
 
@@ -142,8 +122,16 @@ export default function WebPushSection() {
     <section className="card">
       <div className="card-header">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-            <Bell className="h-4 w-4 text-emerald-600" aria-hidden />
+          <div
+            className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+              deviceSubscribed ? 'bg-emerald-100' : 'bg-gray-100'
+            }`}
+          >
+            {deviceSubscribed ? (
+              <Bell className="h-4 w-4 text-emerald-600" aria-hidden />
+            ) : (
+              <BellOff className="h-4 w-4 text-gray-500" aria-hidden />
+            )}
           </div>
           <h2 className="text-lg font-semibold text-gray-900">Notificaciones en el navegador</h2>
         </div>
@@ -162,60 +150,58 @@ export default function WebPushSection() {
         </p>
       ) : (
         <>
-          <p className="text-sm text-gray-700 mb-4">
-            Dispositivos registrados: <strong>{subscriptionCount}</strong>
-          </p>
+          <div
+            className={`mb-4 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
+              deviceSubscribed
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-gray-50 text-gray-700 border border-gray-200'
+            }`}
+          >
+            {deviceSubscribed ? (
+              <>
+                <Bell className="h-4 w-4 shrink-0" aria-hidden />
+                Activadas en este dispositivo
+              </>
+            ) : (
+              <>
+                <BellOff className="h-4 w-4 shrink-0" aria-hidden />
+                Desactivadas en este dispositivo
+              </>
+            )}
+          </div>
 
           {note ? (
             <div className="mb-4 text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3">{note}</div>
           ) : null}
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => void onEnable()}
-              disabled={busy}
-              className="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              <PendingButtonContent
-                pending={busy}
-                pendingText="Activando…"
-                idle={
+          <button
+            type="button"
+            onClick={() => void onToggle()}
+            disabled={busy}
+            className={
+              deviceSubscribed
+                ? 'inline-flex items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60'
+                : 'btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60'
+            }
+          >
+            <PendingButtonContent
+              pending={busy}
+              pendingText={deviceSubscribed ? 'Desactivando…' : 'Activando…'}
+              idle={
+                deviceSubscribed ? (
+                  <>
+                    <BellOff className="h-4 w-4 shrink-0" aria-hidden />
+                    Desactivar
+                  </>
+                ) : (
                   <>
                     <Bell className="h-4 w-4 shrink-0" aria-hidden />
-                    Activar en este dispositivo
+                    Activar
                   </>
-                }
-              />
-            </button>
-            <button
-              type="button"
-              onClick={() => void onTest()}
-              disabled={testBusy || subscriptionCount === 0}
-              title="Envía un aviso de prueba solo a tus dispositivos registrados (útil para soporte y verificación)."
-              className="inline-flex items-center justify-center gap-2 rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <PendingButtonContent
-                pending={testBusy}
-                pendingText="Enviando…"
-                idle={
-                  <>
-                    <Send className="h-4 w-4 shrink-0" aria-hidden />
-                    Enviar notificación de prueba
-                  </>
-                }
-              />
-            </button>
-            <button
-              type="button"
-              onClick={() => void onDisableAll()}
-              disabled={busy || subscriptionCount === 0}
-              className="inline-flex items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <BellOff className="h-4 w-4 shrink-0" aria-hidden />
-              Quitar todas
-            </button>
-          </div>
+                )
+              }
+            />
+          </button>
         </>
       )}
     </section>

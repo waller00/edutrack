@@ -88,4 +88,32 @@ describe("in-app notifications routes", () => {
     expect(res.status).toBe(200);
     expect(res.body.updated).toBe(3);
   });
+
+  it("GET / 400 con parámetros inválidos", async () => {
+    const res = await request(app()).get("/notifications/in-app?take=9999").set(auth());
+    expect(res.status).toBe(400);
+  });
+
+  it("GET / 200 filtrando solo no leídos", async () => {
+    prismaMock.inAppNotification.findMany.mockResolvedValue([]);
+    const res = await request(app()).get("/notifications/in-app?unreadOnly=true").set(auth());
+    expect(res.status).toBe(200);
+    expect(prismaMock.inAppNotification.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ readAt: null }) }),
+    );
+  });
+
+  it("devuelve 500 cuando la DB falla en cada endpoint", async () => {
+    prismaMock.inAppNotification.findMany.mockRejectedValueOnce(new Error("db"));
+    expect((await request(app()).get("/notifications/in-app").set(auth())).status).toBe(500);
+
+    prismaMock.inAppNotification.count.mockRejectedValueOnce(new Error("db"));
+    expect((await request(app()).get("/notifications/in-app/unread-count").set(auth())).status).toBe(500);
+
+    prismaMock.inAppNotification.findFirst.mockRejectedValueOnce(new Error("db"));
+    expect((await request(app()).patch("/notifications/in-app/n1/read").set(auth())).status).toBe(500);
+
+    prismaMock.inAppNotification.updateMany.mockRejectedValueOnce(new Error("db"));
+    expect((await request(app()).post("/notifications/in-app/read-all").set(auth()).send({})).status).toBe(500);
+  });
 });

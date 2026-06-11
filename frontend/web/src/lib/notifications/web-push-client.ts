@@ -120,6 +120,35 @@ export async function subscribeCurrentDeviceToWebPush(): Promise<{ ok: true } | 
   }
 }
 
+/** Indica si este navegador tiene una suscripción push activa. */
+export async function getCurrentDeviceWebPushState(): Promise<{ subscribed: boolean }> {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration(SW_PATH)
+    if (!reg) return { subscribed: false }
+    const sub = await reg.pushManager.getSubscription()
+    return { subscribed: sub != null }
+  } catch {
+    return { subscribed: false }
+  }
+}
+
+/** Quita la suscripción push solo en este navegador. */
+export async function unsubscribeCurrentDeviceFromWebPush(): Promise<void> {
+  const reg = await navigator.serviceWorker.getRegistration(SW_PATH)
+  if (reg) {
+    const sub = await reg.pushManager.getSubscription()
+    if (sub) {
+      const endpoint = sub.endpoint
+      await sub.unsubscribe()
+      await api('/notifications/web-push/subscribe', {
+        method: 'DELETE',
+        body: JSON.stringify({ endpoint }),
+      })
+      return
+    }
+  }
+}
+
 /** Quita la suscripción en este navegador y todas las entradas del usuario en el servidor. */
 export async function unsubscribeAllWebPushForUser(): Promise<void> {
   const reg = await navigator.serviceWorker.getRegistration()

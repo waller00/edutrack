@@ -70,13 +70,13 @@ describe('ProfilePage', () => {
     await waitFor(() => expect(window.location.href).toBe('/login'))
   })
 
-  it('muestra validación de usuario al guardar', async () => {
-    mockedApi.mockResolvedValueOnce({ ...baseMe, username: 'ab' }).mockResolvedValueOnce({ enabled: false })
+  it('muestra validación de correo al guardar', async () => {
+    mockedApi.mockResolvedValueOnce({ ...baseMe, email: 'correo-malo' }).mockResolvedValueOnce({ enabled: false })
     render(<ProfilePage />)
     await screen.findByText('Mi Perfil')
     fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
     await waitFor(() => {
-      expect(screen.getByText('Usuario inválido')).toBeInTheDocument()
+      expect(screen.getByText('Correo inválido')).toBeInTheDocument()
     })
   })
 
@@ -112,24 +112,48 @@ describe('ProfilePage', () => {
     )
   })
 
-  it('permite desactivar 2FA con contraseña si ya está activo', async () => {
+  it('pide código OTP y mantiene recuperación por correo para desactivar 2FA', async () => {
     mockedApi
       .mockResolvedValueOnce({ ...baseMe })
       .mockResolvedValueOnce({ enabled: true })
-      .mockResolvedValueOnce({ ok: true, removed: 1 })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
     render(<ProfilePage />)
 
-    expect(await screen.findByRole('button', { name: /desactivar 2fa/i })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /administrar 2fa/i })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /desactivar 2fa/i }))
-    fireEvent.change(screen.getByLabelText(/contraseña actual/i), { target: { value: 'Secret123!' } })
-    fireEvent.click(screen.getByRole('button', { name: /^desactivar$/i }))
+    await screen.findByLabelText(/código de 2fa/i)
+    fireEvent.click(screen.getByRole('button', { name: /desactivar por correo/i }))
 
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(
-        '/auth/account/2fa',
-        expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ password: 'Secret123!' }) }),
-      ),
+      expect(mockedApi).toHaveBeenCalledWith('/auth/account/2fa/disable-email', expect.objectContaining({ method: 'POST' })),
     )
+    expect(await screen.findByText(/te enviamos un correo/i)).toBeInTheDocument()
+
+    const codeInput = await screen.findByLabelText(/código de 2fa/i)
+    fireEvent.change(codeInput, { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: /desactivar 2fa/i }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/auth/account/2fa/disable', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ code: '123456' }),
+      })),
+    )
+    expect(await screen.findByText('2FA desactivado')).toBeInTheDocument()
+  })
+
+  it('muestra el aviso y limpia los params de la URL tras desactivar 2FA', async () => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { href: 'http://localhost/profile?twoFactorDisabled=1' },
+    })
+    const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+    mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: true })
+    render(<ProfilePage />)
+
+    expect(await screen.findByText('2FA desactivado')).toBeInTheDocument()
+    // El param se elimina para que un refresh/atrás no re-dispare el aviso.
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/profile')
+    replaceState.mockRestore()
   })
 })

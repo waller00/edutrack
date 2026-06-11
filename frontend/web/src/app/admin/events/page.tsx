@@ -283,7 +283,8 @@ const WEEKDAY_OPTIONS = [
   { value: 5, short: 'Vie', long: 'Viernes' },
   { value: 6, short: 'Sáb', long: 'Sábado' },
 ] as const
-const WEEKDAY_SHORT_BY_VALUE = new Map<number, string>(WEEKDAY_OPTIONS.map((d) => [d.value, d.short]))
+const WEEKDAY_SHORT_BY_VALUE = new Map(WEEKDAY_OPTIONS.map((d) => [d.value, d.short]))
+type WeekdayValue = (typeof WEEKDAY_OPTIONS)[number]['value']
 
 function weekdayNumberInUruguay(value?: string | null): number | null {
   if (!value) return null
@@ -319,7 +320,7 @@ function formatWeekdayList(days: number[]): string {
   const sorted = uniqueSortedDays(days)
   if (sorted.length === 0) return 'Sin días definidos'
   if (sorted.length === 7) return 'Todos los días'
-  return sorted.map((d) => WEEKDAY_SHORT_BY_VALUE.get(d) ?? String(d)).join(', ')
+  return sorted.map((d) => WEEKDAY_SHORT_BY_VALUE.get(d as 0 | 1 | 2 | 3 | 4 | 5 | 6) ?? String(d)).join(', ')
 }
 
 function formatEventTimeRange(event: Pick<Event, 'startTime' | 'endTime'>): string {
@@ -346,15 +347,35 @@ function formatEventScheduleSummary(event: Pick<Event, 'isRecurring' | 'recurren
 
 function buildWeekdayEventSummary(events: Event[]) {
   return WEEKDAY_OPTIONS.map((day) => {
-    const dayEvents = events.filter((event) => eventAssignedWeekdays(event).includes(day.value))
+    const dayEvents = getEventsForWeekday(events, day.value)
     const visible = dayEvents.slice(0, 3).map((event) => ({
       id: event.id,
       title: event.title,
       time: formatEventTimeRange(event),
-      assigned: event.assignedUser?.username || event.assignedUser?.name || 'Sin asignar',
+      assigned: getEventAssignedDisplay(event),
     }))
     return { ...day, count: dayEvents.length, visible, hiddenCount: Math.max(dayEvents.length - visible.length, 0) }
   })
+}
+
+function getEventsForWeekday(events: Event[], dayValue: WeekdayValue): Event[] {
+  return events
+    .filter((event) => eventAssignedWeekdays(event).includes(dayValue))
+    .sort((a, b) => {
+      const aStart = a.startTime ? timeStringToMinutes(formatClockHhMmInUruguayFromIso(a.startTime)) ?? 0 : 0
+      const bStart = b.startTime ? timeStringToMinutes(formatClockHhMmInUruguayFromIso(b.startTime)) ?? 0 : 0
+      if (aStart !== bStart) return aStart - bStart
+      return a.title.localeCompare(b.title)
+    })
+}
+
+function getEventAssignedDisplay(event: Pick<Event, 'assignedUser'>): string {
+  return event.assignedUser?.username || event.assignedUser?.name || 'Sin asignar'
+}
+
+function getEventAcademicSummary(event: Pick<Event, 'course' | 'subject' | 'orientation'>): string {
+  const parts = [event.course?.name, event.orientation?.name, event.subject?.name].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : 'Sin curso ni asignatura'
 }
 
 function parseHhMm(value: string): { h: string; m: string } {
@@ -502,7 +523,10 @@ export default function AdminEvents() {
   const [portalReady, setPortalReady] = useState(false)
   const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
   const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
+  const [selectedWeekday, setSelectedWeekday] = useState<WeekdayValue | null>(null)
   const weekdaySummary = buildWeekdayEventSummary(events)
+  const selectedWeekdayOption = selectedWeekday === null ? null : WEEKDAY_OPTIONS.find((day) => day.value === selectedWeekday)
+  const selectedWeekdayEvents = selectedWeekday === null ? [] : getEventsForWeekday(events, selectedWeekday)
 
   useEffect(() => {
     loadEvents()
@@ -1087,7 +1111,17 @@ export default function AdminEvents() {
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
                 {weekdaySummary.map((day) => (
-                  <div key={day.value} className="min-h-[6.5rem] rounded border border-slate-200 bg-white px-3 py-2">
+                  <button
+                    key={day.value}
+                    type="button"
+                    onClick={() => setSelectedWeekday(day.value)}
+                    aria-pressed={selectedWeekday === day.value}
+                    className={`min-h-[6.5rem] rounded border px-3 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                      selectedWeekday === day.value
+                        ? 'border-emerald-500 bg-emerald-50 shadow-sm'
+                        : 'border-slate-200 bg-white'
+                    }`}
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-slate-900">{day.long}</span>
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
@@ -1109,9 +1143,76 @@ export default function AdminEvents() {
                     ) : (
                       <div className="mt-2 text-xs text-slate-400">Sin actividades</div>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
+              {selectedWeekdayOption ? (
+                <div
+                  className="mt-4 rounded border border-slate-200 bg-white"
+                  role="region"
+                  aria-label={`Actividades de ${selectedWeekdayOption.long}`}
+                >
+                  <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        {selectedWeekdayOption.long}
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                          {selectedWeekdayEvents.length}
+                        </span>
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedWeekday(null)}
+                      className="self-start rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:self-auto"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  {selectedWeekdayEvents.length > 0 ? (
+                    <div className="max-h-[22rem] overflow-y-auto">
+                      <ul className="divide-y divide-slate-100">
+                        {selectedWeekdayEvents.map((event) => (
+                          <li key={`${selectedWeekdayOption.value}-${event.id}`} className="px-4 py-3">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                              <div className="min-w-0 space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800">
+                                    {formatEventTimeRange(event)}
+                                  </span>
+                                  <span className={`rounded px-2 py-1 text-xs font-medium ${getAdminEventStatusStyle(event.status)}`}>
+                                    {getAdminEventStatusLabel(event.status)}
+                                  </span>
+                                  <span className="rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
+                                    {getAdminEventTypeLabel(event.type)}
+                                  </span>
+                                </div>
+                                <div>
+                                  <div className="font-medium text-slate-900">{event.title}</div>
+                                  <div className="mt-1 text-xs text-slate-500">{formatEventRecurrenceLabel(event)}</div>
+                                </div>
+                                <div className="text-sm text-slate-700">{getEventAcademicSummary(event)}</div>
+                                <div className="text-xs text-slate-500">
+                                  {getEventAssignedDisplay(event)} · {event.location || 'Sin ubicación'} · {event._count.attendances} asist.
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setEditingEvent(event)}
+                                className="inline-flex w-fit items-center rounded border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+                              >
+                                Editar
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="px-4 py-5 text-sm text-slate-500">Sin actividades para este día.</div>
+                  )}
+                </div>
+              ) : null}
             </div>
           ) : null}
           

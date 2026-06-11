@@ -199,6 +199,7 @@ describe('validateRegisterForm', () => {
   it('correo y contraseña', () => {
     expect(validateRegisterForm({ ...baseForm, email: 'bad' })).toContain('Correo')
     expect(validateRegisterForm({ ...baseForm, password: 'weak' })).toContain('contraseña')
+    expect(validateRegisterForm({ ...baseForm, password: `Aa1${'x'.repeat(62)}` })).toContain('64')
     expect(validateRegisterForm({ ...baseForm, confirm: 'Xyz78901' })).toContain('coinciden')
   })
   it('sin DNI verificado', () => {

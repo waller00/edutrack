@@ -28,7 +28,6 @@ type DeviceForm = {
   code: string
   name: string
   admsSerial: string
-  timezone: string
   secret: string
   allowedIpsText: string
   isActive: boolean
@@ -40,7 +39,6 @@ const emptyForm: DeviceForm = {
   code: '',
   name: '',
   admsSerial: '',
-  timezone: 'America/Montevideo',
   secret: '',
   allowedIpsText: '',
   isActive: true,
@@ -51,7 +49,6 @@ function toForm(device: BiometricDevice): DeviceForm {
     code: device.code,
     name: device.name,
     admsSerial: device.admsSerial || '',
-    timezone: device.timezone || 'America/Montevideo',
     secret: '',
     allowedIpsText: device.allowedIps.join('\n'),
     isActive: device.isActive,
@@ -153,7 +150,6 @@ export default function AdminBiometricDevicesPanel() {
       code: form.code.trim(),
       name: form.name.trim(),
       admsSerial: form.admsSerial.trim() || null,
-      timezone: form.timezone.trim() || 'America/Montevideo',
       allowedIps: ipsFromText(form.allowedIpsText),
       isActive: form.isActive,
     }
@@ -366,7 +362,8 @@ export default function AdminBiometricDevicesPanel() {
                 </label>
                 <label className="block space-y-1.5">
                   <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Serial ADMS</span>
-                  <input className="input-modern w-full text-sm" value={form.admsSerial} onChange={(e) => setForm((prev) => ({ ...prev, admsSerial: e.target.value }))} placeholder="Opcional" />
+                  <input className="input-modern w-full text-sm" value={form.admsSerial} onChange={(e) => setForm((prev) => ({ ...prev, admsSerial: e.target.value }))} placeholder="SN del equipo (opcional)" />
+                  <span className="block text-[11px] text-gray-400">Número de serie real del terminal ZKTeco. Si lo dejás vacío, el equipo se identifica por su código.</span>
                 </label>
                 <label className="block space-y-1.5">
                   <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Secreto</span>

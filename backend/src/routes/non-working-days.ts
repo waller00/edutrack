@@ -22,6 +22,13 @@ function parseDateOnly(date: string) {
   return utcDay(new Date(`${date}T00:00:00.000Z`));
 }
 
+function serializeNonWorkingDay<T extends { date: Date }>(row: T) {
+  return {
+    ...row,
+    date: row.date.toISOString().slice(0, 10),
+  };
+}
+
 r.get("/", authGuard, requirePermission("licenses.read", "all"), async (req, res) => {
   try {
     const from = typeof req.query.from === "string" ? parseDateOnly(req.query.from) : new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1));
@@ -43,7 +50,7 @@ r.get("/", authGuard, requirePermission("licenses.read", "all"), async (req, res
       ORDER BY date ASC
     `);
 
-    res.json({ data: rows });
+    res.json({ data: rows.map(serializeNonWorkingDay) });
   } catch (error) {
     console.error("[non-working-days GET]", error);
     res.status(500).json({ message: "Error interno del servidor" });

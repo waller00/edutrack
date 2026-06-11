@@ -7,23 +7,42 @@ import { apiBaseUrl } from '@/lib/api/base-url'
 import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
+  ArrowDownRight,
   ArrowRight,
+  ArrowUpRight,
   BarChart3,
   Calendar,
   FileSpreadsheet,
   FileText,
+  GraduationCap,
+  LayoutGrid,
   Lightbulb,
   Loader2,
+  PieChart as PieChartIcon,
   RefreshCw,
   Search,
   Trash2,
+  Users,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import TrendLineChart from '@/components/charts/TrendLineChart'
+import BreakdownBarChart from '@/components/charts/BreakdownBarChart'
+import StatusDonutChart from '@/components/charts/StatusDonutChart'
 
 type OrgRoleFilter = 'ADMIN' | 'STAFF' | 'TEACHER'
 
 const EVENT_TYPES = ['JORNADA_LABORAL', 'REUNION', 'CLASE'] as const
+
+type AnalyticsUserOption = {
+  id: string
+  username?: string | null
+  name?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  email?: string | null
+  orgRole?: { code?: string | null } | null
+}
 
 type DashboardMeta = {
   resolvedInstanceCount: number
@@ -68,155 +87,93 @@ type TopRiskEvent = {
   focusScore: number
 }
 
+type BreakdownRow = {
+  key: string
+  label: string
+  plannedCount: number
+  punctualityPct: number
+  lateRatePct: number
+  aopPct: number
+  coveragePct: number
+}
+
+type StatusDistRow = { status: string; count: number; pct: number }
+
+type SeriesMultiPoint = { period: string; lateRate: number; aop: number; coverage: number }
+
+type PeriodComparison = {
+  previousFrom: string
+  previousTo: string
+  current: DashboardKpis
+  previous: DashboardKpis
+  deltas: DashboardKpis
+}
+
 type DashboardResponse = {
-  meta?: DashboardMeta
+  meta?: DashboardMeta & { granularity?: SeriesGranularity }
   kpis: DashboardKpis
   series: {
     lateRateByPeriod: SeriesPoint[]
     aopByPeriod: SeriesPoint[]
   }
+  seriesMulti?: SeriesMultiPoint[]
+  breakdowns?: {
+    byRole: BreakdownRow[]
+    byEventType: BreakdownRow[]
+    byCourse: BreakdownRow[]
+  }
+  statusDistribution?: { totalPlanned: number; rows: StatusDistRow[] }
+  comparison?: PeriodComparison | null
   topLists?: {
     topRiskPeople: TopRiskPerson[]
     topRiskEvents: TopRiskEvent[]
   }
 }
 
+type SeriesGranularity = 'day' | 'week' | 'month'
+
+const GRANULARITY_OPTIONS: { value: SeriesGranularity; label: string }[] = [
+  { value: 'day', label: 'Día' },
+  { value: 'week', label: 'Semana' },
+  { value: 'month', label: 'Mes' },
+]
+
 function formatPct(v: number) {
   return `${v.toFixed(2)}%`
 }
 
-function formatUtcDayLabel(isoDate: string) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate)
-  if (!m) return isoDate
-  const [, y, mo, d] = m
-  return `${d}/${mo}`
+function userDisplayLabel(user: AnalyticsUserOption) {
+  const fullName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
+  return user.name || fullName || user.username || user.email || 'Sin nombre'
 }
 
-/** Gráfico de serie con cuadrícula suave: pensado para indicadores %. */
-function WeeklyTrendChart(props: {
-  points: SeriesPoint[]
-  stroke: string
-  fill: string
-  title: string
-  unitSuffix?: string
-}) {
-  const { points, stroke, fill, title, unitSuffix = '%' } = props
-  const w = 640
-  const h = 208
-  const padL = 44
-  const padR = 14
-  const padT = 18
-  const padB = 36
-
-  const values = points.map((p) => p.value)
-  const dataMax = Math.max(...values, 0)
-  const minY = 0
-  const maxYRaw = Math.max(18, Math.ceil((Math.max(dataMax, 5) / 5) * 5 * 1.12))
-  const maxY = Math.min(118, Math.round(maxYRaw))
-  const spanY = Math.max(maxY - minY, 1)
-
-  const innerW = w - padL - padR
-  const innerH = h - padT - padB
-
-  const toX = (idx: number) => padL + (idx * innerW) / Math.max(1, points.length - 1)
-  const toY = (v: number) => padT + innerH - ((v - minY) * innerH) / spanY
-
-  const yDivisions = 4
-  const yAxisTicks = Array.from({ length: yDivisions + 1 }, (_, i) => {
-    const val = minY + (spanY * i) / yDivisions
-    const rounded = Math.round(val * 100) / 100
-    const lbl = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
-    return { yPx: toY(val), label: lbl }
-  })
-
-  const gradId = stroke.replace(/[^a-zA-Z0-9]/g, '')
-
-  const linePath =
-    points.length === 0
-      ? ''
-      : points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${toX(idx)} ${toY(Math.min(Math.max(p.value, minY), maxY))}`).join(' ')
-
-  let areaPath = ''
-  if (points.length > 0 && linePath) {
-    const ix0 = toX(0)
-    const ix1 = toX(points.length - 1)
-    const baseY = padT + innerH
-    areaPath = `${linePath} L ${ix1} ${baseY} L ${ix0} ${baseY} Z`
-  }
-
-  if (points.length === 0) {
-    return (
-      <div role="figure" aria-label={title}>
-        <p className="py-12 text-center text-sm text-gray-500">No hay suficientes semanas para graficar en el rango.</p>
-      </div>
-    )
-  }
-
-  return (
-    <figure className="w-full">
-      <svg
-        width="100%"
-        height={h}
-        viewBox={`0 0 ${w} ${h}`}
-        preserveAspectRatio="xMidYMid meet"
-        className="max-w-full"
-        role="img"
-        aria-label={title}
-      >
-        <defs>
-          <linearGradient id={`grad-${gradId}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={fill} stopOpacity="0.55" />
-            <stop offset="100%" stopColor={fill} stopOpacity="0.02" />
-          </linearGradient>
-        </defs>
-        <rect x="0.5" y="0.5" width={w - 1} height={h - 1} fill="#fafafa" rx="12" ry="12" stroke="#e5e7eb" />
-
-        {[0.25, 0.5, 0.75].map((f) => {
-          const y = padT + innerH * f
-          return <line key={f} x1={padL} y1={y} x2={w - padR} y2={y} stroke="#e8e8e8" strokeDasharray="4 6" strokeWidth={1} />
-        })}
-
-        {yAxisTicks.map((t, i) => (
-          <g key={`y-${String(i)}-${t.label}`}>
-            <line x1={padL - 4} y1={t.yPx} x2={padL} y2={t.yPx} stroke="#dbeafe" strokeWidth={1} />
-            <text x={padL - 8} y={t.yPx + 4} fontSize={10} textAnchor="end" fill="#64748b">
-              {t.label}
-              {unitSuffix}
-            </text>
-          </g>
-        ))}
-
-        {areaPath ? <path d={areaPath} fill={`url(#grad-${gradId})`} stroke="none" /> : null}
-        <path d={linePath} fill="none" stroke={stroke} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
-
-        {points.map((p, idx) => (
-          <g key={`${p.period}-${idx}`}>
-            <circle
-              cx={toX(idx)}
-              cy={toY(Math.min(Math.max(p.value, minY), maxY))}
-              r={4}
-              fill="white"
-              stroke={stroke}
-              strokeWidth={2}
-            />
-            <title>{`Semana ${formatUtcDayLabel(p.period)}: ${formatPct(p.value)}`}</title>
-          </g>
-        ))}
-
-        {points.map((p, idx) => (
-          <text key={`lab-${p.period}-${idx}`} x={toX(idx)} y={h - 14} fontSize={10} textAnchor="middle" fill="#4b5563">
-            {formatUtcDayLabel(p.period)}
-          </text>
-        ))}
-      </svg>
-      <figcaption className="mt-2 text-xs text-gray-500">
-        Vista semanal definida desde el lunes (UTC); cada marca corresponde al inicio de esa semana.
-      </figcaption>
-    </figure>
-  )
+function sanitizeFilenamePart(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || 'persona'
 }
 
 type KpiTone = 'emerald' | 'amber' | 'red' | 'slate'
+
+/** Delta vs período anterior. `higherIsBetter` define el color (verde/rojo). */
+function DeltaBadge({ delta, higherIsBetter, suffix = '%' }: { delta: number; higherIsBetter: boolean; suffix?: string }) {
+  if (Math.abs(delta) < 0.01) {
+    return <span className="inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">Sin cambios</span>
+  }
+  const isUp = delta > 0
+  const good = isUp === higherIsBetter
+  const cls = good ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+  const Icon = isUp ? ArrowUpRight : ArrowDownRight
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${cls}`} title="Variación vs período anterior">
+      <Icon className="h-3 w-3" aria-hidden />
+      {`${isUp ? '+' : ''}${delta.toFixed(2)}${suffix}`}
+    </span>
+  )
+}
 
 function KpiCard(props: {
   label: string
@@ -224,6 +181,9 @@ function KpiCard(props: {
   value: ReactNode
   foot?: string
   tone: KpiTone
+  delta?: number
+  deltaHigherIsBetter?: boolean
+  deltaSuffix?: string
 }) {
   const toneMap: Record<KpiTone, string> = {
     emerald: 'text-emerald-600',
@@ -231,7 +191,7 @@ function KpiCard(props: {
     red: 'text-red-600',
     slate: 'text-slate-900',
   }
-  const { label, hint, value, foot, tone } = props
+  const { label, hint, value, foot, tone, delta, deltaHigherIsBetter, deltaSuffix } = props
 
   return (
     <article className="flex flex-col justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
@@ -240,7 +200,12 @@ function KpiCard(props: {
           {label}
           {hint ? <span className="ml-1 cursor-help text-gray-400">ⓘ</span> : null}
         </h3>
-        <p className={`mt-2 text-2xl font-bold tabular-nums tracking-tight ${toneMap[tone]}`}>{value}</p>
+        <div className="mt-2 flex flex-wrap items-baseline gap-2">
+          <p className={`text-2xl font-bold tabular-nums tracking-tight ${toneMap[tone]}`}>{value}</p>
+          {typeof delta === 'number' ? (
+            <DeltaBadge delta={delta} higherIsBetter={deltaHigherIsBetter ?? true} suffix={deltaSuffix ?? '%'} />
+          ) : null}
+        </div>
       </div>
       {foot ? <p className="mt-3 text-xs text-gray-500">{foot}</p> : null}
     </article>
@@ -322,7 +287,7 @@ function roleChipLabel(role: string | undefined | null) {
     case 'TEACHER':
       return 'Docentes'
     case 'STAFF':
-      return 'Equipo administrativo'
+      return 'Personal'
     case 'ADMIN':
       return 'Administradores'
     case '':
@@ -345,11 +310,17 @@ export default function AdminAnalyticsPage() {
   /** Vacío = sin filtro (todos los usuarios planificados en el período). */
   const [roleFilter, setRoleFilter] = useState<string>('')
   const [eventType, setEventType] = useState<string>('')
+  const [granularity, setGranularity] = useState<SeriesGranularity>('week')
+  const [users, setUsers] = useState<AnalyticsUserOption[]>([])
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [userSearch, setUserSearch] = useState('')
+  const [selectedUserName, setSelectedUserName] = useState('')
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
-  const [exportingKind, setExportingKind] = useState<'xlsx' | 'csv' | 'pdf' | null>(null)
+  const [exportingKind, setExportingKind] = useState<'xlsx' | 'csv' | 'pdf' | 'person' | 'course' | null>(null)
   const [exportNotice, setExportNotice] = useState<string>('')
 
   const apiUrl = apiBaseUrl()
@@ -359,8 +330,9 @@ export default function AdminAnalyticsPage() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ from, to })
-      if (roleFilter) params.set('role', roleFilter)
+      const params = new URLSearchParams({ from, to, granularity })
+      if (selectedUserId) params.set('userId', selectedUserId)
+      else if (roleFilter) params.set('role', roleFilter)
       if (eventType) params.set('eventType', eventType)
       if (syCtx?.allYears) params.set('allYears', '1')
       else if (analyticsSchoolYearId) params.set('schoolYearId', analyticsSchoolYearId)
@@ -373,11 +345,27 @@ export default function AdminAnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [from, to, roleFilter, eventType, syCtx?.allYears, analyticsSchoolYearId])
+  }, [from, to, granularity, roleFilter, selectedUserId, eventType, syCtx?.allYears, analyticsSchoolYearId])
 
   useEffect(() => {
     void loadDashboard()
   }, [loadDashboard])
+
+  useEffect(() => {
+    let active = true
+    async function loadUsers() {
+      try {
+        const data = await api<{ data: AnalyticsUserOption[] }>('/admin/users?pageSize=200')
+        if (active) setUsers(data.data)
+      } catch {
+        if (active) setUsers([])
+      }
+    }
+    void loadUsers()
+    return () => {
+      active = false
+    }
+  }, [])
 
   const decisionSignals = useMemo(() => {
     if (!dashboard) return []
@@ -391,24 +379,26 @@ export default function AdminAnalyticsPage() {
       ) + ' UTC'
     : null
 
-  const runExportAttendance = async (format: 'XLSX' | 'CSV') => {
+  const exportFilters = () => ({
+    ...(selectedUserId ? { userId: selectedUserId } : roleFilter ? { role: roleFilter } : {}),
+    ...(eventType ? { eventType } : {}),
+    ...(syCtx?.allYears ? { allYears: '1' } : {}),
+    ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
+  })
+
+  /** Crea la exportación, espera a que termine y dispara la descarga del archivo. */
+  const runExport = async (
+    kind: 'xlsx' | 'csv' | 'pdf' | 'person' | 'course',
+    reportKey: string,
+    format: 'XLSX' | 'CSV' | 'PDF',
+    filename: string,
+    successMsg: string,
+  ) => {
     setExportNotice('')
-    const kind = format === 'XLSX' ? 'xlsx' : 'csv'
     setExportingKind(kind)
     setError(null)
     try {
-      const body = {
-        reportKey: 'attendance_detail',
-        format,
-        from,
-        to,
-        filters: {
-          ...(roleFilter ? { role: roleFilter } : {}),
-          ...(eventType ? { eventType } : {}),
-          ...(syCtx?.allYears ? { allYears: '1' } : {}),
-          ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
-        },
-      }
+      const body = { reportKey, format, from, to, filters: exportFilters() }
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
       const exportId = res.exportId
 
@@ -430,15 +420,12 @@ export default function AdminAnalyticsPage() {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download =
-        format === 'XLSX'
-          ? `EduTrack_Asistencia_detallada_${from}_${to}.xlsx`
-          : `EduTrack_Asistencia_detallada_${from}_${to}.csv`
+      a.download = filename
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
-      setExportNotice(`✅ Exportación ${format} lista.`)
+      setExportNotice(successMsg)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Error al exportar.'
       setError(msg)
@@ -447,57 +434,33 @@ export default function AdminAnalyticsPage() {
     }
   }
 
-  const runExportMonthly = async () => {
-    setExportNotice('')
-    setExportingKind('pdf')
-    setError(null)
-    try {
-      const body = {
-        reportKey: 'monthly_summary',
-        format: 'PDF',
-        from,
-        to,
-        filters: {
-          ...(roleFilter ? { role: roleFilter } : {}),
-          ...(eventType ? { eventType } : {}),
-          ...(syCtx?.allYears ? { allYears: '1' } : {}),
-          ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
-        },
-      }
-      const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
-      const exportId = res.exportId
+  const runExportAttendance = (format: 'XLSX' | 'CSV') =>
+    runExport(
+      format === 'XLSX' ? 'xlsx' : 'csv',
+      'attendance_detail',
+      format,
+      selectedUserName
+        ? `EduTrack_Asistencia_detallada_${sanitizeFilenamePart(selectedUserName)}_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`
+        : `EduTrack_Asistencia_detallada_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`,
+      selectedUserName ? `✅ Detalle ${format} de ${selectedUserName} listo.` : `✅ Exportación ${format} lista.`,
+    )
 
-      let exportDone = false
-      for (let i = 0; i < 30; i++) {
-        const statusRes = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
-        if (statusRes.status === 'DONE') {
-          exportDone = true
-          break
-        }
-        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando exportación')
-        await new Promise((r) => setTimeout(r, 250))
-      }
-      if (!exportDone) throw new Error('La exportación tardó demasiado en generarse')
+  const runExportMonthly = () =>
+    runExport('pdf', 'monthly_summary', 'PDF', `EduTrack_Resumen_mensual_${from.slice(0, 7)}.pdf`, '✅ PDF mensual listo.')
 
-      const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
-      if (!dl.ok) throw new Error(`Error descargando exportación: ${dl.status}`)
-      const blob = await dl.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `EduTrack_Resumen_mensual_${from.slice(0, 7)}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-      setExportNotice('✅ PDF mensual listo.')
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Error al exportar PDF.'
-      setError(msg)
-    } finally {
-      setExportingKind(null)
-    }
-  }
+  const runExportPerson = () =>
+    runExport(
+      'person',
+      'person_report',
+      'XLSX',
+      selectedUserName
+        ? `EduTrack_Reporte_persona_${sanitizeFilenamePart(selectedUserName)}_${from}_${to}.xlsx`
+        : `EduTrack_Reporte_por_persona_${from}_${to}.xlsx`,
+      selectedUserName ? `✅ Reporte de ${selectedUserName} listo.` : '✅ Reporte por persona listo.',
+    )
+
+  const runExportCourse = () =>
+    runExport('course', 'course_report', 'XLSX', `EduTrack_Reporte_por_curso_${from}_${to}.xlsx`, '✅ Reporte por curso listo.')
 
   function clearFiltersAndReload() {
     const d = new Date()
@@ -506,13 +469,50 @@ export default function AdminAnalyticsPage() {
     setTo(new Date().toISOString().slice(0, 10))
     setRoleFilter('')
     setEventType('')
+    setGranularity('week')
+    setSelectedUserId('')
+    setUserSearch('')
+    setSelectedUserName('')
+    setIsUserDropdownOpen(false)
     setExportNotice('')
   }
 
-  const latePoints = dashboard?.series.lateRateByPeriod ?? []
-  const aopPoints = dashboard?.series.aopByPeriod ?? []
+  const trendPoints =
+    dashboard?.seriesMulti ??
+    (dashboard
+      ? dashboard.series.lateRateByPeriod.map((p, i) => ({
+          period: p.period,
+          lateRate: p.value,
+          aop: dashboard.series.aopByPeriod[i]?.value ?? 0,
+          coverage: 0,
+        }))
+      : [])
   const peopleRank = dashboard?.topLists?.topRiskPeople ?? []
   const eventsRank = dashboard?.topLists?.topRiskEvents ?? []
+  const breakdowns = dashboard?.breakdowns
+  const statusRows = dashboard?.statusDistribution?.rows ?? []
+  const deltas = dashboard?.comparison?.deltas ?? null
+  const granularityLabel = GRANULARITY_OPTIONS.find((g) => g.value === granularity)?.label ?? 'Semana'
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase()
+    return users
+      .filter((user) => {
+        if (roleFilter && !selectedUserId && user.orgRole?.code !== roleFilter) return false
+        if (!q) return true
+        return userDisplayLabel(user).toLowerCase().includes(q) || (user.email || '').toLowerCase().includes(q)
+      })
+      .slice(0, 30)
+  }, [users, userSearch, roleFilter, selectedUserId])
+
+  function selectAnalyticsUser(user: AnalyticsUserOption | TopRiskPerson) {
+    const label = 'displayName' in user ? user.displayName : userDisplayLabel(user)
+    setSelectedUserId('userId' in user ? user.userId : user.id)
+    setSelectedUserName(label)
+    setUserSearch(label)
+    setRoleFilter('')
+    setIsUserDropdownOpen(false)
+    setExportNotice('')
+  }
 
   return (
     <RoleGuard permission="analytics.read" permissionScope="all">
@@ -549,8 +549,30 @@ export default function AdminAnalyticsPage() {
                   </span>
                   <div>
                     <span className="text-gray-500">Ámbito de rol</span>
-                    <span className="ml-2 font-semibold">{roleChipLabel(roleFilter)}</span>
+                    <span className="ml-2 font-semibold">{selectedUserName ? 'Persona seleccionada' : roleChipLabel(roleFilter)}</span>
                   </div>
+                  {selectedUserName ? (
+                    <>
+                      <span className="hidden text-gray-300 sm:inline" aria-hidden>
+                        ·
+                      </span>
+                      <div>
+                        <span className="text-gray-500">Persona</span>
+                        <span className="ml-2 font-semibold text-emerald-800">{selectedUserName}</span>
+                      </div>
+                    </>
+                  ) : null}
+                  {eventType ? (
+                    <>
+                      <span className="hidden text-gray-300 sm:inline" aria-hidden>
+                        ·
+                      </span>
+                      <div>
+                        <span className="text-gray-500">Actividad</span>
+                        <span className="ml-2 font-semibold">{getAdminEventTypeLabel(eventType)}</span>
+                      </div>
+                    </>
+                  ) : null}
                   {generatedLabel ? (
                     <>
                       <span className="hidden text-gray-300 sm:inline" aria-hidden>
@@ -589,7 +611,7 @@ export default function AdminAnalyticsPage() {
                 ) : (
                   <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
                 )}
-                Excel
+                {selectedUserName ? 'Excel detalle' : 'Excel'}
               </button>
               <button
                 type="button"
@@ -602,7 +624,7 @@ export default function AdminAnalyticsPage() {
                 ) : (
                   <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
                 )}
-                CSV
+                {selectedUserName ? 'CSV detalle' : 'CSV'}
               </button>
               <button
                 type="button"
@@ -617,9 +639,38 @@ export default function AdminAnalyticsPage() {
                 )}
                 PDF resumen
               </button>
+              <button
+                type="button"
+                disabled={loading || exportingKind === 'person'}
+                className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                onClick={() => void runExportPerson()}
+              >
+                {exportingKind === 'person' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Users className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+                Por persona
+              </button>
+              <button
+                type="button"
+                disabled={loading || exportingKind === 'course'}
+                className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                onClick={() => void runExportCourse()}
+              >
+                {exportingKind === 'course' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <GraduationCap className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+                Por curso
+              </button>
             </div>
             <p className="max-w-sm text-right text-xs text-gray-500">
-              Las exportaciones reutilizan el motor institucional de reportes sobre el mismo rango vigente.</p>
+              {selectedUserName
+                ? `Excel/CSV descargan el detalle filtrado de ${selectedUserName}; “Por persona” descarga su resumen.`
+                : 'Las exportaciones reutilizan el motor institucional de reportes sobre el mismo rango vigente.'}
+            </p>
           </div>
         </header>
 
@@ -642,7 +693,7 @@ export default function AdminAnalyticsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
             <div className="lg:col-span-1">
               <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
@@ -659,15 +710,83 @@ export default function AdminAnalyticsPage() {
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Rol asignado al evento</label>
-              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="select-field">
+              <select
+                value={roleFilter}
+                onChange={(e) => {
+                  setRoleFilter(e.target.value)
+                  setSelectedUserId('')
+                  setSelectedUserName('')
+                  setUserSearch('')
+                  setExportNotice('')
+                }}
+                className="select-field"
+              >
                 <option value="">Todos los roles</option>
                 <option value="TEACHER">Docentes</option>
-                <option value="STAFF">Equipo administrativo</option>
+                <option value="STAFF">Personal</option>
                 <option value="ADMIN">Administradores</option>
               </select>
               <p className="mt-1 text-xs text-gray-500">
                 Equivalente operativo del filtro utilizado también en otros módulos de control de personal.
               </p>
+            </div>
+            <div className="relative">
+              <label className="mb-2 block text-sm font-medium text-gray-700">Persona</label>
+              <input
+                type="text"
+                value={userSearch}
+                onChange={(e) => {
+                  setUserSearch(e.target.value)
+                  setSelectedUserId('')
+                  setSelectedUserName('')
+                  setIsUserDropdownOpen(true)
+                  setExportNotice('')
+                }}
+                onFocus={() => setIsUserDropdownOpen(true)}
+                placeholder="Buscar persona..."
+                className="input-field"
+              />
+              {isUserDropdownOpen && !selectedUserId ? (
+                <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                  {filteredUsers.length > 0 ? (
+                    filteredUsers.map((user) => (
+                      <button
+                        type="button"
+                        key={user.id}
+                        onClick={() => selectAnalyticsUser(user)}
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-emerald-50"
+                      >
+                        <span className="block font-medium text-gray-900">{userDisplayLabel(user)}</span>
+                        <span className="block truncate text-xs text-gray-500">
+                          {[user.email, roleChipLabel(user.orgRole?.code || '')].filter(Boolean).join(' · ')}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-gray-500">Sin coincidencias</div>
+                  )}
+                </div>
+              ) : null}
+              {selectedUserName ? (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm">
+                  <span className="truncate font-medium text-emerald-900">{selectedUserName}</span>
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs font-semibold text-red-700 hover:text-red-900"
+                    onClick={() => {
+                      setSelectedUserId('')
+                      setSelectedUserName('')
+                      setUserSearch('')
+                      setIsUserDropdownOpen(false)
+                      setExportNotice('')
+                    }}
+                  >
+                    Quitar
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-gray-500">Filtra indicadores y exportaciones al historial de una persona.</p>
+              )}
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Tipo de actividad</label>
@@ -681,6 +800,26 @@ export default function AdminAnalyticsPage() {
               </select>
               <p className="mt-1 text-xs text-gray-500">Aisla un tipo de encuentro institucional (clase, jornada, reunión…).</p>
             </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-4">
+            <span className="text-sm font-medium text-gray-700">Granularidad de las tendencias</span>
+            <div className="inline-flex overflow-hidden rounded-lg border border-gray-200" role="group" aria-label="Granularidad temporal">
+              {GRANULARITY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setGranularity(opt.value)}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    granularity === opt.value ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                  aria-pressed={granularity === opt.value}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500">Define cómo se agrupan las series de tendencia (día, semana o mes).</p>
           </div>
         </div>
 
@@ -759,6 +898,8 @@ export default function AdminAnalyticsPage() {
                   tone="emerald"
                   value={formatPct(dashboard.kpis.M1_PUNCTUALITY_pct)}
                   foot="Sobre llegadas efectivamente registradas"
+                  delta={deltas?.M1_PUNCTUALITY_pct}
+                  deltaHigherIsBetter
                 />
                 <KpiCard
                   label="Llegadas tarde"
@@ -766,6 +907,8 @@ export default function AdminAnalyticsPage() {
                   tone="amber"
                   value={formatPct(dashboard.kpis.M2_LATE_RATE_pct)}
                   foot="Indicador de disciplina horaria inicial"
+                  delta={deltas?.M2_LATE_RATE_pct}
+                  deltaHigherIsBetter={false}
                 />
                 <KpiCard
                   label="Ausencias no cubiertas / plan"
@@ -773,6 +916,8 @@ export default function AdminAnalyticsPage() {
                   tone="red"
                   value={formatPct(dashboard.kpis.M4_AOP_pct)}
                   foot="Ausentismo efectivo institucional"
+                  delta={deltas?.M4_AOP_pct}
+                  deltaHigherIsBetter={false}
                 />
                 <KpiCard
                   label="Cobertura de presencia efectiva"
@@ -780,6 +925,8 @@ export default function AdminAnalyticsPage() {
                   tone="emerald"
                   value={formatPct(dashboard.kpis.M6_COVERAGE_CP_pct)}
                   foot="Señal integral de ocupación efectiva del bloque planificado"
+                  delta={deltas?.M6_COVERAGE_CP_pct}
+                  deltaHigherIsBetter
                 />
                 <KpiCard
                   label="Desvío temporal vs planificado"
@@ -840,6 +987,9 @@ export default function AdminAnalyticsPage() {
                             <th scope="col" className="whitespace-nowrap px-4 py-3 text-right font-semibold text-emerald-800" title="Heurística: tarde ×1 + aus NJ ×2">
                               Prioridad Σ
                             </th>
+                            <th scope="col" className="px-4 py-3 text-right">
+                              Reporte
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
@@ -862,6 +1012,15 @@ export default function AdminAnalyticsPage() {
                                 >
                                   {p.riskScore}
                                 </span>
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  className="rounded-md border border-emerald-200 px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                                  onClick={() => selectAnalyticsUser(p)}
+                                >
+                                  Ver detalle
+                                </button>
                               </td>
                             </tr>
                           ))}
@@ -945,40 +1104,71 @@ export default function AdminAnalyticsPage() {
               </section>
             </div>
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-6" aria-labelledby="series-heading">
-              <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 pb-4">
-                <div>
-                  <h2 id="series-heading" className="text-lg font-semibold text-gray-900">
-                    Trayectorias semanales
-                  </h2>
-                  <p className="mt-1 max-w-prose text-sm text-gray-600">
-                    Serie construida con la misma lógica de conciliación usada por exportaciones; sirve comparar períodos institucionalmente relativos dentro de EduTrack, no comparación externa.
-                  </p>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <section className="card lg:col-span-1" aria-labelledby="status-dist-heading">
+                <header className="mb-4 flex items-start gap-3 border-b border-gray-100 pb-4">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+                    <PieChartIcon className="h-5 w-5 text-emerald-700" aria-hidden />
+                  </div>
+                  <div>
+                    <h2 id="status-dist-heading" className="text-lg font-semibold text-gray-900">
+                      Distribución de estados
+                    </h2>
+                    <p className="mt-0.5 text-sm text-gray-600">Resolución de entradas sobre lo planificado.</p>
+                  </div>
+                </header>
+                <StatusDonutChart rows={statusRows} />
+              </section>
+
+              <section className="card lg:col-span-2" aria-labelledby="trend-heading">
+                <header className="mb-4 flex items-start gap-3 border-b border-gray-100 pb-4">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+                    <BarChart3 className="h-5 w-5 text-emerald-700" aria-hidden />
+                  </div>
+                  <div>
+                    <h2 id="trend-heading" className="text-lg font-semibold text-gray-900">
+                      Tendencias por {granularityLabel.toLowerCase()}
+                    </h2>
+                    <p className="mt-0.5 text-sm text-gray-600">
+                      Tardanza, ausentismo y cobertura efectiva agrupadas según la granularidad elegida.
+                    </p>
+                  </div>
+                </header>
+                <TrendLineChart points={trendPoints} />
+              </section>
+            </div>
+
+            {breakdowns ? (
+              <section className="card" aria-labelledby="breakdowns-heading">
+                <header className="mb-5 flex items-start gap-3 border-b border-gray-100 pb-4">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+                    <LayoutGrid className="h-5 w-5 text-emerald-700" aria-hidden />
+                  </div>
+                  <div>
+                    <h2 id="breakdowns-heading" className="text-lg font-semibold text-gray-900">
+                      Desgloses por dimensión
+                    </h2>
+                    <p className="mt-0.5 text-sm text-gray-600">
+                      Tardanza vs ausentismo comparados por rol, tipo de actividad y curso dentro del período.
+                    </p>
+                  </div>
+                </header>
+                <div className="grid grid-cols-1 gap-8 xl:grid-cols-3">
+                  <div>
+                    <h3 className="mb-3 text-base font-semibold text-gray-800">Por rol</h3>
+                    <BreakdownBarChart rows={breakdowns.byRole} />
+                  </div>
+                  <div>
+                    <h3 className="mb-3 text-base font-semibold text-gray-800">Por tipo de actividad</h3>
+                    <BreakdownBarChart rows={breakdowns.byEventType} />
+                  </div>
+                  <div>
+                    <h3 className="mb-3 text-base font-semibold text-gray-800">Por curso</h3>
+                    <BreakdownBarChart rows={breakdowns.byCourse} />
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-1 gap-16 lg:grid-cols-2">
-                <div>
-                  <h3 className="mb-1 text-base font-semibold text-gray-800">Trayectoria de tardanza</h3>
-                  <p className="mb-4 text-xs text-gray-500">Comparativo semanal tasa llegadas tarde (registradas válidas sólo entrada).</p>
-                  <WeeklyTrendChart
-                    points={latePoints}
-                    stroke="#ea580c"
-                    fill="#fb923c"
-                    title="Evolución de la tasa de llegadas tardías por semana"
-                  />
-                </div>
-                <div>
-                  <h3 className="mb-1 text-base font-semibold text-gray-800">Trayectoria de ausentismo</h3>
-                  <p className="mb-4 text-xs text-gray-500">Variación institucional de ausencias efectivamente reflejadas sobre plan semanalizado.</p>
-                  <WeeklyTrendChart
-                    points={aopPoints}
-                    stroke="#dc2626"
-                    fill="#f87171"
-                    title="Evolución de ausentismo planificado efectivo vs plan semanalizado"
-                  />
-                </div>
-              </div>
-            </section>
+              </section>
+            ) : null}
           </>
         ) : null}
       </main>

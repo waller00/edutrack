@@ -1,18 +1,21 @@
 import { Router } from "express";
+import crypto from "node:crypto";
 import { getRedis } from "../db/redis.js";
+import { prisma } from "../db/prisma.js";
 import {
   buildAccountConsoleUrl,
   buildLoginUrl,
   buildLogoutUrl,
   deleteKeycloakUserOtpCredentials,
   exchangeCode,
-  getKeycloakUserLoginName,
+  getKeycloakUserIdByEmail,
   getKeycloakUserOtpStatus,
   redirectUri,
   refreshTokens,
   triggerKeycloakPasswordReset,
-  verifyKeycloakPassword,
+  verifyKeycloakUserOtpCode,
 } from "../auth/keycloak.js";
+import { sendMail } from "../notifications/email.js";
 import {
   BffSession,
   deleteSession,
@@ -82,7 +85,7 @@ function clearSessionCookie(res: any) {
 async function startSessionFromTokens(
   res: any,
   tokens: { accessToken: string; refreshToken?: string; idToken?: string; expiresAt: number; claims: Record<string, any> },
-): Promise<void> {
+): Promise<BffSession> {
   const user = await provisionUserFromClaims(tokens.claims);
   const sid = newSessionId();
   const session: BffSession = {
@@ -100,6 +103,7 @@ async function startSessionFromTokens(
   };
   await saveSession(session);
   setSessionCookie(res, sid);
+  return session;
 }
 
 async function requireSession(req: any, res: any): Promise<BffSession | null> {
@@ -167,7 +171,10 @@ r.get("/callback", async (req, res) => {
     const stored = await redis.get(OAUTH_PREFIX + state);
     if (!stored) return res.redirect(`${frontendUrl()}/login?error=state`);
     await redis.del(OAUTH_PREFIX + state);
-    const { codeVerifier, returnTo } = JSON.parse(stored) as { codeVerifier: string; returnTo: string };
+    const { codeVerifier, returnTo } = JSON.parse(stored) as {
+      codeVerifier: string;
+      returnTo: string;
+    };
 
     const currentUrl = new URL(redirectUri());
     // Trasladar los parametros reales (code, state, etc.) recibidos en el callback.
@@ -244,6 +251,282 @@ r.get("/account/2fa", async (req, res) => {
   await beginLoginFlow(res, { requiredAction: "CONFIGURE_TOTP", prompt: "login", returnTo: "/profile" });
 });
 
+// POST (no GET): al ser un metodo no seguro, una cookie `SameSite=lax` no viaja
+// en envios cross-site, de modo que el propio atributo de la cookie actua como
+// defensa CSRF contra un disparo drive-by desde otro sitio.
+r.post("/account/2fa/disable", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const code = typeof req.body?.code === "string" ? req.body.code : "";
+  if (!code) return res.status(400).json({ message: "Ingresá el código de 2FA." });
+  try {
+    const ok = await verifyKeycloakUserOtpCode(session.kcId, code);
+    if (!ok) return res.status(401).json({ message: "Código de 2FA incorrecto." });
+    const removed = await deleteKeycloakUserOtpCredentials(session.kcId);
+    res.json({ ok: true, removed });
+  } catch (error) {
+    console.error("[auth/account/2fa/disable] disable:", error);
+    res.status(502).json({ message: "No se pudo desactivar 2FA." });
+  }
+});
+
+function publicApiUrl(req: any): string {
+  const configured = (process.env.PUBLIC_API_URL || process.env.API_PUBLIC_URL || "").trim().replace(/\/$/, "");
+  if (configured) return configured;
+  return `${req.protocol}://${req.get("host")}`;
+}
+
+function twoFactorEmailSecret(): string {
+  const secret =
+    process.env.TWO_FACTOR_DISABLE_EMAIL_SECRET ||
+    process.env.JWT_SECRET ||
+    process.env.SESSION_SECRET;
+  // Esta clave HMAC es la unica barrera del endpoint no autenticado de
+  // desactivacion por correo. No hay fallback hardcodeado: sin secreto real
+  // preferimos fallar (firmar/verificar lanza) antes que emitir tokens
+  // forjables por cualquiera con acceso al repositorio.
+  if (!secret) {
+    throw new Error(
+      "Falta el secreto de desactivacion de 2FA por correo (TWO_FACTOR_DISABLE_EMAIL_SECRET, JWT_SECRET o SESSION_SECRET).",
+    );
+  }
+  return secret;
+}
+
+function signDisable2faPayload(payload: string): string {
+  return crypto.createHmac("sha256", twoFactorEmailSecret()).update(payload).digest("base64url");
+}
+
+function createDisable2faEmailToken(input: { kcId: string; userId: string; email: string }): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      kcId: input.kcId,
+      userId: input.userId,
+      email: input.email,
+      exp: Date.now() + 15 * 60 * 1000,
+      nonce: crypto.randomBytes(12).toString("base64url"),
+    }),
+  ).toString("base64url");
+  return `${payload}.${signDisable2faPayload(payload)}`;
+}
+
+function verifyDisable2faEmailToken(
+  token: string,
+): { kcId: string; userId: string; email: string; nonce: string; exp: number } | null {
+  try {
+    const [payload, signature] = token.split(".");
+    if (!payload || !signature) return null;
+    const expected = signDisable2faPayload(payload);
+    const a = Buffer.from(signature);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      kcId?: unknown;
+      userId?: unknown;
+      email?: unknown;
+      exp?: unknown;
+      nonce?: unknown;
+    };
+    if (typeof data.kcId !== "string" || typeof data.userId !== "string" || typeof data.email !== "string") return null;
+    if (typeof data.nonce !== "string" || !data.nonce) return null;
+    if (typeof data.exp !== "number" || data.exp < Date.now()) return null;
+    return { kcId: data.kcId, userId: data.userId, email: data.email, nonce: data.nonce, exp: data.exp };
+  } catch {
+    // Token mal formado o secreto no configurado: fail-closed.
+    return null;
+  }
+}
+
+r.post("/account/2fa/disable-email", async (req, res) => {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { id: true, email: true, emailVerifiedAt: true },
+  });
+  if (!user?.email) return res.status(400).json({ message: "No hay un correo asociado a la cuenta." });
+  if (!user.emailVerifiedAt) {
+    return res.status(400).json({ message: "Tenés que verificar tu correo antes de usar esta recuperación." });
+  }
+
+  try {
+    await sendDisable2faEmail({ req, kcId: session.kcId, userId: user.id, email: user.email });
+  } catch (error) {
+    console.error("[auth/account/2fa/disable-email] mail:", error);
+    return res.status(502).json({ message: "No se pudo enviar el correo de confirmación." });
+  }
+  res.json({ ok: true });
+});
+
+r.post("/account/2fa/disable-email-public", async (req, res) => {
+  const identifier = typeof req.body?.identifier === "string" ? req.body.identifier.trim() : "";
+  res.set("Content-Type", "text/html; charset=utf-8");
+  const generic = () => res.send(renderDisable2faRequestSentPage());
+  if (!identifier || identifier.length > 255) return generic();
+
+  try {
+    const normalizedEmail = identifier.toLowerCase();
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: normalizedEmail },
+          { username: identifier },
+        ],
+      },
+      select: { id: true, email: true, emailVerifiedAt: true },
+    });
+    if (!user?.email || !user.emailVerifiedAt) return generic();
+
+    const kcId = await getKeycloakUserIdByEmail(user.email);
+    if (!kcId) return generic();
+
+    const status = await getKeycloakUserOtpStatus(kcId);
+    if (!status.enabled) return generic();
+
+    await sendDisable2faEmail({ req, kcId, userId: user.id, email: user.email });
+    return generic();
+  } catch (error) {
+    console.error("[auth/account/2fa/disable-email-public]:", error);
+    return generic();
+  }
+});
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderDisable2faConfirmPage(confirmUrl: string, token: string): string {
+  const action = escapeHtml(confirmUrl);
+  const value = escapeHtml(token);
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Confirmar desactivación de 2FA</title>
+<style>body{font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#f8fafc;color:#0f172a;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}main{max-width:28rem;background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:2rem;box-shadow:0 10px 25px rgba(15,23,42,.06)}h1{font-size:1.25rem;margin:0 0 .75rem}p{color:#475569;line-height:1.5}button{margin-top:1.25rem;width:100%;padding:.75rem 1rem;border:0;border-radius:.5rem;background:#dc2626;color:#fff;font-size:1rem;font-weight:600;cursor:pointer}</style>
+</head>
+<body>
+<main>
+<h1>Desactivar verificación en dos pasos</h1>
+<p>Vas a desactivar la verificación en dos pasos (2FA) de tu cuenta EduTrack. Confirmá solo si fuiste vos quien lo solicitó.</p>
+<form method="post" action="${action}">
+<input type="hidden" name="token" value="${value}" />
+<button type="submit">Confirmar desactivación de 2FA</button>
+</form>
+</main>
+</body>
+</html>`;
+}
+
+function renderDisable2faStatusPage(input: { title: string; message: string; buttonText: string; buttonHref: string }): string {
+  const title = escapeHtml(input.title);
+  const message = escapeHtml(input.message);
+  const buttonText = escapeHtml(input.buttonText);
+  const buttonHref = escapeHtml(input.buttonHref);
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>${title}</title>
+<style>body{font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#f8fafc;color:#0f172a;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}main{max-width:28rem;background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:2rem;box-shadow:0 10px 25px rgba(15,23,42,.06)}h1{font-size:1.25rem;margin:0 0 .75rem}p{color:#475569;line-height:1.5}a{display:block;margin-top:1.25rem;width:100%;box-sizing:border-box;text-align:center;text-decoration:none;padding:.75rem 1rem;border-radius:.5rem;background:#047857;color:#fff;font-size:1rem;font-weight:600}</style>
+</head>
+<body>
+<main>
+<h1>${title}</h1>
+<p>${message}</p>
+<a href="${buttonHref}">${buttonText}</a>
+</main>
+</body>
+</html>`;
+}
+
+function renderDisable2faRequestSentPage(): string {
+  return renderDisable2faStatusPage({
+    title: "Revisá tu correo",
+    message: "Si la cuenta existe, tiene el correo verificado y mantiene 2FA activo, te enviamos un enlace para desactivarlo. El enlace vence en 15 minutos.",
+    buttonText: "Volver al ingreso",
+    buttonHref: `${frontendUrl()}/login`,
+  });
+}
+
+function renderDisable2faSuccessPage(): string {
+  return renderDisable2faStatusPage({
+    title: "2FA desactivado correctamente",
+    message: "La verificación en dos pasos fue desactivada. Ya podés iniciar sesión nuevamente con tu usuario y contraseña.",
+    buttonText: "Iniciar sesión",
+    buttonHref: `${frontendUrl()}/login`,
+  });
+}
+
+async function sendDisable2faEmail(input: { req: any; kcId: string; userId: string; email: string }): Promise<void> {
+  const token = createDisable2faEmailToken({ kcId: input.kcId, userId: input.userId, email: input.email });
+  const url = `${publicApiUrl(input.req)}/auth/account/2fa/disable-email?token=${encodeURIComponent(token)}`;
+  await sendMail({
+    to: input.email,
+    subject: "Confirmar desactivación de 2FA",
+    html: `<p>Recibimos una solicitud para desactivar la verificación en dos pasos de tu cuenta EduTrack.</p><p>Si fuiste vos, confirmalo desde este enlace válido por 15 minutos:</p><p><a href="${url}">${url}</a></p><p>Si no fuiste vos, ignorá este correo.</p>`,
+    text: `Confirmá la desactivación de 2FA desde este enlace válido por 15 minutos: ${url}`,
+  });
+}
+
+// GET no muta: solo renderiza una pantalla de confirmacion. Asi los escaneres de
+// enlaces de correo (Safe Links, Mimecast, Proofpoint...) que pre-cargan las URLs
+// con GET no pueden borrar el 2FA antes de que el usuario confirme.
+r.get("/account/2fa/disable-email", (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  // Allowlist estricto antes de reflejar: el token es <base64url>.<base64url>,
+  // sin metacaracteres HTML. Restringir el alfabeto corta cualquier XSS reflejado.
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) {
+    return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
+  }
+  const data = verifyDisable2faEmailToken(token);
+  if (!data) return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
+  const confirmUrl = `${publicApiUrl(req)}/auth/account/2fa/disable-email/confirm`;
+  res.set("Content-Type", "text/html; charset=utf-8");
+  return res.send(renderDisable2faConfirmPage(confirmUrl, token));
+});
+
+// La accion destructiva vive en POST (los pre-fetchers no envian POST) y el nonce
+// del token se marca como usado en Redis para que el enlace sea de un solo uso
+// (no se puede repetir dentro de la ventana de validez ni revertir una re-alta).
+r.post("/account/2fa/disable-email/confirm", async (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  const data = verifyDisable2faEmailToken(token);
+  if (!data) return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
+  const redis = getRedis();
+  if (!redis) return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=1`);
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: data.userId },
+      select: { email: true },
+    });
+    if (!user || user.email.toLowerCase() !== data.email.toLowerCase()) {
+      return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
+    }
+    const ttlSeconds = Math.max(1, Math.ceil((data.exp - Date.now()) / 1000));
+    const reserved = await redis.set(`bff:2fa-disable-used:${data.nonce}`, "1", "EX", ttlSeconds, "NX");
+    if (reserved !== "OK") {
+      // Nonce ya consumido: enlace reutilizado.
+      return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
+    }
+    await deleteKeycloakUserOtpCredentials(data.kcId);
+    res.set("Content-Type", "text/html; charset=utf-8");
+    return res.send(renderDisable2faSuccessPage());
+  } catch (error) {
+    console.error("[auth/account/2fa/disable-email/confirm] disable:", error);
+    return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=1`);
+  }
+});
+
 r.get("/account/recovery-codes", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
@@ -265,12 +548,11 @@ r.get("/account/2fa/status", async (req, res) => {
 r.delete("/account/2fa", async (req, res) => {
   const session = await requireSession(req, res);
   if (!session) return;
-  const password = typeof req.body?.password === "string" ? req.body.password : "";
-  if (!password) return res.status(400).json({ message: "Ingresá tu contraseña actual." });
+  const code = typeof req.body?.code === "string" ? req.body.code : "";
+  if (!code) return res.status(400).json({ message: "Ingresá el código de 2FA." });
   try {
-    const loginName = (await getKeycloakUserLoginName(session.kcId)) || session.email;
-    const ok = await verifyKeycloakPassword(loginName, password);
-    if (!ok) return res.status(401).json({ message: "Contraseña incorrecta." });
+    const ok = await verifyKeycloakUserOtpCode(session.kcId, code);
+    if (!ok) return res.status(401).json({ message: "Código de 2FA incorrecto." });
     const removed = await deleteKeycloakUserOtpCredentials(session.kcId);
     res.json({ ok: true, removed });
   } catch (error) {
@@ -287,7 +569,7 @@ r.get("/account/security", async (req, res) => {
 
 r.post("/forgot-password", async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!email || !/^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,255}$/.test(email)) {
     return res.status(400).json({ message: "Ingresá un correo válido." });
   }
   try {

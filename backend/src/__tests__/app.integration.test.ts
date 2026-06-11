@@ -1,6 +1,14 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
 import app from "../app.js";
+
+const { prismaMock } = vi.hoisted(() => ({
+  prismaMock: {
+    $queryRaw: vi.fn(),
+  },
+}));
+
+vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 
 describe("App HTTP (integración ligera)", () => {
   // `frontendUrl()` se lee en runtime; fijamos el valor esperado para no depender
@@ -9,6 +17,8 @@ describe("App HTTP (integración ligera)", () => {
     process.env.NODE_ENV = "test";
     process.env.FRONTEND_URL = "http://localhost:3000";
     delete process.env.CORS_ORIGINS;
+    prismaMock.$queryRaw.mockReset();
+    prismaMock.$queryRaw.mockResolvedValue([{ "?column?": 1 }]);
   });
 
   it("GET /health responde ok", async () => {
@@ -31,6 +41,22 @@ describe("App HTTP (integración ligera)", () => {
       'edutrack_backend_http_requests_total{method="GET",route="/unmatched",status_code="404"}',
     );
     expect(metrics).toContain("edutrack_backend_http_request_duration_seconds_bucket");
+  });
+
+  it("GET /ready responde ok cuando la DB acepta queries", async () => {
+    const res = await request(app).get("/ready");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(prismaMock.$queryRaw).toHaveBeenCalledOnce();
+  });
+
+  it("GET /ready responde 503 cuando la DB falla", async () => {
+    prismaMock.$queryRaw.mockRejectedValueOnce(new Error("db down"));
+
+    const res = await request(app).get("/ready");
+
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ ok: false });
   });
 
   it("GET /auth/login inicia flujo OIDC (redirect o error si falta Redis)", async () => {

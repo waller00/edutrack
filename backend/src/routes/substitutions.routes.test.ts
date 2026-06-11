@@ -120,4 +120,53 @@ describe("substitutions routes", () => {
       }),
     );
   });
+
+  it("permite registrar suplencia aunque la clase no tenga grupo ni asignatura", async () => {
+    const eventId = "00000000-0000-4000-8000-0000000000e2";
+    const startTime = new Date("2026-06-09T15:00:00.000Z");
+    const endTime = new Date("2026-06-09T16:00:00.000Z");
+    const substituteUserId = "00000000-0000-4000-8000-0000000000d3";
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eventId,
+      title: "Turno administrativo",
+      type: "CLASE",
+      status: "SCHEDULED",
+      assignedUserId: "staff-1",
+      schoolYearId: "year-1",
+      courseOfferingId: null,
+      subjectId: null,
+      startDate: new Date("2026-06-09T12:00:00.000Z"),
+      startTime,
+      endTime,
+      isRecurring: false,
+      daysOfWeek: [],
+    });
+    prismaMock.user.findUnique.mockResolvedValue({ id: substituteUserId, isActive: true, isApproved: true });
+    prismaMock.substitution.findUnique.mockResolvedValue(null);
+    prismaMock.substitution.create.mockResolvedValue({ id: "sub-staff", eventId });
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.attendance.create.mockResolvedValue({ id: "att-staff" });
+    prismaMock.substitution.findUniqueOrThrow.mockResolvedValue({ id: "sub-staff", eventId });
+
+    const res = await request(app())
+      .post("/substitutions")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({
+        eventId,
+        substituteUserId,
+        reason: "Cobertura de staff",
+        occurrenceDate: "2026-06-09",
+      });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.substitution.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          originalTeacherUserId: "staff-1",
+          substituteUserId,
+          reason: "Cobertura de staff",
+        }),
+      }),
+    );
+  });
 });

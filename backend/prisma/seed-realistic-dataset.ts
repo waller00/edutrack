@@ -16,6 +16,7 @@ import crypto from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import type { AttendanceStatus, Event, User } from '@prisma/client'
 import { DateTime } from 'luxon'
+import { TEACHER_SPECIALTIES, type TeacherSpecialty, type TeacherSpecialtyArea } from './data/teacher-specialties.js'
 import { seedAcademicCatalog } from './seed-academic-catalog.js'
 import { runBootstrap } from './seed-bootstrap.js'
 import { seedTeachers } from './seed-teachers.js'
@@ -159,14 +160,8 @@ const STUDENT_LAST_NAMES = [
   'Zunino',
 ]
 
-const TEACHER_POOLS: Record<string, string[]> = {
-  matematica: ['ana.kelland', 'lucas.martinez', 'maximiliano.rodriguez', 'matias.scarenzio'],
-  ciencias: ['gabriela.lopez', 'santiago.garrido', 'natalia.acosta', 'valentina.morales'],
-  humanidades: ['cecilia.pereira', 'jorge.fernandez', 'rita.fernandez', 'veronica.nunez'],
-  lenguas: ['leidy.gomez', 'lucia.cabrera', 'romina.sosa', 'luciana.rios'],
-  arte: ['noelia.castro', 'rita.zabala', 'sharon.mendez', 'silvina.duarte'],
-  gestion: ['eduardo.rodriguez', 'leandro.silva', 'luis.torres', 'marcelo.garcia', 'marcos.pereira'],
-}
+const DATASET_SCHOOL_YEARS = [2024, 2025, 2026] as const
+const STAFF_INITIAL_PASSWORD = 'funcionario123'
 
 function stableHash(input: string) {
   let h = 2166136261
@@ -238,14 +233,87 @@ function eachYmd(start: string, end: string) {
   return days
 }
 
-function subjectArea(subjectName: string) {
-  const s = subjectName.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+function normalizedText(value: string) {
+  return value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+}
+
+function subjectArea(subjectName: string): TeacherSpecialtyArea {
+  const s = normalizedText(subjectName)
   if (s.includes('matematica') || s.includes('contabilidad') || s.includes('economia') || s.includes('administracion')) return 'matematica'
   if (s.includes('fisica') || s.includes('quimica') || s.includes('biologia') || s.includes('astronomia')) return 'ciencias'
-  if (s.includes('historia') || s.includes('filosofia') || s.includes('derecho') || s.includes('sociologia') || s.includes('geografia')) return 'humanidades'
+  if (s.includes('computacion') || s.includes('tecnologias digitales')) return 'informatica'
+  if (s.includes('educacion fisica') || s.includes('deporte') || s.includes('recreacion')) return 'educacion_fisica'
+  if (s.includes('historia') || s.includes('filosofia') || s.includes('derecho') || s.includes('sociologia') || s.includes('geografia') || s.includes('ciudadana') || s.includes('metodologia')) return 'humanidades'
   if (s.includes('ingles') || s.includes('literatura') || s.includes('espanol')) return 'lenguas'
   if (s.includes('arte') || s.includes('musica') || s.includes('danza') || s.includes('teatro') || s.includes('visual') || s.includes('diseño') || s.includes('diseno')) return 'arte'
   return 'gestion'
+}
+
+function specialtyForTeacher(teacher: Pick<User, 'username' | 'email'>): TeacherSpecialty | null {
+  const username = teacher.username?.toLowerCase()
+  if (username && TEACHER_SPECIALTIES[username]) return TEACHER_SPECIALTIES[username]
+  return TEACHER_SPECIALTIES[teacher.email.toLowerCase()] ?? null
+}
+
+function teacherLabel(teacher: Pick<User, 'username' | 'email' | 'name'>) {
+  return teacher.username ?? teacher.email ?? teacher.name ?? 'docente-sin-identificador'
+}
+
+function teacherCanTeachSubject(teacher: Pick<User, 'username' | 'email'>, subjectName: string) {
+  const specialty = specialtyForTeacher(teacher)
+  if (!specialty) return false
+  const normalizedSubject = normalizedText(subjectName)
+  return (
+    specialty.areas.includes(subjectArea(subjectName)) ||
+    (specialty.subjects ?? []).some((subject) => normalizedText(subject) === normalizedSubject)
+  )
+}
+
+function assertTeacherSpecialties(teachers: Array<Pick<User, 'username' | 'email' | 'name'>>) {
+  if (teachers.length === 0) {
+    throw new Error('[dataset] No hay docentes activos con TeacherProfile activo para asignar clases.')
+  }
+  const missing = teachers.filter((teacher) => !specialtyForTeacher(teacher)).map(teacherLabel)
+  if (missing.length > 0) {
+    throw new Error(
+      `[dataset] Faltan especialidades docentes en prisma/data/teacher-specialties.ts para: ${missing.join(', ')}`,
+    )
+  }
+}
+
+async function normalizeDatasetSchoolYears() {
+  console.log('[dataset] Normalizando ciclos lectivos 2024-2026...')
+
+  await (prisma as any).subjectCourseAssignment.deleteMany({
+    where: { schoolYear: { code: { notIn: [...DATASET_SCHOOL_YEARS] } } },
+  })
+  await (prisma as any).courseOrientation.deleteMany({
+    where: { schoolYear: { code: { notIn: [...DATASET_SCHOOL_YEARS] } } },
+  })
+  await prisma.courseOffering.deleteMany({
+    where: { schoolYear: { code: { notIn: [...DATASET_SCHOOL_YEARS] } } },
+  })
+  await prisma.schoolYear.deleteMany({ where: { code: { notIn: [...DATASET_SCHOOL_YEARS] } } })
+
+  for (const year of DATASET_SCHOOL_YEARS) {
+    const dates = SCHOOL_YEAR_DATES[year]
+    await prisma.schoolYear.upsert({
+      where: { code: year },
+      create: {
+        code: year,
+        label: `Ciclo lectivo ${year}`,
+        status: year === 2026 ? 'ACTIVE' : 'CLOSED',
+        startsOn: ymdToDate(dates.start),
+        endsOn: ymdToDate(dates.end),
+      },
+      update: {
+        label: `Ciclo lectivo ${year}`,
+        status: year === 2026 ? 'ACTIVE' : 'CLOSED',
+        startsOn: ymdToDate(dates.start),
+        endsOn: ymdToDate(dates.end),
+      },
+    })
+  }
 }
 
 async function clearOperationalData() {
@@ -545,11 +613,11 @@ async function seedMedicalLeaves(teachers: Array<Pick<User, 'id' | 'username' | 
   }
 }
 
-async function seedEvents(admin: User, teachers: User[]) {
+async function seedEvents(admin: User, teachers: User[], staffUsers: User[]) {
   const schoolYears = await prisma.schoolYear.findMany({ select: { id: true, code: true } })
   const schoolYearId = new Map(schoolYears.map((row) => [row.code, row.id]))
   const offerings = await prisma.courseOffering.findMany({
-    where: { isOffered: true, visibleInFilters: true },
+    where: { isOffered: true, visibleInFilters: true, schoolYear: { code: { in: [...DATASET_SCHOOL_YEARS] } } },
     include: { course: true, schoolYear: true },
   })
   const subjects = await prisma.subject.findMany({ select: { id: true, name: true } })
@@ -563,26 +631,61 @@ async function seedEvents(admin: User, teachers: User[]) {
   const courseOrientationId = new Map(
     courseOrientations.map((row: any) => [`${row.schoolYearId}:${row.courseId}:${row.orientationId}`, row.id]),
   )
-  const teacherByUsername = new Map(teachers.map((teacher) => [teacher.username ?? '', teacher]))
-  const busy = new Set<string>()
-  const poolCursor = new Map<string, number>()
+  assertTeacherSpecialties(teachers)
+  const teacherBusy = new Set<string>()
+  const groupBusy = new Set<string>()
+  const assignmentCounts = new Map(teachers.map((teacher) => [teacher.id, 0]))
   const createdEvents: Event[] = []
 
-  function chooseTeacher(subject: string, year: number, days: number[], slotIndex: number) {
-    const area = subjectArea(subject)
-    const usernames = TEACHER_POOLS[area] ?? TEACHER_POOLS.gestion
-    const start = poolCursor.get(area) ?? 0
-    for (let offset = 0; offset < usernames.length + teachers.length; offset += 1) {
-      const username = usernames[(start + offset) % usernames.length]
-      const candidate = teacherByUsername.get(username) ?? teachers[(start + offset) % teachers.length]
-      const conflict = days.some((day) => busy.has(`${year}:${candidate.id}:${day}:${slotIndex}`))
+  function classDays(subjectIndex: number, courseSortOrder: number, offset: number) {
+    const primaryDay = 1 + ((subjectIndex + courseSortOrder + offset) % 5)
+    const secondDay = subjectIndex % 3 === 0 ? 1 + ((primaryDay + 2) % 5) : null
+    return Array.from(new Set([primaryDay, ...(secondDay ? [secondDay] : [])]))
+  }
+
+  function reserveClassPlacement(params: {
+    year: number
+    groupKey: string
+    courseSortOrder: number
+    subjectIndex: number
+  }) {
+    const baseSlot = (params.subjectIndex + params.courseSortOrder) % CLASS_SLOTS.length
+    for (let attempt = 0; attempt < CLASS_SLOTS.length * 5; attempt += 1) {
+      const slotIndex = (baseSlot + attempt) % CLASS_SLOTS.length
+      const dayOffset = Math.floor(attempt / CLASS_SLOTS.length)
+      const days = classDays(params.subjectIndex, params.courseSortOrder, dayOffset)
+      const conflict = days.some((day) => groupBusy.has(`${params.year}:${params.groupKey}:${day}:${slotIndex}`))
       if (!conflict) {
-        days.forEach((day) => busy.add(`${year}:${candidate.id}:${day}:${slotIndex}`))
-        poolCursor.set(area, start + offset + 1)
-        return candidate
+        days.forEach((day) => groupBusy.add(`${params.year}:${params.groupKey}:${day}:${slotIndex}`))
+        return { slotIndex, days }
       }
     }
-    return teachers[stableHash(`${subject}-${year}-${slotIndex}`) % teachers.length]
+    throw new Error(`[dataset] No se encontro franja libre para grupo ${params.groupKey} en ${params.year}`)
+  }
+
+  function chooseTeacher(subject: string, year: number, days: number[], slotIndex: number) {
+    const compatible = teachers.filter((teacher) => teacherCanTeachSubject(teacher, subject))
+    if (compatible.length === 0) {
+      throw new Error(`[dataset] No hay docente compatible para la asignatura "${subject}" (${subjectArea(subject)}).`)
+    }
+
+    const available = compatible.filter((candidate) =>
+      days.every((day) => !teacherBusy.has(`${year}:${candidate.id}:${day}:${slotIndex}`)),
+    )
+    if (available.length === 0) {
+      throw new Error(`[dataset] No hay docente compatible y libre para "${subject}" en ${year}, franja ${slotIndex + 1}.`)
+    }
+
+    available.sort((a, b) => {
+      const loadDelta = (assignmentCounts.get(a.id) ?? 0) - (assignmentCounts.get(b.id) ?? 0)
+      if (loadDelta !== 0) return loadDelta
+      return stableHash(`${subject}-${year}-${a.id}`) - stableHash(`${subject}-${year}-${b.id}`)
+    })
+
+    const teacher = available[0]
+    days.forEach((day) => teacherBusy.add(`${year}:${teacher.id}:${day}:${slotIndex}`))
+    assignmentCounts.set(teacher.id, (assignmentCounts.get(teacher.id) ?? 0) + days.length)
+    return teacher
   }
 
   async function createRecurringClass(params: {
@@ -595,11 +698,14 @@ async function seedEvents(admin: User, teachers: User[]) {
     const subjectId = subjectByName.get(params.subjectName)
     if (!subjectId) return
     const dates = SCHOOL_YEAR_DATES[params.year]
-    const slotIndex = (params.subjectIndex + params.courseOffering.course.sortOrder) % CLASS_SLOTS.length
+    const groupKey = `${params.courseOffering.id}:${params.orientation?.id ?? 'GENERAL'}`
+    const { slotIndex, days } = reserveClassPlacement({
+      year: params.year,
+      groupKey,
+      courseSortOrder: params.courseOffering.course.sortOrder,
+      subjectIndex: params.subjectIndex,
+    })
     const slot = CLASS_SLOTS[slotIndex]
-    const primaryDay = 1 + ((params.subjectIndex + params.courseOffering.course.sortOrder) % 5)
-    const secondDay = params.subjectIndex % 3 === 0 ? 1 + ((primaryDay + 2) % 5) : null
-    const days = Array.from(new Set([primaryDay, ...(secondDay ? [secondDay] : [])]))
     const teacher = chooseTeacher(params.subjectName, params.year, days, slotIndex)
     const orientationLabel = params.orientation ? ` - ${params.orientation.name}` : ''
     const courseOrientation =
@@ -680,28 +786,30 @@ async function seedEvents(admin: User, teachers: User[]) {
     })
   }
 
-  await prisma.event.create({
-    data: {
-      title: 'Jornada laboral Administracion',
-      description: 'Turno administrativo diario para direccion y bedelia.',
-      type: 'JORNADA_LABORAL',
-      status: 'SCHEDULED',
-      startDate: ymdToDate(SCHOOL_YEAR_DATES[2026].start),
-      endDate: ymdToDate(SCHOOL_YEAR_DATES[2026].end),
-      startTime: wall(SCHOOL_YEAR_DATES[2026].start, 8, 0),
-      endTime: wall(SCHOOL_YEAR_DATES[2026].start, 16, 0),
-      location: 'Administracion',
-      userId: admin.id,
-      assignedUserId: admin.id,
-      schoolYearId: schoolYearId.get(2026)!,
-      recurrenceType: 'DAILY',
-      recurrenceEnd: ymdToDate(SCHOOL_YEAR_DATES[2026].end),
-      isRecurring: true,
-      daysOfWeek: [1, 2, 3, 4, 5],
-    },
-  })
+  for (const staff of staffUsers) {
+    await prisma.event.create({
+      data: {
+        title: `Jornada laboral Staff - ${staff.name ?? staff.username ?? staff.email}`,
+        description: 'Turno administrativo diario de lunes a viernes, 08:00 a 16:00.',
+        type: 'JORNADA_LABORAL',
+        status: 'SCHEDULED',
+        startDate: ymdToDate(SCHOOL_YEAR_DATES[2026].start),
+        endDate: ymdToDate(SCHOOL_YEAR_DATES[2026].end),
+        startTime: wall(SCHOOL_YEAR_DATES[2026].start, 8, 0),
+        endTime: wall(SCHOOL_YEAR_DATES[2026].start, 16, 0),
+        location: 'Administracion',
+        userId: admin.id,
+        assignedUserId: staff.id,
+        schoolYearId: schoolYearId.get(2026)!,
+        recurrenceType: 'DAILY',
+        recurrenceEnd: ymdToDate(SCHOOL_YEAR_DATES[2026].end),
+        isRecurring: true,
+        daysOfWeek: [1, 2, 3, 4, 5],
+      },
+    })
+  }
 
-  console.log(`[dataset] Eventos recurrentes creados: ${createdEvents.length + 4}`)
+  console.log(`[dataset] Eventos recurrentes creados: ${createdEvents.length + 3 + staffUsers.length}`)
   return createdEvents
 }
 
@@ -713,7 +821,7 @@ async function seedAttendances(params: {
 }) {
   const events = await prisma.event.findMany({
     where: { assignedUserId: { not: null }, isRecurring: true },
-    include: { schoolYear: true },
+    include: { schoolYear: true, subject: { select: { name: true } } },
   })
   const nonWorkingDays = await prisma.nonWorkingDay.findMany({ select: { date: true } })
   const blocked = new Set(nonWorkingDays.map((row) => toYmd(row.date)))
@@ -766,6 +874,7 @@ async function seedAttendances(params: {
     if (!event.assignedUserId || !event.startTime || !event.endTime || !event.recurrenceEnd) continue
     const year = event.schoolYear.code
     const dates = SCHOOL_YEAR_DATES[year]
+    if (!dates) continue
     const end = dates.attendanceUntil
     const startMinutes = wallMinutesFromStoredTime(event.startTime)
     const endMinutes = wallMinutesFromStoredTime(event.endTime)
@@ -789,6 +898,7 @@ async function seedAttendances(params: {
             status: 'ABSENT_JUSTIFIED',
             date: ymdToDate(date),
             time: minutesToWall(date, startMinutes),
+            schoolYearId: event.schoolYearId,
             notes: `Ausencia justificada por licencia: ${leave.reason}`,
           },
         })
@@ -809,8 +919,14 @@ async function seedAttendances(params: {
 
       if (teacherIds.has(userId) && ratio(`${baseKey}-absent`) < absenceRate) {
         const shouldCreateSubstitution = ratio(`${baseKey}-substitution`) > 0.52
+        const subjectName = event.subject?.name
         const substitute = shouldCreateSubstitution
-          ? params.teachers.find((teacher) => teacher.id !== userId && ratio(`${baseKey}-${teacher.id}-sub`) > 0.72)
+          ? params.teachers.find(
+              (teacher) =>
+                teacher.id !== userId &&
+                (!subjectName || teacherCanTeachSubject(teacher, subjectName)) &&
+                ratio(`${baseKey}-${teacher.id}-sub`) > 0.72,
+            )
           : null
         const attendance = await prisma.attendance.create({
           data: {
@@ -820,28 +936,11 @@ async function seedAttendances(params: {
             status: substitute ? 'SUBSTITUTED' : ratio(`${baseKey}-just`) > 0.45 ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED',
             date: ymdToDate(date),
             time: minutesToWall(date, startMinutes),
+            schoolYearId: event.schoolYearId,
             notes: substitute ? 'Docente cubierto por suplencia.' : 'Inasistencia registrada para seguimiento.',
           },
         })
         attendanceCount += 1
-
-        const incident = await prisma.attendanceIncident.create({
-          data: {
-            type: 'TEACHER_NO_SHOW',
-            status: substitute ? 'RESOLVED' : ratio(`${baseKey}-ack`) > 0.55 ? 'ACKNOWLEDGED' : 'OPEN',
-            title: `Ausencia docente - ${event.title}`,
-            description: substitute ? 'Ausencia cubierta con docente suplente.' : 'No se registro entrada al inicio de la clase.',
-            severity: substitute ? 'MEDIUM' : 'HIGH',
-            userId,
-            eventId: event.id,
-            attendanceId: attendance.id,
-            detectedAt: minutesToWall(date, startMinutes + 15),
-            acknowledgedAt: substitute ? minutesToWall(date, startMinutes + 18) : null,
-            resolvedAt: substitute ? minutesToWall(date, startMinutes + 25) : null,
-            resolvedBy: substitute ? adminId : null,
-          },
-        })
-        incidentCount += 1
 
         if (substitute && event.startTime && event.endTime) {
           await prisma.substitution.create({
@@ -861,28 +960,14 @@ async function seedAttendances(params: {
           const inTime = minutesToWall(date, startMinutes - 4)
           const outTime = minutesToWall(date, endMinutes + 2)
           const subIn = await prisma.attendance.create({
-            data: { userId: substitute.id, eventId: event.id, type: 'CHECK_IN', status: 'PRESENT', date: ymdToDate(date), time: inTime, notes: 'Entrada docente suplente.' },
+            data: { userId: substitute.id, eventId: event.id, type: 'CHECK_IN', status: 'PRESENT', date: ymdToDate(date), time: inTime, schoolYearId: event.schoolYearId, notes: 'Entrada docente suplente.' },
           })
           const subOut = await prisma.attendance.create({
-            data: { userId: substitute.id, eventId: event.id, type: 'CHECK_OUT', status: 'EXIT', date: ymdToDate(date), time: outTime, notes: 'Salida docente suplente.' },
+            data: { userId: substitute.id, eventId: event.id, type: 'CHECK_OUT', status: 'EXIT', date: ymdToDate(date), time: outTime, schoolYearId: event.schoolYearId, notes: 'Salida docente suplente.' },
           })
           attendanceCount += 2
           await createPunch(substitute.id, subIn.id, 'CHECK_IN', inTime)
           await createPunch(substitute.id, subOut.id, 'CHECK_OUT', outTime)
-        }
-
-        if (incident.status !== 'OPEN') {
-          await prisma.inAppNotification.create({
-            data: {
-              userId: adminId ?? params.admin.id,
-              type: 'ATTENDANCE_INCIDENT',
-              title: incident.title,
-              body: incident.description ?? 'Incidente de asistencia.',
-              actionUrl: '/admin/attendance',
-              readAt: incident.status === 'RESOLVED' ? new Date(incident.detectedAt.getTime() + 60 * 60 * 1000) : null,
-              createdAt: incident.detectedAt,
-            },
-          })
         }
         continue
       }
@@ -901,6 +986,7 @@ async function seedAttendances(params: {
           status: inStatus,
           date: ymdToDate(date),
           time: inTime,
+          schoolYearId: event.schoolYearId,
           notes: inStatus === 'LATE' ? pick(['Retraso por transporte', 'Ingreso tarde avisado a adscripcion', 'Demora en clase previa'], `${baseKey}-late-note`) : 'Entrada normal.',
         },
       })
@@ -912,6 +998,7 @@ async function seedAttendances(params: {
           status: outStatus,
           date: ymdToDate(date),
           time: outTime,
+          schoolYearId: event.schoolYearId,
           notes: outStatus === 'EARLY_EXIT' ? pick(['Retiro por coordinacion', 'Salida autorizada por direccion', 'Traslado a otra actividad'], `${baseKey}-early-note`) : 'Salida normal.',
         },
       })
@@ -919,45 +1006,6 @@ async function seedAttendances(params: {
       await createPunch(userId, checkIn.id, 'CHECK_IN', inTime)
       await createPunch(userId, checkOut.id, 'CHECK_OUT', outTime)
 
-      if (inStatus === 'LATE') {
-        await prisma.attendanceIncident.create({
-          data: {
-            type: 'LATE_ARRIVAL',
-            status: ratio(`${baseKey}-late-res`) > 0.35 ? 'RESOLVED' : 'ACKNOWLEDGED',
-            title: `Llegada tarde - ${event.title}`,
-            description: `Llegada ${lateMinutes} minutos tarde.`,
-            severity: lateMinutes > 15 ? 'HIGH' : 'MEDIUM',
-            userId,
-            eventId: event.id,
-            attendanceId: checkIn.id,
-            detectedAt: inTime,
-            acknowledgedAt: new Date(inTime.getTime() + 20 * 60 * 1000),
-            resolvedAt: ratio(`${baseKey}-late-res`) > 0.35 ? new Date(inTime.getTime() + 90 * 60 * 1000) : null,
-            resolvedBy: ratio(`${baseKey}-late-res`) > 0.35 ? adminId : null,
-          },
-        })
-        incidentCount += 1
-      }
-
-      if (outStatus === 'EARLY_EXIT') {
-        await prisma.attendanceIncident.create({
-          data: {
-            type: 'EARLY_EXIT',
-            status: 'RESOLVED',
-            title: `Salida anticipada - ${event.title}`,
-            description: `Salida ${earlyMinutes} minutos antes de finalizar.`,
-            severity: 'MEDIUM',
-            userId,
-            eventId: event.id,
-            attendanceId: checkOut.id,
-            detectedAt: outTime,
-            acknowledgedAt: new Date(outTime.getTime() + 10 * 60 * 1000),
-            resolvedAt: new Date(outTime.getTime() + 55 * 60 * 1000),
-            resolvedBy: adminId,
-          },
-        })
-        incidentCount += 1
-      }
     }
   }
 
@@ -1002,14 +1050,17 @@ async function seedAudit(admin: User) {
 
 async function ensureDemoStaffUsers() {
   const staffRole = await prisma.orgRole.findUnique({ where: { code: 'STAFF' } })
-  if (!staffRole) return
+  if (!staffRole) return []
+
   const rows = [
     ['maria.adscriptora', 'María', 'Santos', 'Adscripta turno matutino'],
     ['pablo.bedel', 'Pablo', 'Molina', 'Bedelia y gestion de asistencias'],
   ] as const
+  const users: User[] = []
+
   for (let i = 0; i < rows.length; i += 1) {
     const [username, firstName, lastName, note] = rows[i]
-    await prisma.user.upsert({
+    const user = await prisma.user.upsert({
       where: { username },
       create: {
         username,
@@ -1025,42 +1076,67 @@ async function ensureDemoStaffUsers() {
         isApproved: true,
         approvedAt: new Date(),
         isActive: true,
+        failedLoginAttempts: 0,
+        lockUntil: null,
       },
       update: {
         firstName,
         lastName,
         name: `${firstName} ${lastName}`,
+        roleId: staffRole.id,
+        isApproved: true,
         isActive: true,
       },
     })
+    users.push(user)
+
+    try {
+      const { createKeycloakUser } = await import('../src/auth/keycloak.js')
+      await createKeycloakUser({
+        email: user.email,
+        username,
+        firstName,
+        lastName,
+        password: STAFF_INITIAL_PASSWORD,
+        role: 'STAFF',
+        emailVerified: true,
+      })
+    } catch (error) {
+      console.warn(`[dataset] Keycloak staff opcional (${username}):`, error)
+    }
+
     console.log(`[dataset] Usuario STAFF listo: ${username} (${note})`)
   }
+
+  return users
 }
 
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL no esta definida')
 
-  console.log('[dataset] Base estructural: bootstrap + catalogo + docentes...')
+  console.log('[dataset] Base estructural: bootstrap + catalogo + usuarios demo...')
   await runBootstrap()
   await seedAcademicCatalog()
   await seedTeachers()
-  await ensureDemoStaffUsers()
+  const staffUsers = await ensureDemoStaffUsers()
+  const teachers = await prisma.user.findMany({
+    where: { orgRole: { code: 'TEACHER' }, isActive: true, teacherProfile: { is: { isActive: true } } },
+    orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+  })
+  assertTeacherSpecialties(teachers)
 
   await clearOperationalData()
+  await normalizeDatasetSchoolYears()
   await ensureOfferingsForAllYears()
   await seedNonWorkingDays()
 
   const admin = await prisma.user.findFirstOrThrow({ where: { orgRole: { code: 'ADMIN' } } })
-  const teachers = await prisma.user.findMany({
-    where: { orgRole: { code: 'TEACHER' }, isActive: true },
-    orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-  })
-  const allMappedUsers = [admin, ...teachers]
+  const allMappedUsers = [admin, ...teachers, ...staffUsers]
   const biometric = await seedBiometricDevice(allMappedUsers)
 
   await seedStudents()
   await seedMedicalLeaves(teachers)
-  await seedEvents(admin, teachers)
+  await seedEvents(admin, teachers, staffUsers)
   await seedAttendances({ admin, teachers, device: biometric.device, mappings: biometric.mappings })
   await seedAudit(admin)
 
@@ -1091,7 +1167,7 @@ async function main() {
   console.log(`[dataset] Estudiantes: ${counts[0]} | Matriculas historicas: ${counts[1]}`)
   console.log(`[dataset] Eventos: ${counts[2]} | Asistencias: ${counts[3]} | Incidencias: ${counts[4]} | Suplencias: ${counts[5]}`)
   console.log(`[dataset] Cuotas mensuales: ${counts[6]}`)
-  console.log('[dataset] Credenciales: admin/admin123, docentes/docente123, staff/funcionario123')
+  console.log(`[dataset] Usuarios demo incluidos: admin, docentes y staff. Clave staff seed: ${STAFF_INITIAL_PASSWORD}`)
 }
 
 main()

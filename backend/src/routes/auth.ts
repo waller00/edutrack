@@ -21,6 +21,7 @@ import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org
 import { createKeycloakUser, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
 import { saveSession } from "../auth/session-store.js";
+import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
 
 const r = Router();
 
@@ -226,7 +227,7 @@ r.get("/registration-options", async (_req, res) => {
 
 r.get("/check-username", async (req, res) => {
   const u = String(req.query.u || "").trim();
-  const valid = /^[a-zA-Z0-9_.-]{3,30}$/.test(u);
+  const valid = USERNAME_REGEX.test(u);
   if (!valid) return res.json({ available: false, valid: false });
   const exist = await prisma.user.findUnique({ where: { username: u } });
   return res.json({ available: !exist, valid: true });
@@ -480,7 +481,7 @@ r.put("/profile", authGuard, async (req, res) => {
   const u = (req as any).user;
   const bodySchema = z.object({
     email: z.string().email().optional(),
-    username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_.-]+$/).optional(),
+    username: usernameSchema.optional(),
     nationalId: z.string().min(6).max(20).optional(),
     firstName: z.string().min(1).max(80).optional(),
     lastName: z.string().min(1).max(80).optional(),

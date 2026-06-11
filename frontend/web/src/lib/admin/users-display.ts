@@ -1,3 +1,5 @@
+import { getRoleLabel } from '@/lib/roles/display'
+
 export type AdminUserRow = {
   id: string
   email: string
@@ -72,7 +74,9 @@ export function cloneAdminUser(user: AdminUserRow): AdminUserRow {
 export function buildAdminUserEditChanges(original: AdminUserRow | null, edited: AdminUserRow): string[] {
   if (!original) return []
   const changes: string[] = []
-  if (original.role !== edited.role) changes.push(`Rol: ${original.role} → ${edited.role}`)
+  if (original.role !== edited.role) {
+    changes.push(`Rol: ${getRoleLabel(original.role)} → ${getRoleLabel(edited.role)}`)
+  }
   if ((original.username || '') !== (edited.username || '')) {
     changes.push(`Usuario: ${original.username || '-'} → ${edited.username || '-'}`)
   }

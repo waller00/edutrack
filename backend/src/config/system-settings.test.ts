@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getAttendanceOperationalSettings,
   getMoodleOperationalSettings,
-  isBiometricLateBySettings,
   isDiditConfigured,
   isLivenessRequiredForRegistration,
 } from './system-settings.js'
@@ -47,13 +46,6 @@ describe('system-settings', () => {
     expect(isLivenessRequiredForRegistration()).toBe(false)
   })
 
-  it('marca llegada biométrica tarde solo después de la hora configurada', () => {
-    const settings = { biometricLateHour: 8, biometricLateMinute: 30 }
-    expect(isBiometricLateBySettings(new Date('2025-06-01T08:30:00'), settings)).toBe(false)
-    expect(isBiometricLateBySettings(new Date('2025-06-01T08:31:00'), settings)).toBe(true)
-    expect(isBiometricLateBySettings(new Date('2025-06-01T09:00:00'), settings)).toBe(true)
-  })
-
   it('normaliza flags operativos de Moodle desde la fila global', async () => {
     vi.mocked(prisma.systemSettings.upsert).mockResolvedValueOnce({
       id: 'default',
@@ -80,8 +72,6 @@ describe('system-settings', () => {
       attendanceClassBridgeGapMinutes: 2000,
       attendanceMonitorEnabled: false,
       attendanceMonitorIntervalMs: 1000,
-      biometricLateHour: 99,
-      biometricLateMinute: 99,
       biometricDuplicateWindowMinutes: 999,
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     })
@@ -93,8 +83,6 @@ describe('system-settings', () => {
       classBridgeGapMinutes: 1440,
       monitorEnabled: false,
       monitorIntervalMs: 30000,
-      biometricLateHour: 23,
-      biometricLateMinute: 59,
       biometricDuplicateWindowMinutes: 120,
     })
   })

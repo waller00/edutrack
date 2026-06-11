@@ -5,6 +5,7 @@ import {
   applyEventStartDateFilter,
   buildMyEventsBaseFilter,
   applyMyEventsDateFilter,
+  deriveOccurrenceStatus,
   resolveRecurringRangeEnd,
   expandRecurringEvent,
   generateRecurringInstances,
@@ -59,6 +60,22 @@ describe("events-query", () => {
   it("resolveRecurringRangeEnd prioriza endDate query", () => {
     const ev = { startDate: "2020-01-01", recurrenceEnd: null };
     expect(resolveRecurringRangeEnd(ev, "2025-12-31")).toEqual(new Date("2025-12-31"));
+  });
+
+  it("deriveOccurrenceStatus calcula estado por horario de ocurrencia", () => {
+    const now = Date.now();
+    expect(
+      deriveOccurrenceStatus("SCHEDULED", new Date(now - 60_000), new Date(now + 60_000)),
+    ).toBe("IN_PROGRESS");
+    expect(
+      deriveOccurrenceStatus("SCHEDULED", new Date(now - 120_000), new Date(now - 60_000)),
+    ).toBe("COMPLETED");
+    expect(
+      deriveOccurrenceStatus("SCHEDULED", new Date(now + 60_000), new Date(now + 120_000)),
+    ).toBe("SCHEDULED");
+    expect(
+      deriveOccurrenceStatus("CANCELLED", new Date(now + 60_000), new Date(now + 120_000)),
+    ).toBe("CANCELLED");
   });
 
   it("resolveRecurringRangeEnd usa recurrenceEnd del evento o startDate si no existe", () => {
@@ -119,5 +136,45 @@ describe("events-query", () => {
     expect(inst.length).toBeGreaterThan(0);
     const withTimes = inst.filter((i: { startTime?: Date | null; endTime?: Date | null }) => i.startTime && i.endTime);
     expect(withTimes.length).toBeGreaterThan(0);
+  });
+
+  it("applyEventStartDateFilter: solo inicio / solo fin", () => {
+    const a: any = {};
+    applyEventStartDateFilter(a, "2025-01-01T00:00:00.000Z", undefined);
+    expect(a.AND[0].OR[0].startDate.gte).toBeInstanceOf(Date);
+    expect(a.AND[0].OR[0].startDate.lte).toBeUndefined();
+
+    const b: any = {};
+    applyEventStartDateFilter(b, undefined, "2025-01-31T00:00:00.000Z");
+    expect(b.AND[0].OR[0].startDate.lte).toBeInstanceOf(Date);
+    expect(b.AND[0].OR[0].startDate.gte).toBeUndefined();
+  });
+
+  it("applyEventStartDateFilter: conserva where.AND existente (array y objeto)", () => {
+    const arr: any = { AND: [{ x: 1 }] };
+    applyEventStartDateFilter(arr, "2025-01-01T00:00:00.000Z", "2025-01-31T00:00:00.000Z");
+    expect(arr.AND).toHaveLength(2);
+
+    const obj: any = { AND: { y: 2 } };
+    applyEventStartDateFilter(obj, "2025-01-01T00:00:00.000Z", "2025-01-31T00:00:00.000Z");
+    expect(obj.AND).toHaveLength(2);
+  });
+
+  it("applyMyEventsDateFilter: solo inicio y solo fin", () => {
+    const a: any = { OR: [{ userId: "u" }] };
+    applyMyEventsDateFilter(a, "u", "2025-06-01T00:00:00.000Z", undefined);
+    expect(a.AND).toBeDefined();
+    const b: any = { OR: [{ userId: "u" }] };
+    applyMyEventsDateFilter(b, "u", undefined, "2025-06-30T00:00:00.000Z");
+    expect(b.AND).toBeDefined();
+  });
+
+  it("resolveRecurringRangeEnd: endDate, recurrenceEnd o fallback", () => {
+    expect(resolveRecurringRangeEnd({}, "2025-12-31T00:00:00.000Z").toISOString()).toBe("2025-12-31T00:00:00.000Z");
+    expect(resolveRecurringRangeEnd({ recurrenceEnd: "2025-11-30T00:00:00.000Z" }).toISOString()).toBe(
+      "2025-11-30T00:00:00.000Z",
+    );
+    const fallback = resolveRecurringRangeEnd({ startDate: "2020-01-01T00:00:00.000Z" });
+    expect(fallback.getTime()).toBeGreaterThanOrEqual(new Date("2020-01-01").getTime());
   });
 });

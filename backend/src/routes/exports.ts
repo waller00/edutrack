@@ -12,6 +12,10 @@ import {
   generateAttendanceAssistanceReportXlsxFromAttendances,
 } from '../services/analytics/exports/attendanceAssistanceReportExport.js'
 import { generateMonthlySummaryPdf } from '../services/analytics/exports/monthlySummaryPdf.js'
+import {
+  generateDimensionReportPdf,
+  generateDimensionReportXlsx,
+} from '../services/analytics/exports/dimensionReportExport.js'
 import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 
@@ -21,6 +25,8 @@ const exportBodySchema = z.object({
   reportKey: z.enum([
     'attendance_detail',
     'monthly_summary',
+    'person_report',
+    'course_report',
   ]),
   format: z.enum(['PDF', 'XLSX', 'CSV']),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -62,132 +68,149 @@ const exportBodySchema = z.object({
     .optional(),
 })
 
+type ExportBody = z.infer<typeof exportBodySchema>
+type ExportFilters = NonNullable<ExportBody['filters']>
+type ExportFormat = ExportBody['format']
+type ReportKey = ExportBody['reportKey']
+type ReportResult = { buffer: Buffer } | { error: string }
+
+function isAllYearsExport(filters?: ExportFilters) {
+  return filters?.allYears === true || filters?.allYears === '1'
+}
+
+function buildFilterSuffix(filters?: ExportFilters) {
+  const sanitizePart = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const shortUuid = (id: string) => (id.length > 10 ? id.slice(-8) : id)
+  const parts: string[] = []
+  if (filters?.role) parts.push(`role-${sanitizePart(filters.role)}`)
+  if (filters?.userId) parts.push(`user-${shortUuid(filters.userId)}`)
+  if (filters?.eventType) parts.push(`eventType-${sanitizePart(filters.eventType)}`)
+  if (filters?.eventId) parts.push(`event-${shortUuid(filters.eventId)}`)
+  if (filters?.type) parts.push(`type-${sanitizePart(filters.type)}`)
+  if (filters?.status) parts.push(`status-${sanitizePart(filters.status)}`)
+  return parts.length ? `__${parts.join('__')}` : ''
+}
+
+function buildFilenameBase(reportKey: ReportKey, from: string, to: string, filterSuffix: string) {
+  switch (reportKey) {
+    case 'attendance_detail':
+      return `EduTrack_Asistencia_Detallada_${from}_${to}${filterSuffix}`
+    case 'monthly_summary':
+      return `EduTrack_Asistencia_Resumen_Mensual_${from.slice(0, 7)}${filterSuffix}`
+    case 'person_report':
+      return `EduTrack_Reporte_Por_Persona_${from}_${to}${filterSuffix}`
+    case 'course_report':
+      return `EduTrack_Reporte_Por_Curso_${from}_${to}${filterSuffix}`
+    default:
+      return `EduTrack_Exportacion_${from}_${to}${filterSuffix}`
+  }
+}
+
+function contentTypeFor(format: ExportFormat) {
+  if (format === 'XLSX') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  if (format === 'CSV') return 'text/csv; charset=utf-8'
+  return 'application/pdf'
+}
+
+function extensionFor(format: ExportFormat) {
+  if (format === 'XLSX') return 'xlsx'
+  if (format === 'CSV') return 'csv'
+  return 'pdf'
+}
+
+async function scopeUserIdsFor(filters?: ExportFilters): Promise<string[] | null> {
+  if (filters?.userId) return [filters.userId]
+  if (!filters?.role) return null
+  const rows = await prisma.user.findMany({ where: { orgRole: { code: filters.role } }, select: { id: true } })
+  return rows.map((row) => row.id)
+}
+
+async function resolveScopedSchoolYearId(filters: ExportFilters | undefined, allYearsExport: boolean) {
+  if (allYearsExport) return undefined
+  const sy = await resolveSchoolYearIdForList(prisma, {
+    role: 'ADMIN',
+    requestedSchoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
+  })
+  return sy || undefined
+}
+
+/** Camino de instancias planificadas conciliadas (compartido por resumen mensual y variantes por dimensión). */
+async function resolveInstancesForExport(from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean) {
+  const userIds = await scopeUserIdsFor(filters)
+  const schoolYearId = await resolveScopedSchoolYearId(filters, allYearsExport)
+  const plannedInstances = await getPlannedInstances({
+    from,
+    to,
+    userId: filters?.userId,
+    userIds: userIds || undefined,
+    eventType: filters?.eventType,
+    schoolYearId,
+  })
+  return resolveAttendanceAndJustification({ plannedInstances })
+}
+
+async function buildAttendanceDetail(format: ExportFormat, from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean): Promise<ReportResult> {
+  const schoolYearId = await resolveScopedSchoolYearId(filters, allYearsExport)
+  const attendanceFilters: any = {
+    from,
+    to,
+    role: filters?.role,
+    userId: filters?.userId,
+    eventId: filters?.eventId,
+    eventType: filters?.eventType,
+    type: filters?.type,
+    status: filters?.status,
+    ...(schoolYearId ? { schoolYearId } : {}),
+  }
+  if (format === 'XLSX') {
+    const xlsx = await generateAttendanceAssistanceReportXlsxFromAttendances({ filters: attendanceFilters })
+    return { buffer: Buffer.from(xlsx) }
+  }
+  if (format === 'CSV') return { buffer: Buffer.from(await generateAttendanceDetailCsvFromAttendances({ filters: attendanceFilters }), 'utf-8') }
+  return { buffer: await generateAttendanceAssistanceReportPdfFromAttendances({ filters: attendanceFilters }) }
+}
+
+async function buildMonthlySummary(format: ExportFormat, from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean): Promise<ReportResult> {
+  if (format !== 'PDF') return { error: 'Formato inválido para el resumen mensual' }
+  const resolvedInstances = await resolveInstancesForExport(from, to, filters, allYearsExport)
+  return { buffer: await generateMonthlySummaryPdf({ resolvedInstances, from, to, filters: filters || {} }) }
+}
+
+async function buildDimensionReport(reportKey: ReportKey, format: ExportFormat, from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean): Promise<ReportResult> {
+  if (format === 'CSV') return { error: 'Formato inválido para este reporte (usá XLSX o PDF)' }
+  const resolvedInstances = await resolveInstancesForExport(from, to, filters, allYearsExport)
+  const dimension = reportKey === 'person_report' ? 'person' : 'course'
+  const buffer =
+    format === 'XLSX'
+      ? await generateDimensionReportXlsx({ resolvedInstances, from, to, dimension })
+      : await generateDimensionReportPdf({ resolvedInstances, from, to, dimension })
+  return { buffer }
+}
+
+async function buildReport(reportKey: ReportKey, format: ExportFormat, from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean): Promise<ReportResult> {
+  if (reportKey === 'attendance_detail') return buildAttendanceDetail(format, from, to, filters, allYearsExport)
+  if (reportKey === 'monthly_summary') return buildMonthlySummary(format, from, to, filters, allYearsExport)
+  return buildDimensionReport(reportKey, format, from, to, filters, allYearsExport)
+}
+
 r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, res) => {
   try {
     const parsed = exportBodySchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ message: 'Parametros inválidos', errors: parsed.error.errors })
 
     const { reportKey, format, from, to, filters } = parsed.data
+    const allYearsExport = isAllYearsExport(filters)
 
-    const sanitizePart = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_')
-    const shortUuid = (id: string) => (id.length > 10 ? id.slice(-8) : id)
+    const filename = `${buildFilenameBase(reportKey, from, to, buildFilterSuffix(filters))}.${extensionFor(format)}`
+    const exportId = createPendingExport({ format, reportKey, filename, contentType: contentTypeFor(format) })
 
-    const filterSuffixParts: string[] = []
-    const role = filters?.role
-    const userId = filters?.userId
-    const eventType = filters?.eventType
-    const eventId = filters && 'eventId' in filters ? (filters as any).eventId : undefined
-    const type = filters && 'type' in filters ? (filters as any).type : undefined
-    const status = filters && 'status' in filters ? (filters as any).status : undefined
-    const allYearsExport =
-      (filters as { allYears?: unknown } | undefined)?.allYears === true ||
-      (filters as { allYears?: unknown } | undefined)?.allYears === '1'
-
-    if (role) filterSuffixParts.push(`role-${sanitizePart(role)}`)
-    if (userId) filterSuffixParts.push(`user-${shortUuid(userId)}`)
-    if (eventType) filterSuffixParts.push(`eventType-${sanitizePart(eventType)}`)
-    if (eventId) filterSuffixParts.push(`event-${shortUuid(eventId)}`)
-    if (type) filterSuffixParts.push(`type-${sanitizePart(type)}`)
-    if (status) filterSuffixParts.push(`status-${sanitizePart(status)}`)
-
-    const filterSuffix = filterSuffixParts.length ? `__${filterSuffixParts.join('__')}` : ''
-
-    const exportFilenameBase = (() => {
-      if (reportKey === 'attendance_detail') return `EduTrack_Asistencia_Detallada_${from}_${to}${filterSuffix}`
-      if (reportKey === 'monthly_summary') return `EduTrack_Asistencia_Resumen_Mensual_${from.slice(0, 7)}${filterSuffix}`
-      return `EduTrack_Exportacion_${from}_${to}${filterSuffix}`
-    })()
-
-    const contentType =
-      format === 'XLSX'
-        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : format === 'CSV'
-          ? 'text/csv; charset=utf-8'
-          : 'application/pdf'
-
-    const filename = `${exportFilenameBase}.${format === 'XLSX' ? 'xlsx' : format === 'CSV' ? 'csv' : 'pdf'}`
-    const exportId = createPendingExport({ format, reportKey, filename, contentType })
-
-    const scopeUserIds = async () => {
-      if (!filters?.role && !filters?.userId) return null
-      if (filters?.userId) return [filters.userId]
-      const rows = await prisma.user.findMany({
-        where: { orgRole: { code: filters.role } },
-        select: { id: true },
-      })
-      return rows.map((r) => r.id)
+    const result = await buildReport(reportKey, format, from, to, filters, allYearsExport)
+    if ('error' in result) {
+      markFailed(exportId, result.error)
+      return res.status(400).json({ message: result.error })
     }
 
-    const userIds = await scopeUserIds()
-
-    if (reportKey === 'attendance_detail') {
-      let resolvedAttendanceSchoolYearId: string | undefined
-      if (!allYearsExport) {
-        const sy = await resolveSchoolYearIdForList(prisma, {
-          role: 'ADMIN',
-          requestedSchoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
-        })
-        if (sy) resolvedAttendanceSchoolYearId = sy
-      }
-
-      const attendanceFiltersForBackend: any = {
-        from,
-        to,
-        role: filters?.role,
-        userId: filters?.userId,
-        eventId: filters?.eventId,
-        eventType: filters?.eventType,
-        type: filters?.type,
-        status: filters?.status,
-        ...(resolvedAttendanceSchoolYearId ? { schoolYearId: resolvedAttendanceSchoolYearId } : {}),
-      }
-
-      if (format === 'XLSX') {
-        const buffer = await generateAttendanceAssistanceReportXlsxFromAttendances({ filters: attendanceFiltersForBackend })
-        markDone(exportId, buffer)
-      } else if (format === 'CSV') {
-        const csv = await generateAttendanceDetailCsvFromAttendances({ filters: attendanceFiltersForBackend })
-        markDone(exportId, Buffer.from(csv, 'utf-8'))
-      } else if (format === 'PDF') {
-        const buffer = await generateAttendanceAssistanceReportPdfFromAttendances({ filters: attendanceFiltersForBackend })
-        markDone(exportId, buffer)
-      } else {
-        markFailed(exportId, 'Formato inválido para el detalle de asistencia')
-        return res.status(400).json({ message: 'Formato inválido para el detalle de asistencia' })
-      }
-    }
-
-    if (reportKey === 'monthly_summary') {
-      if (format !== 'PDF') {
-        markFailed(exportId, 'Formato inválido para el resumen mensual')
-        return res.status(400).json({ message: 'Formato inválido para el resumen mensual' })
-      }
-      let resolvedPlannedSchoolYearId: string | undefined
-      if (!allYearsExport) {
-        const sy = await resolveSchoolYearIdForList(prisma, {
-          role: 'ADMIN',
-          requestedSchoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
-        })
-        if (sy) resolvedPlannedSchoolYearId = sy
-      }
-      const plannedInstances = await getPlannedInstances({
-        from,
-        to,
-        userId: filters?.userId,
-        userIds: userIds || undefined,
-        eventType: filters?.eventType,
-        schoolYearId: resolvedPlannedSchoolYearId,
-      })
-      const resolvedInstances = await resolveAttendanceAndJustification({ plannedInstances })
-      const buffer = await generateMonthlySummaryPdf({
-        resolvedInstances,
-        from,
-        to,
-        filters: filters || {},
-      })
-      markDone(exportId, buffer)
-    }
-
+    markDone(exportId, result.buffer)
     return res.status(201).json({
       exportId,
       status: 'DONE',

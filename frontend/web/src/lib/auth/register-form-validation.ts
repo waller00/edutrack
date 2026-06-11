@@ -1,5 +1,5 @@
 import { isValidUruguayanCI, isValidLocalPhoneUY } from '@/lib/forms/uruguay-forms'
-import { isStrongPassword, STRONG_PASSWORD_MESSAGE } from '@/lib/auth/password-strength'
+import { validateNewPassword } from '@/lib/auth/password-strength'
 
 /** Letras, números, punto, guion. El guion al final evita regex inválida en `pattern` HTML (p. ej. flag `v`). */
 export const REGISTER_USERNAME_PATTERN = '^[a-zA-Z0-9._-]{3,30}$'
@@ -207,9 +207,8 @@ export function validateRegisterForm(params: {
 }): string | null {
   if (!isValidRegisterEmail(params.email)) return 'Correo inválido'
   if (params.passwordRequired !== false) {
-    if (!isStrongPassword(params.password)) {
-      return STRONG_PASSWORD_MESSAGE
-    }
+    const passwordError = validateNewPassword(params.password)
+    if (passwordError) return passwordError
     if (params.password !== params.confirm) return 'Las contraseñas no coinciden'
   }
   const identityError = getRegisterIdentityValidationError(params)
