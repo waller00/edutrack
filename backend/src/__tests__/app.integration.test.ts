@@ -17,6 +17,22 @@ describe("App HTTP (integración ligera)", () => {
     expect(res.body).toEqual({ ok: true });
   });
 
+  it("registra metricas HTTP con rutas normalizadas", async () => {
+    const { metricsRegistry } = await import("../observability/metrics.js");
+
+    await request(app).get("/health");
+    await request(app).get("/ruta-inexistente/123456");
+
+    const metrics = await metricsRegistry.metrics();
+    expect(metrics).toContain(
+      'edutrack_backend_http_requests_total{method="GET",route="/health",status_code="200"}',
+    );
+    expect(metrics).toContain(
+      'edutrack_backend_http_requests_total{method="GET",route="/unmatched",status_code="404"}',
+    );
+    expect(metrics).toContain("edutrack_backend_http_request_duration_seconds_bucket");
+  });
+
   it("GET /auth/login inicia flujo OIDC (redirect o error si falta Redis)", async () => {
     const res = await request(app).get("/auth/login");
     expect([302, 303, 503]).toContain(res.status);

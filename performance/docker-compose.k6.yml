@@ -1,0 +1,35 @@
+name: edutrack-performance
+
+services:
+  k6:
+    image: ${K6_IMAGE:-grafana/k6:1.4.2}
+    environment:
+      K6_BASE_URL: ${K6_BASE_URL:-http://host.docker.internal:4000}
+      K6_API_PATHS: ${K6_API_PATHS:-/health}
+      K6_WEIGHTED_PATHS: ${K6_WEIGHTED_PATHS:-/health:1,/ready:1}
+      K6_SESSION_COOKIE: ${K6_SESSION_COOKIE:-}
+      K6_ALLOW_PRODUCTION: ${K6_ALLOW_PRODUCTION:-false}
+      K6_PRODUCTION_CONFIRMATION: ${K6_PRODUCTION_CONFIRMATION:-}
+      EDUTRACK_K6_RATE: ${EDUTRACK_K6_RATE:-5}
+      EDUTRACK_K6_DURATION: ${EDUTRACK_K6_DURATION:-2m}
+      EDUTRACK_K6_PRE_ALLOCATED_VUS: ${EDUTRACK_K6_PRE_ALLOCATED_VUS:-10}
+      EDUTRACK_K6_MAX_VUS: ${EDUTRACK_K6_MAX_VUS:-50}
+      EDUTRACK_K6_SPIKE_RATE: ${EDUTRACK_K6_SPIKE_RATE:-25}
+      EDUTRACK_K6_MAX_ALLOWED_RATE: ${EDUTRACK_K6_MAX_ALLOWED_RATE:-100}
+      EDUTRACK_K6_BASELINE_WARMUP_RATE: ${EDUTRACK_K6_BASELINE_WARMUP_RATE:-1}
+      EDUTRACK_K6_BASELINE_NORMAL_RATE: ${EDUTRACK_K6_BASELINE_NORMAL_RATE:-3}
+      EDUTRACK_K6_BASELINE_PEAK_RATE: ${EDUTRACK_K6_BASELINE_PEAK_RATE:-5}
+      K6_PROMETHEUS_RW_SERVER_URL: ${K6_PROMETHEUS_RW_SERVER_URL:-}
+      K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM: ${K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM:-true}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./k6:/scripts:ro
+      - ./results:/results
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

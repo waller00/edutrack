@@ -8,6 +8,7 @@ frontend/web/build/
 .env
 .env.*
 !.env.monitoring.example
+!.env.k6.example
 backend/.env
 frontend/web/.env*
 npm-debug.log*
@@ -27,6 +28,7 @@ coverage/
 .cache/
 playwright-report/
 test-results/
+performance/results/
 # Terraform
 .terraform/
 *.tfstate

@@ -30,6 +30,8 @@ import biometricLinkRoutes from "./routes/biometric-link.js";
 import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 import substitutionsRoutes from "./routes/substitutions.js";
+import { httpMetricsMiddleware } from "./observability/metrics.js";
+import { checkReadiness } from "./observability/readiness.js";
 
 dns.setDefaultResultOrder("ipv4first");
 
@@ -125,6 +127,7 @@ app.use(
   }),
 );
 app.use(morgan("dev"));
+app.use(httpMetricsMiddleware);
 
 const iclockTextParser = express.text({
   limit: "10mb",
@@ -173,6 +176,10 @@ app.use("/attendance-incidents", attendanceIncidentsRoutes);
 app.use("/substitutions", substitutionsRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/ready", async (_req, res) => {
+  const result = await checkReadiness();
+  res.status(result.ok ? 200 : 503).json({ ok: result.ok });
+});
 
 // Captura de errores de Express en Sentry (no-op si SENTRY_DSN no esta definido).
 Sentry.setupExpressErrorHandler(app);
