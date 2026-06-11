@@ -97,10 +97,13 @@ La reconciliación periódica recupera cualquier divergencia que el outbox no cu
    `MOODLE_BASE_URL`, `MOODLE_WS_TOKEN`, opcionalmente `MOODLE_CANONICAL_HOST`,
    `MOODLE_ROLE_TEACHER_ID`, `MOODLE_ROLE_STUDENT_ID`, `MOODLE_ROLE_SUBSTITUTE_TEACHER_ID`
    (default: el rol de titular), `MOODLE_ROOT_CATEGORY_ID`, `MOODLE_USER_AUTH`.
-2. Flags en `SystemSettings` (BD):
+2. Flags en `SystemSettings` (BD) **o** panel **Admin → Configuración → Moodle**:
    - `moodleSyncEnabled` — habilita el worker (outbox + reconciliación). Default `false`.
    - `moodleReconcileIntervalMs` — intervalo de reconciliación completa. Default 900000 (15 min).
    - `moodleSyncStudents` — sincroniza también estudiantes. Default `false`.
+3. Opcional en `.env`: `MOODLE_SYNC_ENABLED=true` activa el worker aunque la BD aún tenga
+   `moodleSyncEnabled=false` (útil en producción sin SQL manual). También define el default al
+   crear la fila `SystemSettings` por primera vez.
 
 El worker vive en [`backend/src/server.ts`](../backend/src/server.ts) (tick de 30 s, gateado por estos flags).
 

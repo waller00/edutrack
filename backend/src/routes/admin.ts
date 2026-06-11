@@ -4,7 +4,7 @@ import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
-import { isDiditConfigured } from '../config/system-settings.js'
+import { isDiditConfigured, isMoodleSyncEnabledFromEnv, getMoodleOperationalSettings } from '../config/system-settings.js'
 import { getOrCreateSystemSettings } from '../config/system-settings.js'
 import { normalizePermissionId } from '../identity/profile-permissions-defaults.js'
 import {
@@ -30,6 +30,11 @@ import {
 import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { ensureMoodleUserById } from '../services/moodle.js'
+import {
+  getMoodleHealthStatus,
+  isMoodleIntegrationEnabled,
+  reconcileMoodle,
+} from '../integrations/moodle/index.js'
 import { createKeycloakUser, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
 import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
@@ -767,6 +772,9 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
   const settings = row as typeof row & {
     attendanceEarlyExitToleranceMinutes?: number | null
     biometricDuplicateWindowMinutes?: number | null
+    moodleSyncEnabled?: boolean | null
+    moodleReconcileIntervalMs?: number | null
+    moodleSyncStudents?: boolean | null
   }
   return res.json({
     diditConfigured: isDiditConfigured(),
@@ -778,6 +786,13 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     attendanceMonitorEnabled: row.attendanceMonitorEnabled,
     attendanceMonitorIntervalMs: row.attendanceMonitorIntervalMs,
     biometricDuplicateWindowMinutes: settings.biometricDuplicateWindowMinutes ?? 5,
+    moodleConfigured: isMoodleIntegrationEnabled(),
+    moodleSyncEnabled: settings.moodleSyncEnabled === true,
+    moodleSyncEnabledEffective:
+      settings.moodleSyncEnabled === true || isMoodleSyncEnabledFromEnv(),
+    moodleSyncEnabledFromEnv: isMoodleSyncEnabledFromEnv(),
+    moodleReconcileIntervalMs: settings.moodleReconcileIntervalMs ?? 900000,
+    moodleSyncStudents: settings.moodleSyncStudents === true,
   })
 })
 
@@ -792,6 +807,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       attendanceMonitorEnabled: z.boolean().optional(),
       attendanceMonitorIntervalMs: z.number().int().min(30000).max(3600000).optional(),
       biometricDuplicateWindowMinutes: z.number().int().min(0).max(120).optional(),
+      moodleSyncEnabled: z.boolean().optional(),
+      moodleReconcileIntervalMs: z.number().int().min(60000).max(86400000).optional(),
+      moodleSyncStudents: z.boolean().optional(),
     })
     .safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
@@ -809,12 +827,18 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       attendanceMonitorEnabled: data.attendanceMonitorEnabled ?? true,
       attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs ?? 120000,
       biometricDuplicateWindowMinutes: data.biometricDuplicateWindowMinutes ?? 5,
+      moodleSyncEnabled: data.moodleSyncEnabled ?? isMoodleSyncEnabledFromEnv(),
+      moodleReconcileIntervalMs: data.moodleReconcileIntervalMs ?? 900000,
+      moodleSyncStudents: data.moodleSyncStudents ?? false,
     } as any,
     update: data as any,
   })
   const updatedSettings = updated as typeof updated & {
     attendanceEarlyExitToleranceMinutes?: number | null
     biometricDuplicateWindowMinutes?: number | null
+    moodleSyncEnabled?: boolean | null
+    moodleReconcileIntervalMs?: number | null
+    moodleSyncStudents?: boolean | null
   }
 
   recordAuditEvent({
@@ -836,7 +860,40 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     attendanceMonitorEnabled: updated.attendanceMonitorEnabled,
     attendanceMonitorIntervalMs: updated.attendanceMonitorIntervalMs,
     biometricDuplicateWindowMinutes: updatedSettings.biometricDuplicateWindowMinutes ?? 5,
+    moodleConfigured: isMoodleIntegrationEnabled(),
+    moodleSyncEnabled: updatedSettings.moodleSyncEnabled === true,
+    moodleSyncEnabledEffective:
+      updatedSettings.moodleSyncEnabled === true || isMoodleSyncEnabledFromEnv(),
+    moodleSyncEnabledFromEnv: isMoodleSyncEnabledFromEnv(),
+    moodleReconcileIntervalMs: updatedSettings.moodleReconcileIntervalMs ?? 900000,
+    moodleSyncStudents: updatedSettings.moodleSyncStudents === true,
   })
+})
+
+r.get('/moodle/status', requirePermission('settings.manage', 'all'), async (_req, res) => {
+  try {
+    const status = await getMoodleHealthStatus()
+    return res.json(status)
+  } catch (error) {
+    console.error('[admin] moodle/status:', error)
+    return res.status(500).json({ message: 'Error obteniendo estado de Moodle' })
+  }
+})
+
+r.post('/moodle/reconcile', requirePermission('settings.manage', 'all'), async (_req, res) => {
+  if (!isMoodleIntegrationEnabled()) {
+    return res.status(503).json({ message: 'Moodle no configurado (MOODLE_BASE_URL + MOODLE_WS_TOKEN)' })
+  }
+  try {
+    const moodleSettings = await getMoodleOperationalSettings()
+    const summary = await reconcileMoodle({ syncStudents: moodleSettings.syncStudents })
+    return res.json({ message: 'Reconciliación completada', summary })
+  } catch (error) {
+    console.error('[admin] moodle/reconcile:', error)
+    return res.status(500).json({
+      message: error instanceof Error ? error.message : 'Error en reconciliación Moodle',
+    })
+  }
 })
 
 r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) => {
