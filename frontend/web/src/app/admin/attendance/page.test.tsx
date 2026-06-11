@@ -236,43 +236,61 @@ describe('AdminAttendance', () => {
     expect(rows[0].textContent).toMatch(/Ingreso registrado \/ Salida registrada/)
   })
 
-  it('correlaciona una entrada y una salida que cubren clases contiguas', async () => {
+  it('muestra clases correlativas como filas separadas y proyecta la salida por clase', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
     const entry = {
       id: 'a1',
       type: 'CHECK_IN' as const,
       status: 'PRESENT' as const,
       date: '2025-06-01',
-      time: '2025-06-01T21:33:00.000Z',
+      time: '2025-06-01T21:35:00.000Z',
       notes: 'Entrada automática',
       user: { id: 'u1', name: 'Jorge', email: 'j@b.com', role: 'TEACHER' },
       event: {
         id: 'class-1',
-        title: 'Clase 1',
+        title: 'Prueba clase correlativa',
         type: 'CLASE',
-        startTime: '2025-06-01T21:40:00.000Z',
-        endTime: '2025-06-01T22:30:00.000Z',
+        startTime: '2025-06-01T21:25:00.000Z',
+        endTime: '2025-06-01T21:50:00.000Z',
       },
     }
-    const exit = {
+    const correlatedEntry = {
       id: 'a2',
-      type: 'CHECK_OUT' as const,
-      status: 'EXIT' as const,
+      type: 'CHECK_IN' as const,
+      status: 'PRESENT' as const,
       date: '2025-06-01',
-      time: '2025-06-01T22:37:00.000Z',
-      notes: 'Salida automática',
+      time: '2025-06-01T21:50:00.000Z',
+      notes: 'Presencia correlacionada por permanencia biométrica',
       user: entry.user,
       event: {
         id: 'class-2',
-        title: 'Clase 2',
+        title: 'Prueba clase correlativa 2',
         type: 'CLASE',
-        startTime: '2025-06-01T22:30:00.000Z',
-        endTime: '2025-06-01T23:20:00.000Z',
+        startTime: '2025-06-01T21:50:00.000Z',
+        endTime: '2025-06-01T22:00:00.000Z',
+      },
+    }
+    const exit = {
+      id: 'a3',
+      type: 'CHECK_OUT' as const,
+      status: 'EARLY_EXIT' as const,
+      date: '2025-06-01',
+      time: '2025-06-01T21:54:00.000Z',
+      notes: 'Salida automática - SALIDA ANTICIPADA',
+      user: entry.user,
+      event: {
+        id: 'class-2',
+        title: 'Prueba clase correlativa 2',
+        type: 'CLASE',
+        startTime: '2025-06-01T21:50:00.000Z',
+        endTime: '2025-06-01T22:00:00.000Z',
       },
     }
 
     mockedApi.mockImplementation(async (url: string) => {
       if (String(url).includes('attendance/all')) {
-        return { total: 2, page: 1, pageSize: 20, data: [exit, entry] }
+        return { total: 3, page: 1, pageSize: 20, data: [exit, correlatedEntry, entry] }
       }
       if (String(url).includes('admin/users')) return { data: [] }
       if (String(url).includes('attendance/stats'))
@@ -282,19 +300,37 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    expect(await screen.findByText('Clase 1 → Clase 2')).toBeInTheDocument()
+    expect(await screen.findByText('Prueba clase correlativa')).toBeInTheDocument()
+    expect(screen.getByText('Prueba clase correlativa 2')).toBeInTheDocument()
     expect(screen.getByText('Permanencia correlacionada')).toBeInTheDocument()
     const rows = screen.getAllByRole('row').filter((r) => r.textContent?.includes('Jorge'))
-    expect(rows).toHaveLength(1)
-    expect(rows[0].textContent).toMatch(/Presente/)
-    expect(rows[0].textContent).toMatch(/Salida/)
-    expect(rows[0].textContent).toMatch(/Entrada automática \/ Salida automática/)
+    expect(rows).toHaveLength(2)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mostrar detalle de eventos' }))
+    const firstClassRow = rows.find((r) => r.textContent?.includes('Prueba clase correlativa') && !r.textContent?.includes('Prueba clase correlativa 2'))
+    const secondClassRow = rows.find((r) => r.textContent?.includes('Prueba clase correlativa 2'))
 
-    expect(screen.getByText('La misma permanencia cubre eventos contiguos.')).toBeInTheDocument()
+    expect(firstClassRow?.textContent).toMatch(/Presente/)
+    expect(firstClassRow?.textContent).toMatch(/Salida/)
+    expect(firstClassRow?.textContent).not.toMatch(/Salida Anticipada/)
+    expect(firstClassRow?.textContent).toMatch(/Entrada automática \/ Salida automática - SALIDA ANTICIPADA/)
+
+    expect(secondClassRow?.textContent).toMatch(/Presente/)
+    expect(secondClassRow?.textContent).toMatch(/Salida Anticipada/)
+    expect(secondClassRow?.textContent).toMatch(/Presencia correlacionada por permanencia biométrica \/ Salida automática - SALIDA ANTICIPADA/)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Mostrar detalle de eventos' })[0])
+
+    expect(screen.getByText('Salida proyectada desde la misma permanencia biométrica.')).toBeInTheDocument()
     expect(screen.getAllByText('Entrada').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Salida').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getAllByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
+
+    await waitFor(() => {
+      expect(mockedApi).toHaveBeenCalledWith('/attendance/a1', expect.objectContaining({ method: 'DELETE' }))
+    })
+    expect(mockedApi).not.toHaveBeenCalledWith(expect.stringContaining('derived-checkout:'), expect.anything())
   })
 
   it('muestra entradas duplicadas como filas separadas para poder corregirlas', async () => {

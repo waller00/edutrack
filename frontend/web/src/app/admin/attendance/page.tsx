@@ -115,6 +115,11 @@ type User = {
 type AttendanceStatusOption = AttendanceRecord['status']
 type AttendanceTypeOption = Exclude<AttendanceRecord['type'], 'INCIDENT'>
 
+type DisplayAttendanceRecord = AttendanceRecord & {
+  isDerived?: boolean
+  derivedFromId?: string
+}
+
 type AttendancePairRow = {
   key: string
   user: AttendanceRecord['user']
@@ -124,8 +129,8 @@ type AttendancePairRow = {
     type: string
   }
   dateTime: string
-  checkIn?: AttendanceRecord
-  checkOut?: AttendanceRecord
+  checkIn?: DisplayAttendanceRecord
+  checkOut?: DisplayAttendanceRecord
   incident?: AttendanceRecord
 }
 
@@ -142,8 +147,8 @@ function isVirtualAbsenceRow(attendance: AttendanceRecord): boolean {
   return attendance.id.startsWith('absence:')
 }
 
-function isSelectableAttendanceRow(attendance: AttendanceRecord): boolean {
-  return !isIncidentRow(attendance)
+function isDerivedAttendanceRow(attendance: DisplayAttendanceRecord | undefined): boolean {
+  return Boolean(attendance?.isDerived || attendance?.id.startsWith('derived-checkout:'))
 }
 
 function getAttendanceDayGroupKey(attendance: AttendanceRecord): string {
@@ -151,20 +156,75 @@ function getAttendanceDayGroupKey(attendance: AttendanceRecord): string {
   return `${attendance.user.id}:${dateKey}`
 }
 
+function getAttendanceEventKey(attendance: AttendanceRecord): string {
+  return attendance.event?.id ?? `no-event:${attendance.id}`
+}
+
 function summarizeRowEvent(row: Pick<AttendancePairRow, 'checkIn' | 'checkOut' | 'incident' | 'event'>) {
   const incidentEvent = row.incident?.event
   if (incidentEvent) return { title: incidentEvent.title, type: incidentEvent.type }
 
-  const entryEvent = row.checkIn?.event
-  const exitEvent = row.checkOut?.event
-  const first = entryEvent ?? exitEvent ?? row.event
-  const second = entryEvent && exitEvent && entryEvent.id !== exitEvent.id ? exitEvent : null
+  const first = row.event ?? row.checkIn?.event ?? row.checkOut?.event
 
   if (!first) return undefined
 
   return {
-    title: second ? `${first.title} → ${second.title}` : first.title,
-    type: second && first.type !== second.type ? `${first.type} / ${second.type}` : first.type,
+    title: first.title,
+    type: first.type,
+  }
+}
+
+function getPlannedWindowMs(event: AttendanceRecord['event'] | undefined) {
+  if (!event?.startTime || !event.endTime) return null
+  const start = new Date(event.startTime).getTime()
+  const end = new Date(event.endTime).getTime()
+  if (Number.isNaN(start) || Number.isNaN(end)) return null
+  return { start, end }
+}
+
+function checkOutCoversRow(checkOut: AttendanceRecord, row: AttendancePairRow): boolean {
+  if (!row.checkIn || row.checkOut || !row.event) return false
+
+  const checkInTime = new Date(row.checkIn.time).getTime()
+  const checkOutTime = new Date(checkOut.time).getTime()
+  if (Number.isNaN(checkInTime) || Number.isNaN(checkOutTime) || checkOutTime < checkInTime) return false
+
+  const planned = getPlannedWindowMs(row.event)
+  if (!planned) return false
+
+  return checkInTime <= planned.end && checkOutTime >= planned.start
+}
+
+function deriveCheckOutForRow(checkOut: AttendanceRecord, row: AttendancePairRow): DisplayAttendanceRecord {
+  const planned = getPlannedWindowMs(row.event)
+  const checkOutTime = new Date(checkOut.time).getTime()
+  const status =
+    planned && !Number.isNaN(checkOutTime) && checkOutTime < planned.end
+      ? 'EARLY_EXIT'
+      : 'EXIT'
+
+  return {
+    ...checkOut,
+    id: `derived-checkout:${row.key}:${checkOut.id}`,
+    event: row.event,
+    status,
+    isDerived: true,
+    derivedFromId: checkOut.id,
+  }
+}
+
+function applyCheckOutToRow(row: AttendancePairRow, checkOut: DisplayAttendanceRecord) {
+  row.checkOut = checkOut
+  row.dateTime = checkOut.time
+  row.event = row.event ?? row.checkIn?.event ?? checkOut.event
+  row.eventSummary = summarizeRowEvent(row)
+}
+
+function projectCheckOutToCoveredRows(dayRows: AttendancePairRow[], sourceCheckOut: AttendanceRecord, assignedRow: AttendancePairRow | null) {
+  for (const row of dayRows) {
+    if (row === assignedRow) continue
+    if (!checkOutCoversRow(sourceCheckOut, row)) continue
+    applyCheckOutToRow(row, deriveCheckOutForRow(sourceCheckOut, row))
   }
 }
 
@@ -197,13 +257,12 @@ function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePai
   const rows = [...incidentRows]
   for (const [key, group] of groups) {
     const dayRows: AttendancePairRow[] = []
-    const openRows: AttendancePairRow[] = []
     const ordered = [...group.attendances].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
 
     for (const attendance of ordered) {
       if (attendance.type === 'CHECK_IN') {
         const row: AttendancePairRow = {
-          key: `${key}:in:${attendance.id}`,
+          key: `${key}:event:${getAttendanceEventKey(attendance)}:in:${attendance.id}`,
           user: group.user,
           event: attendance.event,
           eventSummary: summarizeRowEvent({ checkIn: attendance }),
@@ -211,21 +270,19 @@ function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePai
           checkIn: attendance,
         }
         dayRows.push(row)
-        openRows.push(row)
         continue
       }
 
       const attendanceTime = new Date(attendance.time).getTime()
-      const openRow = openRows.find((row) => {
+      const sameEventRow = dayRows.find((row) => {
         if (!row.checkIn || row.checkOut) return false
+        if (!row.event?.id || row.event.id !== attendance.event?.id) return false
         return new Date(row.checkIn.time).getTime() <= attendanceTime
       })
 
-      if (openRow) {
-        openRow.checkOut = attendance
-        openRow.dateTime = attendance.time
-        openRow.event = openRow.checkIn?.event ?? attendance.event
-        openRow.eventSummary = summarizeRowEvent(openRow)
+      if (sameEventRow) {
+        applyCheckOutToRow(sameEventRow, attendance)
+        projectCheckOutToCoveredRows(dayRows, attendance, sameEventRow)
         continue
       }
 
@@ -238,6 +295,7 @@ function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePai
         checkOut: attendance,
       }
       dayRows.push(row)
+      projectCheckOutToCoveredRows(dayRows, attendance, row)
     }
 
     rows.push(...dayRows)
@@ -246,8 +304,18 @@ function buildAttendancePairRows(attendances: AttendanceRecord[]): AttendancePai
   return rows.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
 }
 
+function getSelectableIdsForRows(rows: AttendancePairRow[]): string[] {
+  return rows.flatMap((row) =>
+    [row.checkIn, row.checkOut]
+      .filter((attendance): attendance is DisplayAttendanceRecord => Boolean(attendance))
+      .filter((attendance) => !isDerivedAttendanceRow(attendance))
+      .filter((attendance) => !attendance.id.startsWith('incident:'))
+      .map((attendance) => attendance.id),
+  )
+}
+
 function renderAttendanceMark(
-  attendance: AttendanceRecord | undefined,
+  attendance: DisplayAttendanceRecord | undefined,
   fallback: string,
   onEdit: (attendance: AttendanceRecord) => void,
 ) {
@@ -268,11 +336,13 @@ function renderAttendanceMark(
       <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
         {getAttendanceRowStatusLabel(attendance)}
       </span>
-      <div>
-        <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
-          Editar
-        </button>
-      </div>
+      {isDerivedAttendanceRow(attendance) ? null : (
+        <div>
+          <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
+            Editar
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -285,7 +355,7 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
   const entryEvent = row.checkIn?.event
   const exitEvent = row.checkOut?.event
   const hasLinkedEvents = Boolean(entryEvent || exitEvent)
-  const hasDifferentEvents = Boolean(entryEvent && exitEvent && entryEvent.id !== exitEvent.id)
+  const hasProjectedExit = isDerivedAttendanceRow(row.checkOut)
 
   return (
     <div className="min-w-[180px] space-y-2">
@@ -305,7 +375,7 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
           <div className="font-medium">{row.eventSummary.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
             <span>{row.eventSummary.type}</span>
-            {hasDifferentEvents ? (
+            {hasProjectedExit ? (
               <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-100">
                 Permanencia correlacionada
               </span>
@@ -334,8 +404,8 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
               </div>
             </div>
           ) : null}
-          {hasDifferentEvents ? (
-            <div className="pt-1 text-[11px] text-slate-500">La misma permanencia cubre eventos contiguos.</div>
+          {hasProjectedExit ? (
+            <div className="pt-1 text-[11px] text-slate-500">Salida proyectada desde la misma permanencia biométrica.</div>
           ) : null}
         </div>
       ) : null}
@@ -382,7 +452,10 @@ function renderAttendancesTable(
         </thead>
         <tbody className="divide-y divide-gray-200">
           {rows.map((row) => {
-            const ids = [row.checkIn?.id, row.checkOut?.id].filter(Boolean) as string[]
+            const ids = [row.checkIn, row.checkOut]
+              .filter((attendance): attendance is DisplayAttendanceRecord => Boolean(attendance))
+              .filter((attendance) => !isDerivedAttendanceRow(attendance))
+              .map((attendance) => attendance.id)
             const selected = ids.length > 0 && ids.every((id) => selectedAttendanceIds.includes(id))
             const primaryAttendance = row.incident ?? row.checkIn ?? row.checkOut
             const selectable = ids.length > 0 && ids.every((id) => !id.startsWith('incident:'))
@@ -650,7 +723,9 @@ export default function AdminAttendance() {
 
   async function deleteSelectedAttendances() {
     if (selectedAttendanceIds.length === 0) return
-    const realAttendanceIds = selectedAttendanceIds.filter((id) => !id.startsWith('absence:') && !id.startsWith('incident:'))
+    const realAttendanceIds = selectedAttendanceIds.filter((id) =>
+      !id.startsWith('absence:') && !id.startsWith('incident:') && !id.startsWith('derived-checkout:'),
+    )
     const virtualAbsenceCount = selectedAttendanceIds.length - realAttendanceIds.length
 
     if (realAttendanceIds.length === 0) {
@@ -688,7 +763,7 @@ export default function AdminAttendance() {
   }
 
   function toggleAllAttendancesSelection() {
-    const selectableIds = attendances.filter(isSelectableAttendanceRow).map((attendance) => attendance.id)
+    const selectableIds = getSelectableIdsForRows(buildAttendancePairRows(attendances))
     setSelectedAttendanceIds((prev) =>
       selectableIds.every((id) => prev.includes(id)) ? [] : selectableIds,
     )
@@ -1301,8 +1376,10 @@ export default function AdminAttendance() {
               expandedAttendanceRows,
               toggleExpandedAttendanceRow,
               openAttendanceEditor,
-              attendances.some(isSelectableAttendanceRow) &&
-                selectedAttendanceIds.length === attendances.filter(isSelectableAttendanceRow).length,
+              (() => {
+                const selectableIds = getSelectableIdsForRows(buildAttendancePairRows(attendances))
+                return selectableIds.length > 0 && selectableIds.every((id) => selectedAttendanceIds.includes(id))
+              })(),
             )}
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />
