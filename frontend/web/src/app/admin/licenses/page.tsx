@@ -66,6 +66,13 @@ function datePartsToIsoUtcNoon(dateYmd: string): string {
   return new Date(`${day}T12:00:00.000Z`).toISOString()
 }
 
+function formatDateOnlyForDisplay(date: string): string {
+  const day = date.includes('T') ? date.slice(0, 10) : date
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
+  if (!match) return date
+  return `${match[3]}/${match[2]}/${match[1]}`
+}
+
 export default function LicensesPage() {
   const [activeSection, setActiveSection] = useState<'licenses' | 'non-working'>('licenses')
   const [licenses, setLicenses] = useState<License[]>([])
@@ -586,7 +593,7 @@ export default function LicensesPage() {
                     ) : (
                       nonWorkingDays.map((day) => (
                         <tr key={day.id}>
-                          <td className="px-6 py-4 text-sm text-gray-900">{new Date(day.date).toLocaleDateString('es-ES')}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{formatDateOnlyForDisplay(day.date)}</td>
                           <td className="px-6 py-4 text-sm text-gray-900">{day.type === 'HOLIDAY' ? 'Feriado' : 'No laborable'}</td>
                           <td className="px-6 py-4 text-sm text-gray-900">{day.reason}</td>
                           <td className="px-6 py-4 text-sm text-gray-600">{day.notes || '-'}</td>
