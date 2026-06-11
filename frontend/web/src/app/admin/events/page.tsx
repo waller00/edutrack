@@ -283,7 +283,7 @@ const WEEKDAY_OPTIONS = [
   { value: 5, short: 'Vie', long: 'Viernes' },
   { value: 6, short: 'Sáb', long: 'Sábado' },
 ] as const
-const WEEKDAY_SHORT_BY_VALUE = new Map(WEEKDAY_OPTIONS.map((d) => [d.value, d.short]))
+const WEEKDAY_SHORT_BY_VALUE = new Map<number, string>(WEEKDAY_OPTIONS.map((d) => [d.value, d.short]))
 
 function weekdayNumberInUruguay(value?: string | null): number | null {
   if (!value) return null
