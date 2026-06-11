@@ -19,6 +19,43 @@ groups:
           summary: "Postgres exporter unavailable"
           description: "Prometheus cannot scrape postgres-exporter."
 
+      - alert: EduTrackBackendMetricsDown
+        expr: up{job="edutrack-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "EduTrack backend metrics unavailable"
+          description: "Prometheus cannot scrape the backend metrics endpoint."
+
+  - name: edutrack-backend
+    rules:
+      - alert: EduTrackBackendHighErrorRate
+        expr: |
+          sum(rate(edutrack_backend_http_errors_total[5m]))
+          /
+          clamp_min(sum(rate(edutrack_backend_http_requests_total[5m])), 0.001)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "EduTrack backend HTTP 5xx rate above 5%"
+          description: "The backend has sustained a high HTTP 5xx error rate."
+
+      - alert: EduTrackBackendHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(edutrack_backend_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "EduTrack backend p95 latency above one second"
+          description: "The backend has sustained high application latency."
+
   - name: edutrack-infrastructure
     rules:
       - alert: HostDiskSpaceLow

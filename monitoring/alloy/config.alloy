@@ -1,44 +1,64 @@
 discovery.docker "containers" {
-  host = "unix:///var/run/docker.sock"
+	host = "unix:///var/run/docker.sock"
 }
 
 discovery.relabel "docker" {
-  targets = []
+	targets = []
 
-  rule {
-    source_labels = ["__meta_docker_container_name"]
-    regex         = "/(.*)"
-    target_label  = "service_name"
-  }
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+		regex         = "edutrack|edutrack-monitoring"
+		action        = "keep"
+	}
 
-  rule {
-    source_labels = ["__meta_docker_container_name"]
-    regex         = "/(.*)"
-    target_label  = "container"
-  }
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "service_name"
+	}
 
-  rule {
-    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
-    target_label  = "compose_service"
-  }
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
 
-  rule {
-    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
-    target_label  = "compose_project"
-  }
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "compose_service"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+		target_label  = "compose_project"
+	}
 }
 
 loki.source.docker "containers" {
-  host             = "unix:///var/run/docker.sock"
-  targets          = discovery.docker.containers.targets
-  labels           = { "platform" = "docker" }
-  relabel_rules    = discovery.relabel.docker.rules
-  forward_to       = [loki.write.local.receiver]
-  refresh_interval = "10s"
+	host             = "unix:///var/run/docker.sock"
+	targets          = discovery.docker.containers.targets
+	labels           = {"platform" = "docker"}
+	relabel_rules    = discovery.relabel.docker.rules
+	forward_to       = [loki.process.redact.receiver]
+	refresh_interval = "10s"
+}
+
+loki.process "redact" {
+	stage.replace {
+		expression = "(?i)(authorization[=: ]+)([^ ,;]+)"
+		replace    = "$1[REDACTED]"
+	}
+
+	stage.replace {
+		expression = "(?i)((cookie|token|password|secret|api[_-]?key)[=: ]+)([^ ,;]+)"
+		replace    = "$1[REDACTED]"
+	}
+
+	forward_to = [loki.write.local.receiver]
 }
 
 loki.write "local" {
-  endpoint {
-    url = "http://loki:3100/loki/api/v1/push"
-  }
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
 }

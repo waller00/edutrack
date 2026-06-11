@@ -1,0 +1,32 @@
+{
+  "name": "production-baseline-v1",
+  "status": "provisional-until-first-manual-run",
+  "purpose": "Establecer una referencia inicial segura del droplet de produccion.",
+  "target": {
+    "source": "GitHub repository variable PRODUCTION_API_URL",
+    "fallback": "https://api.edutrack-uy.com",
+    "paths": [
+      { "path": "/health", "weight": 1 },
+      { "path": "/ready", "weight": 4 }
+    ]
+  },
+  "profile": {
+    "duration": "8m",
+    "warmup_rps": 1,
+    "normal_rps": 3,
+    "peak_rps": 5,
+    "max_allowed_rps": 5
+  },
+  "acceptance": {
+    "checks_rate_min": 0.99,
+    "http_failed_rate_max": 0.01,
+    "http_duration_p95_ms_max": 750,
+    "http_duration_p99_ms_max": 1500,
+    "dropped_iterations_max": 0
+  },
+  "limitations": [
+    "Solo utiliza endpoints GET publicos y no destructivos.",
+    "Mide la latencia desde el runner de GitHub hasta el droplet.",
+    "No determina la capacidad maxima ni simula flujos autenticados."
+  ]
+}

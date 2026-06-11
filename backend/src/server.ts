@@ -15,6 +15,7 @@ import {
   reconcileMoodle,
   releaseStaleLocks,
 } from "./integrations/moodle/index.js";
+import { startMetricsServer } from "./observability/metrics.js";
 
 // API principal (4000) y puerto ADMS ZKTeco (8081, mismo proceso HTTP)
 const port = Number(process.env.PORT || 4000);
@@ -38,6 +39,7 @@ Promise.allSettled([
       console.log(`🚀 Auth-service corriendo en HTTP (puerto ${port})`);
       console.log(`   ZKTeco iClock ADMS: http://${host}:${port}/iclock/`);
     });
+    startMetricsServer();
     if (iclockPort > 0 && iclockPort !== port) {
       http.createServer(app).listen(iclockPort, host, () => {
         console.log(`   ZKTeco iClock ADMS (dedicado): http://${host}:${iclockPort}/iclock/`);

@@ -1,0 +1,13 @@
+services:
+  k6:
+    environment:
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM: "true"
+    networks:
+      - default
+      - monitoring
+
+networks:
+  monitoring:
+    external: true
+    name: ${EDUTRACK_MONITORING_NETWORK:-edutrack-monitoring_monitoring}
