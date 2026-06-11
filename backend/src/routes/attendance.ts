@@ -592,6 +592,14 @@ r.post('/materialize-absence', authGuard, requirePermission('attendance.update',
     }
 
     const attendanceDate = uruguayWallToUtc(date, 0, 0);
+    // En eventos recurrentes "startTime" arrastra la fecha de la primera ocurrencia de la
+    // serie: la marca debe llevar el día de ESTA ocurrencia con la hora planificada.
+    const plannedClock = event.startTime
+      ? DateTime.fromJSDate(new Date(event.startTime), { zone: 'utc' }).setZone(APP_TIMEZONE)
+      : null;
+    const absenceTime = plannedClock
+      ? uruguayWallToUtc(date, plannedClock.hour, plannedClock.minute)
+      : attendanceDate;
     const existing = await prisma.attendance.findFirst({
       where: {
         userId,
@@ -616,7 +624,7 @@ r.post('/materialize-absence', authGuard, requirePermission('attendance.update',
         type: 'CHECK_IN',
         status: status as any,
         date: attendanceDate,
-        time: event.startTime ?? attendanceDate,
+        time: absenceTime,
         schoolYearId: event.schoolYearId,
         notes:
           notes?.trim() ||

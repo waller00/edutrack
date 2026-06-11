@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { APP_TIMEZONE } from '../../config/app-timezone.js'
 import type { LlmIntentPayload, QueryAssistantIntent } from './schemas.js'
 
 const MONTH_WORD: Record<string, number> = {
@@ -18,7 +19,7 @@ const MONTH_WORD: Record<string, number> = {
 }
 
 const ROLE_PERSON_WORD = String.raw`docentes?|profesor(?:es)?|profesora(?:s)?|profes?|maestros?|maestras?|educadores?|tutores?|funcionarios?|personal|staff|administrativos?|adscriptos?|bedeles?`
-const ABSENCE_WORD = String.raw`falt[oó]?|faltas?|ausent[oó]?|ausencias?|no\s+show|inasistencias?|inasisten|no\s+vino|no\s+lleg[oó]?`
+const ABSENCE_WORD = String.raw`falt(?:[oó]|a|an|as|e|aron|ado)?|ausent[oó]?|ausentes?|ausencias?|no\s+show|inasistencias?|inasisten|no\s+vino|no\s+lleg[oó]?`
 const LATE_WORD = String.raw`tardanzas?|tard[ií]as?|atrasos?|retrasos?|llegadas?\s+tarde|entrada\s+tarde|lleg[oó]\s+tarde`
 const EARLY_EXIT_WORD = String.raw`salidas?\s+anticipad[ao]s?|retiros?\s+tempran[ao]s?|se\s+retir[oó]\s+antes|se\s+fue\s+antes`
 const EVENT_WORD = String.raw`eventos?|clases?|turnos?|jornadas?|reuniones?|actividades?`
@@ -66,6 +67,37 @@ function payload(
   reply: string,
 ): LlmIntentPayload {
   return { intent, params, reply }
+}
+
+const TEACHER_WORD = String.raw`docentes?|profesor(?:es)?|profesora(?:s)?|profes?|maestros?|maestras?|educadores?`
+const STAFF_WORD = String.raw`funcionarios?|personal|staff|administrativos?|adscriptos?|bedeles?`
+
+/** TEACHER/STAFF si la pregunta nombra un colectivo claro; undefined si no distingue. */
+function personRoleScopeFromText(t: string): LlmIntentPayload['params']['personRoleScope'] {
+  if (new RegExp(`\\b(?:${TEACHER_WORD})\\b`).test(t)) return 'TEACHER'
+  if (new RegExp(`\\b(?:${STAFF_WORD})\\b`).test(t)) return 'STAFF'
+  return undefined
+}
+
+/** Rango por palabras de día relativo ("hoy", "ayer", "esta semana", "semana pasada") en día civil Uruguay. */
+function relativeDayRangeFromText(t: string): { dateFrom: string; dateTo: string } | null {
+  const today = DateTime.now().setZone(APP_TIMEZONE).startOf('day')
+  if (/\bhoy\b/.test(t)) {
+    const ymd = today.toISODate()!
+    return { dateFrom: ymd, dateTo: ymd }
+  }
+  if (/\bayer\b/.test(t)) {
+    const ymd = today.minus({ days: 1 }).toISODate()!
+    return { dateFrom: ymd, dateTo: ymd }
+  }
+  if (/\besta\s+semana\b/.test(t)) {
+    return { dateFrom: today.startOf('week').toISODate()!, dateTo: today.toISODate()! }
+  }
+  if (/\bsemana\s+pasada\b/.test(t)) {
+    const start = today.startOf('week').minus({ weeks: 1 })
+    return { dateFrom: start.toISODate()!, dateTo: start.plus({ days: 6 }).toISODate()! }
+  }
+  return null
 }
 
 /**
@@ -126,33 +158,46 @@ export function heuristicIntentFromQuestion(question: string, defaultYear = Date
     return payload('USERS_ADMIN_SNAPSHOT', { userAdminScope: scope }, 'Listado de usuarios según el criterio pedido.')
   }
 
-  /** Ranking de ausencias / no-show por docente (sin palabra "incidencias"). */
-  if (
-    new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) &&
-    /\b(mas|m[aá]s|mayor|mayores|tiene\s+mas)\b/.test(t) &&
-    new RegExp(`\\b(?:${ABSENCE_WORD})\\b`).test(t)
-  ) {
+  /**
+   * Faltas/ausencias a eventos asignados (listado o ranking). Van al informe derivado
+   * ABSENCES_SUMMARY (mismo cálculo que el listado admin) y no a SQL ni a incidencias:
+   * las ausencias pueden no estar materializadas como filas de "Attendance" y los
+   * incidentes TEACHER_NO_SHOW dependen de que el monitor estuviera activo.
+   * Si la pregunta habla explícitamente de "incidencias" o "no show", se respeta más
+   * abajo el informe de incidencias.
+   */
+  const mentionsIncidents = /\bincidencias?\b/.test(t) || /\bno\s+show\b/.test(t)
+  if (!mentionsIncidents && new RegExp(`\\b(?:${ABSENCE_WORD})\\b`).test(t)) {
+    const wantsRanking =
+      /\branking\b/.test(t) ||
+      /\btop\s+\d+\b/.test(t) ||
+      (new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) &&
+        /\b(mas|m[aá]s|mayor|mayores|tiene\s+mas)\b/.test(t)) ||
+      /\b(por\s+persona|por\s+docente|conteo|cuantas\s+faltas)\b/.test(t)
+    const viewParams = wantsRanking ? { incidentViewMode: 'COUNT_BY_USER' as const } : {}
+    const roleScope = personRoleScopeFromText(t)
+    const roleParams = roleScope ? { personRoleScope: roleScope } : {}
+
     if (/\beste\s+ano\b/.test(t)) {
       return payload(
-        'ATTENDANCE_INCIDENTS_SUMMARY',
-        {
-          dateFrom: `${nowY}-01-01`,
-          dateTo: `${nowY}-12-31`,
-          incidentViewMode: 'COUNT_BY_USER',
-          incidentTypeScope: 'TEACHER_NO_SHOW',
-        },
-        'Ranking de ausencias docente en el año en curso (UTC).',
+        'ABSENCES_SUMMARY',
+        { dateFrom: `${nowY}-01-01`, dateTo: `${nowY}-12-31`, ...viewParams, ...roleParams },
+        '',
       )
     }
+    const relative = relativeDayRangeFromText(t)
+    if (relative) {
+      return payload('ABSENCES_SUMMARY', { ...relative, ...viewParams, ...roleParams }, '')
+    }
     return payload(
-      'ATTENDANCE_INCIDENTS_SUMMARY',
+      'ABSENCES_SUMMARY',
       {
-        month: month ?? new Date().getUTCMonth() + 1,
+        month: month ?? DateTime.now().setZone(APP_TIMEZONE).month,
         year: year ?? nowY,
-        incidentViewMode: 'COUNT_BY_USER',
-        incidentTypeScope: 'TEACHER_NO_SHOW',
+        ...viewParams,
+        ...roleParams,
       },
-      'Ranking de ausencias docente por persona en el período.',
+      '',
     )
   }
 

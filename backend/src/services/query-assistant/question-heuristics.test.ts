@@ -48,19 +48,53 @@ describe("heuristicIntentFromQuestion", () => {
     expect(r?.params.month).toBeLessThanOrEqual(12);
   });
 
-  it("quién faltó más en mayo → ranking ausencias", () => {
+  it("quién faltó más en mayo → ranking de faltas derivadas", () => {
     const r = heuristicIntentFromQuestion("¿Quién faltó más en mayo?");
-    expect(r?.intent).toBe("ATTENDANCE_INCIDENTS_SUMMARY");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
     expect(r?.params.incidentViewMode).toBe("COUNT_BY_USER");
-    expect(r?.params.incidentTypeScope).toBe("TEACHER_NO_SHOW");
     expect(r?.params.month).toBe(5);
   });
 
   it("Ranking de ausencias en mayo", () => {
     const r = heuristicIntentFromQuestion("Ranking de ausencias en mayo");
-    expect(r?.intent).toBe("ATTENDANCE_INCIDENTS_SUMMARY");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
     expect(r?.params.month).toBe(5);
     expect(r?.params.incidentViewMode).toBe("COUNT_BY_USER");
+  });
+
+  it("profesores que faltaron en junio → listado de faltas de docentes", () => {
+    const r = heuristicIntentFromQuestion("profesores que faltaron en junio");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.month).toBe(6);
+    expect(r?.params.personRoleScope).toBe("TEACHER");
+    expect(r?.params.incidentViewMode).toBeUndefined();
+  });
+
+  it("quién faltó hoy → rango de un día", () => {
+    const r = heuristicIntentFromQuestion("¿quién faltó hoy?");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.dateFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(r?.params.dateFrom).toBe(r?.params.dateTo);
+  });
+
+  it("ausencias del personal en mayo → STAFF", () => {
+    const r = heuristicIntentFromQuestion("ausencias del personal en mayo");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.personRoleScope).toBe("STAFF");
+    expect(r?.params.month).toBe(5);
+  });
+
+  it("docentes ausentes en junio → listado de faltas", () => {
+    const r = heuristicIntentFromQuestion("docentes ausentes en junio");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.month).toBe(6);
+    expect(r?.params.personRoleScope).toBe("TEACHER");
+  });
+
+  it("incidencias de ausencia siguen yendo a incidencias", () => {
+    const r = heuristicIntentFromQuestion("incidencias de ausencia docente en mayo");
+    expect(r?.intent).toBe("ATTENDANCE_INCIDENTS_SUMMARY");
+    expect(r?.params.month).toBe(5);
   });
 
   it("conteo de incidencias por docente → mes actual si no hay mes", () => {
@@ -118,9 +152,10 @@ describe("heuristicIntentFromQuestion", () => {
 
   it("quién faltó más este año → rango año", () => {
     const r = heuristicIntentFromQuestion("¿Quién faltó más este año?");
-    expect(r?.intent).toBe("ATTENDANCE_INCIDENTS_SUMMARY");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
     expect(r?.params.dateFrom).toMatch(/^\d{4}-01-01$/);
     expect(r?.params.dateTo).toMatch(/^\d{4}-12-31$/);
+    expect(r?.params.incidentViewMode).toBe("COUNT_BY_USER");
   });
 
   it("Incidencias de salida anticipada en mayo", () => {
