@@ -1,5 +1,6 @@
 import {
   isStrongPassword,
+  validateNewPassword,
   getPasswordStrength,
   getStrengthBarClass,
 } from '@/lib/auth/password-strength'
@@ -8,6 +9,12 @@ describe('password-strength', () => {
   it('detects strong passwords using the project rules', () => {
     expect(isStrongPassword('Abcd1234')).toBe(true)
     expect(isStrongPassword('abcdefghi')).toBe(false)
+  })
+
+  it('rejects passwords longer than the backend policy allows', () => {
+    const tooLong = `Aa1${'x'.repeat(62)}`
+    expect(isStrongPassword(tooLong)).toBe(false)
+    expect(validateNewPassword(tooLong)).toContain('64')
   })
 
   it('returns zero strength for empty password', () => {

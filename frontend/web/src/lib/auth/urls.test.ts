@@ -4,6 +4,7 @@ import {
   logoutUrl,
   accountSecurityUrl,
   accountPasswordUrl,
+  accountTwoFactorDisableUrl,
   accountTwoFactorUrl,
 } from './urls'
 
@@ -44,5 +45,6 @@ describe('account URLs', () => {
     expect(accountSecurityUrl()).toBe('http://api.test/auth/account/security')
     expect(accountPasswordUrl()).toBe('http://api.test/auth/account/password')
     expect(accountTwoFactorUrl()).toBe('http://api.test/auth/account/2fa')
+    expect(accountTwoFactorDisableUrl()).toBe('http://api.test/auth/account/2fa/disable')
   })
 })

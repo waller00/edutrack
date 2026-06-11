@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Aplica de forma idempotente los settings de tema y Google IdP del realm
+# Aplica de forma idempotente los settings de tema, contraseña y Google IdP del realm
 # desde keycloak/realm-edutrack.json al realm vivo, via Admin API.
 #
 # No usamos --import-realm --override: borra usuarios y credenciales del realm.
@@ -53,6 +53,14 @@ PATCH="$(jq '{
   resetPasswordAllowed,
   rememberMe,
   verifyEmail,
+  passwordPolicy,
+  accessTokenLifespan,
+  ssoSessionIdleTimeout,
+  ssoSessionMaxLifespan,
+  ssoSessionIdleTimeoutRememberMe,
+  ssoSessionMaxLifespanRememberMe,
+  clientSessionIdleTimeout,
+  clientSessionMaxLifespan,
   internationalizationEnabled,
   supportedLocales,
   defaultLocale
@@ -66,8 +74,14 @@ curl -fsS -X PUT \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d "$MERGED" "$KC_URL/admin/realms/$REALM_NAME"
 
-AFTER="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$KC_URL/admin/realms/$REALM_NAME" | jq -r '.loginTheme')"
-echo ">> OK. loginTheme del realm '$REALM_NAME' = $AFTER"
+AFTER="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$KC_URL/admin/realms/$REALM_NAME")"
+AFTER_THEME="$(printf '%s' "$AFTER" | jq -r '.loginTheme')"
+AFTER_PASSWORD_POLICY="$(printf '%s' "$AFTER" | jq -r '.passwordPolicy')"
+AFTER_SSO_IDLE="$(printf '%s' "$AFTER" | jq -r '.ssoSessionIdleTimeout')"
+AFTER_SSO_MAX="$(printf '%s' "$AFTER" | jq -r '.ssoSessionMaxLifespan')"
+echo ">> OK. loginTheme del realm '$REALM_NAME' = $AFTER_THEME"
+echo ">> OK. passwordPolicy del realm '$REALM_NAME' = $AFTER_PASSWORD_POLICY"
+echo ">> OK. ssoSessionIdleTimeout=$AFTER_SSO_IDLE ssoSessionMaxLifespan=$AFTER_SSO_MAX"
 
 CLIENT_ID="${KEYCLOAK_CLIENT_ID:-$(env_get KEYCLOAK_CLIENT_ID)}"
 CLIENT_ID="${CLIENT_ID:-edutrack-web}"

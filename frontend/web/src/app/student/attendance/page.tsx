@@ -22,7 +22,7 @@ export default function StudentAttendance() {
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <p className="text-sm text-slate-700">
-            Si necesitás consultar tu situación académica, contactá a secretaría. Para docentes y staff, usá{' '}
+            Si necesitás consultar tu situación académica, contactá a secretaría. Para docentes y personal, usá{' '}
             <Link href="/me/attendance" className="font-medium text-emerald-700 hover:underline">
               Mis asistencias
             </Link>{' '}

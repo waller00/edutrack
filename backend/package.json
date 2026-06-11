@@ -23,6 +23,7 @@
     "sync:keycloak": "tsx prisma/sync-keycloak-users.ts",
     "sync:keycloak:usernames": "tsx prisma/sync-keycloak-usernames.ts",
     "seed:biometric": "node prisma/seed-biometric-adms.mjs",
+    "backfill:event-attendance-redesign": "tsx scripts/backfill-event-attendance-redesign.ts",
     "vapid:keys": "node --input-type=module -e \"import w from 'web-push'; const k=w.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY='+k.publicKey); console.log('VAPID_PRIVATE_KEY='+k.privateKey); console.log('VAPID_SUBJECT=mailto:cambiar@tu-dominio.com');\""
   },
   "prisma": {
@@ -65,6 +66,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/supertest": "^6.0.2",
     "@vitest/coverage-v8": "^2.1.9",
+    "jsonwebtoken": "^9.0.2",
     "prisma": "^5.16.1",
     "supertest": "^7.0.0",
     "tsx": "^4.20.5",

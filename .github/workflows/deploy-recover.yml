@@ -53,16 +53,19 @@ jobs:
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF up -d pg redis keycloak-db
-            compose_recreate_services $CF keycloak auth web
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
+            compose_recreate_services $CF keycloak
+            bash scripts/keycloak-apply-realm-settings.sh
+            compose_recreate_services $CF auth web
             for i in $(seq 1 60); do
               api_ok=0; web_ok=0
-              curl -sf http://127.0.0.1:4000/health >/dev/null && api_ok=1
+              curl -sf http://127.0.0.1:4000/ready >/dev/null && api_ok=1
               curl -sf http://127.0.0.1:3000/ >/dev/null && web_ok=1
               if [ "$api_ok" = 1 ] && [ "$web_ok" = 1 ]; then break; fi
               echo "Esperando servicios ($i/60)..."
               sleep 5
             done
-            curl -sf http://127.0.0.1:4000/health
+            curl -sf http://127.0.0.1:4000/ready
             curl -sf http://127.0.0.1:3000/ >/dev/null
             echo "Producción recuperada"
 
@@ -103,15 +106,18 @@ jobs:
             CF="-f docker-compose.cloud.yml -f docker-compose.override.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF up -d pg redis keycloak-db
-            compose_recreate_services $CF keycloak auth web
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
+            compose_recreate_services $CF keycloak
+            bash scripts/keycloak-apply-realm-settings.sh
+            compose_recreate_services $CF auth web
             for i in $(seq 1 60); do
               api_ok=0; web_ok=0
-              curl -sf http://127.0.0.1:4000/health >/dev/null && api_ok=1
+              curl -sf http://127.0.0.1:4000/ready >/dev/null && api_ok=1
               curl -sf http://127.0.0.1:3000/ >/dev/null && web_ok=1
               if [ "$api_ok" = 1 ] && [ "$web_ok" = 1 ]; then break; fi
               echo "Esperando servicios ($i/60)..."
               sleep 5
             done
-            curl -sf http://127.0.0.1:4000/health
+            curl -sf http://127.0.0.1:4000/ready
             curl -sf http://127.0.0.1:3000/ >/dev/null
             echo "Testing recuperado"

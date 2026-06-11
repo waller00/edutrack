@@ -6,6 +6,7 @@ import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
 import type { SubstitutionRow } from '@/lib/substitutions/types'
+import { getRoleLabel } from '@/lib/roles/display'
 
 type TeacherOpt = { id: string; name: string; email: string; role: string }
 
@@ -157,7 +158,7 @@ export default function SubstitutionModal({ event, teachers, onClose, onSaved }:
 
           <div>
             <label htmlFor="sub-teacher" className="mb-1 block text-xs font-medium text-slate-600">
-              Docente suplente
+              Persona suplente
             </label>
             <select
               id="sub-teacher"
@@ -170,7 +171,7 @@ export default function SubstitutionModal({ event, teachers, onClose, onSaved }:
               <option value="">Seleccionar…</option>
               {eligibleTeachers.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name || t.email} ({t.role})
+                  {t.name || t.email} ({getRoleLabel(t.role)})
                 </option>
               ))}
             </select>

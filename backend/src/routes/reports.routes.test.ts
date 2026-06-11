@@ -193,7 +193,7 @@ describe("reports helpers", () => {
     expect(where.event.type).toBe("CLASE");
     expect(where.type).toBe("CHECK_IN");
     expect(where.status).toBe("PRESENT");
-    expect(where.user.role).toBe("STAFF");
+    expect(where.user.orgRole.code).toBe("STAFF");
   });
 
   it("builds detailed records and user/event stats", () => {
@@ -233,6 +233,52 @@ describe("reports helpers", () => {
   it("truncates long text and returns fallback for empty values", () => {
     expect(getTruncatedText("abcdef", 4, "N/A")).toBe("abcd...");
     expect(getTruncatedText(undefined, 4, "N/A")).toBe("N/A");
+  });
+
+  it("buildDetailedRecord usa orgRole.code cuando está presente", () => {
+    const withOrgRole = {
+      ...attendanceWithEvent,
+      user: { ...attendanceWithEvent.user, orgRole: { code: "TEACHER" } },
+    };
+    const record = buildDetailedRecord(withOrgRole);
+    expect(record.userRole).toBe("TEACHER");
+    const stat = createUserStat(withOrgRole, "Ada");
+    expect(stat.role).toBe("TEACHER");
+  });
+
+  it("buildDetailedRecord aplica fallbacks cuando faltan datos", () => {
+    const minimal = {
+      id: "att-min",
+      date: new Date("2025-06-01T00:00:00.000Z"),
+      time: "09:00",
+      type: "CHECK_IN",
+      status: "PRESENT",
+      notes: null,
+      user: { id: "u9", name: null, username: "solo.user", email: "u9@example.com" },
+      event: null,
+    };
+    const record = buildDetailedRecord(minimal);
+    expect(record.userName).toBe("solo.user");
+    expect(record.eventId).toBeNull();
+    expect(record.eventTitle).toBe("Sin evento");
+    expect(record.eventType).toBe("N/A");
+    expect(record.notes).toBe("");
+
+    const sinNombre = buildDetailedRecord({
+      ...minimal,
+      user: { ...minimal.user, name: null, username: null },
+    });
+    expect(sinNombre.userName).toBe("Sin nombre");
+  });
+
+  it("updateUserCounters contabiliza SUBSTITUTED, ABSENT_JUSTIFIED y EARLY_EXIT", () => {
+    const stats = createUserStat(attendanceWithEvent, "Ada");
+    updateUserCounters(stats, { ...attendanceWithEvent, type: "CHECK_IN", status: "SUBSTITUTED" });
+    updateUserCounters(stats, { ...attendanceWithEvent, type: "CHECK_IN", status: "ABSENT_JUSTIFIED" });
+    updateUserCounters(stats, { ...attendanceWithEvent, type: "CHECK_OUT", status: "EARLY_EXIT" });
+    expect(stats.absentNotJustifiedCount).toBe(1);
+    expect(stats.absentJustifiedCount).toBe(1);
+    expect(stats.earlyExitCount).toBe(1);
   });
 
   it("generates excel and pdf reports with mocked writers", async () => {

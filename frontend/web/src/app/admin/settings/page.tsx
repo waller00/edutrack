@@ -30,7 +30,7 @@ const SETTINGS_SECTIONS: {
   {
     id: 'attendance',
     label: 'Asistencia',
-    desc: 'Tolerancias, tardanzas y reloj biométrico.',
+    desc: 'Tolerancias de entrada, salida y marcas repetidas.',
     Icon: Timer,
   },
   {
@@ -105,8 +105,6 @@ export default function AdminSystemSettingsPage() {
           attendanceClassBridgeGapMinutes: data.attendanceClassBridgeGapMinutes,
           attendanceMonitorEnabled: data.attendanceMonitorEnabled,
           attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs,
-          biometricLateHour: data.biometricLateHour,
-          biometricLateMinute: data.biometricLateMinute,
           biometricDuplicateWindowMinutes: data.biometricDuplicateWindowMinutes,
         }),
       })

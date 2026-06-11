@@ -4,6 +4,7 @@ import type { AttendanceStatus, AttendanceType, EventType } from '@prisma/client
 import { prisma } from '../../../db/prisma.js'
 import { mergeSchoolYearIntoAttendanceEventWhere } from '../../../attendance/attendance-school-year.js'
 import { selectOrgRoleCode } from '../../../identity/user-role-prisma.js'
+import { addNoDataRow, formatWorksheetForExport } from './excel-format.js'
 
 type AttendanceDetailReportFilters = {
   from: string
@@ -387,22 +388,6 @@ function buildFilterLines(filters: AttendanceDetailReportFilters, rows: Attendan
   return lines.map((l) => truncateAscii(l, 70))
 }
 
-function autoWidthColumns(sheet: ExcelJS.Worksheet, maxExtra = 2) {
-  sheet.columns.forEach((col) => {
-    const header = col.header ? String(col.header) : ''
-    let maxLen = header.length
-    const colNum = col.number
-    sheet.eachRow({ includeEmpty: false }, (row) => {
-      const v = row.getCell(colNum).value
-      if (v === null || v === undefined) return
-      const s = typeof v === 'string' ? v : JSON.stringify(v)
-      maxLen = Math.max(maxLen, s.length)
-    })
-    const target = Math.min(60, Math.max(8, Math.ceil((maxLen + maxExtra) * 1.05)))
-    col.width = target
-  })
-}
-
 function formatPct(n: number) {
   return `${Number(n.toFixed(2))}%`
 }
@@ -440,20 +425,34 @@ export async function generateAttendanceAssistanceReportXlsxFromAttendances(para
   // HOJA: Detalle
   const detail = workbook.addWorksheet('Detalle')
   detail.columns = [
-    { header: 'Fecha', key: 'fecha', width: 12 },
-    { header: 'Usuario', key: 'usuario', width: 22 },
-    { header: 'Rol', key: 'rol', width: 14 },
-    { header: 'Evento/Turno', key: 'eventoTurno', width: 18 },
-    { header: 'Estado', key: 'estado', width: 12 },
-    { header: 'HoraEntrada', key: 'horaEntrada', width: 14 },
-    { header: 'HoraSalida', key: 'horaSalida', width: 14 },
-    { header: 'MinTarde', key: 'minTarde', width: 12 },
-    { header: 'HorasTrab', key: 'horasTrab', width: 12 },
-    { header: 'Licencia', key: 'licencia', width: 10 },
-    { header: 'Observaciones', key: 'observaciones', width: 22 },
+    { key: 'fecha', width: 12 },
+    { key: 'usuario', width: 22 },
+    { key: 'rol', width: 14 },
+    { key: 'eventoTurno', width: 18 },
+    { key: 'estado', width: 12 },
+    { key: 'horaEntrada', width: 14 },
+    { key: 'horaSalida', width: 14 },
+    { key: 'minTarde', width: 12 },
+    { key: 'horasTrab', width: 12 },
+    { key: 'licencia', width: 10 },
+    { key: 'observaciones', width: 22 },
   ]
 
-  const detailHeaderRow = detail.addRow(detail.columns.map((c) => c.header))
+  const detailHeaders = [
+    'Fecha',
+    'Usuario',
+    'Rol',
+    'Evento/Turno',
+    'Estado',
+    'HoraEntrada',
+    'HoraSalida',
+    'MinTarde',
+    'HorasTrab',
+    'Licencia',
+    'Observaciones',
+  ]
+
+  const detailHeaderRow = detail.addRow(detailHeaders)
   detailHeaderRow.eachCell((cell) => {
     cell.font = { bold: true }
     cell.alignment = { vertical: 'middle', wrapText: false }
@@ -477,11 +476,8 @@ export async function generateAttendanceAssistanceReportXlsxFromAttendances(para
   }
 
   if (rows.length === 0) {
-    detail.addRow(['No hay datos para los filtros seleccionados', '', '', '', '', '', '', '', '', '', ''])
+    addNoDataRow(detail, detailHeaders.length)
   }
-
-  detail.views = [{ state: 'frozen', ySplit: 1 }]
-  detail.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: detail.columns.length } }
 
   // Sanitizar: evitar saltos de línea en celdas
   detail.eachRow((row) => {
@@ -491,7 +487,7 @@ export async function generateAttendanceAssistanceReportXlsxFromAttendances(para
     })
   })
 
-  autoWidthColumns(detail)
+  formatWorksheetForExport(detail, { maxWidth: 36 })
 
   // HOJA: tabla en "Resumen" (debajo de métricas), desde fila 17
   // Nota: no permitimos saltos de línea en celdas; los valores ya vienen truncados/limpios.
@@ -558,13 +554,13 @@ export async function generateAttendanceAssistanceReportXlsxFromAttendances(para
   }
 
   if (rows.length === 0) {
-    const msgRow = summary.addRow(['No hay datos para los filtros seleccionados', '', '', '', '', '', '', '', '', '', ''])
+    const msgRow = addNoDataRow(summary, summaryTableHeaders.length)
     msgRow.height = 18
     msgRow.eachCell((cell) => (cell.alignment = { vertical: 'middle', wrapText: false }))
   }
 
-  // auto width al final para que considere también la tabla insertada
-  autoWidthColumns(summary)
+  // Auto width al final para que considere también la tabla insertada.
+  formatWorksheetForExport(summary, { headerRow: headerRow.number, maxWidth: 38 })
 
   // HOJA: Ranking (opcional, pero lo incluimos para cumplir top lists)
   const ranking = workbook.addWorksheet('Ranking')
@@ -590,7 +586,7 @@ export async function generateAttendanceAssistanceReportXlsxFromAttendances(para
   hdrDays.font = { bold: true }
   for (const d of metrics.topDiasAusentismo) ranking.addRow([d.fecha, d.ausencias])
 
-  autoWidthColumns(ranking)
+  formatWorksheetForExport(ranking, { headerRow: 2, maxWidth: 34, autoFilter: false, freezeHeader: false })
 
   return workbook.xlsx.writeBuffer()
 }

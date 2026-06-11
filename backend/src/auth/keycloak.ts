@@ -1,4 +1,5 @@
 import * as oidc from "openid-client";
+import crypto from "node:crypto";
 
 /**
  * Integracion con Keycloak para el patron BFF.
@@ -435,12 +436,116 @@ async function findKeycloakUserIdByEmail(token: string, email: string): Promise<
   return users[0]?.id ?? null;
 }
 
+export async function getKeycloakUserIdByEmail(email: string): Promise<string | null> {
+  if (!email) return null;
+  const token = await getAdminToken();
+  return findKeycloakUserIdByEmail(token, email);
+}
+
 type KeycloakCredential = {
   id?: string;
   type?: string;
   userLabel?: string;
   createdDate?: number;
+  credentialData?: string;
+  secretData?: string;
 };
+
+const KEYCLOAK_SECOND_FACTOR_CREDENTIAL_TYPES = new Set(["otp", "recovery-authn-codes"]);
+
+function isKeycloakSecondFactorCredential(credential: KeycloakCredential): boolean {
+  return Boolean(credential.id && credential.type && KEYCLOAK_SECOND_FACTOR_CREDENTIAL_TYPES.has(credential.type));
+}
+
+function parseCredentialJson(value?: string): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function numberFromCredential(value: unknown, fallback: number): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeOtpCode(code: string): string {
+  return code.replace(/[\s-]/g, "");
+}
+
+function base32Decode(value: string): Buffer {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const clean = value.toUpperCase().replace(/=+$/g, "").replace(/[\s-]/g, "");
+  const bytes: number[] = [];
+  let bits = 0;
+  let buffer = 0;
+  for (const char of clean) {
+    const index = alphabet.indexOf(char);
+    if (index < 0) throw new Error("Secreto OTP base32 inválido.");
+    buffer = (buffer << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((buffer >> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+function hmacDigestName(algorithm: unknown): "sha1" | "sha256" | "sha512" {
+  const normalized = String(algorithm || "").toLowerCase();
+  if (normalized.includes("sha512")) return "sha512";
+  if (normalized.includes("sha256")) return "sha256";
+  return "sha1";
+}
+
+function hotp(secret: Buffer, counter: number, digits: number, algorithm: "sha1" | "sha256" | "sha512"): string {
+  const counterBuffer = Buffer.alloc(8);
+  counterBuffer.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+  counterBuffer.writeUInt32BE(counter >>> 0, 4);
+  const digest = crypto.createHmac(algorithm, secret).update(counterBuffer).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary =
+    ((digest[offset] & 0x7f) << 24) |
+    ((digest[offset + 1] & 0xff) << 16) |
+    ((digest[offset + 2] & 0xff) << 8) |
+    (digest[offset + 3] & 0xff);
+  return String(binary % 10 ** digits).padStart(digits, "0");
+}
+
+function timingSafeCodeEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function getOtpSecret(credential: KeycloakCredential): string | null {
+  const secretData = parseCredentialJson(credential.secretData);
+  const value = secretData.value ?? secretData.secret ?? secretData.otpSecret;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function verifyTotpCode(input: {
+  secret: string;
+  code: string;
+  digits: number;
+  period: number;
+  algorithm: "sha1" | "sha256" | "sha512";
+  now?: number;
+}): boolean {
+  const normalizedCode = normalizeOtpCode(input.code);
+  if (!new RegExp(`^\\d{${input.digits}}$`).test(normalizedCode)) return false;
+  const secret = base32Decode(input.secret);
+  const currentCounter = Math.floor((input.now ?? Date.now()) / 1000 / input.period);
+  for (let drift = -1; drift <= 1; drift += 1) {
+    const expected = hotp(secret, currentCounter + drift, input.digits, input.algorithm);
+    if (timingSafeCodeEqual(expected, normalizedCode)) return true;
+  }
+  return false;
+}
 
 type KeycloakUserProfile = {
   id?: string;
@@ -477,29 +582,42 @@ export async function getKeycloakUserOtpStatus(kcUserId: string): Promise<{ enab
     throw new Error(`Keycloak credentials error ${res.status}: ${detail}`);
   }
   const credentials = (await res.json()) as KeycloakCredential[];
-  const otp = credentials.filter((credential) => credential.type === "otp");
-  return { enabled: otp.length > 0, count: otp.length };
+  const secondFactorCredentials = credentials.filter((credential) => credential.type && KEYCLOAK_SECOND_FACTOR_CREDENTIAL_TYPES.has(credential.type));
+  return { enabled: secondFactorCredentials.length > 0, count: secondFactorCredentials.length };
 }
 
-export async function verifyKeycloakPassword(usernameOrEmail: string, password: string): Promise<boolean> {
+export async function verifyKeycloakUserOtpCode(kcUserId: string, code: string): Promise<boolean> {
+  const normalizedCode = normalizeOtpCode(code);
+  if (!kcUserId || !/^\d{6,8}$/.test(normalizedCode)) return false;
+  const token = await getAdminToken();
   const base = adminBaseUrl();
-  const body = new URLSearchParams({
-    grant_type: "password",
-    client_id: clientId(),
-    username: usernameOrEmail,
-    password,
+  const realm = adminRealm();
+  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}/credentials`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
-  const secret = clientSecret();
-  if (secret) body.set("client_secret", secret);
-  const res = await kcFetch(`${base}/realms/${adminRealm()}/protocol/openid-connect/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (res.ok) return true;
-  if (res.status === 400 || res.status === 401) return false;
-  const detail = await res.text().catch(() => "");
-  throw new Error(`Keycloak password verify error ${res.status}: ${detail}`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Keycloak credentials error ${res.status}: ${detail}`);
+  }
+  const credentials = (await res.json()) as KeycloakCredential[];
+  const otpCredentials = credentials.filter((credential) => credential.type === "otp");
+  let couldValidate = false;
+  for (const credential of otpCredentials) {
+    const credentialData = parseCredentialJson(credential.credentialData);
+    const subType = typeof credentialData.subType === "string" ? credentialData.subType.toLowerCase() : "totp";
+    if (subType && subType !== "totp") continue;
+    const secret = getOtpSecret(credential);
+    if (!secret) continue;
+    couldValidate = true;
+    const digits = numberFromCredential(credentialData.digits, normalizedCode.length);
+    const period = numberFromCredential(credentialData.period, 30);
+    const algorithm = hmacDigestName(credentialData.algorithm);
+    if (verifyTotpCode({ secret, code: normalizedCode, digits, period, algorithm })) return true;
+  }
+  if (otpCredentials.length > 0 && !couldValidate) {
+    throw new Error("Keycloak no devolvió el secreto OTP necesario para validar el código.");
+  }
+  return false;
 }
 
 export async function deleteKeycloakUserOtpCredentials(kcUserId: string): Promise<number> {
@@ -515,8 +633,8 @@ export async function deleteKeycloakUserOtpCredentials(kcUserId: string): Promis
     throw new Error(`Keycloak credentials error ${credentialsRes.status}: ${detail}`);
   }
   const credentials = (await credentialsRes.json()) as KeycloakCredential[];
-  const otpCredentials = credentials.filter((credential) => credential.type === "otp" && credential.id);
-  for (const credential of otpCredentials) {
+  const secondFactorCredentials = credentials.filter(isKeycloakSecondFactorCredential);
+  for (const credential of secondFactorCredentials) {
     const res = await kcFetch(
       `${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}/credentials/${encodeURIComponent(credential.id!)}`,
       {
@@ -529,7 +647,31 @@ export async function deleteKeycloakUserOtpCredentials(kcUserId: string): Promis
       throw new Error(`Keycloak delete OTP error ${res.status}: ${detail}`);
     }
   }
-  return otpCredentials.length;
+  return secondFactorCredentials.length;
+}
+
+/**
+ * Quita CONFIGURE_TOTP de las required actions persistidas del usuario.
+ * El 2FA es opcional (se activa/desactiva desde el perfil): si quedó una acción
+ * de configuración de 2FA pendiente, Keycloak la encadena al terminar cualquier
+ * flujo (p. ej. el reset de contraseña), forzando el "Configurar 2FA" sin sentido.
+ */
+async function clearPendingTotpRequiredAction(token: string, kcUserId: string): Promise<void> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const userRes = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!userRes.ok) return;
+  const user = (await userRes.json()) as { requiredActions?: string[] };
+  const current = Array.isArray(user.requiredActions) ? user.requiredActions : [];
+  if (!current.includes("CONFIGURE_TOTP")) return;
+  const next = current.filter((action) => action !== "CONFIGURE_TOTP");
+  await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ requiredActions: next }),
+  });
 }
 
 /** Envía el email de actualización de contraseña de Keycloak al usuario. */
@@ -539,6 +681,8 @@ export async function triggerKeycloakPasswordReset(email: string): Promise<void>
   if (!kcId) throw new Error("Usuario no encontrado en Keycloak");
   const base = adminBaseUrl();
   const realm = adminRealm();
+  // El reset solo debe cambiar la contraseña; nunca encadenar la config de 2FA.
+  await clearPendingTotpRequiredAction(token, kcId);
   const res = await kcFetch(`${base}/admin/realms/${realm}/users/${kcId}/execute-actions-email`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

@@ -2,6 +2,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import { api } from '@/lib/api/client'
+import { getRoleLabel } from '@/lib/roles/display'
 import { AlertTriangle, Bug, Loader2, LogIn, LogOut, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -278,7 +279,7 @@ export default function AdminTestingPanel() {
               <option value="">— Elegir —</option>
               {ctx?.users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.label} ({u.role})
+                  {u.label} ({getRoleLabel(u.role)})
                 </option>
               ))}
             </select>

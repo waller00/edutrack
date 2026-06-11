@@ -28,6 +28,7 @@ export type AssignedEventRow = {
   recurrenceEnd?: string
   user: { id: string; name: string; email: string; role: string }
   assignedUser?: { id: string; name: string; email: string; role: string }
+  isSubstitution?: boolean
 }
 
 export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {
@@ -174,6 +175,11 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
                           <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             {getEventTypeLabel(event.type)}
                           </span>
+                          {event.isSubstitution && (
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                              Suplencia
+                            </span>
+                          )}
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-3">
                           <div>

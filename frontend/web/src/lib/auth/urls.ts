@@ -38,7 +38,7 @@ export function accountTwoFactorStatusUrl(): string {
 }
 
 export function accountTwoFactorDisableUrl(): string {
-  return `${apiBase()}/auth/account/2fa`
+  return `${apiBase()}/auth/account/2fa/disable`
 }
 
 export function accountRecoveryCodesUrl(): string {

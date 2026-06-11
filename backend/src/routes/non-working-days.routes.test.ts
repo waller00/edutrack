@@ -36,10 +36,11 @@ describe("non-working-days routes", () => {
   });
 
   it("GET lista días (rango por defecto)", async () => {
-    prismaMock.$queryRaw.mockResolvedValueOnce([{ id: "d1", date: new Date(), type: "HOLIDAY", reason: "Feriado" }]);
+    prismaMock.$queryRaw.mockResolvedValueOnce([{ id: "d1", date: new Date("2026-06-12T00:00:00.000Z"), type: "HOLIDAY", reason: "Feriado" }]);
     const res = await request(app()).get("/non-working-days").set(adminHdr());
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].date).toBe("2026-06-12");
   });
 
   it("GET respeta from/to de la query", async () => {

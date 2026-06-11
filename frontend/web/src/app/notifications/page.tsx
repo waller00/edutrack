@@ -21,6 +21,7 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [markingAll, setMarkingAll] = useState(false)
+  const [openingId, setOpeningId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setErr('')
@@ -57,6 +58,20 @@ export default function NotificationsPage() {
     }
   }
 
+  async function openNotification(item: InAppItem) {
+    setOpeningId(item.id)
+    try {
+      if (!item.readAt) {
+        await markRead(item.id)
+      }
+      if (item.actionUrl) {
+        window.location.href = item.actionUrl
+      }
+    } finally {
+      setOpeningId(null)
+    }
+  }
+
   async function markAllRead() {
     setMarkingAll(true)
     try {
@@ -71,6 +86,63 @@ export default function NotificationsPage() {
   }
 
   const unread = items.filter((it) => !it.readAt).length
+  const unreadItems = items.filter((it) => !it.readAt)
+  const historyItems = items.filter((it) => it.readAt)
+
+  const renderItem = (it: InAppItem) => {
+    const isUnread = !it.readAt
+    const created = new Date(it.createdAt)
+    const dateStr = created.toLocaleString(undefined, {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    })
+    const isOpening = openingId === it.id
+
+    return (
+      <li
+        key={it.id}
+        className={`rounded-xl border px-4 py-3 transition-shadow ${
+          isUnread
+            ? 'border-emerald-200 bg-emerald-50/50 shadow-sm'
+            : 'border-gray-200 bg-white'
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium text-gray-900">{it.title}</span>
+              {isUnread && (
+                <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  Nuevo
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-gray-700">{it.body}</p>
+            <p className="mt-2 text-xs text-gray-500">{dateStr}</p>
+          </div>
+          {(isUnread || it.actionUrl) && (
+            <button
+              type="button"
+              onClick={() => void openNotification(it)}
+              disabled={isOpening}
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              <PendingButtonContent
+                pending={isOpening}
+                pendingText="Abriendo..."
+                idle={
+                  <>
+                    Abrir
+                    {it.actionUrl && <ExternalLink className="h-3 w-3" aria-hidden />}
+                  </>
+                }
+              />
+            </button>
+          )}
+        </div>
+      </li>
+    )
+  }
 
   return (
     <RoleGuard permission="notifications.read">
@@ -121,64 +193,29 @@ export default function NotificationsPage() {
           </p>
         </div>
       ) : (
-        <ul className="space-y-3">
-          {items.map((it) => {
-            const isUnread = !it.readAt
-            const created = new Date(it.createdAt)
-            const dateStr = created.toLocaleString(undefined, {
-              dateStyle: 'short',
-              timeStyle: 'short',
-            })
-            return (
-              <li
-                key={it.id}
-                className={`rounded-xl border px-4 py-3 transition-shadow ${
-                  isUnread
-                    ? 'border-emerald-200 bg-emerald-50/50 shadow-sm'
-                    : 'border-gray-200 bg-white'
-                }`}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium text-gray-900">{it.title}</span>
-                      {isUnread && (
-                        <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                          Nuevo
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-sm text-gray-700">{it.body}</p>
-                    <p className="mt-2 text-xs text-gray-500">{dateStr}</p>
-                  </div>
-                  <div className="grid w-full shrink-0 grid-cols-2 gap-2 sm:w-auto sm:flex sm:flex-wrap">
-                    {it.actionUrl && (
-                      <a
-                        href={it.actionUrl}
-                        onClick={() => {
-                          if (isUnread) void markRead(it.id)
-                        }}
-                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50"
-                      >
-                        Abrir
-                        <ExternalLink className="h-3 w-3" aria-hidden />
-                      </a>
-                    )}
-                    {isUnread && (
-                      <button
-                        type="button"
-                        onClick={() => void markRead(it.id)}
-                        className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                      >
-                        Marcar leída
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+        <div className="space-y-8">
+          {unreadItems.length > 0 && (
+            <section aria-labelledby="unread-notifications-title">
+              <h2 id="unread-notifications-title" className="mb-3 text-sm font-semibold text-gray-900">
+                No leídas
+              </h2>
+              <ul className="space-y-3">{unreadItems.map(renderItem)}</ul>
+            </section>
+          )}
+
+          <section aria-labelledby="notification-history-title">
+            <h2 id="notification-history-title" className="mb-3 text-sm font-semibold text-gray-900">
+              Historial
+            </h2>
+            {historyItems.length > 0 ? (
+              <ul className="space-y-3">{historyItems.map(renderItem)}</ul>
+            ) : (
+              <p className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-6 text-sm text-gray-500">
+                Todavía no hay avisos leídos.
+              </p>
+            )}
+          </section>
+        </div>
       )}
       </div>
     </RoleGuard>

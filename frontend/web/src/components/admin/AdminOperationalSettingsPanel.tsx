@@ -12,8 +12,6 @@ export type OperationalSettingsData = {
   attendanceClassBridgeGapMinutes: number
   attendanceMonitorEnabled: boolean
   attendanceMonitorIntervalMs: number
-  biometricLateHour: number
-  biometricLateMinute: number
   biometricDuplicateWindowMinutes: number
 }
 
@@ -139,9 +137,12 @@ export default function AdminOperationalSettingsPanel({
                 value={data.attendanceLateToleranceMinutes}
                 onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceLateToleranceMinutes: Number(e.target.value) || 0 } : prev))}
               />
+              <span className="block text-xs text-slate-500">
+                Minutos de gracia luego del inicio de la clase antes de marcar la entrada como TARDE.
+              </span>
             </label>
             <label className="block space-y-2">
-              <span className={labelCls}>Tolerancia no-show docente (min)</span>
+              <span className={labelCls}>Ausencia docente (min)</span>
               <input
                 type="number"
                 min={1}
@@ -150,42 +151,25 @@ export default function AdminOperationalSettingsPanel({
                 value={data.attendanceNoShowGraceMinutes}
                 onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceNoShowGraceMinutes: Number(e.target.value) || 1 } : prev))}
               />
+              <span className="block text-xs text-slate-500">
+                Minutos sin marcar luego del inicio para dar al docente por ausente y generar el incidente.
+              </span>
             </label>
             <label className="block space-y-2">
-              <span className={labelCls}>Puente entre clases (min)</span>
+              <span className={labelCls}>Ventana de entrada anticipada (min)</span>
               <input
                 type="number"
-                min={15}
+                min={90}
                 max={240}
                 className="input-modern w-full text-sm tabular-nums"
                 value={data.attendanceClassBridgeGapMinutes}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceClassBridgeGapMinutes: Number(e.target.value) || 60 } : prev))}
+                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceClassBridgeGapMinutes: Number(e.target.value) || 90 } : prev))}
               />
+              <span className="block text-xs text-slate-500">
+                Cuánto antes del inicio de una clase se admite una marca de entrada para asociarla a esa
+                clase (entre 90 y 240 min).
+              </span>
             </label>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block space-y-2">
-                <span className={labelCls}>Hora tardanza biométrica</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={23}
-                  className="input-modern w-full text-sm tabular-nums"
-                  value={data.biometricLateHour}
-                  onChange={(e) => setData((prev) => (prev ? { ...prev, biometricLateHour: Number(e.target.value) || 0 } : prev))}
-                />
-              </label>
-              <label className="block space-y-2">
-                <span className={labelCls}>Minuto tardanza biométrica</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  className="input-modern w-full text-sm tabular-nums"
-                  value={data.biometricLateMinute}
-                  onChange={(e) => setData((prev) => (prev ? { ...prev, biometricLateMinute: Number(e.target.value) || 0 } : prev))}
-                />
-              </label>
-            </div>
           </section>
 
           <section className={`${shellCard} space-y-5`}>

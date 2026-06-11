@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../db/prisma.js";
 import { getSession } from "../auth/session-store.js";
-import { verifyTestBearerToken } from "../test-utils/bearer-token.js";
 
 export async function authGuard(req: Request, res: Response, next: NextFunction) {
   const sid = (req as any).cookies?.sid as string | undefined;
@@ -42,6 +41,7 @@ export async function authGuard(req: Request, res: Response, next: NextFunction)
     const token = header || ((req as any).cookies?.access_token as string | undefined);
     if (token) {
       try {
+        const { verifyTestBearerToken } = await import("../test-utils/bearer-token.js");
         const user = verifyTestBearerToken(token);
         (req as any).user = { ...user, id: user.id ?? user.sub };
         return next();
@@ -119,4 +119,3 @@ export function requirePermission(permissionCode: string, requiredScope?: "own" 
     }
   };
 }
-

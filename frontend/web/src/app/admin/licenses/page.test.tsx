@@ -55,6 +55,32 @@ describe('LicensesPage', () => {
     expect(await screen.findByText('No hay licencias registradas')).toBeInTheDocument()
   })
 
+  it('muestra días no laborables como fecha civil sin corrimiento horario', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('medical-leaves/all')) return { data: [] }
+      if (String(url).includes('non-working-days')) {
+        return {
+          data: [
+            {
+              id: 'nwd-1',
+              date: '2026-06-12T00:00:00.000Z',
+              type: 'HOLIDAY',
+              reason: 'Feriado',
+              notes: null,
+            },
+          ],
+        }
+      }
+      if (String(url).includes('admin/users')) return { data: [] }
+      return { data: [] }
+    })
+
+    render(<LicensesPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Días no laborables' }))
+
+    expect(await screen.findByText('12/06/2026')).toBeInTheDocument()
+  })
+
   it('elimina licencias seleccionadas', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
@@ -70,7 +96,12 @@ describe('LicensesPage', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
+
+    // El botón está disabled mientras no haya selección aplicada; esperar a que
+    // el estado se refleje evita un click no-op en CI (timing) que no dispara el DELETE.
+    const deleteButton = screen.getByRole('button', { name: 'Eliminar seleccionadas' })
+    await waitFor(() => expect(deleteButton).toBeEnabled())
+    fireEvent.click(deleteButton)
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/medical-leaves/lic1', expect.objectContaining({ method: 'DELETE' })),

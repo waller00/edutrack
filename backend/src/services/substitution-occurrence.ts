@@ -11,18 +11,8 @@ export class SubstitutionError extends Error {
 }
 
 export function combineDateWithUtcTime(plannedDateYmd: string, time: Date) {
-  const base = new Date(`${plannedDateYmd}T00:00:00.000Z`)
-  return new Date(
-    Date.UTC(
-      base.getUTCFullYear(),
-      base.getUTCMonth(),
-      base.getUTCDate(),
-      time.getUTCHours(),
-      time.getUTCMinutes(),
-      time.getUTCSeconds(),
-      time.getUTCMilliseconds(),
-    ),
-  )
+  const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(APP_TIMEZONE)
+  return uruguayWallToUtc(plannedDateYmd, wall.hour, wall.minute)
 }
 
 export function jsWeekdayInUruguayYmd(ymd: string) {

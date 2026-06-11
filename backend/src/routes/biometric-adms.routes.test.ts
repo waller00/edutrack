@@ -58,9 +58,7 @@ vi.mock("../services/attendance-incidents.js", () => ({
   findOpenNoShowIncidentForEvents: vi.fn(),
   findAssignedEventForAttendanceInstant: vi.fn(),
   findAssignedEventNearAttendanceInstant: vi.fn(),
-  maybeCreateLateArrivalIncident: vi.fn(),
-  maybeCreateEarlyExitIncident: vi.fn(),
-  resolveNoShowIncidentsForEvents: vi.fn(),
+  resolveNoShowIncidentIfAny: vi.fn(),
 }));
 
 import { findApprovedLicenseCoveringEventTime } from "../services/medicalLeaveReconciliation.js";
@@ -68,17 +66,13 @@ import {
   findOpenNoShowIncidentForEvents,
   findAssignedEventForAttendanceInstant,
   findAssignedEventNearAttendanceInstant,
-  maybeCreateLateArrivalIncident,
-  maybeCreateEarlyExitIncident,
-  resolveNoShowIncidentsForEvents,
+  resolveNoShowIncidentIfAny,
 } from "../services/attendance-incidents.js";
 const findLicenseMock = vi.mocked(findApprovedLicenseCoveringEventTime);
 const findOpenNoShowMock = vi.mocked(findOpenNoShowIncidentForEvents);
 const findAssignedEventMock = vi.mocked(findAssignedEventForAttendanceInstant);
 const findAssignedEventNearMock = vi.mocked(findAssignedEventNearAttendanceInstant);
-const lateIncidentMock = vi.mocked(maybeCreateLateArrivalIncident);
-const earlyExitIncidentMock = vi.mocked(maybeCreateEarlyExitIncident);
-const resolveNoShowMock = vi.mocked(resolveNoShowIncidentsForEvents);
+const resolveNoShowMock = vi.mocked(resolveNoShowIncidentIfAny);
 
 function sha256(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
@@ -105,8 +99,6 @@ describe("biometric ADMS ingest", () => {
     findOpenNoShowMock.mockResolvedValue(null);
     findAssignedEventMock.mockResolvedValue(null);
     findAssignedEventNearMock.mockResolvedValue(null);
-    lateIncidentMock.mockResolvedValue(null);
-    earlyExitIncidentMock.mockResolvedValue(null);
     resolveNoShowMock.mockResolvedValue(0);
     prismaMock.$queryRaw.mockResolvedValue([]);
     prismaMock.systemSettings.upsert.mockResolvedValue({
@@ -118,8 +110,6 @@ describe("biometric ADMS ingest", () => {
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
-      biometricLateHour: 8,
-      biometricLateMinute: 30,
       biometricDuplicateWindowMinutes: 5,
     });
     prismaMock.biometricDevice.findUnique.mockResolvedValue({
@@ -177,6 +167,61 @@ describe("biometric ADMS ingest", () => {
     expect(res.body.attendance.id).toBe("att-1");
     expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("OUT_OF_SCHEDULE");
     expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBeUndefined();
+  });
+
+  it("201 vincula marcación biométrica a una clase suplida", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "substitute-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          eventId: "event-sub-1",
+          title: "Matemática",
+          type: "CLASE",
+          startTime: new Date("2026-05-05T13:00:00.000Z"),
+          endTime: new Date("2026-05-05T14:00:00.000Z"),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "sub-1",
+          originalTeacherUserId: "joaquin-1",
+          reason: "Licencia del titular",
+          startTime: new Date("2026-05-05T13:00:00.000Z"),
+          schoolYearId: "sy-1",
+        },
+      ]);
+    prismaMock.attendance.create.mockResolvedValue({
+      id: "att-1",
+      type: "CHECK_IN",
+      status: "PRESENT",
+      date: new Date("2026-05-05T03:00:00.000Z"),
+      time: new Date(payload.timestamp),
+      eventId: "event-sub-1",
+    });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-1" });
+    prismaMock.biometricDevice.update.mockResolvedValue({});
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send(payload);
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("LATE");
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.eventId).toBe("event-sub-1");
+    expect(prismaMock.attendance.create.mock.calls[1][0].data).toEqual(
+      expect.objectContaining({
+        userId: "joaquin-1",
+        eventId: "event-sub-1",
+        status: "SUBSTITUTED",
+        notes: "Ausencia prevista sin justificar (suplida): Licencia del titular",
+      }),
+    );
+    expect(findAssignedEventMock).not.toHaveBeenCalled();
   });
 
   it("vincula evento cercano y deja presente si la marca fue antes del inicio", async () => {
@@ -278,19 +323,114 @@ describe("biometric ADMS ingest", () => {
     expect(prismaMock.attendance.create.mock.calls[0][0].data.notes).toContain("SALIDA ANTICIPADA");
   });
 
-  it("marca como llegada muy tarde cuando ya había no-show abierto para el evento", async () => {
+  it("materializa presencia en todos los eventos cubiertos por una entrada y una salida", async () => {
     prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
     prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
-    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "att-in", type: "CHECK_IN", time: new Date("2026-05-05T12:00:00.000Z") })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "att-in" })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    prismaMock.attendance.findMany.mockResolvedValue([
+      {
+        id: "att-in",
+        userId: "user-1",
+        eventId: "event-1",
+        date: new Date("2026-05-05T03:00:00.000Z"),
+        time: new Date("2026-05-05T12:00:00.000Z"),
+        type: "CHECK_IN",
+        status: "PRESENT",
+        notes: null,
+      },
+    ]);
     prismaMock.event.findMany.mockResolvedValue([
       {
         id: "event-1",
-        title: "Clase",
+        title: "Clase 1",
         type: "CLASE",
+        startDate: new Date("2026-05-05T03:00:00.000Z"),
+        endDate: new Date("2026-05-05T03:00:00.000Z"),
+        startTime: new Date("2026-05-05T12:00:00.000Z"),
+        endTime: new Date("2026-05-05T12:45:00.000Z"),
+        isRecurring: false,
+        daysOfWeek: [],
+        recurrenceEnd: null,
+        schoolYearId: "sy-1",
+      },
+      {
+        id: "event-2",
+        title: "Clase 2",
+        type: "CLASE",
+        startDate: new Date("2026-05-05T03:00:00.000Z"),
+        endDate: new Date("2026-05-05T03:00:00.000Z"),
         startTime: new Date("2026-05-05T13:00:00.000Z"),
-        endTime: new Date("2026-05-05T14:00:00.000Z"),
+        endTime: new Date("2026-05-05T13:45:00.000Z"),
+        isRecurring: false,
+        daysOfWeek: [],
+        recurrenceEnd: null,
+        schoolYearId: "sy-1",
+      },
+      {
+        id: "event-3",
+        title: "Clase 3",
+        type: "CLASE",
+        startDate: new Date("2026-05-05T03:00:00.000Z"),
+        endDate: new Date("2026-05-05T03:00:00.000Z"),
+        startTime: new Date("2026-05-05T14:00:00.000Z"),
+        endTime: new Date("2026-05-05T14:45:00.000Z"),
+        isRecurring: false,
+        daysOfWeek: [],
+        recurrenceEnd: null,
+        schoolYearId: "sy-1",
       },
     ]);
+    findAssignedEventNearMock.mockResolvedValue({
+      id: "event-3",
+      title: "Clase 3",
+      type: "CLASE",
+      startTime: new Date("2026-05-05T14:00:00.000Z"),
+      endTime: new Date("2026-05-05T14:45:00.000Z"),
+    });
+    prismaMock.attendance.create
+      .mockResolvedValueOnce({
+        id: "att-out",
+        type: "CHECK_OUT",
+        status: "EXIT",
+        date: new Date("2026-05-05T03:00:00.000Z"),
+        time: new Date("2026-05-05T15:00:00.000Z"),
+        eventId: "event-3",
+      })
+      .mockResolvedValueOnce({ id: "att-event-2" })
+      .mockResolvedValueOnce({ id: "att-event-3" });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-1" });
+    prismaMock.biometricDevice.update.mockResolvedValue({});
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send({ ...payload, punchType: "CHECK_OUT", timestamp: "2026-05-05T15:00:00.000Z" });
+
+    expect(res.status).toBe(201);
+    const createdAttendances = prismaMock.attendance.create.mock.calls.map((call) => call[0].data);
+    expect(createdAttendances.filter((row) => row.type === "CHECK_IN" && row.status === "PRESENT")).toHaveLength(2);
+    expect(createdAttendances.map((row) => row.eventId)).toEqual(["event-3", "event-2", "event-3"]);
+    expect(prismaMock.attendanceIncident.create).not.toHaveBeenCalled();
+  });
+
+  it("no resuelve no-show al registrar llegada tarde porque las incidencias no modelan faltas esperables", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    findAssignedEventMock.mockResolvedValue({
+      id: "event-1",
+      title: "Clase",
+      type: "CLASE",
+      startTime: new Date("2026-05-05T13:00:00.000Z"),
+      endTime: new Date("2026-05-05T14:00:00.000Z"),
+    });
     findOpenNoShowMock.mockResolvedValue({ id: "inc-1", eventId: "event-1" });
     prismaMock.attendance.create.mockResolvedValue({
       id: "att-1",
@@ -309,10 +449,8 @@ describe("biometric ADMS ingest", () => {
       .send(payload);
 
     expect(res.status).toBe(201);
-    expect(prismaMock.attendance.create.mock.calls[0][0].data.notes).toBe(
-      "Llegada muy tarde: 10 min tarde - Dispositivo: F22-TEST-01",
-    );
-    expect(resolveNoShowMock).toHaveBeenCalledWith(prismaMock, "user-1", ["event-1"]);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("LATE");
+    expect(resolveNoShowMock).not.toHaveBeenCalled();
   });
 
   it("200 cuando llega duplicado (idempotencia)", async () => {
@@ -350,6 +488,42 @@ describe("biometric ADMS ingest", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           processStatus: "DUPLICATE",
+          punchType: "CHECK_IN",
+        }),
+      }),
+    );
+  });
+
+  it("200 e ignora segunda entrada explicita del mismo evento aunque esté fuera de la ventana", async () => {
+    prismaMock.biometricUserMapping.findFirst.mockResolvedValue({ id: "map-1", userId: "user-1" });
+    prismaMock.biometricPunch.findUnique.mockResolvedValue(null);
+    prismaMock.attendance.findFirst
+      .mockResolvedValueOnce({ id: "last-out", type: "CHECK_OUT", time: new Date("2026-05-05T13:00:00.000Z") })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "att-event-in", type: "CHECK_IN", time: new Date("2026-05-05T13:10:00.000Z") });
+    findAssignedEventMock.mockResolvedValue({
+      id: "event-1",
+      title: "Clase",
+      type: "CLASE",
+      startTime: new Date("2026-05-05T13:00:00.000Z"),
+      endTime: new Date("2026-05-05T14:00:00.000Z"),
+    });
+    prismaMock.biometricPunch.create.mockResolvedValue({ id: "p-duplicate-event" });
+
+    const res = await request(app())
+      .post("/biometric/adms-ingest")
+      .set("x-biometric-secret", "local-secret")
+      .send({ ...payload, punchType: "CHECK_IN", timestamp: "2026-05-05T13:30:00.000Z" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+    expect(res.body.attendanceId).toBe("att-event-in");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+    expect(prismaMock.biometricPunch.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          processStatus: "DUPLICATE",
+          processError: expect.stringContaining("mismo evento"),
           punchType: "CHECK_IN",
         }),
       }),

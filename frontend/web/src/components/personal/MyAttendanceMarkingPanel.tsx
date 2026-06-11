@@ -95,7 +95,7 @@ export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
     setMarking(key)
     setMessage(null)
     try {
-      const instant = toIsoDateTime(day, event.startTime)
+      const instant = toIsoDateTime(day, type === 'CHECK_OUT' ? event.endTime : event.startTime)
       await api('/attendance/register', {
         method: 'POST',
         body: JSON.stringify({

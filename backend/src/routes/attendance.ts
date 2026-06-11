@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { DateTime } from 'luxon';
 import { prisma } from '../db/prisma.js';
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js';
 import {
@@ -12,9 +13,17 @@ import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attenda
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
-import { uruguayStartOfDayFromInstant } from '../config/app-timezone.js';
+import {
+  APP_TIMEZONE,
+  isYmdDateString,
+  uruguayStartOfDayFromInstant,
+  uruguayWallToUtc,
+  uruguayYmdEndOfDayToUtc,
+} from '../config/app-timezone.js';
 import { justifyAttendance } from '../services/attendance-justifications.js';
 import { recordAuditEventNow } from '../services/audit-log.js';
+import { getPlannedInstances } from '../services/analytics/planInstances.js';
+import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -59,8 +68,28 @@ const attendanceJustificationSchema = z.object({
   attachment: z.string().optional(),
 });
 
+const materializeAbsenceSchema = z.object({
+  userId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  status: z.enum(['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED']).optional(),
+  notes: z.string().optional(),
+});
+
 function normalizeAttendanceDate(date: string) {
   return new Date(date)
+}
+
+function parseAttendanceRangeStart(value: unknown) {
+  const raw = typeof value === 'string' ? value : value != null ? String(value) : ''
+  if (isYmdDateString(raw)) return uruguayWallToUtc(raw, 0, 0)
+  return new Date(raw)
+}
+
+function parseAttendanceRangeEnd(value: unknown) {
+  const raw = typeof value === 'string' ? value : value != null ? String(value) : ''
+  if (isYmdDateString(raw)) return uruguayYmdEndOfDayToUtc(raw)
+  return new Date(raw)
 }
 
 function applyDateRangeFilter(where: any, startDate?: unknown, endDate?: unknown) {
@@ -69,12 +98,19 @@ function applyDateRangeFilter(where: any, startDate?: unknown, endDate?: unknown
   where.date = {}
 
   if (startDate) {
-    where.date.gte = new Date(startDate as string)
+    where.date.gte = parseAttendanceRangeStart(startDate)
   }
 
   if (endDate) {
-    where.date.lte = new Date(endDate as string)
+    where.date.lte = parseAttendanceRangeEnd(endDate)
   }
+}
+
+function attendanceDayRangeForInstant(value: string | Date) {
+  const start = uruguayStartOfDayFromInstant(typeof value === 'string' ? new Date(value) : value)
+  const end = new Date(start)
+  end.setUTCHours(23, 59, 59, 999)
+  return { start, end }
 }
 
 function buildAdminAttendanceWhere(query: Record<string, unknown>) {
@@ -186,6 +222,96 @@ function shouldCountIncidentAbsencesInStats(query: Record<string, unknown>) {
   return true
 }
 
+const ABSENCE_RESOLVED_STATUSES = ['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED'] as const
+
+function queryDateToUruguayYmd(value: unknown, fallback: Date) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const date = value ? new Date(String(value)) : fallback
+  const safeDate = Number.isNaN(date.getTime()) ? fallback : date
+  return DateTime.fromJSDate(safeDate, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+}
+
+function queryAllowsVirtualAbsenceRows(query: Record<string, unknown>) {
+  if (!wantsIncidentRows(query)) return false
+  if (query.type && query.type !== 'CHECK_IN') return false
+  if (query.status && !ABSENCE_RESOLVED_STATUSES.includes(query.status as any)) return false
+  return true
+}
+
+async function userIdsForRole(role: unknown) {
+  if (!role) return undefined
+  const rows = await prisma.user.findMany({
+    where: { orgRole: { code: String(role).toUpperCase() } },
+    select: { id: true },
+  })
+  return rows.map((row) => row.id)
+}
+
+function mapResolvedAbsenceAsFeedRow(row: Awaited<ReturnType<typeof resolveAttendanceAndJustification>>[number]) {
+  const plannedStart = row.planned.plannedStartTime ?? new Date(`${row.planned.plannedDate}T00:00:00.000Z`)
+  const plannedEnd = row.planned.plannedEndTime ?? plannedStart
+  const status = row.checkInStatusResolved
+  return {
+    id: `absence:${row.planned.plannedInstanceId}`,
+    kind: 'VIRTUAL_ABSENCE',
+    type: 'CHECK_IN',
+    status,
+    date: new Date(`${row.planned.plannedDate}T00:00:00.000Z`),
+    time: plannedStart,
+    notes:
+      status === 'ABSENT_JUSTIFIED'
+        ? 'Ausencia justificada por licencia médica para este evento vencido'
+        : 'Ausencia pendiente: no se registró asistencia para este evento vencido',
+    user: {
+      id: row.planned.userIdRequired,
+      name: row.userDisplayName,
+      email: row.userEmail,
+      role: row.userRole,
+    },
+    event: {
+      id: row.planned.eventId,
+      title: row.planned.eventTitle,
+      type: row.planned.eventType,
+      startTime: plannedStart,
+      endTime: plannedEnd,
+    },
+  }
+}
+
+async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanceWhere: any) {
+  if (!queryAllowsVirtualAbsenceRows(query)) return []
+
+  const now = new Date()
+  const from = queryDateToUruguayYmd(query.startDate, now)
+  const to = queryDateToUruguayYmd(query.endDate, now)
+  const schoolYearId = typeof attendanceWhere.schoolYearId === 'string' ? attendanceWhere.schoolYearId : undefined
+  const userIds = query.userId ? undefined : await userIdsForRole(query.role)
+  const plannedInstances = await getPlannedInstances({
+    from,
+    to,
+    userId: typeof query.userId === 'string' ? query.userId : undefined,
+    userIds,
+    eventType: typeof query.eventType === 'string' ? (query.eventType as any) : undefined,
+    schoolYearId,
+  })
+
+  const filteredPlannedInstances = plannedInstances.filter((planned) => {
+    if (typeof query.eventId === 'string' && planned.eventId !== query.eventId) return false
+    if (!planned.userIdRequired) return false
+    if (!planned.plannedEndTime) return false
+    return new Date(planned.plannedEndTime).getTime() <= now.getTime()
+  })
+
+  const resolved = await resolveAttendanceAndJustification({ plannedInstances: filteredPlannedInstances })
+  return resolved
+    .filter((row) => {
+      if (!ABSENCE_RESOLVED_STATUSES.includes(row.checkInStatusResolved as any)) return false
+      if (query.status && row.checkInStatusResolved !== query.status) return false
+      return true
+    })
+    .map(mapResolvedAbsenceAsFeedRow)
+}
+
 // Registrar asistencia (CHECK_IN o CHECK_OUT) — alta de un registro propio.
 r.post('/register', authGuard, requirePermission('attendance.create'), async (req, res) => {
   try {
@@ -224,8 +350,8 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
     }
 
     const attendanceDateForSubstitution = uruguayStartOfDayFromInstant(new Date(date))
-    const substitutionRows = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT "id"
+    const substitutionRows = await prisma.$queryRaw<{ id: string; startTime: Date; endTime: Date }[]>`
+      SELECT "id", "startTime", "endTime"
       FROM "Substitution"
       WHERE "eventId" = ${eventId}
         AND "substituteUserId" = ${user.sub}
@@ -237,13 +363,16 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
     if (event.assignedUserId !== user.sub && substitutionRows.length === 0) {
       return res.status(403).json({ message: 'No estás asignado a este evento' });
     }
+    const substitutionSchedule = event.assignedUserId !== user.sub ? substitutionRows[0] : null
 
-    // Verificar si ya existe una asistencia del mismo tipo en la misma fecha
+    // Un mismo usuario no debe tener más de una entrada/salida para el mismo evento
+    // en el mismo día civil. La hora exacta puede variar entre UI, biométrico y API.
+    const duplicateDay = attendanceDayRangeForInstant(date)
     const existingAttendance = await prisma.attendance.findFirst({
       where: {
         userId: user.sub,
         type,
-        date: new Date(date),
+        date: { gte: duplicateDay.start, lte: duplicateDay.end },
         eventId: eventId,
       },
     });
@@ -252,8 +381,8 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       return res.status(409).json({ message: getDuplicateAttendanceMessage(type) });
     }
 
-    const evStart = event.startTime ? new Date(event.startTime) : new Date(event.startDate)
-    const evEnd = event.endTime ? new Date(event.endTime) : evStart
+    const evStart = substitutionSchedule?.startTime ?? (event.startTime ? new Date(event.startTime) : new Date(event.startDate))
+    const evEnd = substitutionSchedule?.endTime ?? (event.endTime ? new Date(event.endTime) : evStart)
     const nonWorkingDay = await findNonWorkingDayForDate(evStart)
     if (nonWorkingDay) {
       return res.status(403).json({
@@ -278,8 +407,8 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
     const status = getAttendanceStatus({
       type,
       actualTime,
-      startTime: event.startTime,
-      endTime: event.endTime,
+      startTime: evStart,
+      endTime: evEnd,
       hasApprovedLicense: false,
       lateToleranceMinutes:
         type === 'CHECK_OUT' ? runtimeSettings.earlyExitToleranceMinutes : runtimeSettings.lateToleranceMinutes,
@@ -364,7 +493,7 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
     if (wantsIncidentRows(q)) {
       const incidentWhere = buildAdminAttendanceIncidentWhere(q, where)
       const fetchForMerge = page * pageSize
-      const [attendanceTotal, incidentTotal, attendanceRows, incidentRows] = await Promise.all([
+      const [attendanceTotal, incidentTotal, attendanceRows, incidentRows, virtualAbsenceRows] = await Promise.all([
         prisma.attendance.count({ where }),
         prisma.attendanceIncident.count({ where: incidentWhere }),
         prisma.attendance.findMany({
@@ -393,9 +522,14 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
           orderBy: { detectedAt: 'desc' },
           take: fetchForMerge,
         }),
+        buildVirtualAbsenceRows(q, where),
       ]);
 
-      const merged = [...attendanceRows.map(mapAttendanceUser), ...incidentRows.map(mapAttendanceIncidentAsFeedRow)]
+      const merged = [
+        ...attendanceRows.map(mapAttendanceUser),
+        ...incidentRows.map(mapAttendanceIncidentAsFeedRow),
+        ...virtualAbsenceRows,
+      ]
         .sort((a: any, b: any) => {
           const aTime = new Date(a.time ?? a.date).getTime()
           const bTime = new Date(b.time ?? b.date).getTime()
@@ -403,7 +537,7 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
         })
         .slice((page - 1) * pageSize, page * pageSize)
 
-      return res.json({ total: attendanceTotal + incidentTotal, page, pageSize, data: merged });
+      return res.json({ total: attendanceTotal + incidentTotal + virtualAbsenceRows.length, page, pageSize, data: merged });
     }
 
     const [total, attendances] = await Promise.all([
@@ -430,6 +564,91 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 })
+
+r.post('/materialize-absence', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
+  try {
+    const parsed = materializeAbsenceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
+    }
+
+    const { userId, eventId, date, status = 'ABSENT_NOT_JUSTIFIED', notes } = parsed.data;
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        startTime: true,
+        endTime: true,
+        assignedUserId: true,
+        schoolYearId: true,
+      },
+    });
+
+    if (!event) return res.status(404).json({ message: 'Evento no encontrado' });
+    if (event.assignedUserId !== userId) {
+      return res.status(400).json({ message: 'La persona no está asignada a este evento' });
+    }
+
+    const attendanceDate = uruguayWallToUtc(date, 0, 0);
+    const existing = await prisma.attendance.findFirst({
+      where: {
+        userId,
+        eventId,
+        date: attendanceDate,
+        type: 'CHECK_IN',
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+        event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
+      },
+    });
+
+    if (existing) {
+      return res.json(mapAttendanceUser(existing as any));
+    }
+
+    const attendance = await prisma.attendance.create({
+      data: {
+        userId,
+        eventId,
+        type: 'CHECK_IN',
+        status: status as any,
+        date: attendanceDate,
+        time: event.startTime ?? attendanceDate,
+        schoolYearId: event.schoolYearId,
+        notes:
+          notes?.trim() ||
+          'Ausencia registrada manualmente desde gestión de asistencias',
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+        event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
+      },
+    });
+
+    await recordAuditEventNow({
+      action: 'ATTENDANCE_MANUAL_UPDATED' as any,
+      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      req,
+      entityType: 'Attendance',
+      entityId: attendance.id,
+      metadata: {
+        reason: 'Materialización manual de ausencia virtual',
+        previousStatus: null,
+        newStatus: attendance.status,
+        eventId,
+        userId,
+      },
+    });
+
+    res.status(201).json(mapAttendanceUser(attendance as any));
+  } catch (error) {
+    console.error('Error materializando ausencia:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
 
 // Actualizar asistencia (solo ADMIN)
 r.put('/:id', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
@@ -586,9 +805,10 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
 
     const where = await buildAttendanceStatsWhereAsync(req.query as Record<string, unknown>, user)
 
-    const includeIncidentAbsences = shouldCountIncidentAbsencesInStats(req.query as Record<string, unknown>)
+    const q = req.query as Record<string, unknown>
+    const includeIncidentAbsences = shouldCountIncidentAbsencesInStats(q)
     const incidentWhere = includeIncidentAbsences
-      ? buildAdminAttendanceIncidentWhere(req.query as Record<string, unknown>, where)
+      ? buildAdminAttendanceIncidentWhere(q, where)
       : null
 
     const [
@@ -601,6 +821,7 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       exitCount,
       earlyExitCount,
       incidentAbsentCount,
+      virtualAbsenceRows,
     ] = await Promise.all([
       prisma.attendance.count({ where }),
       prisma.attendance.count({ where: { ...where, status: 'PRESENT' } }),
@@ -625,17 +846,20 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       prisma.attendance.count({ where: { ...where, status: 'EXIT' } }),
       prisma.attendance.count({ where: { ...where, status: 'EARLY_EXIT' } }),
       incidentWhere ? prisma.attendanceIncident.count({ where: incidentWhere }) : Promise.resolve(0),
+      buildVirtualAbsenceRows(q, where),
     ])
 
-    const totalAttendances = attendanceTotal + incidentAbsentCount
-    const absentCount = attendanceAbsentCount + incidentAbsentCount
+    const virtualAbsentCount = virtualAbsenceRows.length
+    const virtualMedicalLeaveCount = virtualAbsenceRows.filter((row: any) => row.status === 'ABSENT_JUSTIFIED').length
+    const totalAttendances = attendanceTotal + incidentAbsentCount + virtualAbsentCount
+    const absentCount = attendanceAbsentCount + incidentAbsentCount + virtualAbsentCount
 
     res.json({
       totalAttendances,
       presentCount,
       absentCount,
       lateCount,
-      medicalLeaveCount,
+      medicalLeaveCount: medicalLeaveCount + virtualMedicalLeaveCount,
       expectedAbsenceCount,
       exitCount,
       earlyExitCount,
@@ -731,8 +955,8 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
       return res.status(400).json({ message: 'startDate y endDate son requeridos' });
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = parseAttendanceRangeStart(startDate);
+    const end = parseAttendanceRangeEnd(endDate);
 
     const allYears = bodyAllYears === true || bodyAllYears === '1';
     const resolvedSchoolYearId = allYears

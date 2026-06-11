@@ -1,9 +1,38 @@
 import PDFDocument from 'pdfkit'
-import { computeSeriesByWeek, computeRangeKpis, computePCCount } from '../metrics.js'
-import type { ResolvedAttendanceByInstance } from '../models.js'
+import {
+  buildDashboardBreakdowns,
+  computeSeriesByWeek,
+  computeRangeKpis,
+  computePCCount,
+  computeStatusDistribution,
+} from '../metrics.js'
+import type { DashboardBreakdownRow, ResolvedAttendanceByInstance } from '../models.js'
 
 function fmtPct(n: number) {
   return `${n.toFixed(2)}%`
+}
+
+const MONTHLY_STATUS_LABELS: Record<string, string> = {
+  PRESENT: 'Presente',
+  LATE: 'Tarde',
+  ABSENT_NOT_JUSTIFIED: 'Ausente no justificado',
+  ABSENT_JUSTIFIED: 'Ausente justificado',
+  SUBSTITUTED: 'Suplido',
+}
+
+function renderBreakdownBlock(doc: PDFKit.PDFDocument, title: string, rows: DashboardBreakdownRow[], startX: number) {
+  doc.fontSize(11).font('Helvetica-Bold').text(title, startX, doc.y)
+  doc.moveDown(0.2)
+  doc.fontSize(9).font('Helvetica')
+  for (const row of rows.slice(0, 12)) {
+    doc.text(
+      `${row.label}: ${row.plannedCount} plan. · tarde ${fmtPct(row.lateRatePct)} · aus. ${fmtPct(row.aopPct)}`,
+      startX,
+      doc.y,
+    )
+    doc.moveDown(0.15)
+  }
+  doc.moveDown(0.4)
 }
 
 export async function generateMonthlySummaryPdf(params: {
@@ -69,6 +98,26 @@ export async function generateMonthlySummaryPdf(params: {
     doc.text(fmtPct(s.lateRate), startX + 150, doc.y)
     doc.text(fmtPct(s.aop), startX + 250, doc.y)
     doc.moveDown(0.2)
+  }
+
+  // Sección desgloses (rol / tipo de evento) + distribución de estados
+  const breakdowns = buildDashboardBreakdowns(params.resolvedInstances)
+  const distribution = computeStatusDistribution(params.resolvedInstances)
+  doc.moveDown(1)
+  doc.fontSize(13).font('Helvetica-Bold').text('Desgloses', { underline: false })
+  doc.moveDown(0.3)
+  renderBreakdownBlock(doc, 'Por rol', breakdowns.byRole, startX)
+  renderBreakdownBlock(doc, 'Por tipo de evento', breakdowns.byEventType, startX)
+  if (breakdowns.byCourse.length > 0) {
+    renderBreakdownBlock(doc, 'Por curso', breakdowns.byCourse, startX)
+  }
+
+  doc.fontSize(13).font('Helvetica-Bold').text('Distribución de estados', startX, doc.y)
+  doc.moveDown(0.3)
+  doc.fontSize(9).font('Helvetica')
+  for (const s of distribution.rows) {
+    doc.text(`${MONTHLY_STATUS_LABELS[s.status] ?? s.status}: ${s.count} (${fmtPct(s.pct)})`, startX, doc.y)
+    doc.moveDown(0.15)
   }
 
   // Filtros (para trazabilidad)

@@ -96,8 +96,11 @@ jobs:
             compose $CF build auth
             compose $CF build web
             compose $CF up -d --no-build pg redis keycloak-db
-            compose_recreate_services $CF keycloak auth web
-            bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
+            compose_recreate_services $CF keycloak
+            bash scripts/keycloak-apply-realm-settings.sh
+            compose_recreate_services $CF auth web
+            bash scripts/keycloak-apply-realm-settings.sh
             echo "EduTrack actualizado en TESTING"
 
   deploy-production:
@@ -158,11 +161,14 @@ jobs:
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
+            compose $CF up -d --no-build pg redis keycloak-db keycloak
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
             # Build con la app aún arriba; no hacer `compose down` (deja el sitio en 521 si falla el build).
             compose $CF build web auth
+            bash scripts/keycloak-apply-realm-settings.sh
             compose_recreate_services $CF web auth
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
-            bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
+            bash scripts/keycloak-apply-realm-settings.sh
             echo "EduTrack actualizado en PRODUCCION"
 
   deploy-testing-manual:
@@ -222,8 +228,11 @@ jobs:
             compose $CF build auth
             compose $CF build web
             compose $CF up -d --no-build pg redis keycloak-db
-            compose_recreate_services $CF keycloak auth web
-            bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
+            compose_recreate_services $CF keycloak
+            bash scripts/keycloak-apply-realm-settings.sh
+            compose_recreate_services $CF auth web
+            bash scripts/keycloak-apply-realm-settings.sh
             echo "EduTrack testing actualizado manualmente a $TARGET_REF"
 
   deploy-production-manual:
@@ -284,8 +293,11 @@ jobs:
             CF="-f docker-compose.cloud.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
+            compose $CF up -d --no-build pg redis keycloak-db keycloak
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
             compose $CF build web auth
+            bash scripts/keycloak-apply-realm-settings.sh
             compose_recreate_services $CF web auth
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
-            bash scripts/keycloak-apply-realm-settings.sh || echo "WARN: no se pudieron aplicar los settings del realm de Keycloak"
+            bash scripts/keycloak-apply-realm-settings.sh
             echo "EduTrack producción actualizado manualmente a $TARGET_REF"

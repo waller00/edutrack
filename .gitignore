@@ -50,3 +50,7 @@ cookies.txt
 __pycache__/
 docs/postman/postman-run-report.json
 frontend/web/tsconfig.tsbuildinfo
+
+# Archivos locales de asistentes
+CLAUDE.md
+claude.md

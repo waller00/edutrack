@@ -7,7 +7,14 @@
    ========================================================================= */
 
 /* ── 1. Variables de marca + anulación total de variables PF azules ─────── */
-:root {
+/* Se aplican también en .pf-v5-theme-dark: el template base activa el modo
+   oscuro de PatternFly según el SO, lo que reintroduce azules que sólo
+   pisábamos en :root. Forzamos esquema claro y marca EduTrack en ambos. */
+:root,
+.pf-v5-theme-dark {
+  color-scheme: light;
+  /* Mata el borde azul superior de keycloak.v2 (.pf-v5-c-login__main-header) */
+  --keycloak-card-top-color: transparent;
   /* Paleta EduTrack */
   --et-green:        #10b981;
   --et-green-50:     #ecfdf5;
@@ -620,6 +627,12 @@ ul#kc-totp-supported-apps > li {
   max-width: 30rem !important;
 }
 
+.et-authenticator-selection-screen .pf-v5-c-login__container,
+.et-recovery-code-screen .pf-v5-c-login__container {
+  width: min(100%, 28rem) !important;
+  max-width: 28rem !important;
+}
+
 .pf-v5-c-login__header,
 #kc-header {
   display: block !important;
@@ -675,6 +688,32 @@ ul#kc-totp-supported-apps > li {
   max-width: none !important;
   padding: 0 1.5rem 0.85rem !important;
   text-align: center !important;
+  border: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+  background-image: none !important;
+  --pf-v5-c-login__main-header--BorderTopColor: transparent;
+  --pf-v5-c-login__main-header--BorderTopWidth: 0;
+  --pf-v5-c-login__main-header--BorderBottomColor: transparent;
+  --pf-v5-c-login__main-header--BorderBottomWidth: 0;
+}
+
+.pf-v5-c-login__main-header::before,
+.pf-v5-c-login__main-header::after,
+#kc-content-wrapper::before,
+#kc-content-wrapper::after,
+#kc-form-wrapper::before,
+#kc-form-wrapper::after,
+#kc-page-title::before,
+#kc-page-title::after,
+.pf-v5-c-divider,
+.pf-v5-c-divider::before,
+.pf-v5-c-divider::after {
+  display: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .et-login-no-page-title .pf-v5-c-login__main-header {
@@ -749,6 +788,24 @@ input[readonly] {
   background: #f9fafb !important;
   color: #4b5563 !important;
   -webkit-text-fill-color: #4b5563 !important;
+}
+
+.et-required-action-screen input#username.et-readonly-username,
+.et-required-action-screen input#username[readonly] {
+  cursor: not-allowed !important;
+  background: #f3f4f6 !important;
+  color: #4b5563 !important;
+  -webkit-text-fill-color: #4b5563 !important;
+}
+
+.et-required-action-screen input#username.et-readonly-username:focus,
+.et-required-action-screen input#username[readonly]:focus {
+  border-color: #d1d5db !important;
+  box-shadow: none !important;
+}
+
+.et-required-action-screen #reset-login {
+  display: none !important;
 }
 
 .pf-v5-c-form-control > input,
@@ -894,13 +951,33 @@ a[id^="social-"] {
   color: #1f2937 !important;
   border-color: #d1d5db !important;
   box-shadow: none !important;
+  gap: 0.55rem !important;
+  width: 100% !important;
+  max-width: none !important;
 }
 
-#social-google svg,
-a[id^="social-"] svg {
+#social-google svg:not(.google),
+a[id^="social-"] svg:not(.google) {
   width: 1.05rem !important;
   height: 1.05rem !important;
   fill: #4b5563 !important;
+}
+
+/* Contenedor del logo oficial multicolor de Google (lo inyecta el JS). */
+.et-google-mark {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 18px !important;
+  height: 18px !important;
+  flex-shrink: 0 !important;
+}
+
+.et-google-mark svg.google {
+  display: block !important;
+  width: 18px !important;
+  height: 18px !important;
+  filter: none !important;
 }
 
 #social-google .et-google-label {
@@ -970,6 +1047,103 @@ a[id^="social-"]:hover {
 
 .et-totp-screen #kc-form-options {
   margin-top: 0.2rem !important;
+}
+
+.et-authenticator-selection-screen ul[role="list"] {
+  display: grid !important;
+  gap: 0.65rem !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+
+.et-authenticator-selection-screen li {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.et-authenticator-selection-screen .et-duplicate-authenticator {
+  display: none !important;
+}
+
+.et-authenticator-selection-screen li > div,
+.et-authenticator-selection-screen [onclick*="requestSubmit"] {
+  min-height: 4.25rem !important;
+  padding: 0.85rem 0.9rem !important;
+  border: 1px solid #dfe6e3 !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  transition: border-color 0.15s ease, background 0.15s ease !important;
+}
+
+.et-authenticator-selection-screen li > div:hover,
+.et-authenticator-selection-screen [onclick*="requestSubmit"]:hover {
+  border-color: #86efac !important;
+  background: #f0fdf4 !important;
+}
+
+.et-authenticator-selection-screen h2 {
+  margin: 0 !important;
+  color: #111827 !important;
+  font-size: 0.96rem !important;
+  font-weight: 650 !important;
+  line-height: 1.3 !important;
+}
+
+.et-authenticator-selection-screen [class*="description"] {
+  margin-top: 0.2rem !important;
+  color: #4b5563 !important;
+  font-size: 0.84rem !important;
+  line-height: 1.35 !important;
+}
+
+.et-2fa-email-recovery {
+  margin-top: 1rem !important;
+  padding-top: 1rem !important;
+  border-top: 1px solid #eef2f0 !important;
+}
+
+.et-2fa-email-recovery__title {
+  color: #111827 !important;
+  font-size: 0.92rem !important;
+  font-weight: 650 !important;
+  line-height: 1.35 !important;
+}
+
+.et-2fa-email-recovery p {
+  margin: 0.25rem 0 0.65rem !important;
+  color: #4b5563 !important;
+  font-size: 0.84rem !important;
+  line-height: 1.45 !important;
+}
+
+.et-2fa-email-recovery input[type="text"] {
+  margin-bottom: 0.6rem !important;
+}
+
+.et-2fa-email-recovery__button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  min-height: 42px !important;
+  padding: 0.65rem 0.9rem !important;
+  border: 1px solid #bbf7d0 !important;
+  border-radius: 8px !important;
+  background: #ecfdf5 !important;
+  color: #047857 !important;
+  font-size: 0.9rem !important;
+  font-weight: 650 !important;
+  cursor: pointer !important;
+}
+
+.et-2fa-email-recovery__button:hover {
+  background: #d1fae5 !important;
+  border-color: #86efac !important;
+  color: #065f46 !important;
 }
 
 .et-register-link {

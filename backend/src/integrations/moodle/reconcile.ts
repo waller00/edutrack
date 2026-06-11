@@ -17,7 +17,11 @@ import {
   upsertEnrolmentMap,
 } from "./enrolment-map.js";
 import { enrolUser, unenrolUser } from "./enrolments.js";
-import { buildSubjectCourseFullname, resolveMoodleAcademicScope } from "./scope.js";
+import {
+  buildSubjectCourseFullname,
+  type MoodleSubjectScope,
+  resolveMoodleAcademicScope,
+} from "./scope.js";
 import { syncMoodleUserById } from "./users.js";
 
 /**
@@ -57,6 +61,321 @@ type OfferingLite = {
   course: { name: string; code: string | null };
   schoolYear: SchoolYearLite;
 };
+type SubjectCourseInfo = {
+  subjectName: string;
+  offering: OfferingLite;
+  courseOrientationName: string | null;
+  orientationName: string | null;
+};
+
+/** Estado mutable compartido por las fases de la reconciliación. */
+type ReconcileContext = {
+  summary: ReconcileSummary;
+  now: Date;
+  roles: { teacher: number; student: number; substitute: number };
+  categoryCache: Map<string, number>;
+  courseByKey: Map<string, number>;
+  moodleUserCache: Map<string, number | null>;
+};
+
+function logError(stage: string, ref: unknown, e: unknown): void {
+  console.error(`[moodle] reconcile ${stage} falló:`, ref, e instanceof Error ? e.message : e);
+}
+
+async function ensureCategoryFor(ctx: ReconcileContext, sy: SchoolYearLite): Promise<number> {
+  const cached = ctx.categoryCache.get(sy.id);
+  if (cached != null) return cached;
+  const id = await ensureCategory(sy.id, `et-year-${sy.id}`, sy.label || `Ciclo ${sy.code}`);
+  ctx.categoryCache.set(sy.id, id);
+  return id;
+}
+
+async function ensureLegacyOfferingCourse(
+  ctx: ReconcileContext,
+  off: OfferingLite,
+): Promise<number> {
+  const key = `offering:${off.id}`;
+  const cached = ctx.courseByKey.get(key);
+  if (cached != null) return cached;
+  const categoryId = await ensureCategoryFor(ctx, off.schoolYear);
+  const fullname = `${off.course.name} (${off.schoolYear.code})`;
+  const shortname = off.course.code
+    ? `${off.course.code}-${off.schoolYear.code}`
+    : `et-off-${off.id.slice(0, 12)}`;
+  const id = await ensureCourse(off.id, `et-offering-${off.id}`, fullname, shortname, categoryId);
+  ctx.courseByKey.set(key, id);
+  ctx.summary.courses += 1;
+  return id;
+}
+
+/** Curso Moodle por asignatura/orientación (idempotente, cacheado por scope). */
+async function ensureSubjectCourseFor(
+  ctx: ReconcileContext,
+  scope: MoodleSubjectScope,
+  info: SubjectCourseInfo,
+): Promise<number> {
+  const cached = ctx.courseByKey.get(scope.key);
+  if (cached != null) return cached;
+  const categoryId = await ensureCategoryFor(ctx, info.offering.schoolYear);
+  const orientationName = scope.isGeneral
+    ? null
+    : (info.courseOrientationName ?? info.orientationName ?? null);
+  const fullname = buildSubjectCourseFullname({
+    subjectName: info.subjectName,
+    courseName: info.offering.course.name,
+    orientationName,
+    schoolYearCode: info.offering.schoolYear.code,
+  });
+  const id = await ensureSubjectCourse({
+    idnumber: scope.idnumber,
+    fullname,
+    shortname: scope.idnumber,
+    categoryId,
+  });
+  ctx.courseByKey.set(scope.key, id);
+  ctx.summary.courses += 1;
+  return id;
+}
+
+async function resolveMoodleUserId(ctx: ReconcileContext, userId: string): Promise<number | null> {
+  if (ctx.moodleUserCache.has(userId)) return ctx.moodleUserCache.get(userId) ?? null;
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { moodleUserId: true },
+  });
+  const id = u?.moodleUserId ?? (await syncMoodleUserById(userId));
+  ctx.moodleUserCache.set(userId, id);
+  return id;
+}
+
+const academicEventSelect = {
+  schoolYearId: true,
+  courseOfferingId: true,
+  subjectId: true,
+  orientationId: true,
+  courseOrientationId: true,
+  courseOffering: {
+    select: {
+      id: true,
+      course: { select: { name: true, code: true } },
+      schoolYear: { select: { id: true, label: true, code: true } },
+    },
+  },
+  subject: { select: { name: true } },
+  orientation: { select: { name: true } },
+  courseOrientation: { select: { orientation: { select: { name: true } } } },
+} as const;
+
+type AcademicEventLike = {
+  schoolYearId: string;
+  courseOfferingId: string | null;
+  subjectId: string | null;
+  orientationId: string | null;
+  courseOrientationId: string | null;
+  courseOffering: OfferingLite | null;
+  subject: { name: string } | null;
+  orientation: { name: string } | null;
+  courseOrientation: { orientation: { name: string } | null } | null;
+};
+
+function scopeOf(ev: AcademicEventLike): MoodleSubjectScope | null {
+  return resolveMoodleAcademicScope({
+    schoolYearId: ev.schoolYearId,
+    courseOfferingId: ev.courseOfferingId,
+    subjectId: ev.subjectId,
+    orientationId: ev.orientationId,
+    courseOrientationId: ev.courseOrientationId,
+  });
+}
+
+function subjectInfoOf(ev: AcademicEventLike, off: OfferingLite): SubjectCourseInfo {
+  return {
+    subjectName: ev.subject?.name ?? "Asignatura",
+    offering: off,
+    courseOrientationName: ev.courseOrientation?.orientation?.name ?? null,
+    orientationName: ev.orientation?.name ?? null,
+  };
+}
+
+/** Fase 1 — docentes titulares. Devuelve las claves `userId::moodleCourseId` para la revocación. */
+async function reconcileTeacherEnrolments(ctx: ReconcileContext): Promise<Set<string>> {
+  const events = await prisma.event.findMany({
+    where: { assignedUserId: { not: null }, courseOfferingId: { not: null } },
+    select: { assignedUserId: true, ...academicEventSelect },
+  });
+
+  const teacherUserCourseKeys = new Set<string>();
+  const processed = new Set<string>();
+
+  for (const ev of events) {
+    const off = ev.courseOffering;
+    if (!off) continue;
+    try {
+      const scope = scopeOf(ev);
+      const courseId = scope
+        ? await ensureSubjectCourseFor(ctx, scope, subjectInfoOf(ev, off))
+        : await ensureLegacyOfferingCourse(ctx, off); // fallback legacy: evento sin asignatura.
+
+      const moodleUserId = await resolveMoodleUserId(ctx, ev.assignedUserId!);
+      if (moodleUserId == null) continue;
+
+      const dedupe = `${ev.assignedUserId}::${courseId}`;
+      teacherUserCourseKeys.add(dedupe);
+      if (processed.has(dedupe)) continue;
+      processed.add(dedupe);
+
+      await enrolUser(moodleUserId, courseId, ctx.roles.teacher);
+      await upsertEnrolmentMap({
+        userId: ev.assignedUserId!,
+        moodleUserId,
+        moodleCourseId: courseId,
+        roleId: ctx.roles.teacher,
+        sourceType: "TEACHER_EVENT",
+      });
+      ctx.summary.teacherEnrolments += 1;
+    } catch (e) {
+      ctx.summary.errors += 1;
+      logError("titular", ev.assignedUserId, e);
+    }
+  }
+  return teacherUserCourseKeys;
+}
+
+type SubGroup = { userId: string; moodleUserId: number; courseId: number; start: Date; end: Date };
+
+/** Agrupa las suplencias vigentes por (suplente, curso) y resuelve el curso Moodle de cada una. */
+async function collectSubstituteGroups(ctx: ReconcileContext): Promise<Map<string, SubGroup>> {
+  const substitutions = await prisma.substitution.findMany({
+    where: { endTime: { gte: ctx.now } },
+    select: {
+      id: true,
+      substituteUserId: true,
+      startTime: true,
+      endTime: true,
+      event: { select: academicEventSelect },
+    },
+  });
+
+  const groups = new Map<string, SubGroup>();
+  for (const sub of substitutions) {
+    const ev = sub.event;
+    const off = ev?.courseOffering;
+    if (!ev || !off) continue;
+    try {
+      const scope = scopeOf(ev);
+      if (!scope) continue; // las suplencias siempre tienen asignatura; guarda defensiva.
+      const courseId = await ensureSubjectCourseFor(ctx, scope, subjectInfoOf(ev, off));
+      const moodleUserId = await resolveMoodleUserId(ctx, sub.substituteUserId);
+      if (moodleUserId == null) continue;
+
+      const gkey = `${sub.substituteUserId}::${courseId}`;
+      const group = groups.get(gkey);
+      if (!group) {
+        groups.set(gkey, {
+          userId: sub.substituteUserId,
+          moodleUserId,
+          courseId,
+          start: sub.startTime,
+          end: sub.endTime,
+        });
+      } else {
+        if (sub.startTime < group.start) group.start = sub.startTime;
+        if (sub.endTime > group.end) group.end = sub.endTime;
+      }
+    } catch (e) {
+      ctx.summary.errors += 1;
+      logError("suplencia", sub.id, e);
+    }
+  }
+  return groups;
+}
+
+/** Fase 2 — suplentes activos. Devuelve las claves `userId::moodleCourseId` aún vigentes. */
+async function reconcileSubstituteEnrolments(ctx: ReconcileContext): Promise<Set<string>> {
+  const groups = await collectSubstituteGroups(ctx);
+  const desiredKeys = new Set<string>();
+  for (const g of groups.values()) {
+    desiredKeys.add(`${g.userId}::${g.courseId}`);
+    try {
+      await enrolUser(g.moodleUserId, g.courseId, ctx.roles.substitute, {
+        timestart: g.start,
+        timeend: g.end,
+      });
+      await upsertEnrolmentMap({
+        userId: g.userId,
+        moodleUserId: g.moodleUserId,
+        moodleCourseId: g.courseId,
+        roleId: ctx.roles.substitute,
+        sourceType: "SUBSTITUTE",
+        startsAt: g.start,
+        endsAt: g.end,
+      });
+      ctx.summary.substituteEnrolments += 1;
+    } catch (e) {
+      ctx.summary.errors += 1;
+      logError("inscripción suplente", g.userId, e);
+    }
+  }
+  return desiredKeys;
+}
+
+/** Fase 3 — revoca suplentes vencidos/cambiados, sin tocar titularidad ni otra suplencia vigente. */
+async function revokeStaleSubstitutes(
+  ctx: ReconcileContext,
+  teacherUserCourseKeys: Set<string>,
+  substituteDesiredKeys: Set<string>,
+): Promise<void> {
+  const activeSubMaps = await listActiveEnrolments("SUBSTITUTE");
+  for (const m of activeSubMaps) {
+    const key = `${m.userId}::${m.moodleCourseId}`;
+    if (substituteDesiredKeys.has(key)) continue; // sigue vigente: ya se re-inscribió arriba.
+    try {
+      // No quitar el acceso si además es titular del mismo curso por un evento vigente.
+      if (!teacherUserCourseKeys.has(key)) {
+        await unenrolUser(m.moodleUserId, m.moodleCourseId);
+      }
+      await markEnrolmentRevoked(m.id);
+      ctx.summary.substituteRevocations += 1;
+    } catch (e) {
+      ctx.summary.errors += 1;
+      logError("revocación suplente", m.userId, e);
+    }
+  }
+}
+
+/** Fase 4 — estudiantes (opcional, legacy por CourseOffering; ver docs/MOODLE_INTEGRACION.md). */
+async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> {
+  const enrolments = await prisma.studentEnrollment.findMany({
+    where: { enrollmentStatus: "ACTIVE" },
+    select: {
+      courseOffering: {
+        select: {
+          id: true,
+          course: { select: { name: true, code: true } },
+          schoolYear: { select: { id: true, label: true, code: true } },
+        },
+      },
+      student: { select: { id: true, firstName: true, lastName: true, contactEmail: true } },
+    },
+  });
+  for (const en of enrolments) {
+    if (!en.courseOffering) continue;
+    try {
+      const courseId = await ensureLegacyOfferingCourse(ctx, en.courseOffering);
+      const moodleUserId = await ensureStudentMoodleUser({
+        id: en.student.id,
+        firstName: en.student.firstName,
+        lastName: en.student.lastName,
+        email: en.student.contactEmail,
+      });
+      await enrolUser(moodleUserId, courseId, ctx.roles.student);
+      ctx.summary.studentEnrolments += 1;
+    } catch (e) {
+      ctx.summary.errors += 1;
+      logError("inscripción estudiante", en.student.id, e);
+    }
+  }
+}
 
 export async function reconcileMoodle(
   opts: { syncStudents?: boolean; now?: Date } = {},
@@ -73,335 +392,25 @@ export async function reconcileMoodle(
   if (!isMoodleIntegrationEnabled()) return summary;
   summary.enabled = true;
 
-  const now = opts.now ?? new Date();
-  const teacherRole = moodleTeacherRoleId();
-  const studentRole = moodleStudentRoleId();
-  const substituteRole = moodleSubstituteTeacherRoleId();
-
-  // Caches por corrida (idempotencia + menos llamadas a Moodle).
-  const categoryCache = new Map<string, number>();
-  const courseByKey = new Map<string, number>();
-  const moodleUserCache = new Map<string, number | null>();
-
-  async function ensureCategoryFor(sy: SchoolYearLite): Promise<number> {
-    const cached = categoryCache.get(sy.id);
-    if (cached != null) return cached;
-    const id = await ensureCategory(sy.id, `et-year-${sy.id}`, sy.label || `Ciclo ${sy.code}`);
-    categoryCache.set(sy.id, id);
-    return id;
-  }
-
-  async function ensureLegacyOfferingCourse(off: OfferingLite): Promise<number> {
-    const key = `offering:${off.id}`;
-    const cached = courseByKey.get(key);
-    if (cached != null) return cached;
-    const categoryId = await ensureCategoryFor(off.schoolYear);
-    const fullname = `${off.course.name} (${off.schoolYear.code})`;
-    const shortname = off.course.code
-      ? `${off.course.code}-${off.schoolYear.code}`
-      : `et-off-${off.id.slice(0, 12)}`;
-    const id = await ensureCourse(off.id, `et-offering-${off.id}`, fullname, shortname, categoryId);
-    courseByKey.set(key, id);
-    summary.courses += 1;
-    return id;
-  }
-
-  async function resolveMoodleUserId(userId: string): Promise<number | null> {
-    if (moodleUserCache.has(userId)) return moodleUserCache.get(userId)!;
-    const u = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { moodleUserId: true },
-    });
-    let id = u?.moodleUserId ?? null;
-    if (id == null) id = await syncMoodleUserById(userId);
-    moodleUserCache.set(userId, id);
-    return id;
-  }
-
-  // ---- 1) Docentes titulares: clases asignadas → curso por asignatura/orientación. ----
-  const teacherEvents = await prisma.event.findMany({
-    where: { assignedUserId: { not: null }, courseOfferingId: { not: null } },
-    select: {
-      assignedUserId: true,
-      schoolYearId: true,
-      courseOfferingId: true,
-      subjectId: true,
-      orientationId: true,
-      courseOrientationId: true,
-      courseOffering: {
-        select: {
-          id: true,
-          course: { select: { name: true, code: true } },
-          schoolYear: { select: { id: true, label: true, code: true } },
-        },
-      },
-      subject: { select: { name: true } },
-      orientation: { select: { name: true } },
-      courseOrientation: { select: { orientation: { select: { name: true } } } },
+  const ctx: ReconcileContext = {
+    summary,
+    now: opts.now ?? new Date(),
+    roles: {
+      teacher: moodleTeacherRoleId(),
+      student: moodleStudentRoleId(),
+      substitute: moodleSubstituteTeacherRoleId(),
     },
-  });
+    categoryCache: new Map(),
+    courseByKey: new Map(),
+    moodleUserCache: new Map(),
+  };
 
-  // `${userId}::${moodleCourseId}` para no repetir trabajo y para la guarda de revocación.
-  const teacherUserCourseKeys = new Set<string>();
-  const processedTeacher = new Set<string>();
+  const teacherUserCourseKeys = await reconcileTeacherEnrolments(ctx);
+  const substituteDesiredKeys = await reconcileSubstituteEnrolments(ctx);
+  await revokeStaleSubstitutes(ctx, teacherUserCourseKeys, substituteDesiredKeys);
 
-  for (const ev of teacherEvents) {
-    const off = ev.courseOffering;
-    if (!off) continue;
-    try {
-      const scope = resolveMoodleAcademicScope({
-        schoolYearId: ev.schoolYearId,
-        courseOfferingId: ev.courseOfferingId,
-        subjectId: ev.subjectId,
-        orientationId: ev.orientationId,
-        courseOrientationId: ev.courseOrientationId,
-      });
-
-      let courseId: number;
-      if (scope) {
-        const existing = courseByKey.get(scope.key);
-        if (existing != null) {
-          courseId = existing;
-        } else {
-          const categoryId = await ensureCategoryFor(off.schoolYear);
-          const orientationName = scope.isGeneral
-            ? null
-            : (ev.courseOrientation?.orientation?.name ?? ev.orientation?.name ?? null);
-          const fullname = buildSubjectCourseFullname({
-            subjectName: ev.subject?.name ?? "Asignatura",
-            courseName: off.course.name,
-            orientationName,
-            schoolYearCode: off.schoolYear.code,
-          });
-          courseId = await ensureSubjectCourse({
-            idnumber: scope.idnumber,
-            fullname,
-            shortname: scope.idnumber,
-            categoryId,
-          });
-          courseByKey.set(scope.key, courseId);
-          summary.courses += 1;
-        }
-      } else {
-        // Fallback legacy documentado: evento sin asignatura → curso del CourseOffering completo.
-        courseId = await ensureLegacyOfferingCourse(off);
-      }
-
-      const moodleUserId = await resolveMoodleUserId(ev.assignedUserId!);
-      if (moodleUserId == null) continue;
-
-      teacherUserCourseKeys.add(`${ev.assignedUserId}::${courseId}`);
-      const dedupe = `${ev.assignedUserId}::${courseId}`;
-      if (processedTeacher.has(dedupe)) continue;
-      processedTeacher.add(dedupe);
-
-      await enrolUser(moodleUserId, courseId, teacherRole);
-      await upsertEnrolmentMap({
-        userId: ev.assignedUserId!,
-        moodleUserId,
-        moodleCourseId: courseId,
-        roleId: teacherRole,
-        sourceType: "TEACHER_EVENT",
-      });
-      summary.teacherEnrolments += 1;
-    } catch (e) {
-      summary.errors += 1;
-      console.error(
-        "[moodle] reconcile titular falló:",
-        ev.assignedUserId,
-        e instanceof Error ? e.message : e,
-      );
-    }
-  }
-
-  // ---- 2) Docentes suplentes: acceso temporal al curso de la clase cubierta. ----
-  // Agrupa por (suplente, curso): la ventana va del primer al último evento cubierto vigente.
-  type SubGroup = { userId: string; moodleUserId: number; courseId: number; start: Date; end: Date };
-  const subGroups = new Map<string, SubGroup>();
-  const subDesiredKeys = new Set<string>(); // `${userId}::${moodleCourseId}`
-
-  const substitutions = await prisma.substitution.findMany({
-    where: { endTime: { gte: now } },
-    select: {
-      id: true,
-      substituteUserId: true,
-      startTime: true,
-      endTime: true,
-      event: {
-        select: {
-          schoolYearId: true,
-          courseOfferingId: true,
-          subjectId: true,
-          orientationId: true,
-          courseOrientationId: true,
-          courseOffering: {
-            select: {
-              id: true,
-              course: { select: { name: true, code: true } },
-              schoolYear: { select: { id: true, label: true, code: true } },
-            },
-          },
-          subject: { select: { name: true } },
-          orientation: { select: { name: true } },
-          courseOrientation: { select: { orientation: { select: { name: true } } } },
-        },
-      },
-    },
-  });
-
-  for (const sub of substitutions) {
-    const ev = sub.event;
-    const off = ev?.courseOffering;
-    if (!ev || !off) continue;
-    try {
-      const scope = resolveMoodleAcademicScope({
-        schoolYearId: ev.schoolYearId,
-        courseOfferingId: ev.courseOfferingId,
-        subjectId: ev.subjectId,
-        orientationId: ev.orientationId,
-        courseOrientationId: ev.courseOrientationId,
-      });
-      if (!scope) continue; // las suplencias siempre tienen asignatura; guarda defensiva.
-
-      let courseId = courseByKey.get(scope.key);
-      if (courseId == null) {
-        const categoryId = await ensureCategoryFor(off.schoolYear);
-        const orientationName = scope.isGeneral
-          ? null
-          : (ev.courseOrientation?.orientation?.name ?? ev.orientation?.name ?? null);
-        const fullname = buildSubjectCourseFullname({
-          subjectName: ev.subject?.name ?? "Asignatura",
-          courseName: off.course.name,
-          orientationName,
-          schoolYearCode: off.schoolYear.code,
-        });
-        courseId = await ensureSubjectCourse({
-          idnumber: scope.idnumber,
-          fullname,
-          shortname: scope.idnumber,
-          categoryId,
-        });
-        courseByKey.set(scope.key, courseId);
-        summary.courses += 1;
-      }
-
-      const moodleUserId = await resolveMoodleUserId(sub.substituteUserId);
-      if (moodleUserId == null) continue;
-
-      const gkey = `${sub.substituteUserId}::${courseId}`;
-      subDesiredKeys.add(gkey);
-      const group = subGroups.get(gkey);
-      if (!group) {
-        subGroups.set(gkey, {
-          userId: sub.substituteUserId,
-          moodleUserId,
-          courseId,
-          start: sub.startTime,
-          end: sub.endTime,
-        });
-      } else {
-        if (sub.startTime < group.start) group.start = sub.startTime;
-        if (sub.endTime > group.end) group.end = sub.endTime;
-      }
-    } catch (e) {
-      summary.errors += 1;
-      console.error(
-        "[moodle] reconcile suplencia falló:",
-        sub.id,
-        e instanceof Error ? e.message : e,
-      );
-    }
-  }
-
-  for (const g of subGroups.values()) {
-    try {
-      await enrolUser(g.moodleUserId, g.courseId, substituteRole, {
-        timestart: g.start,
-        timeend: g.end,
-      });
-      await upsertEnrolmentMap({
-        userId: g.userId,
-        moodleUserId: g.moodleUserId,
-        moodleCourseId: g.courseId,
-        roleId: substituteRole,
-        sourceType: "SUBSTITUTE",
-        startsAt: g.start,
-        endsAt: g.end,
-      });
-      summary.substituteEnrolments += 1;
-    } catch (e) {
-      summary.errors += 1;
-      console.error(
-        "[moodle] reconcile inscripción suplente falló:",
-        g.userId,
-        e instanceof Error ? e.message : e,
-      );
-    }
-  }
-
-  // ---- 3) Revocación de suplentes vencidos/cambiados (idempotente y segura). ----
-  const activeSubMaps = await listActiveEnrolments("SUBSTITUTE");
-  for (const m of activeSubMaps) {
-    const key = `${m.userId}::${m.moodleCourseId}`;
-    if (subDesiredKeys.has(key)) continue; // sigue vigente: ya se re-inscribió arriba.
-    try {
-      // No quitar el acceso si además es titular del mismo curso por un evento vigente.
-      const isTitular = teacherUserCourseKeys.has(key);
-      if (!isTitular) {
-        await unenrolUser(m.moodleUserId, m.moodleCourseId);
-      }
-      await markEnrolmentRevoked(m.id);
-      summary.substituteRevocations += 1;
-    } catch (e) {
-      summary.errors += 1;
-      console.error(
-        "[moodle] reconcile revocación suplente falló:",
-        m.userId,
-        e instanceof Error ? e.message : e,
-      );
-    }
-  }
-
-  // ---- 4) Estudiantes (opcional, legacy por CourseOffering). ----
-  // Prioridad de esta iteración: docentes y suplencias. El modelo por asignatura/orientación
-  // para estudiantes queda como fase posterior (ver docs/MOODLE_INTEGRACION.md).
   if (opts.syncStudents) {
-    const enrolments = await prisma.studentEnrollment.findMany({
-      where: { enrollmentStatus: "ACTIVE" },
-      select: {
-        courseOffering: {
-          select: {
-            id: true,
-            course: { select: { name: true, code: true } },
-            schoolYear: { select: { id: true, label: true, code: true } },
-          },
-        },
-        student: {
-          select: { id: true, firstName: true, lastName: true, contactEmail: true },
-        },
-      },
-    });
-    for (const en of enrolments) {
-      if (!en.courseOffering) continue;
-      try {
-        const courseId = await ensureLegacyOfferingCourse(en.courseOffering);
-        const moodleUserId = await ensureStudentMoodleUser({
-          id: en.student.id,
-          firstName: en.student.firstName,
-          lastName: en.student.lastName,
-          email: en.student.contactEmail,
-        });
-        await enrolUser(moodleUserId, courseId, studentRole);
-        summary.studentEnrolments += 1;
-      } catch (e) {
-        summary.errors += 1;
-        console.error(
-          "[moodle] reconcile inscripción estudiante falló:",
-          en.student.id,
-          e instanceof Error ? e.message : e,
-        );
-      }
-    }
+    await reconcileStudentEnrolments(ctx);
   }
 
   return summary;
