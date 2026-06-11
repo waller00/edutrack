@@ -1,4 +1,5 @@
-name: Production Performance Baseline
+name: CI Performance - Production Baseline
+run-name: "Production baseline: ${{ inputs.reason }}"
 
 on:
   workflow_dispatch:
@@ -11,6 +12,11 @@ on:
         description: "Motivo o version evaluada"
         required: true
         type: string
+      collect_droplet_snapshot:
+        description: "Guardar recursos del droplet antes y despues"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -22,6 +28,7 @@ concurrency:
 jobs:
   baseline:
     name: Baseline conservadora contra produccion
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
@@ -36,107 +43,161 @@ jobs:
       EDUTRACK_K6_MAX_ALLOWED_RATE: "5"
       EDUTRACK_K6_PRE_ALLOCATED_VUS: "10"
       EDUTRACK_K6_MAX_VUS: "30"
+      BASELINE_REASON: ${{ inputs.reason }}
 
     steps:
-      - name: Validar confirmacion manual
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validar ejecucion manual
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
+          EXECUTION_REASON: ${{ inputs.reason }}
+          COLLECT_SNAPSHOT: ${{ inputs.collect_droplet_snapshot }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          set -euo pipefail
           if [ "$CONFIRMATION" != "RUN_PRODUCTION_BASELINE" ]; then
             echo "Confirmacion invalida. No se genero carga."
             exit 1
           fi
+          case "${K6_BASE_URL}" in
+            https://*) ;;
+            *) echo "Produccion requiere una URL HTTPS"; exit 1 ;;
+          esac
+          if [ -z "$EXECUTION_REASON" ]; then
+            echo "El motivo de la ejecucion es obligatorio."
+            exit 1
+          fi
+          if [ "$COLLECT_SNAPSHOT" = "true" ] && { [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_PRIVATE_KEY" ]; }; then
+            echo "Faltan SSH_HOST, SSH_USER o SSH_PRIVATE_KEY en el environment production."
+            exit 1
+          fi
 
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Fotografia inicial del droplet
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          timeout: 60s
-          command_timeout: 2m
-          script: |
-            echo "== Snapshot inicial del droplet =="
-            date -u
-            uptime
-            echo "CPU cores: $(nproc)"
-            free -m
-            df -h /
-            docker version --format 'Docker server: {{.Server.Version}}'
-            docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'
-
-      - name: Registrar contexto de ejecucion
+      - name: Preparar directorio de evidencias
         env:
           EXECUTION_REASON: ${{ inputs.reason }}
         run: |
+          set -euo pipefail
           mkdir -p performance/results
           {
             echo "reason=${EXECUTION_REASON}"
             echo "commit=${GITHUB_SHA}"
             echo "ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_number=${GITHUB_RUN_NUMBER}"
             echo "runner=${RUNNER_NAME}"
             echo "runner_os=${RUNNER_OS}"
             echo "target=${K6_BASE_URL}"
             echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > performance/results/execution-context.txt
+          cp performance/baselines/production-initial.json performance/results/baseline-definition.json
+
+      - name: Validar configuracion k6
+        run: |
+          set -euo pipefail
+          docker compose -f performance/docker-compose.k6.yml config --quiet
+          docker compose -f performance/docker-compose.k6.yml run --rm k6 inspect /scripts/production-baseline.js \
+            > performance/results/k6-inspect.json
+
+      - name: Preparar acceso SSH para snapshots
+        if: inputs.collect_droplet_snapshot
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Guardar snapshot inicial del droplet
+        if: inputs.collect_droplet_snapshot
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
+            'date -u; uptime; echo "CPU cores: $(nproc)"; free -m; df -h /; docker version --format "Docker server: {{.Server.Version}}"; docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"' \
+            > performance/results/droplet-before.txt
 
       - name: Comprobar disponibilidad previa
         run: |
-          case "${K6_BASE_URL}" in
-            https://*) ;;
-            *) echo "Produccion requiere una URL HTTPS"; exit 1 ;;
-          esac
-          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/health"
-          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready"
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/health" \
+            | tee performance/results/health-before.json
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready" \
+            | tee performance/results/ready-before.json
 
       - name: Ejecutar baseline de produccion
         run: |
+          set -euo pipefail
           docker compose -f performance/docker-compose.k6.yml run --rm k6 run \
             --summary-export=/results/production-baseline-summary.json \
-            /scripts/production-baseline.js
+            /scripts/production-baseline.js \
+            2>&1 | tee performance/results/k6-console.log
 
       - name: Generar informe Markdown
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
         run: |
+          set -euo pipefail
           if [ -f performance/results/production-baseline-summary.json ]; then
             node performance/scripts/render-summary.mjs \
               performance/results/production-baseline-summary.json \
               performance/results/production-baseline-report.md
             cat performance/results/production-baseline-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Baseline sin resumen k6" >> "$GITHUB_STEP_SUMMARY"
+            echo "La ejecucion fallo antes de generar production-baseline-summary.json. Revisar k6-console.log." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Comprobar disponibilidad posterior
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
         run: |
-          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/health"
-          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready"
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/health" \
+            | tee performance/results/health-after.json
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready" \
+            | tee performance/results/ready-after.json
 
-      - name: Fotografia final del droplet
+      - name: Guardar snapshot final del droplet
+        if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' && inputs.collect_droplet_snapshot }}
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
+            'date -u; uptime; echo "CPU cores: $(nproc)"; free -m; df -h /; docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"' \
+            > performance/results/droplet-after.txt
+
+      - name: Completar contexto de ejecucion
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          timeout: 60s
-          command_timeout: 2m
-          script: |
-            echo "== Snapshot final del droplet =="
-            date -u
-            uptime
-            free -m
-            df -h /
-            docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'
+        env:
+          WORKFLOW_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "finished_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_status=${WORKFLOW_STATUS}"
+          } >> performance/results/execution-context.txt
+
+      - name: Generar hashes de evidencias
+        if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
+        run: |
+          find performance/results -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            > performance/results/SHA256SUMS.txt
 
       - name: Guardar resultados
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
         uses: actions/upload-artifact@v4
         with:
-          name: production-baseline-${{ github.run_number }}
+          name: production-baseline-${{ github.run_number }}-${{ github.sha }}
           path: performance/results/
+          if-no-files-found: error
           retention-days: 90

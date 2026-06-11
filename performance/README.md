@@ -73,10 +73,27 @@ valida disponibilidad publica, latencia de red y respuesta de las dependencias,
 pero no reemplaza una prueba de flujos autenticados.
 
 La ejecucion recomendada se realiza desde GitHub Actions mediante el workflow
-manual **Production Performance Baseline**. El workflow exige escribir
-`RUN_PRODUCTION_BASELINE`, utiliza el entorno protegido `production`, toma
-snapshots no invasivos del droplet, genera un informe Markdown y conserva los
-resultados como artefacto durante 90 dias.
+manual **CI Performance - Production Baseline**. Al usar **Run workflow** se debe
+seleccionar la rama `main`, indicar un motivo y escribir
+`RUN_PRODUCTION_BASELINE`. El workflow utiliza el entorno protegido
+`production`, genera un informe Markdown y conserva los resultados como
+artefacto durante 90 dias.
+
+La opcion `collect_droplet_snapshot` guarda CPU, memoria, disco y consumo de
+contenedores antes y despues de la prueba. Requiere los secrets `SSH_HOST`,
+`SSH_USER` y `SSH_PRIVATE_KEY`. Puede desactivarse para ejecutar solo la baseline
+k6 cuando no se disponga de acceso SSH.
+
+El artefacto incluye:
+
+- definicion versionada de la baseline;
+- contexto, commit, motivo y timestamps;
+- validacion `k6 inspect`;
+- respuestas `/health` y `/ready` antes y despues;
+- consola y resumen JSON de k6;
+- informe Markdown;
+- hashes SHA-256 para verificar integridad;
+- snapshots del droplet, cuando se habilitan.
 
 Configurar la variable de repositorio `PRODUCTION_API_URL` con la URL HTTPS del
 API. Si no existe, se utiliza `https://api.edutrack-uy.com`. Para que exista una
