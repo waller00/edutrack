@@ -86,7 +86,7 @@ services:
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       COOKIE_AUTO_DOMAIN: ${COOKIE_AUTO_DOMAIN:-}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@pg:5432/asistencias?schema=public}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@pg:5432/${POSTGRES_DB:-asistencias}?schema=public}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---

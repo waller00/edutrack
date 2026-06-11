@@ -1,0 +1,142 @@
+name: Production Performance Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Escribir RUN_PRODUCTION_BASELINE para confirmar la carga"
+        required: true
+        type: string
+      reason:
+        description: "Motivo o version evaluada"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-performance-baseline
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    name: Baseline conservadora contra produccion
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      K6_BASE_URL: ${{ vars.PRODUCTION_API_URL || 'https://api.edutrack-uy.com' }}
+      K6_WEIGHTED_PATHS: /health:1,/ready:4
+      K6_ALLOW_PRODUCTION: "true"
+      K6_PRODUCTION_CONFIRMATION: I_UNDERSTAND_THIS_GENERATES_LOAD
+      EDUTRACK_K6_BASELINE_WARMUP_RATE: "1"
+      EDUTRACK_K6_BASELINE_NORMAL_RATE: "3"
+      EDUTRACK_K6_BASELINE_PEAK_RATE: "5"
+      EDUTRACK_K6_MAX_ALLOWED_RATE: "5"
+      EDUTRACK_K6_PRE_ALLOCATED_VUS: "10"
+      EDUTRACK_K6_MAX_VUS: "30"
+
+    steps:
+      - name: Validar confirmacion manual
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [ "$CONFIRMATION" != "RUN_PRODUCTION_BASELINE" ]; then
+            echo "Confirmacion invalida. No se genero carga."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fotografia inicial del droplet
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 60s
+          command_timeout: 2m
+          script: |
+            echo "== Snapshot inicial del droplet =="
+            date -u
+            uptime
+            echo "CPU cores: $(nproc)"
+            free -m
+            df -h /
+            docker version --format 'Docker server: {{.Server.Version}}'
+            docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'
+
+      - name: Registrar contexto de ejecucion
+        env:
+          EXECUTION_REASON: ${{ inputs.reason }}
+        run: |
+          mkdir -p performance/results
+          {
+            echo "reason=${EXECUTION_REASON}"
+            echo "commit=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            echo "runner=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "target=${K6_BASE_URL}"
+            echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > performance/results/execution-context.txt
+
+      - name: Comprobar disponibilidad previa
+        run: |
+          case "${K6_BASE_URL}" in
+            https://*) ;;
+            *) echo "Produccion requiere una URL HTTPS"; exit 1 ;;
+          esac
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/health"
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready"
+
+      - name: Ejecutar baseline de produccion
+        run: |
+          docker compose -f performance/docker-compose.k6.yml run --rm k6 run \
+            --summary-export=/results/production-baseline-summary.json \
+            /scripts/production-baseline.js
+
+      - name: Generar informe Markdown
+        if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
+        run: |
+          if [ -f performance/results/production-baseline-summary.json ]; then
+            node performance/scripts/render-summary.mjs \
+              performance/results/production-baseline-summary.json \
+              performance/results/production-baseline-report.md
+            cat performance/results/production-baseline-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Comprobar disponibilidad posterior
+        if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
+        run: |
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/health"
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready"
+
+      - name: Fotografia final del droplet
+        if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 60s
+          command_timeout: 2m
+          script: |
+            echo "== Snapshot final del droplet =="
+            date -u
+            uptime
+            free -m
+            df -h /
+            docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'
+
+      - name: Guardar resultados
+        if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-baseline-${{ github.run_number }}
+          path: performance/results/
+          retention-days: 90

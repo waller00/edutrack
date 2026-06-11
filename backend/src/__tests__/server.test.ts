@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listenSpy, createServerSpy } = vi.hoisted(() => {
+const { listenSpy, onSpy, createServerSpy } = vi.hoisted(() => {
   const listenSpy = vi.fn((_port: number, _host: string, callback?: () => void) => {
     callback?.();
   });
-  const createServerSpy = vi.fn(() => ({ listen: listenSpy }));
-  return { listenSpy, createServerSpy };
+  const onSpy = vi.fn();
+  const createServerSpy = vi.fn(() => ({ listen: listenSpy, on: onSpy }));
+  return { listenSpy, onSpy, createServerSpy };
 });
 
 vi.mock("node:http", () => ({
@@ -48,6 +49,8 @@ describe("server", () => {
 
     expect(createServerSpy).toHaveBeenCalled();
     expect(listenSpy).toHaveBeenCalledWith(4321, "0.0.0.0", expect.any(Function));
+    expect(listenSpy).toHaveBeenCalledWith(9464, "0.0.0.0", expect.any(Function));
+    expect(onSpy).toHaveBeenCalledWith("error", expect.any(Function));
     expect(logSpy).toHaveBeenCalledWith("🚀 Auth-service corriendo en HTTP (puerto 4321)");
   });
 
