@@ -16,6 +16,7 @@ La integración vive en archivos nuevos y no modifica el comportamiento de
 - cAdvisor: métricas de contenedores.
 - Postgres Exporter: métricas de PostgreSQL.
 - Blackbox Exporter: disponibilidad HTTP de backend y frontend.
+- `prom-client`: métricas RED y del proceso Node.js expuestas por el backend.
 
 ## Seguridad
 
@@ -101,8 +102,14 @@ URLs:
 ```text
 Frontend: http://localhost:3000
 Backend health: http://localhost:4000/health
+Backend readiness: http://localhost:4000/ready
 Grafana: http://127.0.0.1:3001
 ```
+
+El backend expone `/metrics` en el puerto interno `9464`. Este puerto no se
+publica en el host; Prometheus lo consulta dentro de la red Docker mediante
+`auth:9464/metrics`. Puede cambiarse con `METRICS_PORT` o deshabilitarse usando
+un valor no válido o menor/igual a cero.
 
 ## Arranque cloud
 
@@ -171,6 +178,23 @@ curl http://localhost:4000/health
 probe_success{job="blackbox-http"}
 ```
 
+6. Comprobá las métricas propias del backend:
+
+```promql
+up{job="edutrack-backend"}
+sum by (method, route, status_code) (rate(edutrack_backend_http_requests_total[5m]))
+histogram_quantile(0.95, sum by (le, route) (rate(edutrack_backend_http_request_duration_seconds_bucket[5m])))
+sum(rate(edutrack_backend_http_errors_total[5m]))
+```
+
+El dashboard `Backend RED` resume disponibilidad real, solicitudes por segundo,
+errores 5xx, solicitudes activas y latencias p50/p95/p99. `/health` comprueba
+que el proceso HTTP esté vivo; `/ready` responde `200` solamente cuando
+PostgreSQL y Redis, si está habilitado, están disponibles.
+
+Las rutas desconocidas se agrupan como `/unmatched` y los segmentos que parecen
+IDs se normalizan como `:id` para evitar cardinalidad no controlada.
+
 ## Alertas
 
 Prometheus carga reglas desde `monitoring/prometheus/alerts.yml`.
@@ -189,8 +213,15 @@ de notificación en el repositorio.
 
 ### Errores HTTP 5xx
 
-Como esta rama no instrumenta Express con métricas propias, el monitoreo de 5xx
-se hace desde logs en Loki. El dashboard `Logs Loki` incluye:
+El backend expone el contador `edutrack_backend_http_errors_total`, que permite
+alertar sobre respuestas 5xx sin depender del formato de logs:
+
+```promql
+sum(rate(edutrack_backend_http_errors_total[5m])) > 0
+```
+
+Loki sigue siendo útil para investigar el detalle del error. El dashboard
+`Logs Loki` incluye:
 
 - `Auth 5xx log rate`
 - `Auth recent 5xx logs`
@@ -209,12 +240,63 @@ sum(count_over_time({compose_service="auth"} |~ "5[0-9][0-9]" [5m])) >= 5
 
 Esto evita ruido por errores aislados, pero alerta cuando hay una racha de 5xx.
 
-## Limitación actual
+## Métricas propias del backend
 
-El backend actual no expone métricas Prometheus propias en `/metrics` en esta
-rama. Para respetar la restricción de no introducir dependencias invasivas, esta
-integración monitorea la aplicación con Blackbox HTTP y con métricas de Docker,
-host y PostgreSQL.
+La instrumentación actual incluye:
 
-Si más adelante se decide instrumentar Express, hacerlo en una rama separada
-con una dependencia como `prom-client`, pruebas y revisión de seguridad.
+- Total de solicitudes por método, ruta normalizada y estado HTTP.
+- Histograma de duración por método, ruta normalizada y estado HTTP.
+- Solicitudes activas por método.
+- Total de respuestas HTTP 5xx.
+- Métricas predeterminadas del proceso Node.js, memoria, CPU, event loop y GC.
+
+## Endurecimiento
+
+- Grafana permanece ligado a `127.0.0.1`; no publicar en internet.
+- Datasources y dashboards provisionados no son editables desde la UI.
+- Prometheus no habilita recarga de configuración mediante HTTP.
+- Alloy limita la recolección a proyectos Compose EduTrack y redacta patrones
+  comunes de credenciales antes de enviarlos a Loki.
+- Prometheus, Loki y exporters continúan sin puertos publicados.
+- cAdvisor requiere acceso privilegiado al host para recolectar métricas; si
+  ese nivel de acceso no es aceptable, deshabilitar el servicio y sus paneles.
+
+## Baseline de rendimiento de produccion
+
+El proyecto incluye una baseline inicial y conservadora para evaluar el droplet
+de produccion sin ejecutar pruebas de estres. Su definicion se encuentra en
+`performance/baselines/production-initial.json` y se ejecuta exclusivamente bajo
+demanda mediante el workflow manual **Production Performance Baseline**.
+
+La prueba incrementa gradualmente la carga entre `1`, `3` y `5` solicitudes por
+segundo durante aproximadamente ocho minutos. Se aceptan inicialmente menos de
+`1%` de solicitudes fallidas, mas de `99%` de checks aprobados, p95 inferior a
+`750 ms`, p99 inferior a `1500 ms` y ninguna iteracion descartada.
+
+El workflow registra el commit, el motivo, el entorno generador de carga y
+snapshots del droplet antes y despues. Los resultados JSON y un informe Markdown
+se conservan como artefactos de GitHub Actions durante 90 dias. La evaluacion se
+complementa con Backend RED, PostgreSQL, Docker Containers y Node Host.
+
+Esta baseline mide endpoints publicos no destructivos y la latencia real desde
+Internet. Todavia no representa sesiones autenticadas, escrituras ni capacidad
+maxima. Los thresholds deben ajustarse solamente despues de acumular ejecuciones
+comparables y documentar el comportamiento esperado del sistema.
+
+## Integracion local de k6 con Grafana
+
+En el entorno local, k6 puede enviar sus metricas directamente a Prometheus
+mediante remote write sobre la red Docker interna. Prometheus habilita el
+receptor, pero mantiene su puerto sin publicar. El archivo complementario
+`performance/docker-compose.k6.monitoring.yml` conecta el contenedor temporal de
+k6 con dicha red.
+
+Grafana provisiona el dashboard **k6 Performance**, que presenta solicitudes por
+segundo, errores, checks aprobados, iteraciones descartadas, usuarios virtuales,
+latencias externas p50/p95/p99 y la comparacion entre solicitudes generadas por
+k6 y solicitudes observadas por el backend.
+
+Esta visualizacion debe analizarse junto con **Backend RED**, **PostgreSQL**,
+**Docker Containers** y **Node Host**. De esta manera se puede relacionar una
+variacion de carga con la latencia de la aplicacion y el consumo de recursos.
+Los resumenes JSON continuan siendo la evidencia reproducible de cada ejecucion.

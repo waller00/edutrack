@@ -53,6 +53,3 @@ flowchart TD
 - Riesgo (ML): ver score 0–100 por alumno, explicaciones, recomendaciones; alertas al cruzar umbral.
 - Comunicación: notificaciones en app/email; atajos de contacto a padres.
 - Reportes del curso: asistencia por rango, puntualidad, exportación.
-
-
-

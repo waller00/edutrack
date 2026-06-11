@@ -9,6 +9,11 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in your environment}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_COOKIE_SECURE: ${GRAFANA_COOKIE_SECURE:-false}
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_SECURITY_BRUTE_FORCE_LOGIN_PROTECTION: "true"
+      GF_SECURITY_BRUTE_FORCE_LOGIN_PROTECTION_MAX_ATTEMPTS: "5"
     ports:
       - "${GRAFANA_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3001}:3000"
     volumes:
@@ -22,6 +27,8 @@ services:
         condition: service_started
     networks:
       - monitoring
+    security_opt:
+      - no-new-privileges:true
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.55.1}
@@ -30,7 +37,8 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}"
-      - "--web.enable-lifecycle"
+      - "--web.enable-remote-write-receiver"
+      - "--enable-feature=native-histograms"
     volumes:
       - prometheus-data:/prometheus
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -43,6 +51,8 @@ services:
     networks:
       - monitoring
       - edutrack-app
+    security_opt:
+      - no-new-privileges:true
 
   loki:
     image: ${LOKI_IMAGE:-grafana/loki:3.3.2}
@@ -53,6 +63,8 @@ services:
       - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
     networks:
       - monitoring
+    security_opt:
+      - no-new-privileges:true
 
   alloy:
     image: ${ALLOY_IMAGE:-grafana/alloy:v1.6.1}
@@ -70,6 +82,8 @@ services:
       - loki
     networks:
       - monitoring
+    security_opt:
+      - no-new-privileges:true
 
   blackbox-exporter:
     image: ${BLACKBOX_EXPORTER_IMAGE:-prom/blackbox-exporter:v0.25.0}
@@ -80,6 +94,8 @@ services:
     networks:
       - monitoring
       - edutrack-app
+    security_opt:
+      - no-new-privileges:true
 
   node-exporter:
     image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}
@@ -96,6 +112,8 @@ services:
       - /:/rootfs:ro
     networks:
       - monitoring
+    security_opt:
+      - no-new-privileges:true
 
   cadvisor:
     image: ${CADVISOR_IMAGE:-gcr.io/cadvisor/cadvisor:v0.49.1}
@@ -120,6 +138,8 @@ services:
     networks:
       - monitoring
       - edutrack-app
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   grafana-data:

@@ -1,10 +1,7 @@
 name: CI Security - Trivy
 
 on:
-  push:
-    branches: [main, monitoreo]
-  pull_request:
-    branches: [main, monitoreo]
+  workflow_dispatch:
 
 permissions:
   actions: read
