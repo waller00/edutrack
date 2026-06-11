@@ -5,11 +5,13 @@ const mocks = vi.hoisted(() => ({
   users: vi.fn(),
   incidents: vi.fn(),
   audit: vi.fn(),
+  absences: vi.fn(),
   sql: vi.fn(),
   parse: vi.fn(),
 }))
 
 vi.mock('./hours-worked.js', () => ({ executeHoursWorkedSummary: mocks.hours }))
+vi.mock('./absences.js', () => ({ executeAbsencesSummary: mocks.absences }))
 vi.mock('./users-admin.js', () => ({ executeUsersAdminSnapshot: mocks.users }))
 vi.mock('./incidents.js', () => ({ executeAttendanceIncidentsSummary: mocks.incidents }))
 vi.mock('./audit-summary.js', () => ({ executeAuditLogSummary: mocks.audit }))
@@ -52,18 +54,38 @@ describe('runAdminQueryAssistant — orquestación SQL-first', () => {
   it('las preguntas libres van directo al traductor NL→SQL', async () => {
     mocks.sql.mockResolvedValue(tableResult('SQL_QUERY'))
 
-    const r = await runAdminQueryAssistant('¿qué profesores faltaron en junio?', {
+    const r = await runAdminQueryAssistant('¿qué asignaturas tienen más eventos en junio?', {
       schoolYearId: 'sy-1',
       schoolYearCode: 2026,
     })
 
     expect(r.intent).toBe('SQL_QUERY')
-    expect(mocks.sql).toHaveBeenCalledWith('¿qué profesores faltaron en junio?', {
+    expect(mocks.sql).toHaveBeenCalledWith('¿qué asignaturas tienen más eventos en junio?', {
       schoolYearId: 'sy-1',
       schoolYearCode: 2026,
     })
     expect(mocks.parse).not.toHaveBeenCalled()
     expect(mocks.incidents).not.toHaveBeenCalled()
+  })
+
+  it('"¿qué profesores faltaron en junio?" usa el informe derivado de faltas, no SQL', async () => {
+    mocks.absences.mockResolvedValue(tableResult('ABSENCES_SUMMARY'))
+
+    const r = await runAdminQueryAssistant('¿qué profesores faltaron en junio?', {
+      schoolYearId: 'sy-1',
+      schoolYearCode: 2026,
+    })
+
+    expect(r.intent).toBe('ABSENCES_SUMMARY')
+    expect(mocks.absences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: 'ABSENCES_SUMMARY',
+        params: expect.objectContaining({ month: 6, personRoleScope: 'TEACHER' }),
+      }),
+      { schoolYearId: 'sy-1', schoolYearCode: 2026 },
+    )
+    expect(mocks.sql).not.toHaveBeenCalled()
+    expect(mocks.parse).not.toHaveBeenCalled()
   })
 
   it('si el SQL falla por causas ajenas a la configuración, cae al informe heurístico', async () => {

@@ -8,6 +8,7 @@ import {
 
 const NEEDS_RANGE: LlmIntentPayload['intent'][] = [
   'HOURS_WORKED_SUMMARY',
+  'ABSENCES_SUMMARY',
   'ATTENDANCE_INCIDENTS_SUMMARY',
   'MEDICAL_LEAVES_SUMMARY',
   'ASSIGNED_EVENTS_SUMMARY',
@@ -112,6 +113,23 @@ function applyQuestionKeywordEnrichments(parsed: LlmIntentPayload, question: str
     }
   }
 
+  if (parsed.intent === 'ABSENCES_SUMMARY') {
+    const wantsCount =
+      new RegExp(`\\b(por\\s+persona|por\\s+(?:${ROLE_PERSON_WORD})|conteo|ranking|top\\s+\\d+)\\b`).test(t) ||
+      (new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) &&
+        /\b(mas|m[aá]s|mayor|mayores)\b/.test(t))
+    if (wantsCount && params.incidentViewMode == null) {
+      params.incidentViewMode = 'COUNT_BY_USER'
+    }
+    if (params.personRoleScope == null) {
+      if (/\b(?:docentes?|profesor(?:es)?|profesora(?:s)?|profes?|maestros?|maestras?|educadores?)\b/.test(t)) {
+        params.personRoleScope = 'TEACHER'
+      } else if (/\b(?:funcionarios?|personal|staff|administrativos?|adscriptos?|bedeles?)\b/.test(t)) {
+        params.personRoleScope = 'STAFF'
+      }
+    }
+  }
+
   if (parsed.intent === 'ATTENDANCE_INCIDENTS_SUMMARY') {
     if (new RegExp(`\\b(?:${EARLY_EXIT_WORD})\\b`).test(t)) {
       params.incidentTypeScope = 'EARLY_EXIT'
@@ -135,6 +153,7 @@ function applyQuestionKeywordEnrichments(parsed: LlmIntentPayload, question: str
 
   const intentsWithUserSearch: LlmIntentPayload['intent'][] = [
     'HOURS_WORKED_SUMMARY',
+    'ABSENCES_SUMMARY',
     'ATTENDANCE_LATE_SUMMARY',
     'ASSIGNED_EVENTS_SUMMARY',
     'MEDICAL_LEAVES_SUMMARY',

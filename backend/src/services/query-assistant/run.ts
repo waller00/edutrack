@@ -1,4 +1,5 @@
 import { enrichPayloadFromQuestion } from './enrich-payload.js'
+import { executeAbsencesSummary } from './absences.js'
 import { executeAssignedEventsSummary } from './assigned-events.js'
 import { executeAttendanceLateSummary } from './attendance-late.js'
 import { executeAuditLogSummary } from './audit-summary.js'
@@ -19,10 +20,16 @@ import { executeUsersAdminSnapshot } from './users-admin.js'
  * o listados administrativos fijos. El resto de las preguntas va directo al
  * traductor NL→SQL, que entiende sinónimos y fraseo libre mucho mejor que las
  * reglas por regex.
+ *
+ * ABSENCES_SUMMARY es fast-path por necesidad, no por ahorro: las faltas se
+ * derivan de las ocurrencias planificadas (recurrencia expandida en TypeScript)
+ * y pueden no existir como filas de "Attendance" hasta que un admin las
+ * materializa, así que el traductor NL→SQL no puede calcularlas bien.
  */
 const FAST_PATH_INTENTS: ReadonlySet<QueryAssistantIntent> = new Set([
   'HOURS_WORKED_SUMMARY',
   'USERS_ADMIN_SNAPSHOT',
+  'ABSENCES_SUMMARY',
 ])
 
 async function executeIntentPayload(
@@ -32,6 +39,8 @@ async function executeIntentPayload(
   switch (parsed.intent) {
     case 'HOURS_WORKED_SUMMARY':
       return executeHoursWorkedSummary(parsed, scope)
+    case 'ABSENCES_SUMMARY':
+      return executeAbsencesSummary(parsed, scope)
     case 'ATTENDANCE_INCIDENTS_SUMMARY':
       return executeAttendanceIncidentsSummary(parsed, scope)
     case 'MEDICAL_LEAVES_SUMMARY':
