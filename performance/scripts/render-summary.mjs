@@ -26,9 +26,11 @@ const report = `# Baseline de rendimiento de produccion
 
 - Fecha UTC: ${new Date().toISOString()}
 - Commit: ${process.env.GITHUB_SHA || "ejecucion local"}
+- Motivo: ${process.env.BASELINE_REASON || "no informado"}
 - Objetivo: ${process.env.K6_BASE_URL || "no informado"}
 - Perfil: produccion-baseline-v1
 - Generador de carga: ${process.env.RUNNER_NAME || "equipo local"}
+- Ejecucion: ${process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : "ejecucion local"}
 
 ## Perfil aplicado
 

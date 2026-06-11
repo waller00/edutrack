@@ -266,7 +266,8 @@ La instrumentación actual incluye:
 El proyecto incluye una baseline inicial y conservadora para evaluar el droplet
 de produccion sin ejecutar pruebas de estres. Su definicion se encuentra en
 `performance/baselines/production-initial.json` y se ejecuta exclusivamente bajo
-demanda mediante el workflow manual **Production Performance Baseline**.
+demanda mediante el workflow manual **CI Performance - Production Baseline**,
+seleccionando la rama `main`.
 
 La prueba incrementa gradualmente la carga entre `1`, `3` y `5` solicitudes por
 segundo durante aproximadamente ocho minutos. Se aceptan inicialmente menos de
@@ -274,9 +275,11 @@ segundo durante aproximadamente ocho minutos. Se aceptan inicialmente menos de
 `750 ms`, p99 inferior a `1500 ms` y ninguna iteracion descartada.
 
 El workflow registra el commit, el motivo, el entorno generador de carga y
-snapshots del droplet antes y despues. Los resultados JSON y un informe Markdown
-se conservan como artefactos de GitHub Actions durante 90 dias. La evaluacion se
-complementa con Backend RED, PostgreSQL, Docker Containers y Node Host.
+opcionalmente snapshots del droplet antes y despues. Tambien conserva la
+definicion aplicada, validacion previa, respuestas de health/readiness, consola
+k6, resultados JSON, informe Markdown y hashes SHA-256 como artefactos de GitHub
+Actions durante 90 dias. La evaluacion se complementa con Backend RED,
+PostgreSQL, Docker Containers y Node Host.
 
 Esta baseline mide endpoints publicos no destructivos y la latencia real desde
 Internet. Todavia no representa sesiones autenticadas, escrituras ni capacidad
