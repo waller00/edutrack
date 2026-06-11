@@ -2,6 +2,16 @@ import { prisma } from '../db/prisma.js'
 
 const DEFAULT_ID = 'default'
 
+/** Lee booleanos de entorno (`true`, `1`, `yes`). */
+export function parseEnvBool(name: string): boolean {
+  const v = (process.env[name] || '').trim().toLowerCase()
+  return v === 'true' || v === '1' || v === 'yes'
+}
+
+export function isMoodleSyncEnabledFromEnv(): boolean {
+  return parseEnvBool('MOODLE_SYNC_ENABLED')
+}
+
 export function isDiditConfigured() {
   const key = (process.env.DIDIT_API_KEY || '').trim()
   const wid = (process.env.DIDIT_WORKFLOW_ID || '').trim()
@@ -31,7 +41,7 @@ export async function getOrCreateSystemSettings() {
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
       biometricDuplicateWindowMinutes: 5,
-      moodleSyncEnabled: false,
+      moodleSyncEnabled: isMoodleSyncEnabledFromEnv(),
       moodleReconcileIntervalMs: 900000,
       moodleSyncStudents: false,
     } as any,
@@ -42,8 +52,9 @@ export async function getOrCreateSystemSettings() {
 /** Configuración operativa de la integración Moodle (worker outbox + reconciliación). */
 export async function getMoodleOperationalSettings() {
   const row = (await getOrCreateSystemSettings()) as Record<string, unknown>
+  const syncEnabledInDb = row.moodleSyncEnabled === true
   return {
-    syncEnabled: row.moodleSyncEnabled === true,
+    syncEnabled: syncEnabledInDb || isMoodleSyncEnabledFromEnv(),
     reconcileIntervalMs: Math.max(Number(row.moodleReconcileIntervalMs ?? 900000), 60000),
     syncStudents: row.moodleSyncStudents === true,
   }

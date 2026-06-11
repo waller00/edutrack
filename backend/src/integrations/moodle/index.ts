@@ -1,4 +1,6 @@
 export { isMoodleIntegrationEnabled } from "./client.js";
+export { getMoodleHealthStatus, probeMoodleConnection } from "./health.js";
+export type { MoodleHealthStatus } from "./health.js";
 export {
   enqueueUserUpsert,
   processOutboxOnce,
