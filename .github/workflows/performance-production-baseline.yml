@@ -30,7 +30,8 @@ jobs:
     name: Baseline conservadora contra produccion
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production
+    environment:
+      name: ${{ 'production' }}
     timeout-minutes: 20
     env:
       K6_BASE_URL: ${{ vars.PRODUCTION_API_URL || 'https://api.edutrack-uy.com' }}
