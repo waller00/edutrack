@@ -122,6 +122,8 @@ services:
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:4000/auth/google/callback}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_SQL_MODEL: ${OPENAI_SQL_MODEL:-}
+      QUERY_ASSISTANT_MODE: ${QUERY_ASSISTANT_MODE:-}
       # Panel admin de pruebas (simular ADMS / limpiar datos). En testing: ALLOW_ADMIN_TESTING_TOOLS=1
       ALLOW_ADMIN_TESTING_TOOLS: ${ALLOW_ADMIN_TESTING_TOOLS:-}
       # Moodle (misma red Docker que docker-compose.moodle.yml; ver MOODLE_HOST en ese archivo)

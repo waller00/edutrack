@@ -21,6 +21,27 @@ const ABSENCE_WORD = String.raw`falt|ausen|ausencias?|no\s+show|no\s+lleg[oó]|i
 const LATE_WORD = String.raw`tard|atras|retras|llegada\s+tarde|entrada\s+tarde`
 const EARLY_EXIT_WORD = String.raw`salidas?\s+anticipad[ao]s?|retiros?\s+tempran[ao]s?|se\s+retir[oó]\s+antes|se\s+fue\s+antes`
 
+/**
+ * Palabras que nunca son un nombre de persona: artículos/preposiciones, palabras de rol
+ * ("docentes") y verbos/sustantivos del dominio ("faltaron", "llegaron", "tardanzas").
+ * Sin esto, "qué profesores faltaron en junio" terminaba buscando un usuario "faltaron"
+ * y la respuesta era siempre vacía. Se listan formas completas (no raíces) para no
+ * descartar nombres reales como "Marcos" o "Marcela".
+ */
+const NON_NAME_TOKEN = new RegExp(
+  `^(?:${String.raw`el|la|los|las|un|una|unos|unas|en|de|del|al|por|para|durante|y|o|u|que|mes|hay|fue|mas|este|esta|estos|estas|todos|todas|cada` +
+    '|' +
+    String.raw`falto|falta|faltan|faltaron|faltado|faltas|ausente|ausentes|ausencia|ausencias|inasistencia|inasistencias|llego|llegan|llegaron|llegada|llegadas|tarde|temprano|trabajo|trabajan|trabajaron|asistio|asisten|asistieron|marcaron|ficharon|ficho|vino|vinieron|estuvo|estuvieron|tuvo|tuvieron|hizo|hicieron|salio|salieron|retiro|retiraron|presento|presentes|tardanza|tardanzas|atraso|atrasos|retraso|retrasos|licencia|licencias|incidencia|incidencias|evento|eventos|clase|clases|hora|horas` +
+    '|' +
+    ROLE_PERSON_WORD})$`,
+)
+
+function looksLikePersonName(chunk: string): boolean {
+  const words = chunk.trim().split(/\s+/)
+  if (words.length === 0 || !words[0]) return false
+  return words.every((w) => !NON_NAME_TOKEN.test(w) && spanishMonthFromQuestion(w) == null)
+}
+
 /** Si el modelo devolvió UNKNOWN o faltan mes/año detectables en el texto, completamos o reemplazamos con heurística local. */
 export function enrichPayloadFromQuestion(
   parsed: LlmIntentPayload,
@@ -121,25 +142,12 @@ function applyQuestionKeywordEnrichments(parsed: LlmIntentPayload, question: str
     'BIOMETRIC_ISSUES_SUMMARY',
   ]
   if (intentsWithUserSearch.includes(parsed.intent) && !params.userSearch?.trim()) {
-    const doc = t.match(
-      new RegExp(`\\b(?:${ROLE_PERSON_WORD})\\s+([a-záéíóúñ]+(?:\\s+[a-záéíóúñ]+)?)(?=\\s+en\\s+|\\s+del\\s+|\\s+durante\\s+|$)`),
-    )
-    if (doc?.[1]) {
-      const name = doc[1].trim()
-      if (!/^(el|la|los|las|mes|hay|fue|mas|m[aá]s)$/.test(name)) {
-        params.userSearch = name
-      }
-    } else {
-      const de = t.match(
-        /\bde\s+([a-záéíóúñ]+(?:\s+[a-záéíóúñ]+)*)\s+(?:en|del|durante)\s+/,
-      )
-      if (de?.[1]) {
-        const chunk = de[1].trim()
-        if (chunk.length >= 2 && spanishMonthFromQuestion(chunk) == null) {
-          params.userSearch = chunk
-        }
-      }
-    }
+    const afterRole = t
+      .match(new RegExp(`\\b(?:${ROLE_PERSON_WORD})\\s+([a-záéíóúñ]+(?:\\s+[a-záéíóúñ]+)?)(?=\\s+en\\s+|\\s+del\\s+|\\s+durante\\s+|$)`))?.[1]
+      ?.trim()
+    const afterDe = t.match(/\bde\s+([a-záéíóúñ]+(?:\s+[a-záéíóúñ]+)*)\s+(?:en|del|durante)\s+/)?.[1]?.trim()
+    const candidate = [afterRole, afterDe].find((c) => c && c.length >= 2 && looksLikePersonName(c))
+    if (candidate) params.userSearch = candidate
   }
 
   if (parsed.intent === 'ATTENDANCE_LATE_SUMMARY' && !params.userSearch?.trim()) {

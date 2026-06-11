@@ -411,7 +411,7 @@ export default function CourseDetailPanel({
                     <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-3">
                       <div className="flex flex-wrap gap-2">
                         <select
-                          className="min-w-[12rem] flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                          className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm sm:min-w-[12rem]"
                           value={attachOrientationId}
                           onChange={(e) => setAttachOrientationId(e.target.value)}
                         >
@@ -433,7 +433,7 @@ export default function CourseDetailPanel({
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <input
-                          className="min-w-[12rem] flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                          className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm sm:min-w-[12rem]"
                           placeholder="Nueva orientación"
                           value={newOrientationName}
                           onChange={(e) => setNewOrientationName(e.target.value)}

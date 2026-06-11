@@ -52,6 +52,30 @@ describe('enrichPayloadFromQuestion', () => {
     expect(r.params.userSearch).toMatch(/rodriguez/i)
   })
 
+  it('no toma el verbo como nombre: "¿qué profesores faltaron en junio?"', () => {
+    const r = enrichPayloadFromQuestion(
+      {
+        intent: 'ATTENDANCE_INCIDENTS_SUMMARY',
+        params: { month: 6, year: 2026 },
+        reply: 'ok',
+      },
+      '¿Qué profesores faltaron en junio?',
+    )
+    expect(r.params.userSearch).toBeUndefined()
+  })
+
+  it('no toma la palabra de rol ni el mes como nombre: "ausencias de docentes en junio"', () => {
+    const r = enrichPayloadFromQuestion(
+      {
+        intent: 'ATTENDANCE_INCIDENTS_SUMMARY',
+        params: { month: 6, year: 2026 },
+        reply: 'ok',
+      },
+      'ausencias de docentes en junio',
+    )
+    expect(r.params.userSearch).toBeUndefined()
+  })
+
   it('salida anticipada → EARLY_EXIT', () => {
     const r = enrichPayloadFromQuestion(
       {

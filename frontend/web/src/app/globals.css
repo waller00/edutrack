@@ -11,10 +11,14 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+    width: 100%;
+    max-width: 100%;
   }
 
   body {
-    overflow-x: hidden;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
   }
 
   img,
@@ -34,6 +38,18 @@
 
   textarea {
     resize: vertical;
+  }
+
+  main,
+  section,
+  article,
+  aside,
+  header,
+  footer,
+  nav,
+  form,
+  fieldset {
+    min-width: 0;
   }
 }
 
@@ -146,16 +162,18 @@ body {
 
 @layer utilities {
   .responsive-page {
-    @apply mx-auto w-full px-4 py-5 sm:p-6;
+    @apply mx-auto w-full min-w-0 px-4 py-5 sm:p-6;
+    overflow-wrap: anywhere;
   }
 
   .responsive-section {
-    @apply rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6;
+    @apply min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6;
   }
 
   .responsive-table {
-    @apply w-full overflow-x-auto;
+    @apply w-full max-w-full overflow-x-auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
   .responsive-modal {
@@ -163,7 +181,24 @@ body {
   }
 
   .responsive-modal-panel {
-    @apply w-full max-h-[90vh] overflow-y-auto rounded-t-2xl border border-gray-100 bg-white p-4 shadow-xl sm:rounded-2xl sm:p-6;
+    @apply w-full min-w-0 max-h-[90vh] overflow-y-auto rounded-t-2xl border border-gray-100 bg-white p-4 shadow-xl sm:rounded-2xl sm:p-6;
+  }
+
+  .responsive-page :is(.grid, .flex) > * {
+    min-width: 0;
+  }
+
+  .responsive-page :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+    min-width: 0;
+  }
+
+  .responsive-page :is(.overflow-x-auto, .overflow-y-auto) {
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .responsive-page :is(table) {
+    border-collapse: collapse;
   }
 }
 
@@ -190,12 +225,22 @@ body {
   }
 
   .responsive-page .overflow-x-auto > table {
-    min-width: 44rem;
+    min-width: max-content;
   }
 
   .responsive-page .overflow-x-auto {
-    max-width: calc(100vw - 2rem);
+    max-width: 100%;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .responsive-page :is(.btn-primary, .btn-secondary, .btn-success, .btn-warning, .btn-danger) {
+    width: 100%;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .responsive-page :is(button, a, span, code, th, td, p, label) {
+    overflow-wrap: anywhere;
   }
 
   h1 {

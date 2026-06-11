@@ -2,6 +2,7 @@ import OpenAI, { APIError } from 'openai'
 import { enrichPayloadFromQuestion } from './enrich-payload.js'
 import { heuristicIntentFromQuestion } from './question-heuristics.js'
 import { loosenLlmIntentJson } from './llm-json-loosen.js'
+import { temperatureParams } from './model-params.js'
 import { SEMANTIC_SYNONYMS } from './schema-context.js'
 import { llmIntentSchema, type LlmIntentPayload } from './schemas.js'
 
@@ -83,7 +84,7 @@ export async function parseQuestionWithLlm(question: string, options?: { default
   try {
     completion = await client.chat.completions.create({
       model,
-      temperature: 0.1,
+      ...temperatureParams(model, 0.1),
       response_format: { type: 'json_object' },
       messages: [
         // System 100% estático (clasificador + sinónimos) → prefijo cacheable por OpenAI.
