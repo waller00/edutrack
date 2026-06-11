@@ -358,7 +358,7 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
   const hasProjectedExit = isDerivedAttendanceRow(row.checkOut)
 
   return (
-    <div className="min-w-[180px] space-y-2">
+    <div className="min-w-0 space-y-2">
       <div className="flex items-start gap-2">
         {hasLinkedEvents ? (
           <button
@@ -371,8 +371,8 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
             {expanded ? <ChevronDown className="h-3.5 w-3.5" aria-hidden /> : <ChevronRight className="h-3.5 w-3.5" aria-hidden />}
           </button>
         ) : null}
-        <div>
-          <div className="font-medium">{row.eventSummary.title}</div>
+        <div className="min-w-0">
+          <div className="break-words font-medium">{row.eventSummary.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
             <span>{row.eventSummary.type}</span>
             {hasProjectedExit ? (
@@ -481,10 +481,10 @@ function renderAttendancesTable(
                     />
                   )}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <div>
-                    <div className="font-medium text-gray-900">{row.user.name}</div>
-                    <div className="text-gray-500">{row.user.email}</div>
+                <td className="px-6 py-4 text-sm">
+                  <div className="min-w-0">
+                    <div className="break-words font-medium text-gray-900">{row.user.name}</div>
+                    <div className="break-all text-gray-500">{row.user.email}</div>
                     <div className="text-xs text-gray-400">{row.user.role}</div>
                   </div>
                 </td>
@@ -505,7 +505,7 @@ function renderAttendancesTable(
                     </span>
                   ) : renderAttendanceMark(row.checkOut, 'Sin salida', onEdit)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-6 py-4 text-sm text-gray-900">
                   {renderEventSummary(row, expandedRowKeys.includes(row.key), () => onToggleExpandedRow(row.key))}
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-900">

@@ -284,7 +284,7 @@ export default function AdminUsersPage() {
           </span>
         </td>
         <td className="px-3 py-2.5 align-middle">
-          <div className="flex min-w-[17.5rem] flex-nowrap items-center justify-end gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 xl:flex-nowrap xl:justify-end">
             <button
               type="button"
               onClick={() => toggleApproval(u)}
@@ -415,11 +415,11 @@ export default function AdminUsersPage() {
                   ))}
                 </select>
               </div>
-              <div className="flex gap-2 sm:col-span-2 lg:col-span-4">
-                <button type="submit" disabled={createSaving} className="btn-primary">
+              <div className="grid gap-2 sm:col-span-2 sm:flex sm:flex-wrap lg:col-span-4">
+                <button type="submit" disabled={createSaving} className="btn-primary sm:w-auto">
                   {createSaving ? 'Creando…' : 'Crear'}
                 </button>
-                <button type="button" onClick={() => setCreating(false)} className="btn-secondary">
+                <button type="button" onClick={() => setCreating(false)} className="btn-secondary sm:w-auto">
                   Cancelar
                 </button>
               </div>

@@ -978,7 +978,7 @@ export default function AdminEvents() {
             </button>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
             <DateRangeFields
               startDate={filters.startDate}
               endDate={filters.endDate}
@@ -1109,7 +1109,7 @@ export default function AdminEvents() {
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
                 {weekdaySummary.map((day) => (
                   <button
                     key={day.value}

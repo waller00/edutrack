@@ -102,4 +102,45 @@ describe('runNaturalLanguageSqlQuery', () => {
     await expect(runNaturalLanguageSqlQuery('borrá todo')).rejects.toThrow('QUERY_ASSISTANT_SQL_NOT_SELECT')
     expect(queryRawUnsafeMock).not.toHaveBeenCalled()
   })
+
+  it('repara cuando la validación rechaza una tabla desconocida y luego ejecuta', async () => {
+    createMock
+      .mockResolvedValueOnce(planResponse('SELECT * FROM "TablaInventada"'))
+      .mockResolvedValueOnce(planResponse('SELECT "User"."email" AS "Email" FROM "User"'))
+    queryRawUnsafeMock.mockResolvedValue([{ Email: 'a@a.com' }])
+
+    const r = await runNaturalLanguageSqlQuery('emails')
+
+    expect(createMock).toHaveBeenCalledTimes(2)
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1)
+    expect(r.rows).toEqual([{ Email: 'a@a.com' }])
+  })
+
+  it('ante 0 filas pide una revisión y reintenta si el SQL cambia', async () => {
+    createMock
+      .mockResolvedValueOnce(planResponse('SELECT "User"."email" AS "Email" FROM "User" WHERE "User"."email" = \'x\''))
+      .mockResolvedValueOnce(planResponse('SELECT "User"."email" AS "Email" FROM "User"'))
+    queryRawUnsafeMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{ Email: 'a@a.com' }])
+
+    const r = await runNaturalLanguageSqlQuery('email de x')
+
+    expect(createMock).toHaveBeenCalledTimes(2)
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2)
+    expect(r.rows).toEqual([{ Email: 'a@a.com' }])
+    // El mensaje de revisión describe el caso de 0 filas.
+    const reviewMessages = createMock.mock.calls[1][0].messages
+    expect(reviewMessages.some((m: { content: string }) => m.content.includes('devolvió 0 filas'))).toBe(true)
+  })
+
+  it('acepta el resultado vacío si el modelo confirma el mismo SQL (sin re-ejecutar)', async () => {
+    createMock.mockResolvedValue(planResponse('SELECT "User"."email" AS "Email" FROM "User"'))
+    queryRawUnsafeMock.mockResolvedValue([])
+
+    const r = await runNaturalLanguageSqlQuery('emails')
+
+    expect(createMock).toHaveBeenCalledTimes(2)
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1)
+    expect(r.rows).toEqual([])
+    expect(r.summary).toContain('No se encontraron filas')
+  })
 })
