@@ -144,6 +144,8 @@ services:
       MOODLE_ROLE_SUBSTITUTE_TEACHER_ID: ${MOODLE_ROLE_SUBSTITUTE_TEACHER_ID:-}
       MOODLE_ROOT_CATEGORY_ID: ${MOODLE_ROOT_CATEGORY_ID:-0}
       MOODLE_USER_AUTH: ${MOODLE_USER_AUTH:-manual}
+      # URL pública de Moodle para links en emails a alumnos (default: MOODLE_BASE_URL).
+      MOODLE_PUBLIC_URL: ${MOODLE_PUBLIC_URL:-}
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-8081}
       # Observabilidad (Sentry backend): vacio = deshabilitado
       SENTRY_DSN: ${SENTRY_DSN:-}

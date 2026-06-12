@@ -147,12 +147,22 @@ function userDisplayLabel(user: AnalyticsUserOption) {
   return user.name || fullName || user.username || user.email || 'Sin nombre'
 }
 
+function trimEdgeChars(value: string, char: string): string {
+  let start = 0
+  let end = value.length
+  while (start < end && value[start] === char) start += 1
+  while (end > start && value[end - 1] === char) end -= 1
+  return value.slice(start, end)
+}
+
 function sanitizeFilenamePart(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+  return trimEdgeChars(
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '_'),
+    '_',
+  )
     .slice(0, 48) || 'persona'
 }
 

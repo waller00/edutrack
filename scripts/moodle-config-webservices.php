@@ -41,8 +41,21 @@ if (!$service) {
     $service = $DB->get_record('external_services', ['name' => 'EduTrack']);
 }
 if (!$service) {
-    fwrite(STDERR, "No se encontró el servicio externo EduTrack.\n");
-    exit(1);
+    $now = time();
+    $serviceId = $DB->insert_record('external_services', (object) [
+        'name' => 'EduTrack',
+        'shortname' => 'edutrack',
+        'enabled' => 1,
+        'restrictedusers' => 1,
+        'downloadfiles' => 0,
+        'uploadfiles' => 0,
+        'timecreated' => $now,
+        'timemodified' => $now,
+        'component' => null,
+        'requiredcapability' => '',
+    ]);
+    $service = $DB->get_record('external_services', ['id' => $serviceId], '*', MUST_EXIST);
+    echo "servicio EduTrack creado (#{$service->id})\n";
 }
 
 if ((int) $service->enabled !== 1) {
@@ -69,8 +82,28 @@ foreach ($requiredFunctions as $function) {
 echo "== Token / usuario autorizado ==\n";
 $token = $DB->get_record('external_tokens', ['externalserviceid' => $service->id], '*', IGNORE_MULTIPLE);
 if (!$token) {
-    fwrite(STDERR, "No hay token para el servicio EduTrack. Creá uno en Moodle y ponelo en MOODLE_WS_TOKEN.\n");
-    exit(1);
+    require_once($CFG->libdir . '/accesslib.php');
+    $admin = get_admin();
+    $context = context_system::instance();
+    $tokenValue = md5(uniqid((string) random_int(0, PHP_INT_MAX), true));
+    $tokenId = $DB->insert_record('external_tokens', (object) [
+        'token' => $tokenValue,
+        'tokentype' => EXTERNAL_TOKEN_PERMANENT,
+        'userid' => $admin->id,
+        'externalserviceid' => $service->id,
+        'contextid' => $context->id,
+        'creatorid' => $admin->id,
+        'timecreated' => time(),
+        'validuntil' => 0,
+        'iprestriction' => '',
+        'name' => 'EduTrack API',
+        'lastaccess' => null,
+        'sid' => null,
+        'privatetoken' => null,
+    ]);
+    $token = $DB->get_record('external_tokens', ['id' => $tokenId], '*', MUST_EXIST);
+    echo "token creado para admin (#{$admin->id})\n";
+    echo "MOODLE_WS_TOKEN={$token->token}\n";
 }
 
 $user = $DB->get_record('user', ['id' => $token->userid], '*', MUST_EXIST);

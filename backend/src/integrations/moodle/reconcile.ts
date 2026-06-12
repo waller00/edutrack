@@ -67,6 +67,12 @@ type SubjectCourseInfo = {
   courseOrientationName: string | null;
   orientationName: string | null;
 };
+type StudentSubjectTarget = {
+  subject: { id: string; name: string };
+  orientationId: string | null;
+  courseOrientationId: string | null;
+  orientationName: string | null;
+};
 
 /** Estado mutable compartido por las fases de la reconciliación. */
 type ReconcileContext = {
@@ -195,6 +201,120 @@ function subjectInfoOf(ev: AcademicEventLike, off: OfferingLite): SubjectCourseI
     courseOrientationName: ev.courseOrientation?.orientation?.name ?? null,
     orientationName: ev.orientation?.name ?? null,
   };
+}
+
+function uniqueTargets(targets: StudentSubjectTarget[]): StudentSubjectTarget[] {
+  const seen = new Set<string>();
+  const out: StudentSubjectTarget[] = [];
+  for (const target of targets) {
+    const key = `${target.subject.id}:${target.courseOrientationId ?? target.orientationId ?? "general"}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(target);
+  }
+  return out;
+}
+
+async function listStudentSubjectTargets(en: {
+  courseOffering: OfferingLite & { courseId: string; course: OfferingLite["course"] & { level?: string | null } };
+  orientationId: string | null;
+  courseOrientationId: string | null;
+  orientation: { name: string } | null;
+  courseOrientation: { orientation: { name: string } | null } | null;
+}): Promise<StudentSubjectTarget[]> {
+  const schoolYearId = en.courseOffering.schoolYear.id;
+  const courseId = en.courseOffering.courseId;
+  const level = en.courseOffering.course.level ?? null;
+  const orientationId = en.orientationId;
+  const orientationName = en.courseOrientation?.orientation?.name ?? en.orientation?.name ?? null;
+
+  const assignmentScopes: Array<Record<string, string | null>> = [
+    ...(level ? [{ level, courseId: null, orientationId: null }] : []),
+    { courseId, orientationId: null },
+    ...(orientationId ? [{ courseId, orientationId }] : []),
+  ];
+
+  const assignedSubjects = await prisma.subjectCourseAssignment.findMany({
+    where: {
+      isActive: true,
+      isOffered: true,
+      visibleInFilters: true,
+      OR: assignmentScopes,
+      schoolYearId: { in: [schoolYearId, null] },
+      subject: { isActive: true },
+    },
+    orderBy: [{ sortOrder: "asc" }, { subject: { sortOrder: "asc" } }, { subject: { name: "asc" } }],
+    select: {
+      subjectId: true,
+      orientationId: true,
+      schoolYearId: true,
+      subject: { select: { id: true, name: true } },
+    },
+  });
+
+  const bestAssignmentByScope = new Map<string, (typeof assignedSubjects)[number]>();
+  for (const assignment of assignedSubjects) {
+    const key = `${assignment.subjectId}:${assignment.orientationId ?? "general"}`;
+    const current = bestAssignmentByScope.get(key);
+    if (!current || (!current.schoolYearId && assignment.schoolYearId === schoolYearId)) {
+      bestAssignmentByScope.set(key, assignment);
+    }
+  }
+
+  const targets = Array.from(bestAssignmentByScope.values()).map((assignment) => {
+    const appliesToStudentOrientation = orientationId && assignment.orientationId === orientationId;
+    return {
+      subject: assignment.subject,
+      orientationId: appliesToStudentOrientation ? orientationId : null,
+      courseOrientationId: appliesToStudentOrientation ? en.courseOrientationId : null,
+      orientationName: appliesToStudentOrientation ? orientationName : null,
+    };
+  });
+
+  const legacySubjects = await prisma.subject.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { courseId },
+        { courseOfferingId: en.courseOffering.id },
+      ],
+    },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true },
+  });
+
+  return uniqueTargets([
+    ...targets,
+    ...legacySubjects.map((subject) => ({
+      subject,
+      orientationId: null,
+      courseOrientationId: null,
+      orientationName: null,
+    })),
+  ]);
+}
+
+async function ensureStudentSubjectCourseFor(
+  ctx: ReconcileContext,
+  target: StudentSubjectTarget,
+  offering: OfferingLite,
+): Promise<number> {
+  const scope = resolveMoodleAcademicScope({
+    schoolYearId: offering.schoolYear.id,
+    courseOfferingId: offering.id,
+    subjectId: target.subject.id,
+    orientationId: target.orientationId,
+    courseOrientationId: target.courseOrientationId,
+  });
+  if (!scope) {
+    return ensureLegacyOfferingCourse(ctx, offering);
+  }
+  return ensureSubjectCourseFor(ctx, scope, {
+    subjectName: target.subject.name,
+    offering,
+    courseOrientationName: target.courseOrientationId ? target.orientationName : null,
+    orientationName: target.orientationId ? target.orientationName : null,
+  });
 }
 
 /** Fase 1 — docentes titulares. Devuelve las claves `userId::moodleCourseId` para la revocación. */
@@ -343,36 +463,68 @@ async function revokeStaleSubstitutes(
   }
 }
 
-/** Fase 4 — estudiantes (opcional, legacy por CourseOffering; ver docs/MOODLE_INTEGRACION.md). */
+/** Fase 4 — estudiantes: asignaturas comunes + asignaturas de su orientación, con revocación. */
 async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> {
   const enrolments = await prisma.studentEnrollment.findMany({
     where: { enrollmentStatus: "ACTIVE" },
     select: {
+      id: true,
+      orientationId: true,
+      courseOrientationId: true,
+      orientation: { select: { name: true } },
+      courseOrientation: { select: { orientation: { select: { name: true } } } },
       courseOffering: {
         select: {
           id: true,
-          course: { select: { name: true, code: true } },
+          courseId: true,
+          course: { select: { name: true, code: true, level: true } },
           schoolYear: { select: { id: true, label: true, code: true } },
         },
       },
-      student: { select: { id: true, firstName: true, lastName: true, contactEmail: true } },
+      student: { select: { id: true, firstName: true, lastName: true, email: true, username: true } },
     },
   });
+  const desiredKeys = new Set<string>();
   for (const en of enrolments) {
     if (!en.courseOffering) continue;
     try {
-      const courseId = await ensureLegacyOfferingCourse(ctx, en.courseOffering);
       const moodleUserId = await ensureStudentMoodleUser({
         id: en.student.id,
         firstName: en.student.firstName,
         lastName: en.student.lastName,
-        email: en.student.contactEmail,
+        email: en.student.email,
+        username: en.student.username,
       });
-      await enrolUser(moodleUserId, courseId, ctx.roles.student);
-      ctx.summary.studentEnrolments += 1;
+      const targets = await listStudentSubjectTargets(en);
+      for (const target of targets) {
+        const courseId = await ensureStudentSubjectCourseFor(ctx, target, en.courseOffering);
+        desiredKeys.add(`${en.student.id}::${courseId}`);
+        await enrolUser(moodleUserId, courseId, ctx.roles.student);
+        await upsertEnrolmentMap({
+          userId: en.student.id,
+          moodleUserId,
+          moodleCourseId: courseId,
+          roleId: ctx.roles.student,
+          sourceType: "STUDENT_ENROLLMENT",
+          sourceId: en.id,
+        });
+        ctx.summary.studentEnrolments += 1;
+      }
     } catch (e) {
       ctx.summary.errors += 1;
       logError("inscripción estudiante", en.student.id, e);
+    }
+  }
+
+  const activeStudentMaps = await listActiveEnrolments("STUDENT_ENROLLMENT");
+  for (const m of activeStudentMaps) {
+    if (desiredKeys.has(`${m.userId}::${m.moodleCourseId}`)) continue;
+    try {
+      await unenrolUser(m.moodleUserId, m.moodleCourseId);
+      await markEnrolmentRevoked(m.id);
+    } catch (e) {
+      ctx.summary.errors += 1;
+      logError("revocación estudiante", m.userId, e);
     }
   }
 }

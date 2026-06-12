@@ -493,7 +493,7 @@ async function seedStudents() {
           documentId,
           contactPhone: `+5989${intBetween(`phone-a-${index}`, 1000000, 9999999)}`,
           tutorPhone: `+5989${intBetween(`phone-b-${index}`, 1000000, 9999999)}`,
-          contactEmail: `${firstName.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')}.${lastName
+          email: `${firstName.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')}.${lastName
             .split(' ')[0]
             .toLowerCase()
             .normalize('NFD')

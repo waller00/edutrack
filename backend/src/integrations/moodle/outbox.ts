@@ -2,6 +2,7 @@ import type { MoodleSyncTaskType } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { isMoodleIntegrationEnabled } from "./client.js";
 import { syncMoodleUserById } from "./users.js";
+import { syncMoodleStudentById } from "./student-users.js";
 
 /**
  * Outbox persistente para sincronización con Moodle.
@@ -46,6 +47,33 @@ export async function enqueueUserUpsert(userId: string): Promise<void> {
   }
 }
 
+/** Encola (idempotente por `dedupeKey`) la cuenta Moodle de un estudiante. No bloquea ni lanza. */
+export async function enqueueStudentUserUpsert(studentId: string): Promise<void> {
+  if (!isMoodleIntegrationEnabled()) return;
+  const dedupeKey = `student:${studentId}`;
+  try {
+    await prisma.moodleSyncTask.upsert({
+      where: { dedupeKey },
+      create: {
+        type: "STUDENT_USER_UPSERT",
+        dedupeKey,
+        payload: { studentId },
+      },
+      // Si ya existe (incluso DONE/FAILED), reábrelo: el dato local cambió y debe re-sincronizarse.
+      update: {
+        status: "PENDING",
+        attempts: 0,
+        lastError: null,
+        runAfter: new Date(),
+        lockedAt: null,
+        payload: { studentId },
+      },
+    });
+  } catch (e) {
+    console.error("[moodle] enqueueStudentUserUpsert falló:", studentId, e);
+  }
+}
+
 async function runTask(type: MoodleSyncTaskType, payload: unknown): Promise<void> {
   const data = (payload ?? {}) as Record<string, unknown>;
   switch (type) {
@@ -53,6 +81,12 @@ async function runTask(type: MoodleSyncTaskType, payload: unknown): Promise<void
       const userId = String(data.userId ?? "");
       if (!userId) throw new Error("MOODLE_TASK_NO_USER_ID");
       await syncMoodleUserById(userId);
+      return;
+    }
+    case "STUDENT_USER_UPSERT": {
+      const studentId = String(data.studentId ?? "");
+      if (!studentId) throw new Error("MOODLE_TASK_NO_STUDENT_ID");
+      await syncMoodleStudentById(studentId);
       return;
     }
     default:

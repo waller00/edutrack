@@ -31,6 +31,8 @@ const {
     substitution: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
     studentEnrollment: { findMany: vi.fn() },
+    subjectCourseAssignment: { findMany: vi.fn() },
+    subject: { findMany: vi.fn() },
   },
 }));
 
@@ -60,7 +62,8 @@ import { reconcileMoodle } from "./reconcile.js";
 const schoolYear = { id: "sy1", label: "Ciclo 2026", code: 2026 };
 const offering = {
   id: "off1",
-  course: { name: "4to EMS", code: "4EMS" },
+  courseId: "course1",
+  course: { name: "4to EMS", code: "4EMS", level: "EMS" },
   schoolYear,
 };
 
@@ -138,6 +141,8 @@ beforeEach(() => {
   prismaMock.event.findMany.mockReset().mockResolvedValue([]);
   prismaMock.substitution.findMany.mockReset().mockResolvedValue([]);
   prismaMock.studentEnrollment.findMany.mockReset().mockResolvedValue([]);
+  prismaMock.subjectCourseAssignment.findMany.mockReset().mockResolvedValue([]);
+  prismaMock.subject.findMany.mockReset().mockResolvedValue([]);
   prismaMock.user.findUnique.mockReset().mockImplementation((args: { where: { id: string } }) =>
     Promise.resolve({ moodleUserId: moodleUserByEduId[args.where.id] ?? null }),
   );
@@ -359,16 +364,71 @@ describe("reconcileMoodle: resiliencia y estudiantes", () => {
     expect(summary.teacherEnrolments).toBe(0);
   });
 
-  it("con syncStudents inscribe estudiantes en el curso legacy por CourseOffering", async () => {
+  it("con syncStudents inscribe estudiantes en asignaturas comunes y de su orientación", async () => {
     prismaMock.studentEnrollment.findMany.mockResolvedValue([
       {
+        id: "en1",
+        orientationId: "ori1",
+        courseOrientationId: "co1",
+        orientation: { name: "Científico" },
+        courseOrientation: { orientation: { name: "Científico" } },
         courseOffering: offering,
-        student: { id: "s1", firstName: "Ana", lastName: "Díaz", contactEmail: null },
+        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: null, username: null },
+      },
+    ]);
+    prismaMock.subjectCourseAssignment.findMany.mockResolvedValue([
+      {
+        subjectId: "mat",
+        orientationId: null,
+        schoolYearId: null,
+        subject: { id: "mat", name: "Matemática" },
+      },
+      {
+        subjectId: "bio",
+        orientationId: "ori1",
+        schoolYearId: "sy1",
+        subject: { id: "bio", name: "Biología" },
       },
     ]);
     const summary = await reconcileMoodle({ syncStudents: true });
-    expect(ensureCourseMock).toHaveBeenCalled();
-    expect(enrolUserMock).toHaveBeenCalledWith(7000, 999, 5);
-    expect(summary.studentEnrolments).toBe(1);
+    expect(ensureSubjectCourseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idnumber: "et-subject-offering-off1-mat",
+        fullname: "Matemática - 4to EMS (2026)",
+      }),
+    );
+    expect(ensureSubjectCourseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idnumber: "et-subject-offering-off1-bio-corientation-co1",
+        fullname: "Biología - 4to EMS - Científico (2026)",
+      }),
+    );
+    expect(ensureCourseMock).not.toHaveBeenCalled();
+    expect(enrolUserMock).toHaveBeenCalledWith(7000, courseIdFor("et-subject-offering-off1-mat"), 5);
+    expect(enrolUserMock).toHaveBeenCalledWith(7000, courseIdFor("et-subject-offering-off1-bio-corientation-co1"), 5);
+    expect(upsertEnrolmentMapMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceType: "STUDENT_ENROLLMENT", sourceId: "en1" }),
+    );
+    expect(summary.studentEnrolments).toBe(2);
+  });
+
+  it("con syncStudents revoca asignaturas que ya no corresponden al estudiante", async () => {
+    listActiveEnrolmentsMock.mockResolvedValue([
+      {
+        id: "map-old",
+        userId: "s1",
+        moodleUserId: 7000,
+        moodleCourseId: 1234,
+        roleId: 5,
+        sourceType: "STUDENT_ENROLLMENT",
+        sourceId: "en-old",
+        startsAt: null,
+        endsAt: null,
+      },
+    ]);
+    const summary = await reconcileMoodle({ syncStudents: true });
+    expect(unenrolUserMock).toHaveBeenCalledWith(7000, 1234);
+    expect(markRevokedMock).toHaveBeenCalledWith("map-old");
+    expect(summary.errors).toBe(0);
   });
 });

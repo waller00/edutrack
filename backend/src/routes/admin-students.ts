@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { assertCourseOfferedInSchoolYear, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
+import { generateUniqueUsername } from '../services/usernames.js'
+import { enqueueStudentUserUpsert } from '../integrations/moodle/outbox.js'
 
 const r = Router()
 
@@ -82,7 +84,18 @@ const studentWriteBaseSchema = z.object({
   schoolYearId: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().uuid().optional()),
   contactPhone: optionalTrimmedString(40),
   tutorPhone: optionalTrimmedString(40),
-  contactEmail: optionalTrimmedString(200),
+  username: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .toLowerCase()
+      .min(3)
+      .max(30)
+      .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, 'Usuario inválido (use letras, números, puntos o guiones)')
+      .optional(),
+  ),
+  email: z.preprocess(emptyToUndefined, z.string().trim().toLowerCase().email('Email inválido').max(200).optional()),
   address: optionalTrimmedString(500),
   healthCardExpiresAt: optionalDateString,
   liceoAccessNotes: z.preprocess(
@@ -248,7 +261,8 @@ function serializeStudentDetail(row: {
   course: { id: string; name: string; code: string | null } | null
   contactPhone: string | null
   tutorPhone: string | null
-  contactEmail: string | null
+  username: string | null
+  email: string | null
   address: string | null
   healthCardExpiresAt: Date | null
   liceoAccessNotes: string | null
@@ -293,7 +307,8 @@ function serializeStudentDetail(row: {
     course: row.course,
     contactPhone: row.contactPhone,
     tutorPhone: row.tutorPhone,
-    contactEmail: row.contactEmail,
+    username: row.username,
+    email: row.email,
     address: row.address,
     healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
     liceoAccessNotes: row.liceoAccessNotes,
@@ -623,14 +638,21 @@ r.post('/', async (req, res) => {
     }
 
     const created = await prisma.$transaction(async (tx) => {
+      const username =
+        body.username ??
+        (await generateUniqueUsername(body.firstName, body.lastName, async (candidate) => {
+          const exist = await (tx.student as any).findUnique({ where: { username: candidate }, select: { id: true } })
+          return Boolean(exist)
+        }))
       const s = await tx.student.create({
         data: {
           firstName: body.firstName,
           lastName: body.lastName,
           documentId: body.documentId ?? null,
+          username,
           contactPhone: body.contactPhone ?? null,
           tutorPhone: body.tutorPhone ?? null,
-          contactEmail: body.contactEmail ?? null,
+          email: body.email ?? null,
           address: body.address ?? null,
           healthCardExpiresAt: health ?? null,
           liceoAccessNotes: body.liceoAccessNotes ?? null,
@@ -697,6 +719,7 @@ r.post('/', async (req, res) => {
     })
 
     const createdAny = created as any
+    if (createdAny.email) void enqueueStudentUserUpsert(created.id)
     const enrollment = createdAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const createdTuitionMonths = (await findTuitionMonths([created.id]))[created.id] ?? []
@@ -713,6 +736,9 @@ r.post('/', async (req, res) => {
     }))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
+    if (code === 'P2002') {
+      return res.status(409).json({ message: 'Ese nombre de usuario ya está en uso' })
+    }
     if (code === 'P2003') {
       return res.status(400).json({ message: 'Referencia inválida (curso u otro vínculo)' })
     }
@@ -735,7 +761,10 @@ r.put('/:id', async (req, res) => {
     return res.status(400).json({ message: 'Sin cambios' })
   }
   try {
-    const existing = await (prisma.student as any).findUnique({ where: { id }, select: { id: true } })
+    const existing = await (prisma.student as any).findUnique({
+      where: { id },
+      select: { id: true, firstName: true, lastName: true, username: true, email: true },
+    })
     if (!existing) return res.status(404).json({ message: 'Estudiante no encontrado' })
 
     let nextCourseOfferingId: string | null | undefined = undefined
@@ -792,7 +821,21 @@ r.put('/:id', async (req, res) => {
     }
     if (body.contactPhone !== undefined) data.contactPhone = body.contactPhone ?? null
     if (body.tutorPhone !== undefined) data.tutorPhone = body.tutorPhone ?? null
-    if (body.contactEmail !== undefined) data.contactEmail = body.contactEmail ?? null
+    if (body.username !== undefined) data.username = body.username ?? null
+    if (body.email !== undefined) data.email = body.email ?? null
+    // Alta tardía: si el alumno gana email y aún no tiene username, generarlo para
+    // habilitar su cuenta Moodle sin que el admin tenga que inventarlo.
+    const finalEmail = body.email !== undefined ? body.email ?? null : existing.email
+    if (finalEmail && !existing.username && body.username === undefined) {
+      data.username = await generateUniqueUsername(
+        body.firstName ?? existing.firstName,
+        body.lastName ?? existing.lastName,
+        async (candidate) => {
+          const exist = await (prisma.student as any).findUnique({ where: { username: candidate }, select: { id: true } })
+          return Boolean(exist)
+        },
+      )
+    }
     if (body.address !== undefined) data.address = body.address ?? null
     if (body.healthCardExpiresAt !== undefined) {
       data.healthCardExpiresAt = body.healthCardExpiresAt
@@ -888,6 +931,12 @@ r.put('/:id', async (req, res) => {
     })
 
     const updatedAny = updated as any
+    const accountChanged =
+      updatedAny.email !== existing.email ||
+      updatedAny.username !== existing.username ||
+      updatedAny.firstName !== existing.firstName ||
+      updatedAny.lastName !== existing.lastName
+    if (updatedAny.email && accountChanged) void enqueueStudentUserUpsert(updated.id)
     const enrollment = updatedAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const updatedTuitionMonths = (await findTuitionMonths([updated.id]))[updated.id] ?? []
@@ -904,6 +953,9 @@ r.put('/:id', async (req, res) => {
     }))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
+    if (code === 'P2002') {
+      return res.status(409).json({ message: 'Ese nombre de usuario ya está en uso' })
+    }
     if (code === 'P2003') {
       return res.status(400).json({ message: 'Referencia inválida (curso u otro vínculo)' })
     }

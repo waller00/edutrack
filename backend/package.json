@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "db:optimize": "prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260603120000_database_query_indexes/migration.sql",
+    "db:optimize": "prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260612120000_student_moodle_account/migration.sql && prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260603120000_database_query_indexes/migration.sql",
     "start": "node --import ./dist/instrument.js dist/server.js",
     "prisma:studio": "prisma studio",
     "seed": "node prisma/seed-all.mjs",

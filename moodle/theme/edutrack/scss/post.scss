@@ -528,6 +528,48 @@ textarea:focus {
   font-weight: 600;
 }
 
+.pagelayout-login .login-form,
+.pagelayout-login .login-form-username,
+.pagelayout-login .login-form-password,
+.pagelayout-login .login-form-submit,
+.pagelayout-login .login-form .form-control,
+.pagelayout-login .login-form .input-group,
+.pagelayout-login .login-form .toggle-sensitive-wrapper {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.pagelayout-login .login-form {
+  display: block;
+}
+
+.pagelayout-login .login-form .form-control,
+.pagelayout-login .login-form .btn[type="submit"] {
+  min-height: 3rem;
+}
+
+.pagelayout-login .login-form #username,
+.pagelayout-login .login-form input[name="username"] {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  flex: 1 1 100% !important;
+}
+
+.pagelayout-login .login-form .toggle-sensitive-wrapper {
+  display: flex;
+  flex-wrap: nowrap;
+}
+
+.pagelayout-login .login-form .toggle-sensitive-wrapper .form-control {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pagelayout-login .login-form .toggle-sensitive-wrapper .toggle-sensitive-btn {
+  flex: 0 0 auto;
+}
+
 .pagelayout-login .edutrack-hide-login-extra,
 .pagelayout-login .login-signup,
 .pagelayout-login .login-guest,
