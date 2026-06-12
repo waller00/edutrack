@@ -116,6 +116,8 @@ function applyQuestionKeywordEnrichments(parsed: LlmIntentPayload, question: str
   if (parsed.intent === 'ABSENCES_SUMMARY') {
     const wantsCount =
       new RegExp(`\\b(por\\s+persona|por\\s+(?:${ROLE_PERSON_WORD})|conteo|ranking|top\\s+\\d+)\\b`).test(t) ||
+      /\bcuant[ao]s\s+(veces|faltas|ausencias|inasistencias)\b/.test(t) ||
+      /\b(cantidad|numero|total)\s+de\s+(veces|faltas|ausencias|inasistencias)\b/.test(t) ||
       (new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) &&
         /\b(mas|m[aá]s|mayor|mayores)\b/.test(t))
     if (wantsCount && params.incidentViewMode == null) {

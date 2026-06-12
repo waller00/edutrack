@@ -20,10 +20,48 @@ const MONTH_WORD: Record<string, number> = {
 
 const ROLE_PERSON_WORD = String.raw`docentes?|profesor(?:es)?|profesora(?:s)?|profes?|maestros?|maestras?|educadores?|tutores?|funcionarios?|personal|staff|administrativos?|adscriptos?|bedeles?`
 const ABSENCE_WORD = String.raw`falt(?:[oó]|a|an|as|e|aron|ado)?|ausent[oó]?|ausentes?|ausencias?|no\s+show|inasistencias?|inasisten|no\s+vino|no\s+lleg[oó]?`
-const LATE_WORD = String.raw`tardanzas?|tard[ií]as?|atrasos?|retrasos?|llegadas?\s+tarde|entrada\s+tarde|lleg[oó]\s+tarde`
+const LATE_WORD = String.raw`tardanzas?|tard[ií]as?|atrasos?|retrasos?|llegadas?\s+tarde|entrada\s+tarde|lleg(?:[oó]|aron|an)\s+tarde`
 const EARLY_EXIT_WORD = String.raw`salidas?\s+anticipad[ao]s?|retiros?\s+tempran[ao]s?|se\s+retir[oó]\s+antes|se\s+fue\s+antes`
 const EVENT_WORD = String.raw`eventos?|clases?|turnos?|jornadas?|reuniones?|actividades?`
 const BIOMETRIC_WORD = String.raw`biometric[oa]s?|biometria|reloj(?:es)?|marcador(?:es)?|terminal(?:es)?|lectores?`
+
+/**
+ * Señales de dominios que tienen informe propio (faltas, tardanzas, horas, licencias,
+ * incidencias, eventos, biométrico, auditoría, asistencias). Si alguna aparece, palabras
+ * como "usuarios" o "personal" solo nombran a las personas de esa pregunta y el listado
+ * administrativo de cuentas NO corresponde: la consulta debe enrutar al dominio específico.
+ * Regla de precedencia única para que la clasificación no dependa del orden de las ramas.
+ */
+const NON_USER_DOMAIN_CUE = new RegExp(
+  [
+    String.raw`\b(?:${ABSENCE_WORD})\b`,
+    String.raw`\b(?:${LATE_WORD})\b`,
+    String.raw`\b(?:${EARLY_EXIT_WORD})\b`,
+    String.raw`\b(?:${EVENT_WORD})\b`,
+    String.raw`\b(?:${BIOMETRIC_WORD})\b`,
+    String.raw`\bhoras?\b`,
+    String.raw`\blicencias?\b|\bpermiso\s+(?:medico|laboral)\b`,
+    String.raw`\bincidencias?\b|\bno\s+show\b`,
+    String.raw`\basistencias?\b|\bmarcas?\b|\bmarcaron\b|\bficharon\b`,
+    String.raw`\bauditoria\b`,
+  ].join('|'),
+)
+
+/**
+ * Pedidos de conteo/ranking por persona en cualquier fraseo: "quién faltó más",
+ * "cantidad de veces", "cuántas faltas", "conteo por docente", "top 5".
+ */
+function wantsCountByUser(t: string): boolean {
+  return (
+    /\branking\b/.test(t) ||
+    /\btop\s+\d+\b/.test(t) ||
+    /\b(por\s+persona|por\s+docente|conteo)\b/.test(t) ||
+    /\bcuant[ao]s\s+(veces|faltas|ausencias|inasistencias|tardanzas)\b/.test(t) ||
+    /\b(cantidad|numero|total)\s+de\s+(veces|faltas|ausencias|inasistencias|tardanzas)\b/.test(t) ||
+    (new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) &&
+      /\b(mas|m[aá]s|mayor|mayores|tiene\s+mas)\b/.test(t))
+  )
+}
 
 function norm(s: string): string {
   const normalized = s
@@ -143,13 +181,20 @@ export function heuristicIntentFromQuestion(question: string, defaultYear = Date
     /^(dame|lista|listado|mostrar|ver|usuarios?|todos?\s+los?\s+usuarios?)$/i.test(t.trim()) ||
     /\b(todos?\s+los?\s+usuarios?|usuarios?\s+del\s+sistema|listado\s+de\s+usuarios?)\b/.test(t)
 
-  if (
+  const usersLikeRequest =
     usersListRequest ||
     usersStatusRequest ||
     genericUsers ||
     docExpireStandalone ||
     /^usuarios?\s*$/i.test(t.trim())
-  ) {
+
+  /**
+   * El listado de cuentas solo aplica si la pregunta es sobre las cuentas en sí.
+   * "dame los usuarios que faltaron en junio" menciona usuarios pero pregunta por
+   * faltas: la señal de dominio gana siempre y la consulta sigue hacia las ramas
+   * específicas (o al NL→SQL si ninguna matchea).
+   */
+  if (usersLikeRequest && !NON_USER_DOMAIN_CUE.test(t)) {
     let scope: NonNullable<LlmIntentPayload['params']['userAdminScope']> = 'ACTIVE_RECENT'
     if (/\b(pendientes?|aprobar|aprobacion)\b/.test(t)) scope = 'PENDING_APPROVAL'
     else if (/\b(inactiv|baja|desactiv)\b/.test(t)) scope = 'INACTIVE'
@@ -168,13 +213,7 @@ export function heuristicIntentFromQuestion(question: string, defaultYear = Date
    */
   const mentionsIncidents = /\bincidencias?\b/.test(t) || /\bno\s+show\b/.test(t)
   if (!mentionsIncidents && new RegExp(`\\b(?:${ABSENCE_WORD})\\b`).test(t)) {
-    const wantsRanking =
-      /\branking\b/.test(t) ||
-      /\btop\s+\d+\b/.test(t) ||
-      (new RegExp(`\\b(quien|que\\s+(?:${ROLE_PERSON_WORD})|(?:${ROLE_PERSON_WORD})\\s+que|el\\s+(?:${ROLE_PERSON_WORD}))\\b`).test(t) &&
-        /\b(mas|m[aá]s|mayor|mayores|tiene\s+mas)\b/.test(t)) ||
-      /\b(por\s+persona|por\s+docente|conteo|cuantas\s+faltas)\b/.test(t)
-    const viewParams = wantsRanking ? { incidentViewMode: 'COUNT_BY_USER' as const } : {}
+    const viewParams = wantsCountByUser(t) ? { incidentViewMode: 'COUNT_BY_USER' as const } : {}
     const roleScope = personRoleScopeFromText(t)
     const roleParams = roleScope ? { personRoleScope: roleScope } : {}
 

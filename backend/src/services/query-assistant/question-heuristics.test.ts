@@ -91,6 +91,42 @@ describe("heuristicIntentFromQuestion", () => {
     expect(r?.params.personRoleScope).toBe("TEACHER");
   });
 
+  it("usuarios que faltaron + cantidad de veces → faltas con conteo por persona, no listado de cuentas", () => {
+    const r = heuristicIntentFromQuestion(
+      "dame los usuarios que faltaron en junio y la cantidad de veces que lo hicieron",
+    );
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.month).toBe(6);
+    expect(r?.params.incidentViewMode).toBe("COUNT_BY_USER");
+    expect(r?.params.personRoleScope).toBeUndefined();
+  });
+
+  it("usuarios que faltaron en junio (sin conteo) → listado de faltas", () => {
+    const r = heuristicIntentFromQuestion("usuarios que faltaron en junio");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.month).toBe(6);
+    expect(r?.params.incidentViewMode).toBeUndefined();
+  });
+
+  it("cuántas veces faltó cada docente en junio → conteo de faltas TEACHER", () => {
+    const r = heuristicIntentFromQuestion("¿cuántas veces faltó cada docente en junio?");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.month).toBe(6);
+    expect(r?.params.incidentViewMode).toBe("COUNT_BY_USER");
+    expect(r?.params.personRoleScope).toBe("TEACHER");
+  });
+
+  it("usuarios que llegaron tarde en junio → tardanzas, no listado de cuentas", () => {
+    const r = heuristicIntentFromQuestion("usuarios que llegaron tarde en junio");
+    expect(r?.intent).toBe("ATTENDANCE_LATE_SUMMARY");
+    expect(r?.params.month).toBe(6);
+  });
+
+  it("dame los usuarios con licencias → no es listado de cuentas (cae a NL→SQL)", () => {
+    const r = heuristicIntentFromQuestion("dame los usuarios con licencias");
+    expect(r?.intent).not.toBe("USERS_ADMIN_SNAPSHOT");
+  });
+
   it("incidencias de ausencia siguen yendo a incidencias", () => {
     const r = heuristicIntentFromQuestion("incidencias de ausencia docente en mayo");
     expect(r?.intent).toBe("ATTENDANCE_INCIDENTS_SUMMARY");
