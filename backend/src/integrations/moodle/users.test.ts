@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { moodleRestMock, enabledMock, prismaMock } = vi.hoisted(() => ({
+const { moodleRestMock, enabledMock, authMethodMock, prismaMock } = vi.hoisted(() => ({
   moodleRestMock: vi.fn(),
   enabledMock: vi.fn(),
+  authMethodMock: vi.fn(() => "manual"),
   prismaMock: {
     user: { update: vi.fn(), findUnique: vi.fn() },
   },
@@ -11,7 +12,7 @@ const { moodleRestMock, enabledMock, prismaMock } = vi.hoisted(() => ({
 vi.mock("./client.js", () => ({
   moodleRest: moodleRestMock,
   isMoodleIntegrationEnabled: enabledMock,
-  moodleUserAuthMethod: () => "manual",
+  moodleUserAuthMethod: authMethodMock,
 }));
 vi.mock("../../db/prisma.js", () => ({ prisma: prismaMock }));
 
@@ -28,6 +29,7 @@ const baseUser = {
 beforeEach(() => {
   moodleRestMock.mockReset();
   enabledMock.mockReset().mockReturnValue(true);
+  authMethodMock.mockReset().mockReturnValue("manual");
   prismaMock.user.update.mockReset().mockResolvedValue({});
   prismaMock.user.findUnique.mockReset();
 });
@@ -60,7 +62,7 @@ describe("syncMoodleUser", () => {
     expect(moodleRestMock).not.toHaveBeenCalledWith("core_user_create_users", expect.anything());
   });
 
-  it("si existe por email pero sin idnumber, NO duplica y devuelve null", async () => {
+  it("si existe por email sin idnumber EduTrack, vincula la cuenta OAuth existente", async () => {
     moodleRestMock.mockImplementation(async (fn: string, params: Record<string, string>) => {
       if (fn === "core_user_get_users_by_field" && params.field === "idnumber") return [];
       if (fn === "core_user_get_users_by_field" && params.field === "email") return [{ id: 77 }];
@@ -69,8 +71,19 @@ describe("syncMoodleUser", () => {
 
     const id = await syncMoodleUser(baseUser);
 
-    expect(id).toBeNull();
+    expect(id).toBe(77);
+    expect(moodleRestMock).toHaveBeenCalledWith(
+      "core_user_update_users",
+      expect.objectContaining({
+        "users[0][id]": "77",
+        "users[0][idnumber]": baseUser.id,
+      }),
+    );
     expect(moodleRestMock).not.toHaveBeenCalledWith("core_user_create_users", expect.anything());
+    expect(prismaMock.user.update).toHaveBeenCalledWith({
+      where: { id: baseUser.id },
+      data: { moodleUserId: 77 },
+    });
   });
 
   it("si no existe, crea el usuario espejo y persiste el nuevo id", async () => {
@@ -91,10 +104,27 @@ describe("syncMoodleUser", () => {
     expect(params["users[0][idnumber]"]).toBe(baseUser.id);
     expect(params["users[0][firstname]"]).toBe("Ana");
     expect(params["users[0][lastname]"]).toBe("Pérez");
+    expect(params["users[0][confirmed]"]).toBeUndefined();
     expect(prismaMock.user.update).toHaveBeenCalledWith({
       where: { id: baseUser.id },
       data: { moodleUserId: 99 },
     });
+  });
+
+  it("marca confirmed=1 al crear usuarios oauth2", async () => {
+    authMethodMock.mockReturnValue("oauth2");
+    moodleRestMock.mockImplementation(async (fn: string) => {
+      if (fn === "core_user_get_users_by_field") return [];
+      if (fn === "core_user_create_users") return [{ id: 100 }];
+      return [];
+    });
+
+    await syncMoodleUser(baseUser);
+
+    const createCall = moodleRestMock.mock.calls.find((c) => c[0] === "core_user_create_users");
+    const params = createCall![1] as Record<string, string>;
+    expect(params["users[0][auth]"]).toBe("oauth2");
+    expect(params["users[0][confirmed]"]).toBe("1");
   });
 
   it("lanza si la creación no devuelve un id (la outbox reintentará)", async () => {
