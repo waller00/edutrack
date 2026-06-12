@@ -1,0 +1,16 @@
+# Overlay opcional para desarrollo local: monta el tema desde el repo.
+#
+# Usalo DESPUÉS de la primera instalación de Moodle (cuando ya existe config.php).
+# En la primera vez: solo docker compose -f docker-compose.moodle.yml up -d
+# y luego ./scripts/moodle-apply-edutrack-theme.sh
+#
+# A partir de ahí, para ver cambios del tema al instante con git pull:
+#   docker compose -f docker-compose.moodle.yml -f docker-compose.moodle.local.yml up -d
+#   docker exec -u daemon edutrack-moodle-1 php /bitnami/moodle/admin/cli/purge_caches.php
+#
+# No hace falta .env.moodle en local (localhost:8080 es el default del compose principal).
+
+services:
+  moodle:
+    volumes:
+      - ./moodle/theme/edutrack:/bitnami/moodle/theme/edutrack:ro

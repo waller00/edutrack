@@ -477,22 +477,38 @@ textarea:focus {
   font-weight: 800;
 }
 
-.login-container::before,
-.loginbox::before {
-  display: block;
-  width: 3rem;
-  height: 3rem;
-  margin: 0 auto 1rem;
-  border-radius: .85rem;
-  background:
-    linear-gradient(135deg, rgba(16, 185, 129, .22), rgba(16, 185, 129, .08)),
-    url([[pix:theme|logo]]) center / 2rem 2rem no-repeat;
-  content: "";
-}
-
 .pagelayout-login .edutrack-login-brand {
   margin: -.25rem 0 1.15rem;
   text-align: center;
+}
+
+.pagelayout-login .edutrack-login-brand-logo {
+  display: block;
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto .75rem;
+  padding: .35rem;
+  border-radius: .85rem;
+  background: linear-gradient(135deg, rgba(16, 185, 129, .22), rgba(16, 185, 129, .08));
+}
+
+.pagelayout-login .login-identityprovider-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: .55rem !important;
+  border-color: var(--et-border) !important;
+  background: var(--et-green-50) !important;
+  color: var(--et-green-800) !important;
+  font-weight: 600 !important;
+}
+
+.pagelayout-login .login-identityprovider-btn img {
+  display: block;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .pagelayout-login .edutrack-login-brand strong {

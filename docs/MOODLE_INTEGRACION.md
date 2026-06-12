@@ -114,6 +114,7 @@ En el servicio externo (Administración > Servidor > Servicios web > Servicios e
 ```
 core_user_get_users_by_field
 core_user_create_users
+core_user_update_users
 core_course_get_categories
 core_course_create_categories
 core_course_get_courses_by_field
@@ -173,8 +174,35 @@ haya contraseñas divergentes:
    matcheo por email.
 4. Poné `MOODLE_USER_AUTH=oauth2` para que los usuarios espejo se creen con ese método.
 
+Tras instalar Moodle o si la API responde **403 vacío**, ejecutá:
+
+```bash
+./scripts/moodle-config-webservices.sh
+./scripts/moodle-config-auth-email.sh
+```
+
+El primero activa REST, autoriza al usuario del token y agrega las funciones del servicio EduTrack.
+El segundo alinea OAuth/SMTP (sin re-confirmar correo en login EduTrack).
+
 El emparejamiento es por **email**, que EduTrack ya provisiona; así el docente entra a Moodle
 con su cuenta de Keycloak sin gestionar credenciales aparte.
+
+**Confirmación de correo:** si el emisor OAuth2 (Keycloak) tiene `requireconfirmation=1`, Moodle
+crea cuentas con `confirmed=0` y exige un mail que Moodle mismo envía (requiere SMTP). Eso no
+tiene sentido cuando el usuario ya verificó el correo en EduTrack/Keycloak. Ejecutá una vez:
+
+```bash
+./scripts/moodle-config-auth-email.sh
+```
+
+Ese script:
+- desactiva la confirmación extra en el emisor OAuth2 (`requireconfirmation=0`);
+- confirma usuarios `oauth2` que quedaron pendientes;
+- configura el SMTP de Moodle con las mismas variables `SMTP_*` que usa EduTrack (para login
+  `email` y otros avisos de Moodle).
+
+Los usuarios espejo creados por la integración con `MOODLE_USER_AUTH=oauth2` se provisionan con
+`confirmed=1`.
 
 > Nota: el SSO es configuración de Moodle/Keycloak; EduTrack sólo provisiona el usuario y fija
 > el método de auth. No hay forma de automatizarlo enteramente desde el backend.
