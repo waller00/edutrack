@@ -7,6 +7,7 @@ import {
   moodleStudentRoleId,
   moodleSubstituteTeacherRoleId,
   moodleTeacherRoleId,
+  moodlePublicUrl,
   moodleToken,
   moodleUserAuthMethod,
 } from "./client.js";
@@ -20,6 +21,7 @@ const MOODLE_ENV_KEYS = [
   "MOODLE_ROLE_SUBSTITUTE_TEACHER_ID",
   "MOODLE_ROOT_CATEGORY_ID",
   "MOODLE_USER_AUTH",
+  "MOODLE_PUBLIC_URL",
 ] as const;
 
 const saved: Record<string, string | undefined> = {};
@@ -86,6 +88,16 @@ describe("moodle client config", () => {
   it("un override no numérico cae al default", () => {
     process.env.MOODLE_ROLE_TEACHER_ID = "abc";
     expect(moodleTeacherRoleId()).toBe(3);
+  });
+
+  it("moodlePublicUrl exige MOODLE_PUBLIC_URL y NO cae a la URL interna", () => {
+    // Sin la variable explícita devuelve null aunque MOODLE_BASE_URL esté seteada
+    // (evita mandar emails con links a la URL interna de Docker).
+    process.env.MOODLE_BASE_URL = "http://moodle:8080";
+    expect(moodlePublicUrl()).toBeNull();
+
+    process.env.MOODLE_PUBLIC_URL = "https://moodle.edutrack-uy.com/";
+    expect(moodlePublicUrl()).toBe("https://moodle.edutrack-uy.com");
   });
 
   it("el rol suplente reutiliza el rol titular si no se configura", () => {
