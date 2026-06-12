@@ -431,4 +431,44 @@ describe("reconcileMoodle: resiliencia y estudiantes", () => {
     expect(markRevokedMock).toHaveBeenCalledWith("map-old");
     expect(summary.errors).toBe(0);
   });
+
+  it("NO revoca los accesos de un estudiante cuyo procesamiento falló este run", async () => {
+    // Alumno activo cuya creación de usuario Moodle lanza un error transitorio.
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([
+      {
+        id: "en1",
+        orientationId: null,
+        courseOrientationId: null,
+        orientation: null,
+        courseOrientation: null,
+        courseOffering: offering,
+        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: null, username: null },
+      },
+    ]);
+    ensureStudentMock.mockRejectedValue(new Error("MOODLE_HTTP_503"));
+    // Tiene una inscripción activa previa que NO debe tocarse por un fallo transitorio.
+    listActiveEnrolmentsMock.mockImplementation((src: string) =>
+      Promise.resolve(
+        src === "STUDENT_ENROLLMENT"
+          ? [
+              {
+                id: "map-s1",
+                userId: "s1",
+                moodleUserId: 7000,
+                moodleCourseId: 1234,
+                roleId: 5,
+                sourceType: "STUDENT_ENROLLMENT",
+                sourceId: "en1",
+                startsAt: null,
+                endsAt: null,
+              },
+            ]
+          : [],
+      ),
+    );
+    const summary = await reconcileMoodle({ syncStudents: true });
+    expect(summary.errors).toBe(1);
+    expect(unenrolUserMock).not.toHaveBeenCalled();
+    expect(markRevokedMock).not.toHaveBeenCalled();
+  });
 });

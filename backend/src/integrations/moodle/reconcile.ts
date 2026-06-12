@@ -485,6 +485,9 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
     },
   });
   const desiredKeys = new Set<string>();
+  // Alumnos cuyo procesamiento lanzó: no deben revocarse sus accesos por un fallo transitorio
+  // (un hipo de Moodle no debe borrar inscripciones válidas, que arrastra notas/entregas).
+  const failedStudentIds = new Set<string>();
   for (const en of enrolments) {
     if (!en.courseOffering) continue;
     try {
@@ -511,6 +514,7 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
         ctx.summary.studentEnrolments += 1;
       }
     } catch (e) {
+      failedStudentIds.add(en.student.id);
       ctx.summary.errors += 1;
       logError("inscripción estudiante", en.student.id, e);
     }
@@ -519,6 +523,9 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
   const activeStudentMaps = await listActiveEnrolments("STUDENT_ENROLLMENT");
   for (const m of activeStudentMaps) {
     if (desiredKeys.has(`${m.userId}::${m.moodleCourseId}`)) continue;
+    // El alumno falló este run: conservar su acceso hasta que se pueda recalcular bien.
+    // Los egresados/transferidos ni aparecen en `enrolments`, así que sí se revocan.
+    if (failedStudentIds.has(m.userId)) continue;
     try {
       await unenrolUser(m.moodleUserId, m.moodleCourseId);
       await markEnrolmentRevoked(m.id);

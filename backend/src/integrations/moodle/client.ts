@@ -62,13 +62,16 @@ export function moodleUserAuthMethod(): string {
 }
 
 /**
- * URL pública de Moodle para links en emails (`MOODLE_PUBLIC_URL`). Cae en `MOODLE_BASE_URL`
- * porque en Docker la URL de conexión interna puede diferir del wwwroot que ve el alumno.
+ * URL pública de Moodle para links en emails al alumno (`MOODLE_PUBLIC_URL`).
+ *
+ * NO cae en `MOODLE_BASE_URL`: en Docker esa es la URL interna (`http://moodle:8080`), que
+ * produciría links inservibles en el correo. Si no está configurada devolvemos `null` para que
+ * el envío falle de forma visible (tarea FAILED con error claro) en vez de mandar links rotos.
+ * En local hay que setear `MOODLE_PUBLIC_URL=http://localhost:8080`; en prod la URL pública HTTPS.
  */
 export function moodlePublicUrl(): string | null {
   const raw = process.env.MOODLE_PUBLIC_URL?.trim();
-  if (raw) return raw.replace(/\/+$/, "");
-  return moodleBaseUrl();
+  return raw ? raw.replace(/\/+$/, "") : null;
 }
 
 /** POST application/x-www-form-urlencoded; opcionalmente fuerza Host. */
