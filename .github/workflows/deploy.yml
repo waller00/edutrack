@@ -101,6 +101,7 @@ jobs:
             bash scripts/keycloak-apply-realm-settings.sh
             compose_recreate_services $CF auth web
             bash scripts/keycloak-apply-realm-settings.sh
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/verify-auth-keycloak-network.sh
             echo "EduTrack actualizado en TESTING"
 
   deploy-production:
@@ -169,6 +170,7 @@ jobs:
             compose_recreate_services $CF web auth
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/verify-auth-keycloak-network.sh
             echo "EduTrack actualizado en PRODUCCION"
 
   deploy-testing-manual:
@@ -233,6 +235,7 @@ jobs:
             bash scripts/keycloak-apply-realm-settings.sh
             compose_recreate_services $CF auth web
             bash scripts/keycloak-apply-realm-settings.sh
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/verify-auth-keycloak-network.sh
             echo "EduTrack testing actualizado manualmente a $TARGET_REF"
 
   deploy-production-manual:
@@ -300,4 +303,5 @@ jobs:
             compose_recreate_services $CF web auth
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh
+            DEPLOY_COMPOSE_FILES="$CF" bash scripts/verify-auth-keycloak-network.sh
             echo "EduTrack producción actualizado manualmente a $TARGET_REF"

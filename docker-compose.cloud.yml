@@ -205,7 +205,12 @@ volumes:
   keycloakdata:
 
 networks:
+  # Nombre real fijo y compartido con docker-compose.yml (red `appnet`): asi
+  # `auth` y `keycloak` quedan SIEMPRE en la misma red, sin importar con que
+  # archivo compose se levante un servicio. Evita el split de red que rompe el
+  # discovery OIDC (auth no resuelve `keycloak` -> EAI_AGAIN).
   net:
+    name: edutrack_net
   moodle-net:
     name: edutrack_moodle-net
     external: true
