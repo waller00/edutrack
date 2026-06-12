@@ -101,9 +101,12 @@ if docker exec "$CONTAINER" test -f "$MOODLE_DIR/admin/tool/langimport/cli/impor
   docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/tool/langimport/cli/import.php" --lang=es || true
 fi
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=theme --set=edutrack
-docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=lang --set=es
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=lang --set=en
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=langmenu --set=0
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=forcelogin --set=1
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=guestloginbutton --set=0
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=autologinguests --set=0
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=frontpage --set=
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=registerauth --set=
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=auth_instructions --set=
 docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/cfg.php" --name=slasharguments --set=0

@@ -41,7 +41,8 @@ Código: [`backend/src/integrations/moodle/`](../backend/src/integrations/moodle
 | Asignatura con `courseOrientationId` | Curso `SUBJECT_COURSE` | `…-<subject>-corientation-<courseOrientationId>` |
 | `CourseOffering` (legacy / fallback) | Curso | `et-offering-<id>` |
 | `User` (docente) | Usuario, rol *editingteacher* | UUID del User |
-| `Student` | Usuario *nologin*, rol *student* | `et-student-<id>` |
+| `Student` con `username`+`email` | Usuario **manual** (puede entrar a Moodle), rol *student* | `et-student-<id>` |
+| `Student` sin email | Usuario *nologin* (espejo histórico), rol *student* | `et-student-<id>` |
 
 El `shortname` del curso por asignatura es el propio `idnumber` (estable y único); el `fullname` es
 legible: `Asignatura - Curso [- Orientación] (Año)` (p. ej. `Biología - 4to EMS - Ciencias Biológicas (2026)`).
@@ -61,11 +62,28 @@ un docente al `CourseOffering` completo salvo el fallback legacy.
 - **Fallback legacy**: un evento **sin** `subjectId` no puede resolverse a un curso por asignatura;
   se usa el curso por `CourseOffering` (`et-offering-<id>`). Documentado y testeado para no perder
   cobertura de datos viejos.
-- **Estudiantes → curso**: de la matrícula activa (`StudentEnrollment` con estado `ACTIVE`), sobre el
-  curso **legacy** por `CourseOffering`. Sólo si `moodleSyncStudents` está activo (los estudiantes no
-  tienen cuenta de login en EduTrack y se crean usuarios espejo `nologin`). El modelo por
-  asignatura/orientación para estudiantes queda como **fase posterior** (no resoluble de forma segura
-  en esta iteración); la prioridad fue permisos docentes y suplencias.
+- **Estudiantes → asignaturas**: de la matrícula activa (`StudentEnrollment` con estado `ACTIVE`), si
+  `moodleSyncStudents` está activo. El alumno se inscribe en las asignaturas comunes de su
+  `CourseOffering` y, si su matrícula tiene orientación, también en las asignaturas de esa orientación.
+  Las asignaturas de otras orientaciones quedan fuera. La reconciliación registra estos accesos como
+  `STUDENT_ENROLLMENT` y revoca los que ya no corresponden si el estudiante cambia de curso,
+  orientación o estado.
+
+#### Cuenta Moodle del estudiante (`student-users.ts`)
+
+Los estudiantes no tienen cuenta de login en EduTrack, pero con `Student.username`
+(formato `nombre.apellido`, autogenerado en la planilla) y `Student.email` se les crea una
+**cuenta real en Moodle** (`auth=manual`):
+
+- Al guardar un estudiante con email, la ruta encola una tarea `STUDENT_USER_UPSERT`
+  (`dedupeKey: student:<id>`). El worker crea/actualiza el usuario en Moodle y, **una sola vez**
+  (claim atómico sobre `Student.moodleWelcomeSentAt`), envía un mail de bienvenida con el username,
+  el link a Moodle (`MOODLE_PUBLIC_URL`) y el link `…/login/forgot_password.php` para que el alumno
+  establezca su contraseña. **Requiere SMTP configurado en el propio Moodle** para completar el reset.
+- Un espejo `nologin` histórico que gana email se **actualiza** a `manual` con
+  `core_user_update_users` (mismo `moodleId`, mapping intacto).
+- Sin email se mantiene el espejo `nologin` con email sintético, para que la matriculación
+  nunca dependa del dato de contacto.
 
 #### Suplencias (acceso temporal del suplente)
 

@@ -50,7 +50,8 @@ type StudentDetail = {
   course: { id: string; name: string; code: string | null } | null
   contactPhone: string | null
   tutorPhone: string | null
-  contactEmail: string | null
+  username: string | null
+  email: string | null
   address: string | null
   healthCardExpiresAt: string | null
   liceoAccessNotes: string | null
@@ -94,6 +95,23 @@ function withSchoolYear(path: string, schoolYearQuery: string): string {
   return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
 }
 
+/** Sugerencia local de usuario `nombre.apellido`; el backend valida/genera la definitiva. */
+function suggestUsername(firstName: string, lastName: string): string {
+  const part = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s.-]/g, '')
+      .trim()
+      .split(/[\s.-]+/)
+      .filter(Boolean)
+  const first = part(firstName)[0]
+  const last = part(lastName)[0]
+  if (!first || !last) return ''
+  return `${first}.${last}`.slice(0, 30)
+}
+
 function emptyDraft(): Omit<StudentFormState, 'id'> {
   return {
     firstName: '',
@@ -102,7 +120,8 @@ function emptyDraft(): Omit<StudentFormState, 'id'> {
     courseId: null,
     contactPhone: null,
     tutorPhone: null,
-    contactEmail: null,
+    username: null,
+    email: null,
     address: null,
     healthCardExpiresAt: null,
     liceoAccessNotes: null,
@@ -146,6 +165,13 @@ export default function AdminStudentsPage() {
   }))
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [usernameTouched, setUsernameTouched] = useState(false)
+
+  // Mientras el admin no edite el usuario a mano, en el alta se sugiere nombre.apellido.
+  useEffect(() => {
+    if (modal !== 'create' || usernameTouched) return
+    setForm((f) => ({ ...f, username: suggestUsername(f.firstName, f.lastName) || null }))
+  }, [modal, usernameTouched, form.firstName, form.lastName])
 
   const loadSummary = useCallback(async () => {
     try {
@@ -219,6 +245,7 @@ export default function AdminStudentsPage() {
   function openCreate() {
     setMsg('')
     setEditId(null)
+    setUsernameTouched(false)
     setForm({ id: '', ...emptyDraft() })
     setModal('create')
   }
@@ -226,6 +253,7 @@ export default function AdminStudentsPage() {
   async function openEdit(row: StudentListRow) {
     setMsg('')
     setEditId(row.id)
+    setUsernameTouched(true)
     setModal('edit')
     try {
       const d = await api<StudentDetail>(withSchoolYear(`/admin/students/${row.studentId ?? row.id}`, schoolYearQuery))
@@ -280,7 +308,8 @@ export default function AdminStudentsPage() {
         courseId: form.courseId || undefined,
         contactPhone: form.contactPhone?.trim() || undefined,
         tutorPhone: form.tutorPhone?.trim() || undefined,
-        contactEmail: form.contactEmail?.trim() || undefined,
+        username: form.username?.trim() || undefined,
+        email: form.email?.trim() || undefined,
         address: form.address?.trim() || undefined,
         healthCardExpiresAt: form.healthCardExpiresAt ? `${ymd(form.healthCardExpiresAt)}T12:00:00.000Z` : undefined,
         liceoAccessNotes: form.liceoAccessNotes?.trim() || undefined,
@@ -697,13 +726,31 @@ export default function AdminStudentsPage() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Correo de contacto</label>
-                  <input
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                    value={form.contactEmail ?? ''}
-                    onChange={(e) => patchForm('contactEmail', e.target.value || null)}
-                  />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                    <input
+                      type="email"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
+                      value={form.email ?? ''}
+                      onChange={(e) => patchForm('email', e.target.value || null)}
+                    />
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Con email se crea su cuenta del aula virtual (Moodle) y le llega la bienvenida.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Usuario (Moodle)</label>
+                    <input
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
+                      value={form.username ?? ''}
+                      onChange={(e) => {
+                        setUsernameTouched(true)
+                        patchForm('username', e.target.value || null)
+                      }}
+                      placeholder="nombre.apellido"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Dirección</label>

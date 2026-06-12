@@ -218,6 +218,7 @@ model MoodleSyncTask {
 
 enum MoodleSyncTaskType {
   USER_UPSERT
+  STUDENT_USER_UPSERT
 }
 
 enum MoodleSyncStatus {
@@ -815,6 +816,7 @@ enum StudentEnrollmentStatus {
 }
 
 /// Registro de estudiante solo para gestión (sin cuenta ni login en el sistema).
+/// `username`/`email` habilitan su cuenta real en Moodle (auth manual).
 model Student {
   id         String  @id @default(uuid())
   firstName  String
@@ -822,10 +824,18 @@ model Student {
   /// Documento identificatorio (opcional; no implica usuario del sistema).
   documentId String?
 
+  /// Usuario para Moodle, formato nombre.apellido (no es login de EduTrack).
+  username String? @unique
+
   contactPhone String?
   tutorPhone   String?
-  contactEmail String?
-  address      String?
+  /// Email del alumno. @map preserva la columna histórica `contactEmail`
+  /// (renombrarla con `db push` implicaría drop+add y pérdida de datos).
+  email   String? @map("contactEmail")
+  address String?
+
+  /// Momento en que se envió el mail de bienvenida a Moodle (exactamente una vez).
+  moodleWelcomeSentAt DateTime?
 
   healthCardExpiresAt DateTime?
 

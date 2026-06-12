@@ -476,9 +476,15 @@ function normalizeOtpCode(code: string): string {
   return code.replace(/[\s-]/g, "");
 }
 
+function stripTrailingEquals(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "=") end -= 1;
+  return value.slice(0, end);
+}
+
 function base32Decode(value: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const clean = value.toUpperCase().replace(/=+$/g, "").replace(/[\s-]/g, "");
+  const clean = stripTrailingEquals(value.toUpperCase().replace(/[\s-]/g, ""));
   const bytes: number[] = [];
   let bits = 0;
   let buffer = 0;

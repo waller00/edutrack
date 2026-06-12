@@ -61,6 +61,16 @@ export function moodleUserAuthMethod(): string {
   return process.env.MOODLE_USER_AUTH?.trim() || "manual";
 }
 
+/**
+ * URL pública de Moodle para links en emails (`MOODLE_PUBLIC_URL`). Cae en `MOODLE_BASE_URL`
+ * porque en Docker la URL de conexión interna puede diferir del wwwroot que ve el alumno.
+ */
+export function moodlePublicUrl(): string | null {
+  const raw = process.env.MOODLE_PUBLIC_URL?.trim();
+  if (raw) return raw.replace(/\/+$/, "");
+  return moodleBaseUrl();
+}
+
 /** POST application/x-www-form-urlencoded; opcionalmente fuerza Host. */
 function httpPostFormUrlEncoded(
   requestBase: string,
