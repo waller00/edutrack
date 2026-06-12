@@ -78,12 +78,12 @@ if ! test -f "$ROOT/moodle/theme/edutrack/version.php"; then
   exit 1
 fi
 
-if ! docker exec "$CONTAINER" test -f /bitnami/moodle/theme/edutrack/version.php; then
-  echo "El tema no esta montado dentro del contenedor Moodle." >&2
-  echo "Recrea el servicio para que tome el volumen del docker-compose.moodle.yml:" >&2
-  echo "  ${COMPOSE[*]} up -d --force-recreate moodle" >&2
-  exit 1
-fi
+echo "Copiando tema EduTrack al contenedor..."
+docker exec -u root "$CONTAINER" rm -rf "$MOODLE_DIR/theme/edutrack"
+docker cp "$ROOT/moodle/theme/edutrack" "$CONTAINER:/tmp/edutrack-theme"
+docker exec -u root "$CONTAINER" sh -c \
+  "mkdir -p '$MOODLE_DIR/theme' && mv /tmp/edutrack-theme '$MOODLE_DIR/theme/edutrack' && chown -R daemon:daemon '$MOODLE_DIR/theme/edutrack'"
+docker exec -u daemon "$CONTAINER" php "$MOODLE_DIR/admin/cli/purge_caches.php"
 
 if [[ -n "${MOODLE_PUBLIC_URL:-}" ]]; then
   FIX_PHP="$ROOT/scripts/fix-moodle-config-production.php"

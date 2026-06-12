@@ -123,9 +123,10 @@ services:
       # Bitnami inicializa directorios vacíos en el primer arranque (no uses carpeta host vacía manual).
       - moodle_app_data:/bitnami/moodle
       - moodle_moodledata:/bitnami/moodledata
-      # Tema institucional versionado. Luego ejecutar:
+      # El tema institucional se copia despues de que Moodle instala config.php:
       #   ./scripts/moodle-apply-edutrack-theme.sh
-      - ./moodle/theme/edutrack:/bitnami/moodle/theme/edutrack
+      # No montarlo aca: un bind mount interno hace que Bitnami vea /bitnami/moodle
+      # como no vacio en el primer arranque y entre en un falso modo "restore".
     depends_on:
       moodle-db:
         condition: service_healthy

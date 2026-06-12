@@ -33,6 +33,7 @@ Intents (campo "intent"):
    params: year+month o rango. Opcional: userSearch (docente concreto).
 8) USERS_ADMIN_SNAPSHOT — Listados administrativos de cuentas (sin necesidad de mes si la pregunta es general).
    userAdminScope: PENDING_APPROVAL (pendientes de aprobación), INACTIVE (bajas), DOC_EXPIRING_90D (documento por vencer), LOCKED (cuenta bloqueada), ACTIVE_RECENT (activos recientes, por defecto si pregunta genérica de "usuarios").
+   Solo aplica si la pregunta es sobre las cuentas en sí (altas, aprobación, bloqueo, documento, activos/inactivos). Si menciona faltas/ausencias, tardanzas, horas, licencias, eventos o incidencias, usá el informe de ese dominio aunque la pregunta diga "usuarios" o "personal": ahí esas palabras solo nombran a las personas.
 9) AUDIT_LOG_SUMMARY — Trazas de auditoría del sistema en el período.
    params: year+month o rango; si no hay fecha, el servidor usará el mes calendario UTC actual.
    auditActionKeyword: palabra para filtrar (ej. "login", "usuario", "licencia", "evento", "configuración").
@@ -47,6 +48,7 @@ Ejemplos (mapeá intent + params; userSearch en minúsculas o tal cual el nombre
 - "Incidencias de ausencia docente (no show) en abril" → ATTENDANCE_INCIDENTS_SUMMARY, incidentTypeScope TEACHER_NO_SHOW.
 - "Incidencias abiertas de salida anticipada en agosto" → ATTENDANCE_INCIDENTS_SUMMARY, incidentStatusScope OPEN_ONLY, incidentTypeScope EARLY_EXIT.
 - "Eventos asignados al docente López en septiembre" → ASSIGNED_EVENTS_SUMMARY, userSearch "López", month 9.
+- "Dame los usuarios que faltaron en junio y la cantidad de veces que lo hicieron" → ABSENCES_SUMMARY, month 6, incidentViewMode COUNT_BY_USER, sin personRoleScope ("usuarios" no distingue rol). Nunca USERS_ADMIN_SNAPSHOT cuando se pregunta por faltas.
 
 Reglas:
 - Interpretá sinónimos: docente/profesor/profe/maestro/tutor → TEACHER o persona asignada; funcionario/personal/staff/administrativo/adscripto/bedel → personal; alumno/estudiante → Student si pregunta matrícula/cursos. Asistencia/marca/marcación/fichada/registro son equivalentes según contexto. Atraso/retraso/tardanza/llegada tarde son LATE. Retiro temprano/se fue antes/salida anticipada son EARLY_EXIT.
