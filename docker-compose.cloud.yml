@@ -1,5 +1,14 @@
+# Rotacion de logs por contenedor: evita que los logs JSON crezcan sin limite
+# y coman disco/IO. 3 archivos de 10MB = 30MB max por servicio.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   pg:
+    logging: *default-logging
     image: postgres:16
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -14,6 +23,7 @@ services:
     networks: [net]
 
   redis:
+    logging: *default-logging
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
@@ -27,6 +37,7 @@ services:
     networks: [net]
 
   keycloak-db:
+    logging: *default-logging
     image: postgres:16
     restart: unless-stopped
     environment:
@@ -43,6 +54,7 @@ services:
     networks: [net]
 
   keycloak:
+    logging: *default-logging
     image: quay.io/keycloak/keycloak:26.3.3
     restart: unless-stopped
     # start-dev: arranque tolerante. Endurecer a `start` con KC_HOSTNAME real + SSL via Cloudflare.
@@ -70,6 +82,7 @@ services:
     networks: [net]
 
   auth:
+    logging: *default-logging
     build: ./backend
     # Este comando asegura que las tablas se creen antes de iniciar el servidor
     command: ["/app/docker-entrypoint.sh"]
@@ -168,6 +181,7 @@ services:
       - moodle-net
 
   web:
+    logging: *default-logging
     build:
       context: ./frontend/web
       dockerfile: Dockerfile
