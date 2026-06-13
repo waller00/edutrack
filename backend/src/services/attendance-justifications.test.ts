@@ -39,7 +39,7 @@ describe('justifyAttendance', () => {
   it('rechaza asistencia inexistente con error 404', async () => {
     prismaMock.attendance.findUnique.mockResolvedValue(null)
     await expect(
-      justifyAttendance({ attendanceId: 'nope', reason: 'enfermo' }),
+      justifyAttendance({ attendanceId: 'nope', reason: 'motivo administrativo' }),
     ).rejects.toBeInstanceOf(AttendanceJustificationError)
     await expect(
       justifyAttendance({ attendanceId: 'nope', reason: 'enfermo' }),
@@ -54,14 +54,14 @@ describe('justifyAttendance', () => {
     })
     const { update } = setupTransaction()
 
-    const result = await justifyAttendance({ attendanceId: 'a1', reason: '  certificado  ' })
+    const result = await justifyAttendance({ attendanceId: 'a1', reason: '  justificante administrativo  ' })
 
     expect(result.status).toBe('ABSENT_JUSTIFIED')
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'ABSENT_JUSTIFIED',
-          notes: 'nota previa\nJustificación: certificado',
+          notes: 'nota previa\nJustificación: justificante administrativo',
         }),
       }),
     )

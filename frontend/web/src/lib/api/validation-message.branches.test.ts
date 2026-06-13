@@ -26,7 +26,7 @@ describe('formatValidationErrorFromApi - con issues (describeIssue)', () => {
           { path: ['startDate'], code: 'invalid_string', validation: 'datetime' },
           { path: ['reason'], code: 'invalid_type', message: 'Required' },
           { path: ['notes'], code: 'too_small', type: 'string', minimum: 1 },
-          { path: ['doctorName'], code: 'too_big', type: 'string' },
+          { path: ['notes'], code: 'too_big', type: 'string' },
         ],
       },
     })
@@ -35,7 +35,7 @@ describe('formatValidationErrorFromApi - con issues (describeIssue)', () => {
     expect(out).toContain('Fecha de inicio: fecha u hora inválida')
     expect(out).toContain('Motivo: falta completar este dato')
     expect(out).toContain('Notas: no puede estar vacío')
-    expect(out).toContain('Profesional: es demasiado largo')
+    expect(out).toContain('Notas: es demasiado largo')
   })
 
   it('usa errors[] cuando no hay issues[], y headline no-inválido', () => {

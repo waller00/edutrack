@@ -16,7 +16,7 @@ const activeLicense = {
   status: 'ACTIVE' as const,
   startDate: '2025-01-01',
   endDate: '2025-01-03',
-  reason: 'Reposo',
+  reason: 'Licencia médica presentada',
   createdAt: '2025-01-01',
   user: { id: 'u1', name: 'Ana G', email: 'a@b.com', role: 'TEACHER' },
 }
@@ -38,7 +38,7 @@ describe('LicensesPage', () => {
     render(<LicensesPage />)
 
     expect(await screen.findByText('Gestión de licencias')).toBeInTheDocument()
-    expect(await screen.findByText('Reposo')).toBeInTheDocument()
+    expect(await screen.findByText('Licencia médica presentada')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Rechazar' })).not.toBeInTheDocument()
   })
@@ -92,7 +92,7 @@ describe('LicensesPage', () => {
     })
 
     render(<LicensesPage />)
-    await screen.findByText('Reposo')
+    await screen.findByText('Licencia médica presentada')
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' }))
@@ -140,12 +140,12 @@ describe('LicensesPage', () => {
     })
 
     render(<LicensesPage />)
-    await screen.findByText('Reposo')
+    await screen.findByText('Licencia médica presentada')
 
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
     await screen.findByRole('heading', { name: 'Editar Licencia' })
 
-    fireEvent.change(screen.getByDisplayValue('Reposo'), { target: { value: 'Reposo extendido' } })
+    expect(screen.getByText(/solo la constancia administrativa/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Guardar Cambios' }))
 
     await waitFor(() => {
@@ -154,7 +154,8 @@ describe('LicensesPage', () => {
       )
       expect(put).toBeDefined()
       const body = JSON.parse((put![1] as RequestInit).body as string)
-      expect(body.reason).toBe('Reposo extendido')
+      expect(body.reason).toBeUndefined()
+      expect(body.notes).toBeUndefined()
     })
   })
 
@@ -175,7 +176,7 @@ describe('LicensesPage', () => {
     fireEvent.change(screen.getByLabelText('Usuario de licencia'), { target: { value: 'u1' } })
     fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2025-01-01' } })
     fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '2025-01-03' } })
-    fireEvent.change(screen.getByLabelText('Motivo (obligatorio)'), { target: { value: 'Reposo nuevo' } })
+    expect(screen.queryByLabelText('Motivo (obligatorio)')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Crear Licencia' }))
 
     await waitFor(() => {
@@ -183,6 +184,9 @@ describe('LicensesPage', () => {
         (c) => c[0] === '/medical-leaves' && (c[1] as RequestInit)?.method === 'POST',
       )
       expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.reason).toBeUndefined()
+      expect(body.notes).toBeUndefined()
     })
   })
 })

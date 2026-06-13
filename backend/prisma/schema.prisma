@@ -1049,9 +1049,6 @@ model MedicalLeave {
   startDate     DateTime
   endDate       DateTime
   reason        String
-  doctorName    String?
-  doctorPhone   String?
-  certificate   String? // URL del certificado médico
   approvedBy    String?
   approvedAt    DateTime?
   deactivatedBy String?

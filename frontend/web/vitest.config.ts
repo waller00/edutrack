@@ -29,7 +29,6 @@ export default defineConfig({
         // Integración navegador / solo tipos (no unit-testeable).
         'src/lib/notifications/**',
         'src/lib/substitutions/**',
-        'src/lib/medical-leaves/certificate-client.ts',
         'src/lib/attendance/incidents-types.ts',
       ],
       thresholds: {
