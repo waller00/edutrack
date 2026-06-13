@@ -252,7 +252,9 @@ export default function AdminStudentsPage() {
 
   async function openEdit(row: StudentListRow) {
     setMsg('')
-    setEditId(row.id)
+    // En modo allYears row.id es compuesto (studentId:enrollmentId); el PUT
+    // necesita el studentId real, no el compuesto.
+    setEditId(row.studentId ?? row.id)
     setUsernameTouched(true)
     setModal('edit')
     try {
