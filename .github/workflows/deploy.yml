@@ -53,7 +53,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
           port: 22
           timeout: 120s
-          command_timeout: 40m
+          command_timeout: 50m
           script: |
             set -e
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
@@ -80,10 +80,21 @@ jobs:
             fi
             cd "$REPO_DIR"
             echo "== Disco antes =="; df -h / || true
-            docker builder prune -af 2>/dev/null || true
-            docker image prune -af 2>/dev/null || true
+            # Limpieza liviana siempre (no toca el build cache):
             docker container prune -f 2>/dev/null || true
+            docker image prune -f 2>/dev/null || true
             journalctl --vacuum-time=3d 2>/dev/null || true
+            # Limpieza a fondo SOLO si el disco esta lleno. Vaciar el build cache
+            # en cada deploy hace que `next build` de web se reconstruya de cero y
+            # reviente el command_timeout (incidente 2026-06-13).
+            DISK_USE=$(df --output=pcent / | tail -1 | tr -dc '0-9'); DISK_USE=${DISK_USE:-0}
+            if [ "$DISK_USE" -ge "${DISK_CLEANUP_THRESHOLD:-80}" ]; then
+              echo "Disco al ${DISK_USE}% -> limpieza a fondo (se pierde build cache)"
+              docker builder prune -af 2>/dev/null || true
+              docker image prune -af 2>/dev/null || true
+            else
+              echo "Disco al ${DISK_USE}% -> se conserva el build cache"
+            fi
             echo "== Disco después =="; df -h / || true
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
@@ -122,7 +133,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           timeout: 120s
-          command_timeout: 40m
+          command_timeout: 50m
           script: |
             set -e
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
@@ -149,10 +160,21 @@ jobs:
             fi
             cd "$REPO_DIR"
             echo "== Disco antes =="; df -h / || true
-            docker builder prune -af 2>/dev/null || true
-            docker image prune -af 2>/dev/null || true
+            # Limpieza liviana siempre (no toca el build cache):
             docker container prune -f 2>/dev/null || true
+            docker image prune -f 2>/dev/null || true
             journalctl --vacuum-time=3d 2>/dev/null || true
+            # Limpieza a fondo SOLO si el disco esta lleno. Vaciar el build cache
+            # en cada deploy hace que `next build` de web se reconstruya de cero y
+            # reviente el command_timeout (incidente 2026-06-13).
+            DISK_USE=$(df --output=pcent / | tail -1 | tr -dc '0-9'); DISK_USE=${DISK_USE:-0}
+            if [ "$DISK_USE" -ge "${DISK_CLEANUP_THRESHOLD:-80}" ]; then
+              echo "Disco al ${DISK_USE}% -> limpieza a fondo (se pierde build cache)"
+              docker builder prune -af 2>/dev/null || true
+              docker image prune -af 2>/dev/null || true
+            else
+              echo "Disco al ${DISK_USE}% -> se conserva el build cache"
+            fi
             echo "== Disco después =="; df -h / || true
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
@@ -187,7 +209,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY_TESTING }}
           port: 22
           timeout: 120s
-          command_timeout: 40m
+          command_timeout: 50m
           script: |
             set -e
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
@@ -215,10 +237,21 @@ jobs:
             fi
             cd "$REPO_DIR"
             echo "== Disco antes =="; df -h / || true
-            docker builder prune -af 2>/dev/null || true
-            docker image prune -af 2>/dev/null || true
+            # Limpieza liviana siempre (no toca el build cache):
             docker container prune -f 2>/dev/null || true
+            docker image prune -f 2>/dev/null || true
             journalctl --vacuum-time=3d 2>/dev/null || true
+            # Limpieza a fondo SOLO si el disco esta lleno. Vaciar el build cache
+            # en cada deploy hace que `next build` de web se reconstruya de cero y
+            # reviente el command_timeout (incidente 2026-06-13).
+            DISK_USE=$(df --output=pcent / | tail -1 | tr -dc '0-9'); DISK_USE=${DISK_USE:-0}
+            if [ "$DISK_USE" -ge "${DISK_CLEANUP_THRESHOLD:-80}" ]; then
+              echo "Disco al ${DISK_USE}% -> limpieza a fondo (se pierde build cache)"
+              docker builder prune -af 2>/dev/null || true
+              docker image prune -af 2>/dev/null || true
+            else
+              echo "Disco al ${DISK_USE}% -> se conserva el build cache"
+            fi
             echo "== Disco después =="; df -h / || true
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
@@ -255,7 +288,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           timeout: 120s
-          command_timeout: 40m
+          command_timeout: 50m
           script: |
             set -e
             REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
@@ -283,10 +316,21 @@ jobs:
             fi
             cd "$REPO_DIR"
             echo "== Disco antes =="; df -h / || true
-            docker builder prune -af 2>/dev/null || true
-            docker image prune -af 2>/dev/null || true
+            # Limpieza liviana siempre (no toca el build cache):
             docker container prune -f 2>/dev/null || true
+            docker image prune -f 2>/dev/null || true
             journalctl --vacuum-time=3d 2>/dev/null || true
+            # Limpieza a fondo SOLO si el disco esta lleno. Vaciar el build cache
+            # en cada deploy hace que `next build` de web se reconstruya de cero y
+            # reviente el command_timeout (incidente 2026-06-13).
+            DISK_USE=$(df --output=pcent / | tail -1 | tr -dc '0-9'); DISK_USE=${DISK_USE:-0}
+            if [ "$DISK_USE" -ge "${DISK_CLEANUP_THRESHOLD:-80}" ]; then
+              echo "Disco al ${DISK_USE}% -> limpieza a fondo (se pierde build cache)"
+              docker builder prune -af 2>/dev/null || true
+              docker image prune -af 2>/dev/null || true
+            else
+              echo "Disco al ${DISK_USE}% -> se conserva el build cache"
+            fi
             echo "== Disco después =="; df -h / || true
             LOCK_FILE="/tmp/edutrack-deploy.lock"
             exec 200>"$LOCK_FILE"
