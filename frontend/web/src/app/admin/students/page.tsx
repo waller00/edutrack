@@ -584,7 +584,7 @@ export default function AdminStudentsPage() {
                         <td className="px-4 py-2.5 text-gray-600">{row.schoolYearCode ?? '—'}</td>
                       ) : null}
                       <td className="px-4 py-2.5 text-gray-700">{row.course?.name ?? '—'}</td>
-                      <td className="px-4 py-2.5">{STATUS_LABEL[row.enrollmentStatus] ?? row.enrollmentStatus}</td>
+                      <td className="px-4 py-2.5">{STATUS_LABEL[row.enrollmentStatus] ?? (row.enrollmentStatus || '—')}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex flex-wrap gap-1" aria-label="Mensualidades">
                           {monthsForYear(

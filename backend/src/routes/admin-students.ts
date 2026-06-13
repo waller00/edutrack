@@ -433,11 +433,30 @@ r.get('/', async (req, res) => {
     if (allYears) {
       const enrollmentListWhere: any = { ...enrollmentWhere }
       if (Object.keys(studentWhereForEnrollment).length) enrollmentListWhere.student = studentWhereForEnrollment
-      const [total, enrollmentRows] = await Promise.all([
+
+      // Estudiantes SIN matricula: se incluyen para que la lista coincida con el
+      // contador (summary cuenta Student) y no se "esconda" a un alumno recien
+      // creado sin curso. Solo si no hay filtros que dependan de la matricula
+      // (curso/estado/ciclo) — un alumno sin matricula no puede satisfacerlos.
+      const enrollmentFilterActive = Object.keys(enrollmentWhere).length > 0
+      const orphanWhere: any = { enrollments: { none: {} } }
+      if (Object.keys(studentWhereForEnrollment).length) Object.assign(orphanWhere, studentWhereForEnrollment)
+
+      const skip = (page - 1) * pageSize
+      const [enrollmentTotal, orphanTotal] = await Promise.all([
         (prisma as any).studentEnrollment.count({ where: enrollmentListWhere }),
-        (prisma as any).studentEnrollment.findMany({
+        enrollmentFilterActive ? Promise.resolve(0) : prisma.student.count({ where: orphanWhere }),
+      ])
+      const total = enrollmentTotal + orphanTotal
+
+      // Paginacion combinada: primero las matriculas (ordenadas por ciclo/nombre),
+      // despues los huerfanos (por nombre). Tomamos solo la franja de la pagina.
+      let enrollmentRows: any[] = []
+      let orphanRows: any[] = []
+      if (skip < enrollmentTotal) {
+        enrollmentRows = await (prisma as any).studentEnrollment.findMany({
           where: enrollmentListWhere,
-          skip: (page - 1) * pageSize,
+          skip,
           take: pageSize,
           include: {
             schoolYear: { select: { id: true, code: true, label: true, status: true } },
@@ -449,14 +468,29 @@ r.get('/', async (req, res) => {
             { student: { lastName: 'asc' } },
             { student: { firstName: 'asc' } },
           ],
-        }),
-      ])
-      const rowsAny = enrollmentRows as any[]
+        })
+        const remaining = pageSize - enrollmentRows.length
+        if (remaining > 0 && !enrollmentFilterActive) {
+          orphanRows = await prisma.student.findMany({
+            where: orphanWhere,
+            take: remaining,
+            orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+          })
+        }
+      } else if (!enrollmentFilterActive) {
+        orphanRows = await prisma.student.findMany({
+          where: orphanWhere,
+          skip: skip - enrollmentTotal,
+          take: pageSize,
+          orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        })
+      }
+
       const tuitionMonthsByStudent = await findTuitionMonths(
-        rowsAny.map((row) => row.studentId),
+        [...enrollmentRows.map((row) => row.studentId), ...orphanRows.map((row) => row.id)],
         previewYear,
       )
-      const data = rowsAny.map((enrollment) => {
+      const enrollmentData = enrollmentRows.map((enrollment) => {
         const row = enrollment.student
         const courseOffering = enrollment.courseOffering ?? null
         return {
@@ -483,7 +517,30 @@ r.get('/', async (req, res) => {
           })),
         }
       })
-      return res.json({ total, page, pageSize, data })
+      const orphanData = (orphanRows as any[]).map((row) => ({
+        id: `${row.id}:`,
+        studentId: row.id,
+        enrollmentId: undefined,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        documentId: row.documentId,
+        schoolYearId: null,
+        schoolYearCode: null,
+        courseId: null,
+        courseOfferingId: null,
+        course: null,
+        enrollmentStatus: '',
+        withdrawnAt: null,
+        withdrawalAcademicYear: null,
+        healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+        tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
+          year: t.year,
+          month: t.month,
+          paid: t.paid,
+        })),
+      }))
+      return res.json({ total, page, pageSize, data: [...enrollmentData, ...orphanData] })
     }
 
     const [total, rows] = await Promise.all([
