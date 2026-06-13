@@ -945,7 +945,7 @@ export default function AdminAnalyticsPage() {
                   value={formatPct(dashboard.kpis.M8_HOURS_DELTA_pct)}
                   foot="Interpretación relativa sin escala absoluta institucional fija"
                 />
-                <KpiCard label="Licencias inactivas" tone="slate" value={dashboard.kpis.PC_count} foot="Rango solapante con período solicitado (contexto médico)." />
+                <KpiCard label="Licencias inactivas" tone="slate" value={dashboard.kpis.PC_count} foot="Rango solapante con período solicitado." />
               </div>
             </section>
 

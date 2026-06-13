@@ -582,14 +582,14 @@ async function seedStudents() {
 async function seedMedicalLeaves(teachers: Array<Pick<User, 'id' | 'username' | 'name'>>) {
   const selected = teachers.slice(2, 14)
   const ranges = [
-    ['2024-05-13', '2024-05-17', 'Gripe con reposo indicado'],
-    ['2024-09-02', '2024-09-04', 'Intervencion odontologica'],
-    ['2025-04-21', '2025-04-25', 'Licencia medica certificada'],
-    ['2025-08-11', '2025-08-13', 'Reposo por lesion menor'],
-    ['2025-10-06', '2025-10-10', 'Control y tratamiento medico'],
-    ['2026-03-17', '2026-03-19', 'Reposo por afeccion respiratoria'],
-    ['2026-04-20', '2026-04-22', 'Estudio medico programado'],
-    ['2026-05-11', '2026-05-16', 'Licencia medica con certificado'],
+    ['2024-05-13', '2024-05-17', 'Licencia médica presentada'],
+    ['2024-09-02', '2024-09-04', 'Licencia médica presentada'],
+    ['2025-04-21', '2025-04-25', 'Licencia médica presentada'],
+    ['2025-08-11', '2025-08-13', 'Licencia médica presentada'],
+    ['2025-10-06', '2025-10-10', 'Licencia médica presentada'],
+    ['2026-03-17', '2026-03-19', 'Licencia médica presentada'],
+    ['2026-04-20', '2026-04-22', 'Licencia médica presentada'],
+    ['2026-05-11', '2026-05-16', 'Licencia médica presentada'],
   ] as const
 
   for (let i = 0; i < ranges.length; i += 1) {
@@ -603,11 +603,8 @@ async function seedMedicalLeaves(teachers: Array<Pick<User, 'id' | 'username' | 
         startDate: ymdToDate(start),
         endDate: ymdToDate(end),
         reason,
-        doctorName: pick(['Dra. Laura Castro', 'Dr. Martín Perdomo', 'Dra. Inés Silva', 'Dr. Pablo Reyes'], `doctor-${i}`),
-        doctorPhone: `+5982${intBetween(`doctor-phone-${i}`, 2000000, 9999999)}`,
-        certificate: `/certificados/demo/licencia-${i + 1}.pdf`,
         approvedAt: wall(start, 15, 30),
-        notes: 'Licencia incluida en dataset realista.',
+        notes: 'Licencia incluida en dataset realista; no almacena certificado ni diagnóstico.',
       },
     })
   }

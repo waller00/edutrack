@@ -1,5 +1,4 @@
 'use client'
-import MedicalLeaveCertificateLink from '@/components/personal/MedicalLeaveCertificateLink'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { api } from '@/lib/api/client'
 import {
@@ -17,7 +16,6 @@ type License = {
   endDate: string
   reason: string
   notes?: string
-  certificate?: string | null
 }
 
 export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = {}) {
@@ -49,8 +47,7 @@ export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = 
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Mis Licencias</h1>
             <p className="text-gray-600">
-              Consultá las licencias registradas por la institución. Si hay certificado digital o enlace, podés
-              abrirlo desde la tabla.
+              Consultá las licencias registradas por la institución.
             </p>
           </div>
         </div>
@@ -64,18 +61,17 @@ export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = 
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Certificado</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">Cargando...</td>
+                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500">Cargando...</td>
                   </tr>
                 ) : licenses.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">No tienes licencias registradas</td>
+                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500">No tienes licencias registradas</td>
                   </tr>
                 ) : (
                   licenses.map((license) => (
@@ -90,12 +86,6 @@ export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = 
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{license.reason}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <MedicalLeaveCertificateLink
-                          certificate={license.certificate}
-                          linkClassName="text-emerald-700 hover:text-emerald-900 font-medium"
-                        />
-                      </td>
                       <td className="px-6 py-4 text-sm text-gray-500">{license.notes || '-'}</td>
                     </tr>
                   ))

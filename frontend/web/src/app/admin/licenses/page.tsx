@@ -1,5 +1,4 @@
 'use client'
-import MedicalLeaveCertificateLink from '@/components/personal/MedicalLeaveCertificateLink'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
@@ -10,11 +9,6 @@ import {
   getLicenseStatusLabel,
   getLicenseTypeLabel,
 } from '@/lib/admin/licenses-display'
-import {
-  medicalLeaveCertificateAcceptAttr,
-  readMedicalLeaveCertificateFile,
-  certificateHasValue,
-} from '@/lib/medical-leaves/certificate-client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { Calendar, FileText, Loader2, Plus, Search, Trash2 } from 'lucide-react'
@@ -27,9 +21,6 @@ type License = {
   startDate: string
   endDate: string
   reason: string
-  doctorName?: string
-  doctorPhone?: string
-  certificate?: string
   approvedBy?: string
   approvedAt?: string
   notes?: string
@@ -103,12 +94,7 @@ export default function LicensesPage() {
     endDate: '',
     reason: '',
     notes: '',
-    doctorName: '',
-    doctorPhone: '',
-    certificate: '' as string,
-    certificateFileLabel: '' as string,
   })
-  const [newCertificateUrl, setNewCertificateUrl] = useState('')
   const currentYear = new Date().getFullYear()
   const [nonWorkingFilters, setNonWorkingFilters] = useState({
     from: `${currentYear}-01-01`,
@@ -221,16 +207,12 @@ export default function LicensesPage() {
       setCreateModalError('❌ Fechas: completá la fecha de inicio y la de fin.')
       return
     }
-    if (!newLicense.reason.trim()) {
+    if (newLicense.type !== 'MEDICAL_LEAVE' && !newLicense.reason.trim()) {
       setCreateModalError('❌ Motivo: no puede estar vacío.')
       return
     }
 
     try {
-      const cert =
-        newLicense.certificate.trim() ||
-        newCertificateUrl.trim() ||
-        undefined
       await api('/medical-leaves', {
         method: 'POST',
         body: JSON.stringify({
@@ -238,24 +220,14 @@ export default function LicensesPage() {
           type: newLicense.type,
           startDate: datePartsToIsoUtcNoon(newLicense.startDate),
           endDate: datePartsToIsoUtcNoon(newLicense.endDate),
-          reason: newLicense.reason,
-          notes: newLicense.notes.trim() || undefined,
-          doctorName:
-            newLicense.type === 'MEDICAL_LEAVE' && newLicense.doctorName.trim()
-              ? newLicense.doctorName.trim()
-              : undefined,
-          doctorPhone:
-            newLicense.type === 'MEDICAL_LEAVE' && newLicense.doctorPhone.trim()
-              ? newLicense.doctorPhone.trim()
-              : undefined,
-          certificate: cert,
+          reason: newLicense.type === 'MEDICAL_LEAVE' ? undefined : newLicense.reason,
+          notes: newLicense.type === 'MEDICAL_LEAVE' ? undefined : newLicense.notes.trim() || undefined,
         }),
       })
 
       setCreateModalError('')
       setMessage('✅ Licencia creada correctamente')
       setCreating(false)
-      setNewCertificateUrl('')
       setNewLicense({
         userId: '',
         type: 'MEDICAL_LEAVE',
@@ -263,10 +235,6 @@ export default function LicensesPage() {
         endDate: '',
         reason: '',
         notes: '',
-        doctorName: '',
-        doctorPhone: '',
-        certificate: '',
-        certificateFileLabel: '',
       })
       await loadLicenses()
     } catch (error: unknown) {
@@ -278,7 +246,7 @@ export default function LicensesPage() {
     if (!editing) return
 
     setEditModalError('')
-    if (!editing.reason?.trim()) {
+    if (editing.type !== 'MEDICAL_LEAVE' && !editing.reason?.trim()) {
       setEditModalError('❌ Motivo: no puede estar vacío.')
       return
     }
@@ -290,11 +258,8 @@ export default function LicensesPage() {
           type: editing.type,
           startDate: datePartsToIsoUtcNoon(editing.startDate.split('T')[0] || editing.startDate),
           endDate: datePartsToIsoUtcNoon(editing.endDate.split('T')[0] || editing.endDate),
-          reason: editing.reason,
-          doctorName: editing.doctorName,
-          doctorPhone: editing.doctorPhone,
-          notes: editing.notes,
-          certificate: editing.certificate?.trim() ? editing.certificate.trim() : null,
+          reason: editing.type === 'MEDICAL_LEAVE' ? undefined : editing.reason,
+          notes: editing.type === 'MEDICAL_LEAVE' ? undefined : editing.notes,
         }),
       })
       
@@ -344,7 +309,7 @@ export default function LicensesPage() {
     if (loading) {
       return (
         <tr>
-          <td colSpan={8} className="px-4 py-5 text-center text-gray-500">
+          <td colSpan={7} className="px-4 py-5 text-center text-gray-500">
             <span className="inline-flex items-center justify-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
               Cargando…
@@ -357,7 +322,7 @@ export default function LicensesPage() {
     if (licenses.length === 0) {
       return (
         <tr>
-          <td colSpan={8} className="px-4 py-5 text-center text-gray-500">
+          <td colSpan={7} className="px-4 py-5 text-center text-gray-500">
             No hay licencias registradas
           </td>
         </tr>
@@ -393,20 +358,11 @@ export default function LicensesPage() {
           {license.reason}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
-          <MedicalLeaveCertificateLink
-            certificate={license.certificate}
-            linkClassName="text-emerald-700 hover:text-emerald-900 font-medium"
-          />
-        </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm">
           <div className="flex gap-2">
             <button
               onClick={() => {
                 setEditModalError('')
-                setEditing({
-                  ...license,
-                  certificate: license.certificate ?? '',
-                })
+                setEditing(license)
               }}
               className="text-emerald-700 hover:text-emerald-900 font-medium"
             >
@@ -770,12 +726,11 @@ export default function LicensesPage() {
             <table className="w-full min-w-[980px] table-fixed divide-y divide-gray-200">
               <colgroup>
                 <col className="w-[4%]" />
-                <col className="w-[18%]" />
+                <col className="w-[20%]" />
                 <col className="w-[14%]" />
                 <col className="w-[16%]" />
                 <col className="w-[10%]" />
-                <col className="w-[22%]" />
-                <col className="w-[10%]" />
+                <col className="w-[30%]" />
                 <col className="w-[6%]" />
               </colgroup>
               <thead className="bg-gray-50">
@@ -796,7 +751,6 @@ export default function LicensesPage() {
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Certificado</th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                 </tr>
               </thead>
@@ -845,22 +799,7 @@ export default function LicensesPage() {
                   <select
                     aria-label="Tipo de licencia"
                     value={newLicense.type}
-                    onChange={(e) => {
-                      const type = e.target.value as License['type']
-                      setNewLicense({
-                        ...newLicense,
-                        type,
-                        ...(type !== 'MEDICAL_LEAVE'
-                          ? {
-                              doctorName: '',
-                              doctorPhone: '',
-                              certificate: '',
-                              certificateFileLabel: '',
-                            }
-                          : {}),
-                      })
-                      if (type !== 'MEDICAL_LEAVE') setNewCertificateUrl('')
-                    }}
+                    onChange={(e) => setNewLicense({ ...newLicense, type: e.target.value as License['type'] })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="MEDICAL_LEAVE">Licencia Médica</option>
@@ -868,31 +807,6 @@ export default function LicensesPage() {
                     <option value="OTHER">Otro</option>
                   </select>
                 </div>
-                
-                {newLicense.type === 'MEDICAL_LEAVE' && (
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Profesional (opcional)</label>
-                      <input
-                        type="text"
-                        value={newLicense.doctorName}
-                        onChange={(e) => setNewLicense({ ...newLicense, doctorName: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        placeholder="Nombre del médico o matrícula"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Contacto profesional (opcional)</label>
-                      <input
-                        type="text"
-                        value={newLicense.doctorPhone}
-                        onChange={(e) => setNewLicense({ ...newLicense, doctorPhone: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        placeholder="Teléfono o consultorio"
-                      />
-                    </div>
-                  </div>
-                )}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
@@ -918,73 +832,37 @@ export default function LicensesPage() {
                   </div>
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Motivo (obligatorio)</label>
-                  <textarea
-                    aria-label="Motivo (obligatorio)"
-                    value={newLicense.reason}
-                    onChange={(e) => setNewLicense({ ...newLicense, reason: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    rows={3}
-                  />
-                </div>
-
-                {newLicense.type === 'MEDICAL_LEAVE' && (
-                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-800">Certificado médico (opcional)</label>
-                      <p className="text-xs text-gray-600 mt-0.5">
-                        Podés pegar un enlace público (Drive, etc.) o adjuntar imagen o PDF (máx. 2,5 MB). Si cargás
-                        archivo, tiene prioridad sobre el enlace.
-                      </p>
-                    </div>
-                    <input
-                      type="url"
-                      value={newCertificateUrl}
-                      onChange={(e) => setNewCertificateUrl(e.target.value)}
-                      placeholder="https://…"
-                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                {newLicense.type === 'MEDICAL_LEAVE' ? (
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-gray-700">
+                    Para licencias médicas, EduTrack solo registra el período y la constancia administrativa de que la
+                    licencia fue presentada. No se cargan certificados, diagnósticos, datos del profesional ni notas
+                    clínicas.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Motivo (obligatorio)</label>
+                    <textarea
+                      aria-label="Motivo (obligatorio)"
+                      value={newLicense.reason}
+                      onChange={(e) => setNewLicense({ ...newLicense, reason: e.target.value })}
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      rows={3}
                     />
-                    <div>
-                      <input
-                        type="file"
-                        accept={medicalLeaveCertificateAcceptAttr()}
-                        className="block w-full text-sm text-gray-600 file:mr-3 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-emerald-700 hover:file:bg-emerald-50"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0]
-                          if (!file) return
-                          const r = await readMedicalLeaveCertificateFile(file)
-                          if (!r.ok) {
-                            setCreateModalError(`❌ ${r.error}`)
-                            e.target.value = ''
-                            return
-                          }
-                          setNewLicense((prev) => ({
-                            ...prev,
-                            certificate: r.dataUrl,
-                            certificateFileLabel: file.name,
-                          }))
-                          setNewCertificateUrl('')
-                          setCreateModalError('')
-                        }}
-                      />
-                      {newLicense.certificateFileLabel ? (
-                        <p className="text-xs text-gray-600 mt-1">Archivo: {newLicense.certificateFileLabel}</p>
-                      ) : null}
-                    </div>
                   </div>
                 )}
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
-                  <textarea
-                    aria-label="Notas adicionales"
-                    value={newLicense.notes}
-                    onChange={(e) => setNewLicense({ ...newLicense, notes: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    rows={2}
-                  />
-                </div>
+                 
+                {newLicense.type !== 'MEDICAL_LEAVE' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
+                    <textarea
+                      aria-label="Notas adicionales"
+                      value={newLicense.notes}
+                      onChange={(e) => setNewLicense({ ...newLicense, notes: e.target.value })}
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      rows={2}
+                    />
+                  </div>
+                )}
               </div>
               
               <div className="mt-6 flex justify-end gap-2">
@@ -993,7 +871,6 @@ export default function LicensesPage() {
                   onClick={() => {
                     setCreateModalError('')
                     setCreating(false)
-                    setNewCertificateUrl('')
                     setNewLicense({
                       userId: '',
                       type: 'MEDICAL_LEAVE',
@@ -1001,10 +878,6 @@ export default function LicensesPage() {
                       endDate: '',
                       reason: '',
                       notes: '',
-                      doctorName: '',
-                      doctorPhone: '',
-                      certificate: '',
-                      certificateFileLabel: '',
                     })
                   }}
                   className="btn-secondary"
@@ -1082,97 +955,34 @@ export default function LicensesPage() {
                   <p className="text-sm text-gray-900">{getLicenseStatusLabel(editing.status)}</p>
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
-                  <textarea
-                    value={editing.reason}
-                    onChange={(e) => setEditing({ ...editing, reason: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    rows={3}
-                  />
-                </div>
-                
-                {editing.type === 'MEDICAL_LEAVE' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Profesional (opcional)</label>
-                      <input
-                        type="text"
-                        value={editing.doctorName || ''}
-                        onChange={(e) => setEditing({ ...editing, doctorName: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        placeholder="Nombre o matrícula"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Contacto del profesional (opcional)</label>
-                      <input
-                        type="text"
-                        value={editing.doctorPhone || ''}
-                        onChange={(e) => setEditing({ ...editing, doctorPhone: e.target.value })}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        placeholder="Teléfono o consultorio"
-                      />
-                    </div>
-
-                    <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
-                      <label className="block text-sm font-medium text-gray-800">Certificado médico (opcional)</label>
-                      <p className="text-xs text-gray-600">
-                        Enlace público (https) o archivo PNG, JPG, WEBP o PDF (máx. 2,5 MB).
-                      </p>
-                      {!editing.certificate?.startsWith('data:') && (
-                        <input
-                          type="url"
-                          value={editing.certificate?.startsWith('http') ? editing.certificate : ''}
-                          onChange={(e) => setEditing({ ...editing, certificate: e.target.value })}
-                          placeholder="https://…"
-                          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        />
-                      )}
-                      {editing.certificate?.startsWith('data:') && (
-                        <p className="text-sm text-gray-700">Certificado digital adjunto (imagen o PDF).</p>
-                      )}
-                      <input
-                        type="file"
-                        accept={medicalLeaveCertificateAcceptAttr()}
-                        className="block w-full text-sm text-gray-600 file:mr-3 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-emerald-700 hover:file:bg-emerald-50"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0]
-                          if (!file) return
-                          const r = await readMedicalLeaveCertificateFile(file)
-                          if (!r.ok) {
-                            setEditModalError(`❌ ${r.error}`)
-                            e.target.value = ''
-                            return
-                          }
-                          setEditing((prev) => (prev ? { ...prev, certificate: r.dataUrl } : prev))
-                          setEditModalError('')
-                          e.target.value = ''
-                        }}
-                      />
-                      {certificateHasValue(editing.certificate) && (
-                        <button
-                          type="button"
-                          className="text-sm font-medium text-red-700 hover:text-red-900"
-                          onClick={() => setEditing({ ...editing, certificate: '' })}
-                        >
-                          Quitar certificado
-                        </button>
-                      )}
-                    </div>
-                  </>
+                {editing.type === 'MEDICAL_LEAVE' ? (
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-gray-700">
+                    Para licencias médicas se conserva solo la constancia administrativa de presentación y el período.
+                    Al guardar, se descartan notas o motivos clínicos.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
+                    <textarea
+                      value={editing.reason}
+                      onChange={(e) => setEditing({ ...editing, reason: e.target.value })}
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      rows={3}
+                    />
+                  </div>
                 )}
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
-                  <textarea
-                    value={editing.notes || ''}
-                    onChange={(e) => setEditing({ ...editing, notes: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    rows={3}
-                  />
-                </div>
+                {editing.type !== 'MEDICAL_LEAVE' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                    <textarea
+                      value={editing.notes || ''}
+                      onChange={(e) => setEditing({ ...editing, notes: e.target.value })}
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      rows={3}
+                    />
+                  </div>
+                )}
                 
                 {editing.approvedBy && (
                   <div>

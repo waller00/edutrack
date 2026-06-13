@@ -5,10 +5,7 @@ const MEDICAL_LEAVE_FIELD_LABELS: Record<string, string> = {
   startDate: 'Fecha de inicio',
   endDate: 'Fecha de fin',
   reason: 'Motivo',
-  doctorName: 'Profesional',
-  doctorPhone: 'Contacto profesional',
   notes: 'Notas',
-  certificate: 'Certificado',
 }
 
 type ZodLikeIssue = {
