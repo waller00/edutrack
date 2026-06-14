@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../../config/app-timezone.js'
+import { getAppTimezone, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../../config/app-timezone.js'
 import { toYmdUtc } from '../analytics/dateRange.js'
 
 /**
@@ -187,10 +187,10 @@ export function resolveOccurrenceOutcome(
  * Usado por la ingesta biométrica y la detección de no-show para resolver ocurrencias del día.
  */
 export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: string, at: Date): Promise<ClassEventSlot[]> {
-  const ymd = DateTime.fromJSDate(at, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  const ymd = DateTime.fromJSDate(at, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
   const dayStart = uruguayWallToUtc(ymd, 0, 0)
   const dayEnd = uruguayYmdEndOfDayToUtc(ymd)
-  const weekday = DateTime.fromISO(ymd, { zone: APP_TIMEZONE }).weekday % 7
+  const weekday = DateTime.fromISO(ymd, { zone: getAppTimezone() }).weekday % 7
   const rows = await tx.event.findMany({
     where: {
       assignedUserId: userId,
@@ -231,7 +231,7 @@ export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: strin
   `
 
   function wallTimeOnDay(stored: Date) {
-    const wall = DateTime.fromJSDate(stored, { zone: 'utc' }).setZone(APP_TIMEZONE)
+    const wall = DateTime.fromJSDate(stored, { zone: 'utc' }).setZone(getAppTimezone())
     return uruguayWallToUtc(ymd, wall.hour, wall.minute)
   }
 
@@ -247,7 +247,7 @@ export async function fetchTeacherClassSlotsForUruguayDay(tx: any, userId: strin
       const recurrenceLimit = row.recurrenceEnd ?? row.endDate
       if (toYmdUtc(row.startDate) > ymd) return false
       if (recurrenceLimit && toYmdUtc(recurrenceLimit) < ymd) return false
-      const days = row.daysOfWeek.length ? row.daysOfWeek : [DateTime.fromJSDate(row.startTime, { zone: 'utc' }).setZone(APP_TIMEZONE).weekday % 7]
+      const days = row.daysOfWeek.length ? row.daysOfWeek : [DateTime.fromJSDate(row.startTime, { zone: 'utc' }).setZone(getAppTimezone()).weekday % 7]
       return days.includes(weekday)
     }
     return toYmdUtc(row.startTime) === ymd

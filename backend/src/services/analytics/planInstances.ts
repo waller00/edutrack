@@ -2,13 +2,13 @@ import { prisma } from '../../db/prisma.js'
 import type { EventStatus, EventType } from '@prisma/client'
 import type { PlannedInstance } from './models.js'
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE, uruguayWallToUtc } from '../../config/app-timezone.js'
+import { getAppTimezone, uruguayWallToUtc } from '../../config/app-timezone.js'
 import { addDaysUtc, parseYmdToUtcRange, toYmdInUruguay } from './dateRange.js'
 import { effectiveWindowIncludesYmd } from '../events/event-versioning.js'
 
 function combineDateWithUtcTime(plannedDateYmd: string, time: Date | null | undefined) {
   if (!time) return null
-  const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(APP_TIMEZONE)
+  const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(getAppTimezone())
   return uruguayWallToUtc(plannedDateYmd, wall.hour, wall.minute)
 }
 
@@ -77,7 +77,7 @@ function expandEventInstances(ev: EventRow, fromYmd: string, toYmd: string, toDa
   const out: PlannedInstance[] = []
   let cursorYmd = rangeStartYmd
   while (cursorYmd <= rangeEndYmd) {
-    const weekday = DateTime.fromISO(cursorYmd, { zone: APP_TIMEZONE }).weekday % 7
+    const weekday = DateTime.fromISO(cursorYmd, { zone: getAppTimezone() }).weekday % 7
     if (ev.daysOfWeek.includes(weekday) && inWindow(cursorYmd)) {
       out.push(buildInstance(ev, cursorYmd, true, academic))
     }

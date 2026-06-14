@@ -251,9 +251,6 @@ CREATE TABLE "MedicalLeave" (
     "startDate" TIMESTAMP(3) NOT NULL,
     "endDate" TIMESTAMP(3) NOT NULL,
     "reason" TEXT NOT NULL,
-    "doctorName" TEXT,
-    "doctorPhone" TEXT,
-    "certificate" TEXT,
     "approvedBy" TEXT,
     "approvedAt" TIMESTAMP(3),
     "deactivatedBy" TEXT,
@@ -408,4 +405,3 @@ ALTER TABLE "Event" ADD CONSTRAINT "Event_parentEventId_fkey" FOREIGN KEY ("pare
 
 -- AddForeignKey
 ALTER TABLE "MedicalLeave" ADD CONSTRAINT "MedicalLeave_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-

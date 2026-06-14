@@ -151,4 +151,4 @@ networks:
   monitoring:
   edutrack-app:
     external: true
-    name: ${EDUTRACK_APP_NETWORK:-edutrack_appnet}
+    name: ${EDUTRACK_APP_NETWORK:-edutrack_net}

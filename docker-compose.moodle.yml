@@ -1,5 +1,19 @@
 # Moodle local para integrar EduTrack (solo desarrollo).
 #
+# === Arranque local (checklist) ===
+# 1) Red Docker (una vez):
+#      docker network create edutrack_moodle-net
+# 2) Levantar Moodle (primera vez ~5–8 min):
+#      docker compose -f docker-compose.moodle.yml up -d
+# 3) Instalar/activar tema EduTrack (OBLIGATORIO; git pull NO actualiza el volumen solo):
+#      ./scripts/moodle-apply-edutrack-theme.sh
+# 4) Opcional — ver cambios del tema al instante tras git pull:
+#      docker compose -f docker-compose.moodle.yml -f docker-compose.moodle.local.yml up -d
+#      docker exec -u daemon edutrack-moodle-1 php /bitnami/moodle/admin/cli/purge_caches.php
+#
+# .env.moodle: NO hace falta en local (defaults: MOODLE_HOST=localhost:8080).
+#              Solo en producción: cp -n docs/moodle.env.example .env.moodle
+#
 # Arranque (en la raíz del repo):
 #   La red debe existir (la crea el deploy a testing/prod o el primer uso):
 #     docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
@@ -123,9 +137,10 @@ services:
       # Bitnami inicializa directorios vacíos en el primer arranque (no uses carpeta host vacía manual).
       - moodle_app_data:/bitnami/moodle
       - moodle_moodledata:/bitnami/moodledata
-      # Tema institucional versionado. Luego ejecutar:
+      # El tema institucional se copia despues de que Moodle instala config.php:
       #   ./scripts/moodle-apply-edutrack-theme.sh
-      - ./moodle/theme/edutrack:/bitnami/moodle/theme/edutrack
+      # No montarlo aca: un bind mount interno hace que Bitnami vea /bitnami/moodle
+      # como no vacio en el primer arranque y entre en un falso modo "restore".
     depends_on:
       moodle-db:
         condition: service_healthy

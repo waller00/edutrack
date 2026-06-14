@@ -14,7 +14,7 @@ import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
 import {
-  APP_TIMEZONE,
+  getAppTimezone,
   isYmdDateString,
   uruguayStartOfDayFromInstant,
   uruguayWallToUtc,
@@ -228,7 +228,7 @@ function queryDateToUruguayYmd(value: unknown, fallback: Date) {
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value
   const date = value ? new Date(String(value)) : fallback
   const safeDate = Number.isNaN(date.getTime()) ? fallback : date
-  return DateTime.fromJSDate(safeDate, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  return DateTime.fromJSDate(safeDate, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
 function queryAllowsVirtualAbsenceRows(query: Record<string, unknown>) {
@@ -592,6 +592,14 @@ r.post('/materialize-absence', authGuard, requirePermission('attendance.update',
     }
 
     const attendanceDate = uruguayWallToUtc(date, 0, 0);
+    // En eventos recurrentes "startTime" arrastra la fecha de la primera ocurrencia de la
+    // serie: la marca debe llevar el día de ESTA ocurrencia con la hora planificada.
+    const plannedClock = event.startTime
+      ? DateTime.fromJSDate(new Date(event.startTime), { zone: 'utc' }).setZone(getAppTimezone())
+      : null;
+    const absenceTime = plannedClock
+      ? uruguayWallToUtc(date, plannedClock.hour, plannedClock.minute)
+      : attendanceDate;
     const existing = await prisma.attendance.findFirst({
       where: {
         userId,
@@ -616,7 +624,7 @@ r.post('/materialize-absence', authGuard, requirePermission('attendance.update',
         type: 'CHECK_IN',
         status: status as any,
         date: attendanceDate,
-        time: event.startTime ?? attendanceDate,
+        time: absenceTime,
         schoolYearId: event.schoolYearId,
         notes:
           notes?.trim() ||

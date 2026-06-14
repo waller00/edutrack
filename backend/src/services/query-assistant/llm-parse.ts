@@ -2,6 +2,7 @@ import OpenAI, { APIError } from 'openai'
 import { enrichPayloadFromQuestion } from './enrich-payload.js'
 import { heuristicIntentFromQuestion } from './question-heuristics.js'
 import { loosenLlmIntentJson } from './llm-json-loosen.js'
+import { temperatureParams } from './model-params.js'
 import { SEMANTIC_SYNONYMS } from './schema-context.js'
 import { llmIntentSchema, type LlmIntentPayload } from './schemas.js'
 
@@ -11,35 +12,43 @@ Tu única tarea es devolver un JSON válido según el esquema. No inventes cifra
 Intents (campo "intent"):
 1) HOURS_WORKED_SUMMARY — Horas efectivas trabajadas según eventos asignados y marcas entrada/salida en un mes o rango.
    params: year, month (1-12) o dateFrom+dateTo. Opcional: userSearch (fragmento de nombre, apellido o usuario del docente).
-2) ATTENDANCE_INCIDENTS_SUMMARY — Incidencias (llegadas tarde, ausencia docente, salida anticipada, etc.) en un período.
+2) ABSENCES_SUMMARY — Faltas/ausencias/inasistencias de docentes o personal a sus eventos asignados en un período (derivadas del horario planificado; incluye las aún no materializadas).
+   params: year+month o dateFrom+dateTo. Opcional: userSearch.
+   incidentViewMode: LIST (default, una fila por falta) o COUNT_BY_USER si piden ranking, "quién faltó más", conteo por persona.
+   personRoleScope: TEACHER si pregunta por docentes/profesores; STAFF si pregunta por funcionarios/personal; omitir si no distingue.
+3) ATTENDANCE_INCIDENTS_SUMMARY — Incidencias registradas (llegadas tarde, ausencia docente detectada por el monitor, salida anticipada) cuando el usuario habla explícitamente de "incidencias" o "no show".
    params: year+month o dateFrom+dateTo. Opcional: userSearch.
    incidentStatusScope: OPEN_ONLY si pide solo abiertas / pendientes; si no, ALL.
    incidentTypeScope: LATE_ARRIVAL | TEACHER_NO_SHOW | EARLY_EXIT | ALL según la pregunta.
    incidentViewMode: LIST (default, detalle fila a fila) o COUNT_BY_USER si piden ranking, "por persona", "quién tuvo más", "top", conteo por docente.
-3) MEDICAL_LEAVES_SUMMARY — Licencias o permisos cuyo período se solapa con el rango indicado.
+4) MEDICAL_LEAVES_SUMMARY — Licencias o permisos cuyo período se solapa con el rango indicado.
    params: year+month o dateFrom/dateTo. Opcional: userSearch.
    leaveStatusScope: ALL (default) | ACTIVE_ONLY si dicen licencias activas/vigentes | INACTIVE_ONLY si dicen cerradas/inactivas.
-4) ASSIGNED_EVENTS_SUMMARY — Eventos asignados a personal (clases, jornadas, etc.) que empiezan en el período.
+5) ASSIGNED_EVENTS_SUMMARY — Eventos asignados a personal (clases, jornadas, etc.) que empiezan en el período.
    params: year+month o rango. Opcional: userSearch (si nombra a alguien, se listará detalle de eventos).
-5) BIOMETRIC_ISSUES_SUMMARY — Marcas biométricas fallidas o pendientes de procesar.
+6) BIOMETRIC_ISSUES_SUMMARY — Marcas biométricas fallidas o pendientes de procesar.
    params: year+month o rango. Opcional: userSearch.
    biometricIssueScope: FAILED | PENDING | BOTH (por defecto BOTH si no aclara).
-6) ATTENDANCE_LATE_SUMMARY — Cantidad de entradas marcadas como tardías (CHECK_IN LATE) por persona en el período.
+7) ATTENDANCE_LATE_SUMMARY — Cantidad de entradas marcadas como tardías (CHECK_IN LATE) por persona en el período.
    params: year+month o rango. Opcional: userSearch (docente concreto).
-7) USERS_ADMIN_SNAPSHOT — Listados administrativos de cuentas (sin necesidad de mes si la pregunta es general).
+8) USERS_ADMIN_SNAPSHOT — Listados administrativos de cuentas (sin necesidad de mes si la pregunta es general).
    userAdminScope: PENDING_APPROVAL (pendientes de aprobación), INACTIVE (bajas), DOC_EXPIRING_90D (documento por vencer), LOCKED (cuenta bloqueada), ACTIVE_RECENT (activos recientes, por defecto si pregunta genérica de "usuarios").
-8) AUDIT_LOG_SUMMARY — Trazas de auditoría del sistema en el período.
+   Solo aplica si la pregunta es sobre las cuentas en sí (altas, aprobación, bloqueo, documento, activos/inactivos). Si menciona faltas/ausencias, tardanzas, horas, licencias, eventos o incidencias, usá el informe de ese dominio aunque la pregunta diga "usuarios" o "personal": ahí esas palabras solo nombran a las personas.
+9) AUDIT_LOG_SUMMARY — Trazas de auditoría del sistema en el período.
    params: year+month o rango; si no hay fecha, el servidor usará el mes calendario UTC actual.
    auditActionKeyword: palabra para filtrar (ej. "login", "usuario", "licencia", "evento", "configuración").
-9) UNKNOWN — Fuera de alcance o datos insuficientes para elegir un informe.
+10) UNKNOWN — Fuera de alcance o datos insuficientes para elegir un informe.
 
 Ejemplos (mapeá intent + params; userSearch en minúsculas o tal cual el nombre mencionado):
 - "Horas trabajadas de Ana Martínez en octubre" → HOURS_WORKED_SUMMARY, month 10, userSearch "Martínez" o "Ana".
 - "¿Cuántas veces llegó tarde García en mayo?" → ATTENDANCE_LATE_SUMMARY, month 5, userSearch "García".
 - "Licencias activas en junio" → MEDICAL_LEAVES_SUMMARY, month 6, leaveStatusScope ACTIVE_ONLY.
-- "Quién faltó más en abril" / "ranking de ausencias docentes en marzo" → ATTENDANCE_INCIDENTS_SUMMARY, incidentViewMode COUNT_BY_USER, incidentTypeScope TEACHER_NO_SHOW, month según texto.
+- "Qué profesores faltaron en junio" → ABSENCES_SUMMARY, month 6, personRoleScope TEACHER.
+- "Quién faltó más en abril" / "ranking de ausencias docentes en marzo" → ABSENCES_SUMMARY, incidentViewMode COUNT_BY_USER, personRoleScope TEACHER, month según texto.
+- "Incidencias de ausencia docente (no show) en abril" → ATTENDANCE_INCIDENTS_SUMMARY, incidentTypeScope TEACHER_NO_SHOW.
 - "Incidencias abiertas de salida anticipada en agosto" → ATTENDANCE_INCIDENTS_SUMMARY, incidentStatusScope OPEN_ONLY, incidentTypeScope EARLY_EXIT.
 - "Eventos asignados al docente López en septiembre" → ASSIGNED_EVENTS_SUMMARY, userSearch "López", month 9.
+- "Dame los usuarios que faltaron en junio y la cantidad de veces que lo hicieron" → ABSENCES_SUMMARY, month 6, incidentViewMode COUNT_BY_USER, sin personRoleScope ("usuarios" no distingue rol). Nunca USERS_ADMIN_SNAPSHOT cuando se pregunta por faltas.
 
 Reglas:
 - Interpretá sinónimos: docente/profesor/profe/maestro/tutor → TEACHER o persona asignada; funcionario/personal/staff/administrativo/adscripto/bedel → personal; alumno/estudiante → Student si pregunta matrícula/cursos. Asistencia/marca/marcación/fichada/registro son equivalentes según contexto. Atraso/retraso/tardanza/llegada tarde son LATE. Retiro temprano/se fue antes/salida anticipada son EARLY_EXIT.
@@ -83,7 +92,7 @@ export async function parseQuestionWithLlm(question: string, options?: { default
   try {
     completion = await client.chat.completions.create({
       model,
-      temperature: 0.1,
+      ...temperatureParams(model, 0.1),
       response_format: { type: 'json_object' },
       messages: [
         // System 100% estático (clasificador + sinónimos) → prefijo cacheable por OpenAI.

@@ -71,6 +71,26 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "moodle",
+      "name": "Moodle LMS",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "moodle-sso-secret-change-me",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/admin/oauth2callback.php",
+        "https://moodle.edutrack-uy.com/admin/oauth2callback.php"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8080/*##https://moodle.edutrack-uy.com/*"
+      }
     }
   ],
   "identityProviders": [

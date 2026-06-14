@@ -61,6 +61,19 @@ export function moodleUserAuthMethod(): string {
   return process.env.MOODLE_USER_AUTH?.trim() || "manual";
 }
 
+/**
+ * URL pública de Moodle para links en emails al alumno (`MOODLE_PUBLIC_URL`).
+ *
+ * NO cae en `MOODLE_BASE_URL`: en Docker esa es la URL interna (`http://moodle:8080`), que
+ * produciría links inservibles en el correo. Si no está configurada devolvemos `null` para que
+ * el envío falle de forma visible (tarea FAILED con error claro) en vez de mandar links rotos.
+ * En local hay que setear `MOODLE_PUBLIC_URL=http://localhost:8080`; en prod la URL pública HTTPS.
+ */
+export function moodlePublicUrl(): string | null {
+  const raw = process.env.MOODLE_PUBLIC_URL?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
+
 /** POST application/x-www-form-urlencoded; opcionalmente fuerza Host. */
 function httpPostFormUrlEncoded(
   requestBase: string,
@@ -136,7 +149,7 @@ export async function moodleRest(
   const { status, text } = await httpPostFormUrlEncoded(base, path, body, hostHeader);
 
   if (status < 200 || status >= 300) {
-    throw new Error(`MOODLE_HTTP_${status}: ${text.slice(0, 500)}`);
+    throw new Error(`MOODLE_HTTP_${status} [${wsfunction}]: ${text.slice(0, 500)}`);
   }
 
   let data: unknown;
@@ -144,13 +157,15 @@ export async function moodleRest(
     data = JSON.parse(text) as unknown;
   } catch {
     throw new Error(
-      `MOODLE_BAD_RESPONSE: HTTP ${status}, len=${text.length}, body=${text.slice(0, 200)}`,
+      `MOODLE_BAD_RESPONSE [${wsfunction}]: HTTP ${status}, len=${text.length}, body=${text.slice(0, 200)}`,
     );
   }
   if (data && typeof data === "object" && !Array.isArray(data) && "exception" in data) {
     const o = data as Record<string, unknown>;
+    // Incluir la wsfunction y el debuginfo (si Moodle lo manda) para ubicar el parámetro inválido.
+    const detail = o.debuginfo ? ` debuginfo=${String(o.debuginfo)}` : "";
     throw new Error(
-      `MOODLE_EXCEPTION: ${String(o.errorcode ?? o.message ?? o.exception)} ${JSON.stringify(data)}`,
+      `MOODLE_EXCEPTION [${wsfunction}]: ${String(o.errorcode ?? o.message ?? o.exception)}${detail} ${JSON.stringify(data)}`,
     );
   }
   return data as MoodleRestJson;

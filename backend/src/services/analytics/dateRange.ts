@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../../config/app-timezone.js'
+import { getAppTimezone, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../../config/app-timezone.js'
 
 export function parseYmdToUtcRange(from: string, to: string) {
   // Esperamos YYYY-MM-DD del día civil operativo de Uruguay.
@@ -18,7 +18,7 @@ export function toYmdUtc(d: Date) {
 }
 
 export function toYmdInUruguay(d: Date) {
-  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
 export function addDaysUtc(ymd: string, days: number) {

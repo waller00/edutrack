@@ -477,22 +477,38 @@ textarea:focus {
   font-weight: 800;
 }
 
-.login-container::before,
-.loginbox::before {
-  display: block;
-  width: 3rem;
-  height: 3rem;
-  margin: 0 auto 1rem;
-  border-radius: .85rem;
-  background:
-    linear-gradient(135deg, rgba(16, 185, 129, .22), rgba(16, 185, 129, .08)),
-    url([[pix:theme|logo]]) center / 2rem 2rem no-repeat;
-  content: "";
-}
-
 .pagelayout-login .edutrack-login-brand {
   margin: -.25rem 0 1.15rem;
   text-align: center;
+}
+
+.pagelayout-login .edutrack-login-brand-logo {
+  display: block;
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto .75rem;
+  padding: .35rem;
+  border-radius: .85rem;
+  background: linear-gradient(135deg, rgba(16, 185, 129, .22), rgba(16, 185, 129, .08));
+}
+
+.pagelayout-login .login-identityprovider-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: .55rem !important;
+  border-color: var(--et-border) !important;
+  background: var(--et-green-50) !important;
+  color: var(--et-green-800) !important;
+  font-weight: 600 !important;
+}
+
+.pagelayout-login .login-identityprovider-btn img {
+  display: block;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .pagelayout-login .edutrack-login-brand strong {
@@ -510,6 +526,48 @@ textarea:focus {
   color: var(--et-gray-500);
   font-size: .86rem;
   font-weight: 600;
+}
+
+.pagelayout-login .login-form,
+.pagelayout-login .login-form-username,
+.pagelayout-login .login-form-password,
+.pagelayout-login .login-form-submit,
+.pagelayout-login .login-form .form-control,
+.pagelayout-login .login-form .input-group,
+.pagelayout-login .login-form .toggle-sensitive-wrapper {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.pagelayout-login .login-form {
+  display: block;
+}
+
+.pagelayout-login .login-form .form-control,
+.pagelayout-login .login-form .btn[type="submit"] {
+  min-height: 3rem;
+}
+
+.pagelayout-login .login-form #username,
+.pagelayout-login .login-form input[name="username"] {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  flex: 1 1 100% !important;
+}
+
+.pagelayout-login .login-form .toggle-sensitive-wrapper {
+  display: flex;
+  flex-wrap: nowrap;
+}
+
+.pagelayout-login .login-form .toggle-sensitive-wrapper .form-control {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pagelayout-login .login-form .toggle-sensitive-wrapper .toggle-sensitive-btn {
+  flex: 0 0 auto;
 }
 
 .pagelayout-login .edutrack-hide-login-extra,

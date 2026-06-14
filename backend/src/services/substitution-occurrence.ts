@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE, isYmdDateString, uruguayWallToUtc } from '../config/app-timezone.js'
+import { getAppTimezone, isYmdDateString, uruguayWallToUtc } from '../config/app-timezone.js'
 export class SubstitutionError extends Error {
   constructor(
     message: string,
@@ -11,12 +11,12 @@ export class SubstitutionError extends Error {
 }
 
 export function combineDateWithUtcTime(plannedDateYmd: string, time: Date) {
-  const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(APP_TIMEZONE)
+  const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(getAppTimezone())
   return uruguayWallToUtc(plannedDateYmd, wall.hour, wall.minute)
 }
 
 export function jsWeekdayInUruguayYmd(ymd: string) {
-  const dt = DateTime.fromISO(`${ymd}T12:00:00`, { zone: APP_TIMEZONE })
+  const dt = DateTime.fromISO(`${ymd}T12:00:00`, { zone: getAppTimezone() })
   return dt.weekday % 7
 }
 
@@ -32,7 +32,7 @@ export function resolveSubstitutionOccurrence(params: {
   }
 }) {
   const defaultYmd = DateTime.fromJSDate(params.event.startTime, { zone: 'utc' })
-    .setZone(APP_TIMEZONE)
+    .setZone(getAppTimezone())
     .toFormat('yyyy-MM-dd')
   const occurrenceYmd = params.occurrenceDate?.trim() || defaultYmd
 
@@ -48,7 +48,7 @@ export function resolveSubstitutionOccurrence(params: {
   }
 
   const eventStartYmd = DateTime.fromJSDate(params.event.startDate, { zone: 'utc' })
-    .setZone(APP_TIMEZONE)
+    .setZone(getAppTimezone())
     .toFormat('yyyy-MM-dd')
   if (occurrenceYmd < eventStartYmd) {
     throw new SubstitutionError('La fecha de suplencia es anterior al inicio de la clase')

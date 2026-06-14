@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE, uruguayWallToUtc } from '../../config/app-timezone.js'
+import { getAppTimezone, uruguayWallToUtc } from '../../config/app-timezone.js'
 
 /**
  * Versionado temporal de la definición de un evento recurrente.
@@ -12,7 +12,7 @@ import { APP_TIMEZONE, uruguayWallToUtc } from '../../config/app-timezone.js'
  */
 
 export function ymdInUruguay(d: Date): string {
-  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
 export function uyStartOfDayUtc(ymd: string): Date {
@@ -20,11 +20,26 @@ export function uyStartOfDayUtc(ymd: string): Date {
 }
 
 export function addDaysYmd(ymd: string, days: number): string {
-  return DateTime.fromISO(ymd, { zone: APP_TIMEZONE }).plus({ days }).toFormat('yyyy-MM-dd')
+  return DateTime.fromISO(ymd, { zone: getAppTimezone() }).plus({ days }).toFormat('yyyy-MM-dd')
 }
 
 export function todayUruguayYmd(now = new Date()): string {
   return ymdInUruguay(now)
+}
+
+/** true si el instante de inicio del evento (UTC en DB) ya pasó respecto a `now`. */
+export function isEventStartInPast(startInstantUtc: Date, now = new Date()): boolean {
+  return startInstantUtc.getTime() < now.getTime()
+}
+
+/** true si el inicio cambió y el nuevo instante quedó en el pasado (edición). */
+export function isMovingEventStartToPast(
+  existingStartInstantUtc: Date,
+  newStartInstantUtc: Date,
+  now = new Date(),
+): boolean {
+  if (newStartInstantUtc.getTime() === existingStartInstantUtc.getTime()) return false
+  return isEventStartInPast(newStartInstantUtc, now)
 }
 
 /** ¿La ventana de vigencia [from, until] (por YMD de Uruguay) incluye la fecha dada? */

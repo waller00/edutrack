@@ -58,8 +58,3 @@ export function getLicenseStatusLabel(status: string): string {
   }
   return labels[status] || status
 }
-
-/** Texto único para el enlace/botón de certificado (URL o adjunto en base64). */
-export function getMedicalLeaveCertificateLinkLabel(_certificate: string): string {
-  return 'Ver Certificado'
-}

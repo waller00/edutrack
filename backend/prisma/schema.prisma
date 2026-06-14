@@ -98,7 +98,6 @@ model User {
   substitutionsAsOriginal     Substitution[]          @relation("SubstitutionOriginalTeacher")
   substitutionsAsSubstitute   Substitution[]          @relation("SubstitutionSubstituteTeacher")
   auditEvents                 AuditLog[]
-  moodleEnrolments            MoodleEnrolmentMap[]
   teacherProfile              TeacherProfile?
   // security
   emailVerifiedAt             DateTime?
@@ -191,6 +190,8 @@ model SystemSettings {
   moodleReconcileIntervalMs           Int      @default(900000)
   /// Sincroniza también estudiantes (matrícula) como usuarios/inscripciones de Moodle.
   moodleSyncStudents                  Boolean  @default(false)
+  /// Zona horaria IANA institucional (fechas civiles, horarios, asistencias).
+  institutionTimezone                 String   @default("America/Montevideo")
   updatedAt                           DateTime @updatedAt
 }
 
@@ -218,6 +219,7 @@ model MoodleSyncTask {
 
 enum MoodleSyncTaskType {
   USER_UPSERT
+  STUDENT_USER_UPSERT
 }
 
 enum MoodleSyncStatus {
@@ -270,8 +272,9 @@ enum MoodleEnrolmentStatus {
 /// y revocar de forma idempotente sin depender únicamente del estado remoto de Moodle.
 model MoodleEnrolmentMap {
   id             String                @id @default(uuid())
+  /// Id local del inscripto: polimórfico (User para docentes/suplentes, Student para alumnos).
+  /// Por eso NO lleva FK a User: una FK rompería la matrícula de estudiantes.
   userId         String
-  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   moodleUserId   Int
   moodleCourseId Int
   roleId         Int
@@ -815,6 +818,7 @@ enum StudentEnrollmentStatus {
 }
 
 /// Registro de estudiante solo para gestión (sin cuenta ni login en el sistema).
+/// `username`/`email` habilitan su cuenta real en Moodle (auth manual).
 model Student {
   id         String  @id @default(uuid())
   firstName  String
@@ -822,10 +826,18 @@ model Student {
   /// Documento identificatorio (opcional; no implica usuario del sistema).
   documentId String?
 
+  /// Usuario para Moodle, formato nombre.apellido (no es login de EduTrack).
+  username String? @unique
+
   contactPhone String?
   tutorPhone   String?
-  contactEmail String?
-  address      String?
+  /// Email del alumno. @map preserva la columna histórica `contactEmail`
+  /// (renombrarla con `db push` implicaría drop+add y pérdida de datos).
+  email   String? @map("contactEmail")
+  address String?
+
+  /// Momento en que se envió el mail de bienvenida a Moodle (exactamente una vez).
+  moodleWelcomeSentAt DateTime?
 
   healthCardExpiresAt DateTime?
 
@@ -1039,9 +1051,6 @@ model MedicalLeave {
   startDate     DateTime
   endDate       DateTime
   reason        String
-  doctorName    String?
-  doctorPhone   String?
-  certificate   String? // URL del certificado médico
   approvedBy    String?
   approvedAt    DateTime?
   deactivatedBy String?

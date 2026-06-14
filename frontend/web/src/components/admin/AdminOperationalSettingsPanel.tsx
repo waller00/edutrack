@@ -3,6 +3,19 @@
 import { Fingerprint, Loader2, RefreshCw, Save, Shield, SlidersHorizontal } from 'lucide-react'
 import type { Dispatch, SetStateAction } from 'react'
 
+/** Offset GMT en vivo de una zona IANA (refleja horario de verano). Ej: "GMT-03:00". */
+function gmtOffsetLabel(tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(
+      new Date(),
+    )
+    const name = parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
+    return name.replace(/^UTC/, 'GMT') || 'GMT'
+  } catch {
+    return ''
+  }
+}
+
 export type OperationalSettingsData = {
   diditConfigured: boolean
   livenessCheckEnabled: boolean
@@ -13,6 +26,8 @@ export type OperationalSettingsData = {
   attendanceMonitorEnabled: boolean
   attendanceMonitorIntervalMs: number
   biometricDuplicateWindowMinutes: number
+  institutionTimezone: string
+  institutionTimezoneOptions: ReadonlyArray<{ value: string; label: string }>
 }
 
 export type OperationalSettingsSection = 'system' | 'attendance' | 'identity'
@@ -91,6 +106,36 @@ export default function AdminOperationalSettingsPanel({
       </section>
 
       {section === 'system' && (
+        <>
+        <section className={`${shellCard} space-y-5`}>
+          <div className="border-b border-gray-100 pb-4">
+            <h3 className="text-sm font-semibold text-gray-900">Zona horaria institucional</h3>
+            <p className="text-xs text-gray-500">
+              Define el calendario civil y los horarios que usa el backend (eventos, asistencias, reportes).
+            </p>
+          </div>
+          <label className="block space-y-2 sm:max-w-md">
+            <span className={labelCls}>Zona horaria (IANA)</span>
+            <select
+              className="input-modern w-full text-sm"
+              value={data.institutionTimezone}
+              onChange={(e) => setData((prev) => (prev ? { ...prev, institutionTimezone: e.target.value } : prev))}
+            >
+              {data.institutionTimezoneOptions.map((opt) => {
+                const gmt = gmtOffsetLabel(opt.value)
+                return (
+                  <option key={opt.value} value={opt.value}>
+                    {gmt ? `${opt.label} (${gmt})` : opt.label}
+                  </option>
+                )
+              })}
+            </select>
+            <span className="block text-xs text-slate-500">
+              Por defecto: Uruguay (Montevideo). Los cambios aplican al guardar; puede requerir recargar otras pantallas.
+            </span>
+          </label>
+        </section>
+
         <section className={`${shellCard} space-y-5`}>
           <div className="border-b border-gray-100 pb-4">
             <h3 className="text-sm font-semibold text-gray-900">Monitor automático</h3>
@@ -118,6 +163,7 @@ export default function AdminOperationalSettingsPanel({
             />
           </label>
         </section>
+        </>
       )}
 
       {section === 'attendance' && (

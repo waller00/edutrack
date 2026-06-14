@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { DateTime } from "luxon";
-import { APP_TIMEZONE } from "../config/app-timezone.js";
+import { getAppTimezone } from "../config/app-timezone.js";
 import {
   applyEventStartDateFilter,
   buildMyEventsBaseFilter,
@@ -118,7 +118,7 @@ describe("events-query", () => {
     expect(
       inst.every(
         (i) =>
-          DateTime.fromJSDate(new Date(i.startDate), { zone: "utc" }).setZone(APP_TIMEZONE).weekday % 7 === 3,
+          DateTime.fromJSDate(new Date(i.startDate), { zone: "utc" }).setZone(getAppTimezone()).weekday % 7 === 3,
       ),
     ).toBe(true);
   });

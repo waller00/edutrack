@@ -5,6 +5,9 @@ import { z } from 'zod'
 import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { assertCourseOfferedInSchoolYear, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
+import { generateUniqueUsername } from '../services/usernames.js'
+import { enqueueStudentUserUpsert } from '../integrations/moodle/outbox.js'
+import { isValidUruguayanCI, onlyDigits } from '../identity/uruguay-ci.js'
 
 const r = Router()
 
@@ -32,10 +35,6 @@ const enrollmentStatusZ = z.enum(['ACTIVE', 'WITHDRAWN', 'GRADUATED', 'TRANSFERR
 function emptyToUndefined(v: unknown) {
   if (v === null || v === '') return undefined
   return v
-}
-
-function optionalTrimmedString(max: number) {
-  return z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
 }
 
 /** Acepta ISO completo o fecha `YYYY-MM-DD` desde inputs HTML. */
@@ -71,34 +70,104 @@ function parseOptionalEndOfDayDate(raw: string | undefined): Date | undefined {
   return d
 }
 
+/**
+ * Un email no puede estar repetido entre estudiantes ni coincidir con el de un usuario del sistema:
+ * Moodle exige email único por cuenta, así que un duplicado rompe la sincronización (no crea la cuenta).
+ * Devuelve un mensaje de conflicto o null si está libre.
+ */
+async function findEmailConflict(email: string, excludeStudentId?: string): Promise<string | null> {
+  const otherStudent = await prisma.student.findFirst({
+    where: {
+      email: { equals: email, mode: 'insensitive' },
+      ...(excludeStudentId ? { NOT: { id: excludeStudentId } } : {}),
+    },
+    select: { id: true },
+  })
+  if (otherStudent) return 'Ese email ya está en uso por otro estudiante'
+  const otherUser = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true },
+  })
+  if (otherUser) return 'Ese email ya está en uso por un usuario del sistema'
+  return null
+}
+
+/**
+ * Campos opcionales "borrables": en edición, mandar el campo vacío significa LIMPIARLO (→ null),
+ * y omitirlo significa "no tocar". '' / espacios → null; undefined → undefined (no cambia).
+ */
+function clearableEmpty(v: unknown): unknown {
+  if (v === null || v === undefined) return v
+  if (typeof v === 'string') {
+    const t = v.trim()
+    return t === '' ? null : t
+  }
+  return v
+}
+function clearableTrimmed(max: number) {
+  return z.preprocess(clearableEmpty, z.string().max(max).nullable().optional())
+}
+const clearableEmail = z.preprocess(
+  (v) => {
+    const r = clearableEmpty(v)
+    return typeof r === 'string' ? r.toLowerCase() : r
+  },
+  z.string().email('Email inválido').max(200).nullable().optional(),
+)
+const clearableUruguayanCI = z.preprocess(
+  clearableEmpty,
+  z
+    .string()
+    .max(40)
+    .transform((v) => onlyDigits(v))
+    .refine((v) => isValidUruguayanCI(v), 'Cédula inválida: verificá el número y el dígito verificador')
+    .nullable()
+    .optional(),
+)
+const clearableDateString = z.preprocess(
+  clearableEmpty,
+  z
+    .string()
+    .min(4)
+    .max(40)
+    .refine((s) => !Number.isNaN(Date.parse(s)), 'Fecha inválida')
+    .nullable()
+    .optional(),
+)
+
 const studentWriteBaseSchema = z.object({
   firstName: z.string().trim().min(1).max(120),
   lastName: z.string().trim().min(1).max(120),
-  documentId: optionalTrimmedString(40),
+  documentId: clearableUruguayanCI,
   courseId: z.preprocess(
     (v) => (v === null || v === '' ? undefined : v),
     z.string().uuid().optional(),
   ),
   schoolYearId: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().uuid().optional()),
-  contactPhone: optionalTrimmedString(40),
-  tutorPhone: optionalTrimmedString(40),
-  contactEmail: optionalTrimmedString(200),
-  address: optionalTrimmedString(500),
-  healthCardExpiresAt: optionalDateString,
-  liceoAccessNotes: z.preprocess(
-    (v) => (v === null || v === '' ? undefined : v),
-    z.string().max(8000).optional(),
+  contactPhone: clearableTrimmed(40),
+  tutorPhone: clearableTrimmed(40),
+  username: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .toLowerCase()
+      .min(3)
+      .max(30)
+      .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, 'Usuario inválido (use letras, números, puntos o guiones)')
+      .optional(),
   ),
+  email: clearableEmail,
+  address: clearableTrimmed(500),
+  healthCardExpiresAt: clearableDateString,
+  liceoAccessNotes: clearableTrimmed(8000),
   enrollmentStatus: enrollmentStatusZ.optional(),
   withdrawnAt: optionalDateString,
   withdrawalAcademicYear: z.preprocess(
     (v) => (v === null || v === '' ? undefined : v),
     z.number().int().min(1980).max(2100).optional(),
   ),
-  internalNotes: z.preprocess(
-    (v) => (v === null || v === '' ? undefined : v),
-    z.string().max(8000).optional(),
-  ),
+  internalNotes: clearableTrimmed(8000),
 })
 
 const studentCreateSchema = studentWriteBaseSchema.extend({
@@ -248,7 +317,8 @@ function serializeStudentDetail(row: {
   course: { id: string; name: string; code: string | null } | null
   contactPhone: string | null
   tutorPhone: string | null
-  contactEmail: string | null
+  username: string | null
+  email: string | null
   address: string | null
   healthCardExpiresAt: Date | null
   liceoAccessNotes: string | null
@@ -293,7 +363,8 @@ function serializeStudentDetail(row: {
     course: row.course,
     contactPhone: row.contactPhone,
     tutorPhone: row.tutorPhone,
-    contactEmail: row.contactEmail,
+    username: row.username,
+    email: row.email,
     address: row.address,
     healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
     liceoAccessNotes: row.liceoAccessNotes,
@@ -418,11 +489,30 @@ r.get('/', async (req, res) => {
     if (allYears) {
       const enrollmentListWhere: any = { ...enrollmentWhere }
       if (Object.keys(studentWhereForEnrollment).length) enrollmentListWhere.student = studentWhereForEnrollment
-      const [total, enrollmentRows] = await Promise.all([
+
+      // Estudiantes SIN matricula: se incluyen para que la lista coincida con el
+      // contador (summary cuenta Student) y no se "esconda" a un alumno recien
+      // creado sin curso. Solo si no hay filtros que dependan de la matricula
+      // (curso/estado/ciclo) — un alumno sin matricula no puede satisfacerlos.
+      const enrollmentFilterActive = Object.keys(enrollmentWhere).length > 0
+      const orphanWhere: any = { enrollments: { none: {} } }
+      if (Object.keys(studentWhereForEnrollment).length) Object.assign(orphanWhere, studentWhereForEnrollment)
+
+      const skip = (page - 1) * pageSize
+      const [enrollmentTotal, orphanTotal] = await Promise.all([
         (prisma as any).studentEnrollment.count({ where: enrollmentListWhere }),
-        (prisma as any).studentEnrollment.findMany({
+        enrollmentFilterActive ? Promise.resolve(0) : prisma.student.count({ where: orphanWhere }),
+      ])
+      const total = enrollmentTotal + orphanTotal
+
+      // Paginacion combinada: primero las matriculas (ordenadas por ciclo/nombre),
+      // despues los huerfanos (por nombre). Tomamos solo la franja de la pagina.
+      let enrollmentRows: any[] = []
+      let orphanRows: any[] = []
+      if (skip < enrollmentTotal) {
+        enrollmentRows = await (prisma as any).studentEnrollment.findMany({
           where: enrollmentListWhere,
-          skip: (page - 1) * pageSize,
+          skip,
           take: pageSize,
           include: {
             schoolYear: { select: { id: true, code: true, label: true, status: true } },
@@ -434,14 +524,29 @@ r.get('/', async (req, res) => {
             { student: { lastName: 'asc' } },
             { student: { firstName: 'asc' } },
           ],
-        }),
-      ])
-      const rowsAny = enrollmentRows as any[]
+        })
+        const remaining = pageSize - enrollmentRows.length
+        if (remaining > 0 && !enrollmentFilterActive) {
+          orphanRows = await prisma.student.findMany({
+            where: orphanWhere,
+            take: remaining,
+            orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+          })
+        }
+      } else if (!enrollmentFilterActive) {
+        orphanRows = await prisma.student.findMany({
+          where: orphanWhere,
+          skip: skip - enrollmentTotal,
+          take: pageSize,
+          orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        })
+      }
+
       const tuitionMonthsByStudent = await findTuitionMonths(
-        rowsAny.map((row) => row.studentId),
+        [...enrollmentRows.map((row) => row.studentId), ...orphanRows.map((row) => row.id)],
         previewYear,
       )
-      const data = rowsAny.map((enrollment) => {
+      const enrollmentData = enrollmentRows.map((enrollment) => {
         const row = enrollment.student
         const courseOffering = enrollment.courseOffering ?? null
         return {
@@ -468,7 +573,30 @@ r.get('/', async (req, res) => {
           })),
         }
       })
-      return res.json({ total, page, pageSize, data })
+      const orphanData = (orphanRows as any[]).map((row) => ({
+        id: `${row.id}:`,
+        studentId: row.id,
+        enrollmentId: undefined,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        documentId: row.documentId,
+        schoolYearId: null,
+        schoolYearCode: null,
+        courseId: null,
+        courseOfferingId: null,
+        course: null,
+        enrollmentStatus: '',
+        withdrawnAt: null,
+        withdrawalAcademicYear: null,
+        healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+        tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
+          year: t.year,
+          month: t.month,
+          paid: t.paid,
+        })),
+      }))
+      return res.json({ total, page, pageSize, data: [...enrollmentData, ...orphanData] })
     }
 
     const [total, rows] = await Promise.all([
@@ -575,6 +703,10 @@ r.post('/', async (req, res) => {
   }
   const body = parsed.data
   try {
+    if (body.email) {
+      const conflict = await findEmailConflict(body.email)
+      if (conflict) return res.status(409).json({ message: conflict })
+    }
     let resolvedSchoolYearId = body.schoolYearId ?? null
     let resolvedCourseOfferingId: string | null = null
     if (body.courseId) {
@@ -623,14 +755,21 @@ r.post('/', async (req, res) => {
     }
 
     const created = await prisma.$transaction(async (tx) => {
+      const username =
+        body.username ??
+        (await generateUniqueUsername(body.firstName, body.lastName, async (candidate) => {
+          const exist = await (tx.student as any).findUnique({ where: { username: candidate }, select: { id: true } })
+          return Boolean(exist)
+        }))
       const s = await tx.student.create({
         data: {
           firstName: body.firstName,
           lastName: body.lastName,
           documentId: body.documentId ?? null,
+          username,
           contactPhone: body.contactPhone ?? null,
           tutorPhone: body.tutorPhone ?? null,
-          contactEmail: body.contactEmail ?? null,
+          email: body.email ?? null,
           address: body.address ?? null,
           healthCardExpiresAt: health ?? null,
           liceoAccessNotes: body.liceoAccessNotes ?? null,
@@ -697,6 +836,7 @@ r.post('/', async (req, res) => {
     })
 
     const createdAny = created as any
+    if (createdAny.email) void enqueueStudentUserUpsert(created.id)
     const enrollment = createdAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const createdTuitionMonths = (await findTuitionMonths([created.id]))[created.id] ?? []
@@ -713,6 +853,9 @@ r.post('/', async (req, res) => {
     }))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
+    if (code === 'P2002') {
+      return res.status(409).json({ message: 'Ese nombre de usuario ya está en uso' })
+    }
     if (code === 'P2003') {
       return res.status(400).json({ message: 'Referencia inválida (curso u otro vínculo)' })
     }
@@ -735,8 +878,16 @@ r.put('/:id', async (req, res) => {
     return res.status(400).json({ message: 'Sin cambios' })
   }
   try {
-    const existing = await (prisma.student as any).findUnique({ where: { id }, select: { id: true } })
+    const existing = await (prisma.student as any).findUnique({
+      where: { id },
+      select: { id: true, firstName: true, lastName: true, username: true, email: true },
+    })
     if (!existing) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    if (body.email) {
+      const conflict = await findEmailConflict(body.email, id)
+      if (conflict) return res.status(409).json({ message: conflict })
+    }
 
     let nextCourseOfferingId: string | null | undefined = undefined
     if (body.courseId !== undefined && body.courseId !== null) {
@@ -792,7 +943,21 @@ r.put('/:id', async (req, res) => {
     }
     if (body.contactPhone !== undefined) data.contactPhone = body.contactPhone ?? null
     if (body.tutorPhone !== undefined) data.tutorPhone = body.tutorPhone ?? null
-    if (body.contactEmail !== undefined) data.contactEmail = body.contactEmail ?? null
+    if (body.username !== undefined) data.username = body.username ?? null
+    if (body.email !== undefined) data.email = body.email ?? null
+    // Alta tardía: si el alumno gana email y aún no tiene username, generarlo para
+    // habilitar su cuenta Moodle sin que el admin tenga que inventarlo.
+    const finalEmail = body.email !== undefined ? body.email ?? null : existing.email
+    if (finalEmail && !existing.username && body.username === undefined) {
+      data.username = await generateUniqueUsername(
+        body.firstName ?? existing.firstName,
+        body.lastName ?? existing.lastName,
+        async (candidate) => {
+          const exist = await (prisma.student as any).findUnique({ where: { username: candidate }, select: { id: true } })
+          return Boolean(exist)
+        },
+      )
+    }
     if (body.address !== undefined) data.address = body.address ?? null
     if (body.healthCardExpiresAt !== undefined) {
       data.healthCardExpiresAt = body.healthCardExpiresAt
@@ -888,6 +1053,12 @@ r.put('/:id', async (req, res) => {
     })
 
     const updatedAny = updated as any
+    const accountChanged =
+      updatedAny.email !== existing.email ||
+      updatedAny.username !== existing.username ||
+      updatedAny.firstName !== existing.firstName ||
+      updatedAny.lastName !== existing.lastName
+    if (updatedAny.email && accountChanged) void enqueueStudentUserUpsert(updated.id)
     const enrollment = updatedAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const updatedTuitionMonths = (await findTuitionMonths([updated.id]))[updated.id] ?? []
@@ -904,6 +1075,9 @@ r.put('/:id', async (req, res) => {
     }))
   } catch (e: unknown) {
     const code = (e as { code?: string }).code
+    if (code === 'P2002') {
+      return res.status(409).json({ message: 'Ese nombre de usuario ya está en uso' })
+    }
     if (code === 'P2003') {
       return res.status(400).json({ message: 'Referencia inválida (curso u otro vínculo)' })
     }

@@ -500,19 +500,19 @@ describe("attendance /register (prisma mock)", () => {
     const res = await request(app())
       .post("/attendance/a1/justify")
       .set("Authorization", `Bearer ${tok("ADMIN")}`)
-      .send({ reason: "Certificado" });
+      .send({ reason: "Justificante administrativo" });
 
     expect(res.status).toBe(404);
   });
 
   it("POST /attendance/:id/justify registra justificación con auditoría", async () => {
     prismaMock.attendance.findUnique.mockResolvedValue({ id: "a1", status: "ABSENT_NOT_JUSTIFIED", notes: null });
-    prismaMock.attendance.update.mockResolvedValue({ id: "a1", status: "ABSENT_JUSTIFIED", notes: "Justificación: Certificado" });
+    prismaMock.attendance.update.mockResolvedValue({ id: "a1", status: "ABSENT_JUSTIFIED", notes: "Justificación: Justificante administrativo" });
 
     const res = await request(app())
       .post("/attendance/a1/justify")
       .set("Authorization", `Bearer ${tok("ADMIN")}`)
-      .send({ type: "ABSENCE", reason: "Certificado" });
+      .send({ type: "ABSENCE", reason: "Justificante administrativo" });
 
     expect(res.status).toBe(200);
     expect(prismaMock.$executeRaw).toHaveBeenCalled();
@@ -680,7 +680,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.medicalLeave.findMany
       .mockResolvedValueOnce([
         {
-          reason: "Certificado",
+          reason: "Licencia médica presentada",
           startDate: new Date("2025-06-01T00:00:00.000Z"),
           endDate: new Date("2025-06-01T23:59:59.999Z"),
         },

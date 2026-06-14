@@ -20,7 +20,7 @@ import { TEACHER_SPECIALTIES, type TeacherSpecialty, type TeacherSpecialtyArea }
 import { seedAcademicCatalog } from './seed-academic-catalog.js'
 import { runBootstrap } from './seed-bootstrap.js'
 import { seedTeachers } from './seed-teachers.js'
-import { APP_TIMEZONE, uruguayWallToUtc } from '../src/config/app-timezone.js'
+import { getAppTimezone, uruguayWallToUtc } from '../src/config/app-timezone.js'
 
 const prisma = new PrismaClient()
 
@@ -210,22 +210,22 @@ function minutesToWall(ymd: string, minutes: number) {
 }
 
 function toYmd(date: Date) {
-  return DateTime.fromJSDate(date, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  return DateTime.fromJSDate(date, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
 function wallMinutesFromStoredTime(date: Date) {
-  const wallTime = DateTime.fromJSDate(date, { zone: 'utc' }).setZone(APP_TIMEZONE)
+  const wallTime = DateTime.fromJSDate(date, { zone: 'utc' }).setZone(getAppTimezone())
   return wallTime.hour * 60 + wallTime.minute
 }
 
 function weekday(ymd: string) {
-  return DateTime.fromISO(ymd, { zone: APP_TIMEZONE }).weekday % 7
+  return DateTime.fromISO(ymd, { zone: getAppTimezone() }).weekday % 7
 }
 
 function eachYmd(start: string, end: string) {
   const days: string[] = []
-  let cursor = DateTime.fromISO(start, { zone: APP_TIMEZONE }).startOf('day')
-  const final = DateTime.fromISO(end, { zone: APP_TIMEZONE }).startOf('day')
+  let cursor = DateTime.fromISO(start, { zone: getAppTimezone() }).startOf('day')
+  const final = DateTime.fromISO(end, { zone: getAppTimezone() }).startOf('day')
   while (cursor <= final) {
     days.push(cursor.toFormat('yyyy-MM-dd'))
     cursor = cursor.plus({ days: 1 })
@@ -437,7 +437,7 @@ async function seedBiometricDevice(users: Array<Pick<User, 'id' | 'username' | '
       admsSerial: 'F22-UY-2026-001',
       name: 'ZKTeco F22 - Acceso principal',
       secretHash: sha256('liceo-f22-demo-secret'),
-      timezone: APP_TIMEZONE,
+      timezone: getAppTimezone(),
       isActive: true,
       allowedIps: ['127.0.0.1', '10.10.0.25'],
       lastSeenAt: wall('2026-05-27', 18, 22),
@@ -493,7 +493,7 @@ async function seedStudents() {
           documentId,
           contactPhone: `+5989${intBetween(`phone-a-${index}`, 1000000, 9999999)}`,
           tutorPhone: `+5989${intBetween(`phone-b-${index}`, 1000000, 9999999)}`,
-          contactEmail: `${firstName.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')}.${lastName
+          email: `${firstName.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')}.${lastName
             .split(' ')[0]
             .toLowerCase()
             .normalize('NFD')
@@ -582,14 +582,14 @@ async function seedStudents() {
 async function seedMedicalLeaves(teachers: Array<Pick<User, 'id' | 'username' | 'name'>>) {
   const selected = teachers.slice(2, 14)
   const ranges = [
-    ['2024-05-13', '2024-05-17', 'Gripe con reposo indicado'],
-    ['2024-09-02', '2024-09-04', 'Intervencion odontologica'],
-    ['2025-04-21', '2025-04-25', 'Licencia medica certificada'],
-    ['2025-08-11', '2025-08-13', 'Reposo por lesion menor'],
-    ['2025-10-06', '2025-10-10', 'Control y tratamiento medico'],
-    ['2026-03-17', '2026-03-19', 'Reposo por afeccion respiratoria'],
-    ['2026-04-20', '2026-04-22', 'Estudio medico programado'],
-    ['2026-05-11', '2026-05-16', 'Licencia medica con certificado'],
+    ['2024-05-13', '2024-05-17', 'Licencia médica presentada'],
+    ['2024-09-02', '2024-09-04', 'Licencia médica presentada'],
+    ['2025-04-21', '2025-04-25', 'Licencia médica presentada'],
+    ['2025-08-11', '2025-08-13', 'Licencia médica presentada'],
+    ['2025-10-06', '2025-10-10', 'Licencia médica presentada'],
+    ['2026-03-17', '2026-03-19', 'Licencia médica presentada'],
+    ['2026-04-20', '2026-04-22', 'Licencia médica presentada'],
+    ['2026-05-11', '2026-05-16', 'Licencia médica presentada'],
   ] as const
 
   for (let i = 0; i < ranges.length; i += 1) {
@@ -603,11 +603,8 @@ async function seedMedicalLeaves(teachers: Array<Pick<User, 'id' | 'username' | 
         startDate: ymdToDate(start),
         endDate: ymdToDate(end),
         reason,
-        doctorName: pick(['Dra. Laura Castro', 'Dr. Martín Perdomo', 'Dra. Inés Silva', 'Dr. Pablo Reyes'], `doctor-${i}`),
-        doctorPhone: `+5982${intBetween(`doctor-phone-${i}`, 2000000, 9999999)}`,
-        certificate: `/certificados/demo/licencia-${i + 1}.pdf`,
         approvedAt: wall(start, 15, 30),
-        notes: 'Licencia incluida en dataset realista.',
+        notes: 'Licencia incluida en dataset realista; no almacena certificado ni diagnóstico.',
       },
     })
   }
