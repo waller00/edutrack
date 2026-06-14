@@ -191,6 +191,8 @@ model SystemSettings {
   moodleReconcileIntervalMs           Int      @default(900000)
   /// Sincroniza también estudiantes (matrícula) como usuarios/inscripciones de Moodle.
   moodleSyncStudents                  Boolean  @default(false)
+  /// Zona horaria IANA institucional (fechas civiles, horarios, asistencias).
+  institutionTimezone                 String   @default("America/Montevideo")
   updatedAt                           DateTime @updatedAt
 }
 

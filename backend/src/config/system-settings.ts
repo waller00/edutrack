@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma.js'
+import { applyInstitutionTimezoneFromSettings } from './institution-timezone.js'
 
 const DEFAULT_ID = 'default'
 
@@ -29,7 +30,7 @@ export function isLivenessRequiredForRegistration() {
 }
 
 export async function getOrCreateSystemSettings() {
-  return prisma.systemSettings.upsert({
+  const row = await prisma.systemSettings.upsert({
     where: { id: DEFAULT_ID },
     create: {
       id: DEFAULT_ID,
@@ -44,9 +45,12 @@ export async function getOrCreateSystemSettings() {
       moodleSyncEnabled: isMoodleSyncEnabledFromEnv(),
       moodleReconcileIntervalMs: 900000,
       moodleSyncStudents: false,
+      institutionTimezone: 'America/Montevideo',
     } as any,
     update: {},
   })
+  applyInstitutionTimezoneFromSettings(row as { institutionTimezone?: string | null })
+  return row
 }
 
 /** Configuración operativa de la integración Moodle (worker outbox + reconciliación). */

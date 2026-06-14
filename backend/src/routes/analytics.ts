@@ -17,7 +17,7 @@ import {
 import type { ResolvedAttendanceByInstance } from '../services/analytics/models.js'
 import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
-import { APP_TIMEZONE, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../config/app-timezone.js'
+import { getAppTimezone, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../config/app-timezone.js'
 import { timelineSortInstantOnDay } from '../services/analytics/timeline-sort.js'
 
 const r = Router()
@@ -123,7 +123,7 @@ type TimelineItem = {
 }
 
 function todayYmdUruguay() {
-  return DateTime.now().setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  return DateTime.now().setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
 function displayName(user?: { name?: string | null; email?: string | null; firstName?: string | null; lastName?: string | null } | null) {
@@ -151,7 +151,7 @@ function subjectCourseTitle(params: {
 
 function formatTimeLabel(at?: Date | string | null) {
   if (!at) return ''
-  return DateTime.fromJSDate(new Date(at), { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('HH:mm')
+  return DateTime.fromJSDate(new Date(at), { zone: 'utc' }).setZone(getAppTimezone()).toFormat('HH:mm')
 }
 
 function timelineStatusLabel(status: string) {

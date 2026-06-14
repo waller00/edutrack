@@ -10,7 +10,7 @@ import {
   expandRecurringEvent,
 } from '../events/events-query.js';
 import {
-  APP_TIMEZONE,
+  getAppTimezone,
   isYmdDateString,
   jsWeekdayInUruguay,
   parseEventTimeToUruguayHhMm,
@@ -989,13 +989,13 @@ r.get('/my-events', authGuard, requirePermission('events.read'), async (req, res
     const subRangeStart = startDate
       ? uruguayWallToUtc(String(startDate).slice(0, 10), 0, 0)
       : uruguayWallToUtc(
-          DateTime.now().setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd'),
+          DateTime.now().setZone(getAppTimezone()).toFormat('yyyy-MM-dd'),
           0,
           0,
         )
     const subRangeEnd = endDate
       ? uruguayYmdEndOfDayToUtc(String(endDate).slice(0, 10))
-      : uruguayYmdEndOfDayToUtc(DateTime.now().setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd'))
+      : uruguayYmdEndOfDayToUtc(DateTime.now().setZone(getAppTimezone()).toFormat('yyyy-MM-dd'))
 
     const substitutionRows = await (prisma as any).substitution.findMany({
       where: {
@@ -1489,17 +1489,17 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
         nextStartDateInput != null && String(nextStartDateInput) !== ''
           ? parseStartDateToUruguayYmd(String(nextStartDateInput))
           : DateTime.fromJSDate(new Date(existingEvent.startDate), { zone: 'utc' })
-              .setZone(APP_TIMEZONE)
+              .setZone(getAppTimezone())
               .toFormat('yyyy-MM-dd');
 
       const existingStartWall = DateTime.fromJSDate(
         new Date(existingEvent.startTime ?? existingEvent.startDate),
         { zone: 'utc' },
-      ).setZone(APP_TIMEZONE);
+      ).setZone(getAppTimezone());
       const existingEndWall = DateTime.fromJSDate(
         new Date(existingEvent.endTime ?? existingEvent.startDate),
         { zone: 'utc' },
-      ).setZone(APP_TIMEZONE);
+      ).setZone(getAppTimezone());
 
       const startHHmm = nextStartTimeInput
         ? parseEventTimeToUruguayHhMm(String(nextStartTimeInput))

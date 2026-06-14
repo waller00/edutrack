@@ -1,7 +1,7 @@
 /** Consultas/filtros de eventos (lógica pura + expansión recurrente) */
 
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE } from '../config/app-timezone.js'
+import { getAppTimezone } from '../config/app-timezone.js'
 import { effectiveWindowIncludesYmd, ymdInUruguay } from '../services/events/event-versioning.js'
 
 export function applyEventStartDateFilter(where: any, startDate?: unknown, endDate?: unknown) {
@@ -68,14 +68,14 @@ export function deriveOccurrenceStatus(baseStatus: any, occStartAt: Date, occEnd
 
 function wallHourMinute(time: Date | null) {
   if (!time) return { hh: 0, mm: 0 }
-  const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(APP_TIMEZONE)
+  const wall = DateTime.fromJSDate(time, { zone: 'utc' }).setZone(getAppTimezone())
   return { hh: wall.hour, mm: wall.minute }
 }
 
 function cursorAtTimeUtc(cursor: DateTime, hh: number, mm: number) {
   return DateTime.fromObject(
     { year: cursor.year, month: cursor.month, day: cursor.day, hour: hh, minute: mm, second: 0, millisecond: 0 },
-    { zone: APP_TIMEZONE },
+    { zone: getAppTimezone() },
   )
     .toUTC()
     .toJSDate()
@@ -97,12 +97,12 @@ export function generateRecurringInstances(event: any, startDate: Date, endDate:
   const start = wallHourMinute(event.startTime ? new Date(event.startTime) : null)
   const end = wallHourMinute(event.endTime ? new Date(event.endTime) : null)
 
-  let cursor = DateTime.fromJSDate(startDate, { zone: 'utc' }).setZone(APP_TIMEZONE).startOf('day')
-  const final = DateTime.fromJSDate(endDate, { zone: 'utc' }).setZone(APP_TIMEZONE).endOf('day')
+  let cursor = DateTime.fromJSDate(startDate, { zone: 'utc' }).setZone(getAppTimezone()).startOf('day')
+  const final = DateTime.fromJSDate(endDate, { zone: 'utc' }).setZone(getAppTimezone()).endOf('day')
 
   const recurrenceType = event.recurrenceType || (event.isRecurring ? 'WEEKLY' : 'NONE')
   const baseStartAtUy = event.startDate
-    ? DateTime.fromJSDate(new Date(event.startDate), { zone: 'utc' }).setZone(APP_TIMEZONE)
+    ? DateTime.fromJSDate(new Date(event.startDate), { zone: 'utc' }).setZone(getAppTimezone())
     : cursor
   const baseStartDayOfMonth = baseStartAtUy.day
 
