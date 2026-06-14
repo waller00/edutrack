@@ -38,6 +38,16 @@ export function getTodayYmdInUruguay(reference = new Date()): string {
   }).format(reference)
 }
 
+/** Compara fecha civil + HH:MM (Uruguay) contra `reference` (instante real). */
+export function isUruguayWallDateTimeInPast(ymd: string, hhmm: string, reference = new Date()): boolean {
+  const parts = parseHhMmString(hhmm)
+  if (!parts || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false
+  const wallIso = `${ymd}T${parts.h}:${parts.m}:00-03:00`
+  const startMs = new Date(wallIso).getTime()
+  if (Number.isNaN(startMs)) return false
+  return startMs < reference.getTime()
+}
+
 /**
  * Para rellenar selects HH:MM al editar: si viene ISO del API, proyecta a Uruguay;
  * si ya es "HH:MM", lo devuelve normalizado.

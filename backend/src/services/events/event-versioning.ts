@@ -27,6 +27,21 @@ export function todayUruguayYmd(now = new Date()): string {
   return ymdInUruguay(now)
 }
 
+/** true si el instante de inicio del evento (UTC en DB) ya pasó respecto a `now`. */
+export function isEventStartInPast(startInstantUtc: Date, now = new Date()): boolean {
+  return startInstantUtc.getTime() < now.getTime()
+}
+
+/** true si el inicio cambió y el nuevo instante quedó en el pasado (edición). */
+export function isMovingEventStartToPast(
+  existingStartInstantUtc: Date,
+  newStartInstantUtc: Date,
+  now = new Date(),
+): boolean {
+  if (newStartInstantUtc.getTime() === existingStartInstantUtc.getTime()) return false
+  return isEventStartInPast(newStartInstantUtc, now)
+}
+
 /** ¿La ventana de vigencia [from, until] (por YMD de Uruguay) incluye la fecha dada? */
 export function effectiveWindowIncludesYmd(
   effectiveFrom: Date | null | undefined,

@@ -60,7 +60,7 @@ const iso = "2025-12-15T14:00:00.000Z";
 const minimalEvent = {
   title: "Clase test",
   type: "CLASE",
-  startDate: iso,
+  startDate: "2099-06-15",
   startTime: "10:00",
   endTime: "11:00",
   isRecurring: false,
@@ -290,6 +290,22 @@ describe("events routes (prisma mock)", () => {
       .set("Authorization", `Bearer ${tok}`)
       .send({ ...minimalEvent, courseId, orientationId: "00000000-0000-4000-8000-0000000000b1" });
     expect(res.status).toBe(200);
+  });
+
+  it("POST /events 400 si la fecha y hora de inicio están en el pasado", async () => {
+    const tok = signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+    const res = await request(app())
+      .post("/events")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({
+        ...minimalEvent,
+        startDate: "2020-01-01",
+        startTime: "08:00",
+        endTime: "09:00",
+      });
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/pasado/i);
+    expect(prismaMock.event.create).not.toHaveBeenCalled();
   });
 
   it("POST /events 400 si hora fin <= hora inicio", async () => {
@@ -781,17 +797,68 @@ describe("events routes (prisma mock)", () => {
     expect(res.status).toBe(403);
   });
 
-  it("PUT /events/:id actualiza fechas y payload", async () => {
+  it("PUT /events/:id 400 si se mueve el inicio al pasado", async () => {
+    const futureStart = new Date("2099-06-15T13:00:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       userId: "u1",
       assignedUserId: null,
+      startDate: futureStart,
+      startTime: futureStart,
+      endTime: new Date("2099-06-15T14:00:00.000Z"),
+      isRecurring: false,
+      recurrenceType: "NONE",
+      recurrenceEnd: null,
+      daysOfWeek: [],
+      status: "SCHEDULED",
+      schoolYearId: "sy-default",
+      courseOfferingId: null,
+      courseOffering: null,
+      orientationId: null,
+      courseOrientationId: null,
+      subjectId: null,
+      _count: { attendances: 0 },
+    });
+    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const res = await request(app())
+      .put("/events/e1")
+      .set("Authorization", `Bearer ${tok}`)
+      .send({
+        startDate: "2020-01-01",
+        startTime: "08:00",
+        endTime: "09:00",
+      });
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toMatch(/pasado/i);
+    expect(prismaMock.event.update).not.toHaveBeenCalled();
+  });
+
+  it("PUT /events/:id actualiza fechas y payload", async () => {
+    const futureStart = new Date("2099-06-15T13:00:00.000Z");
+    prismaMock.event.findUnique.mockResolvedValue({
+      userId: "u1",
+      assignedUserId: null,
+      startDate: futureStart,
+      startTime: futureStart,
+      endTime: new Date("2099-06-15T14:00:00.000Z"),
+      isRecurring: false,
+      recurrenceType: "NONE",
+      recurrenceEnd: null,
+      daysOfWeek: [],
+      status: "SCHEDULED",
+      schoolYearId: "sy-default",
+      courseOfferingId: null,
+      courseOffering: null,
+      orientationId: null,
+      courseOrientationId: null,
+      subjectId: null,
+      _count: { attendances: 0 },
     });
     prismaMock.event.update.mockResolvedValue({ id: "e1", title: "Nuevo" });
     const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
-      .send({ title: "Nuevo", startDate: iso, startTime: iso, endTime: "2025-12-15T15:00:00.000Z" });
+      .send({ title: "Nuevo", startDate: "2099-06-16", startTime: "10:00", endTime: "11:00" });
     expect(res.status).toBe(200);
     expect(prismaMock.event.update).toHaveBeenCalled();
   });
