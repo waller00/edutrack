@@ -22,7 +22,6 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
-  Clock,
   FileSpreadsheet,
   FileText,
   Search,
@@ -779,6 +778,9 @@ export default function AdminAttendance() {
     try {
       const apiUrl = apiBaseUrl()
       const to = filters.endDate || new Date().toISOString().split('T')[0]
+      // Si no se eligió fecha de inicio, tomamos el 1 de enero del año de `to`
+      // para cubrir el ciclo completo y que el reporte no quede vacío ni falle la validación.
+      const from = filters.startDate || `${to.slice(0, 4)}-01-01`
 
       const sanitizePart = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_')
       const shortUuid = (id: string) => (id && id.length > 10 ? id.slice(-8) : id)
@@ -808,7 +810,7 @@ export default function AdminAttendance() {
       const payload = {
         reportKey: 'attendance_detail',
         format: format === 'excel' ? 'XLSX' : 'PDF',
-        from: filters.startDate,
+        from,
         to,
         filters: {
           role: filters.role || undefined,
@@ -848,8 +850,8 @@ export default function AdminAttendance() {
       a.href = url
       a.download =
         format === 'excel'
-          ? `EduTrack_Asistencia_Detallada_${filters.startDate}_${to}${filterSuffix}.xlsx`
-          : `EduTrack_Asistencia_Detallada_${filters.startDate}_${to}${filterSuffix}.pdf`
+          ? `EduTrack_Asistencia_Detallada_${from}_${to}${filterSuffix}.xlsx`
+          : `EduTrack_Asistencia_Detallada_${from}_${to}${filterSuffix}.pdf`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
@@ -859,43 +861,6 @@ export default function AdminAttendance() {
     } catch (error: any) {
       console.error('Error completo:', error)
       setMessage(`❌ Error: ${error.message || 'Error al exportar el reporte'}`)
-    }
-  }
-
-  async function markAbsences(expectedAbsence = false) {
-    try {
-      const apiUrl = apiBaseUrl()
-      const startDate = filters.startDate || new Date().toISOString().split('T')[0]
-      const endDate = filters.endDate || new Date().toISOString().split('T')[0]
-
-      const response = await fetch(`${apiUrl}/attendance/mark-absences`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          startDate,
-          endDate,
-          userId: filters.userId || undefined,
-          eventId: filters.eventId || undefined,
-          expectedAbsence: expectedAbsence || undefined,
-          ...(syCtx?.allYears ? { allYears: '1' } : {}),
-          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
-            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
-            : {}),
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error('Error al marcar ausencias')
-      }
-
-      const result = await response.json()
-      setMessage(`✅ ${result.message}`)
-      await loadAttendances()
-    } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al marcar ausencias'}`)
     }
   }
 
@@ -943,20 +908,6 @@ export default function AdminAttendance() {
                 >
                   <FileText className="h-4 w-4 shrink-0" aria-hidden />
                   PDF
-                </button>
-                <button
-                  onClick={() => markAbsences(false)}
-                  className="btn-warning inline-flex items-center gap-1.5 text-sm"
-                >
-                  <Clock className="h-4 w-4 shrink-0" aria-hidden />
-                  Marcar Ausencias
-                </button>
-                <button
-                  onClick={() => markAbsences(true)}
-                  className="btn-secondary inline-flex items-center gap-1.5 text-sm"
-                >
-                  <Calendar className="h-4 w-4 shrink-0" aria-hidden />
-                  Registrar ausencia prevista
                 </button>
                 <button
                   onClick={() => {

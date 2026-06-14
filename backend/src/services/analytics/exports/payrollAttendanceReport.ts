@@ -673,23 +673,23 @@ export async function generatePayrollAttendancePdf(data: PayrollReportData): Pro
   }
 
   function renderStatsBlock(title: string, s: PayrollStats) {
-    let y = ensure(doc.y + 90)
+    const y = ensure(doc.y + 90)
     doc.y = y
-    doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text(title, { width: usableWidth })
+    // Reset de X: tras dibujar la tabla, doc.x quedó en la última columna (derecha).
+    doc.x = marginLeft
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text(title, marginLeft, doc.y, { width: usableWidth })
     doc.moveDown(0.2)
     doc.font('Helvetica').fontSize(9).fillColor('#374151')
-    const left = [
+    const lines = [
       `Asistencias esperadas: ${s.esperadas}`,
       `Presente: ${s.presente}   Tarde: ${s.tarde}`,
       `Ausente just.: ${s.ausenteJustificado}   Ausente no just.: ${s.ausenteNoJustificado}`,
       `Suplido: ${s.suplido}   Cobertura: ${s.cobertura}`,
-    ]
-    const right = [
       `% Puntualidad: ${s.pctPuntualidad}%   % Asistencia: ${s.pctAsistencia}%   % Ausentismo: ${s.pctAusentismo}%`,
       `Horas trabajadas: ${s.horasTrabajadas}   Horas planificadas: ${s.horasPlanificadas}   Δ: ${s.deltaHoras}`,
       `Min tarde acumulados: ${s.minTardeAcumulados}   Promedio: ${s.minTardePromedio}`,
     ]
-    for (const l of [...left, ...right]) doc.text(l, { width: usableWidth })
+    for (const l of lines) doc.text(l, marginLeft, doc.y, { width: usableWidth })
     doc.moveDown(0.6)
   }
 
@@ -700,10 +700,11 @@ export async function generatePayrollAttendancePdf(data: PayrollReportData): Pro
 
   for (const p of data.persons) {
     // Título de persona
-    let y = ensure(doc.y + 40 + rowH)
+    const y = ensure(doc.y + 40 + rowH)
     doc.y = y
-    doc.font('Helvetica-Bold').fontSize(12).fillColor('#1F4E79').text(p.nombre, { width: usableWidth })
-    doc.font('Helvetica').fontSize(9).fillColor('#374151').text(`${p.rol}${p.email ? '  ·  ' + p.email : ''}`, { width: usableWidth })
+    doc.x = marginLeft
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#1F4E79').text(p.nombre, marginLeft, doc.y, { width: usableWidth })
+    doc.font('Helvetica').fontSize(9).fillColor('#374151').text(`${p.rol}${p.email ? '  ·  ' + p.email : ''}`, marginLeft, doc.y, { width: usableWidth })
     doc.moveDown(0.3)
 
     // Tabla evento por evento
@@ -729,12 +730,15 @@ export async function generatePayrollAttendancePdf(data: PayrollReportData): Pro
     renderStatsBlock('Estadísticas', p.stats)
   }
 
-  // Total general
-  let y = ensure(doc.y + 100)
-  doc.y = y
-  doc.font('Helvetica-Bold').fontSize(13).fillColor('#1F4E79').text('Total general', { width: usableWidth })
-  doc.moveDown(0.2)
-  renderStatsBlock('Estadísticas (todas las personas)', data.total)
+  // Total general (solo tiene sentido cuando hay más de una persona)
+  if (data.persons.length > 1) {
+    const y = ensure(doc.y + 100)
+    doc.y = y
+    doc.x = marginLeft
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#1F4E79').text('Total general', marginLeft, doc.y, { width: usableWidth })
+    doc.moveDown(0.2)
+    renderStatsBlock('Estadísticas (todas las personas)', data.total)
+  }
 
   return finalize(doc, chunks)
 }
