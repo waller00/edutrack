@@ -3,7 +3,7 @@ import PDFDocument from 'pdfkit'
 import { DateTime } from 'luxon'
 import type { AttendanceStatus, EventType } from '@prisma/client'
 import { prisma } from '../../../db/prisma.js'
-import { APP_TIMEZONE } from '../../../config/app-timezone.js'
+import { getAppTimezone } from '../../../config/app-timezone.js'
 import { selectOrgRoleCode, attachRoleCode } from '../../../identity/user-role-prisma.js'
 import { getPlannedInstances } from '../planInstances.js'
 import { resolveAttendanceAndJustification } from '../resolveInstances.js'
@@ -127,7 +127,7 @@ function pct(part: number, total: number) {
 
 function fmtUyHm(d: Date | null) {
   if (!d) return ''
-  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('HH:mm')
+  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('HH:mm')
 }
 
 function plannedMinutesOf(start: Date | null, end: Date | null) {

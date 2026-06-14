@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE } from '../../config/app-timezone.js'
+import { getAppTimezone } from '../../config/app-timezone.js'
 import type { LlmIntentPayload, QueryAssistantIntent } from './schemas.js'
 
 const MONTH_WORD: Record<string, number> = {
@@ -119,7 +119,7 @@ function personRoleScopeFromText(t: string): LlmIntentPayload['params']['personR
 
 /** Rango por palabras de día relativo ("hoy", "ayer", "esta semana", "semana pasada") en día civil Uruguay. */
 function relativeDayRangeFromText(t: string): { dateFrom: string; dateTo: string } | null {
-  const today = DateTime.now().setZone(APP_TIMEZONE).startOf('day')
+  const today = DateTime.now().setZone(getAppTimezone()).startOf('day')
   if (/\bhoy\b/.test(t)) {
     const ymd = today.toISODate()!
     return { dateFrom: ymd, dateTo: ymd }
@@ -231,7 +231,7 @@ export function heuristicIntentFromQuestion(question: string, defaultYear = Date
     return payload(
       'ABSENCES_SUMMARY',
       {
-        month: month ?? DateTime.now().setZone(APP_TIMEZONE).month,
+        month: month ?? DateTime.now().setZone(getAppTimezone()).month,
         year: year ?? nowY,
         ...viewParams,
         ...roleParams,

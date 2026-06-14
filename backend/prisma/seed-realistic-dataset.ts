@@ -20,7 +20,7 @@ import { TEACHER_SPECIALTIES, type TeacherSpecialty, type TeacherSpecialtyArea }
 import { seedAcademicCatalog } from './seed-academic-catalog.js'
 import { runBootstrap } from './seed-bootstrap.js'
 import { seedTeachers } from './seed-teachers.js'
-import { APP_TIMEZONE, uruguayWallToUtc } from '../src/config/app-timezone.js'
+import { getAppTimezone, uruguayWallToUtc } from '../src/config/app-timezone.js'
 
 const prisma = new PrismaClient()
 
@@ -210,22 +210,22 @@ function minutesToWall(ymd: string, minutes: number) {
 }
 
 function toYmd(date: Date) {
-  return DateTime.fromJSDate(date, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  return DateTime.fromJSDate(date, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
 function wallMinutesFromStoredTime(date: Date) {
-  const wallTime = DateTime.fromJSDate(date, { zone: 'utc' }).setZone(APP_TIMEZONE)
+  const wallTime = DateTime.fromJSDate(date, { zone: 'utc' }).setZone(getAppTimezone())
   return wallTime.hour * 60 + wallTime.minute
 }
 
 function weekday(ymd: string) {
-  return DateTime.fromISO(ymd, { zone: APP_TIMEZONE }).weekday % 7
+  return DateTime.fromISO(ymd, { zone: getAppTimezone() }).weekday % 7
 }
 
 function eachYmd(start: string, end: string) {
   const days: string[] = []
-  let cursor = DateTime.fromISO(start, { zone: APP_TIMEZONE }).startOf('day')
-  const final = DateTime.fromISO(end, { zone: APP_TIMEZONE }).startOf('day')
+  let cursor = DateTime.fromISO(start, { zone: getAppTimezone() }).startOf('day')
+  const final = DateTime.fromISO(end, { zone: getAppTimezone() }).startOf('day')
   while (cursor <= final) {
     days.push(cursor.toFormat('yyyy-MM-dd'))
     cursor = cursor.plus({ days: 1 })
@@ -437,7 +437,7 @@ async function seedBiometricDevice(users: Array<Pick<User, 'id' | 'username' | '
       admsSerial: 'F22-UY-2026-001',
       name: 'ZKTeco F22 - Acceso principal',
       secretHash: sha256('liceo-f22-demo-secret'),
-      timezone: APP_TIMEZONE,
+      timezone: getAppTimezone(),
       isActive: true,
       allowedIps: ['127.0.0.1', '10.10.0.25'],
       lastSeenAt: wall('2026-05-27', 18, 22),

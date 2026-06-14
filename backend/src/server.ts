@@ -9,6 +9,7 @@ import {
   getAttendanceOperationalSettings,
   getMoodleOperationalSettings,
 } from "./config/system-settings.js";
+import { refreshInstitutionTimezoneCache } from "./config/institution-timezone.js";
 import {
   isMoodleIntegrationEnabled,
   processOutboxOnce,
@@ -31,6 +32,7 @@ Promise.allSettled([
   // Roles built-in + matriz canónica de permisos: se siembra una vez al arrancar
   // (antes se hacía en cada GET /auth/me, lo que escribía en BD por request).
   ensureDefaultProfilePermissionsIfNeeded().catch((e) => console.error("[permissions] bootstrap:", e)),
+  refreshInstitutionTimezoneCache().catch((e) => console.error("[timezone] bootstrap:", e)),
 ])
   .finally(() => {
     const host = "0.0.0.0";

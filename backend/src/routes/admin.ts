@@ -6,6 +6,12 @@ import { z } from 'zod'
 import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
 import { isDiditConfigured, isMoodleSyncEnabledFromEnv, getMoodleOperationalSettings } from '../config/system-settings.js'
 import { getOrCreateSystemSettings } from '../config/system-settings.js'
+import {
+  INSTITUTION_TIMEZONE_OPTIONS,
+  isValidInstitutionTimezone,
+  normalizeInstitutionTimezone,
+  refreshInstitutionTimezoneCache,
+} from '../config/institution-timezone.js'
 import { normalizePermissionId } from '../identity/profile-permissions-defaults.js'
 import {
   createProfileRoleWithPermissions,
@@ -775,6 +781,7 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     moodleSyncEnabled?: boolean | null
     moodleReconcileIntervalMs?: number | null
     moodleSyncStudents?: boolean | null
+    institutionTimezone?: string | null
   }
   return res.json({
     diditConfigured: isDiditConfigured(),
@@ -786,6 +793,8 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     attendanceMonitorEnabled: row.attendanceMonitorEnabled,
     attendanceMonitorIntervalMs: row.attendanceMonitorIntervalMs,
     biometricDuplicateWindowMinutes: settings.biometricDuplicateWindowMinutes ?? 5,
+    institutionTimezone: normalizeInstitutionTimezone(settings.institutionTimezone),
+    institutionTimezoneOptions: INSTITUTION_TIMEZONE_OPTIONS,
     moodleConfigured: isMoodleIntegrationEnabled(),
     moodleSyncEnabled: settings.moodleSyncEnabled === true,
     moodleSyncEnabledEffective:
@@ -810,9 +819,17 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       moodleSyncEnabled: z.boolean().optional(),
       moodleReconcileIntervalMs: z.number().int().min(60000).max(86400000).optional(),
       moodleSyncStudents: z.boolean().optional(),
+      institutionTimezone: z.string().trim().min(1).max(64).optional(),
     })
     .safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  if (
+    parsed.data.institutionTimezone !== undefined &&
+    !isValidInstitutionTimezone(parsed.data.institutionTimezone)
+  ) {
+    return res.status(400).json({ message: 'Zona horaria inválida' })
+  }
 
   const data = parsed.data
   const updated = await prisma.systemSettings.upsert({
@@ -830,15 +847,18 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       moodleSyncEnabled: data.moodleSyncEnabled ?? isMoodleSyncEnabledFromEnv(),
       moodleReconcileIntervalMs: data.moodleReconcileIntervalMs ?? 900000,
       moodleSyncStudents: data.moodleSyncStudents ?? false,
+      institutionTimezone: normalizeInstitutionTimezone(data.institutionTimezone),
     } as any,
     update: data as any,
   })
+  await refreshInstitutionTimezoneCache()
   const updatedSettings = updated as typeof updated & {
     attendanceEarlyExitToleranceMinutes?: number | null
     biometricDuplicateWindowMinutes?: number | null
     moodleSyncEnabled?: boolean | null
     moodleReconcileIntervalMs?: number | null
     moodleSyncStudents?: boolean | null
+    institutionTimezone?: string | null
   }
 
   recordAuditEvent({
@@ -860,6 +880,8 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     attendanceMonitorEnabled: updated.attendanceMonitorEnabled,
     attendanceMonitorIntervalMs: updated.attendanceMonitorIntervalMs,
     biometricDuplicateWindowMinutes: updatedSettings.biometricDuplicateWindowMinutes ?? 5,
+    institutionTimezone: normalizeInstitutionTimezone(updatedSettings.institutionTimezone),
+    institutionTimezoneOptions: INSTITUTION_TIMEZONE_OPTIONS,
     moodleConfigured: isMoodleIntegrationEnabled(),
     moodleSyncEnabled: updatedSettings.moodleSyncEnabled === true,
     moodleSyncEnabledEffective:

@@ -74,6 +74,10 @@ export default function AdminSystemSettingsPage() {
         attendanceEarlyExitToleranceMinutes:
           r.attendanceEarlyExitToleranceMinutes ?? r.attendanceLateToleranceMinutes ?? 5,
         biometricDuplicateWindowMinutes: r.biometricDuplicateWindowMinutes ?? 5,
+        institutionTimezone: r.institutionTimezone ?? 'America/Montevideo',
+        institutionTimezoneOptions: r.institutionTimezoneOptions ?? [
+          { value: 'America/Montevideo', label: 'Uruguay — Montevideo' },
+        ],
       })
     } catch {
       setData(null)
@@ -113,6 +117,7 @@ export default function AdminSystemSettingsPage() {
           attendanceMonitorEnabled: data.attendanceMonitorEnabled,
           attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs,
           biometricDuplicateWindowMinutes: data.biometricDuplicateWindowMinutes,
+          institutionTimezone: data.institutionTimezone,
         }),
       })
       setData(updated)

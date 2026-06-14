@@ -56,6 +56,7 @@ const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock
     },
     systemSettings: {
       upsert: vi.fn(),
+      findUnique: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -826,6 +827,7 @@ describe("admin routes (prisma mock)", () => {
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
       biometricDuplicateWindowMinutes: 5,
+      institutionTimezone: "America/Montevideo",
     };
 
     it("GET devuelve la configuración", async () => {
@@ -834,6 +836,31 @@ describe("admin routes (prisma mock)", () => {
       expect(res.status).toBe(200);
       expect(res.body.attendanceLateToleranceMinutes).toBe(5);
       expect(res.body).toHaveProperty("diditConfigured");
+      expect(res.body.institutionTimezone).toBe("America/Montevideo");
+      expect(Array.isArray(res.body.institutionTimezoneOptions)).toBe(true);
+    });
+
+    it("PUT 400 con zona horaria inválida", async () => {
+      const res = await request(app())
+        .put("/admin/system-settings")
+        .set(adminHdr())
+        .send({ institutionTimezone: "No/Existe" });
+      expect(res.status).toBe(400);
+    });
+
+    it("PUT 200 actualiza zona horaria", async () => {
+      const updatedRow = {
+        ...settingsRow,
+        institutionTimezone: "America/Santiago",
+      };
+      prismaMock.systemSettings.upsert.mockResolvedValueOnce(updatedRow);
+      prismaMock.systemSettings.findUnique.mockResolvedValueOnce(updatedRow);
+      const res = await request(app())
+        .put("/admin/system-settings")
+        .set(adminHdr())
+        .send({ institutionTimezone: "America/Santiago" });
+      expect(res.status).toBe(200);
+      expect(res.body.institutionTimezone).toBe("America/Santiago");
     });
 
     it("PUT 400 con valores fuera de rango", async () => {

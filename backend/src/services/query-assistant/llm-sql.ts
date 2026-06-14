@@ -1,7 +1,7 @@
 import OpenAI, { APIError } from 'openai'
 import { DateTime } from 'luxon'
 import { z } from 'zod'
-import { APP_TIMEZONE } from '../../config/app-timezone.js'
+import { getAppTimezone } from '../../config/app-timezone.js'
 import { prisma } from '../../db/prisma.js'
 import { temperatureParams } from './model-params.js'
 import { DATABASE_CONTEXT } from './schema-context.js'
@@ -76,7 +76,7 @@ const ALLOWED_TABLES = new Set([
 ])
 
 function currentSqlContextLine(scope?: QueryAssistantScope) {
-  const today = DateTime.now().setZone(APP_TIMEZONE).toISODate()
+  const today = DateTime.now().setZone(getAppTimezone()).toISODate()
   const cycleYearNote = scope?.schoolYearCode ? ` (corresponde al año ${scope.schoolYearCode})` : ''
   const schoolYearLine = scope?.allYears
     ? 'Contexto de ciclo lectivo: el usuario eligió todos los ciclos; no filtres por "schoolYearId".'
@@ -164,7 +164,7 @@ function normalizeValue(value: unknown): string | number | null {
   if (value == null) return null
   if (typeof value === 'bigint') return Number(value)
   if (value instanceof Date) {
-    return DateTime.fromJSDate(value, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('dd/MM/yyyy HH:mm')
+    return DateTime.fromJSDate(value, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('dd/MM/yyyy HH:mm')
   }
   if (typeof value === 'number' || typeof value === 'string') return value
   if (typeof value === 'boolean') return value ? 'Sí' : 'No'

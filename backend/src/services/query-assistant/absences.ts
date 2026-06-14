@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE } from '../../config/app-timezone.js'
+import { getAppTimezone } from '../../config/app-timezone.js'
 import { getPlannedInstances } from '../analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../analytics/resolveInstances.js'
 import { resolveYmdRangeFromPayload } from './date-range.js'
@@ -28,7 +28,7 @@ function ymdToDdMmYyyy(ymd: string): string {
 
 function clockUy(at: Date | null): string {
   if (!at) return '—'
-  return DateTime.fromJSDate(new Date(at), { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('HH:mm')
+  return DateTime.fromJSDate(new Date(at), { zone: 'utc' }).setZone(getAppTimezone()).toFormat('HH:mm')
 }
 
 /**
