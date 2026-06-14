@@ -61,6 +61,11 @@ export function moodleUserAuthMethod(): string {
   return process.env.MOODLE_USER_AUTH?.trim() || "manual";
 }
 
+/** Idioma de las cuentas Moodle creadas (default español; overridable por env). */
+export function moodleUserLang(): string {
+  return process.env.MOODLE_USER_LANG?.trim() || "es";
+}
+
 /**
  * URL pública de Moodle para links en emails al alumno (`MOODLE_PUBLIC_URL`).
  *

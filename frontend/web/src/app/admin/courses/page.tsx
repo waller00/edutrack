@@ -787,7 +787,7 @@ export default function AdminCoursesPage() {
                     title="Comunes"
                     subjects={common}
                     loading={subjectsLoading}
-                    addLabel="Agregar común"
+                    addLabel="Agregar"
                     onCreate={(d) => createSubject(d, { common: true })}
                     onUpdate={updateSubject}
                     onRemove={removeSubject}

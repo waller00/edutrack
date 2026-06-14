@@ -4,6 +4,7 @@ import {
   isMoodleIntegrationEnabled,
   moodleRest,
   moodleUserAuthMethod,
+  moodleUserLang,
 } from "./client.js";
 
 export type MoodleSyncUserInput = {
@@ -117,6 +118,7 @@ export async function syncMoodleUser(user: MoodleSyncUserInput): Promise<number 
     "users[0][auth]": auth,
     "users[0][idnumber]": user.id,
     "users[0][maildisplay]": "0",
+    "users[0][lang]": moodleUserLang(),
   };
 
   // OAuth2: la identidad ya está verificada en Keycloak/EduTrack; no pedir re-confirmación en Moodle.

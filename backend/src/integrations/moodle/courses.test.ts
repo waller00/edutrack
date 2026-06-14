@@ -10,6 +10,7 @@ const { moodleRestMock, prismaMock } = vi.hoisted(() => ({
 vi.mock("./client.js", () => ({
   moodleRest: moodleRestMock,
   moodleRootCategoryId: () => 0,
+  moodleUserLang: () => "es",
 }));
 vi.mock("../../db/prisma.js", () => ({ prisma: prismaMock }));
 

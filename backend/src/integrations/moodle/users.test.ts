@@ -13,6 +13,7 @@ vi.mock("./client.js", () => ({
   moodleRest: moodleRestMock,
   isMoodleIntegrationEnabled: enabledMock,
   moodleUserAuthMethod: authMethodMock,
+  moodleUserLang: () => "es",
 }));
 vi.mock("../../db/prisma.js", () => ({ prisma: prismaMock }));
 

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
-import { isMoodleIntegrationEnabled, moodleRest } from "./client.js";
+import { isMoodleIntegrationEnabled, moodleRest, moodleUserLang } from "./client.js";
 import { getMappedId, saveMapping } from "./object-map.js";
 import { sendStudentWelcomeEmail } from "../../notifications/student-welcome.js";
 
@@ -91,6 +91,7 @@ async function upgradeStudentToManual(moodleId: number, s: StudentAccountInput):
     "users[0][email]": real.email,
     "users[0][firstname]": firstname,
     "users[0][lastname]": lastname,
+    "users[0][lang]": moodleUserLang(),
   });
 }
 
@@ -112,6 +113,7 @@ async function createStudentMoodleUser(s: StudentAccountInput, hasReal: boolean)
     "users[0][auth]": hasReal ? "manual" : "nologin",
     "users[0][idnumber]": idnumber,
     "users[0][maildisplay]": "0",
+    "users[0][lang]": moodleUserLang(),
   });
   const id = Array.isArray(created) ? numericField(created[0], "id") : null;
   if (id == null) {
