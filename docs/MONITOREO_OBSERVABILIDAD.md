@@ -43,6 +43,11 @@ http://127.0.0.1:3001
 La contraseña de Grafana es obligatoria mediante `GRAFANA_ADMIN_PASSWORD`.
 No la guardes en Git.
 
+La integracion de k6 desde GitHub Actions utiliza Tailscale solamente para
+enviar metricas a un proxy privado de remote write. No modifica el acceso a
+Grafana mediante tunel SSH ni publica Prometheus. Ver
+`docs/TAILSCALE_K6_INTEGRACION.md`.
+
 ## Variables
 
 Copiá el ejemplo dedicado:
@@ -277,6 +282,10 @@ El workflow registra el commit, el motivo, el entorno generador de carga y
 snapshots del droplet antes y despues. Los resultados JSON y un informe Markdown
 se conservan como artefactos de GitHub Actions durante 90 dias. La evaluacion se
 complementa con Backend RED, PostgreSQL, Docker Containers y Node Host.
+
+Opcionalmente, el workflow crea un nodo Tailscale efimero y envia las metricas
+k6 al proxy privado de remote write. La ACL debe permitir exclusivamente
+`tag:github-k6` hacia `tag:edutrack-monitoring` en `tcp/9201`.
 
 Esta baseline mide endpoints publicos no destructivos y la latencia real desde
 Internet. Todavia no representa sesiones autenticadas, escrituras ni capacidad

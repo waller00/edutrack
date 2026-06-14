@@ -83,6 +83,12 @@ API. Si no existe, se utiliza `https://api.edutrack-uy.com`. Para que exista una
 aprobacion humana real, configurar required reviewers en el environment
 `production` de GitHub.
 
+El input `publish_metrics_to_grafana` conecta el runner de GitHub Actions a la
+tailnet mediante identidad federada y envia las metricas al proxy privado de
+remote write. Cada ejecucion se etiqueta como `testid=gha-<run-id>`. La
+configuracion completa se documenta en
+`docs/TAILSCALE_K6_INTEGRACION.md`.
+
 La primera ejecucion que cumpla thresholds y no coincida con incidentes reales
 se considera la baseline oficial. Conservar su artefacto y registrar commit,
 fecha, motivo, recursos del droplet, p95, p99, errores, solicitudes descartadas
