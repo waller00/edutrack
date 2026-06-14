@@ -1,0 +1,20 @@
+services:
+  prometheus-remote-write-proxy:
+    image: ${PROMETHEUS_REMOTE_WRITE_PROXY_IMAGE:-nginxinc/nginx-unprivileged:1.27-alpine}
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_started
+    ports:
+      - "${TAILSCALE_BIND_ADDRESS:?Set TAILSCALE_BIND_ADDRESS to the droplet Tailscale IP}:9201:9201"
+    volumes:
+      - ./monitoring/prometheus-remote-write-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - monitoring
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
