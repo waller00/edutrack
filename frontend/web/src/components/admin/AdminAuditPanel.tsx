@@ -50,6 +50,38 @@ function shortId(id: string | null | undefined): string {
 const shellCard =
   'rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm'
 
+function AuditDetailBlock({ detail }: { detail: ReturnType<typeof auditMetadataDisplay> }) {
+  if (detail.lines.length === 0 && !detail.technicalJson) {
+    return <span className="text-gray-400">-</span>
+  }
+
+  return (
+    <div className="max-w-xl space-y-2">
+      {detail.lines.length > 0 ? (
+        <ul className="list-disc space-y-1.5 pl-4 text-sm leading-relaxed text-gray-800 marker:text-emerald-600">
+          {detail.lines.map((line, idx) => (
+            <li key={idx} className="break-words">
+              {line}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {detail.technicalJson ? (
+        <details className="group text-xs">
+          <summary className="cursor-pointer list-none text-emerald-700 hover:text-emerald-800 [&::-webkit-details-marker]:hidden">
+            <span className="border-b border-dotted border-emerald-300 group-open:border-transparent">
+              Datos técnicos (JSON)
+            </span>
+          </summary>
+          <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-gray-100 bg-slate-50 px-3 py-2 font-mono text-[11px] leading-relaxed text-gray-600 whitespace-pre-wrap break-words">
+            {detail.technicalJson}
+          </pre>
+        </details>
+      ) : null}
+    </div>
+  )
+}
+
 export default function AdminAuditPanel({ compact = false }: { compact?: boolean } = {}) {
   const [rows, setRows] = useState<AuditRow[]>([])
   const [catalog, setCatalog] = useState<ActionCat[]>([])
@@ -91,7 +123,7 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
   }, [load])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const containerClass = compact ? 'space-y-5' : 'responsive-page max-w-6xl space-y-6'
+  const containerClass = compact ? 'space-y-5' : 'responsive-page max-w-7xl space-y-6'
 
   const labelCls = 'block text-xs font-medium uppercase tracking-wide text-gray-500'
 
@@ -226,7 +258,7 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
           <p className="text-xs text-gray-500">Ordenados del más reciente al más antiguo.</p>
         </div>
 
-        <div className="overflow-x-auto px-1">
+        <div>
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-gray-500">
               <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
@@ -238,103 +270,155 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
               <p className="mt-1 text-xs text-gray-500">Probá ampliar fechas o quitar filtros.</p>
             </div>
           ) : (
-            <table className="min-w-[860px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-white">
-                  <th className="whitespace-nowrap px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                    Cuándo
-                  </th>
-                  <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">Acción</th>
-                  <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">Actor</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                    IP
-                  </th>
-                  <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">Entidad</th>
-                  <th className="min-w-[220px] px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                    Detalle
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {rows.map((r, i) => {
+            <>
+              <div className="divide-y divide-gray-100 lg:hidden">
+                {rows.map((r) => {
                   const detail = auditMetadataDisplay(r.action, r.metadata)
                   return (
-                  <tr
-                    key={r.id}
-                    className={`align-top transition-colors ${
-                      i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
-                    } hover:bg-emerald-50/25`}
-                  >
-                    <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-gray-800">{formatWhen(r.occurredAt)}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="font-medium leading-snug text-gray-900">{r.actionLabel}</div>
-                      <div className="mt-0.5 font-mono text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                        {r.action}
+                    <article key={r.id} className="space-y-4 px-4 py-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold leading-snug text-gray-900">{r.actionLabel}</div>
+                          <div className="mt-1 inline-flex max-w-full rounded-md bg-slate-100 px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wide text-slate-600">
+                            <span className="truncate">{r.action}</span>
+                          </div>
+                        </div>
+                        <time className="shrink-0 whitespace-nowrap text-xs font-medium tabular-nums text-gray-500">
+                          {formatWhen(r.occurredAt)}
+                        </time>
                       </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-gray-800">
-                      {r.actorName ? (
-                        <div className="min-w-0 truncate font-medium" title={r.actorEmail || undefined}>
-                          {r.actorName}
+
+                      <dl className="grid gap-3 text-sm sm:grid-cols-3">
+                        <div className="min-w-0">
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Actor</dt>
+                          <dd className="mt-1 truncate font-medium text-gray-800" title={r.actorEmail || undefined}>
+                            {r.actorName || r.actorEmail || '-'}
+                          </dd>
                         </div>
-                      ) : r.actorEmail ? (
-                        <span className="text-gray-600" title={r.actorEmail}>
-                          {r.actorEmail}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3.5 font-mono text-xs text-gray-600">{r.actorIp || '—'}</td>
-                    <td className="px-4 py-3.5 text-gray-700">
-                      {r.entityType || r.entityId ? (
-                        <div className="min-w-0 max-w-[200px]">
-                          <div className="truncate text-sm">{r.entityType || '—'}</div>
+                        <div className="min-w-0">
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">IP</dt>
+                          <dd className="mt-1 truncate font-mono text-xs text-gray-700" title={r.actorIp || undefined}>
+                            {r.actorIp || '-'}
+                          </dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Entidad</dt>
+                          <dd className="mt-1 truncate text-gray-800" title={r.entityType || undefined}>
+                            {r.entityType || '-'}
+                          </dd>
                           {r.entityId ? (
-                            <div
-                              className="mt-0.5 truncate font-mono text-[11px] text-gray-400"
-                              title={r.entityId}
-                            >
+                            <dd className="mt-0.5 truncate font-mono text-[11px] text-gray-400" title={r.entityId}>
                               {shortId(r.entityId)}
-                            </div>
+                            </dd>
                           ) : null}
                         </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      {detail.lines.length === 0 && !detail.technicalJson ? (
-                        <span className="text-gray-400">—</span>
-                      ) : (
-                        <div className="max-w-md space-y-2">
-                          {detail.lines.length > 0 ? (
-                            <ul className="list-disc space-y-1.5 pl-4 text-sm leading-relaxed text-gray-800 marker:text-emerald-600">
-                              {detail.lines.map((line, idx) => (
-                                <li key={idx}>{line}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                          {detail.technicalJson ? (
-                            <details className="group text-xs">
-                              <summary className="cursor-pointer list-none text-emerald-700 hover:text-emerald-800 [&::-webkit-details-marker]:hidden">
-                                <span className="border-b border-dotted border-emerald-300 group-open:border-transparent">
-                                  Datos técnicos (JSON)
-                                </span>
-                              </summary>
-                              <pre className="mt-2 max-h-36 overflow-auto rounded-md border border-gray-100 bg-slate-50 px-2 py-1.5 font-mono text-[10px] leading-snug text-gray-600 break-all whitespace-pre-wrap">
-                                {detail.technicalJson}
-                              </pre>
-                            </details>
-                          ) : null}
+                      </dl>
+
+                      <div className="rounded-lg border border-gray-100 bg-slate-50/60 px-3 py-3">
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                          Detalle
                         </div>
-                      )}
-                    </td>
-                  </tr>
+                        <AuditDetailBlock detail={detail} />
+                      </div>
+                    </article>
                   )
                 })}
-              </tbody>
-            </table>
+              </div>
+
+              <div className="hidden overflow-x-auto px-1 lg:block">
+                <table className="w-full min-w-[1180px] table-fixed text-left text-sm">
+                  <colgroup>
+                    <col className="w-[170px]" />
+                    <col className="w-[245px]" />
+                    <col className="w-[170px]" />
+                    <col className="w-[210px]" />
+                    <col className="w-[165px]" />
+                    <col />
+                  </colgroup>
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-white">
+                      <th className="whitespace-nowrap px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                        Cuándo
+                      </th>
+                      <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">Acción</th>
+                      <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">Actor</th>
+                      <th className="whitespace-nowrap px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                        IP
+                      </th>
+                      <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                        Entidad
+                      </th>
+                      <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                        Detalle
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {rows.map((r, i) => {
+                      const detail = auditMetadataDisplay(r.action, r.metadata)
+                      return (
+                        <tr
+                          key={r.id}
+                          className={`align-top transition-colors ${
+                            i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                          } hover:bg-emerald-50/25`}
+                        >
+                          <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-gray-800">
+                            {formatWhen(r.occurredAt)}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className="break-words font-medium leading-snug text-gray-900">{r.actionLabel}</div>
+                            <div className="mt-1 truncate font-mono text-[11px] font-medium uppercase tracking-wide text-gray-400" title={r.action}>
+                              {r.action}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 text-gray-800">
+                            {r.actorName ? (
+                              <div className="min-w-0 truncate font-medium" title={r.actorEmail || undefined}>
+                                {r.actorName}
+                              </div>
+                            ) : r.actorEmail ? (
+                              <span className="block truncate text-gray-600" title={r.actorEmail}>
+                                {r.actorEmail}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className="truncate font-mono text-xs text-gray-600" title={r.actorIp || undefined}>
+                              {r.actorIp || '-'}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 text-gray-700">
+                            {r.entityType || r.entityId ? (
+                              <div className="min-w-0">
+                                <div className="truncate text-sm" title={r.entityType || undefined}>
+                                  {r.entityType || '-'}
+                                </div>
+                                {r.entityId ? (
+                                  <div
+                                    className="mt-0.5 truncate font-mono text-[11px] text-gray-400"
+                                    title={r.entityId}
+                                  >
+                                    {shortId(r.entityId)}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <AuditDetailBlock detail={detail} />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
 
