@@ -23,6 +23,7 @@ import {
   formatTimeInUruguay,
   formatClockHhMmInUruguayFromIso,
   getTodayYmdInUruguay,
+  isUruguayWallDateTimeInPast,
   APP_TIMEZONE,
 } from '@/lib/forms/datetime-uy'
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
@@ -462,6 +463,10 @@ function getEventEndDateInputValue(event: Event) {
   return getEventDateInputValue(event.endDate) || getEventDateInputValue(event.startDate)
 }
 
+function eventScheduleKey(startDate: string, startTime?: string | null): string {
+  return `${getEventDateInputValue(startDate)}|${formatClockHhMmInUruguayFromIso(startTime ?? undefined)}`
+}
+
 export default function AdminEvents() {
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
@@ -497,6 +502,9 @@ export default function AdminEvents() {
   const importInputRef = useRef<HTMLInputElement | null>(null)
   /** Errores del formulario "Crear evento" (se muestran dentro del modal). */
   const [createModalError, setCreateModalError] = useState('')
+  /** Clave fecha|hora de inicio al abrir edición (detectar si se movió al pasado). */
+  const [editingEventScheduleSnapshot, setEditingEventScheduleSnapshot] = useState<string | null>(null)
+  const [editModalError, setEditModalError] = useState('')
 
   const [recurrenceRangeMode, setRecurrenceRangeMode] = useState<RecurrenceRangeMode>('school_year')
   const activeSchoolYear = resolveAdminSchoolYearForEvents(syCtx ?? null)
@@ -703,6 +711,47 @@ export default function AdminEvents() {
     resetCreateForm()
   }
 
+  function openEditEvent(event: Event) {
+    setEditModalError('')
+    setEditingEventScheduleSnapshot(eventScheduleKey(event.startDate, event.startTime))
+    setEditingEvent(event)
+  }
+
+  function closeEditModal() {
+    setEditingEvent(null)
+    setEditingEventScheduleSnapshot(null)
+    setEditModalError('')
+  }
+
+  const createMinStartDateYmd = getTodayYmdInUruguay()
+  const editMinStartDateYmd =
+    editingEventScheduleSnapshot &&
+    isUruguayWallDateTimeInPast(
+      editingEventScheduleSnapshot.split('|')[0] ?? '',
+      editingEventScheduleSnapshot.split('|')[1] ?? '00:00',
+    )
+      ? undefined
+      : getTodayYmdInUruguay()
+
+  function validateEditEventBeforeSubmit(event: Event): string | null {
+    const startYmd = getEventDateInputValue(event.startDate)
+    const startHhmm = formatClockHhMmInUruguayFromIso(event.startTime)
+    const endHhmm = formatClockHhMmInUruguayFromIso(event.endTime)
+    const startM = timeStringToMinutes(startHhmm)
+    const endM = timeStringToMinutes(endHhmm)
+    if (!startYmd) return 'Indicá la fecha del evento.'
+    if (startM === null || endM === null) return 'Formato de hora inválido (usa HH:MM).'
+    if (endM <= startM) {
+      return 'La hora de fin debe ser mayor que la de inicio.'
+    }
+    const scheduleKey = eventScheduleKey(event.startDate, event.startTime)
+    const scheduleChanged = editingEventScheduleSnapshot != null && scheduleKey !== editingEventScheduleSnapshot
+    if (scheduleChanged && isUruguayWallDateTimeInPast(startYmd, startHhmm)) {
+      return 'No se puede mover un evento al pasado. Elegí una fecha y hora de inicio actuales o futuras.'
+    }
+    return null
+  }
+
   function validateNewEventBeforeSubmit(): string | null {
     if (!newEvent.title.trim()) return 'El título es obligatorio.'
     if (!selectedRole) return 'Selecciona el rol del usuario.'
@@ -712,6 +761,10 @@ export default function AdminEvents() {
     if (startM === null || endM === null) return 'Formato de hora inválido (usa HH:MM).'
     if (endM <= startM) {
       return 'La hora de fin debe ser mayor que la de inicio. Muy común: elegir “12:11 AM” para el fin (eso es 00:11 de la madrugada, antes que las 11:11 de la mañana). Para terminar a las 12:11 del mediodía usá 12:11 en 24 h o “12:11 PM”.'
+    }
+    if (!newEvent.startDate.trim()) return 'Indicá la fecha del evento.'
+    if (isUruguayWallDateTimeInPast(newEvent.startDate, newEvent.startTime)) {
+      return 'No se pueden crear eventos en el pasado. Elegí una fecha y hora de inicio actuales o futuras.'
     }
     if (newEvent.isRecurring) {
       const endYmd =
@@ -791,6 +844,12 @@ export default function AdminEvents() {
   }
 
   async function updateEvent(id: string, updates: Partial<Event>) {
+    setEditModalError('')
+    const localErr = validateEditEventBeforeSubmit(updates as Event)
+    if (localErr) {
+      setEditModalError(localErr)
+      return
+    }
     try {
       await api(withSchoolYear(`/events/${id}`, coursePickerQuery), {
         method: 'PUT',
@@ -799,9 +858,9 @@ export default function AdminEvents() {
       
       setMessage('✅ Actividad actualizada correctamente')
       await loadEvents()
-      setEditingEvent(null)
+      closeEditModal()
     } catch (error: any) {
-      setMessage(`❌ Error: ${error.message || 'Error al actualizar evento'}`)
+      setEditModalError(getApiErrorDetail(error))
     }
   }
 
@@ -978,7 +1037,7 @@ export default function AdminEvents() {
             </button>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
             <DateRangeFields
               startDate={filters.startDate}
               endDate={filters.endDate}
@@ -1109,7 +1168,7 @@ export default function AdminEvents() {
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
                 {weekdaySummary.map((day) => (
                   <button
                     key={day.value}
@@ -1198,7 +1257,7 @@ export default function AdminEvents() {
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setEditingEvent(event)}
+                                onClick={() => openEditEvent(event)}
                                 className="inline-flex w-fit items-center rounded border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
                               >
                                 Editar
@@ -1342,7 +1401,7 @@ export default function AdminEvents() {
                       <td className="px-4 py-4 align-top text-sm">
                         <div className="flex flex-col items-start gap-2">
                           <button
-                            onClick={() => setEditingEvent(event)}
+                            onClick={() => openEditEvent(event)}
                             className="text-indigo-600 hover:text-indigo-900"
                           >
                             Editar
@@ -1677,6 +1736,7 @@ export default function AdminEvents() {
                         <input
                           type="date"
                           value={newEvent.startDate}
+                          min={createMinStartDateYmd}
                           onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
                           className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
@@ -1688,6 +1748,7 @@ export default function AdminEvents() {
                           <input
                             type="date"
                             value={newEvent.recurrenceEnd}
+                            min={newEvent.startDate || createMinStartDateYmd}
                             onChange={(e) => setNewEvent({ ...newEvent, recurrenceEnd: e.target.value })}
                             className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                           />
@@ -1711,6 +1772,7 @@ export default function AdminEvents() {
                     <input
                       type="date"
                       value={newEvent.startDate}
+                      min={createMinStartDateYmd}
                       onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                     />
@@ -1777,7 +1839,7 @@ export default function AdminEvents() {
             <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-lg sm:p-6">
               <button
                 type="button"
-                onClick={() => setEditingEvent(null)}
+                onClick={closeEditModal}
                 className="absolute top-3 right-3 z-[2] flex h-12 w-12 items-center justify-center rounded-full border-4 border-indigo-600 bg-white text-2xl font-bold leading-none text-indigo-700 shadow-lg hover:bg-indigo-50"
                 aria-label="Cerrar"
                 title="Cerrar"
@@ -1787,6 +1849,15 @@ export default function AdminEvents() {
               <div className="mb-4 border-b border-gray-200 pb-3 pr-14">
                 <h3 className="text-lg font-semibold">Editar actividad</h3>
               </div>
+
+              {editModalError && (
+                <div
+                  role="alert"
+                  className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                >
+                  {editModalError}
+                </div>
+              )}
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
@@ -1844,6 +1915,7 @@ export default function AdminEvents() {
                   <input
                     type="date"
                     value={getEventDateInputValue(editingEvent.startDate)}
+                    min={editMinStartDateYmd}
                     onChange={(e) => setEditingEvent({ ...editingEvent, startDate: e.target.value })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
@@ -2007,7 +2079,7 @@ export default function AdminEvents() {
                   Guardar Cambios
                 </button>
                 <button
-                  onClick={() => setEditingEvent(null)}
+                  onClick={closeEditModal}
                   className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
                 >
                   Cancelar

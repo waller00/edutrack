@@ -4,7 +4,7 @@
 
 Este documento describe los controles de ciberseguridad y continuidad del negocio aplicables a EduTrack, una plataforma web para gestion institucional educativa. El objetivo es proteger la confidencialidad, integridad y disponibilidad de los datos, y definir como recuperar el servicio ante incidentes tecnicos, errores operativos o indisponibilidad de infraestructura.
 
-EduTrack maneja informacion sensible: datos personales, cedula de identidad, asistencia, licencias medicas, roles institucionales, eventos academicos, auditoria y notificaciones. Por eso la estrategia combina controles preventivos, deteccion, respuesta y recuperacion.
+EduTrack maneja informacion sensible: datos personales, cedula de identidad, asistencia, constancia administrativa de licencias medicas, roles institucionales, eventos academicos, auditoria y notificaciones. Por eso la estrategia combina controles preventivos, deteccion, respuesta y recuperacion. El modulo de licencias no debe almacenar certificados medicos, diagnosticos ni datos del profesional de salud.
 
 ## Alcance tecnico
 

@@ -90,14 +90,15 @@ export async function syncMoodleUser(user: MoodleSyncUserInput): Promise<number 
     return byId;
   }
 
-  // 2) Existe por email pero sin idnumber EduTrack: no duplicar; se reparará en reconciliación.
+  // 2) Existe por email (p. ej. cuenta creada al entrar con OAuth): vincular sin duplicar.
   const byEmail = await getUserIdByField("email", email);
   if (byEmail != null) {
-    console.warn(
-      "[moodle] Usuario Moodle existe por email pero sin idnumber EduTrack; no se duplica:",
-      email,
-    );
-    return null;
+    await moodleRest("core_user_update_users", {
+      "users[0][id]": String(byEmail),
+      "users[0][idnumber]": user.id,
+    });
+    await persistMoodleUserId(user.id, byEmail);
+    return byEmail;
   }
 
   // 3) Crear el usuario espejo.
@@ -105,6 +106,7 @@ export async function syncMoodleUser(user: MoodleSyncUserInput): Promise<number 
   const username = moodleUsernameForEduTrackUser(user.id);
   const generatedSecret = randomMoodlePassword();
 
+  const auth = moodleUserAuthMethod();
   const params: Record<string, string> = {
     "users[0][username]": username,
     ["users[0][create" + "pass" + "word]"]: "0",
@@ -112,10 +114,15 @@ export async function syncMoodleUser(user: MoodleSyncUserInput): Promise<number 
     "users[0][firstname]": firstname,
     "users[0][lastname]": lastname,
     "users[0][email]": email,
-    "users[0][auth]": moodleUserAuthMethod(),
+    "users[0][auth]": auth,
     "users[0][idnumber]": user.id,
     "users[0][maildisplay]": "0",
   };
+
+  // OAuth2: la identidad ya está verificada en Keycloak/EduTrack; no pedir re-confirmación en Moodle.
+  if (auth === "oauth2") {
+    params["users[0][confirmed]"] = "1";
+  }
 
   const created = await moodleRest("core_user_create_users", params);
   const newId = firstMoodleId(created);

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { APP_TIMEZONE, jsWeekdayInUruguay } from '../../config/app-timezone.js'
+import { getAppTimezone, jsWeekdayInUruguay } from '../../config/app-timezone.js'
 
 /**
  * Validación de doble-reserva en eventos (clases/jornadas/reuniones).
@@ -38,12 +38,12 @@ export type EventOverlapConflict = {
 type FetchedSchedule = EventSchedule & { id: string; title: string }
 
 function minutesOfDay(d: Date): number {
-  const t = DateTime.fromJSDate(d, { zone: 'utc' }).setZone(APP_TIMEZONE)
+  const t = DateTime.fromJSDate(d, { zone: 'utc' }).setZone(getAppTimezone())
   return t.hour * 60 + t.minute
 }
 
 function ymdInUruguay(d: Date): string {
-  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(APP_TIMEZONE).toFormat('yyyy-MM-dd')
+  return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
 function timeWindowsOverlap(a: EventSchedule, b: EventSchedule): boolean {

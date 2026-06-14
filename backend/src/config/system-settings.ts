@@ -1,6 +1,17 @@
 import { prisma } from '../db/prisma.js'
+import { applyInstitutionTimezoneFromSettings } from './institution-timezone.js'
 
 const DEFAULT_ID = 'default'
+
+/** Lee booleanos de entorno (`true`, `1`, `yes`). */
+export function parseEnvBool(name: string): boolean {
+  const v = (process.env[name] || '').trim().toLowerCase()
+  return v === 'true' || v === '1' || v === 'yes'
+}
+
+export function isMoodleSyncEnabledFromEnv(): boolean {
+  return parseEnvBool('MOODLE_SYNC_ENABLED')
+}
 
 export function isDiditConfigured() {
   const key = (process.env.DIDIT_API_KEY || '').trim()
@@ -19,7 +30,7 @@ export function isLivenessRequiredForRegistration() {
 }
 
 export async function getOrCreateSystemSettings() {
-  return prisma.systemSettings.upsert({
+  const row = await prisma.systemSettings.upsert({
     where: { id: DEFAULT_ID },
     create: {
       id: DEFAULT_ID,
@@ -31,19 +42,23 @@ export async function getOrCreateSystemSettings() {
       attendanceMonitorEnabled: true,
       attendanceMonitorIntervalMs: 120000,
       biometricDuplicateWindowMinutes: 5,
-      moodleSyncEnabled: false,
+      moodleSyncEnabled: isMoodleSyncEnabledFromEnv(),
       moodleReconcileIntervalMs: 900000,
       moodleSyncStudents: false,
+      institutionTimezone: 'America/Montevideo',
     } as any,
     update: {},
   })
+  applyInstitutionTimezoneFromSettings(row as { institutionTimezone?: string | null })
+  return row
 }
 
 /** Configuración operativa de la integración Moodle (worker outbox + reconciliación). */
 export async function getMoodleOperationalSettings() {
   const row = (await getOrCreateSystemSettings()) as Record<string, unknown>
+  const syncEnabledInDb = row.moodleSyncEnabled === true
   return {
-    syncEnabled: row.moodleSyncEnabled === true,
+    syncEnabled: syncEnabledInDb || isMoodleSyncEnabledFromEnv(),
     reconcileIntervalMs: Math.max(Number(row.moodleReconcileIntervalMs ?? 900000), 60000),
     syncStudents: row.moodleSyncStudents === true,
   }

@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const QUERY_ASSISTANT_INTENTS = [
   'HOURS_WORKED_SUMMARY',
+  'ABSENCES_SUMMARY',
   'ATTENDANCE_INCIDENTS_SUMMARY',
   'MEDICAL_LEAVES_SUMMARY',
   'ASSIGNED_EVENTS_SUMMARY',
@@ -28,8 +29,10 @@ export const llmIntentSchema = z.object({
       /** Incidencias: solo abiertas o todas */
       incidentStatusScope: z.enum(['OPEN_ONLY', 'ALL']).optional(),
       incidentTypeScope: z.enum(['LATE_ARRIVAL', 'TEACHER_NO_SHOW', 'EARLY_EXIT', 'ALL']).optional(),
-      /** Incidencias: listado detallado (default) o conteo por persona (p. ej. «quién faltó más»). */
+      /** Incidencias/faltas: listado detallado (default) o conteo por persona (p. ej. «quién faltó más»). */
       incidentViewMode: z.enum(['LIST', 'COUNT_BY_USER']).optional(),
+      /** Faltas: limitar a docentes o a funcionarios según cómo pregunta el usuario. */
+      personRoleScope: z.enum(['TEACHER', 'STAFF']).optional(),
       /** Licencias: todas, solo vigentes/activas o solo inactivas (cerradas). */
       leaveStatusScope: z.enum(['ALL', 'ACTIVE_ONLY', 'INACTIVE_ONLY']).optional(),
       biometricIssueScope: z.enum(['FAILED', 'PENDING', 'BOTH']).optional(),

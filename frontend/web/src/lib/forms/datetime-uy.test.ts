@@ -3,6 +3,7 @@ import {
   formatClockHhMmInUruguayFromIso,
   formatDateInUruguay,
   formatTimeInUruguay,
+  isUruguayWallDateTimeInPast,
 } from '@/lib/forms/datetime-uy'
 
 describe('datetime-uy', () => {
@@ -24,5 +25,12 @@ describe('datetime-uy', () => {
 
   it('HH:MM pasa sin T', () => {
     expect(formatClockHhMmInUruguayFromIso('9:05')).toBe('09:05')
+  })
+
+  it('detecta fecha/hora civil Uruguay en el pasado', () => {
+    const ref = new Date('2026-06-15T15:00:00.000Z') // 12:00 Uruguay
+    expect(isUruguayWallDateTimeInPast('2026-06-15', '11:00', ref)).toBe(true)
+    expect(isUruguayWallDateTimeInPast('2026-06-15', '12:00', ref)).toBe(false)
+    expect(isUruguayWallDateTimeInPast('2026-06-16', '08:00', ref)).toBe(false)
   })
 })

@@ -4,16 +4,17 @@ import AdminOperationalSettingsPanel, {
   type OperationalSettingsSection,
   type OperationalSettingsData,
 } from '@/components/admin/AdminOperationalSettingsPanel'
-import AdminTestingPanel from '@/components/admin/AdminTestingPanel'
 import AdminBiometricDevicesPanel from '@/components/admin/AdminBiometricDevicesPanel'
+import AdminMoodlePanel from '@/components/admin/AdminMoodlePanel'
+import AdminTestingPanel from '@/components/admin/AdminTestingPanel'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { api } from '@/lib/api/client'
-import { Cpu, Fingerprint, FlaskConical, Loader2, Settings, Timer } from 'lucide-react'
+import { BookOpen, Cpu, Fingerprint, FlaskConical, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 type SettingsResponse = OperationalSettingsData
 
-type SettingsSection = OperationalSettingsSection | 'readers' | 'testing'
+type SettingsSection = OperationalSettingsSection | 'readers' | 'testing' | 'moodle'
 
 const SETTINGS_SECTIONS: {
   id: SettingsSection
@@ -38,6 +39,12 @@ const SETTINGS_SECTIONS: {
     label: 'Identidad',
     desc: 'Verificación Didit y prueba de vida.',
     Icon: Fingerprint,
+  },
+  {
+    id: 'moodle',
+    label: 'Moodle',
+    desc: 'Sincronización con LMS, conexión REST y worker.',
+    Icon: BookOpen,
   },
   {
     id: 'readers',
@@ -67,6 +74,10 @@ export default function AdminSystemSettingsPage() {
         attendanceEarlyExitToleranceMinutes:
           r.attendanceEarlyExitToleranceMinutes ?? r.attendanceLateToleranceMinutes ?? 5,
         biometricDuplicateWindowMinutes: r.biometricDuplicateWindowMinutes ?? 5,
+        institutionTimezone: r.institutionTimezone ?? 'America/Montevideo',
+        institutionTimezoneOptions: r.institutionTimezoneOptions ?? [
+          { value: 'America/Montevideo', label: 'Uruguay — Montevideo' },
+        ],
       })
     } catch {
       setData(null)
@@ -80,7 +91,7 @@ export default function AdminSystemSettingsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const s = params.get('section')
-    if (s === 'attendance' || s === 'identity' || s === 'system' || s === 'readers' || s === 'testing') setSection(s)
+    if (s === 'attendance' || s === 'identity' || s === 'system' || s === 'readers' || s === 'testing' || s === 'moodle') setSection(s)
   }, [])
 
   function selectSection(nextSection: SettingsSection) {
@@ -106,6 +117,7 @@ export default function AdminSystemSettingsPage() {
           attendanceMonitorEnabled: data.attendanceMonitorEnabled,
           attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs,
           biometricDuplicateWindowMinutes: data.biometricDuplicateWindowMinutes,
+          institutionTimezone: data.institutionTimezone,
         }),
       })
       setData(updated)
@@ -153,6 +165,8 @@ export default function AdminSystemSettingsPage() {
           <div className="min-w-0">
             {section === 'readers' ? (
               <AdminBiometricDevicesPanel />
+            ) : section === 'moodle' ? (
+              <AdminMoodlePanel />
             ) : section === 'testing' ? (
               <AdminTestingPanel />
             ) : !data ? (

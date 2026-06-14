@@ -34,6 +34,18 @@ describe("enrolUser", () => {
       "enrolments[0][timeend]": String(Math.floor(end.getTime() / 1000)),
     });
   });
+
+  it("tolera fallo de mail de bienvenida si el usuario ya quedó inscripto", async () => {
+    moodleRestMock.mockImplementation(async (fn: string) => {
+      if (fn === "enrol_manual_enrol_users") {
+        throw new Error("MOODLE_EXCEPTION: Message was not sent.");
+      }
+      if (fn === "core_enrol_get_enrolled_users") return [{ id: 42 }];
+      return [];
+    });
+
+    await expect(enrolUser(42, 100, 3)).resolves.toBeUndefined();
+  });
 });
 
 describe("unenrolUser", () => {

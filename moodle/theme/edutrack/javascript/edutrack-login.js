@@ -1,4 +1,56 @@
 (function() {
+  function themeLogoUrl() {
+    if (typeof M !== 'undefined' && M.cfg && M.cfg.wwwroot) {
+      var rev = M.cfg.themerev || '';
+      return M.cfg.wwwroot + '/theme/image.php?theme=' + encodeURIComponent(M.cfg.theme || 'edutrack') +
+        '&component=theme&rev=' + rev + '&image=logo';
+    }
+    return '/theme/image.php?theme=edutrack&component=theme&image=logo';
+  }
+
+  function installEduTrackFavicon() {
+    var href = themeLogoUrl();
+    document.querySelectorAll('link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]').forEach(function(link) {
+      if (link.parentElement) {
+        link.parentElement.removeChild(link);
+      }
+    });
+
+    var icon = document.createElement('link');
+    icon.rel = 'icon';
+    icon.type = 'image/svg+xml';
+    icon.href = href;
+    document.head.appendChild(icon);
+
+    var shortcut = document.createElement('link');
+    shortcut.rel = 'shortcut icon';
+    shortcut.type = 'image/svg+xml';
+    shortcut.href = href;
+    document.head.appendChild(shortcut);
+  }
+
+  function fixIdentityProviderButton() {
+    document.querySelectorAll('.login-identityprovider-btn').forEach(function(button) {
+      var logoUrl = themeLogoUrl();
+      var image = button.querySelector('img');
+
+      if (image) {
+        image.src = logoUrl;
+        image.alt = 'EduTrack';
+        image.width = 24;
+        image.height = 24;
+        return;
+      }
+
+      image = document.createElement('img');
+      image.src = logoUrl;
+      image.alt = 'EduTrack';
+      image.width = 24;
+      image.height = 24;
+      button.insertBefore(image, button.firstChild);
+    });
+  }
+
   var replacements = new Map([
     ['Log in to Los Olivos', 'Ingresar a Los Olivos'],
     ['Log in to the site', 'Ingresar al sitio'],
@@ -78,7 +130,9 @@
 
     var brand = document.createElement('div');
     brand.className = 'edutrack-login-brand';
-    brand.innerHTML = '<strong>EduTrack</strong><span>Aula virtual Los Olivos</span>';
+    brand.innerHTML =
+      '<img class="edutrack-login-brand-logo" src="' + themeLogoUrl() + '" alt="EduTrack" width="48" height="48" />' +
+      '<strong>EduTrack</strong><span>Aula virtual Los Olivos</span>';
     heading.insertAdjacentElement('beforebegin', brand);
   }
 
@@ -89,13 +143,19 @@
     replaceExactText(document.body);
     replaceAttributes();
     hidePublicSignupAndGuestBlocks();
+    fixIdentityProviderButton();
     addBrand();
     document.title = document.title.replace('Log in to the site', 'Ingresar al sitio');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', applyLoginPolish);
-  } else {
+  function applyBranding() {
+    installEduTrackFavicon();
     applyLoginPolish();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyBranding);
+  } else {
+    applyBranding();
   }
 })();

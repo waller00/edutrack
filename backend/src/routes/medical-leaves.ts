@@ -5,10 +5,6 @@ import { prisma } from '../db/prisma.js'
 import { reconcileAttendancesForMedicalLeave } from '../services/medicalLeaveReconciliation.js'
 import { recordAuditEvent } from '../services/audit-log.js'
 import { AuditAction } from '@prisma/client'
-import {
-  isValidMedicalLeaveCertificateValue,
-  MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS,
-} from '../medical-leaves/medical-leave-certificate.js'
 import { sendWebPushPayloadToUser } from '../services/webPush.js'
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
 
@@ -17,6 +13,7 @@ function licenseUpdatePreview(reason: string): string {
 }
 
 const r = Router()
+const MEDICAL_LEAVE_ADMIN_REASON = 'Licencia médica presentada'
 
 function myLicensesPathForRole(role: string | undefined): string {
   if (role === 'ADMIN') return '/admin/licenses'
@@ -28,38 +25,22 @@ function medicalLeaveWithRoleCode<L extends { user: Parameters<typeof attachRole
   return { ...l, user: attachRoleCode(l.user) }
 }
 
-const optionalCertificateCreate = z
-  .string()
-  .max(MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS)
-  .optional()
-
-const optionalCertificateUpdate = z
-  .union([z.string().max(MEDICAL_LEAVE_CERTIFICATE_MAX_CHARS), z.null()])
-  .optional()
-
 // Esquemas de validación
 const medicalLeaveSchema = z.object({
   userId: z.string().uuid(),
   type: z.enum(['MEDICAL_LEAVE', 'WORK_LEAVE', 'OTHER']),
   startDate: z.string().datetime(),
   endDate: z.string().datetime(),
-  reason: z.string().min(1).max(500),
-  /** Prisma devuelve null; el cliente puede reenviar null en JSON. */
-  doctorName: z.string().max(500).nullish(),
-  doctorPhone: z.string().max(80).nullish(),
+  reason: z.string().max(500).nullish(),
   notes: z.string().max(5000).nullish(),
-  certificate: optionalCertificateCreate,
 })
 
 const medicalLeaveUpdateSchema = z.object({
   type: z.enum(['MEDICAL_LEAVE', 'WORK_LEAVE', 'OTHER']).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
-  reason: z.string().min(1).max(500).optional(),
-  doctorName: z.string().max(500).nullish(),
-  doctorPhone: z.string().max(80).nullish(),
+  reason: z.string().max(500).nullish(),
   notes: z.string().max(5000).nullish(),
-  certificate: optionalCertificateUpdate,
 })
 
 // Obtener todas las licencias médicas (solo admin)
@@ -168,13 +149,7 @@ r.post('/', authGuard, requirePermission('licenses.create', 'all'), async (req, 
       })
     }
 
-    const { userId, type, startDate, endDate, reason, doctorName, doctorPhone, notes, certificate } = parsed.data
-
-    if (certificate && !isValidMedicalLeaveCertificateValue(certificate)) {
-      return res.status(400).json({
-        message: 'Certificado inválido: debe ser una URL (https://…) o un archivo imagen/PDF en base64.',
-      })
-    }
+    const { userId, type, startDate, endDate, reason, notes } = parsed.data
 
     // Verificar que el usuario existe
     const user = await prisma.user.findUnique({
@@ -190,17 +165,19 @@ r.post('/', authGuard, requirePermission('licenses.create', 'all'), async (req, 
       return res.status(400).json({ message: 'La fecha de inicio no puede ser posterior a la fecha de fin' })
     }
 
+    const normalizedReason = type === 'MEDICAL_LEAVE' ? MEDICAL_LEAVE_ADMIN_REASON : reason?.trim()
+    if (!normalizedReason) {
+      return res.status(400).json({ message: 'El motivo es obligatorio para este tipo de licencia' })
+    }
+
     const license = await prisma.medicalLeave.create({
       data: {
         userId,
         type,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
-        reason,
-        doctorName,
-        doctorPhone,
-        notes,
-        ...(certificate ? { certificate } : {}),
+        reason: normalizedReason,
+        notes: type === 'MEDICAL_LEAVE' ? null : notes,
         status: 'ACTIVE' as any,
         approvedBy: req.user?.id,
         approvedAt: new Date()
@@ -219,7 +196,7 @@ r.post('/', authGuard, requirePermission('licenses.create', 'all'), async (req, 
 
     const reconciliation = await reconcileAttendancesForMedicalLeave(license.id)
 
-    const preview = licenseUpdatePreview(reason)
+    const preview = licenseUpdatePreview(license.reason)
     void sendWebPushPayloadToUser(userId, {
       title: 'Edutrack — Licencia registrada',
       body: `La institución registró una licencia: ${preview}`,
@@ -267,13 +244,7 @@ r.put('/:id', authGuard, requirePermission('licenses.update', 'all'), async (req
       })
     }
 
-    const { type, startDate, endDate, reason, doctorName, doctorPhone, notes, certificate } = parsed.data
-
-    if (certificate != null && certificate !== '' && !isValidMedicalLeaveCertificateValue(certificate)) {
-      return res.status(400).json({
-        message: 'Certificado inválido: debe ser una URL (https://…) o un archivo imagen/PDF en base64.',
-      })
-    }
+    const { type, startDate, endDate, reason, notes } = parsed.data
 
     const license = await prisma.medicalLeave.findUnique({
       where: { id }
@@ -285,24 +256,28 @@ r.put('/:id', authGuard, requirePermission('licenses.update', 'all'), async (req
 
     const nextStartDate = startDate ? new Date(startDate) : license.startDate
     const nextEndDate = endDate ? new Date(endDate) : license.endDate
+    const nextType = type || license.type
 
     if (nextStartDate > nextEndDate) {
       return res.status(400).json({ message: 'La fecha de inicio no puede ser posterior a la fecha de fin' })
     }
 
+    const normalizedReason =
+      nextType === 'MEDICAL_LEAVE'
+        ? MEDICAL_LEAVE_ADMIN_REASON
+        : (reason === undefined ? license.reason : reason?.trim())
+    if (!normalizedReason) {
+      return res.status(400).json({ message: 'El motivo es obligatorio para este tipo de licencia' })
+    }
+
     const updatedLicense = await prisma.medicalLeave.update({
       where: { id },
       data: {
-        ...(type && { type }),
+        ...(type && { type: nextType }),
         ...(startDate && { startDate: nextStartDate }),
         ...(endDate && { endDate: nextEndDate }),
-        ...(reason && { reason }),
-        ...(doctorName !== undefined && { doctorName }),
-        ...(doctorPhone !== undefined && { doctorPhone }),
-        ...(notes !== undefined && { notes }),
-        ...(certificate !== undefined && {
-          certificate: certificate === '' || certificate === null ? null : certificate,
-        }),
+        reason: normalizedReason,
+        notes: nextType === 'MEDICAL_LEAVE' ? null : notes,
       },
       include: {
         user: {

@@ -1,6 +1,7 @@
 import type { MoodleObjectType } from "@prisma/client";
-import { prisma } from "../../db/prisma.js";
 import { moodleRest, moodleRootCategoryId } from "./client.js";
+import { getMappedId, saveMapping } from "./object-map.js";
+import { ensureStudentMoodleAccount } from "./student-users.js";
 
 /**
  * Capa de estructura académica: categorías y cursos de Moodle, con mapeo persistente
@@ -14,27 +15,6 @@ function numericField(row: unknown, key: string): number | null {
     if (Number.isFinite(v)) return v;
   }
   return null;
-}
-
-async function getMappedId(objectType: MoodleObjectType, localId: string): Promise<number | null> {
-  const row = await prisma.moodleObjectMap.findUnique({
-    where: { objectType_localId: { objectType, localId } },
-    select: { moodleId: true },
-  });
-  return row?.moodleId ?? null;
-}
-
-async function saveMapping(
-  objectType: MoodleObjectType,
-  localId: string,
-  moodleId: number,
-  idnumber: string,
-): Promise<void> {
-  await prisma.moodleObjectMap.upsert({
-    where: { objectType_localId: { objectType, localId } },
-    create: { objectType, localId, moodleId, idnumber },
-    update: { moodleId, idnumber },
-  });
 }
 
 /** Categoría = entidad de catálogo (curso/orientación) o ciclo lectivo. */
@@ -141,49 +121,15 @@ export type StudentMirrorInput = {
   firstName: string;
   lastName: string;
   email?: string | null;
+  username?: string | null;
 };
 
 /**
- * Crea/recupera el usuario espejo de un estudiante (que en EduTrack no tiene cuenta de login).
- * Email sintético determinista si no hay contacto, para satisfacer la restricción de Moodle.
+ * Crea/recupera el usuario Moodle de un estudiante. Con `username`+`email` la cuenta es
+ * real (auth manual); sin email se mantiene el espejo `nologin` con email sintético.
+ * La lógica vive en `student-users.ts`; este wrapper conserva la firma para la reconciliación.
  */
 export async function ensureStudentMoodleUser(student: StudentMirrorInput): Promise<number> {
-  const mapped = await getMappedId("STUDENT", student.id);
-  if (mapped != null) return mapped;
-
-  const idnumber = `et-student-${student.id}`;
-  const email =
-    student.email?.trim().toLowerCase() ||
-    `student-${student.id.replace(/-/g, "")}@students.edutrack.local`;
-
-  const byId = await moodleRest("core_user_get_users_by_field", {
-    field: "idnumber",
-    "values[0]": idnumber,
-  });
-  if (Array.isArray(byId) && byId.length > 0) {
-    const id = numericField(byId[0], "id");
-    if (id != null) {
-      await saveMapping("STUDENT", student.id, id, idnumber);
-      return id;
-    }
-  }
-
-  const username = `ets${student.id.replace(/-/g, "")}`.slice(0, 100);
-  const created = await moodleRest("core_user_create_users", {
-    "users[0][username]": username,
-    ["users[0][create" + "pass" + "word]"]: "0",
-    ["users[0][pass" + "word]"]: `EtS-${student.id.slice(0, 8)}-a1!`,
-    "users[0][firstname]": (student.firstName || "Estudiante").slice(0, 100),
-    "users[0][lastname]": (student.lastName || "-").slice(0, 100),
-    "users[0][email]": email,
-    "users[0][auth]": "nologin",
-    "users[0][idnumber]": idnumber,
-    "users[0][maildisplay]": "0",
-  });
-  const id = Array.isArray(created) ? numericField(created[0], "id") : null;
-  if (id == null) {
-    throw new Error(`MOODLE_CREATE_STUDENT_UNEXPECTED: ${JSON.stringify(created).slice(0, 300)}`);
-  }
-  await saveMapping("STUDENT", student.id, id, idnumber);
-  return id;
+  const { moodleId } = await ensureStudentMoodleAccount(student);
+  return moodleId;
 }

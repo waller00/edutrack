@@ -689,8 +689,8 @@ export default function AdminSchoolYearsPage() {
                     <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-800 tabular-nums sm:px-5">
                       {y.coursesCount ?? 0}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-right sm:px-5">
-                      <div className="flex flex-nowrap items-center justify-end gap-1">
+                    <td className="px-4 py-2.5 text-right sm:px-5">
+                      <div className="flex flex-wrap items-center justify-end gap-1">
                         <button
                           type="button"
                           className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
@@ -1164,7 +1164,7 @@ export default function AdminSchoolYearsPage() {
                           const decision = studentDecisions[student.studentId] ?? { action: 'PROMOTE' as StartAction }
                           return (
                             <div key={student.studentId} className="rounded-lg border border-gray-200 p-3">
-                              <div className="grid gap-3 lg:grid-cols-[minmax(180px,1fr)_minmax(340px,1.4fr)_minmax(200px,0.9fr)] lg:items-center">
+                              <div className="grid gap-3 xl:grid-cols-[minmax(180px,1fr)_minmax(280px,1.4fr)_minmax(200px,0.9fr)] xl:items-center">
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-semibold text-gray-900">
                                     {student.lastName}, {student.firstName}

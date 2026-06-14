@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { enabledMock, syncUserMock, prismaMock } = vi.hoisted(() => ({
+const { enabledMock, syncUserMock, syncStudentMock, prismaMock } = vi.hoisted(() => ({
   enabledMock: vi.fn(),
   syncUserMock: vi.fn(),
+  syncStudentMock: vi.fn(),
   prismaMock: {
     moodleSyncTask: {
       upsert: vi.fn(),
@@ -15,9 +16,15 @@ const { enabledMock, syncUserMock, prismaMock } = vi.hoisted(() => ({
 
 vi.mock("./client.js", () => ({ isMoodleIntegrationEnabled: enabledMock }));
 vi.mock("./users.js", () => ({ syncMoodleUserById: syncUserMock }));
+vi.mock("./student-users.js", () => ({ syncMoodleStudentById: syncStudentMock }));
 vi.mock("../../db/prisma.js", () => ({ prisma: prismaMock }));
 
-import { enqueueUserUpsert, processOutboxOnce, releaseStaleLocks } from "./outbox.js";
+import {
+  enqueueStudentUserUpsert,
+  enqueueUserUpsert,
+  processOutboxOnce,
+  releaseStaleLocks,
+} from "./outbox.js";
 
 function task(overrides: Record<string, unknown> = {}) {
   return {
@@ -35,6 +42,7 @@ function task(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   enabledMock.mockReset().mockReturnValue(true);
   syncUserMock.mockReset().mockResolvedValue(1);
+  syncStudentMock.mockReset().mockResolvedValue(undefined);
   prismaMock.moodleSyncTask.upsert.mockReset().mockResolvedValue({});
   prismaMock.moodleSyncTask.findMany.mockReset().mockResolvedValue([]);
   prismaMock.moodleSyncTask.updateMany.mockReset().mockResolvedValue({ count: 1 });
@@ -60,6 +68,29 @@ describe("enqueueUserUpsert", () => {
   it("no propaga errores de base (encolar nunca debe romper el flujo de negocio)", async () => {
     prismaMock.moodleSyncTask.upsert.mockRejectedValue(new Error("db down"));
     await expect(enqueueUserUpsert("u1")).resolves.toBeUndefined();
+  });
+});
+
+describe("enqueueStudentUserUpsert", () => {
+  it("no encola si la integración está deshabilitada", async () => {
+    enabledMock.mockReturnValue(false);
+    await enqueueStudentUserUpsert("s1");
+    expect(prismaMock.moodleSyncTask.upsert).not.toHaveBeenCalled();
+  });
+
+  it("hace upsert idempotente por dedupeKey student:<id> y reabre la tarea", async () => {
+    await enqueueStudentUserUpsert("s1");
+    const arg = prismaMock.moodleSyncTask.upsert.mock.calls[0][0];
+    expect(arg.where).toEqual({ dedupeKey: "student:s1" });
+    expect(arg.create.type).toBe("STUDENT_USER_UPSERT");
+    expect(arg.create.payload).toEqual({ studentId: "s1" });
+    expect(arg.update.status).toBe("PENDING");
+    expect(arg.update.attempts).toBe(0);
+  });
+
+  it("no propaga errores de base", async () => {
+    prismaMock.moodleSyncTask.upsert.mockRejectedValue(new Error("db down"));
+    await expect(enqueueStudentUserUpsert("s1")).resolves.toBeUndefined();
   });
 });
 
@@ -112,6 +143,27 @@ describe("processOutboxOnce", () => {
     const data = prismaMock.moodleSyncTask.update.mock.calls[0][0].data;
     expect(data.status).toBe("FAILED");
     expect(data.attempts).toBe(5);
+  });
+
+  it("despacha STUDENT_USER_UPSERT a syncMoodleStudentById", async () => {
+    prismaMock.moodleSyncTask.findMany.mockResolvedValue([
+      task({ type: "STUDENT_USER_UPSERT", dedupeKey: "student:s1", payload: { studentId: "s1" } }),
+    ]);
+    const processed = await processOutboxOnce();
+    expect(processed).toBe(1);
+    expect(syncStudentMock).toHaveBeenCalledWith("s1");
+    expect(syncUserMock).not.toHaveBeenCalled();
+    expect(prismaMock.moodleSyncTask.update.mock.calls[0][0].data.status).toBe("DONE");
+  });
+
+  it("falla la tarea STUDENT_USER_UPSERT sin studentId en el payload", async () => {
+    prismaMock.moodleSyncTask.findMany.mockResolvedValue([
+      task({ type: "STUDENT_USER_UPSERT", payload: {}, maxAttempts: 1 }),
+    ]);
+    await processOutboxOnce();
+    const data = prismaMock.moodleSyncTask.update.mock.calls[0][0].data;
+    expect(data.status).toBe("FAILED");
+    expect(data.lastError).toContain("MOODLE_TASK_NO_STUDENT_ID");
   });
 
   it("falla la tarea si el tipo es desconocido", async () => {

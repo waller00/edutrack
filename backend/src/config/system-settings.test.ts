@@ -62,6 +62,20 @@ describe('system-settings', () => {
     })
   })
 
+  it('MOODLE_SYNC_ENABLED en env activa sync aunque BD esté en false', async () => {
+    vi.stubEnv('MOODLE_SYNC_ENABLED', 'true')
+    vi.mocked(prisma.systemSettings.upsert).mockResolvedValueOnce({
+      id: 'default',
+      moodleSyncEnabled: false,
+      moodleReconcileIntervalMs: 900000,
+      moodleSyncStudents: false,
+    } as never)
+
+    await expect(getMoodleOperationalSettings()).resolves.toMatchObject({
+      syncEnabled: true,
+    })
+  })
+
   it('normaliza límites operativos de asistencia desde la fila global', async () => {
     vi.mocked(prisma.systemSettings.upsert).mockResolvedValueOnce({
       id: 'default',

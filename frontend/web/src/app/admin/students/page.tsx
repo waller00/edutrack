@@ -3,6 +3,7 @@
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
+import { isValidUruguayanCI } from '@/lib/forms/uruguay-forms'
 import { useCallback, useEffect, useState } from 'react'
 import { CalendarCheck, ChevronLeft, ChevronRight, GraduationCap, Loader2, Plus, Trash2, X } from 'lucide-react'
 
@@ -50,7 +51,8 @@ type StudentDetail = {
   course: { id: string; name: string; code: string | null } | null
   contactPhone: string | null
   tutorPhone: string | null
-  contactEmail: string | null
+  username: string | null
+  email: string | null
   address: string | null
   healthCardExpiresAt: string | null
   liceoAccessNotes: string | null
@@ -94,6 +96,23 @@ function withSchoolYear(path: string, schoolYearQuery: string): string {
   return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
 }
 
+/** Sugerencia local de usuario `nombre.apellido`; el backend valida/genera la definitiva. */
+function suggestUsername(firstName: string, lastName: string): string {
+  const part = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s.-]/g, '')
+      .trim()
+      .split(/[\s.-]+/)
+      .filter(Boolean)
+  const first = part(firstName)[0]
+  const last = part(lastName)[0]
+  if (!first || !last) return ''
+  return `${first}.${last}`.slice(0, 30)
+}
+
 function emptyDraft(): Omit<StudentFormState, 'id'> {
   return {
     firstName: '',
@@ -102,7 +121,8 @@ function emptyDraft(): Omit<StudentFormState, 'id'> {
     courseId: null,
     contactPhone: null,
     tutorPhone: null,
-    contactEmail: null,
+    username: null,
+    email: null,
     address: null,
     healthCardExpiresAt: null,
     liceoAccessNotes: null,
@@ -146,6 +166,13 @@ export default function AdminStudentsPage() {
   }))
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [usernameTouched, setUsernameTouched] = useState(false)
+
+  // Mientras el admin no edite el usuario a mano, en el alta se sugiere nombre.apellido.
+  useEffect(() => {
+    if (modal !== 'create' || usernameTouched) return
+    setForm((f) => ({ ...f, username: suggestUsername(f.firstName, f.lastName) || null }))
+  }, [modal, usernameTouched, form.firstName, form.lastName])
 
   const loadSummary = useCallback(async () => {
     try {
@@ -219,13 +246,17 @@ export default function AdminStudentsPage() {
   function openCreate() {
     setMsg('')
     setEditId(null)
+    setUsernameTouched(false)
     setForm({ id: '', ...emptyDraft() })
     setModal('create')
   }
 
   async function openEdit(row: StudentListRow) {
     setMsg('')
-    setEditId(row.id)
+    // En modo allYears row.id es compuesto (studentId:enrollmentId); el PUT
+    // necesita el studentId real, no el compuesto.
+    setEditId(row.studentId ?? row.id)
+    setUsernameTouched(true)
     setModal('edit')
     try {
       const d = await api<StudentDetail>(withSchoolYear(`/admin/students/${row.studentId ?? row.id}`, schoolYearQuery))
@@ -276,18 +307,20 @@ export default function AdminStudentsPage() {
       const body: Record<string, unknown> = {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
-        documentId: form.documentId?.trim() || undefined,
+        // Campos borrables: mandamos null (no undefined) para que al vaciarlos se limpien en edición.
+        documentId: form.documentId?.trim() || null,
         courseId: form.courseId || undefined,
-        contactPhone: form.contactPhone?.trim() || undefined,
-        tutorPhone: form.tutorPhone?.trim() || undefined,
-        contactEmail: form.contactEmail?.trim() || undefined,
-        address: form.address?.trim() || undefined,
-        healthCardExpiresAt: form.healthCardExpiresAt ? `${ymd(form.healthCardExpiresAt)}T12:00:00.000Z` : undefined,
-        liceoAccessNotes: form.liceoAccessNotes?.trim() || undefined,
+        contactPhone: form.contactPhone?.trim() || null,
+        tutorPhone: form.tutorPhone?.trim() || null,
+        username: form.username?.trim() || undefined,
+        email: form.email?.trim() || null,
+        address: form.address?.trim() || null,
+        healthCardExpiresAt: form.healthCardExpiresAt ? `${ymd(form.healthCardExpiresAt)}T12:00:00.000Z` : null,
+        liceoAccessNotes: form.liceoAccessNotes?.trim() || null,
         enrollmentStatus: form.enrollmentStatus,
         withdrawnAt: form.withdrawnAt ? `${ymd(form.withdrawnAt)}T12:00:00.000Z` : undefined,
         withdrawalAcademicYear: form.withdrawalAcademicYear ?? undefined,
-        internalNotes: form.internalNotes?.trim() || undefined,
+        internalNotes: form.internalNotes?.trim() || null,
         tuitionMonths: tuitionToPayload(),
       }
       if (syCtx && !syCtx.allYears) {
@@ -379,6 +412,8 @@ export default function AdminStudentsPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(list.total / list.pageSize))
+  const documentIdTrimmed = form.documentId?.trim() ?? ''
+  const documentIdInvalid = documentIdTrimmed !== '' && !isValidUruguayanCI(documentIdTrimmed)
 
   return (
     <RoleGuard permission="students.manage">
@@ -555,7 +590,7 @@ export default function AdminStudentsPage() {
                         <td className="px-4 py-2.5 text-gray-600">{row.schoolYearCode ?? '—'}</td>
                       ) : null}
                       <td className="px-4 py-2.5 text-gray-700">{row.course?.name ?? '—'}</td>
-                      <td className="px-4 py-2.5">{STATUS_LABEL[row.enrollmentStatus] ?? row.enrollmentStatus}</td>
+                      <td className="px-4 py-2.5">{STATUS_LABEL[row.enrollmentStatus] ?? (row.enrollmentStatus || '—')}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex flex-wrap gap-1" aria-label="Mensualidades">
                           {monthsForYear(
@@ -656,12 +691,18 @@ export default function AdminStudentsPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Documento (opcional)</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Cédula (opcional)</label>
                     <input
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
+                      className={`w-full rounded-lg border px-3 py-2 ${documentIdInvalid ? 'border-red-400' : 'border-gray-200'}`}
                       value={form.documentId ?? ''}
                       onChange={(e) => patchForm('documentId', e.target.value || null)}
+                      inputMode="numeric"
+                      placeholder="1.234.567-8"
+                      aria-invalid={documentIdInvalid}
                     />
+                    {documentIdInvalid && (
+                      <p className="mt-1 text-xs text-red-600">Cédula inválida: verificá el número y el dígito verificador</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Curso (opcional)</label>
@@ -697,13 +738,31 @@ export default function AdminStudentsPage() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Correo de contacto</label>
-                  <input
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                    value={form.contactEmail ?? ''}
-                    onChange={(e) => patchForm('contactEmail', e.target.value || null)}
-                  />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                    <input
+                      type="email"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
+                      value={form.email ?? ''}
+                      onChange={(e) => patchForm('email', e.target.value || null)}
+                    />
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Con email se crea su cuenta del aula virtual (Moodle) y le llega la bienvenida.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Usuario (Moodle)</label>
+                    <input
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
+                      value={form.username ?? ''}
+                      onChange={(e) => {
+                        setUsernameTouched(true)
+                        patchForm('username', e.target.value || null)
+                      }}
+                      placeholder="nombre.apellido"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Dirección</label>
@@ -875,7 +934,7 @@ export default function AdminStudentsPage() {
                 <button
                   type="button"
                   className="btn-primary inline-flex items-center gap-2"
-                  disabled={saving || !form.firstName.trim() || !form.lastName.trim()}
+                  disabled={saving || !form.firstName.trim() || !form.lastName.trim() || documentIdInvalid}
                   onClick={() => void save()}
                 >
                   {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}

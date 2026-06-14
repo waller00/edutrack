@@ -22,6 +22,7 @@ import { createKeycloakUser, syncKeycloakUserIdentity, syncRegisteredSsoUser } f
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
 import { saveSession } from "../auth/session-store.js";
 import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
+import { generateUniqueUsername as generateUniqueUsernameWith } from "../services/usernames.js";
 
 const r = Router();
 
@@ -90,43 +91,11 @@ async function enabledPermissionsForRole(roleCode: string) {
   }
 }
 
-function usernamePart(input: string) {
-  return input
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s.-]/g, "")
-    .trim()
-    .split(/[\s.-]+/)
-    .filter(Boolean);
-}
-
-function fitUsername(base: string, suffix = "") {
-  const maxBase = Math.max(3, 30 - suffix.length);
-  return `${base.slice(0, maxBase).replace(/[.-]+$/g, "")}${suffix}`;
-}
-
 async function generateUniqueUsername(firstName: string, lastName: string, client: any = prisma) {
-  const first = usernamePart(firstName)[0] || "usuario";
-  const lastParts = usernamePart(lastName);
-  const firstLast = lastParts[0] || "sinapellido";
-  const secondInitial = lastParts[1]?.charAt(0) || "";
-  const base = `${first}.${firstLast}`.slice(0, 30).replace(/[.-]+$/g, "");
-
-  const candidates = [base];
-  if (secondInitial) candidates.push(fitUsername(base, `.${secondInitial}`));
-  for (const candidate of candidates) {
+  return generateUniqueUsernameWith(firstName, lastName, async (candidate) => {
     const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
-    if (!existing) return candidate;
-  }
-
-  const numberedBase = secondInitial ? fitUsername(base, `.${secondInitial}`) : base;
-  for (let i = 1; i <= 9999; i += 1) {
-    const candidate = fitUsername(numberedBase, String(i));
-    const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
-    if (!existing) return candidate;
-  }
-  return fitUsername(base, `.${crypto.randomBytes(2).toString("hex")}`);
+    return Boolean(existing);
+  });
 }
 
 async function validateUniqueUsername(userId: string, username?: string) {

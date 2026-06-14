@@ -147,12 +147,22 @@ function userDisplayLabel(user: AnalyticsUserOption) {
   return user.name || fullName || user.username || user.email || 'Sin nombre'
 }
 
+function trimEdgeChars(value: string, char: string): string {
+  let start = 0
+  let end = value.length
+  while (start < end && value[start] === char) start += 1
+  while (end > start && value[end - 1] === char) end -= 1
+  return value.slice(start, end)
+}
+
 function sanitizeFilenamePart(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+  return trimEdgeChars(
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '_'),
+    '_',
+  )
     .slice(0, 48) || 'persona'
 }
 
@@ -935,7 +945,7 @@ export default function AdminAnalyticsPage() {
                   value={formatPct(dashboard.kpis.M8_HOURS_DELTA_pct)}
                   foot="Interpretación relativa sin escala absoluta institucional fija"
                 />
-                <KpiCard label="Licencias inactivas" tone="slate" value={dashboard.kpis.PC_count} foot="Rango solapante con período solicitado (contexto médico)." />
+                <KpiCard label="Licencias inactivas" tone="slate" value={dashboard.kpis.PC_count} foot="Rango solapante con período solicitado." />
               </div>
             </section>
 

@@ -38,7 +38,18 @@ export async function enrolUser(
   const timeend = toUnixSeconds(window?.timeend);
   if (timestart != null) params["enrolments[0][timestart]"] = String(timestart);
   if (timeend != null) params["enrolments[0][timeend]"] = String(timeend);
-  await moodleRest("enrol_manual_enrol_users", params);
+
+  try {
+    await moodleRest("enrol_manual_enrol_users", params);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Moodle puede inscribir igual y fallar solo al mandar el mail de bienvenida.
+    if (message.includes("Message was not sent")) {
+      const enrolled = await getEnrolledUserIds(moodleCourseId);
+      if (enrolled.has(moodleUserId)) return;
+    }
+    throw error;
+  }
 }
 
 /**

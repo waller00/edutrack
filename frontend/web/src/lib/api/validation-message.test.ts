@@ -3,11 +3,11 @@ import { formatValidationErrorFromApi } from './validation-message'
 
 describe('formatValidationErrorFromApi', () => {
   it('sin issues devuelve el mensaje del servidor', () => {
-    const err = Object.assign(new Error('Certificado inválido'), {
+    const err = Object.assign(new Error('Datos inválidos'), {
       status: 400,
-      data: { message: 'Certificado inválido: formato no permitido.' },
+      data: { message: 'Datos inválidos: formato no permitido.' },
     })
-    expect(formatValidationErrorFromApi(err)).toContain('Certificado inválido')
+    expect(formatValidationErrorFromApi(err)).toContain('Datos inválidos')
   })
 
   it('lista campos con issues de Zod', () => {
