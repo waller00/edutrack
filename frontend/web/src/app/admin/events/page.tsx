@@ -463,8 +463,8 @@ function getEventEndDateInputValue(event: Event) {
   return getEventDateInputValue(event.endDate) || getEventDateInputValue(event.startDate)
 }
 
-function eventScheduleKey(startDate: string, startTime: string): string {
-  return `${getEventDateInputValue(startDate)}|${formatClockHhMmInUruguayFromIso(startTime)}`
+function eventScheduleKey(startDate: string, startTime?: string | null): string {
+  return `${getEventDateInputValue(startDate)}|${formatClockHhMmInUruguayFromIso(startTime ?? undefined)}`
 }
 
 export default function AdminEvents() {

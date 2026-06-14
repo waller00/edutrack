@@ -57,6 +57,8 @@ function app() {
 }
 
 const iso = "2025-12-15T14:00:00.000Z";
+const futureEventStart = new Date("2099-06-15T13:00:00.000Z");
+const futureEventEnd = new Date("2099-06-15T14:00:00.000Z");
 const minimalEvent = {
   title: "Clase test",
   type: "CLASE",
@@ -707,9 +709,9 @@ describe("events routes (prisma mock)", () => {
       courseOrientationId: null,
       subjectId: null,
       _count: { attendances: 1 },
-      startDate: new Date("2025-12-15T13:00:00.000Z"),
-      startTime: new Date("2025-12-15T13:00:00.000Z"),
-      endTime: new Date("2025-12-15T14:00:00.000Z"),
+      startDate: futureEventStart,
+      startTime: futureEventStart,
+      endTime: futureEventEnd,
       isRecurring: true,
       recurrenceType: "WEEKLY",
       recurrenceEnd: null,
@@ -727,7 +729,7 @@ describe("events routes (prisma mock)", () => {
         description: "desc nueva",
         type: "CLASE",
         assignedUserId: "00000000-0000-4000-8000-000000000099",
-        startDate: iso,
+        startDate: "2099-06-16",
         startTime: "09:00",
         endTime: "10:00",
         isRecurring: true,
@@ -964,9 +966,9 @@ describe("events routes (prisma mock)", () => {
       courseOffering: null,
       subjectId: null,
       _count: { attendances: 1 },
-      startDate: new Date("2025-12-15T13:00:00.000Z"),
-      startTime: new Date("2025-12-15T13:00:00.000Z"),
-      endTime: new Date("2025-12-15T14:00:00.000Z"),
+      startDate: futureEventStart,
+      startTime: futureEventStart,
+      endTime: futureEventEnd,
       isRecurring: false,
       recurrenceType: "NONE",
       recurrenceEnd: null,
