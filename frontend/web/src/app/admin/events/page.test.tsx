@@ -302,6 +302,9 @@ describe('AdminEvents', () => {
     fireEvent.change(within(createModal).getByPlaceholderText('Ej: Turno matutino'), {
       target: { value: 'Nuevo curso' },
     })
+    const startDateInput = createModal.querySelector('input[type="date"]')
+    expect(startDateInput).not.toBeNull()
+    fireEvent.change(startDateInput!, { target: { value: '2099-06-15' } })
     fireEvent.change(within(createModal).getByTestId('create-event-start-h'), { target: { value: '10' } })
     fireEvent.change(within(createModal).getByTestId('create-event-start-m'), { target: { value: '00' } })
     fireEvent.change(within(createModal).getByTestId('create-event-end-h'), { target: { value: '11' } })
