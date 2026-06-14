@@ -13,6 +13,7 @@ const { moodleRestMock, enabledMock, sendWelcomeMock, prismaMock } = vi.hoisted(
 vi.mock("./client.js", () => ({
   moodleRest: moodleRestMock,
   isMoodleIntegrationEnabled: enabledMock,
+  moodleUserLang: () => "es",
 }));
 vi.mock("../../notifications/student-welcome.js", () => ({
   sendStudentWelcomeEmail: sendWelcomeMock,
