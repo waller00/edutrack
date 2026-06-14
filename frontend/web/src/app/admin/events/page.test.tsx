@@ -118,17 +118,18 @@ describe('AdminEvents', () => {
     expect(within(modal).getByText('Mismo día que la fecha del evento.')).toBeInTheDocument()
   })
 
-  it('muestra resumen de días para eventos repetitivos', async () => {
-    const recurringEvent = {
+  it('muestra los próximos 7 días con sus actividades (resuelve recurrencias)', async () => {
+    // Evento diario vigente: ocurre todos los días del rango → aparece en la vista.
+    const dailyEvent = {
       ...baseEvent,
       isRecurring: true,
-      recurrenceType: 'WEEKLY' as const,
-      daysOfWeek: [1, 3],
-      recurrenceEnd: '2025-12-15T00:00:00.000Z',
+      recurrenceType: 'DAILY' as const,
+      daysOfWeek: [] as number[],
+      recurrenceEnd: '2099-12-31T00:00:00.000Z',
     }
     mockedApi.mockImplementation(async (url: string) => {
       if (String(url).includes('events/all')) {
-        return { total: 1, page: 1, pageSize: 20, data: [recurringEvent] }
+        return { total: 1, page: 1, pageSize: 20, data: [dailyEvent] }
       }
       if (String(url).includes('admin/users')) return { data: [] }
       return {}
@@ -136,20 +137,19 @@ describe('AdminEvents', () => {
 
     render(<AdminEvents />)
 
-    expect(await screen.findByText('Vista rápida por día')).toBeInTheDocument()
-    expect(screen.getByText(/Lun, Mié/)).toBeInTheDocument()
-    expect(screen.getByText('Lunes')).toBeInTheDocument()
-    expect(screen.getByText('Miércoles')).toBeInTheDocument()
+    expect(await screen.findByText('Próximos 7 días')).toBeInTheDocument()
+    expect(screen.getAllByText('Clase matutina').length).toBeGreaterThan(0)
   })
 
-  it('abre una lista completa al hacer click en un día del resumen', async () => {
-    const mondayEvents = ['Clase 1', 'Clase 2', 'Clase 3', 'Clase 4'].map((title, index) => ({
+  it('abre la lista del día al hacer click en una tarjeta', async () => {
+    const dailyEvents = ['Clase 1', 'Clase 2', 'Clase 3', 'Clase 4'].map((title, index) => ({
       ...baseEvent,
-      id: `monday-${index + 1}`,
+      id: `daily-${index + 1}`,
       title,
       isRecurring: true,
-      recurrenceType: 'WEEKLY' as const,
-      daysOfWeek: [1],
+      recurrenceType: 'DAILY' as const,
+      daysOfWeek: [] as number[],
+      recurrenceEnd: '2099-12-31T00:00:00.000Z',
       startTime: `2025-06-02T${String(8 + index).padStart(2, '0')}:00:00.000Z`,
       endTime: `2025-06-02T${String(9 + index).padStart(2, '0')}:00:00.000Z`,
       course: { id: 'c1', name: 'Tercero C', code: '3C' },
@@ -157,7 +157,7 @@ describe('AdminEvents', () => {
     }))
     mockedApi.mockImplementation(async (url: string) => {
       if (String(url).includes('events/all')) {
-        return { total: mondayEvents.length, page: 1, pageSize: 20, data: mondayEvents }
+        return { total: dailyEvents.length, page: 1, pageSize: 20, data: dailyEvents }
       }
       if (String(url).includes('admin/users')) return { data: [] }
       return {}
@@ -165,11 +165,11 @@ describe('AdminEvents', () => {
 
     render(<AdminEvents />)
 
-    expect(await screen.findByText('+1 más')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Lunes/ }))
+    await screen.findByText('Próximos 7 días')
+    fireEvent.click(screen.getByRole('button', { name: /Hoy/ }))
 
-    const detail = await screen.findByRole('region', { name: 'Actividades de Lunes' })
-    for (const event of mondayEvents) {
+    const detail = await screen.findByRole('region', { name: /Actividades del Hoy/ })
+    for (const event of dailyEvents) {
       expect(within(detail).getByText(event.title)).toBeInTheDocument()
     }
     expect(within(detail).getAllByText(/Tercero C · Matemática/)).toHaveLength(4)
