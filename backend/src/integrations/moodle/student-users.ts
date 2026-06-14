@@ -37,6 +37,26 @@ function randomStudentPassword(): string {
   return `Et${randomBytes(18).toString("base64url")}a1!`;
 }
 
+/**
+ * Contraseña temporal legible para tipear una sola vez (cumple la política por defecto
+ * de Moodle: mayúscula, minúscula, dígito y símbolo). El alumno la cambia en el primer login.
+ */
+function readableTempPassword(): string {
+  const digits = (randomBytes(2).readUInt16BE(0) % 9000) + 1000; // 1000-9999
+  const letters = randomBytes(3).toString("hex"); // 6 minúsculas/dígitos
+  return `Edu-${letters}-${digits}!`;
+}
+
+/** Fija una contraseña temporal y fuerza el cambio en el primer ingreso del alumno. */
+async function setStudentTempPassword(moodleId: number, password: string): Promise<void> {
+  await moodleRest("core_user_update_users", {
+    "users[0][id]": String(moodleId),
+    ["users[0][pass" + "word]"]: password,
+    "users[0][preferences][0][type]": "auth_forcepasswordchange",
+    "users[0][preferences][0][value]": "1",
+  });
+}
+
 function realAccountData(s: StudentAccountInput): { username: string; email: string } | null {
   const username = s.username?.trim().toLowerCase();
   const email = s.email?.trim().toLowerCase();
@@ -150,13 +170,14 @@ export async function syncMoodleStudentById(studentId: string): Promise<void> {
   });
   if (!s) return;
 
-  const { realAccount } = await ensureStudentMoodleAccount(s, { forceUpdate: true });
+  const { moodleId, realAccount } = await ensureStudentMoodleAccount(s, { forceUpdate: true });
   if (!realAccount || s.moodleWelcomeSentAt) return;
-  await sendWelcomeOnce(s.id, s.email!, s.firstName, s.username!);
+  await sendWelcomeOnce(s.id, moodleId, s.email!, s.firstName, s.username!);
 }
 
 async function sendWelcomeOnce(
   studentId: string,
+  moodleId: number,
   email: string,
   firstName: string,
   username: string,
@@ -167,7 +188,11 @@ async function sendWelcomeOnce(
   });
   if (claimed.count !== 1) return;
   try {
-    await sendStudentWelcomeEmail({ to: email, firstName, username });
+    // Fijamos la contraseña temporal recién con el claim tomado para no resetearla
+    // en cada sync ni pisarla entre ticks concurrentes del outbox.
+    const tempPassword = readableTempPassword();
+    await setStudentTempPassword(moodleId, tempPassword);
+    await sendStudentWelcomeEmail({ to: email, firstName, username, tempPassword });
   } catch (e) {
     // Liberar el claim para que el outbox reintente el envío con backoff.
     await prisma.student
