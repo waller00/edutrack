@@ -325,22 +325,6 @@ function ymdInUruguay(value?: string | null): string | null {
   return y && m && d ? `${y}-${m}-${d}` : null
 }
 
-/**
- * ¿El evento todavía puede ocurrir? Para la "Vista rápida por día" no queremos mostrar
- * eventos únicos ya vencidos ni recurrencias que ya terminaron.
- */
-function eventStillRelevant(
-  event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'startDate' | 'recurrenceEnd'>,
-): boolean {
-  const today = getTodayYmdInUruguay()
-  if (!event.isRecurring || event.recurrenceType === 'NONE') {
-    const day = ymdInUruguay(event.startDate)
-    return day ? day >= today : true
-  }
-  const end = ymdInUruguay(event.recurrenceEnd)
-  return end ? end >= today : true
-}
-
 function eventAssignedWeekdays(event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'daysOfWeek' | 'startDate'>): number[] {
   if (event.isRecurring && event.recurrenceType === 'DAILY') return WEEKDAY_OPTIONS.map((d) => d.value)
   if (event.isRecurring && event.recurrenceType === 'WEEKLY' && event.daysOfWeek.length > 0) {
@@ -379,28 +363,78 @@ function formatEventScheduleSummary(event: Pick<Event, 'isRecurring' | 'recurren
   return `${formatWeekdayList(eventAssignedWeekdays(event))} · ${formatEventTimeRange(event)} · ${formatEventRecurrenceLabel(event)}`
 }
 
-function buildWeekdayEventSummary(events: Event[]) {
-  return WEEKDAY_OPTIONS.map((day) => {
-    const dayEvents = getEventsForWeekday(events, day.value)
-    const visible = dayEvents.slice(0, 3).map((event) => ({
-      id: event.id,
-      title: event.title,
-      time: formatEventTimeRange(event),
-      assigned: getEventAssignedDisplay(event),
-    }))
-    return { ...day, count: dayEvents.length, visible, hiddenCount: Math.max(dayEvents.length - visible.length, 0) }
-  })
+/** Suma `n` días a un YYYY-MM-DD (aritmética de calendario, sin TZ). */
+function addDaysToYmd(ymd: string, n: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
 }
 
-function getEventsForWeekday(events: Event[], dayValue: WeekdayValue): Event[] {
+/** ¿El evento ocurre en una fecha concreta (YYYY-MM-DD)? Resuelve la recurrencia. */
+function eventOccursOnYmd(event: Event, ymd: string): boolean {
+  const startYmd = ymdInUruguay(event.startDate)
+  if (!startYmd) return false
+
+  if (!event.isRecurring || event.recurrenceType === 'NONE') {
+    return ymd === startYmd
+  }
+
+  const endYmd = ymdInUruguay(event.recurrenceEnd)
+  if (ymd < startYmd || (endYmd && ymd > endYmd)) return false
+
+  if (event.recurrenceType === 'DAILY') return true
+  if (event.recurrenceType === 'WEEKLY') {
+    const wd = weekdayNumberInUruguay(ymd)
+    if (wd === null) return false
+    const fallback = weekdayNumberInUruguay(event.startDate)
+    const days = event.daysOfWeek.length > 0 ? event.daysOfWeek : fallback === null ? [] : [fallback]
+    return days.includes(wd)
+  }
+  if (event.recurrenceType === 'MONTHLY') {
+    return ymd.slice(8, 10) === startYmd.slice(8, 10)
+  }
+  return false
+}
+
+function getEventsForYmd(events: Event[], ymd: string): Event[] {
   return events
-    .filter((event) => eventAssignedWeekdays(event).includes(dayValue))
+    .filter((event) => eventOccursOnYmd(event, ymd))
     .sort((a, b) => {
       const aStart = a.startTime ? timeStringToMinutes(formatClockHhMmInUruguayFromIso(a.startTime)) ?? 0 : 0
       const bStart = b.startTime ? timeStringToMinutes(formatClockHhMmInUruguayFromIso(b.startTime)) ?? 0 : 0
       if (aStart !== bStart) return aStart - bStart
       return a.title.localeCompare(b.title)
     })
+}
+
+/** Etiqueta corta de un día para las tarjetas: "Hoy" / "Mañana" / "Mié". */
+function dayLabelForOffset(ymd: string, offset: number): string {
+  if (offset === 0) return 'Hoy'
+  if (offset === 1) return 'Mañana'
+  const wd = weekdayNumberInUruguay(ymd)
+  return wd === null ? '' : WEEKDAY_SHORT_BY_VALUE.get(wd as 0 | 1 | 2 | 3 | 4 | 5 | 6) ?? ''
+}
+
+/** Resumen de los próximos 7 días (desde hoy), con las actividades reales de cada fecha. */
+function buildNext7DaysSummary(events: Event[], todayYmd: string) {
+  return Array.from({ length: 7 }, (_, offset) => {
+    const ymd = addDaysToYmd(todayYmd, offset)
+    const dayEvents = getEventsForYmd(events, ymd)
+    const visible = dayEvents.slice(0, 3).map((event) => ({
+      id: event.id,
+      title: event.title,
+      time: formatEventTimeRange(event),
+      assigned: getEventAssignedDisplay(event),
+    }))
+    return {
+      ymd,
+      dayLabel: dayLabelForOffset(ymd, offset),
+      dateLabel: `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`,
+      count: dayEvents.length,
+      visible,
+      hiddenCount: Math.max(dayEvents.length - visible.length, 0),
+    }
+  })
 }
 
 function getEventAssignedDisplay(event: Pick<Event, 'assignedUser'>): string {
@@ -564,11 +598,11 @@ export default function AdminEvents() {
   const [portalReady, setPortalReady] = useState(false)
   const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
   const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
-  const [selectedWeekday, setSelectedWeekday] = useState<WeekdayValue | null>(null)
-  // Vista rápida: excluye eventos únicos vencidos y recurrencias ya terminadas (no van a volver a pasar).
-  const weekdaySummary = buildWeekdayEventSummary(events.filter(eventStillRelevant))
-  const selectedWeekdayOption = selectedWeekday === null ? null : WEEKDAY_OPTIONS.find((day) => day.value === selectedWeekday)
-  const selectedWeekdayEvents = selectedWeekday === null ? [] : getEventsForWeekday(events, selectedWeekday)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  // Vista rápida: próximos 7 días con sus actividades reales (resuelve recurrencias, sin vencidos).
+  const next7Days = buildNext7DaysSummary(events, getTodayYmdInUruguay())
+  const selectedDaySummary = selectedDate === null ? null : next7Days.find((day) => day.ymd === selectedDate) ?? null
+  const selectedDayEvents = selectedDate === null ? [] : getEventsForYmd(events, selectedDate)
 
   useEffect(() => {
     loadEvents()
@@ -1196,27 +1230,29 @@ export default function AdminEvents() {
             <div className="border-b bg-slate-50 px-4 py-4 sm:px-6">
               <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-900">Vista rápida por día</h3>
+                  <h3 className="text-sm font-semibold text-slate-900">Próximos 7 días</h3>
                   <p className="text-xs text-slate-500">
-                    Resumen de las actividades visibles en esta página, usando los días de repetición cuando existen.
+                    Actividades de los próximos 7 días (resuelve las recurrencias; no muestra eventos vencidos).
                   </p>
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
-                {weekdaySummary.map((day) => (
+                {next7Days.map((day) => (
                   <button
-                    key={day.value}
+                    key={day.ymd}
                     type="button"
-                    onClick={() => setSelectedWeekday(day.value)}
-                    aria-pressed={selectedWeekday === day.value}
+                    onClick={() => setSelectedDate(day.ymd)}
+                    aria-pressed={selectedDate === day.ymd}
                     className={`min-h-[6.5rem] rounded border px-3 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      selectedWeekday === day.value
+                      selectedDate === day.ymd
                         ? 'border-emerald-500 bg-emerald-50 shadow-sm'
                         : 'border-slate-200 bg-white'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-slate-900">{day.long}</span>
+                      <span className="min-w-0 text-sm font-semibold text-slate-900">
+                        {day.dayLabel} <span className="font-normal text-slate-500">{day.dateLabel}</span>
+                      </span>
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
                         {day.count}
                       </span>
@@ -1224,7 +1260,7 @@ export default function AdminEvents() {
                     {day.visible.length > 0 ? (
                       <ul className="mt-2 space-y-1">
                         {day.visible.map((event) => (
-                          <li key={`${day.value}-${event.id}`} className="min-w-0 text-xs text-slate-600">
+                          <li key={`${day.ymd}-${event.id}`} className="min-w-0 text-xs text-slate-600">
                             <span className="block truncate font-medium text-slate-800">{event.title}</span>
                             <span className="block truncate">{event.time} · {event.assigned}</span>
                           </li>
@@ -1239,34 +1275,34 @@ export default function AdminEvents() {
                   </button>
                 ))}
               </div>
-              {selectedWeekdayOption ? (
+              {selectedDaySummary ? (
                 <div
                   className="mt-4 rounded border border-slate-200 bg-white"
                   role="region"
-                  aria-label={`Actividades de ${selectedWeekdayOption.long}`}
+                  aria-label={`Actividades del ${selectedDaySummary.dayLabel} ${selectedDaySummary.dateLabel}`}
                 >
                   <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-slate-900">
-                        {selectedWeekdayOption.long}
+                        {selectedDaySummary.dayLabel} {selectedDaySummary.dateLabel}
                         <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                          {selectedWeekdayEvents.length}
+                          {selectedDayEvents.length}
                         </span>
                       </h3>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setSelectedWeekday(null)}
+                      onClick={() => setSelectedDate(null)}
                       className="self-start rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:self-auto"
                     >
                       Cerrar
                     </button>
                   </div>
-                  {selectedWeekdayEvents.length > 0 ? (
+                  {selectedDayEvents.length > 0 ? (
                     <div className="max-h-[22rem] overflow-y-auto">
                       <ul className="divide-y divide-slate-100">
-                        {selectedWeekdayEvents.map((event) => (
-                          <li key={`${selectedWeekdayOption.value}-${event.id}`} className="px-4 py-3">
+                        {selectedDayEvents.map((event) => (
+                          <li key={`${selectedDaySummary.ymd}-${event.id}`} className="px-4 py-3">
                             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                               <div className="min-w-0 space-y-2">
                                 <div className="flex flex-wrap items-center gap-2">
