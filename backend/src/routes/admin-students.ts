@@ -86,6 +86,28 @@ function parseOptionalEndOfDayDate(raw: string | undefined): Date | undefined {
   return d
 }
 
+/**
+ * Un email no puede estar repetido entre estudiantes ni coincidir con el de un usuario del sistema:
+ * Moodle exige email único por cuenta, así que un duplicado rompe la sincronización (no crea la cuenta).
+ * Devuelve un mensaje de conflicto o null si está libre.
+ */
+async function findEmailConflict(email: string, excludeStudentId?: string): Promise<string | null> {
+  const otherStudent = await prisma.student.findFirst({
+    where: {
+      email: { equals: email, mode: 'insensitive' },
+      ...(excludeStudentId ? { NOT: { id: excludeStudentId } } : {}),
+    },
+    select: { id: true },
+  })
+  if (otherStudent) return 'Ese email ya está en uso por otro estudiante'
+  const otherUser = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true },
+  })
+  if (otherUser) return 'Ese email ya está en uso por un usuario del sistema'
+  return null
+}
+
 const studentWriteBaseSchema = z.object({
   firstName: z.string().trim().min(1).max(120),
   lastName: z.string().trim().min(1).max(120),
@@ -660,6 +682,10 @@ r.post('/', async (req, res) => {
   }
   const body = parsed.data
   try {
+    if (body.email) {
+      const conflict = await findEmailConflict(body.email)
+      if (conflict) return res.status(409).json({ message: conflict })
+    }
     let resolvedSchoolYearId = body.schoolYearId ?? null
     let resolvedCourseOfferingId: string | null = null
     if (body.courseId) {
@@ -836,6 +862,11 @@ r.put('/:id', async (req, res) => {
       select: { id: true, firstName: true, lastName: true, username: true, email: true },
     })
     if (!existing) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    if (body.email) {
+      const conflict = await findEmailConflict(body.email, id)
+      if (conflict) return res.status(409).json({ message: conflict })
+    }
 
     let nextCourseOfferingId: string | null | undefined = undefined
     if (body.courseId !== undefined && body.courseId !== null) {

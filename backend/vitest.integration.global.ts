@@ -1,19 +1,30 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { execSync } from "node:child_process";
 
 /**
- * Levanta un Postgres efímero, le aplica el schema con el mismo `db push` del proyecto
- * y deja `DATABASE_URL` apuntando ahí. Los workers (forked después de este setup) heredan
- * el env, por lo que el singleton `prisma` se conecta a esta base de test.
+ * Provisiona la base para los tests de integración y deja `DATABASE_URL` apuntando ahí
+ * (los workers, forked después de este setup, heredan el env → el singleton `prisma` se conecta).
+ *
+ *  - CI: usa `TEST_DATABASE_URL` (un Postgres "service container"). No importa Testcontainers,
+ *    así evitamos el problema de undici/Node 20.
+ *  - Local: si no hay `TEST_DATABASE_URL`, levanta un Postgres efímero con Testcontainers
+ *    (import dinámico, para no requerirlo en CI).
  */
-let container: StartedPostgreSqlContainer | undefined;
+let stopContainer: (() => Promise<void>) | undefined;
 
 export async function setup(): Promise<void> {
-  container = await new PostgreSqlContainer("postgres:16-alpine")
-    .withDatabase("edutrack_test")
-    .start();
+  let url = process.env.TEST_DATABASE_URL;
 
-  const url = container.getConnectionUri();
+  if (!url) {
+    const { PostgreSqlContainer } = await import("@testcontainers/postgresql");
+    const container = await new PostgreSqlContainer("postgres:16-alpine")
+      .withDatabase("edutrack_test")
+      .start();
+    url = container.getConnectionUri();
+    stopContainer = async () => {
+      await container.stop();
+    };
+  }
+
   process.env.DATABASE_URL = url;
 
   execSync("./node_modules/.bin/prisma db push --skip-generate --accept-data-loss", {
@@ -23,5 +34,5 @@ export async function setup(): Promise<void> {
 }
 
 export async function teardown(): Promise<void> {
-  await container?.stop();
+  await stopContainer?.();
 }
