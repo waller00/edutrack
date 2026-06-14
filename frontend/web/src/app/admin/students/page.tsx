@@ -307,19 +307,20 @@ export default function AdminStudentsPage() {
       const body: Record<string, unknown> = {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
-        documentId: form.documentId?.trim() || undefined,
+        // Campos borrables: mandamos null (no undefined) para que al vaciarlos se limpien en edición.
+        documentId: form.documentId?.trim() || null,
         courseId: form.courseId || undefined,
-        contactPhone: form.contactPhone?.trim() || undefined,
-        tutorPhone: form.tutorPhone?.trim() || undefined,
+        contactPhone: form.contactPhone?.trim() || null,
+        tutorPhone: form.tutorPhone?.trim() || null,
         username: form.username?.trim() || undefined,
-        email: form.email?.trim() || undefined,
-        address: form.address?.trim() || undefined,
-        healthCardExpiresAt: form.healthCardExpiresAt ? `${ymd(form.healthCardExpiresAt)}T12:00:00.000Z` : undefined,
-        liceoAccessNotes: form.liceoAccessNotes?.trim() || undefined,
+        email: form.email?.trim() || null,
+        address: form.address?.trim() || null,
+        healthCardExpiresAt: form.healthCardExpiresAt ? `${ymd(form.healthCardExpiresAt)}T12:00:00.000Z` : null,
+        liceoAccessNotes: form.liceoAccessNotes?.trim() || null,
         enrollmentStatus: form.enrollmentStatus,
         withdrawnAt: form.withdrawnAt ? `${ymd(form.withdrawnAt)}T12:00:00.000Z` : undefined,
         withdrawalAcademicYear: form.withdrawalAcademicYear ?? undefined,
-        internalNotes: form.internalNotes?.trim() || undefined,
+        internalNotes: form.internalNotes?.trim() || null,
         tuitionMonths: tuitionToPayload(),
       }
       if (syCtx && !syCtx.allYears) {

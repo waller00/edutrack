@@ -3,6 +3,19 @@
 import { Fingerprint, Loader2, RefreshCw, Save, Shield, SlidersHorizontal } from 'lucide-react'
 import type { Dispatch, SetStateAction } from 'react'
 
+/** Offset GMT en vivo de una zona IANA (refleja horario de verano). Ej: "GMT-03:00". */
+function gmtOffsetLabel(tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(
+      new Date(),
+    )
+    const name = parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
+    return name.replace(/^UTC/, 'GMT') || 'GMT'
+  } catch {
+    return ''
+  }
+}
+
 export type OperationalSettingsData = {
   diditConfigured: boolean
   livenessCheckEnabled: boolean
@@ -108,11 +121,14 @@ export default function AdminOperationalSettingsPanel({
               value={data.institutionTimezone}
               onChange={(e) => setData((prev) => (prev ? { ...prev, institutionTimezone: e.target.value } : prev))}
             >
-              {data.institutionTimezoneOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
+              {data.institutionTimezoneOptions.map((opt) => {
+                const gmt = gmtOffsetLabel(opt.value)
+                return (
+                  <option key={opt.value} value={opt.value}>
+                    {gmt ? `${opt.label} (${gmt})` : opt.label}
+                  </option>
+                )
+              })}
             </select>
             <span className="block text-xs text-slate-500">
               Por defecto: Uruguay (Montevideo). Los cambios aplican al guardar; puede requerir recargar otras pantallas.

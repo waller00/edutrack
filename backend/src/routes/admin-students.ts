@@ -37,22 +37,6 @@ function emptyToUndefined(v: unknown) {
   return v
 }
 
-function optionalTrimmedString(max: number) {
-  return z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
-}
-
-/** Cédula uruguaya opcional: si viene, se valida el dígito verificador y se guarda normalizada (solo dígitos). */
-const optionalUruguayanCI = z.preprocess(
-  emptyToUndefined,
-  z
-    .string()
-    .trim()
-    .max(40)
-    .transform((v) => onlyDigits(v))
-    .refine((v) => isValidUruguayanCI(v), 'Cédula inválida: verificá el número y el dígito verificador')
-    .optional(),
-)
-
 /** Acepta ISO completo o fecha `YYYY-MM-DD` desde inputs HTML. */
 const optionalDateString = z.preprocess(
   emptyToUndefined,
@@ -108,17 +92,60 @@ async function findEmailConflict(email: string, excludeStudentId?: string): Prom
   return null
 }
 
+/**
+ * Campos opcionales "borrables": en edición, mandar el campo vacío significa LIMPIARLO (→ null),
+ * y omitirlo significa "no tocar". '' / espacios → null; undefined → undefined (no cambia).
+ */
+function clearableEmpty(v: unknown): unknown {
+  if (v === null || v === undefined) return v
+  if (typeof v === 'string') {
+    const t = v.trim()
+    return t === '' ? null : t
+  }
+  return v
+}
+function clearableTrimmed(max: number) {
+  return z.preprocess(clearableEmpty, z.string().max(max).nullable().optional())
+}
+const clearableEmail = z.preprocess(
+  (v) => {
+    const r = clearableEmpty(v)
+    return typeof r === 'string' ? r.toLowerCase() : r
+  },
+  z.string().email('Email inválido').max(200).nullable().optional(),
+)
+const clearableUruguayanCI = z.preprocess(
+  clearableEmpty,
+  z
+    .string()
+    .max(40)
+    .transform((v) => onlyDigits(v))
+    .refine((v) => isValidUruguayanCI(v), 'Cédula inválida: verificá el número y el dígito verificador')
+    .nullable()
+    .optional(),
+)
+const clearableDateString = z.preprocess(
+  clearableEmpty,
+  z
+    .string()
+    .min(4)
+    .max(40)
+    .refine((s) => !Number.isNaN(Date.parse(s)), 'Fecha inválida')
+    .nullable()
+    .optional(),
+)
+
 const studentWriteBaseSchema = z.object({
   firstName: z.string().trim().min(1).max(120),
   lastName: z.string().trim().min(1).max(120),
-  documentId: optionalUruguayanCI,
+  documentId: clearableUruguayanCI,
   courseId: z.preprocess(
     (v) => (v === null || v === '' ? undefined : v),
     z.string().uuid().optional(),
   ),
   schoolYearId: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().uuid().optional()),
-  contactPhone: optionalTrimmedString(40),
-  tutorPhone: optionalTrimmedString(40),
+  contactPhone: clearableTrimmed(40),
+  tutorPhone: clearableTrimmed(40),
   username: z.preprocess(
     emptyToUndefined,
     z
@@ -130,23 +157,17 @@ const studentWriteBaseSchema = z.object({
       .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, 'Usuario inválido (use letras, números, puntos o guiones)')
       .optional(),
   ),
-  email: z.preprocess(emptyToUndefined, z.string().trim().toLowerCase().email('Email inválido').max(200).optional()),
-  address: optionalTrimmedString(500),
-  healthCardExpiresAt: optionalDateString,
-  liceoAccessNotes: z.preprocess(
-    (v) => (v === null || v === '' ? undefined : v),
-    z.string().max(8000).optional(),
-  ),
+  email: clearableEmail,
+  address: clearableTrimmed(500),
+  healthCardExpiresAt: clearableDateString,
+  liceoAccessNotes: clearableTrimmed(8000),
   enrollmentStatus: enrollmentStatusZ.optional(),
   withdrawnAt: optionalDateString,
   withdrawalAcademicYear: z.preprocess(
     (v) => (v === null || v === '' ? undefined : v),
     z.number().int().min(1980).max(2100).optional(),
   ),
-  internalNotes: z.preprocess(
-    (v) => (v === null || v === '' ? undefined : v),
-    z.string().max(8000).optional(),
-  ),
+  internalNotes: clearableTrimmed(8000),
 })
 
 const studentCreateSchema = studentWriteBaseSchema.extend({
