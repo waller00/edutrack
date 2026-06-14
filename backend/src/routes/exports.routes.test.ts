@@ -10,9 +10,10 @@ const {
   resolveMock,
   dimensionXlsxMock,
   dimensionPdfMock,
-  attendanceXlsxMock,
-  attendanceCsvMock,
-  attendancePdfMock,
+  payrollBuildMock,
+  payrollXlsxMock,
+  payrollCsvMock,
+  payrollPdfMock,
   monthlyPdfMock,
   resolveSchoolYearMock,
 } = vi.hoisted(() => ({
@@ -21,9 +22,10 @@ const {
   resolveMock: vi.fn().mockResolvedValue([]),
   dimensionXlsxMock: vi.fn().mockResolvedValue(Buffer.from('xlsx')),
   dimensionPdfMock: vi.fn().mockResolvedValue(Buffer.from('pdf')),
-  attendanceXlsxMock: vi.fn().mockResolvedValue(Buffer.from('axlsx')),
-  attendanceCsvMock: vi.fn().mockResolvedValue('a;b;c'),
-  attendancePdfMock: vi.fn().mockResolvedValue(Buffer.from('apdf')),
+  payrollBuildMock: vi.fn().mockResolvedValue({ from: '', to: '', filterLines: [], persons: [], total: {} }),
+  payrollXlsxMock: vi.fn().mockResolvedValue(Buffer.from('axlsx')),
+  payrollCsvMock: vi.fn().mockReturnValue('a;b;c'),
+  payrollPdfMock: vi.fn().mockResolvedValue(Buffer.from('apdf')),
   monthlyPdfMock: vi.fn().mockResolvedValue(Buffer.from('mpdf')),
   resolveSchoolYearMock: vi.fn().mockResolvedValue('sy-1'),
 }))
@@ -35,12 +37,11 @@ vi.mock('../services/analytics/exports/dimensionReportExport.js', () => ({
   generateDimensionReportXlsx: dimensionXlsxMock,
   generateDimensionReportPdf: dimensionPdfMock,
 }))
-vi.mock('../services/analytics/exports/attendanceAssistanceReportExport.js', () => ({
-  generateAttendanceAssistanceReportXlsxFromAttendances: attendanceXlsxMock,
-  generateAttendanceAssistanceReportPdfFromAttendances: attendancePdfMock,
-}))
-vi.mock('../services/analytics/exports/attendanceDetailFromAttendancesExport.js', () => ({
-  generateAttendanceDetailCsvFromAttendances: attendanceCsvMock,
+vi.mock('../services/analytics/exports/payrollAttendanceReport.js', () => ({
+  buildPayrollAttendanceData: payrollBuildMock,
+  generatePayrollAttendanceXlsx: payrollXlsxMock,
+  generatePayrollAttendanceCsv: payrollCsvMock,
+  generatePayrollAttendancePdf: payrollPdfMock,
 }))
 vi.mock('../services/analytics/exports/monthlySummaryPdf.js', () => ({ generateMonthlySummaryPdf: monthlyPdfMock }))
 vi.mock('../services/school-year-service.js', () => ({ resolveSchoolYearIdForList: resolveSchoolYearMock }))
@@ -109,13 +110,14 @@ describe('exports routes', () => {
     expect(res.status).toBe(400)
   })
 
-  it('genera detalle de asistencia en XLSX (camino existente)', async () => {
+  it('genera detalle de asistencia por persona en XLSX', async () => {
     const res = await request(app())
       .post('/exports')
       .set(adminHdr())
       .send({ ...baseBody, reportKey: 'attendance_detail', format: 'XLSX' })
     expect(res.status).toBe(201)
-    expect(attendanceXlsxMock).toHaveBeenCalled()
+    expect(payrollBuildMock).toHaveBeenCalled()
+    expect(payrollXlsxMock).toHaveBeenCalled()
   })
 
   it('respeta allYears omitiendo la resolución de ciclo', async () => {
