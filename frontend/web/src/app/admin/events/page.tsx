@@ -308,6 +308,39 @@ function uniqueSortedDays(days: number[]): number[] {
   return Array.from(new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))).sort((a, b) => a - b)
 }
 
+/** YYYY-MM-DD (día civil en Uruguay), comparable lexicográficamente. Mismo parseo que weekdayNumberInUruguay. */
+function ymdInUruguay(value?: string | null): string | null {
+  if (!value) return null
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(value))
+  const y = parts.find((p) => p.type === 'year')?.value
+  const m = parts.find((p) => p.type === 'month')?.value
+  const d = parts.find((p) => p.type === 'day')?.value
+  return y && m && d ? `${y}-${m}-${d}` : null
+}
+
+/**
+ * ¿El evento todavía puede ocurrir? Para la "Vista rápida por día" no queremos mostrar
+ * eventos únicos ya vencidos ni recurrencias que ya terminaron.
+ */
+function eventStillRelevant(
+  event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'startDate' | 'recurrenceEnd'>,
+): boolean {
+  const today = getTodayYmdInUruguay()
+  if (!event.isRecurring || event.recurrenceType === 'NONE') {
+    const day = ymdInUruguay(event.startDate)
+    return day ? day >= today : true
+  }
+  const end = ymdInUruguay(event.recurrenceEnd)
+  return end ? end >= today : true
+}
+
 function eventAssignedWeekdays(event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'daysOfWeek' | 'startDate'>): number[] {
   if (event.isRecurring && event.recurrenceType === 'DAILY') return WEEKDAY_OPTIONS.map((d) => d.value)
   if (event.isRecurring && event.recurrenceType === 'WEEKLY' && event.daysOfWeek.length > 0) {
@@ -532,7 +565,8 @@ export default function AdminEvents() {
   const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
   const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
   const [selectedWeekday, setSelectedWeekday] = useState<WeekdayValue | null>(null)
-  const weekdaySummary = buildWeekdayEventSummary(events)
+  // Vista rápida: excluye eventos únicos vencidos y recurrencias ya terminadas (no van a volver a pasar).
+  const weekdaySummary = buildWeekdayEventSummary(events.filter(eventStillRelevant))
   const selectedWeekdayOption = selectedWeekday === null ? null : WEEKDAY_OPTIONS.find((day) => day.value === selectedWeekday)
   const selectedWeekdayEvents = selectedWeekday === null ? [] : getEventsForWeekday(events, selectedWeekday)
 

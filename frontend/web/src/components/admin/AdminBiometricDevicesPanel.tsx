@@ -232,110 +232,114 @@ export default function AdminBiometricDevicesPanel() {
         </div>
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="grid grid-cols-[minmax(170px,1.4fr)_120px_120px_120px_110px] gap-3 border-b border-gray-100 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 max-lg:hidden">
-            <span>Lector</span>
-            <span>Estado</span>
-            <span>Última conexión</span>
-            <span>Uso</span>
-            <span className="text-right">Acciones</span>
-          </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-500">
-              <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
-              Cargando lectores…
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="min-w-0 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <div className="grid min-w-[780px] grid-cols-[minmax(210px,1.4fr)_120px_155px_150px_110px] gap-3 border-b border-gray-100 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 max-lg:hidden">
+              <span>Lector</span>
+              <span>Estado</span>
+              <span>Última conexión</span>
+              <span>Uso</span>
+              <span className="text-right">Acciones</span>
             </div>
-          ) : devices.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-gray-500">Todavía no hay lectores configurados.</div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {devices.map((device) => (
-                <article
-                  key={device.id}
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={selectedId === device.id}
-                  onClick={() => {
-                    if (isRowSelectionEnabled) openView(device)
-                  }}
-                  onKeyDown={(event) => {
-                    if (!isRowSelectionEnabled) return
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      openView(device)
-                    }
-                  }}
-                  className={`grid cursor-pointer gap-3 border-l-4 px-4 py-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 lg:grid-cols-[minmax(170px,1.4fr)_120px_120px_120px_110px] lg:items-center ${
-                    selectedId === device.id
-                      ? 'border-l-emerald-500 bg-emerald-50 shadow-inner'
-                      : 'border-l-transparent hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="truncate text-sm font-semibold text-gray-950">{device.name}</h3>
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-700">{device.code}</span>
-                    </div>
-                    <p className="mt-1 truncate text-xs text-gray-500">{device.admsSerial || 'Sin serial ADMS'}</p>
-                  </div>
 
-                  <div>
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${device.isActive ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100' : 'bg-gray-100 text-gray-600 ring-1 ring-gray-200'}`}>
-                      {device.isActive ? 'Activo' : 'Deshabilitado'}
-                    </span>
-                  </div>
-
-                  <p className="text-xs font-medium text-gray-700">{formatDate(device.lastSeenAt)}</p>
-
-                  <p className="text-xs text-gray-500">
-                    <strong className="text-gray-800">{device._count.mappings}</strong> vínculos ·{' '}
-                    <strong className="text-gray-800">{device._count.punches}</strong> marcas
-                  </p>
-
-                  <div className="flex items-center gap-1.5 lg:justify-end">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-500">
+                <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
+                Cargando lectores…
+              </div>
+            ) : devices.length === 0 ? (
+              <div className="px-5 py-10 text-center text-sm text-gray-500">Todavía no hay lectores configurados.</div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {devices.map((device) => (
+                  <article
+                    key={device.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selectedId === device.id}
+                    onClick={() => {
+                      if (isRowSelectionEnabled) openView(device)
+                    }}
+                    onKeyDown={(event) => {
+                      if (!isRowSelectionEnabled) return
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
                         openView(device)
-                      }}
-                      className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-50"
-                      title="Ver información"
-                    >
-                      <Eye className="h-4 w-4" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        openEdit(device)
-                      }}
-                      className="rounded-lg border border-emerald-200 bg-white p-2 text-emerald-700 shadow-sm transition hover:bg-emerald-50"
-                      title="Editar lector"
-                    >
-                      <Pencil className="h-4 w-4" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        void toggleActive(device)
-                      }}
-                      disabled={saving}
-                      className={`rounded-lg border bg-white p-2 shadow-sm transition disabled:opacity-60 ${
-                        device.isActive ? 'border-red-200 text-red-700 hover:bg-red-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
-                      }`}
-                      title={device.isActive ? 'Deshabilitar lector' : 'Habilitar lector'}
-                    >
-                      <Power className="h-4 w-4" aria-hidden />
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
+                      }
+                    }}
+                    className={`grid min-w-[780px] cursor-pointer gap-3 border-l-4 px-4 py-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 lg:grid-cols-[minmax(210px,1.4fr)_120px_155px_150px_110px] lg:items-center max-lg:min-w-0 ${
+                      selectedId === device.id
+                        ? 'border-l-emerald-500 bg-emerald-50 shadow-inner'
+                        : 'border-l-transparent hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <h3 className="truncate text-sm font-semibold text-gray-950">{device.name}</h3>
+                        <span className="max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-700">
+                          {device.code}
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-gray-500">{device.admsSerial || 'Sin serial ADMS'}</p>
+                    </div>
+
+                    <div>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${device.isActive ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100' : 'bg-gray-100 text-gray-600 ring-1 ring-gray-200'}`}>
+                        {device.isActive ? 'Activo' : 'Deshabilitado'}
+                      </span>
+                    </div>
+
+                    <p className="whitespace-nowrap text-xs font-medium text-gray-700">{formatDate(device.lastSeenAt)}</p>
+
+                    <p className="whitespace-nowrap text-xs text-gray-500">
+                      <strong className="text-gray-800">{device._count.mappings}</strong> vínculos ·{' '}
+                      <strong className="text-gray-800">{device._count.punches}</strong> marcas
+                    </p>
+
+                    <div className="flex items-center gap-1.5 lg:justify-end">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openView(device)
+                        }}
+                        className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-50"
+                        title="Ver información"
+                      >
+                        <Eye className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openEdit(device)
+                        }}
+                        className="rounded-lg border border-emerald-200 bg-white p-2 text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+                        title="Editar lector"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void toggleActive(device)
+                        }}
+                        disabled={saving}
+                        className={`rounded-lg border bg-white p-2 shadow-sm transition disabled:opacity-60 ${
+                          device.isActive ? 'border-red-200 text-red-700 hover:bg-red-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                        }`}
+                        title={device.isActive ? 'Deshabilitar lector' : 'Habilitar lector'}
+                      >
+                        <Power className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
         </section>
 
         <aside className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
