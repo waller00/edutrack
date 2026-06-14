@@ -98,7 +98,6 @@ model User {
   substitutionsAsOriginal     Substitution[]          @relation("SubstitutionOriginalTeacher")
   substitutionsAsSubstitute   Substitution[]          @relation("SubstitutionSubstituteTeacher")
   auditEvents                 AuditLog[]
-  moodleEnrolments            MoodleEnrolmentMap[]
   teacherProfile              TeacherProfile?
   // security
   emailVerifiedAt             DateTime?
@@ -273,8 +272,9 @@ enum MoodleEnrolmentStatus {
 /// y revocar de forma idempotente sin depender únicamente del estado remoto de Moodle.
 model MoodleEnrolmentMap {
   id             String                @id @default(uuid())
+  /// Id local del inscripto: polimórfico (User para docentes/suplentes, Student para alumnos).
+  /// Por eso NO lleva FK a User: una FK rompería la matrícula de estudiantes.
   userId         String
-  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   moodleUserId   Int
   moodleCourseId Int
   roleId         Int
