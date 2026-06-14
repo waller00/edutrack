@@ -5,19 +5,17 @@ import { createPendingExport, getDownloadUrl, getExport, markDone, markFailed } 
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
 import {
-  generateAttendanceDetailCsvFromAttendances,
-} from '../services/analytics/exports/attendanceDetailFromAttendancesExport.js'
-import {
-  generateAttendanceAssistanceReportPdfFromAttendances,
-  generateAttendanceAssistanceReportXlsxFromAttendances,
-} from '../services/analytics/exports/attendanceAssistanceReportExport.js'
+  buildPayrollAttendanceData,
+  generatePayrollAttendanceCsv,
+  generatePayrollAttendancePdf,
+  generatePayrollAttendanceXlsx,
+} from '../services/analytics/exports/payrollAttendanceReport.js'
 import { generateMonthlySummaryPdf } from '../services/analytics/exports/monthlySummaryPdf.js'
 import {
   generateDimensionReportPdf,
   generateDimensionReportXlsx,
 } from '../services/analytics/exports/dimensionReportExport.js'
-import { prisma } from '../db/prisma.js'
-import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
+import { scopeUserIdsFor, resolveScopedSchoolYearId } from '../services/analytics/exports/exportScope.js'
 
 const r = Router()
 
@@ -118,22 +116,6 @@ function extensionFor(format: ExportFormat) {
   return 'pdf'
 }
 
-async function scopeUserIdsFor(filters?: ExportFilters): Promise<string[] | null> {
-  if (filters?.userId) return [filters.userId]
-  if (!filters?.role) return null
-  const rows = await prisma.user.findMany({ where: { orgRole: { code: filters.role } }, select: { id: true } })
-  return rows.map((row) => row.id)
-}
-
-async function resolveScopedSchoolYearId(filters: ExportFilters | undefined, allYearsExport: boolean) {
-  if (allYearsExport) return undefined
-  const sy = await resolveSchoolYearIdForList(prisma, {
-    role: 'ADMIN',
-    requestedSchoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
-  })
-  return sy || undefined
-}
-
 /** Camino de instancias planificadas conciliadas (compartido por resumen mensual y variantes por dimensión). */
 async function resolveInstancesForExport(from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean) {
   const userIds = await scopeUserIdsFor(filters)
@@ -150,24 +132,22 @@ async function resolveInstancesForExport(from: string, to: string, filters: Expo
 }
 
 async function buildAttendanceDetail(format: ExportFormat, from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean): Promise<ReportResult> {
-  const schoolYearId = await resolveScopedSchoolYearId(filters, allYearsExport)
-  const attendanceFilters: any = {
+  const data = await buildPayrollAttendanceData({
     from,
     to,
-    role: filters?.role,
-    userId: filters?.userId,
-    eventId: filters?.eventId,
-    eventType: filters?.eventType,
-    type: filters?.type,
-    status: filters?.status,
-    ...(schoolYearId ? { schoolYearId } : {}),
-  }
-  if (format === 'XLSX') {
-    const xlsx = await generateAttendanceAssistanceReportXlsxFromAttendances({ filters: attendanceFilters })
-    return { buffer: Buffer.from(xlsx) }
-  }
-  if (format === 'CSV') return { buffer: Buffer.from(await generateAttendanceDetailCsvFromAttendances({ filters: attendanceFilters }), 'utf-8') }
-  return { buffer: await generateAttendanceAssistanceReportPdfFromAttendances({ filters: attendanceFilters }) }
+    filters: {
+      role: filters?.role,
+      userId: filters?.userId,
+      eventId: filters?.eventId,
+      eventType: filters?.eventType,
+      status: filters?.status,
+      schoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
+      allYears: allYearsExport,
+    },
+  })
+  if (format === 'XLSX') return { buffer: await generatePayrollAttendanceXlsx(data) }
+  if (format === 'CSV') return { buffer: Buffer.from(generatePayrollAttendanceCsv(data), 'utf-8') }
+  return { buffer: await generatePayrollAttendancePdf(data) }
 }
 
 async function buildMonthlySummary(format: ExportFormat, from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean): Promise<ReportResult> {
