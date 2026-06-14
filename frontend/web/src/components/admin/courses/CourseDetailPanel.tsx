@@ -230,7 +230,7 @@ export default function CourseDetailPanel({
                       hint={`Aplican a ${courseShortLabel(course.name)} y aparecen dentro de todas sus orientaciones.`}
                       subjects={common}
                       loading={subjectsLoading}
-                      addLabel="Agregar común"
+                      addLabel="Agregar"
                       onCreate={(d) => createSubject(d, { common: true })}
                       onUpdate={updateSubject}
                       onRemove={removeSubject}

@@ -3,6 +3,7 @@
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
+import { isValidUruguayanCI } from '@/lib/forms/uruguay-forms'
 import { useCallback, useEffect, useState } from 'react'
 import { CalendarCheck, ChevronLeft, ChevronRight, GraduationCap, Loader2, Plus, Trash2, X } from 'lucide-react'
 
@@ -410,6 +411,8 @@ export default function AdminStudentsPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(list.total / list.pageSize))
+  const documentIdTrimmed = form.documentId?.trim() ?? ''
+  const documentIdInvalid = documentIdTrimmed !== '' && !isValidUruguayanCI(documentIdTrimmed)
 
   return (
     <RoleGuard permission="students.manage">
@@ -687,12 +690,18 @@ export default function AdminStudentsPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Documento (opcional)</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Cédula (opcional)</label>
                     <input
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
+                      className={`w-full rounded-lg border px-3 py-2 ${documentIdInvalid ? 'border-red-400' : 'border-gray-200'}`}
                       value={form.documentId ?? ''}
                       onChange={(e) => patchForm('documentId', e.target.value || null)}
+                      inputMode="numeric"
+                      placeholder="1.234.567-8"
+                      aria-invalid={documentIdInvalid}
                     />
+                    {documentIdInvalid && (
+                      <p className="mt-1 text-xs text-red-600">Cédula inválida: verificá el número y el dígito verificador</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Curso (opcional)</label>
@@ -924,7 +933,7 @@ export default function AdminStudentsPage() {
                 <button
                   type="button"
                   className="btn-primary inline-flex items-center gap-2"
-                  disabled={saving || !form.firstName.trim() || !form.lastName.trim()}
+                  disabled={saving || !form.firstName.trim() || !form.lastName.trim() || documentIdInvalid}
                   onClick={() => void save()}
                 >
                   {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}

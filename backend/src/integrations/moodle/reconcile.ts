@@ -85,7 +85,10 @@ type ReconcileContext = {
 };
 
 function logError(stage: string, ref: unknown, e: unknown): void {
-  console.error(`[moodle] reconcile ${stage} falló:`, ref, e instanceof Error ? e.message : e);
+  const detail = e instanceof Error
+    ? e.message || e.stack?.split("\n")[0] || e.name || "Error sin mensaje"
+    : String(e);
+  console.error(`[moodle] reconcile ${stage} falló:`, ref, detail);
 }
 
 async function ensureCategoryFor(ctx: ReconcileContext, sy: SchoolYearLite): Promise<number> {
@@ -239,9 +242,12 @@ async function listStudentSubjectTargets(en: {
       isActive: true,
       isOffered: true,
       visibleInFilters: true,
-      OR: assignmentScopes,
-      schoolYearId: { in: [schoolYearId, null] },
       subject: { isActive: true },
+      // Prisma rechaza `null` dentro de `in`; "del ciclo o sin ciclo" va como OR explícito.
+      AND: [
+        { OR: assignmentScopes },
+        { OR: [{ schoolYearId }, { schoolYearId: null }] },
+      ],
     },
     orderBy: [{ sortOrder: "asc" }, { subject: { sortOrder: "asc" } }, { subject: { name: "asc" } }],
     select: {

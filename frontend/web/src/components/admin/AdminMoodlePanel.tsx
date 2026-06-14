@@ -98,7 +98,9 @@ export default function AdminMoodlePanel() {
         method: 'POST',
       })
       setMsg(
-        `${r.message}: cursos=${r.summary.courses ?? 0}, docentes=${r.summary.teacherEnrolments ?? 0}, errores=${r.summary.errors ?? 0}`,
+        `${r.message}: cursos=${r.summary.courses ?? 0}, docentes=${r.summary.teacherEnrolments ?? 0}, ` +
+          `suplentes=${r.summary.substituteEnrolments ?? 0}, estudiantes=${r.summary.studentEnrolments ?? 0}, ` +
+          `errores=${r.summary.errors ?? 0}`,
       )
       await loadHealth()
     } catch {
