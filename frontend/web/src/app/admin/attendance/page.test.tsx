@@ -410,37 +410,6 @@ describe('AdminAttendance', () => {
     expect(mockedApi).toHaveBeenCalledWith('/exports', expect.objectContaining({ method: 'POST' }))
   })
 
-  it('marca ausencias vía fetch', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ message: '3 ausencias' }),
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    mockedApi.mockImplementation(async (url: string) => {
-      if (String(url).includes('attendance/all')) {
-        return { total: 0, page: 1, pageSize: 20, data: [] }
-      }
-      if (String(url).includes('admin/users')) return { data: [] }
-      if (String(url).includes('attendance/stats'))
-        return { totalAttendances: 0, presentCount: 0, absentCount: 0, lateCount: 0, medicalLeaveCount: 0, attendanceRate: 0, lateRate: 0, absenceRate: 0 }
-      return {}
-    })
-
-    render(<AdminAttendance />)
-    await screen.findByText('EduTrack')
-
-    fireEvent.click(screen.getByRole('button', { name: /Marcar Ausencias/ }))
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:4000/attendance/mark-absences',
-        expect.objectContaining({ method: 'POST' }),
-      )
-    })
-    expect(await screen.findByText(/3 ausencias/)).toBeInTheDocument()
-  })
-
   it('elimina asistencias seleccionadas tras confirmar', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const rec = {

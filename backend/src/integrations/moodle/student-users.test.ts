@@ -133,13 +133,18 @@ describe("syncMoodleStudentById", () => {
     expect(moodleRestMock).not.toHaveBeenCalled();
   });
 
-  it("crea la cuenta real y envía la bienvenida una vez (claim atómico)", async () => {
+  it("crea la cuenta real, fija contraseña temporal y envía la bienvenida una vez (claim atómico)", async () => {
     await syncMoodleStudentById("s1-uuid");
-    expect(sendWelcomeMock).toHaveBeenCalledWith({
-      to: "ana@test.com",
-      firstName: "Ana",
-      username: "ana.diaz",
-    });
+    expect(sendWelcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "ana@test.com", firstName: "Ana", username: "ana.diaz" }),
+    );
+    // La contraseña temporal va al mail y se fija en Moodle forzando el cambio.
+    const tempPassword = sendWelcomeMock.mock.calls[0][0].tempPassword as string;
+    expect(tempPassword).toMatch(/^Edu-/);
+    const updated = restCall("core_user_update_users")!;
+    expect(updated["users[0][password]"]).toBe(tempPassword);
+    expect(updated["users[0][preferences][0][type]"]).toBe("auth_forcepasswordchange");
+    expect(updated["users[0][preferences][0][value]"]).toBe("1");
     const claim = prismaMock.student.updateMany.mock.calls[0][0];
     expect(claim.where).toEqual({ id: "s1-uuid", moodleWelcomeSentAt: null });
     expect(claim.data.moodleWelcomeSentAt).toBeInstanceOf(Date);
