@@ -7,6 +7,7 @@ import { prisma } from '../db/prisma.js'
 import { assertCourseOfferedInSchoolYear, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { generateUniqueUsername } from '../services/usernames.js'
 import { enqueueStudentUserUpsert } from '../integrations/moodle/outbox.js'
+import { isValidUruguayanCI, onlyDigits } from '../identity/uruguay-ci.js'
 
 const r = Router()
 
@@ -39,6 +40,18 @@ function emptyToUndefined(v: unknown) {
 function optionalTrimmedString(max: number) {
   return z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
 }
+
+/** Cédula uruguaya opcional: si viene, se valida el dígito verificador y se guarda normalizada (solo dígitos). */
+const optionalUruguayanCI = z.preprocess(
+  emptyToUndefined,
+  z
+    .string()
+    .trim()
+    .max(40)
+    .transform((v) => onlyDigits(v))
+    .refine((v) => isValidUruguayanCI(v), 'Cédula inválida: verificá el número y el dígito verificador')
+    .optional(),
+)
 
 /** Acepta ISO completo o fecha `YYYY-MM-DD` desde inputs HTML. */
 const optionalDateString = z.preprocess(
@@ -76,7 +89,7 @@ function parseOptionalEndOfDayDate(raw: string | undefined): Date | undefined {
 const studentWriteBaseSchema = z.object({
   firstName: z.string().trim().min(1).max(120),
   lastName: z.string().trim().min(1).max(120),
-  documentId: optionalTrimmedString(40),
+  documentId: optionalUruguayanCI,
   courseId: z.preprocess(
     (v) => (v === null || v === '' ? undefined : v),
     z.string().uuid().optional(),

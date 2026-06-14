@@ -149,7 +149,7 @@ export async function moodleRest(
   const { status, text } = await httpPostFormUrlEncoded(base, path, body, hostHeader);
 
   if (status < 200 || status >= 300) {
-    throw new Error(`MOODLE_HTTP_${status}: ${text.slice(0, 500)}`);
+    throw new Error(`MOODLE_HTTP_${status} [${wsfunction}]: ${text.slice(0, 500)}`);
   }
 
   let data: unknown;
@@ -157,13 +157,15 @@ export async function moodleRest(
     data = JSON.parse(text) as unknown;
   } catch {
     throw new Error(
-      `MOODLE_BAD_RESPONSE: HTTP ${status}, len=${text.length}, body=${text.slice(0, 200)}`,
+      `MOODLE_BAD_RESPONSE [${wsfunction}]: HTTP ${status}, len=${text.length}, body=${text.slice(0, 200)}`,
     );
   }
   if (data && typeof data === "object" && !Array.isArray(data) && "exception" in data) {
     const o = data as Record<string, unknown>;
+    // Incluir la wsfunction y el debuginfo (si Moodle lo manda) para ubicar el parámetro inválido.
+    const detail = o.debuginfo ? ` debuginfo=${String(o.debuginfo)}` : "";
     throw new Error(
-      `MOODLE_EXCEPTION: ${String(o.errorcode ?? o.message ?? o.exception)} ${JSON.stringify(data)}`,
+      `MOODLE_EXCEPTION [${wsfunction}]: ${String(o.errorcode ?? o.message ?? o.exception)}${detail} ${JSON.stringify(data)}`,
     );
   }
   return data as MoodleRestJson;
