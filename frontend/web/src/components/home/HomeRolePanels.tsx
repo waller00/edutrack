@@ -546,7 +546,8 @@ export function HomeAdminTimeline() {
   const visibleRawItems = data
     ? data.items.filter((item) => item.type !== 'FREE_BRIDGE' || isBridgeVisible(filters, showFreeBlocks))
     : []
-  const compactItems = compactTimelineItems(visibleRawItems).sort((a, b) => timelineMinutes(a) - timelineMinutes(b))
+  // Orden operativo: lo más reciente del día primero (a administración le importa lo último que pasó).
+  const compactItems = compactTimelineItems(visibleRawItems).sort((a, b) => timelineMinutes(b) - timelineMinutes(a))
   const incidentItems = compactItems.filter((item) => INCIDENT_TIMELINE_TYPES.has(item.type)).slice(0, 7)
   const classItems = compactItems.filter((item) => CLASS_TIMELINE_TYPES.has(item.type)).slice(0, 7)
   const activityItems = compactItems
