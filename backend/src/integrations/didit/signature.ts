@@ -1,4 +1,4 @@
-import crypto from 'crypto'
+import crypto from 'node:crypto'
 
 /**
  * Valida la firma HMAC del webhook de Didit (docs: x-signature-v2, x-timestamp, cuerpo raw JSON).

@@ -5,7 +5,7 @@ import { loginUrl } from '@/lib/auth/urls'
 /** Restablecimiento de contraseña gestionado por Keycloak. */
 export default function ResetPage() {
   useEffect(() => {
-    window.location.replace(loginUrl('/login'))
+    globalThis.location.replace(loginUrl('/login'))
   }, [])
   return (
     <main className="min-h-screen gradient-light flex items-center justify-center p-4">

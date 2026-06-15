@@ -1,4 +1,4 @@
-import crypto from 'crypto'
+import crypto from 'node:crypto'
 
 export type ExportFormat = 'PDF' | 'XLSX' | 'CSV'
 export type ExportStatus = 'PENDING' | 'DONE' | 'FAILED'

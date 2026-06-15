@@ -17,10 +17,10 @@ export type WebPushSupportCode =
  */
 export function getWebPushSupportState(): { code: WebPushSupportCode } {
   if (typeof window === 'undefined') return { code: 'pending' }
-  if (!window.isSecureContext) return { code: 'insecure-context' }
+  if (!globalThis.isSecureContext) return { code: 'insecure-context' }
   if (!('serviceWorker' in navigator)) return { code: 'no-service-worker' }
-  if (!('Notification' in window)) return { code: 'no-notification' }
-  if (!('PushManager' in window)) return { code: 'no-push-manager' }
+  if (!('Notification' in globalThis)) return { code: 'no-notification' }
+  if (!('PushManager' in globalThis)) return { code: 'no-push-manager' }
   return { code: 'supported' }
 }
 
@@ -32,7 +32,7 @@ export function isWebPushSupported(): boolean {
 export function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const rawData = window.atob(base64)
+  const rawData = globalThis.atob(base64)
   const outputArray = new Uint8Array(rawData.length)
   for (let i = 0; i < rawData.length; ++i) {
     outputArray[i] = rawData.charCodeAt(i)
@@ -72,7 +72,7 @@ export async function getWebPushServerStatusWithRetry(
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
-  if (!('Notification' in window)) return 'denied'
+  if (!('Notification' in globalThis)) return 'denied'
   if (Notification.permission === 'granted') return 'granted'
   if (Notification.permission === 'denied') return 'denied'
   return Notification.requestPermission()

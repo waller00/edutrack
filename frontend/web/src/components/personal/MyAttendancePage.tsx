@@ -49,7 +49,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
   ).toString()
 
   useEffect(() => {
-    if (!authLoading && !authUser) window.location.href = '/login'
+    if (!authLoading && !authUser) globalThis.location.href = '/login'
   }, [authLoading, authUser])
 
   useEffect(() => {

@@ -129,7 +129,7 @@ export async function executeAbsencesSummary(
     }
   }
 
-  const rows = absences
+  const rows = [...absences]
     .sort((a, b) => b.planned.plannedDate.localeCompare(a.planned.plannedDate))
     .slice(0, MAX_LIST_ROWS)
     .map((row) => ({

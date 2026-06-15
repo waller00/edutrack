@@ -208,7 +208,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
 
   async function logout() {
     clearObservabilityUser()
-    window.location.href = logoutUrl()
+    globalThis.location.href = logoutUrl()
   }
 
   const hasDashboardShell = Boolean(me && canAccessModules(me) && !isPublicPath(pathname))

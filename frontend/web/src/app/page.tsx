@@ -19,7 +19,7 @@ export default function Home() {
   const [resent, setResent] = useState(false)
 
   useEffect(() => {
-    if (!loading && !me) window.location.href = '/login'
+    if (!loading && !me) globalThis.location.href = '/login'
   }, [loading, me])
 
   async function resend() {

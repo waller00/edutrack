@@ -323,7 +323,7 @@ export default function AdminProfilesPanel({ compact = false }: { compact?: bool
 
   async function deleteRole() {
     if (!selectedProfile || selectedBuiltIn) return
-    if (!window.confirm(`¿Eliminar el perfil "${selectedProfile.label}"? Esta acción no se puede deshacer.`)) return
+    if (!globalThis.confirm(`¿Eliminar el perfil "${selectedProfile.label}"? Esta acción no se puede deshacer.`)) return
     setRoleActionBusy(true)
     setMessage('')
     try {

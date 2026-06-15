@@ -33,7 +33,7 @@ export default function RegisterDiditReturnPage() {
       return
     }
     const qs = typeof window !== 'undefined' ? window.location.search : ''
-    window.location.replace(`${base}/register${qs}`)
+    globalThis.location.replace(`${base}/register${qs}`)
   }, [])
 
   return (

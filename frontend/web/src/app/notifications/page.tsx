@@ -32,7 +32,7 @@ export default function NotificationsPage() {
     } catch (e: unknown) {
       const st = (e as { status?: number })?.status
       if (st === 401) {
-        window.location.href = '/login'
+        globalThis.location.href = '/login'
         return
       }
       setErr('No se pudieron cargar los avisos.')
@@ -65,7 +65,7 @@ export default function NotificationsPage() {
         await markRead(item.id)
       }
       if (item.actionUrl) {
-        window.location.href = item.actionUrl
+        globalThis.location.href = item.actionUrl
       }
     } finally {
       setOpeningId(null)

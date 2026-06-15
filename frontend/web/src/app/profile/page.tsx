@@ -40,7 +40,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (loading) return
-    if (!me) { window.location.href = '/login'; return }
+    if (!me) { globalThis.location.href = '/login'; return }
     setEmail(me.email || '')
     setUsername(me.username || '')
     setNationalId(me.nationalId || '')
@@ -63,7 +63,7 @@ export default function ProfilePage() {
     // Limpiamos los params para que un refresh o "atrás" no re-dispare el aviso
     // ni vuelva a forzar el estado de 2FA en cada montaje.
     if (params.has('twoFactorDisabled') || params.has('twoFactorDisableError')) {
-      window.history.replaceState(null, '', '/profile')
+      globalThis.history.replaceState(null, '', '/profile')
     }
   }, [])
 

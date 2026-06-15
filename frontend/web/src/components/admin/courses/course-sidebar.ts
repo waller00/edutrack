@@ -25,7 +25,7 @@ export function groupCoursesForSidebar(courses: CourseRow[]): CourseGroup[] {
   return [...buckets.values()]
     .map((group) => ({
       ...group,
-      items: group.items.sort((a, b) => {
+      items: [...group.items].sort((a, b) => {
         if ((a.sortOrder ?? 0) !== (b.sortOrder ?? 0)) return (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
         return a.name.localeCompare(b.name, 'es')
       }),

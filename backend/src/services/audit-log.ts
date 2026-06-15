@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import crypto from "crypto";
+import crypto from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "../db/prisma.js";

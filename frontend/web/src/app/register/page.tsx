@@ -115,14 +115,14 @@ export default function RegisterPage() {
     } catch {
       return
     }
-    if (window.location.origin === targetOrigin) return
+    if (globalThis.location.origin === targetOrigin) return
 
-    const p = new URLSearchParams(window.location.search)
+    const p = new URLSearchParams(globalThis.location.search)
     const sid = p.get('verificationSessionId') || p.get('session_id') || p.get('vendor_data')
     const approved = (p.get('status') || '').toLowerCase() === 'approved'
     if (!sid && !approved) return
 
-    window.location.replace(`${base}/register${window.location.search}`)
+    globalThis.location.replace(`${base}/register${globalThis.location.search}`)
   }, [])
 
   useEffect(() => {
@@ -148,7 +148,7 @@ export default function RegisterPage() {
         if (!alive) return
         // Usuario ya logueado (p. ej. Google + onboarding): el callback Didit suele apuntar a /register…
         if (typeof window !== 'undefined') {
-          const se = window.location.search
+          const se = globalThis.location.search
           const qp = new URLSearchParams(se)
           const fromDidit =
             qp.get('liveness') === '1' ||
@@ -156,11 +156,11 @@ export default function RegisterPage() {
             Boolean(qp.get('session_id')?.trim()) ||
             Boolean(qp.get('vendor_data')?.trim())
           if (fromDidit) {
-            window.location.replace(`/onboarding${se}`)
+            globalThis.location.replace(`/onboarding${se}`)
             return
           }
         }
-        window.location.replace('/')
+        globalThis.location.replace('/')
       })
       .catch(() => {
         if (alive) setSessionGate(false)
@@ -172,7 +172,7 @@ export default function RegisterPage() {
 
   useEffect(() => {
     if (sessionGate || typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search || '')
+    const params = new URLSearchParams(globalThis.location.search || '')
     const token = params.get('sso')
     if (!token) return
     let alive = true
@@ -235,7 +235,7 @@ export default function RegisterPage() {
         setLivenessToken(null)
         setLivenessApproved(false)
         try {
-          window.sessionStorage.removeItem('edutrack_liveness_token')
+          globalThis.sessionStorage.removeItem('edutrack_liveness_token')
         } catch { /* no sessionStorage (SSR) */ }
         return true
       }
@@ -313,7 +313,7 @@ export default function RegisterPage() {
       birthdate,
     })
     if (idErr) return
-    const tid = window.setTimeout(() => {
+    const tid = globalThis.setTimeout(() => {
       void runDiditFieldVerify()
     }, 550)
     return () => clearTimeout(tid)
@@ -331,16 +331,16 @@ export default function RegisterPage() {
 
   useEffect(() => {
     if (!livenessToken || livenessApproved) return
-    const t = window.setInterval(() => {
+    const t = globalThis.setInterval(() => {
       void pollLiveness(livenessToken)
     }, 2500)
-    return () => window.clearInterval(t)
+    return () => globalThis.clearInterval(t)
   }, [livenessToken, livenessApproved, pollLiveness])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const run = () => {
-      const p = new URLSearchParams(window.location.search)
+      const p = new URLSearchParams(globalThis.location.search)
       const fromDiditUrl =
         Boolean(p.get('verificationSessionId')) ||
         Boolean(p.get('session_id')) ||
@@ -353,7 +353,7 @@ export default function RegisterPage() {
       let tok: string | null = fromParams.length > 0 ? fromParams : null
       if (!tok) {
         try {
-          tok = window.sessionStorage.getItem('edutrack_liveness_token')
+          tok = globalThis.sessionStorage.getItem('edutrack_liveness_token')
         } catch {
           /* */
         }
@@ -363,7 +363,7 @@ export default function RegisterPage() {
 
       setLivenessToken(tok)
       try {
-        window.sessionStorage.setItem('edutrack_liveness_token', tok)
+        globalThis.sessionStorage.setItem('edutrack_liveness_token', tok)
       } catch {
         /* */
       }
@@ -374,8 +374,8 @@ export default function RegisterPage() {
       void pollLiveness(tok)
     }
     run()
-    window.addEventListener('focus', run)
-    return () => window.removeEventListener('focus', run)
+    globalThis.addEventListener('focus', run)
+    return () => globalThis.removeEventListener('focus', run)
   }, [pollLiveness])
 
   // Función para manejar el cambio de cédula con formato automático
@@ -442,7 +442,7 @@ export default function RegisterPage() {
       setLivenessToken(res.livenessToken)
       setLivenessApproved(false)
       try {
-        window.sessionStorage.setItem('edutrack_liveness_token', res.livenessToken)
+        globalThis.sessionStorage.setItem('edutrack_liveness_token', res.livenessToken)
       } catch { /* */ }
 
       const draft: RegisterDraftSnapshot = {
@@ -463,7 +463,7 @@ export default function RegisterPage() {
         identityVerificationMethod,
       }
       saveRegisterDraft(draft)
-      window.location.assign(res.verificationUrl)
+      globalThis.location.assign(res.verificationUrl)
     } catch (e: unknown) {
       const err = e as { data?: { message?: string; details?: string }; message?: string }
       const base =
@@ -529,16 +529,16 @@ export default function RegisterPage() {
         setLivenessPollError(apiMsg)
         setLivenessToken(null)
         try {
-          window.sessionStorage.removeItem('edutrack_liveness_token')
+          globalThis.sessionStorage.removeItem('edutrack_liveness_token')
         } catch { /* */ }
         setError('')
         try {
-          const u = new URL(window.location.href)
+          const u = new URL(globalThis.location.href)
           ;['status', 'verificationSessionId', 'session_id', 'vendor_data', 'liveness'].forEach((k) =>
             u.searchParams.delete(k),
           )
           const q = u.searchParams.toString()
-          window.history.replaceState(null, '', `${u.pathname}${q ? `?${q}` : ''}`)
+          globalThis.history.replaceState(null, '', `${u.pathname}${q ? `?${q}` : ''}`)
         } catch { /* */ }
       } else {
         const isBareStatus = /^API \d{3}$/i.test(apiMsg.trim())
@@ -605,7 +605,7 @@ export default function RegisterPage() {
               <p className="text-sm text-emerald-800 mb-3">También puedes entrar con Google. Después se te pedirá esta misma validación con DNI y completar solo los datos faltantes.</p>
               <button
                 type="button"
-                onClick={() => { window.location.href = loginUrl('/register', 'google') }}
+                onClick={() => { globalThis.location.href = loginUrl('/register', 'google') }}
                 className="btn-secondary w-full justify-center"
               >
                 Continuar con Google

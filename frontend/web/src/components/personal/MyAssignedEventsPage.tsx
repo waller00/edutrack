@@ -41,7 +41,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    if (!authLoading && !authUser) window.location.href = '/login'
+    if (!authLoading && !authUser) globalThis.location.href = '/login'
   }, [authLoading, authUser])
 
   useEffect(() => {

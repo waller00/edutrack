@@ -1,5 +1,5 @@
 import { Router } from "express";
-import crypto from "crypto";
+import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authGuard, requirePermission } from "../middlewares/auth.js";

@@ -1,4 +1,4 @@
-import crypto from "crypto";
+import crypto from "node:crypto";
 import { prisma } from "../db/prisma.js";
 import { buildBiometricAttendancePayload, getAttendanceStatus } from "../attendance/attendance-logic.js";
 import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";

@@ -592,7 +592,7 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
   if (data.status) filteredItems = filteredItems.filter((item) => item.status === data.status)
   if (data.type) filteredItems = filteredItems.filter((item) => item.type === data.type)
 
-  filteredItems = filteredItems
+  filteredItems = [...filteredItems]
     .sort((a, b) => new Date(a.sortTime).getTime() - new Date(b.sortTime).getTime())
     .slice(0, 80)
 

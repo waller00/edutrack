@@ -206,7 +206,7 @@ function normalizeImportDate(value: string): string | null {
   const raw = value.trim()
   if (!raw) return null
   if (isYmdDateString(raw)) return raw
-  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw)
   if (m) {
     const dd = m[1].padStart(2, '0')
     const mm = m[2].padStart(2, '0')

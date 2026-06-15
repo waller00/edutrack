@@ -10,7 +10,6 @@ import {
   buildAdminUsersQueryParams,
   cloneAdminUser,
   displayUserName,
-  formatYmdDate,
   getActiveBadgeClass,
   getActiveLabel,
   getAdminUserSaveErrorMessage,

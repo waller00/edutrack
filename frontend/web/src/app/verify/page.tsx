@@ -6,7 +6,7 @@ export default function VerifyPage() {
   const [status, setStatus] = useState<'loading'|'ok'|'error'>('loading')
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(globalThis.location.search)
     const token = params.get('token')
     if (!token) { setStatus('error'); return }
     api('/auth/verify', { method: 'POST', body: JSON.stringify({ token }) })
