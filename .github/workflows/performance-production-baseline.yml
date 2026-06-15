@@ -11,9 +11,15 @@ on:
         description: "Motivo o version evaluada"
         required: true
         type: string
+      publish_metrics_to_grafana:
+        description: "Enviar metricas k6 a Prometheus mediante Tailscale"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: production-performance-baseline
@@ -22,8 +28,10 @@ concurrency:
 jobs:
   baseline:
     name: Baseline conservadora contra produccion
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production
+    environment:
+      name: ${{ 'production' }}
     timeout-minutes: 20
     env:
       K6_BASE_URL: ${{ vars.PRODUCTION_API_URL || 'https://api.edutrack-uy.com' }}
@@ -36,22 +44,52 @@ jobs:
       EDUTRACK_K6_MAX_ALLOWED_RATE: "5"
       EDUTRACK_K6_PRE_ALLOCATED_VUS: "10"
       EDUTRACK_K6_MAX_VUS: "30"
+      K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM: "true"
 
     steps:
       - name: Validar confirmacion manual
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
+          PUBLISH_METRICS: ${{ inputs.publish_metrics_to_grafana }}
+          PROMETHEUS_TAILSCALE_HOST: ${{ vars.PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST }}
         run: |
+          set -euo pipefail
           if [ "$CONFIRMATION" != "RUN_PRODUCTION_BASELINE" ]; then
             echo "Confirmacion invalida. No se genero carga."
             exit 1
           fi
+          if [ "$PUBLISH_METRICS" = "true" ] && [ -z "$PROMETHEUS_TAILSCALE_HOST" ]; then
+            echo "Falta la variable PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST."
+            exit 1
+          fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Conectar runner efimero a Tailscale
+        if: inputs.publish_metrics_to_grafana
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:github-k6
+          ping: ${{ vars.PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST }}
+
+      - name: Verificar receptor privado de metricas
+        if: inputs.publish_metrics_to_grafana
+        env:
+          PROMETHEUS_TAILSCALE_HOST: ${{ vars.PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST }}
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --max-time 10 "http://${PROMETHEUS_TAILSCALE_HOST}:9201/")"
+          if [ "$status" != "404" ]; then
+            echo "El proxy privado no respondio con el estado esperado (404): $status"
+            exit 1
+          fi
 
       - name: Fotografia inicial del droplet
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -94,10 +132,26 @@ jobs:
           curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready"
 
       - name: Ejecutar baseline de produccion
+        env:
+          PUBLISH_METRICS: ${{ inputs.publish_metrics_to_grafana }}
+          PROMETHEUS_TAILSCALE_HOST: ${{ vars.PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST }}
         run: |
-          docker compose -f performance/docker-compose.k6.yml run --rm k6 run \
-            --summary-export=/results/production-baseline-summary.json \
-            /scripts/production-baseline.js
+          set -euo pipefail
+          if [ "$PUBLISH_METRICS" = "true" ]; then
+            export K6_PROMETHEUS_RW_SERVER_URL="http://${PROMETHEUS_TAILSCALE_HOST}:9201/api/v1/write"
+            docker compose \
+              -f performance/docker-compose.k6.yml \
+              -f performance/docker-compose.k6.tailscale.yml \
+              run --rm k6 run \
+              -o experimental-prometheus-rw \
+              --tag "testid=gha-${GITHUB_RUN_ID}" \
+              --summary-export=/results/production-baseline-summary.json \
+              /scripts/production-baseline.js
+          else
+            docker compose -f performance/docker-compose.k6.yml run --rm k6 run \
+              --summary-export=/results/production-baseline-summary.json \
+              /scripts/production-baseline.js
+          fi
 
       - name: Generar informe Markdown
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
@@ -117,7 +171,7 @@ jobs:
 
       - name: Fotografia final del droplet
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -135,7 +189,7 @@ jobs:
 
       - name: Guardar resultados
         if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: production-baseline-${{ github.run_number }}
           path: performance/results/

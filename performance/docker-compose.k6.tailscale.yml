@@ -1,0 +1,5 @@
+services:
+  k6:
+    # El runner efimero accede a la tailnet desde el host. No usar este
+    # override para pruebas locales ni para destinos que no sean Tailscale.
+    network_mode: host
