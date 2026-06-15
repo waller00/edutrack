@@ -453,12 +453,20 @@ function eventScheduleKey(startDate: string, startTime?: string | null): string 
   return `${getEventDateInputValue(startDate)}|${formatClockHhMmInUruguayFromIso(startTime ?? undefined)}`
 }
 
+function isOccurrenceInPast(occ: EventOccurrence<CalendarEvent>): boolean {
+  const hhmm = occ.startTime ? formatClockHhMmInUruguayFromIso(occ.startTime) : '00:00'
+  return isUruguayWallDateTimeInPast(occ.ymd, hhmm)
+}
+
 function OccurrenceActionModal({
   occ,
   busy,
   canForesee,
+  canSubstitute,
+  readOnlyReason,
   onClose,
   onForeseeAbsence,
+  onSubstitute,
   onSuspend,
   onRestore,
   onSaveTimes,
@@ -467,8 +475,11 @@ function OccurrenceActionModal({
   occ: EventOccurrence<CalendarEvent>
   busy: boolean
   canForesee: boolean
+  canSubstitute: boolean
+  readOnlyReason?: string
   onClose: () => void
   onForeseeAbsence: () => void
+  onSubstitute: () => void
   onSuspend: (reason: string) => void
   onRestore: () => void
   onSaveTimes: (startTime: string, endTime: string) => void
@@ -528,7 +539,12 @@ function OccurrenceActionModal({
           </div>
         ) : (
           <div className="space-y-2">
-            {canForesee && !occ.suspended && (
+            {readOnlyReason ? (
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                {readOnlyReason}
+              </p>
+            ) : null}
+            {canForesee && !occ.suspended && !readOnlyReason && (
               <button
                 type="button"
                 disabled={busy}
@@ -538,7 +554,17 @@ function OccurrenceActionModal({
                 Prever ausencia (no justificada)
               </button>
             )}
-            {!occ.suspended && (
+            {canSubstitute && !occ.suspended && !readOnlyReason && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onSubstitute}
+                className="w-full rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+              >
+                Marcar suplencia
+              </button>
+            )}
+            {!occ.suspended && !readOnlyReason && (
               <button
                 type="button"
                 disabled={busy}
@@ -548,7 +574,7 @@ function OccurrenceActionModal({
                 Suspender solo este día
               </button>
             )}
-            {!occ.suspended && (
+            {!occ.suspended && !readOnlyReason && (
               <button
                 type="button"
                 disabled={busy}
@@ -558,7 +584,7 @@ function OccurrenceActionModal({
                 Editar horario solo este día
               </button>
             )}
-            {(occ.suspended || occ.overridden) && (
+            {(occ.suspended || occ.overridden) && !readOnlyReason && (
               <button
                 type="button"
                 disabled={busy}
@@ -568,13 +594,15 @@ function OccurrenceActionModal({
                 Restaurar este día (quitar excepción)
               </button>
             )}
-            <button
-              type="button"
-              onClick={onEditSeries}
-              className="w-full rounded-lg border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
-            >
-              Editar la serie completa
-            </button>
+            {!readOnlyReason ? (
+              <button
+                type="button"
+                onClick={onEditSeries}
+                className="w-full rounded-lg border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+              >
+                Editar la serie completa
+              </button>
+            ) : null}
           </div>
         )}
       </div>
@@ -941,6 +969,7 @@ export default function AdminEvents() {
 
   function openSubstitutionForOccurrence(event: Event, ymd: string) {
     setSubstitutionPrompt(null)
+    setOccurrencePanel(null)
     setSubstitutionInitialDate(ymd)
     setSubstitutionEvent(event)
   }
@@ -976,7 +1005,10 @@ export default function AdminEvents() {
   function openEditEvent(event: Event) {
     setEditModalError('')
     setEditingEventScheduleSnapshot(eventScheduleKey(event.startDate, event.startTime))
-    setEditingEvent(event)
+    setEditingEvent({
+      ...event,
+      assignedUserId: event.assignedUserId || event.assignedUser?.id || '',
+    })
   }
 
   function closeEditModal() {
@@ -1223,6 +1255,26 @@ export default function AdminEvents() {
   function toggleAllEventsSelection() {
     setSelectedEventIds((prev) => (prev.length === events.length ? [] : events.map((event) => event.id)))
   }
+
+  const occurrenceReadOnlyReason =
+    occurrencePanel && isOccurrenceInPast(occurrencePanel)
+      ? 'Esta ocurrencia ya pasó; las acciones de calendario están deshabilitadas.'
+      : undefined
+  const occurrenceHasAssignee = Boolean(
+    occurrencePanel?.event.assignedUserId || occurrencePanel?.event.assignedUser?.id,
+  )
+  const canManageOccurrence = Boolean(
+    occurrencePanel &&
+      !occurrenceReadOnlyReason &&
+      !occurrencePanel.suspended &&
+      occurrencePanel.event.status !== 'CANCELLED',
+  )
+  const canForeseeOccurrence = Boolean(canManageOccurrence && occurrenceHasAssignee)
+  const canSubstituteOccurrence = Boolean(
+    canManageOccurrence &&
+      occurrenceHasAssignee &&
+      occurrencePanel?.event.type === 'CLASE',
+  )
 
   return (
     <RoleGuard permission="events.read" permissionScope="all">
@@ -1817,12 +1869,12 @@ export default function AdminEvents() {
           <OccurrenceActionModal
             occ={occurrencePanel}
             busy={occurrenceBusy}
-            canForesee={Boolean(
-              (occurrencePanel.event.assignedUserId || occurrencePanel.event.assignedUser?.id) &&
-                occurrencePanel.event.status !== 'CANCELLED',
-            )}
+            canForesee={canForeseeOccurrence}
+            canSubstitute={canSubstituteOccurrence}
+            readOnlyReason={occurrenceReadOnlyReason}
             onClose={() => setOccurrencePanel(null)}
             onForeseeAbsence={() => void foreseeAbsence()}
+            onSubstitute={() => openSubstitutionForOccurrence(occurrencePanel.event as unknown as Event, occurrencePanel.ymd)}
             onSuspend={(reason) => void suspendOccurrence(reason)}
             onRestore={() => void restoreOccurrence()}
             onSaveTimes={(startTime, endTime) => void saveOccurrenceTimes(startTime, endTime)}

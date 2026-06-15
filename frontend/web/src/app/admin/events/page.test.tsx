@@ -34,8 +34,21 @@ const baseEvent = {
   _count: { attendances: 1 },
 }
 
+function ymdOffset(offset: number): string {
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Montevideo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+  const d = new Date(`${today}T00:00:00.000Z`)
+  d.setUTCDate(d.getUTCDate() + offset)
+  return d.toISOString().slice(0, 10)
+}
+
 describe('AdminEvents', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     mockedApi.mockReset()
     vi.spyOn(window, 'confirm').mockImplementation(() => true)
   })
@@ -264,6 +277,8 @@ describe('AdminEvents', () => {
 
     fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Editar' }))
     const modal = await screen.findByRole('heading', { name: 'Editar actividad' }).then((h) => h.closest('div')!.parentElement!)
+    const assignedOption = await within(modal).findByRole('option', { name: /profe1/i })
+    expect((assignedOption as HTMLOptionElement).selected).toBe(true)
     const titleInput = within(modal).getByDisplayValue('Clase matutina')
     fireEvent.change(titleInput, { target: { value: 'Clase vespertina' } })
     fireEvent.click(within(modal).getByRole('button', { name: 'Guardar Cambios' }))
@@ -275,7 +290,80 @@ describe('AdminEvents', () => {
       expect(put).toBeDefined()
       const body = JSON.parse((put![1] as RequestInit).body as string)
       expect(body.title).toBe('Clase vespertina')
+      expect(body.assignedUserId).toBe('t1')
     })
+  })
+
+  it('permite marcar suplencia desde el calendario sin prever ausencia primero', async () => {
+    const ymd = ymdOffset(1)
+    const event = {
+      ...baseEvent,
+      id: 'future-class',
+      assignedUserId: 't1',
+      startDate: `${ymd}T00:00:00.000Z`,
+      endDate: `${ymd}T00:00:00.000Z`,
+      startTime: `${ymd}T15:00:00.000Z`,
+      endTime: `${ymd}T16:00:00.000Z`,
+    }
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('events/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [event] }
+      }
+      if (String(url).includes('admin/users')) {
+        return {
+          data: [
+            { id: 't1', name: 'Teach', username: 'profe1', email: 't@b.com', role: 'TEACHER' },
+            { id: 't2', name: 'Suplente', username: 'suplente', email: 's@b.com', role: 'TEACHER' },
+          ],
+        }
+      }
+      if (String(url).startsWith('/non-working-days')) return []
+      if (String(url).startsWith('/substitutions')) return { data: [] }
+      return {}
+    })
+
+    render(<AdminEvents />)
+    await screen.findAllByText('Clase matutina')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Calendario' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Clase matutina/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Marcar suplencia' }))
+
+    expect(await screen.findByRole('heading', { name: 'Suplencia de clase' })).toBeInTheDocument()
+  })
+
+  it('bloquea acciones del calendario para ocurrencias pasadas', async () => {
+    const ymd = ymdOffset(-1)
+    const event = {
+      ...baseEvent,
+      id: 'past-class',
+      assignedUserId: 't1',
+      startDate: `${ymd}T00:00:00.000Z`,
+      endDate: `${ymd}T00:00:00.000Z`,
+      startTime: `${ymd}T15:00:00.000Z`,
+      endTime: `${ymd}T16:00:00.000Z`,
+    }
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('events/all')) {
+        return { total: 1, page: 1, pageSize: 20, data: [event] }
+      }
+      if (String(url).includes('admin/users')) {
+        return { data: [{ id: 't1', name: 'Teach', username: 'profe1', email: 't@b.com', role: 'TEACHER' }] }
+      }
+      if (String(url).startsWith('/non-working-days')) return []
+      return {}
+    })
+
+    render(<AdminEvents />)
+    await screen.findAllByText('Clase matutina')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Calendario' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Clase matutina/ }))
+
+    expect(await screen.findByText(/ya pasó/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Prever ausencia/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Marcar suplencia' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Suspender solo este día/ })).not.toBeInTheDocument()
   })
 
   it('crea evento desde el modal', async () => {

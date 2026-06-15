@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LicensesPage from './page'
 import { api } from '@/lib/api/client'
@@ -38,7 +38,7 @@ describe('LicensesPage', () => {
     render(<LicensesPage />)
 
     expect(await screen.findByText('Gestión de licencias')).toBeInTheDocument()
-    expect(await screen.findByText('Licencia médica presentada')).toBeInTheDocument()
+    expect((await screen.findAllByText('Licencia médica presentada')).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Rechazar' })).not.toBeInTheDocument()
   })
@@ -52,7 +52,7 @@ describe('LicensesPage', () => {
 
     render(<LicensesPage />)
 
-    expect(await screen.findByText('No hay licencias registradas')).toBeInTheDocument()
+    expect((await screen.findAllByText('No hay licencias registradas')).length).toBeGreaterThan(0)
   })
 
   it('muestra días no laborables como fecha civil sin corrimiento horario', async () => {
@@ -78,7 +78,7 @@ describe('LicensesPage', () => {
     render(<LicensesPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Días no laborables' }))
 
-    expect(await screen.findByText('12/06/2026')).toBeInTheDocument()
+    expect((await screen.findAllByText('12/06/2026')).length).toBeGreaterThan(0)
   })
 
   it('elimina licencias seleccionadas', async () => {
@@ -92,10 +92,10 @@ describe('LicensesPage', () => {
     })
 
     render(<LicensesPage />)
-    await screen.findByText('Licencia médica presentada')
+    await screen.findAllByText('Licencia médica presentada')
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' }))
 
     // El botón está disabled mientras no haya selección aplicada; esperar a que
     // el estado se refleje evita un click no-op en CI (timing) que no dispara el DELETE.
@@ -120,13 +120,14 @@ describe('LicensesPage', () => {
     })
 
     render(<LicensesPage />)
-    await screen.findByRole('checkbox', { name: 'Seleccionar licencia de Ana G' })
+    await screen.findAllByRole('checkbox', { name: 'Seleccionar licencia de Ana G' })
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todas las licencias' }))
+    const table = screen.getByRole('table')
+    fireEvent.click(within(table).getByRole('checkbox', { name: 'Seleccionar todas las licencias' }))
 
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).not.toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).toBeDisabled()
+    expect(within(table).getByRole('checkbox', { name: 'Seleccionar licencia de Ana G' })).toBeChecked()
+    expect(within(table).getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).not.toBeChecked()
+    expect(within(table).getByRole('checkbox', { name: 'Seleccionar licencia de Luis P' })).toBeDisabled()
   })
 
   it('edita y guarda licencia', async () => {
@@ -140,9 +141,9 @@ describe('LicensesPage', () => {
     })
 
     render(<LicensesPage />)
-    await screen.findByText('Licencia médica presentada')
+    await screen.findAllByText('Licencia médica presentada')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Editar' }))
     await screen.findByRole('heading', { name: 'Editar Licencia' })
 
     expect(screen.getByText(/solo la constancia administrativa/i)).toBeInTheDocument()
@@ -187,6 +188,43 @@ describe('LicensesPage', () => {
       const body = JSON.parse((post![1] as RequestInit).body as string)
       expect(body.reason).toBeUndefined()
       expect(body.notes).toBeUndefined()
+    })
+  })
+
+  it('renderiza las tarjetas mobile además de la tabla', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
+      if (String(url).includes('admin/users')) {
+        return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
+      }
+      return { data: [] }
+    })
+
+    render(<LicensesPage />)
+
+    // El motivo aparece tanto en la fila de tabla como en la tarjeta mobile.
+    const matches = await screen.findAllByText('Licencia médica presentada')
+    expect(matches.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('"Limpiar" recarga las licencias con los filtros reseteados', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
+      if (String(url).includes('admin/users')) {
+        return { data: [{ id: 'u1', email: 'a@b.com', firstName: 'Ana', lastName: 'G' }] }
+      }
+      return { data: [] }
+    })
+
+    render(<LicensesPage />)
+    await screen.findAllByText('Licencia médica presentada')
+
+    const callsBefore = mockedApi.mock.calls.filter((c) => String(c[0]).includes('medical-leaves/all')).length
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }))
+
+    await waitFor(() => {
+      const callsAfter = mockedApi.mock.calls.filter((c) => String(c[0]).includes('medical-leaves/all')).length
+      expect(callsAfter).toBeGreaterThan(callsBefore)
     })
   })
 })

@@ -117,14 +117,14 @@ export default function LicensesPage() {
     setSelectedLicenseIds([])
   }, [licenses])
 
-  async function loadLicenses() {
+  async function loadLicenses(override?: typeof filters) {
     setLoading(true)
     try {
-      const qs = buildMedicalLeavesQueryString(filters)
+      const qs = buildMedicalLeavesQueryString(override ?? filters)
       const data = await api<{
         data: License[]
       }>(`/medical-leaves/all?${qs}`)
-      
+
       setLicenses(data.data)
     } catch (error) {
       console.error('Error cargando licencias:', error)
@@ -301,6 +301,7 @@ export default function LicensesPage() {
     setSelectedLicenseIds((prev) => (prev.length === selectableIds.length ? [] : selectableIds))
   }
 
+  const activeLicenseFilterCount = Object.values(filters).filter(Boolean).length
   const licensesActiveCount = licenses.filter((l) => l.status === 'ACTIVE').length
   const licensesInactiveCount = licenses.filter((l) => l.status === 'INACTIVE').length
   const licensesMedicalCount = licenses.filter((l) => l.type === 'MEDICAL_LEAVE').length
@@ -372,6 +373,80 @@ export default function LicensesPage() {
         </td>
       </tr>
     ))
+  }
+
+  function renderLicenseCard(license: License) {
+    return (
+      <div key={license.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1 shrink-0"
+              checked={selectedLicenseIds.includes(license.id)}
+              onChange={() => toggleLicenseSelection(license.id)}
+              disabled={license.status === 'INACTIVE'}
+              aria-label={`Seleccionar licencia de ${license.user.name}`}
+            />
+            <div className="min-w-0">
+              <div className="truncate font-medium text-gray-900">{license.user.name}</div>
+              <div className="text-xs text-gray-500">{getLicenseTypeLabel(license.type)}</div>
+            </div>
+          </div>
+          <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${getLicenseStatusBadgeClass(license.status)}`}>
+            {getLicenseStatusLabel(license.status)}
+          </span>
+        </div>
+        <dl className="mt-3 space-y-1 text-sm">
+          <div className="flex gap-2">
+            <dt className="shrink-0 text-gray-500">Período:</dt>
+            <dd className="text-gray-900">
+              {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
+            </dd>
+          </div>
+          {license.reason ? (
+            <div className="flex gap-2">
+              <dt className="shrink-0 text-gray-500">Motivo:</dt>
+              <dd className="break-words text-gray-900">{license.reason}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <div className="mt-3 flex justify-end border-t border-gray-100 pt-3">
+          <button
+            type="button"
+            onClick={() => {
+              setEditModalError('')
+              setEditing(license)
+            }}
+            className="btn-secondary text-sm"
+          >
+            Editar
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  function renderNonWorkingDayCard(day: NonWorkingDay) {
+    return (
+      <div key={day.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-medium text-gray-900">{formatDateOnlyForDisplay(day.date)}</div>
+            <div className="text-xs text-gray-500">{day.type === 'HOLIDAY' ? 'Feriado' : 'No laborable'}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void deleteNonWorkingDay(day.id)}
+            className="shrink-0 text-sm font-medium text-red-700 hover:text-red-900"
+          >
+            Eliminar
+          </button>
+        </div>
+        <div className="mt-2 text-sm text-gray-900">{day.reason}</div>
+        {day.notes ? <div className="mt-1 text-sm text-gray-600">{day.notes}</div> : null}
+      </div>
+    )
   }
 
   return (
@@ -523,7 +598,7 @@ export default function LicensesPage() {
                     </button>
                   </div>
               </div>
-              <div className="overflow-x-auto">
+              <div className="hidden overflow-x-auto sm:block">
                 <table className="w-full min-w-[720px] table-fixed divide-y divide-gray-200">
                   <colgroup>
                     <col className="w-[14%]" />
@@ -564,6 +639,16 @@ export default function LicensesPage() {
                   </tbody>
                 </table>
               </div>
+
+              <div className="space-y-3 p-4 sm:hidden">
+                {loadingNonWorkingDays ? (
+                  <div className="py-5 text-center text-sm text-gray-500">Cargando…</div>
+                ) : nonWorkingDays.length === 0 ? (
+                  <div className="py-5 text-center text-sm text-gray-500">No hay días marcados</div>
+                ) : (
+                  nonWorkingDays.map(renderNonWorkingDayCard)
+                )}
+              </div>
             </div>
           </section>
         )}
@@ -580,22 +665,28 @@ export default function LicensesPage() {
                 </div>
                 <h2 className="text-lg font-semibold text-gray-900">Filtros de Búsqueda</h2>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilters({
-                    userId: '',
-                    type: '',
-                    status: '',
-                    startDate: '',
-                    endDate: ''
-                  })
-                }}
-                className="btn-secondary inline-flex items-center gap-1.5 text-sm"
-              >
-                <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
-                Limpiar
-              </button>
+              <div className="flex items-center gap-2">
+                {activeLicenseFilterCount > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-700">
+                      {activeLicenseFilterCount}
+                    </span>
+                    {activeLicenseFilterCount === 1 ? 'filtro activo' : 'filtros activos'}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cleared = { userId: '', type: '', status: '', startDate: '', endDate: '' }
+                    setFilters(cleared)
+                    void loadLicenses(cleared)
+                  }}
+                  className="btn-secondary inline-flex items-center gap-1.5 text-sm"
+                >
+                  <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
+                  Limpiar
+                </button>
+              </div>
             </div>
           </div>
 
@@ -722,7 +813,7 @@ export default function LicensesPage() {
               </button>
             </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[980px] table-fixed divide-y divide-gray-200">
               <colgroup>
                 <col className="w-[4%]" />
@@ -758,6 +849,19 @@ export default function LicensesPage() {
                 {renderLicensesRows()}
               </tbody>
             </table>
+          </div>
+
+          <div className="space-y-3 p-4 sm:hidden">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-5 text-sm text-gray-500">
+                <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
+                Cargando…
+              </div>
+            ) : licenses.length === 0 ? (
+              <div className="py-5 text-center text-sm text-gray-500">No hay licencias registradas</div>
+            ) : (
+              licenses.map(renderLicenseCard)
+            )}
           </div>
         </div>
           </section>

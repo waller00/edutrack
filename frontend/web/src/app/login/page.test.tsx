@@ -20,6 +20,7 @@ describe('LoginPage (Keycloak)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api).mockRejectedValue(new Error('401'))
+    window.sessionStorage.clear()
     locationMock.href = ''
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -31,6 +32,16 @@ describe('LoginPage (Keycloak)', () => {
     render(<LoginPage />)
     await waitFor(() => expect(locationMock.href).toContain('/auth/login'))
     expect(locationMock.href).toContain('returnTo=%2F')
+  })
+
+  it('no vuelve a iniciar login automaticamente si ya hubo un intento en la pestaña', async () => {
+    window.sessionStorage.setItem('edutrack.login.autostarted', '1')
+
+    render(<LoginPage />)
+
+    expect(await screen.findByRole('button', { name: /Ingresar/i })).toBeInTheDocument()
+    expect(screen.getByText(/demasiadas solicitudes/i)).toBeInTheDocument()
+    expect(locationMock.href).toBe('')
   })
 
   it('respeta returnTo seguro para usuarios autenticados', async () => {
