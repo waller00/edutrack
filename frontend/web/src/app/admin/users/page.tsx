@@ -9,6 +9,7 @@ import {
   buildAdminUserEditChanges,
   buildAdminUsersQueryParams,
   cloneAdminUser,
+  countActiveUserFilters,
   displayUserName,
   getActiveBadgeClass,
   getActiveLabel,
@@ -26,7 +27,35 @@ import {
 } from '@/lib/admin/users-display'
 import { getRoleLabel } from '@/lib/roles/display'
 import { REGISTER_USERNAME_PATTERN, REGISTER_USERNAME_REGEX } from '@/lib/auth/register-form-validation'
-import { ChevronLeft, ChevronRight, Fingerprint, KeyRound, Loader2, Pencil, Search, Users } from 'lucide-react'
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Fingerprint,
+  KeyRound,
+  Loader2,
+  Lock,
+  Pencil,
+  Search,
+  TriangleAlert,
+  Unlock,
+  Users,
+  X,
+} from 'lucide-react'
+
+type Notice = { text: string; tone: 'success' | 'error' }
+
+const ICON_ACTION_BTN =
+  'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2'
+
+/** Filtros rápidos: cada chip aplica un parche sobre los filtros y recarga. */
+const QUICK_FILTERS: { key: string; label: string; patch: Partial<AdminUsersListFilters> }[] = [
+  { key: 'approved', label: 'Pendientes de aprobación', patch: { approved: 'false' } },
+  { key: 'verified', label: 'Sin verificar', patch: { verified: 'false' } },
+  { key: 'locked', label: 'Bloqueados', patch: { locked: 'true' } },
+  { key: 'active', label: 'De baja', patch: { active: 'false' } },
+  { key: 'docExpiring', label: 'Documento por vencer', patch: { docExpiring: 'true' } },
+]
 
 type OrgRoleRow = { code: string; label: string; active: boolean }
 
@@ -45,6 +74,7 @@ const defaultFilters = (): AdminUsersListFilters => ({
   active: '',
   verified: '',
   locked: '',
+  docExpiring: '',
   page: 1,
 })
 
@@ -64,6 +94,7 @@ export default function AdminUsersPage() {
   const [biometricUser, setBiometricUser] = useState<AdminUserRow | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [notice, setNotice] = useState<Notice | null>(null)
   const [creating, setCreating] = useState(false)
   const [createForm, setCreateForm] = useState({ email: '', username: '', role: 'TEACHER' })
   const [createSaving, setCreateSaving] = useState(false)
@@ -119,6 +150,21 @@ export default function AdminUsersPage() {
     void load(cleared)
   }
 
+  function isQuickFilterActive(qf: (typeof QUICK_FILTERS)[number]): boolean {
+    return (Object.keys(qf.patch) as (keyof AdminUsersListFilters)[]).every((k) => filters[k] === (qf.patch as AdminUsersListFilters)[k])
+  }
+
+  function applyQuickFilter(qf: (typeof QUICK_FILTERS)[number]) {
+    const patch = isQuickFilterActive(qf)
+      ? (Object.fromEntries(Object.keys(qf.patch).map((k) => [k, ''])) as Partial<AdminUsersListFilters>)
+      : qf.patch
+    const next: AdminUsersListFilters = { ...filters, ...patch, page: 1 }
+    setDraftFilters(next)
+    void load(next)
+  }
+
+  const activeFilterCount = countActiveUserFilters(filters)
+
   const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize))
   const rangeStart = data.total === 0 ? 0 : (data.page - 1) * data.pageSize + 1
   const rangeEnd = Math.min(data.page * data.pageSize, data.total)
@@ -162,6 +208,7 @@ export default function AdminUsersPage() {
         }),
       })
       await load(filters)
+      setNotice({ tone: 'success', text: `Se guardaron los cambios de ${displayUserName(edit)}.` })
       closeEdit()
     } catch (e: unknown) {
       setMsg(getAdminUserSaveErrorMessage(e))
@@ -188,7 +235,7 @@ export default function AdminUsersPage() {
           username: username || undefined,
         }),
       })
-      setMsg('Usuario creado. Debe completar el registro o definir su contraseña por correo.')
+      setNotice({ tone: 'success', text: 'Usuario creado. Debe completar el registro o definir su contraseña por correo.' })
       setCreating(false)
       setCreateForm({ email: '', username: '', role: 'TEACHER' })
       await load(filters)
@@ -206,9 +253,9 @@ export default function AdminUsersPage() {
         method: 'POST',
         body: JSON.stringify({}),
       })
-      setMsg(res.message || 'Se envió el correo de restablecimiento.')
+      setNotice({ tone: 'success', text: res.message || `Se envió el correo de restablecimiento a ${u.email}.` })
     } catch (err: unknown) {
-      setMsg(getAdminUserSaveErrorMessage(err))
+      setNotice({ tone: 'error', text: getAdminUserSaveErrorMessage(err) })
     }
   }
 
@@ -217,9 +264,10 @@ export default function AdminUsersPage() {
     if (!confirm(lock ? '¿Bloquear este usuario 15 minutos?' : '¿Desbloquear usuario?')) return
     try {
       await api(`/admin/users/${u.id}/lock?lock=${lock}`, { method: 'PUT' })
+      setNotice({ tone: 'success', text: lock ? `Se bloqueó a ${displayUserName(u)} por 15 minutos.` : `Se desbloqueó a ${displayUserName(u)}.` })
       await load(filters)
     } catch (e: unknown) {
-      alert(getAdminUserSaveErrorMessage(e))
+      setNotice({ tone: 'error', text: getAdminUserSaveErrorMessage(e) })
     }
   }
 
@@ -228,9 +276,10 @@ export default function AdminUsersPage() {
     if (!confirm(next ? '¿Aprobar usuario?' : '¿Marcar como pendiente de aprobación?')) return
     try {
       await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isApproved: next }) })
+      setNotice({ tone: 'success', text: next ? `${displayUserName(u)} fue aprobado.` : `${displayUserName(u)} quedó pendiente de aprobación.` })
       await load(filters)
     } catch (e: unknown) {
-      alert(getAdminUserSaveErrorMessage(e))
+      setNotice({ tone: 'error', text: getAdminUserSaveErrorMessage(e) })
     }
   }
 
@@ -239,21 +288,84 @@ export default function AdminUsersPage() {
     if (!confirm(next ? '¿Dar de alta al usuario?' : '¿Dar de baja al usuario?')) return
     try {
       await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isActive: next }) })
+      setNotice({ tone: 'success', text: next ? `${displayUserName(u)} fue dado de alta.` : `${displayUserName(u)} fue dado de baja.` })
       await load(filters)
     } catch (e: unknown) {
-      alert(getAdminUserSaveErrorMessage(e))
+      setNotice({ tone: 'error', text: getAdminUserSaveErrorMessage(e) })
     }
+  }
+
+  function renderRowActions(u: AdminUserRow) {
+    const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
+    const biometricButtonClass = u.biometricLinked
+      ? `${ICON_ACTION_BTN} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-400`
+      : `${ICON_ACTION_BTN} border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100 focus:ring-amber-300`
+    const locked = isAccountLocked(u.lockUntil)
+
+    return (
+      <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 xl:flex-nowrap xl:justify-end">
+        <button
+          type="button"
+          onClick={() => toggleApproval(u)}
+          className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+          title={u.isApproved ? 'Volver a pendiente' : 'Aprobar'}
+        >
+          {u.isApproved ? 'Pendiente' : 'Aprobar'}
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleActive(u)}
+          className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+          title={u.isActive ? 'Dar de baja' : 'Dar de alta'}
+        >
+          {u.isActive ? 'Dar baja' : 'Dar alta'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setBiometricUser(u)}
+          className={biometricButtonClass}
+          aria-label={biometricLabel}
+          title={biometricLabel}
+        >
+          <Fingerprint className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={() => void resetPassword(u)}
+          className={`${ICON_ACTION_BTN} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
+          aria-label="Restablecer contraseña"
+          title="Generar enlace de restablecimiento de contraseña"
+        >
+          <KeyRound className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={() => openEdit(u)}
+          className={`${ICON_ACTION_BTN} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
+          aria-label="Editar usuario"
+          title="Editar datos del usuario"
+        >
+          <Pencil className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleLock(u)}
+          className={`${ICON_ACTION_BTN} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
+          aria-label={locked ? 'Desbloquear' : 'Bloquear 15 min'}
+          title={locked ? 'Desbloquear' : 'Bloquear 15 min'}
+        >
+          {locked ? (
+            <Unlock className="h-[18px] w-[18px] shrink-0" strokeWidth={2.25} aria-hidden />
+          ) : (
+            <Lock className="h-[18px] w-[18px] shrink-0" strokeWidth={2.25} aria-hidden />
+          )}
+        </button>
+      </div>
+    )
   }
 
   function renderUserRow(u: AdminUserRow) {
     if (u.role === 'ADMIN') return null
-    const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
-    const iconActionBtn =
-      'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2'
-    const biometricButtonClass = u.biometricLinked
-      ? `${iconActionBtn} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-400`
-      : `${iconActionBtn} border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100 focus:ring-amber-300`
-
     return (
       <tr key={u.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
         <td className="px-3 py-3 align-middle font-mono text-xs text-slate-700">{u.username || '—'}</td>
@@ -282,72 +394,37 @@ export default function AdminUsersPage() {
             {isAccountLocked(u.lockUntil) ? 'Bloqueado' : 'Libre'}
           </span>
         </td>
-        <td className="px-3 py-2.5 align-middle">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 xl:flex-nowrap xl:justify-end">
-            <button
-              type="button"
-              onClick={() => toggleApproval(u)}
-              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              title={u.isApproved ? 'Volver a pendiente' : 'Aprobar'}
-            >
-              {u.isApproved ? 'Pendiente' : 'Aprobar'}
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleActive(u)}
-              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              title={u.isActive ? 'Dar de baja' : 'Dar de alta'}
-            >
-              {u.isActive ? 'Dar baja' : 'Dar alta'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setBiometricUser(u)}
-              className={biometricButtonClass}
-              aria-label={biometricLabel}
-              title={biometricLabel}
-            >
-              <Fingerprint className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => void resetPassword(u)}
-              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
-              aria-label="Restablecer contraseña"
-              title="Generar enlace de restablecimiento de contraseña"
-            >
-              <KeyRound className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => openEdit(u)}
-              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
-              aria-label="Editar usuario"
-              title="Editar datos del usuario"
-            >
-              <Pencil className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleLock(u)}
-              className={`${iconActionBtn} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
-              aria-label={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
-              title={isAccountLocked(u.lockUntil) ? 'Desbloquear' : 'Bloquear 15 min'}
-            >
-              {isAccountLocked(u.lockUntil) ? (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path d="M5 8a5 5 0 1 1 10 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h7V8a3 3 0 0 0-6 0H5Z" />
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path d="M10 2a5 5 0 0 1 5 5v1h-2V7a3 3 0 1 0-6 0v1H5V7a5 5 0 0 1 5-5Z" />
-                  <path d="M4 9h12a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </td>
+        <td className="px-3 py-2.5 align-middle">{renderRowActions(u)}</td>
       </tr>
+    )
+  }
+
+  function renderUserCard(u: AdminUserRow) {
+    if (u.role === 'ADMIN') return null
+    return (
+      <div key={u.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate font-medium text-slate-900">{displayUserName(u)}</div>
+            <div className="truncate text-xs text-slate-500" title={u.email}>
+              {u.email}
+            </div>
+            <div className="mt-0.5 font-mono text-[11px] text-slate-400">{u.username || '—'}</div>
+          </div>
+          <span className="inline-flex shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-700">
+            {getRoleLabel(u.role)}
+          </span>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <span className={getVerificationBadgeClass(u.emailVerifiedAt)}>{getVerificationLabel(u.emailVerifiedAt)}</span>
+          <span className={getApprovalBadgeClass(u.isApproved)}>{getApprovalLabel(u.isApproved)}</span>
+          <span className={getActiveBadgeClass(u.isActive)}>{getActiveLabel(u.isActive)}</span>
+          <span className={getLockBadgeClass(u.lockUntil)} title={getLockLabel(u.lockUntil)}>
+            {isAccountLocked(u.lockUntil) ? 'Bloqueado' : 'Libre'}
+          </span>
+        </div>
+        <div className="mt-3 border-t border-slate-100 pt-3">{renderRowActions(u)}</div>
+      </div>
     )
   }
 
@@ -373,6 +450,32 @@ export default function AdminUsersPage() {
             Nuevo usuario
           </button>
         </div>
+
+        {notice ? (
+          <div
+            role="status"
+            className={`mb-6 flex items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-sm ${
+              notice.tone === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-red-200 bg-red-50 text-red-800'
+            }`}
+          >
+            {notice.tone === 'success' ? (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            ) : (
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            )}
+            <span className="flex-1">{notice.text}</span>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="shrink-0 rounded p-0.5 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-current"
+              aria-label="Cerrar aviso"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        ) : null}
 
         {creating ? (
           <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm sm:p-5">
@@ -425,6 +528,28 @@ export default function AdminUsersPage() {
             </form>
           </section>
         ) : null}
+
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atajos:</span>
+          {QUICK_FILTERS.map((qf) => {
+            const active = isQuickFilterActive(qf)
+            return (
+              <button
+                key={qf.key}
+                type="button"
+                onClick={() => applyQuickFilter(qf)}
+                aria-pressed={active}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  active
+                    ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50'
+                }`}
+              >
+                {qf.label}
+              </button>
+            )
+          })}
+        </div>
 
         <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Filtros</h2>
@@ -527,8 +652,22 @@ export default function AdminUsersPage() {
                 <option value="false">Sin bloqueo activo</option>
               </select>
             </div>
+            <div>
+              <label htmlFor="filter-doc-expiring" className="mb-1 block text-xs font-medium text-slate-600">
+                Documento de identidad
+              </label>
+              <select
+                id="filter-doc-expiring"
+                value={draftFilters.docExpiring}
+                onChange={(e) => setDraftFilters({ ...draftFilters, docExpiring: e.target.value as TriState })}
+                className={`w-full ${selectCls}`}
+              >
+                <option value="">Cualquiera</option>
+                <option value="true">Por vencer (90 días)</option>
+              </select>
+            </div>
           </div>
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={applyFilters}
@@ -543,6 +682,14 @@ export default function AdminUsersPage() {
             >
               Limpiar
             </button>
+            {activeFilterCount > 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 sm:ml-1">
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-700">
+                  {activeFilterCount}
+                </span>
+                {activeFilterCount === 1 ? 'filtro activo' : 'filtros activos'}
+              </span>
+            ) : null}
           </div>
         </section>
 
@@ -588,7 +735,7 @@ export default function AdminUsersPage() {
           )}
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="hidden overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm sm:block">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1100px] table-fixed text-sm">
               <colgroup>
@@ -627,6 +774,17 @@ export default function AdminUsersPage() {
               </tbody>
             </table>
           </div>
+        </div>
+
+        <div className="space-y-3 sm:hidden">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white py-10 text-sm text-slate-500 shadow-sm">
+              <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
+              Cargando usuarios…
+            </div>
+          ) : (
+            (data.data ?? []).map(renderUserCard).filter(Boolean)
+          )}
         </div>
 
         {edit && (
