@@ -30,11 +30,13 @@ type Props = {
   teachers: TeacherOpt[]
   onClose: () => void
   onSaved: () => void
+  /** Fecha de la ocurrencia pre-seleccionada (p. ej. al abrir desde el calendario). */
+  initialDate?: string
 }
 
-export default function SubstitutionModal({ event, teachers, onClose, onSaved }: Props) {
+export default function SubstitutionModal({ event, teachers, onClose, onSaved, initialDate }: Props) {
   const [portalReady, setPortalReady] = useState(false)
-  const [occurrenceDate, setOccurrenceDate] = useState(getTodayYmdInUruguay())
+  const [occurrenceDate, setOccurrenceDate] = useState(initialDate || getTodayYmdInUruguay())
   const [substituteUserId, setSubstituteUserId] = useState('')
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')

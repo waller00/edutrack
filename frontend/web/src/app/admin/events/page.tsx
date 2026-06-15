@@ -456,7 +456,9 @@ function eventScheduleKey(startDate: string, startTime?: string | null): string 
 function OccurrenceActionModal({
   occ,
   busy,
+  canForesee,
   onClose,
+  onForeseeAbsence,
   onSuspend,
   onRestore,
   onSaveTimes,
@@ -464,7 +466,9 @@ function OccurrenceActionModal({
 }: {
   occ: EventOccurrence<CalendarEvent>
   busy: boolean
+  canForesee: boolean
   onClose: () => void
+  onForeseeAbsence: () => void
   onSuspend: (reason: string) => void
   onRestore: () => void
   onSaveTimes: (startTime: string, endTime: string) => void
@@ -524,6 +528,16 @@ function OccurrenceActionModal({
           </div>
         ) : (
           <div className="space-y-2">
+            {canForesee && !occ.suspended && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onForeseeAbsence}
+                className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+              >
+                Prever ausencia (no justificada)
+              </button>
+            )}
             {!occ.suspended && (
               <button
                 type="button"
@@ -631,6 +645,9 @@ export default function AdminEvents() {
   const [selectedRole, setSelectedRole] = useState<RoleOption>('')
   const [portalReady, setPortalReady] = useState(false)
   const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
+  const [substitutionInitialDate, setSubstitutionInitialDate] = useState<string | undefined>(undefined)
+  /** Tras "Prever ausencia": ofrece (opcional) marcar la suplencia de esa ocurrencia. */
+  const [substitutionPrompt, setSubstitutionPrompt] = useState<{ event: Event; ymd: string } | null>(null)
   const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'calendar'>('list')
@@ -887,6 +904,45 @@ export default function AdminEvents() {
     } finally {
       setOccurrenceBusy(false)
     }
+  }
+
+  /** Marca al titular como ausencia prevista (no justificada) en esa ocurrencia y ofrece suplencia. */
+  async function foreseeAbsence() {
+    if (!occurrencePanel) return
+    const ev = occurrencePanel.event
+    const titularId = ev.assignedUserId || ev.assignedUser?.id
+    if (!titularId) {
+      setMessage('❌ El evento no tiene una persona asignada.')
+      return
+    }
+    setOccurrenceBusy(true)
+    try {
+      await api('/attendance/materialize-absence', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: titularId,
+          eventId: ev.id,
+          date: occurrencePanel.ymd,
+          status: 'ABSENT_NOT_JUSTIFIED',
+          notes: 'Ausencia prevista sin justificar - Registrada desde el calendario',
+        }),
+      })
+      const ymd = occurrencePanel.ymd
+      setOccurrencePanel(null)
+      setMessage('✅ Ausencia prevista marcada (no justificada)')
+      // Solo ofrecemos suplencia para clases (es lo que admite el backend).
+      if (ev.type === 'CLASE') setSubstitutionPrompt({ event: ev as unknown as Event, ymd })
+    } catch (e) {
+      setMessage(getApiErrorDetail(e))
+    } finally {
+      setOccurrenceBusy(false)
+    }
+  }
+
+  function openSubstitutionForOccurrence(event: Event, ymd: string) {
+    setSubstitutionPrompt(null)
+    setSubstitutionInitialDate(ymd)
+    setSubstitutionEvent(event)
   }
 
   function resetCreateForm() {
@@ -1586,11 +1642,6 @@ export default function AdminEvents() {
                     <button onClick={() => openEditEvent(event)} className="font-medium text-indigo-600">
                       Editar
                     </button>
-                    {event.type === 'CLASE' && event.assignedUser && event.status !== 'CANCELLED' ? (
-                      <button onClick={() => setSubstitutionEvent(event)} className="font-medium text-indigo-600">
-                        Suplencia
-                      </button>
-                    ) : null}
                     {event.status !== 'CANCELLED' ? (
                       <button onClick={() => cancelEvent(event.id)} className="font-medium text-yellow-600">
                         Cancelar
@@ -1733,15 +1784,6 @@ export default function AdminEvents() {
                           >
                             Editar
                           </button>
-                          {event.type === 'CLASE' && event.assignedUser && event.status !== 'CANCELLED' ? (
-                            <button
-                              type="button"
-                              onClick={() => setSubstitutionEvent(event)}
-                              className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
-                            >
-                              Registrar suplencia
-                            </button>
-                          ) : null}
                           {event.status !== 'CANCELLED' ? (
                             <button
                               onClick={() => cancelEvent(event.id)}
@@ -1775,7 +1817,12 @@ export default function AdminEvents() {
           <OccurrenceActionModal
             occ={occurrencePanel}
             busy={occurrenceBusy}
+            canForesee={Boolean(
+              (occurrencePanel.event.assignedUserId || occurrencePanel.event.assignedUser?.id) &&
+                occurrencePanel.event.status !== 'CANCELLED',
+            )}
             onClose={() => setOccurrencePanel(null)}
+            onForeseeAbsence={() => void foreseeAbsence()}
             onSuspend={(reason) => void suspendOccurrence(reason)}
             onRestore={() => void restoreOccurrence()}
             onSaveTimes={(startTime, endTime) => void saveOccurrenceTimes(startTime, endTime)}
@@ -1787,14 +1834,43 @@ export default function AdminEvents() {
           />
         ) : null}
 
+        {substitutionPrompt ? (
+          <div className="fixed inset-0 z-[2147483646] flex items-end justify-center bg-black/60 p-3 sm:items-center" role="dialog" aria-modal="true">
+            <div className="w-full max-w-md rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-xl">
+              <h3 className="text-lg font-semibold text-gray-900">Ausencia prevista marcada</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Se registró la ausencia prevista (no justificada) del titular para el{' '}
+                {`${substitutionPrompt.ymd.slice(8, 10)}/${substitutionPrompt.ymd.slice(5, 7)}`}. ¿Querés asignar una suplencia para ese día?
+              </p>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" onClick={() => setSubstitutionPrompt(null)} className="btn-secondary">
+                  No, así está
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openSubstitutionForOccurrence(substitutionPrompt.event, substitutionPrompt.ymd)}
+                  className="btn-primary"
+                >
+                  Marcar suplencia
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {substitutionEvent ? (
           <SubstitutionModal
             event={substitutionEvent}
             teachers={users.filter((u) => u.role === 'TEACHER' || u.role === 'STAFF')}
-            onClose={() => setSubstitutionEvent(null)}
+            initialDate={substitutionInitialDate}
+            onClose={() => {
+              setSubstitutionEvent(null)
+              setSubstitutionInitialDate(undefined)
+            }}
             onSaved={() => {
               void loadEvents()
               void loadSubstitutionFlags()
+              if (view === 'calendar') void loadCalendarEvents()
               setMessage('✅ Suplencia registrada')
             }}
           />
@@ -2395,23 +2471,12 @@ export default function AdminEvents() {
                 {editingEvent.type === 'CLASE' &&
                 editingEvent.assignedUserId &&
                 editingEvent.status !== 'CANCELLED' ? (
-                  <div className="md:col-span-2 rounded-xl border-2 border-indigo-200 bg-indigo-50/80 p-4">
-                    <h4 className="text-sm font-semibold text-indigo-900">Suplencia de clase</h4>
+                  <div className="md:col-span-2 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4">
+                    <h4 className="text-sm font-semibold text-indigo-900">Ausencias y suplencias</h4>
                     <p className="mt-1 text-sm text-indigo-800/90">
-                      Registrá qué docente cubre al titular en una fecha concreta (no es un tipo de evento).
+                      Se gestionan desde la vista <span className="font-semibold">Calendario</span>: tocá la clase del día, elegí
+                      «Prever ausencia» y, si corresponde, asigná la suplencia.
                     </p>
-                    {substitutionKeys.has(
-                      `${editingEvent.id}|${getEventDateInputValue(editingEvent.startDate)}`,
-                    ) ? (
-                      <p className="mt-2 text-xs font-medium text-indigo-700">Ya hay suplencia para el día del evento en el listado.</p>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setSubstitutionEvent(editingEvent)}
-                      className="mt-3 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-                    >
-                      Registrar suplencia
-                    </button>
                   </div>
                 ) : null}
               </div>
