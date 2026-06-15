@@ -68,6 +68,21 @@ export function getAdminAttendanceStatusLabel(status: AdminAttendanceStatus): st
   }
 }
 
+/** Estados mostrados en la leyenda de colores de la grilla, con su explicación. */
+export const ADMIN_ATTENDANCE_LEGEND: ReadonlyArray<{
+  status: AdminAttendanceStatus
+  description: string
+}> = [
+  { status: 'PRESENT', description: 'Marcó dentro de la tolerancia' },
+  { status: 'LATE', description: 'Llegó tarde (fuera de tolerancia)' },
+  { status: 'EXIT', description: 'Salida registrada en horario' },
+  { status: 'EARLY_EXIT', description: 'Se retiró antes de hora' },
+  { status: 'ABSENT_NOT_JUSTIFIED', description: 'Falta sin justificar' },
+  { status: 'ABSENT_JUSTIFIED', description: 'Falta justificada (licencia / justificación)' },
+  { status: 'SUBSTITUTED', description: 'Ausencia prevista cubierta por suplente' },
+  { status: 'JUSTIFIED', description: 'Tardanza o salida justificada' },
+]
+
 export type PlannedTimeSource = {
   type: AdminAttendanceType
   event?: { startTime?: string; endTime?: string }

@@ -15,7 +15,8 @@ import {
 export type CalendarEvent = OccurrenceEvent & {
   type?: string
   status?: string
-  assignedUser?: { name?: string; username?: string } | null
+  assignedUserId?: string | null
+  assignedUser?: { id?: string; name?: string; username?: string } | null
 }
 
 const WEEKDAY_HEADERS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']

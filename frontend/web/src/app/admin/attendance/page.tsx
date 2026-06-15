@@ -6,17 +6,21 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import {
+  ADMIN_ATTENDANCE_LEGEND,
   buildAdminAttendanceAllQueryString,
+  getAdminAttendanceDefaultStartDate,
   getAdminAttendancePlannedTimeLabel,
   getAdminAttendanceStatusLabel,
   getAdminAttendanceStatusStyle,
   getAdminAttendanceTypeLabel,
   getAdminAttendanceTypeStyle,
 } from '@/lib/admin/attendance-display'
-import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
+import { addDaysToYmd, weekdayNumberInUruguay } from '@/lib/admin/event-occurrences'
+import { formatDateInUruguay, formatTimeInUruguay, getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import AdminIncidentsPanel from '@/components/admin/AdminIncidentsPanel'
 import AttendanceJustifyModal from '@/components/admin/AttendanceJustifyModal'
+import PersonAttendanceDrawer from '@/components/admin/PersonAttendanceDrawer'
 import {
   BarChart3,
   Calendar,
@@ -411,6 +415,33 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
   )
 }
 
+function mondayIndexForYmd(ymd: string): number {
+  const wd = weekdayNumberInUruguay(ymd) // 0=Dom … 6=Sáb
+  return wd === null ? 0 : (wd + 6) % 7
+}
+
+function currentWeekRange(): { start: string; end: string } {
+  const today = getTodayYmdInUruguay()
+  const start = addDaysToYmd(today, -mondayIndexForYmd(today))
+  return { start, end: addDaysToYmd(start, 6) }
+}
+
+function renderUserCell(user: AttendanceRecord['user'], onUserClick: (user: AttendanceRecord['user']) => void) {
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => onUserClick(user)}
+        className="break-words text-left font-medium text-emerald-700 hover:underline"
+      >
+        {user.name}
+      </button>
+      <div className="break-all text-gray-500">{user.email}</div>
+      <div className="text-xs text-gray-400">{user.role}</div>
+    </div>
+  )
+}
+
 function renderAttendancesTable(
   attendances: AttendanceRecord[],
   selectedAttendanceIds: string[],
@@ -419,7 +450,8 @@ function renderAttendancesTable(
   expandedRowKeys: string[],
   onToggleExpandedRow: (key: string) => void,
   onEdit: (attendance: AttendanceRecord) => void,
-  allSelected: boolean
+  allSelected: boolean,
+  onUserClick: (user: AttendanceRecord['user']) => void
 ) {
   if (attendances.length === 0) {
     return <div className="p-4 text-center text-gray-500 sm:p-6">No hay registros de asistencia</div>
@@ -428,7 +460,7 @@ function renderAttendancesTable(
   const rows = buildAttendancePairRows(attendances)
 
   return (
-    <div className="overflow-x-auto">
+    <div className="hidden overflow-x-auto sm:block">
       <table className="w-full min-w-[980px]">
         <thead className="bg-gray-50">
           <tr>
@@ -479,13 +511,7 @@ function renderAttendancesTable(
                     />
                   )}
                 </td>
-                <td className="px-6 py-4 text-sm">
-                  <div className="min-w-0">
-                    <div className="break-words font-medium text-gray-900">{row.user.name}</div>
-                    <div className="break-all text-gray-500">{row.user.email}</div>
-                    <div className="text-xs text-gray-400">{row.user.role}</div>
-                  </div>
-                </td>
+                <td className="px-6 py-4 text-sm">{renderUserCell(row.user, onUserClick)}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {formatDateInUruguay(primaryAttendance.time)}
                 </td>
@@ -520,6 +546,67 @@ function renderAttendancesTable(
   )
 }
 
+function renderAttendanceCards(
+  attendances: AttendanceRecord[],
+  onEdit: (attendance: AttendanceRecord) => void,
+  onUserClick: (user: AttendanceRecord['user']) => void,
+) {
+  if (attendances.length === 0) {
+    return <div className="p-4 text-center text-gray-500 sm:hidden">No hay registros de asistencia</div>
+  }
+
+  const rows = buildAttendancePairRows(attendances)
+
+  return (
+    <div className="space-y-3 p-3 sm:hidden">
+      {rows.map((row) => {
+        const primaryAttendance = row.incident ?? row.checkIn ?? row.checkOut
+        if (!primaryAttendance) return null
+        return (
+          <div key={row.key} className={`rounded-lg border p-3 ${row.incident ? 'border-red-200 bg-red-50/40' : 'border-gray-200'}`}>
+            <div className="flex items-start justify-between gap-2">
+              {renderUserCell(row.user, onUserClick)}
+              <span className="shrink-0 text-xs text-gray-500">{formatDateInUruguay(primaryAttendance.time)}</span>
+            </div>
+            <div className="mt-2 text-sm text-gray-700">
+              <span className="font-medium">{row.eventSummary?.title ?? 'Sin evento'}</span>
+              {row.eventSummary?.type ? <span className="ml-1 text-xs text-gray-500">({row.eventSummary.type})</span> : null}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[11px] uppercase text-gray-400">Entrada</div>
+                {row.incident ? (
+                  <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-medium ${getAdminAttendanceTypeStyle('INCIDENT')}`}>
+                    {getAdminAttendanceTypeLabel('INCIDENT')}
+                  </span>
+                ) : (
+                  renderAttendanceMark(row.checkIn, 'Sin entrada', onEdit)
+                )}
+              </div>
+              <div>
+                <div className="text-[11px] uppercase text-gray-400">Salida</div>
+                {row.incident ? (
+                  <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-medium ${getAdminAttendanceStatusStyle(row.incident.status)}`}>
+                    {getAttendanceRowStatusLabel(row.incident)}
+                  </span>
+                ) : (
+                  renderAttendanceMark(row.checkOut, 'Sin salida', onEdit)
+                )}
+              </div>
+            </div>
+            {(() => {
+              const notes = row.incident
+                ? row.incident.notes || row.incident.description
+                : [row.checkIn?.notes, row.checkOut?.notes].filter(Boolean).join(' / ')
+              return notes ? <div className="mt-2 text-xs text-gray-500">{notes}</div> : null
+            })()}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function AdminAttendance() {
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -549,6 +636,8 @@ export default function AdminAttendance() {
   const [deletingSelected, setDeletingSelected] = useState(false)
   const [activeTab, setActiveTab] = useState<'attendance' | 'incidents'>('attendance')
   const [justifyTarget, setJustifyTarget] = useState<AttendanceRecord | null>(null)
+  const [personDrawer, setPersonDrawer] = useState<{ userId: string; name: string } | null>(null)
+  const [showLegend, setShowLegend] = useState(false)
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -556,6 +645,16 @@ export default function AdminAttendance() {
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
   const showingExitStats = filters.type === 'CHECK_OUT'
+  const activeFilterCount = [
+    filters.startDate,
+    filters.endDate,
+    filters.userId,
+    filters.eventId,
+    filters.eventType,
+    filters.type,
+    filters.status,
+    filters.role,
+  ].filter(Boolean).length
 
   useEffect(() => {
     loadAttendances()
@@ -773,6 +872,15 @@ export default function AdminAttendance() {
     )
   }
 
+  function openPersonDrawer(user: AttendanceRecord['user']) {
+    setPersonDrawer({ userId: user.id, name: user.name })
+  }
+
+  function applyQuickFilter(patch: Partial<typeof filters>) {
+    setFilters((prev) => ({ ...prev, ...patch }))
+    setPage(1)
+  }
+
   async function exportReport(format: 'excel' | 'pdf') {
     try {
       const apiUrl = apiBaseUrl()
@@ -931,11 +1039,38 @@ export default function AdminAttendance() {
                 >
                   <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
                   Limpiar
+                  {activeFilterCount > 0 ? (
+                    <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1 text-xs font-semibold text-white">
+                      {activeFilterCount}
+                    </span>
+                  ) : null}
                 </button>
               </div>
             </div>
           </div>
-          
+
+          {/* Filtros rápidos */}
+          <div className="mb-4 flex flex-wrap gap-2">
+            {[
+              { label: 'Hoy', patch: { startDate: getTodayYmdInUruguay(), endDate: getTodayYmdInUruguay() } },
+              {
+                label: 'Esta semana',
+                patch: { startDate: currentWeekRange().start, endDate: currentWeekRange().end },
+              },
+              { label: 'Solo ausencias', patch: { type: 'CHECK_IN', status: 'ABSENCES' } },
+              { label: 'Solo sin justificar', patch: { type: 'CHECK_IN', status: 'ABSENT_NOT_JUSTIFIED' } },
+            ].map((chip) => (
+              <button
+                key={chip.label}
+                type="button"
+                onClick={() => applyQuickFilter(chip.patch)}
+                className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
@@ -1125,6 +1260,7 @@ export default function AdminAttendance() {
                         <option value="">Todos</option>
                         {filters.type === 'CHECK_IN' && (
                           <>
+                            <option value="ABSENCES">Todas las ausencias</option>
                             <option value="PRESENT">Presente</option>
                             <option value="LATE">Tarde</option>
                             <option value="ABSENT_NOT_JUSTIFIED">Ausente sin justificar</option>
@@ -1297,7 +1433,17 @@ export default function AdminAttendance() {
         {activeTab === 'attendance' ? (
         <div className="bg-white border rounded-lg shadow-sm">
           <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
-            <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
+              <button
+                type="button"
+                onClick={() => setShowLegend((v) => !v)}
+                className="text-xs font-medium text-emerald-700 hover:underline"
+                aria-expanded={showLegend}
+              >
+                {showLegend ? 'Ocultar leyenda' : 'Ver leyenda'}
+              </button>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
                 {selectedAttendanceIds.length === 0
@@ -1315,22 +1461,41 @@ export default function AdminAttendance() {
               </button>
             </div>
           </div>
-          
-          {loading
-            ? <div className="p-4 text-center text-gray-500 sm:p-6">Cargando...</div>
-            : renderAttendancesTable(
-              attendances,
-              selectedAttendanceIds,
-              toggleAllAttendancesSelection,
-              toggleAttendanceSelection,
-              expandedAttendanceRows,
-              toggleExpandedAttendanceRow,
-              openAttendanceEditor,
-              (() => {
-                const selectableIds = getSelectableIdsForRows(buildAttendancePairRows(attendances))
-                return selectableIds.length > 0 && selectableIds.every((id) => selectedAttendanceIds.includes(id))
-              })(),
-            )}
+
+          {showLegend ? (
+            <div className="flex flex-wrap gap-x-4 gap-y-2 border-b bg-slate-50/60 px-4 py-3 sm:px-6">
+              {ADMIN_ATTENDANCE_LEGEND.map((item) => (
+                <div key={item.status} className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 font-medium ${getAdminAttendanceStatusStyle(item.status)}`}>
+                    {getAdminAttendanceStatusLabel(item.status)}
+                  </span>
+                  <span>{item.description}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {loading ? (
+            <div className="p-4 text-center text-gray-500 sm:p-6">Cargando...</div>
+          ) : (
+            <>
+              {renderAttendancesTable(
+                attendances,
+                selectedAttendanceIds,
+                toggleAllAttendancesSelection,
+                toggleAttendanceSelection,
+                expandedAttendanceRows,
+                toggleExpandedAttendanceRow,
+                openAttendanceEditor,
+                (() => {
+                  const selectableIds = getSelectableIdsForRows(buildAttendancePairRows(attendances))
+                  return selectableIds.length > 0 && selectableIds.every((id) => selectedAttendanceIds.includes(id))
+                })(),
+                openPersonDrawer,
+              )}
+              {renderAttendanceCards(attendances, openAttendanceEditor, openPersonDrawer)}
+            </>
+          )}
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>
@@ -1343,6 +1508,21 @@ export default function AdminAttendance() {
             onClose={() => setJustifyTarget(null)}
             onSaved={() => {
               setMessage('✅ Justificación registrada')
+              void loadAttendances()
+              void loadStats()
+            }}
+          />
+        ) : null}
+
+        {personDrawer ? (
+          <PersonAttendanceDrawer
+            userId={personDrawer.userId}
+            userName={personDrawer.name}
+            from={filters.startDate || getAdminAttendanceDefaultStartDate()}
+            to={filters.endDate || getTodayYmdInUruguay()}
+            schoolYearQuery={schoolYearQuery}
+            onClose={() => setPersonDrawer(null)}
+            onJustified={() => {
               void loadAttendances()
               void loadStats()
             }}

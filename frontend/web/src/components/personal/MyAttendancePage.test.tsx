@@ -83,7 +83,7 @@ describe('MyAttendancePage', () => {
 
     renderPage(<MyAttendancePage role="STAFF" />)
 
-    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     expect(await screen.findByText('No hay registros de asistencia')).toBeInTheDocument()
   })
 
@@ -94,7 +94,7 @@ describe('MyAttendancePage', () => {
       .mockResolvedValueOnce([] as never)
 
     renderPage(<MyAttendancePage role="TEACHER" />)
-    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     const endDateInput = await screen.findByLabelText('Fecha fin')
     fireEvent.change(endDateInput, { target: { value: '2026-03-20' } })
 

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { DateTime } from 'luxon';
 import { prisma } from '../db/prisma.js';
@@ -24,6 +24,7 @@ import { justifyAttendance } from '../services/attendance-justifications.js';
 import { recordAuditEventNow } from '../services/audit-log.js';
 import { getPlannedInstances } from '../services/analytics/planInstances.js';
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js';
+import { buildPayrollAttendanceData } from '../services/analytics/exports/payrollAttendanceReport.js';
 
 function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[0] }>(row: T) {
   if (!row.user) return row;
@@ -141,7 +142,10 @@ function buildAdminAttendanceWhere(query: Record<string, unknown>) {
     where.type = type
   }
 
-  if (status) {
+  if (status === 'ABSENCES') {
+    // Centinela: las tres clases de ausencia en un solo filtro.
+    where.status = { in: ['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED'] }
+  } else if (status) {
     where.status = status
   }
 
@@ -218,7 +222,7 @@ function mapAttendanceIncidentAsFeedRow(row: any) {
 function shouldCountIncidentAbsencesInStats(query: Record<string, unknown>) {
   if (!wantsIncidentRows(query)) return false
   if (query.type && query.type !== 'CHECK_IN') return false
-  if (query.status && query.status !== 'ABSENT_NOT_JUSTIFIED') return false
+  if (query.status && query.status !== 'ABSENT_NOT_JUSTIFIED' && query.status !== 'ABSENCES') return false
   return true
 }
 
@@ -234,7 +238,7 @@ function queryDateToUruguayYmd(value: unknown, fallback: Date) {
 function queryAllowsVirtualAbsenceRows(query: Record<string, unknown>) {
   if (!wantsIncidentRows(query)) return false
   if (query.type && query.type !== 'CHECK_IN') return false
-  if (query.status && !ABSENCE_RESOLVED_STATUSES.includes(query.status as any)) return false
+  if (query.status && query.status !== 'ABSENCES' && !ABSENCE_RESOLVED_STATUSES.includes(query.status as any)) return false
   return true
 }
 
@@ -306,7 +310,7 @@ async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanc
   return resolved
     .filter((row) => {
       if (!ABSENCE_RESOLVED_STATUSES.includes(row.checkInStatusResolved as any)) return false
-      if (query.status && row.checkInStatusResolved !== query.status) return false
+      if (query.status && query.status !== 'ABSENCES' && row.checkInStatusResolved !== query.status) return false
       return true
     })
     .map(mapResolvedAbsenceAsFeedRow)
@@ -448,8 +452,8 @@ r.get('/my-attendances', authGuard, requirePermission('attendance.read'), async 
     const user = req.user;
     if (!user) return res.status(401).json({ message: 'No autorizado' });
 
-    const { startDate, endDate, type, status } = req.query;
-    
+    const { startDate, endDate, type, status, includeAbsences } = req.query;
+
     const where: any = {
       userId: user.sub,
     };
@@ -474,7 +478,36 @@ r.get('/my-attendances', authGuard, requirePermission('attendance.read'), async 
       orderBy: { date: 'desc' },
     });
 
-    res.json(attendances);
+    const wantsAbsences = includeAbsences === '1' || includeAbsences === 'true'
+    if (!wantsAbsences || (type && type !== 'CHECK_IN')) {
+      return res.json(attendances);
+    }
+
+    // Faltas derivadas del propio usuario (mismas que ve el admin en /all), sin duplicar marcas reales.
+    const virtualQuery: Record<string, unknown> = {
+      includeIncidents: 'true',
+      userId: user.sub,
+      type: 'CHECK_IN',
+    }
+    if (startDate) virtualQuery.startDate = startDate
+    if (endDate) virtualQuery.endDate = endDate
+    if (status) virtualQuery.status = status
+    const virtualAbsences = await buildVirtualAbsenceRows(virtualQuery, {})
+
+    const realKeys = new Set(
+      attendances
+        .filter((a) => a.type === 'CHECK_IN' && a.eventId)
+        .map((a) => `${a.eventId}:${new Date(a.date).toISOString().slice(0, 10)}`),
+    )
+    const dedupedAbsences = virtualAbsences.filter((row: any) => {
+      const ymd = new Date(row.date).toISOString().slice(0, 10)
+      return !realKeys.has(`${row.event?.id}:${ymd}`)
+    })
+
+    const merged = [...attendances, ...dedupedAbsences].sort(
+      (a: any, b: any) => new Date(b.time ?? b.date).getTime() - new Date(a.time ?? a.date).getTime(),
+    )
+    res.json(merged);
   } catch (error) {
     console.error('Error obteniendo asistencias:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -565,6 +598,94 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
   }
 })
 
+class AttendanceActionError extends Error {
+  constructor(message: string, public statusCode = 400) {
+    super(message);
+  }
+}
+
+/**
+ * Crea (o reutiliza si ya existe) una marca de ausencia para una persona en un evento+fecha.
+ * Idempotente: si ya hay un CHECK_IN ese día para ese evento, devuelve el existente sin tocarlo.
+ * Reutilizado por POST /materialize-absence y POST /justify-range.
+ */
+async function materializeAbsenceRecord(
+  params: z.infer<typeof materializeAbsenceSchema>,
+  actor: { actorUserId: string | null; req?: Request },
+): Promise<{ attendance: any; created: boolean }> {
+  const { userId, eventId, date, status = 'ABSENT_NOT_JUSTIFIED', notes } = params;
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      startTime: true,
+      endTime: true,
+      assignedUserId: true,
+      schoolYearId: true,
+    },
+  });
+
+  if (!event) throw new AttendanceActionError('Evento no encontrado', 404);
+  if (event.assignedUserId !== userId) {
+    throw new AttendanceActionError('La persona no está asignada a este evento', 400);
+  }
+
+  const attendanceDate = uruguayWallToUtc(date, 0, 0);
+  // En eventos recurrentes "startTime" arrastra la fecha de la primera ocurrencia de la
+  // serie: la marca debe llevar el día de ESTA ocurrencia con la hora planificada.
+  const plannedClock = event.startTime
+    ? DateTime.fromJSDate(new Date(event.startTime), { zone: 'utc' }).setZone(getAppTimezone())
+    : null;
+  const absenceTime = plannedClock
+    ? uruguayWallToUtc(date, plannedClock.hour, plannedClock.minute)
+    : attendanceDate;
+  const includeUserEvent = {
+    user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+    event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
+  };
+  const existing = await prisma.attendance.findFirst({
+    where: { userId, eventId, date: attendanceDate, type: 'CHECK_IN' },
+    include: includeUserEvent,
+  });
+
+  if (existing) {
+    return { attendance: existing, created: false };
+  }
+
+  const attendance = await prisma.attendance.create({
+    data: {
+      userId,
+      eventId,
+      type: 'CHECK_IN',
+      status: status as any,
+      date: attendanceDate,
+      time: absenceTime,
+      schoolYearId: event.schoolYearId,
+      notes: notes?.trim() || 'Ausencia registrada manualmente desde gestión de asistencias',
+    },
+    include: includeUserEvent,
+  });
+
+  await recordAuditEventNow({
+    action: 'ATTENDANCE_MANUAL_UPDATED' as any,
+    actorUserId: actor.actorUserId,
+    req: actor.req,
+    entityType: 'Attendance',
+    entityId: attendance.id,
+    metadata: {
+      reason: 'Materialización manual de ausencia virtual',
+      previousStatus: null,
+      newStatus: attendance.status,
+      eventId,
+      userId,
+    },
+  });
+
+  return { attendance, created: true };
+}
+
 r.post('/materialize-absence', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
   try {
     const parsed = materializeAbsenceSchema.safeParse(req.body);
@@ -572,88 +693,135 @@ r.post('/materialize-absence', authGuard, requirePermission('attendance.update',
       return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
     }
 
-    const { userId, eventId, date, status = 'ABSENT_NOT_JUSTIFIED', notes } = parsed.data;
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      select: {
-        id: true,
-        title: true,
-        type: true,
-        startTime: true,
-        endTime: true,
-        assignedUserId: true,
-        schoolYearId: true,
-      },
-    });
-
-    if (!event) return res.status(404).json({ message: 'Evento no encontrado' });
-    if (event.assignedUserId !== userId) {
-      return res.status(400).json({ message: 'La persona no está asignada a este evento' });
-    }
-
-    const attendanceDate = uruguayWallToUtc(date, 0, 0);
-    // En eventos recurrentes "startTime" arrastra la fecha de la primera ocurrencia de la
-    // serie: la marca debe llevar el día de ESTA ocurrencia con la hora planificada.
-    const plannedClock = event.startTime
-      ? DateTime.fromJSDate(new Date(event.startTime), { zone: 'utc' }).setZone(getAppTimezone())
-      : null;
-    const absenceTime = plannedClock
-      ? uruguayWallToUtc(date, plannedClock.hour, plannedClock.minute)
-      : attendanceDate;
-    const existing = await prisma.attendance.findFirst({
-      where: {
-        userId,
-        eventId,
-        date: attendanceDate,
-        type: 'CHECK_IN',
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
-        event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
-      },
-    });
-
-    if (existing) {
-      return res.json(mapAttendanceUser(existing as any));
-    }
-
-    const attendance = await prisma.attendance.create({
-      data: {
-        userId,
-        eventId,
-        type: 'CHECK_IN',
-        status: status as any,
-        date: attendanceDate,
-        time: absenceTime,
-        schoolYearId: event.schoolYearId,
-        notes:
-          notes?.trim() ||
-          'Ausencia registrada manualmente desde gestión de asistencias',
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
-        event: { select: { id: true, title: true, type: true, startTime: true, endTime: true } },
-      },
-    });
-
-    await recordAuditEventNow({
-      action: 'ATTENDANCE_MANUAL_UPDATED' as any,
+    const { attendance, created } = await materializeAbsenceRecord(parsed.data, {
       actorUserId: req.user?.id ?? req.user?.sub ?? null,
       req,
-      entityType: 'Attendance',
-      entityId: attendance.id,
-      metadata: {
-        reason: 'Materialización manual de ausencia virtual',
-        previousStatus: null,
-        newStatus: attendance.status,
-        eventId,
-        userId,
+    });
+
+    return res.status(created ? 201 : 200).json(mapAttendanceUser(attendance as any));
+  } catch (error) {
+    if (error instanceof AttendanceActionError) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    console.error('Error materializando ausencia:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+const justifyRangeSchema = z.object({
+  userId: z.string().uuid(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  type: z.enum(['ABSENCE', 'LATE_ARRIVAL', 'EARLY_EXIT', 'OTHER']).optional(),
+  reason: z.string().min(1),
+  notes: z.string().optional(),
+  includeLate: z.boolean().optional(),
+});
+
+// Justifica de una sola vez todas las faltas (y opcionalmente tardanzas) de una persona en un rango.
+r.post('/justify-range', authGuard, requirePermission('attendance.update', 'all'), async (req, res) => {
+  try {
+    const parsed = justifyRangeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
+    }
+
+    const { userId, from, to, type, reason, notes, includeLate } = parsed.data;
+    const actorUserId = req.user?.id ?? req.user?.sub ?? null;
+    const now = new Date();
+
+    const plannedInstances = await getPlannedInstances({ from, to, userId });
+    const due = plannedInstances.filter(
+      (planned) =>
+        planned.userIdRequired === userId &&
+        planned.plannedEndTime &&
+        new Date(planned.plannedEndTime).getTime() <= now.getTime(),
+    );
+    const resolved = await resolveAttendanceAndJustification({ plannedInstances: due });
+
+    const targetStatuses = includeLate ? ['ABSENT_NOT_JUSTIFIED', 'LATE'] : ['ABSENT_NOT_JUSTIFIED'];
+    const targets = resolved.filter((row) => targetStatuses.includes(row.checkInStatusResolved as any));
+
+    let justified = 0;
+    let created = 0;
+    let skipped = 0;
+    for (const row of targets) {
+      try {
+        const { attendance, created: wasCreated } = await materializeAbsenceRecord(
+          { userId, eventId: row.planned.eventId, date: row.planned.plannedDate, status: 'ABSENT_NOT_JUSTIFIED', notes },
+          { actorUserId, req },
+        );
+        if (wasCreated) created += 1;
+        if (attendance.status === 'ABSENT_NOT_JUSTIFIED' || attendance.status === 'LATE') {
+          await justifyAttendance({ attendanceId: attendance.id, type, reason, notes, actorUserId, req });
+          justified += 1;
+        } else {
+          skipped += 1;
+        }
+      } catch {
+        skipped += 1;
+      }
+    }
+
+    res.json({ total: targets.length, justified, created, skipped });
+  } catch (error) {
+    console.error('Error justificando rango de asistencias:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+function summaryRangeFromQuery(q: Record<string, unknown>) {
+  const now = new Date();
+  const to = queryDateToUruguayYmd(q.to ?? q.endDate, now);
+  const rawFrom = q.from ?? q.startDate;
+  const from =
+    typeof rawFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawFrom)
+      ? rawFrom
+      : `${to.slice(0, 4)}-01-01`;
+  return { from, to };
+}
+
+// Resumen de asistencia por persona (KPIs + filas por instancia). Reusa el motor del export de nómina.
+r.get('/summary', authGuard, requirePermission('attendance.read'), async (req, res) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ message: 'No autorizado' });
+
+    const q = req.query as Record<string, unknown>;
+    const { from, to } = summaryRangeFromQuery(q);
+
+    const scope = await userPermissionScope(user.sub, 'attendance.read', user.role);
+    const requestedUserId = typeof q.userId === 'string' && q.userId ? q.userId : undefined;
+
+    let effectiveUserId: string | undefined;
+    if (scope === 'all') {
+      effectiveUserId = requestedUserId;
+    } else {
+      if (requestedUserId && requestedUserId !== user.sub) {
+        return res.status(403).json({ message: 'No autorizado para ver el resumen de otra persona' });
+      }
+      effectiveUserId = user.sub;
+    }
+
+    const data = await buildPayrollAttendanceData({
+      from,
+      to,
+      filters: {
+        userId: effectiveUserId,
+        eventType: typeof q.eventType === 'string' ? (q.eventType as any) : undefined,
+        schoolYearId: typeof q.schoolYearId === 'string' ? q.schoolYearId : undefined,
+        allYears: q.allYears === 'true' || q.allYears === '1',
       },
     });
 
-    res.status(201).json(mapAttendanceUser(attendance as any));
+    if (effectiveUserId) {
+      const person = data.persons.find((p) => p.userId === effectiveUserId) ?? null;
+      return res.json({ from, to, person });
+    }
+
+    res.json({ from, to, persons: data.persons, total: data.total });
   } catch (error) {
-    console.error('Error materializando ausencia:', error);
+    console.error('Error generando resumen de asistencia:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 });

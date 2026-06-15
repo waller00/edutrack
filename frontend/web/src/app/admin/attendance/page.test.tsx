@@ -33,7 +33,7 @@ describe('AdminAttendance', () => {
     render(<AdminAttendance />)
 
     expect(await screen.findByText('EduTrack')).toBeInTheDocument()
-    expect(await screen.findByText('No hay registros de asistencia')).toBeInTheDocument()
+    expect((await screen.findAllByText('No hay registros de asistencia')).length).toBeGreaterThan(0)
     expect(screen.getByText('registros totales')).toBeInTheDocument()
   })
 
@@ -60,7 +60,7 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    expect(await screen.findByText('Turno mañana')).toBeInTheDocument()
+    expect((await screen.findAllByText('Turno mañana')).length).toBeGreaterThan(0)
     const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Pedro'))
     expect(row?.textContent).toMatch(/Presente/)
     expect(row?.textContent).toMatch(/Sin salida/)
@@ -96,7 +96,7 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    expect(await screen.findByText('Ingles Tercero C')).toBeInTheDocument()
+    expect((await screen.findAllByText('Ingles Tercero C')).length).toBeGreaterThan(0)
     const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Jorge'))
     expect(row?.textContent).toMatch(/Ausente/)
     expect(row?.textContent).toMatch(/Sin salida/)
@@ -136,7 +136,7 @@ describe('AdminAttendance', () => {
     })
 
     render(<AdminAttendance />)
-    await screen.findByText('Ingles Tercero C')
+    await screen.findAllByText('Ingles Tercero C')
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' }))
     fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
@@ -177,9 +177,9 @@ describe('AdminAttendance', () => {
     })
 
     render(<AdminAttendance />)
-    await screen.findByText('Ingles Tercero C')
+    await screen.findAllByText('Ingles Tercero C')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Editar' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(
@@ -228,7 +228,7 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    expect(await screen.findByText('Turno mañana')).toBeInTheDocument()
+    expect((await screen.findAllByText('Turno mañana')).length).toBeGreaterThan(0)
     const rows = screen.getAllByRole('row').filter((r) => r.textContent?.includes('Pedro'))
     expect(rows).toHaveLength(1)
     expect(rows[0].textContent).toMatch(/Presente/)
@@ -300,8 +300,8 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    expect(await screen.findByText('Prueba clase correlativa')).toBeInTheDocument()
-    expect(screen.getByText('Prueba clase correlativa 2')).toBeInTheDocument()
+    expect((await screen.findAllByText('Prueba clase correlativa')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Prueba clase correlativa 2').length).toBeGreaterThan(0)
     expect(screen.getByText('Permanencia correlacionada')).toBeInTheDocument()
     const rows = screen.getAllByRole('row').filter((r) => r.textContent?.includes('Jorge'))
     expect(rows).toHaveLength(2)
@@ -375,10 +375,10 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    expect(await screen.findAllByText('Turno mañana')).toHaveLength(2)
+    expect((await screen.findAllByText('Turno mañana')).length).toBeGreaterThanOrEqual(2)
     const rows = screen.getAllByRole('row').filter((r) => r.textContent?.includes('Pedro'))
     expect(rows).toHaveLength(2)
-    expect(screen.getByText('Entrada duplicada')).toBeInTheDocument()
+    expect(screen.getAllByText('Entrada duplicada').length).toBeGreaterThan(0)
   })
 
   it('exporta Excel vía fetch al backend', async () => {
@@ -441,7 +441,7 @@ describe('AdminAttendance', () => {
     })
 
     render(<AdminAttendance />)
-    await screen.findByText('Pedro')
+    await screen.findAllByText('Pedro')
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar asistencia de Pedro' }))
     fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
@@ -478,7 +478,7 @@ describe('AdminAttendance', () => {
     })
 
     render(<AdminAttendance />)
-    await screen.findByText('Pedro')
+    await screen.findAllByText('Pedro')
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todas las asistencias' }))
 

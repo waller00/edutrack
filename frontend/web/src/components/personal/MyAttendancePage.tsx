@@ -6,6 +6,9 @@ import { useState, useEffect } from 'react'
 import { api } from '@/lib/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import MyAttendanceMarkingPanel from '@/components/personal/MyAttendanceMarkingPanel'
+import AttendanceHeatmap from '@/components/admin/AttendanceHeatmap'
+import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
+import type { AttendanceSummaryResponse, AttendanceSummaryPerson } from '@/lib/attendance/summary'
 import {
   getDefaultAttendanceStartDate,
   getAttendanceTypeStyle,
@@ -41,10 +44,12 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
   const [startDate, setStartDate] = useState(getDefaultAttendanceStartDate())
   const [endDate, setEndDate] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [summary, setSummary] = useState<AttendanceSummaryPerson | null>(null)
   const attendanceQuery = new URLSearchParams(
     [
       ['startDate', startDate],
       ['endDate', endDate],
+      ['includeAbsences', 'true'],
     ].filter(([, value]) => Boolean(value))
   ).toString()
 
@@ -74,6 +79,28 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
     }
   }, [userId, attendanceQuery, refreshKey])
 
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    async function loadSummary() {
+      try {
+        const params = new URLSearchParams()
+        if (startDate) params.set('from', startDate)
+        params.set('to', endDate || getTodayYmdInUruguay())
+        const qs = params.toString()
+        const data = await api<AttendanceSummaryResponse>(`/attendance/summary?${qs}`)
+        if (!cancelled) setSummary(data.person ?? null)
+      } catch (e) {
+        console.error('Error cargando resumen:', e)
+        if (!cancelled) setSummary(null)
+      }
+    }
+    void loadSummary()
+    return () => {
+      cancelled = true
+    }
+  }, [userId, startDate, endDate, refreshKey])
+
   if (loading) return <p>Cargando...</p>
 
   return (
@@ -93,6 +120,37 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
         </div>
 
         {userId ? <MyAttendanceMarkingPanel userId={userId} onMarked={() => setRefreshKey((k) => k + 1)} /> : null}
+
+        {summary ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">% Asistencia</div>
+                <div className="text-xl font-bold text-emerald-600">{summary.stats.pctAsistencia}%</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">% Puntualidad</div>
+                <div className="text-xl font-bold text-emerald-600">{summary.stats.pctPuntualidad}%</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Tarde</div>
+                <div className="text-xl font-bold text-amber-600">{summary.stats.tarde}</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Faltas sin justificar</div>
+                <div className="text-xl font-bold text-red-600">{summary.stats.ausenteNoJustificado}</div>
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 text-sm font-semibold text-slate-700">Mapa de asistencia</h2>
+              <AttendanceHeatmap
+                rows={summary.rows}
+                from={startDate || `${(endDate || getTodayYmdInUruguay()).slice(0, 4)}-01-01`}
+                to={endDate || getTodayYmdInUruguay()}
+              />
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>

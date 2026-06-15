@@ -446,6 +446,17 @@ describe("attendance /register (prisma mock)", () => {
     expect(where.schoolYearId).toBe(sy);
   });
 
+  it("GET /attendance/all con status=ABSENCES filtra las tres clases de ausencia", async () => {
+    prismaMock.attendance.count.mockResolvedValue(0);
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+    const res = await request(app())
+      .get("/attendance/all?status=ABSENCES")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+    expect(res.status).toBe(200);
+    const where = prismaMock.attendance.count.mock.calls[0][0].where;
+    expect(where.status).toEqual({ in: ["ABSENT_NOT_JUSTIFIED", "ABSENT_JUSTIFIED", "SUBSTITUTED"] });
+  });
+
   it("GET /attendance/all con allYears no filtra por ciclo", async () => {
     prismaMock.attendance.count.mockResolvedValue(0);
     prismaMock.attendance.findMany.mockResolvedValue([]);
