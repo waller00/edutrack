@@ -9,21 +9,18 @@ import {
   HomeUpcomingSchedule,
 } from '@/components/home/HomeRolePanels'
 import { api } from '@/lib/api/client'
-import type { HomeMe } from '@/lib/home/dashboard'
 import { getWelcomeMessage } from '@/lib/home/dashboard'
+import { useAuth } from '@/contexts/AuthContext'
+import { getRoleLabel } from '@/lib/roles/display'
 
 export default function Home() {
-  const [me, setMe] = useState<HomeMe | null>(null)
+  const { me, loading } = useAuth()
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
 
   useEffect(() => {
-    api<HomeMe>('/auth/me')
-      .then((u) => {
-        setMe(u)
-      })
-      .catch(() => (window.location.href = '/login'))
-  }, [])
+    if (!loading && !me) window.location.href = '/login'
+  }, [loading, me])
 
   async function resend() {
     setResending(true)
@@ -151,13 +148,7 @@ export default function Home() {
             <p className="max-w-xl text-sm leading-relaxed text-slate-600">{getWelcomeMessage(inactiveAccount, pendingApproval)}</p>
           </div>
           <span className="inline-flex w-fit shrink-0 items-center rounded-full border border-emerald-200/80 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-            {me.role === 'ADMIN'
-              ? 'Administración'
-              : me.role === 'TEACHER'
-                ? 'Docente'
-                : me.role === 'STAFF'
-                  ? 'Personal'
-                  : me.role}
+            {me.roleLabel || getRoleLabel(me.role)}
           </span>
         </div>
       </header>

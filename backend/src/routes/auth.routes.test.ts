@@ -271,11 +271,12 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
       isApproved: true,
       approvedAt: new Date(),
       isActive: true,
-      orgRole: { code: "STAFF" },
+      orgRole: { code: "STAFF", label: "Personal" },
     });
     const res = await request(app()).get("/auth/me").set(authHeader());
     expect(res.status).toBe(200);
     expect(res.body.role).toBe("STAFF");
+    expect(res.body.roleLabel).toBe("Personal");
     expect(res.body.passwordHash).toBeUndefined();
     expect(res.body.twoFactorEnabled).toBeUndefined();
     expect(res.body.hasPassword).toBeUndefined();

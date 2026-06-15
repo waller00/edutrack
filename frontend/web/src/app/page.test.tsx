@@ -1,11 +1,25 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Home from './page'
+import { AuthProvider } from '@/contexts/AuthContext'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
+
+vi.mock('@/lib/observability/user-session', () => ({
+  identifyObservabilityUser: vi.fn(),
+  clearObservabilityUser: vi.fn(),
+}))
+
+function renderHome() {
+  return render(
+    <AuthProvider>
+      <Home />
+    </AuthProvider>,
+  )
+}
 
 describe('Home page', () => {
   beforeEach(() => {
@@ -19,7 +33,7 @@ describe('Home page', () => {
   it('redirects unauthenticated users to login', async () => {
     vi.mocked(api).mockRejectedValueOnce(new Error('unauthorized'))
 
-    const { container } = render(<Home />)
+    const { container } = renderHome()
 
     await waitFor(() => expect(window.location.href).toBe('/login'))
     expect(container).toBeEmptyDOMElement()
@@ -51,7 +65,7 @@ describe('Home page', () => {
       })
       .mockResolvedValueOnce({})
 
-    render(<Home />)
+    renderHome()
 
     expect(await screen.findByText('Inicio operativo')).toBeInTheDocument()
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
@@ -153,7 +167,7 @@ describe('Home page', () => {
         ],
       })
 
-    render(<Home />)
+    renderHome()
 
     expect(await screen.findByText('Inicio operativo')).toBeInTheDocument()
     expect(screen.getByText('Docentes esperados hoy')).toBeInTheDocument()
@@ -183,7 +197,7 @@ describe('Home page', () => {
       isActive: true,
     })
 
-    render(<Home />)
+    renderHome()
 
     expect(await screen.findByText('Perfil incompleto')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /completar perfil/i })).toHaveAttribute('href', '/onboarding')
@@ -200,7 +214,7 @@ describe('Home page', () => {
       isActive: false,
     })
 
-    render(<Home />)
+    renderHome()
 
     expect(await screen.findByText('Cuenta pendiente de aprobación')).toBeInTheDocument()
     expect(screen.getByText('Cuenta dada de baja')).toBeInTheDocument()

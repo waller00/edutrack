@@ -4,6 +4,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import { BarChart3 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api/client'
+import { useAuth } from '@/contexts/AuthContext'
 import MyAttendanceMarkingPanel from '@/components/personal/MyAttendanceMarkingPanel'
 import {
   getDefaultAttendanceStartDate,
@@ -33,7 +34,8 @@ function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
 }
 
 export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {
-  const [me, setMe] = useState<{ id: string } | null>(null)
+  const { me: authUser, loading: authLoading } = useAuth()
+  const userId = authUser?.id ?? null
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [startDate, setStartDate] = useState(getDefaultAttendanceStartDate())
@@ -47,18 +49,11 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
   ).toString()
 
   useEffect(() => {
-    api<{ id: string }>('/auth/me')
-      .then((u: { id: string }) => {
-        setMe(u)
-        setLoading(false)
-      })
-      .catch(() => {
-        window.location.href = '/login'
-      })
-  }, [])
+    if (!authLoading && !authUser) window.location.href = '/login'
+  }, [authLoading, authUser])
 
   useEffect(() => {
-    if (!me) return
+    if (!userId) return
     let cancelled = false
     async function load() {
       setLoading(true)
@@ -77,7 +72,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
     return () => {
       cancelled = true
     }
-  }, [me, attendanceQuery, refreshKey])
+  }, [userId, attendanceQuery, refreshKey])
 
   if (loading) return <p>Cargando...</p>
 
@@ -97,7 +92,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
           <div className="text-sm text-gray-500">Total: {attendances.length} registros</div>
         </div>
 
-        {me ? <MyAttendanceMarkingPanel userId={me.id} onMarked={() => setRefreshKey((k) => k + 1)} /> : null}
+        {userId ? <MyAttendanceMarkingPanel userId={userId} onMarked={() => setRefreshKey((k) => k + 1)} /> : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>

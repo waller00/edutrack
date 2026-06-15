@@ -525,11 +525,12 @@ r.get("/me", authGuard, async (req, res) => {
       isApproved: true,
       approvedAt: true,
       isActive: true,
-      orgRole: { select: { code: true } },
+      orgRole: { select: { code: true, label: true } },
     },
   });
   if (!raw) return res.status(401).json({ message: "No autorizado" });
   const roleCode = raw.orgRole?.code ?? "";
+  const roleLabel = raw.orgRole?.label ?? null;
   const needsProfileCompletion =
     !raw.firstName || !raw.lastName || !raw.nationalId || !raw.birthdate || !raw.username;
   // El seed de permisos por rol vive en el arranque del servidor y en los seeds;
@@ -539,6 +540,7 @@ r.get("/me", authGuard, async (req, res) => {
   res.json({
     ...safe,
     role: roleCode,
+    roleLabel,
     needsProfileCompletion,
     permissions,
     permissionIds: permissions.map((permission) => permission.id),

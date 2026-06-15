@@ -2,6 +2,7 @@ import './globals.css'
 import type { Metadata } from 'next'
 import UserNav from '@/components/navigation/UserNav'
 import { Observability } from '@/components/observability/Observability'
+import { AuthProvider } from '@/contexts/AuthContext'
 
 export const metadata: Metadata = {
   title: 'EduTrack',
@@ -18,7 +19,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body>
         <Observability />
-        <UserNav>{children}</UserNav>
+        <AuthProvider>
+          <UserNav>{children}</UserNav>
+        </AuthProvider>
       </body>
     </html>
   )

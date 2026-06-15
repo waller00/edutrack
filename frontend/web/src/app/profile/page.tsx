@@ -8,6 +8,8 @@ import { accountPasswordUrl, accountRecoveryCodesUrl, accountTwoFactorUrl } from
 import PhoneBirthdateFields from '@/components/forms/PhoneBirthdateFields'
 import WebPushSection from '@/components/notifications/WebPushSection'
 import { formatLocalMobileInputFromE164 } from '@/lib/forms/uruguay-forms'
+import { useAuth } from '@/contexts/AuthContext'
+import { getRoleLabel } from '@/lib/roles/display'
 import {
   buildProfilePayload,
   canEditNationalId,
@@ -17,7 +19,7 @@ import {
 } from '@/lib/profile/profile-form'
 
 export default function ProfilePage() {
-  const [me, setMe] = useState<any>(null)
+  const { me, loading, refresh } = useAuth()
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [nationalId, setNationalId] = useState('')
@@ -37,17 +39,16 @@ export default function ProfilePage() {
   useEffect(() => { setNationalId(ci) }, [ci])
 
   useEffect(() => {
-    api('/auth/me').then((u: any) => {
-      setMe(u)
-      setEmail(u.email || '')
-      setUsername(u.username || '')
-      setNationalId(u.nationalId || '')
-      setFirstName(u.firstName || '')
-      setLastName(u.lastName || '')
-      setPhoneLocal(formatLocalMobileInputFromE164(u.phone))
-      setBirthdate(u.birthdate ? String(u.birthdate).slice(0, 10) : '')
-    }).catch(() => { window.location.href = '/login' })
-  }, [])
+    if (loading) return
+    if (!me) { window.location.href = '/login'; return }
+    setEmail(me.email || '')
+    setUsername(me.username || '')
+    setNationalId(me.nationalId || '')
+    setFirstName(me.firstName || '')
+    setLastName(me.lastName || '')
+    setPhoneLocal(formatLocalMobileInputFromE164(me.phone))
+    setBirthdate(me.birthdate ? String(me.birthdate).slice(0, 10) : '')
+  }, [loading, me])
 
   useEffect(() => {
     const href = typeof window !== 'undefined' ? window.location.href : ''
@@ -66,14 +67,16 @@ export default function ProfilePage() {
     }
   }, [])
 
+  // Consultamos el estado de 2FA cuando el usuario queda identificado; depende del id
+  // (estable) para no re-consultar en cada refresh del perfil.
   useEffect(() => {
-    if (!me) return
+    if (!me?.id) return
     setTwoFactorLoading(true)
     api<{ enabled: boolean }>('/auth/account/2fa/status')
       .then((status) => setTwoFactorEnabled(Boolean(status.enabled)))
       .catch(() => setTwoFactorEnabled(false))
       .finally(() => setTwoFactorLoading(false))
-  }, [me])
+  }, [me?.id])
 
   async function saveProfile() {
     setMsg('')
@@ -100,6 +103,7 @@ export default function ProfilePage() {
         isAdmin: canEditNationalId(me?.role),
       })
       await api('/auth/profile', { method: 'PUT', body: JSON.stringify(payload) })
+      await refresh()
       setMsg('Perfil actualizado')
     } catch (e: any) {
       setMsg(getProfileErrorMessage(e))
@@ -154,7 +158,7 @@ export default function ProfilePage() {
         </div>
         <div className="text-left sm:text-right">
           <div className="text-lg font-semibold text-emerald-600">{me.name || me.email}</div>
-          <div className="text-sm text-gray-600">{me.role}</div>
+          <div className="text-sm text-gray-600">{me.roleLabel || getRoleLabel(me.role)}</div>
         </div>
       </div>
 

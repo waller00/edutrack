@@ -1,11 +1,25 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProfilePage from './page'
+import { AuthProvider } from '@/contexts/AuthContext'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
+
+vi.mock('@/lib/observability/user-session', () => ({
+  identifyObservabilityUser: vi.fn(),
+  clearObservabilityUser: vi.fn(),
+}))
+
+function renderProfile() {
+  return render(
+    <AuthProvider>
+      <ProfilePage />
+    </AuthProvider>,
+  )
+}
 
 vi.mock('@/components/notifications/WebPushSection', () => ({
   default: () => null,
@@ -43,6 +57,7 @@ vi.mock('@/components/forms/PhoneBirthdateFields', () => ({
 const mockedApi = vi.mocked(api)
 
 const baseMe = {
+  id: 'u1',
   username: 'teacher1',
   email: 't@school.edu',
   name: 'Teach',
@@ -66,13 +81,13 @@ describe('ProfilePage', () => {
 
   it('redirige a login si /auth/me falla', async () => {
     mockedApi.mockRejectedValueOnce(new Error('401'))
-    render(<ProfilePage />)
+    renderProfile()
     await waitFor(() => expect(window.location.href).toBe('/login'))
   })
 
   it('muestra validación de correo al guardar', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe, email: 'correo-malo' }).mockResolvedValueOnce({ enabled: false })
-    render(<ProfilePage />)
+    renderProfile()
     await screen.findByText('Mi Perfil')
     fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
     await waitFor(() => {
@@ -81,15 +96,19 @@ describe('ProfilePage', () => {
   })
 
   it('guarda perfil correctamente', async () => {
-    mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false }).mockResolvedValueOnce({})
-    render(<ProfilePage />)
+    mockedApi
+      .mockResolvedValueOnce({ ...baseMe }) // AuthProvider /auth/me
+      .mockResolvedValueOnce({ enabled: false }) // estado 2fa
+      .mockResolvedValueOnce({}) // PUT /auth/profile
+      .mockResolvedValueOnce({ ...baseMe }) // refresh() tras guardar
+    renderProfile()
     await screen.findByText('Mi Perfil')
     expect(screen.getByLabelText(/correo/i)).toHaveValue(baseMe.email)
     fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
     await waitFor(() => {
       expect(screen.getByText('Perfil actualizado')).toBeInTheDocument()
     })
-    expect(mockedApi).toHaveBeenLastCalledWith(
+    expect(mockedApi).toHaveBeenCalledWith(
       '/auth/profile',
       expect.objectContaining({
         method: 'PUT',
@@ -100,7 +119,7 @@ describe('ProfilePage', () => {
 
   it('muestra acciones para contraseña y 2FA', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
-    render(<ProfilePage />)
+    renderProfile()
     expect(await screen.findByText('Seguridad de la cuenta')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /cambiar contraseña/i })).toHaveAttribute(
       'href',
@@ -118,7 +137,7 @@ describe('ProfilePage', () => {
       .mockResolvedValueOnce({ enabled: true })
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ ok: true })
-    render(<ProfilePage />)
+    renderProfile()
 
     await screen.findByLabelText(/código de 2fa/i)
     fireEvent.click(screen.getByRole('button', { name: /desactivar por correo/i }))
@@ -149,7 +168,7 @@ describe('ProfilePage', () => {
     })
     const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: true })
-    render(<ProfilePage />)
+    renderProfile()
 
     expect(await screen.findByText('2FA desactivado')).toBeInTheDocument()
     // El param se elimina para que un refresh/atrás no re-dispare el aviso.

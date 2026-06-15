@@ -1,17 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api/client'
+import { useAuth, type AuthMe } from '@/contexts/AuthContext'
 
-type RoleGuardMe = {
-  role: string
-  isActive?: boolean
-  isApproved?: boolean
-  needsProfileCompletion?: boolean
-  permissionIds?: string[]
-  permissions?: Array<{ id: string; scope?: 'own' | 'all' }>
-}
-
-function hasAnyPermission(me: RoleGuardMe, permission?: string | string[], permissionScope?: 'own' | 'all') {
+function hasAnyPermission(me: AuthMe, permission?: string | string[], permissionScope?: 'own' | 'all') {
   if (!permission) return false
   const required = Array.isArray(permission) ? permission : [permission]
   const scopes = new Map<string, 'own' | 'all'>()
@@ -34,22 +25,20 @@ export default function RoleGuard({
   permissionScope?: 'own' | 'all'
   children: React.ReactNode
 }) {
+  const { me, loading } = useAuth()
   const [ok, setOk] = useState(false)
 
   useEffect(() => {
-    api<RoleGuardMe>('/auth/me')
-      .then((me: RoleGuardMe) => {
-        if (!me) { window.location.href = '/login'; return }
-        if (me.needsProfileCompletion) { window.location.href = '/onboarding'; return }
-        if (!me.isActive || !me.isApproved) { window.location.href = '/'; return }
-        const roleAllowed = !allow || allow.includes(me.role)
-        const permissionAllowed = hasAnyPermission(me, permission, permissionScope)
-        if (!roleAllowed && !permissionAllowed) { window.location.href = '/'; return }
-        setOk(true)
-      })
-      .catch(() => (window.location.href = '/login'))
-  }, [allow, permission, permissionScope])
+    if (loading) return
+    if (!me) { window.location.href = '/login'; return }
+    if (me.needsProfileCompletion) { window.location.href = '/onboarding'; return }
+    if (!me.isActive || !me.isApproved) { window.location.href = '/'; return }
+    const roleAllowed = !allow || allow.includes(me.role)
+    const permissionAllowed = hasAnyPermission(me, permission, permissionScope)
+    if (!roleAllowed && !permissionAllowed) { window.location.href = '/'; return }
+    setOk(true)
+  }, [me, loading, allow, permission, permissionScope])
 
   if (!ok) return null
   return <>{children}</>
-} 
+}

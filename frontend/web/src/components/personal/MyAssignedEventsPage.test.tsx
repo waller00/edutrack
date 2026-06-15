@@ -1,14 +1,24 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import MyAssignedEventsPage from '@/components/personal/MyAssignedEventsPage'
+import { AuthProvider } from '@/contexts/AuthContext'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 
+vi.mock('@/lib/observability/user-session', () => ({
+  identifyObservabilityUser: vi.fn(),
+  clearObservabilityUser: vi.fn(),
+}))
+
 vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
+
+function renderPage(ui: React.ReactNode) {
+  return render(<AuthProvider>{ui}</AuthProvider>)
+}
 
 const mockedApi = vi.mocked(api)
 
@@ -45,7 +55,7 @@ describe('MyAssignedEventsPage', () => {
         },
       ] as never)
 
-    render(<MyAssignedEventsPage role="TEACHER" />)
+    renderPage(<MyAssignedEventsPage role="TEACHER" />)
 
     expect(await screen.findByText('Clase de Matematica')).toBeInTheDocument()
     expect(screen.getByText('Programado')).toBeInTheDocument()
@@ -81,7 +91,7 @@ describe('MyAssignedEventsPage', () => {
         },
       ] as never)
 
-    render(<MyAssignedEventsPage role="TEACHER" />)
+    renderPage(<MyAssignedEventsPage role="TEACHER" />)
 
     expect(await screen.findByText('Prueba suplencia')).toBeInTheDocument()
     expect(screen.getByText('Suplencia')).toBeInTheDocument()
@@ -94,7 +104,7 @@ describe('MyAssignedEventsPage', () => {
       return Promise.reject(new Error(`unexpected api call: ${path}`))
     })
 
-    render(<MyAssignedEventsPage role="STAFF" />)
+    renderPage(<MyAssignedEventsPage role="STAFF" />)
     const allButton = await screen.findByRole('button', { name: 'Todos' })
     await screen.findByText('No hay actividades para mostrar')
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
@@ -126,7 +136,7 @@ describe('MyAssignedEventsPage', () => {
         },
       ] as never)
 
-    render(<MyAssignedEventsPage role="TEACHER" />)
+    renderPage(<MyAssignedEventsPage role="TEACHER" />)
 
     await screen.findByText('Jornada Especial')
     const toggle = screen.getByTitle('Expandir detalles')
@@ -144,7 +154,7 @@ describe('MyAssignedEventsPage', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockedApi.mockRejectedValueOnce(new Error('401'))
 
-    render(<MyAssignedEventsPage role="TEACHER" />)
+    renderPage(<MyAssignedEventsPage role="TEACHER" />)
 
     await waitFor(() => expect(window.location.href).toBe('/login'))
   })
