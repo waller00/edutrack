@@ -109,14 +109,14 @@ export default function OnboardingPage() {
     } catch {
       return
     }
-    if (window.location.origin === targetOrigin) return
+    if (globalThis.location.origin === targetOrigin) return
 
-    const p = new URLSearchParams(window.location.search)
+    const p = new URLSearchParams(globalThis.location.search)
     const sid = p.get('verificationSessionId') || p.get('session_id') || p.get('vendor_data')
     const approved = (p.get('status') || '').toLowerCase() === 'approved'
     if (!sid && !approved) return
 
-    window.location.replace(`${base}/onboarding${window.location.search}`)
+    globalThis.location.replace(`${base}/onboarding${globalThis.location.search}`)
   }, [])
 
   useEffect(() => {
@@ -132,7 +132,7 @@ export default function OnboardingPage() {
         setPhoneLocal(formatLocalMobileInputFromE164(data.phone))
       })
       .catch(() => {
-        window.location.href = '/login'
+        globalThis.location.href = '/login'
       })
   }, [])
 
@@ -186,7 +186,7 @@ export default function OnboardingPage() {
         setLivenessToken(null)
         setLivenessApproved(false)
         try {
-          window.sessionStorage.removeItem('edutrack_liveness_token')
+          globalThis.sessionStorage.removeItem('edutrack_liveness_token')
         } catch {
           /* */
         }
@@ -261,7 +261,7 @@ export default function OnboardingPage() {
       birthdate,
     })
     if (idErr) return
-    const tid = window.setTimeout(() => {
+    const tid = globalThis.setTimeout(() => {
       void runDiditFieldVerify()
     }, 550)
     return () => clearTimeout(tid)
@@ -279,16 +279,16 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (!livenessToken || livenessApproved) return
-    const t = window.setInterval(() => {
+    const t = globalThis.setInterval(() => {
       void pollLiveness(livenessToken)
     }, 2500)
-    return () => window.clearInterval(t)
+    return () => globalThis.clearInterval(t)
   }, [livenessToken, livenessApproved, pollLiveness])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const run = () => {
-      const p = new URLSearchParams(window.location.search)
+      const p = new URLSearchParams(globalThis.location.search)
       const fromDiditUrl =
         Boolean(p.get('verificationSessionId')) ||
         Boolean(p.get('session_id')) ||
@@ -301,7 +301,7 @@ export default function OnboardingPage() {
       let tok: string | null = fromParams.length > 0 ? fromParams : null
       if (!tok) {
         try {
-          tok = window.sessionStorage.getItem('edutrack_liveness_token')
+          tok = globalThis.sessionStorage.getItem('edutrack_liveness_token')
         } catch {
           /* */
         }
@@ -317,7 +317,7 @@ export default function OnboardingPage() {
 
       setLivenessToken(tok)
       try {
-        window.sessionStorage.setItem('edutrack_liveness_token', tok)
+        globalThis.sessionStorage.setItem('edutrack_liveness_token', tok)
       } catch {
         /* */
       }
@@ -328,8 +328,8 @@ export default function OnboardingPage() {
       void pollLiveness(tok)
     }
     run()
-    window.addEventListener('focus', run)
-    return () => window.removeEventListener('focus', run)
+    globalThis.addEventListener('focus', run)
+    return () => globalThis.removeEventListener('focus', run)
   }, [pollLiveness])
 
   useEffect(() => {
@@ -430,7 +430,7 @@ export default function OnboardingPage() {
       setLivenessToken(res.livenessToken)
       setLivenessApproved(false)
       try {
-        window.sessionStorage.setItem('edutrack_liveness_token', res.livenessToken)
+        globalThis.sessionStorage.setItem('edutrack_liveness_token', res.livenessToken)
       } catch {
         /* */
       }
@@ -453,7 +453,7 @@ export default function OnboardingPage() {
         identityVerificationMethod,
       }
       saveOnboardingDraft(draft)
-      window.location.assign(res.verificationUrl)
+      globalThis.location.assign(res.verificationUrl)
     } catch (e: unknown) {
       const err = e as { data?: { message?: string; details?: string }; message?: string }
       const base =
@@ -526,7 +526,7 @@ export default function OnboardingPage() {
         }),
       })
       clearOnboardingDraft()
-      window.location.href = '/'
+      globalThis.location.href = '/'
     } catch (err: unknown) {
       const e = err as { message?: string; status?: number }
       if (String(e?.message || '').includes('409')) setError('Usuario o cédula ya registrados.')

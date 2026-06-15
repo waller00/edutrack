@@ -844,7 +844,7 @@ export default function AdminAttendance() {
       if (!dl.ok) throw new Error(`Error descargando exportación: ${dl.status}`)
 
       const blob = await dl.blob()
-      const url = window.URL.createObjectURL(blob)
+      const url = globalThis.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download =
@@ -853,7 +853,7 @@ export default function AdminAttendance() {
           : `EduTrack_Asistencia_Detallada_${from}_${to}${filterSuffix}.pdf`
       document.body.appendChild(a)
       a.click()
-      window.URL.revokeObjectURL(url)
+      globalThis.URL.revokeObjectURL(url)
       document.body.removeChild(a)
 
       setMessage(`✅ Exportación ${format.toUpperCase()} generada correctamente`)

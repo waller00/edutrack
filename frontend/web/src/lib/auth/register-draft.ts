@@ -29,7 +29,7 @@ export type RegisterDraftSnapshot = {
 
 export function saveRegisterDraft(snapshot: RegisterDraftSnapshot): void {
   try {
-    window.sessionStorage.setItem(KEY, JSON.stringify(snapshot))
+    globalThis.sessionStorage.setItem(KEY, JSON.stringify(snapshot))
   } catch (e) {
     console.warn('[register-draft] no se pudo guardar (imagen muy grande o storage lleno)', e)
   }
@@ -38,7 +38,7 @@ export function saveRegisterDraft(snapshot: RegisterDraftSnapshot): void {
 export function loadRegisterDraft(): RegisterDraftSnapshot | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = window.sessionStorage.getItem(KEY)
+    const raw = globalThis.sessionStorage.getItem(KEY)
     if (!raw) return null
     const p = JSON.parse(raw) as RegisterDraftSnapshot
     if (p?.v !== 1) return null
@@ -50,7 +50,7 @@ export function loadRegisterDraft(): RegisterDraftSnapshot | null {
 
 export function clearRegisterDraft(): void {
   try {
-    window.sessionStorage.removeItem(KEY)
+    globalThis.sessionStorage.removeItem(KEY)
   } catch {
     /* */
   }
@@ -60,7 +60,7 @@ const ONBOARDING_KEY = 'edutrack_onboarding_draft'
 
 export function saveOnboardingDraft(snapshot: RegisterDraftSnapshot): void {
   try {
-    window.sessionStorage.setItem(ONBOARDING_KEY, JSON.stringify(snapshot))
+    globalThis.sessionStorage.setItem(ONBOARDING_KEY, JSON.stringify(snapshot))
   } catch (e) {
     console.warn('[onboarding-draft] no se pudo guardar', e)
   }
@@ -69,7 +69,7 @@ export function saveOnboardingDraft(snapshot: RegisterDraftSnapshot): void {
 export function loadOnboardingDraft(): RegisterDraftSnapshot | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = window.sessionStorage.getItem(ONBOARDING_KEY)
+    const raw = globalThis.sessionStorage.getItem(ONBOARDING_KEY)
     if (!raw) return null
     const p = JSON.parse(raw) as RegisterDraftSnapshot
     if (p?.v !== 1) return null
@@ -81,7 +81,7 @@ export function loadOnboardingDraft(): RegisterDraftSnapshot | null {
 
 export function clearOnboardingDraft(): void {
   try {
-    window.sessionStorage.removeItem(ONBOARDING_KEY)
+    globalThis.sessionStorage.removeItem(ONBOARDING_KEY)
   } catch {
     /* */
   }

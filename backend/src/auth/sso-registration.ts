@@ -1,4 +1,4 @@
-import crypto from "crypto";
+import crypto from "node:crypto";
 import { getRedis } from "../db/redis.js";
 
 const PREFIX = "bff:sso-register:";

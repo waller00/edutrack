@@ -343,7 +343,7 @@ export default function AdminStudentsPage() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm('¿Eliminar este registro de estudiante? Esta acción no se puede deshacer.')) return
+    if (!globalThis.confirm('¿Eliminar este registro de estudiante? Esta acción no se puede deshacer.')) return
     try {
       await api(`/admin/students/${id}`, { method: 'DELETE' })
       await loadSummary()

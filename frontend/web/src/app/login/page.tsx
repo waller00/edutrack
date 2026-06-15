@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [sessionPending, setSessionPending] = useState(true)
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(globalThis.location.search)
     const error = params.get('error') || ''
     const loggedOutParam = params.get('loggedOut') === '1'
     const returnTo = safeReturnTo(params.get('returnTo'))
@@ -43,7 +43,7 @@ export default function LoginPage() {
           setSessionPending(false)
           return
         }
-        window.location.href = loginUrl(returnTo)
+        globalThis.location.href = loginUrl(returnTo)
       })
 
     return () => {
@@ -97,7 +97,7 @@ export default function LoginPage() {
             className="btn-primary w-full justify-center"
             type="button"
             onClick={() => {
-              window.location.href = externalError === 'account' ? logoutUrl() : loginUrl('/')
+              globalThis.location.href = externalError === 'account' ? logoutUrl() : loginUrl('/')
             }}
           >
             {externalError === 'account' ? 'Cerrar sesión y cambiar cuenta' : 'Ingresar'}

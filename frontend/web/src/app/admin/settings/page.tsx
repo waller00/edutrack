@@ -89,7 +89,7 @@ export default function AdminSystemSettingsPage() {
   }, [load])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(globalThis.location.search)
     const s = params.get('section')
     if (s === 'attendance' || s === 'identity' || s === 'system' || s === 'readers' || s === 'testing' || s === 'moodle') setSection(s)
   }, [])
@@ -98,7 +98,7 @@ export default function AdminSystemSettingsPage() {
     setSection(nextSection)
     const url =
       nextSection === 'system' ? '/admin/settings' : `/admin/settings?section=${nextSection}`
-    window.history.replaceState(null, '', url)
+    globalThis.history.replaceState(null, '', url)
   }
 
   async function save() {

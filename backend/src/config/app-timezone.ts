@@ -47,7 +47,7 @@ export function isYmdDateString(s: string): boolean {
 export function parseEventTimeToUruguayHhMm(s: string): { hh: number; mm: number } | null {
   const trimmed = s.trim()
   const hhmm = /^([01]?\d|2[0-3]):([0-5]\d)$/
-  const m = trimmed.match(hhmm)
+  const m = hhmm.exec(trimmed)
   if (m) {
     const hh = Number(m[1])
     const mm = Number(m[2])

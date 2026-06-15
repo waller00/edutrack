@@ -30,12 +30,12 @@ export default function RoleGuard({
 
   useEffect(() => {
     if (loading) return
-    if (!me) { window.location.href = '/login'; return }
-    if (me.needsProfileCompletion) { window.location.href = '/onboarding'; return }
-    if (!me.isActive || !me.isApproved) { window.location.href = '/'; return }
+    if (!me) { globalThis.location.href = '/login'; return }
+    if (me.needsProfileCompletion) { globalThis.location.href = '/onboarding'; return }
+    if (!me.isActive || !me.isApproved) { globalThis.location.href = '/'; return }
     const roleAllowed = !allow || allow.includes(me.role)
     const permissionAllowed = hasAnyPermission(me, permission, permissionScope)
-    if (!roleAllowed && !permissionAllowed) { window.location.href = '/'; return }
+    if (!roleAllowed && !permissionAllowed) { globalThis.location.href = '/'; return }
     setOk(true)
   }, [me, loading, allow, permission, permissionScope])
 

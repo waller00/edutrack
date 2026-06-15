@@ -21,12 +21,9 @@ import { getRoleLabel } from '@/lib/roles/display'
 import {
   addDaysToYmd,
   eventAssignedWeekdays,
-  eventOccursOnYmd,
   getEventsForYmd,
-  getOccurrencesForYmd,
   uniqueSortedDays,
   weekdayNumberInUruguay,
-  ymdInUruguay,
   type EventOccurrence,
   type OccurrenceChild,
 } from '@/lib/admin/event-occurrences'
@@ -36,7 +33,6 @@ import {
   formatClockHhMmInUruguayFromIso,
   getTodayYmdInUruguay,
   isUruguayWallDateTimeInPast,
-  APP_TIMEZONE,
 } from '@/lib/forms/datetime-uy'
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
 import EventsCalendar, { type CalendarEvent } from '@/components/admin/EventsCalendar'

@@ -1,4 +1,4 @@
-import crypto from "crypto";
+import crypto from "node:crypto";
 
 /**
  * Generación de usernames con formato `nombre.apellido`, compartida entre las

@@ -92,7 +92,7 @@ export function spanishMonthFromQuestion(q: string): number | undefined {
 }
 
 export function yearFromQuestion(q: string): number | undefined {
-  const m = norm(q).match(/\b(20[0-9]{2})\b/)
+  const m = /\b(20[0-9]{2})\b/.exec(norm(q))
   if (!m) return undefined
   const y = Number(m[1])
   if (y >= 2000 && y <= 2100) return y

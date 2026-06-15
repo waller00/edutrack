@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import crypto from "crypto";
+import crypto from "node:crypto";
 import { prisma } from "../db/prisma.js";
 import { authGuard } from "../middlewares/auth.js";
 import { sendMail } from "../notifications/email.js";

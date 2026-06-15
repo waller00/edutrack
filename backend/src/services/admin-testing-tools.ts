@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { randomBytes } from 'node:crypto'
 import { prisma } from '../db/prisma.js'
 import { ensureBuiltinOrgRoles } from '../identity/org-role-seed.js'
 import { upsertCanonicalProfilePermissions } from '../identity/profile-permissions-repository.js'
