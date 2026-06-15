@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminAttendance from './page'
 import { api } from '@/lib/api/client'
@@ -313,18 +313,25 @@ describe('AdminAttendance', () => {
     expect(firstClassRow?.textContent).toMatch(/Salida/)
     expect(firstClassRow?.textContent).not.toMatch(/Salida Anticipada/)
     expect(firstClassRow?.textContent).toMatch(/Entrada automática \/ Salida automática - SALIDA ANTICIPADA/)
+    // No debe pisar: la clase 1 muestra su fin planificado (18:50), no la salida real del día (18:54).
+    expect(firstClassRow?.textContent).toMatch(/18:50/)
+    expect(firstClassRow?.textContent).not.toMatch(/18:54/)
 
     expect(secondClassRow?.textContent).toMatch(/Presente/)
     expect(secondClassRow?.textContent).toMatch(/Salida Anticipada/)
+    // La salida real del día se imputa a la última clase del tramo.
+    expect(secondClassRow?.textContent).toMatch(/18:54/)
     expect(secondClassRow?.textContent).toMatch(/Presencia correlacionada por permanencia biométrica \/ Salida automática - SALIDA ANTICIPADA/)
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Mostrar detalle de eventos' })[0])
+    fireEvent.click(within(firstClassRow!).getByRole('button', { name: 'Mostrar detalle de eventos' }))
 
-    expect(screen.getByText('Salida proyectada desde la misma permanencia biométrica.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Salida esperada: cubierta por la permanencia continua del día/),
+    ).toBeInTheDocument()
     expect(screen.getAllByText('Entrada').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Salida').length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getAllByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' })[0])
+    fireEvent.click(within(firstClassRow!).getByRole('checkbox', { name: 'Seleccionar asistencia de Jorge' }))
     fireEvent.click(screen.getByRole('button', { name: 'Eliminar seleccionadas' }))
 
     await waitFor(() => {
