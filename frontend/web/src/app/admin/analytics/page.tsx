@@ -5,6 +5,7 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
+import { getRiskScoreBadgeClass } from '@/lib/admin/analytics-display'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   ArrowDownRight,
@@ -307,6 +308,56 @@ function roleChipLabel(role: string | undefined | null) {
     default:
       return role
   }
+}
+
+function PersonRankCard({ p, onSelect }: Readonly<{ p: TopRiskPerson; onSelect: () => void }>) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-medium text-gray-900">{p.displayName}</div>
+          <div className="text-xs text-gray-500">{roleChipLabel(p.role)}</div>
+        </div>
+        <span className={`inline-flex shrink-0 rounded-full px-2 py-1 text-xs font-bold tabular-nums ${getRiskScoreBadgeClass(p.riskScore)}`}>
+          {p.riskScore}
+        </span>
+      </div>
+      <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+        <div className="flex gap-1"><dt className="text-gray-500">Oblig.:</dt><dd className="tabular-nums">{p.plannedCount}</dd></div>
+        <div className="flex gap-1"><dt className="text-gray-500">Tarde:</dt><dd className="tabular-nums text-amber-800">{p.lateCount}</dd></div>
+        <div className="flex gap-1"><dt className="text-gray-500">Aus NJ:</dt><dd className="tabular-nums font-medium text-red-700">{p.absentNotJustifiedCount}</dd></div>
+        <div className="flex gap-1"><dt className="text-gray-500">Aus OK:</dt><dd className="tabular-nums">{p.absentJustifiedCount}</dd></div>
+      </dl>
+      <button
+        type="button"
+        className="mt-3 w-full rounded-md border border-emerald-200 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+        onClick={onSelect}
+      >
+        Ver detalle
+      </button>
+    </div>
+  )
+}
+
+function EventRankCard({ e }: Readonly<{ e: TopRiskEvent }>) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 font-semibold text-gray-900" title={`${e.title} · ${e.eventId}`}>
+          {e.title}
+        </div>
+        <span className="shrink-0 whitespace-nowrap rounded-md border border-emerald-100 bg-emerald-50/70 px-2 py-1 text-[11px] font-medium uppercase text-emerald-900">
+          {getAdminEventTypeLabel(e.eventType)}
+        </span>
+      </div>
+      <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+        <div className="flex gap-1"><dt className="text-gray-500">Oblig.:</dt><dd className="tabular-nums">{e.plannedCount}</dd></div>
+        <div className="flex gap-1"><dt className="text-gray-500">% Tarde:</dt><dd className="tabular-nums text-amber-800">{formatPct(e.lateRatePct)}</dd></div>
+        <div className="flex gap-1"><dt className="text-gray-500">% Aus:</dt><dd className="tabular-nums font-medium text-red-700">{formatPct(e.absentOverPlanPct)}</dd></div>
+        <div className="flex gap-1"><dt className="text-gray-500">Índice:</dt><dd className="font-semibold tabular-nums text-slate-900">{e.focusScore.toFixed(2)}</dd></div>
+      </dl>
+    </div>
+  )
 }
 
 export default function AdminAnalyticsPage() {
@@ -971,7 +1022,8 @@ export default function AdminAnalyticsPage() {
                 {peopleRank.length === 0 ? (
                   <p className="py-8 text-center text-sm text-gray-500">No registramos instancias con usuario asignado en los filtros actuales.</p>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-gray-100">
+                  <>
+                  <div className="hidden overflow-hidden rounded-xl border border-gray-100 sm:block">
                     <div className="max-h-[22rem] overflow-auto">
                       <table className="min-w-[640px] text-left text-sm">
                         <thead className="sticky top-0 z-10 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500 shadow-[0_1px_0_0_rgba(0,0,0,0.05)]">
@@ -1016,9 +1068,7 @@ export default function AdminAnalyticsPage() {
                               <td className="hidden px-2 py-3 text-right tabular-nums text-gray-500 xl:table-cell">{p.absentJustifiedCount}</td>
                               <td className="whitespace-nowrap px-4 py-3 text-right">
                                 <span
-                                  className={`inline-flex min-w-[2.5rem] justify-end rounded-full px-2 py-1 text-xs font-bold tabular-nums ${
-                                    p.riskScore > 8 ? 'bg-red-50 text-red-800' : p.riskScore > 3 ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-900'
-                                  }`}
+                                  className={`inline-flex min-w-[2.5rem] justify-end rounded-full px-2 py-1 text-xs font-bold tabular-nums ${getRiskScoreBadgeClass(p.riskScore)}`}
                                 >
                                   {p.riskScore}
                                 </span>
@@ -1038,6 +1088,12 @@ export default function AdminAnalyticsPage() {
                       </table>
                     </div>
                   </div>
+                  <div className="space-y-3 sm:hidden">
+                    {peopleRank.map((p) => (
+                      <PersonRankCard key={p.userId} p={p} onSelect={() => selectAnalyticsUser(p)} />
+                    ))}
+                  </div>
+                  </>
                 )}
               </section>
 
@@ -1062,7 +1118,8 @@ export default function AdminAnalyticsPage() {
                 {eventsRank.length === 0 ? (
                   <p className="py-8 text-center text-sm text-gray-500">Sin eventos suficientemente representados dentro del período.</p>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-gray-100">
+                  <>
+                  <div className="hidden overflow-hidden rounded-xl border border-gray-100 sm:block">
                     <div className="max-h-[22rem] overflow-auto">
                       <table className="min-w-[640px] text-left text-sm">
                         <thead className="sticky top-0 z-10 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500 shadow-[0_1px_0_0_rgba(0,0,0,0.05)]">
@@ -1110,6 +1167,12 @@ export default function AdminAnalyticsPage() {
                       </table>
                     </div>
                   </div>
+                  <div className="space-y-3 sm:hidden">
+                    {eventsRank.map((e) => (
+                      <EventRankCard key={e.eventId} e={e} />
+                    ))}
+                  </div>
+                  </>
                 )}
               </section>
             </div>

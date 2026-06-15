@@ -141,4 +141,32 @@ describe('AdminQueryAssistantPage', () => {
       expect(body.schoolYearId).toBeUndefined()
     })
   })
+
+  it('muestra los resultados en tabla y en tarjetas mobile, y permite copiar', async () => {
+    mockedApi.mockResolvedValue({
+      intent: 'HOURS_WORKED_SUMMARY',
+      summary: 'ok',
+      columns: [
+        { key: 'name', label: 'Nombre' },
+        { key: 'hours', label: 'Horas' },
+      ],
+      rows: [{ name: 'Ana García', hours: 12 }],
+    })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+
+    render(<AdminQueryAssistantPage />)
+    fireEvent.change(screen.getByLabelText('Tu pregunta'), { target: { value: 'Horas trabajadas' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar' }))
+
+    // El valor aparece en la fila de tabla y en la tarjeta mobile.
+    const matches = await screen.findAllByText('Ana García')
+    expect(matches.length).toBeGreaterThanOrEqual(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar tabla' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('Nombre\tHoras\nAna García\t12'))
+    expect(await screen.findByRole('button', { name: 'Copiado' })).toBeInTheDocument()
+
+    vi.unstubAllGlobals()
+  })
 })
