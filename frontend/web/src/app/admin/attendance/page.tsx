@@ -195,18 +195,17 @@ function checkOutCoversRow(checkOut: AttendanceRecord, row: AttendancePairRow): 
 }
 
 function deriveCheckOutForRow(checkOut: AttendanceRecord, row: AttendancePairRow): DisplayAttendanceRecord {
-  const planned = getPlannedWindowMs(row.event)
-  const checkOutTime = new Date(checkOut.time).getTime()
-  const status =
-    planned && !Number.isNaN(checkOutTime) && checkOutTime < planned.end
-      ? 'EARLY_EXIT'
-      : 'EXIT'
+  // Salida "esperada": esta clase quedó cubierta por la permanencia continua del día, pero la
+  // salida real pertenece a la última clase del tramo. Para no pisar horas entre clases, la fila
+  // muestra su propio fin planificado (no la salida real del día) y se marca como salida normal.
+  const plannedEndIso = row.event?.endTime ?? checkOut.time
 
   return {
     ...checkOut,
     id: `derived-checkout:${row.key}:${checkOut.id}`,
     event: row.event,
-    status,
+    time: plannedEndIso,
+    status: 'EXIT',
     isDerived: true,
     derivedFromId: checkOut.id,
   }
@@ -404,7 +403,7 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
             </div>
           ) : null}
           {hasProjectedExit ? (
-            <div className="pt-1 text-[11px] text-slate-500">Salida proyectada desde la misma permanencia biométrica.</div>
+            <div className="pt-1 text-[11px] text-slate-500">Salida esperada: cubierta por la permanencia continua del día (la salida real se imputa a la última clase del tramo).</div>
           ) : null}
         </div>
       ) : null}
