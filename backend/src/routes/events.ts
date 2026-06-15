@@ -30,6 +30,7 @@ import {
   isYmdWithinSchoolYear,
 } from '../services/school-year-service.js';
 import { ensureMoodleUserById } from '../services/moodle.js';
+import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { conflictKindBetween, findEventOverlapConflict, type EventSchedule } from '../services/events/event-overlap.js';
 import { isEventStartInPast, isMovingEventStartToPast, splitEventDefinitionForEdit, todayUruguayYmd } from '../services/events/event-versioning.js';
 
@@ -802,6 +803,31 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
 
     const recurrenceEndUtc = eventData.recurrenceEnd ? parseRecurrenceEndInclusive(eventData.recurrenceEnd) : null;
 
+    // recurrenceEnd ya pasó → evento "muerto", se rechaza.
+    if (isRecurring && recurrenceEndUtc) {
+      const todayStartUtc = uruguayWallToUtc(todayUruguayYmd(), 0, 0);
+      if (recurrenceEndUtc.getTime() < todayStartUtc.getTime()) {
+        return res.status(400).json({ message: 'La fecha de fin de repetición ya pasó' });
+      }
+    }
+
+    // Día no laborable: bloquea solo eventos únicos (la serie recurrente se marca en el calendario).
+    if (!isRecurring) {
+      const nonWorking = await findNonWorkingDayForDate(new Date(`${ymd}T00:00:00.000Z`));
+      if (nonWorking) {
+        return res.status(400).json({
+          message: `La fecha es un día no laborable${nonWorking.reason ? ` (${nonWorking.reason})` : ''}`,
+          code: 'NON_WORKING_DAY',
+        });
+      }
+    }
+
+    // Aviso no bloqueante: MONTHLY con día 29-31 omite los meses sin ese día.
+    const monthlyWarning =
+      isRecurring && recurrenceType === 'MONTHLY' && Number(ymd.slice(8, 10)) >= 29
+        ? 'La repetición mensual omitirá los meses que no tengan el día ' + ymd.slice(8, 10) + '.'
+        : null;
+
     const overlapCandidate: EventSchedule = {
       type: eventData.type,
       assignedUserId: eventData.assignedUserId ?? null,
@@ -902,7 +928,8 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       void ensureMoodleUserById(assigneeId);
     }
 
-    res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
+    const mapped = mapNestedEventUsers(event as unknown as Record<string, unknown>);
+    res.json(monthlyWarning ? { ...mapped, warning: monthlyWarning } : mapped);
   } catch (error) {
     console.error('Error creando evento:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
@@ -1794,6 +1821,242 @@ r.delete('/:id', authGuard, requirePermission('events.delete', 'all'), async (re
     res.json({ message: 'Evento eliminado correctamente', softDeleted: true });
   } catch (error: any) {
     console.error('Error eliminando evento:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+// --- Excepciones por ocurrencia ("solo este día") de un evento recurrente ---
+
+const occurrenceSelect = {
+  id: true,
+  title: true,
+  type: true,
+  status: true,
+  description: true,
+  userId: true,
+  assignedUserId: true,
+  schoolYearId: true,
+  startDate: true,
+  startTime: true,
+  endTime: true,
+  isRecurring: true,
+  recurrenceType: true,
+  daysOfWeek: true,
+  recurrenceEnd: true,
+  effectiveFrom: true,
+  effectiveUntil: true,
+} as const;
+
+function shiftYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Resuelve el instante UTC de la ocurrencia de un evento recurrente en el día civil `ymd`. */
+function resolveOccurrenceInstant(parent: any, ymd: string): { startAt: Date; endAt: Date } | null {
+  if (!parent.isRecurring) return null;
+  // Ventana ±1 día: un YYYY-MM-DD interpretado como UTC cae en el día civil anterior en UY,
+  // así que expandimos un margen y emparejamos por la fecha civil real de la ocurrencia.
+  const instances = expandRecurringEvent({ ...parent, childEvents: [] }, shiftYmd(ymd, -1), shiftYmd(ymd, 1)) as any[];
+  const match = instances.find((occ) => {
+    const occYmd = DateTime.fromJSDate(new Date(occ.startDate), { zone: 'utc' })
+      .setZone(getAppTimezone())
+      .toFormat('yyyy-MM-dd');
+    return occYmd === ymd;
+  });
+  if (!match) return null;
+  return {
+    startAt: new Date(match.startTime ?? match.startDate),
+    endAt: new Date(match.endTime ?? match.startDate),
+  };
+}
+
+/** Carga el evento padre + valida que sea recurrente, el permiso de scope y la ocurrencia. */
+async function loadOccurrenceContext(
+  req: any,
+  res: any,
+  permission: 'events.update' | 'events.cancel',
+): Promise<{ parent: any; occ: { startAt: Date; endAt: Date }; existingChildId: string | null } | null> {
+  const { id, ymd } = req.params as { id: string; ymd: string };
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ message: 'No autorizado' });
+    return null;
+  }
+  if (!isYmdDateString(ymd)) {
+    res.status(400).json({ message: 'Fecha inválida (usar YYYY-MM-DD)' });
+    return null;
+  }
+  const parent = await (prisma.event as any).findUnique({ where: { id }, select: occurrenceSelect });
+  if (!parent) {
+    res.status(404).json({ message: 'Evento no encontrado' });
+    return null;
+  }
+  if (!parent.isRecurring) {
+    res.status(400).json({ message: 'Solo los eventos recurrentes admiten excepciones por día' });
+    return null;
+  }
+  const scope = await userPermissionScope(user.sub, permission, user.role);
+  if (scope !== 'all' && parent.userId !== user.sub && parent.assignedUserId !== user.sub) {
+    res.status(403).json({ message: 'No tenés permisos sobre este evento' });
+    return null;
+  }
+  const occ = resolveOccurrenceInstant(parent, ymd);
+  if (!occ) {
+    res.status(400).json({ message: 'No hay una ocurrencia de este evento en esa fecha' });
+    return null;
+  }
+  const existingChild = await (prisma.event as any).findFirst({
+    where: { parentEventId: id, startDate: occ.startAt },
+    select: { id: true },
+  });
+  return { parent, occ, existingChildId: existingChild?.id ?? null };
+}
+
+// Suspender una sola ocurrencia (excepción CANCELLED).
+r.post('/:id/occurrences/:ymd/cancel', authGuard, requirePermission('events.cancel'), async (req, res) => {
+  try {
+    const ctx = await loadOccurrenceContext(req, res, 'events.cancel');
+    if (!ctx) return;
+    const { parent, occ, existingChildId } = ctx;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    const description = reason ? `Suspendida: ${reason}` : 'Suspendida';
+
+    if (existingChildId) {
+      await (prisma.event as any).update({ where: { id: existingChildId }, data: { status: 'CANCELLED', description } });
+    } else {
+      await (prisma.event as any).create({
+        data: {
+          parentEventId: parent.id,
+          title: parent.title,
+          type: parent.type,
+          status: 'CANCELLED',
+          description,
+          userId: parent.userId,
+          schoolYearId: parent.schoolYearId,
+          startDate: occ.startAt,
+          startTime: occ.startAt,
+          endTime: occ.endAt,
+          recurrenceType: 'NONE',
+          isRecurring: false,
+          daysOfWeek: [],
+        },
+      });
+    }
+
+    recordAuditEvent({
+      action: AuditAction.EVENT_CREATED,
+      actorUserId: req.user!.sub,
+      req,
+      entityType: 'Event',
+      entityId: parent.id,
+      metadata: { occurrenceCancelled: req.params.ymd, reason: reason || null },
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error suspendiendo ocurrencia:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+// Editar una sola ocurrencia (override de título/horario/asignado).
+r.put('/:id/occurrences/:ymd', authGuard, requirePermission('events.update'), async (req, res) => {
+  try {
+    const parsed = z
+      .object({
+        title: z.string().min(1).max(200).optional(),
+        description: z.string().optional(),
+        startTime: z.string().optional(),
+        endTime: z.string().optional(),
+        assignedUserId: z.string().uuid().nullable().optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos' });
+
+    const ctx = await loadOccurrenceContext(req, res, 'events.update');
+    if (!ctx) return;
+    const { parent, occ, existingChildId } = ctx;
+    const ymd = req.params.ymd;
+
+    let startAt = occ.startAt;
+    let endAt = occ.endAt;
+    if (parsed.data.startTime || parsed.data.endTime) {
+      const tStart = parsed.data.startTime ? parseEventTimeToUruguayHhMm(parsed.data.startTime) : null;
+      const tEnd = parsed.data.endTime ? parseEventTimeToUruguayHhMm(parsed.data.endTime) : null;
+      try {
+        if (tStart) startAt = uruguayWallToUtc(ymd, tStart.hh, tStart.mm);
+        if (tEnd) endAt = uruguayWallToUtc(ymd, tEnd.hh, tEnd.mm);
+      } catch {
+        return res.status(400).json({ message: 'Horario inválido (HH:MM, hora de Uruguay)' });
+      }
+      if (endAt.getTime() <= startAt.getTime()) {
+        return res.status(400).json({ message: 'Hora fin debe ser mayor que hora inicio' });
+      }
+    }
+
+    const data: Record<string, unknown> = {
+      parentEventId: parent.id,
+      title: parsed.data.title ?? parent.title,
+      type: parent.type,
+      status: 'SCHEDULED',
+      description: parsed.data.description ?? null,
+      userId: parent.userId,
+      assignedUserId: parsed.data.assignedUserId !== undefined ? parsed.data.assignedUserId : parent.assignedUserId,
+      schoolYearId: parent.schoolYearId,
+      startDate: occ.startAt,
+      startTime: startAt,
+      endTime: endAt,
+      recurrenceType: 'NONE',
+      isRecurring: false,
+      daysOfWeek: [],
+    };
+
+    if (existingChildId) {
+      await (prisma.event as any).update({ where: { id: existingChildId }, data });
+    } else {
+      await (prisma.event as any).create({ data });
+    }
+
+    recordAuditEvent({
+      action: AuditAction.EVENT_CREATED,
+      actorUserId: req.user!.sub,
+      req,
+      entityType: 'Event',
+      entityId: parent.id,
+      metadata: { occurrenceOverridden: ymd },
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error editando ocurrencia:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+// Quitar la excepción (restaura la ocurrencia al patrón de la serie).
+r.delete('/:id/occurrences/:ymd', authGuard, requirePermission('events.update'), async (req, res) => {
+  try {
+    const ctx = await loadOccurrenceContext(req, res, 'events.update');
+    if (!ctx) return;
+    const { parent, existingChildId } = ctx;
+    if (!existingChildId) return res.status(404).json({ message: 'No hay una excepción para esa fecha' });
+
+    await (prisma.event as any).delete({ where: { id: existingChildId } });
+
+    recordAuditEvent({
+      action: AuditAction.EVENT_CREATED,
+      actorUserId: req.user!.sub,
+      req,
+      entityType: 'Event',
+      entityId: parent.id,
+      metadata: { occurrenceExceptionRemoved: req.params.ymd },
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error quitando excepción de ocurrencia:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 });
