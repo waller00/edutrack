@@ -15,7 +15,6 @@ import {
   getAdminAttendanceTypeLabel,
   getAdminAttendanceTypeStyle,
 } from '@/lib/admin/attendance-display'
-import { addDaysToYmd, weekdayNumberInUruguay } from '@/lib/admin/event-occurrences'
 import { formatDateInUruguay, formatTimeInUruguay, getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import AdminIncidentsPanel from '@/components/admin/AdminIncidentsPanel'
@@ -413,17 +412,6 @@ function renderEventSummary(row: AttendancePairRow, expanded: boolean, onToggle:
       ) : null}
     </div>
   )
-}
-
-function mondayIndexForYmd(ymd: string): number {
-  const wd = weekdayNumberInUruguay(ymd) // 0=Dom … 6=Sáb
-  return wd === null ? 0 : (wd + 6) % 7
-}
-
-function currentWeekRange(): { start: string; end: string } {
-  const today = getTodayYmdInUruguay()
-  const start = addDaysToYmd(today, -mondayIndexForYmd(today))
-  return { start, end: addDaysToYmd(start, 6) }
 }
 
 function renderUserCell(user: AttendanceRecord['user'], onUserClick: (user: AttendanceRecord['user']) => void) {
@@ -876,11 +864,6 @@ export default function AdminAttendance() {
     setPersonDrawer({ userId: user.id, name: user.name })
   }
 
-  function applyQuickFilter(patch: Partial<typeof filters>) {
-    setFilters((prev) => ({ ...prev, ...patch }))
-    setPage(1)
-  }
-
   async function exportReport(format: 'excel' | 'pdf') {
     try {
       const apiUrl = apiBaseUrl()
@@ -1047,28 +1030,6 @@ export default function AdminAttendance() {
                 </button>
               </div>
             </div>
-          </div>
-
-          {/* Filtros rápidos */}
-          <div className="mb-4 flex flex-wrap gap-2">
-            {[
-              { label: 'Hoy', patch: { startDate: getTodayYmdInUruguay(), endDate: getTodayYmdInUruguay() } },
-              {
-                label: 'Esta semana',
-                patch: { startDate: currentWeekRange().start, endDate: currentWeekRange().end },
-              },
-              { label: 'Solo ausencias', patch: { type: 'CHECK_IN', status: 'ABSENCES' } },
-              { label: 'Solo sin justificar', patch: { type: 'CHECK_IN', status: 'ABSENT_NOT_JUSTIFIED' } },
-            ].map((chip) => (
-              <button
-                key={chip.label}
-                type="button"
-                onClick={() => applyQuickFilter(chip.patch)}
-                className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-              >
-                {chip.label}
-              </button>
-            ))}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

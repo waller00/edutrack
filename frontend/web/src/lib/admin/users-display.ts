@@ -30,6 +30,8 @@ export type AdminUsersListFilters = {
   active: TriState
   verified: TriState
   locked: TriState
+  /** Documento de identidad por vencer en los próximos 90 días. */
+  docExpiring: TriState
   page: number
 }
 
@@ -46,7 +48,21 @@ export function buildAdminUsersQueryParams(f: AdminUsersListFilters): string {
   if (f.active === 'true' || f.active === 'false') params.set('active', f.active)
   if (f.verified === 'true' || f.verified === 'false') params.set('verified', f.verified)
   if (f.locked === 'true' || f.locked === 'false') params.set('locked', f.locked)
+  if (f.docExpiring === 'true') params.set('docExpiring', 'true')
   return params.toString()
+}
+
+/** Cantidad de filtros activos (excluye paginación). Útil para el contador junto a "Limpiar". */
+export function countActiveUserFilters(f: AdminUsersListFilters): number {
+  let n = 0
+  if (f.q.trim()) n += 1
+  if (f.role && f.role !== 'ALL') n += 1
+  if (f.approved === 'true' || f.approved === 'false') n += 1
+  if (f.active === 'true' || f.active === 'false') n += 1
+  if (f.verified === 'true' || f.verified === 'false') n += 1
+  if (f.locked === 'true' || f.locked === 'false') n += 1
+  if (f.docExpiring === 'true') n += 1
+  return n
 }
 
 export function displayUserName(u: Pick<AdminUserRow, 'firstName' | 'lastName' | 'name' | 'email'>): string {

@@ -3,6 +3,7 @@ import {
   buildAdminUserEditChanges,
   buildAdminUsersQueryParams,
   cloneAdminUser,
+  countActiveUserFilters,
   type AdminUsersListFilters,
   getActiveBadgeClass,
   getActiveLabel,
@@ -30,6 +31,7 @@ const baseFilters = (over?: Partial<AdminUsersListFilters>): AdminUsersListFilte
   active: '',
   verified: '',
   locked: '',
+  docExpiring: '',
   page: 1,
   ...over,
 })
@@ -56,6 +58,24 @@ describe('buildAdminUsersQueryParams', () => {
     expect(qs).toContain('verified=true')
     expect(qs).toContain('locked=false')
     expect(qs).not.toContain('docExpiring')
+  })
+
+  it('incluye docExpiring solo cuando es true', () => {
+    expect(buildAdminUsersQueryParams(baseFilters({ docExpiring: 'true' }))).toContain('docExpiring=true')
+    expect(buildAdminUsersQueryParams(baseFilters({ docExpiring: 'false' }))).not.toContain('docExpiring')
+  })
+})
+
+describe('countActiveUserFilters', () => {
+  it('cuenta filtros activos e ignora paginación y valores por defecto', () => {
+    expect(countActiveUserFilters(baseFilters())).toBe(0)
+    expect(countActiveUserFilters(baseFilters({ page: 5 }))).toBe(0)
+    expect(countActiveUserFilters(baseFilters({ role: 'ALL' }))).toBe(0)
+    expect(
+      countActiveUserFilters(
+        baseFilters({ q: 'ana', role: 'TEACHER', approved: 'false', locked: 'true', docExpiring: 'true' }),
+      ),
+    ).toBe(5)
   })
 })
 
