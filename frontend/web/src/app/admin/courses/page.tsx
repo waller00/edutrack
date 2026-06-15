@@ -12,7 +12,7 @@ import type {
 import { courseShortLabel, partitionSubjects } from '@/components/admin/courses/course-types'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
-import { BookOpen, ChevronDown, ChevronRight, Layers, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Layers, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 function withSchoolYear(path: string, schoolYearQuery: string): string {
@@ -50,6 +50,7 @@ export default function AdminCoursesPage() {
   const [msg, setMsg] = useState('')
   const [courseDraft, setCourseDraft] = useState<CourseDraft>(emptyCourseDraft())
   const [creatingCourse, setCreatingCourse] = useState(false)
+  const [courseSearch, setCourseSearch] = useState('')
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
   const [subjects, setSubjects] = useState<SubjectRow[]>([])
   const [subjectsLoading, setSubjectsLoading] = useState(false)
@@ -149,6 +150,13 @@ export default function AdminCoursesPage() {
       ),
     [courses],
   )
+  const filteredCourses = useMemo(() => {
+    const term = courseSearch.trim().toLowerCase()
+    if (!term) return visibleCourses
+    return visibleCourses.filter(
+      (c) => c.name.toLowerCase().includes(term) || (c.code ?? '').toLowerCase().includes(term),
+    )
+  }, [visibleCourses, courseSearch])
   const selectedCourse = courses.find((c) => c.id === selectedCourseId)
   const selectedCourseOrientation =
     courseOrientations.find((row) => row.id === selectedCourseOrientationId) ?? null
@@ -424,7 +432,23 @@ export default function AdminCoursesPage() {
                 <h2 className="text-sm font-semibold text-gray-900">Cursos del catálogo</h2>
                 <Layers className="h-4 w-4 text-emerald-600" aria-hidden />
               </div>
-              <p className="mt-1 text-xs text-gray-500">Orden académico · Ciclo: {schoolYearLabel}</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Orden académico · Ciclo: {schoolYearLabel}
+                {!coursesLoading && courses.length > 0
+                  ? ` · ${courseSearch.trim() ? `${filteredCourses.length}/${visibleCourses.length}` : visibleCourses.length} curso(s)`
+                  : ''}
+              </p>
+              <div className="relative mt-2">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden />
+                <input
+                  type="search"
+                  value={courseSearch}
+                  onChange={(e) => setCourseSearch(e.target.value)}
+                  placeholder="Buscar curso por nombre o código"
+                  aria-label="Buscar curso"
+                  className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-2 text-sm placeholder:text-gray-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                />
+              </div>
               <button
                 type="button"
                 onClick={() => setShowCreateCourse((v) => !v)}
@@ -478,10 +502,12 @@ export default function AdminCoursesPage() {
               </div>
             ) : visibleCourses.length === 0 ? (
               <p className="p-4 text-sm text-gray-500">No hay cursos en el catálogo.</p>
+            ) : filteredCourses.length === 0 ? (
+              <p className="p-4 text-sm text-gray-500">Ningún curso coincide con «{courseSearch.trim()}».</p>
             ) : (
               <div className="max-h-[min(70vh,640px)] overflow-y-auto p-2">
                 <ul className="space-y-1">
-                  {visibleCourses.map((c) => {
+                  {filteredCourses.map((c) => {
                     const offered = Boolean(
                       c.courseOfferingId && (c.offeringIsActive ?? false) && (c.offeringIsOffered ?? true),
                     )

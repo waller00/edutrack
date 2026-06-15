@@ -4,6 +4,15 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { isValidUruguayanCI } from '@/lib/forms/uruguay-forms'
+import {
+  STUDENT_STATUS_LABEL,
+  countActiveStudentFilters,
+  getStudentStatusBadgeClass,
+  getStudentStatusLabel,
+  tuitionMonthChipClass,
+  tuitionMonthLabel,
+  type TuitionMonthState,
+} from '@/lib/admin/students-display'
 import { useCallback, useEffect, useState } from 'react'
 import { CalendarCheck, ChevronLeft, ChevronRight, GraduationCap, Loader2, Plus, Trash2, X } from 'lucide-react'
 
@@ -12,7 +21,6 @@ const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 const CURRENT_YEAR = new Date().getFullYear()
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean; offeringIsActive?: boolean | null }
-type TuitionMonthState = 'paid' | 'pending' | 'none'
 
 type TuitionRow = {
   year: number
@@ -77,13 +85,6 @@ type StudentDetail = {
 type StudentFormState = Omit<StudentDetail, 'course' | 'createdAt' | 'updatedAt'> & {
   createdAt?: string
   updatedAt?: string
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  ACTIVE: 'Activo',
-  WITHDRAWN: 'Abandonó',
-  GRADUATED: 'Egresó',
-  TRANSFERRED: 'Transferido',
 }
 
 function ymd(d: string | null | undefined): string {
@@ -241,6 +242,15 @@ export default function AdminStudentsPage() {
 
   function applyFilters() {
     setQ(draftQ)
+  }
+
+  function clearFilters() {
+    setDraftQ('')
+    setQ('')
+    setCourseId('')
+    setStatus('')
+    setTuitionMonth('')
+    setTuitionPaid('')
   }
 
   function openCreate() {
@@ -405,12 +415,73 @@ export default function AdminStudentsPage() {
     return 'border-gray-300 bg-white text-gray-500 hover:border-emerald-300 hover:text-emerald-700'
   }
 
-  function tuitionMonthLabel(status: TuitionMonthState) {
-    if (status === 'paid') return 'pagado'
-    if (status === 'pending') return 'pendiente'
-    return 'sin estado'
+  function tuitionYearForRow(row: StudentListRow): number {
+    return syCtx?.allYears && row.schoolYearCode ? row.schoolYearCode : Number(tuitionYear) || CURRENT_YEAR
   }
 
+  function renderTuitionChips(row: StudentListRow) {
+    return (
+      <div className="flex flex-wrap gap-1" aria-label="Mensualidades">
+        {monthsForYear(row.tuitionMonthsPreview, tuitionYearForRow(row)).map((m) => (
+          <span
+            key={m.month}
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold ${tuitionMonthChipClass(m.status)}`}
+            title={`Mes ${m.month}: ${tuitionMonthLabel(m.status)}`}
+          >
+            {m.month}
+          </span>
+        ))}
+      </div>
+    )
+  }
+
+  function renderStudentCard(row: StudentListRow) {
+    return (
+      <div key={row.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <button type="button" className="min-w-0 text-left" onClick={() => void openEdit(row)}>
+            <div className="truncate font-medium text-emerald-700 hover:underline">
+              {row.lastName}, {row.firstName}
+            </div>
+            {row.documentId ? <div className="text-xs text-gray-500">{row.documentId}</div> : null}
+          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getStudentStatusBadgeClass(row.enrollmentStatus)}`}>
+              {getStudentStatusLabel(row.enrollmentStatus)}
+            </span>
+            <button
+              type="button"
+              className="inline-grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50 hover:text-red-800"
+              title="Eliminar"
+              onClick={() => void remove(row.studentId ?? row.id)}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        </div>
+        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          {syCtx?.allYears ? (
+            <div className="flex gap-2">
+              <dt className="text-gray-500">Ciclo:</dt>
+              <dd className="text-gray-700">{row.schoolYearCode ?? '—'}</dd>
+            </div>
+          ) : null}
+          <div className="flex gap-2">
+            <dt className="text-gray-500">Curso:</dt>
+            <dd className="text-gray-700">{row.course?.name ?? '—'}</dd>
+          </div>
+        </dl>
+        <div className="mt-2">
+          <div className="mb-1 text-[11px] font-medium uppercase text-gray-500">
+            Mensualidades {tuitionYearForRow(row)}
+          </div>
+          {renderTuitionChips(row)}
+        </div>
+      </div>
+    )
+  }
+
+  const activeFilterCount = countActiveStudentFilters({ q, courseId, status, tuitionMonth, tuitionPaid })
   const totalPages = Math.max(1, Math.ceil(list.total / list.pageSize))
   const documentIdTrimmed = form.documentId?.trim() ?? ''
   const documentIdInvalid = documentIdTrimmed !== '' && !isValidUruguayanCI(documentIdTrimmed)
@@ -444,7 +515,7 @@ export default function AdminStudentsPage() {
             </div>
             {(['ACTIVE', 'WITHDRAWN', 'GRADUATED', 'TRANSFERRED'] as const).map((k) => (
               <div key={k} className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
-                <p className="text-xs font-medium uppercase text-gray-500">{STATUS_LABEL[k]}</p>
+                <p className="text-xs font-medium uppercase text-gray-500">{STUDENT_STATUS_LABEL[k]}</p>
                 <p className="text-xl font-bold text-gray-900">{summary.byStatus[k] ?? 0}</p>
               </div>
             ))}
@@ -461,6 +532,7 @@ export default function AdminStudentsPage() {
                 value={draftQ}
                 onChange={(e) => setDraftQ(e.target.value)}
                 placeholder="Nombre, apellido o documento"
+                aria-label="Buscar estudiante"
                 onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
               />
             </div>
@@ -470,6 +542,7 @@ export default function AdminStudentsPage() {
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 value={courseId}
                 onChange={(e) => setCourseId(e.target.value)}
+                aria-label="Filtrar por curso"
               >
                 <option value="">Todos</option>
                 {courses.map((c) => (
@@ -487,6 +560,7 @@ export default function AdminStudentsPage() {
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
+                aria-label="Filtrar por estado"
               >
                 <option value="">Todos</option>
                 <option value="ACTIVE">Activo</option>
@@ -510,6 +584,7 @@ export default function AdminStudentsPage() {
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 value={tuitionMonth}
                 onChange={(e) => setTuitionMonth(e.target.value)}
+                aria-label="Filtrar por mes"
               >
                 <option value="">Todos</option>
                 {MONTHS.map((m) => (
@@ -525,20 +600,28 @@ export default function AdminStudentsPage() {
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 value={tuitionPaid}
                 onChange={(e) => setTuitionPaid(e.target.value)}
+                aria-label="Filtrar por pago"
               >
                 <option value="">—</option>
                 <option value="true">Sí</option>
                 <option value="false">No</option>
               </select>
             </div>
-            <button type="button" className="btn-secondary text-sm" onClick={applyFilters}>
-              Aplicar
-            </button>
+            <div className="flex items-center gap-2">
+              <button type="button" className="btn-secondary text-sm" onClick={applyFilters}>
+                Aplicar
+              </button>
+              {activeFilterCount > 0 ? (
+                <button type="button" className="btn-secondary text-sm" onClick={clearFilters}>
+                  Limpiar ({activeFilterCount})
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {msg && !modal && <p className="text-sm text-red-600">{msg}</p>}
 
-          <div className="-mx-4 overflow-x-auto border-t border-gray-100 sm:-mx-5">
+          <div className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 sm:block">
             <table className="w-full min-w-[960px] table-fixed text-sm">
               <colgroup>
                 <col className={syCtx?.allYears ? 'w-[20%]' : 'w-[24%]'} />
@@ -590,29 +673,12 @@ export default function AdminStudentsPage() {
                         <td className="px-4 py-2.5 text-gray-600">{row.schoolYearCode ?? '—'}</td>
                       ) : null}
                       <td className="px-4 py-2.5 text-gray-700">{row.course?.name ?? '—'}</td>
-                      <td className="px-4 py-2.5">{STATUS_LABEL[row.enrollmentStatus] ?? (row.enrollmentStatus || '—')}</td>
                       <td className="px-4 py-2.5">
-                        <div className="flex flex-wrap gap-1" aria-label="Mensualidades">
-                          {monthsForYear(
-                            row.tuitionMonthsPreview,
-                            syCtx?.allYears && row.schoolYearCode ? row.schoolYearCode : Number(tuitionYear) || CURRENT_YEAR,
-                          ).map((m) => (
-                            <span
-                              key={m.month}
-                              className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold ${
-                                m.status === 'paid'
-                                  ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                  : m.status === 'pending'
-                                    ? 'border-amber-300 bg-amber-100 text-amber-800'
-                                    : 'border-gray-300 bg-white text-gray-500'
-                              }`}
-                              title={`Mes ${m.month}: ${tuitionMonthLabel(m.status)}`}
-                            >
-                              {m.month}
-                            </span>
-                          ))}
-                        </div>
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getStudentStatusBadgeClass(row.enrollmentStatus)}`}>
+                          {getStudentStatusLabel(row.enrollmentStatus)}
+                        </span>
                       </td>
+                      <td className="px-4 py-2.5">{renderTuitionChips(row)}</td>
                       <td className="px-4 py-2.5 text-right">
                         <button
                           type="button"
@@ -628,6 +694,19 @@ export default function AdminStudentsPage() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="space-y-3 border-t border-gray-100 pt-4 sm:hidden">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-5 text-sm text-gray-500">
+                <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
+                Cargando…
+              </div>
+            ) : list.data.length === 0 ? (
+              <div className="py-5 text-center text-sm text-gray-500">No hay registros con estos filtros.</div>
+            ) : (
+              list.data.map(renderStudentCard)
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 sm:px-5">
