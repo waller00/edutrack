@@ -1,7 +1,7 @@
 'use client'
 import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, FileText, KeyRound, Mail, Save, ShieldCheck, User } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ExternalLink, FileText, KeyRound, Mail, Save, ShieldCheck, User, X } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
 import { accountPasswordUrl, accountRecoveryCodesUrl, accountTwoFactorUrl } from '@/lib/auth/urls'
@@ -29,6 +29,7 @@ export default function ProfilePage() {
   const [birthdate, setBirthdate] = useState('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [msgTone, setMsgTone] = useState<'success' | 'error'>('success')
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [twoFactorLoading, setTwoFactorLoading] = useState(true)
   const [twoFactorCode, setTwoFactorCode] = useState('')
@@ -55,10 +56,10 @@ export default function ProfilePage() {
     const query = href.includes('?') ? href.slice(href.indexOf('?')) : ''
     const params = new URLSearchParams(query)
     if (params.has('twoFactorDisabled')) {
-      setMsg('2FA desactivado')
+      notify('2FA desactivado', 'success')
       setTwoFactorEnabled(false)
     } else if (params.has('twoFactorDisableError')) {
-      setMsg('No se pudo desactivar 2FA. Reintentá o solicitá la confirmación por correo.')
+      notify('No se pudo desactivar 2FA. Reintentá o solicitá la confirmación por correo.', 'error')
     }
     // Limpiamos los params para que un refresh o "atrás" no re-dispare el aviso
     // ni vuelva a forzar el estado de 2FA en cada montaje.
@@ -78,6 +79,11 @@ export default function ProfilePage() {
       .finally(() => setTwoFactorLoading(false))
   }, [me?.id])
 
+  function notify(text: string, tone: 'success' | 'error') {
+    setMsg(text)
+    setMsgTone(tone)
+  }
+
   async function saveProfile() {
     setMsg('')
     const validationError = validateProfileForm({
@@ -89,7 +95,10 @@ export default function ProfilePage() {
       phoneLocal,
       canEditCi: canEditNationalId(me?.role),
     })
-    if (validationError) return setMsg(validationError)
+    if (validationError) {
+      notify(validationError, 'error')
+      return
+    }
     setSaving(true)
     try {
       const payload = buildProfilePayload({
@@ -104,9 +113,9 @@ export default function ProfilePage() {
       })
       await api('/auth/profile', { method: 'PUT', body: JSON.stringify(payload) })
       await refresh()
-      setMsg('Perfil actualizado')
+      notify('Perfil actualizado', 'success')
     } catch (e: any) {
-      setMsg(getProfileErrorMessage(e))
+      notify(getProfileErrorMessage(e), 'error')
     } finally {
       setSaving(false)
     }
@@ -117,9 +126,9 @@ export default function ProfilePage() {
     setDisableEmailBusy(true)
     try {
       await api('/auth/account/2fa/disable-email', { method: 'POST', body: JSON.stringify({}) })
-      setMsg('Te enviamos un correo para confirmar la desactivación de 2FA.')
+      notify('Te enviamos un correo para confirmar la desactivación de 2FA.', 'success')
     } catch (e: any) {
-      setMsg(e?.data?.message || e?.message || 'No se pudo enviar el correo de confirmación')
+      notify(e?.data?.message || e?.message || 'No se pudo enviar el correo de confirmación', 'error')
     } finally {
       setDisableEmailBusy(false)
     }
@@ -133,9 +142,9 @@ export default function ProfilePage() {
       await api('/auth/account/2fa/disable', { method: 'POST', body: JSON.stringify({ code: twoFactorCode }) })
       setTwoFactorEnabled(false)
       setTwoFactorCode('')
-      setMsg('2FA desactivado')
+      notify('2FA desactivado', 'success')
     } catch (e: any) {
-      setMsg(e?.data?.message || e?.message || 'No se pudo desactivar 2FA')
+      notify(e?.data?.message || e?.message || 'No se pudo desactivar 2FA', 'error')
     } finally {
       setTwoFactorDisableBusy(false)
     }
@@ -163,9 +172,28 @@ export default function ProfilePage() {
       </div>
 
       {msg && (
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800">
-          {msg}
-        </div>
+        <output
+          className={`flex w-full items-start gap-2 rounded-lg border p-4 text-sm ${
+            msgTone === 'error'
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+          }`}
+        >
+          {msgTone === 'error' ? (
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          ) : (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          )}
+          <span className="flex-1">{msg}</span>
+          <button
+            type="button"
+            onClick={() => setMsg('')}
+            className="shrink-0 rounded p-0.5 opacity-70 transition-opacity hover:opacity-100"
+            aria-label="Cerrar aviso"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </output>
       )}
 
       <section className="card">

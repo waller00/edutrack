@@ -140,8 +140,27 @@ export default function AdminSystemSettingsPage() {
           </p>
         </div>
 
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden" aria-label="Secciones de configuración">
+          {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => selectSection(id)}
+              aria-pressed={section === id}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                section === id
+                  ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm'
+                  : 'border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50'
+              }`}
+            >
+              <Icon className="h-4 w-4 shrink-0" aria-hidden />
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <aside className="self-start rounded-xl border border-gray-200 bg-white p-2 shadow-sm">
+          <aside className="hidden self-start rounded-xl border border-gray-200 bg-white p-2 shadow-sm lg:block">
             {SETTINGS_SECTIONS.map(({ id, label, desc, Icon }) => (
               <button
                 key={id}

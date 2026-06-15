@@ -3,7 +3,8 @@
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
-import { CalendarDays, ChevronDown, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
+import { rowsToTsv } from '@/lib/admin/query-assistant-export'
+import { CalendarDays, Check, ChevronDown, Copy, HelpCircle, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 type Column = { key: string; label: string }
@@ -45,12 +46,106 @@ function intentTitle(intent: string): string {
   return INTENT_TITLE[intent] ?? intent.replace(/_/g, ' ')
 }
 
+/** Clave estable por contenido de la fila (evita usar el índice como key). */
+function rowKey(row: AssistantResponse['rows'][number], columns: Column[]): string {
+  return columns.map((c) => String(row[c.key] ?? '')).join('¦')
+}
+
+function ResultView({
+  result,
+  copied,
+  onCopy,
+}: Readonly<{ result: AssistantResponse; copied: boolean; onCopy: () => void }>) {
+  const hasTable = result.columns.length > 0 && result.rows.length > 0
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-white px-4 py-3 text-sm text-emerald-950 shadow-sm">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <p className="font-semibold text-emerald-900">{intentTitle(result.intent)}</p>
+          {result.intent !== 'UNKNOWN' && (
+            <span className="text-[11px] font-normal uppercase tracking-wide text-emerald-600/80">({result.intent})</span>
+          )}
+        </div>
+        <p className="mt-1.5 leading-relaxed text-emerald-800/95">{result.summary}</p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          {result.rows.length > 0 ? (
+            <p className="text-xs text-emerald-700/80">
+              {result.rows.length} fila{result.rows.length === 1 ? '' : 's'} en esta respuesta.
+            </p>
+          ) : (
+            <span />
+          )}
+          {hasTable ? (
+            <button
+              type="button"
+              onClick={onCopy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800 transition hover:bg-emerald-50"
+            >
+              {copied ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+              {copied ? 'Copiado' : 'Copiar tabla'}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {hasTable ? (
+        <div className="hidden overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm sm:block">
+          <table className="min-w-[640px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 bg-slate-50">
+                {result.columns.map((c) => (
+                  <th key={c.key} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {result.rows.map((row) => (
+                <tr key={rowKey(row, result.columns)} className="hover:bg-slate-50/50">
+                  {result.columns.map((c) => (
+                    <td key={c.key} className="max-w-md px-4 py-2.5 align-top text-gray-800 break-words hyphens-auto">
+                      {row[c.key] ?? '—'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-600">
+          No hay filas para mostrar en este informe (sin datos en el período o filtros muy restrictivos).
+        </p>
+      )}
+
+      {hasTable ? (
+        <div className="space-y-3 sm:hidden">
+          {result.rows.map((row) => (
+            <div key={rowKey(row, result.columns)} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+              <dl className="space-y-1.5 text-sm">
+                {result.columns.map((c) => (
+                  <div key={c.key} className="flex gap-2">
+                    <dt className="shrink-0 text-xs font-medium uppercase tracking-wide text-gray-500">{c.label}:</dt>
+                    <dd className="min-w-0 break-words text-gray-800">{row[c.key] ?? '—'}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function AdminQueryAssistantPage() {
   const syCtx = useOptionalAdminSchoolYear()
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<AssistantResponse | null>(null)
+  const [copied, setCopied] = useState(false)
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string | null>(null)
   const [allYears, setAllYears] = useState(false)
 
@@ -90,6 +185,17 @@ export default function AdminQueryAssistantPage() {
     setQuestion(text)
     setResult(null)
     setError(null)
+  }
+
+  async function copyResult() {
+    if (!result) return
+    try {
+      await navigator.clipboard.writeText(rowsToTsv(result.columns, result.rows))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setError('No se pudo copiar al portapapeles.')
+    }
   }
 
   return (
@@ -257,59 +363,7 @@ export default function AdminQueryAssistantPage() {
           </div>
         )}
 
-        {result && (
-          <div className="space-y-3">
-            <div className="rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-white px-4 py-3 text-sm text-emerald-950 shadow-sm">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <p className="font-semibold text-emerald-900">{intentTitle(result.intent)}</p>
-                {result.intent !== 'UNKNOWN' && (
-                  <span className="text-[11px] font-normal uppercase tracking-wide text-emerald-600/80">
-                    ({result.intent})
-                  </span>
-                )}
-              </div>
-              <p className="mt-1.5 text-emerald-800/95 leading-relaxed">{result.summary}</p>
-              {result.rows.length > 0 && (
-                <p className="mt-2 text-xs text-emerald-700/80">
-                  {result.rows.length} fila{result.rows.length === 1 ? '' : 's'} en esta respuesta.
-                </p>
-              )}
-            </div>
-            {result.columns.length > 0 && result.rows.length > 0 ? (
-              <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-                <table className="min-w-[640px] text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200 bg-slate-50">
-                      {result.columns.map((c) => (
-                        <th key={c.key} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                          {c.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {result.rows.map((row, i) => (
-                      <tr key={i} className="hover:bg-slate-50/50">
-                        {result.columns.map((c) => (
-                          <td
-                            key={c.key}
-                            className="max-w-md px-4 py-2.5 align-top text-gray-800 break-words hyphens-auto"
-                          >
-                            {row[c.key] ?? '—'}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-600">
-                No hay filas para mostrar en este informe (sin datos en el período o filtros muy restrictivos).
-              </p>
-            )}
-          </div>
-        )}
+        {result && <ResultView result={result} copied={copied} onCopy={() => void copyResult()} />}
       </main>
     </RoleGuard>
   )

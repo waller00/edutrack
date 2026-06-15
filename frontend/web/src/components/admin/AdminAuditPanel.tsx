@@ -2,7 +2,8 @@
 
 import { api } from '@/lib/api/client'
 import { auditMetadataDisplay } from '@/lib/admin/audit-detail-es'
-import { ClipboardList, Filter, Loader2, RefreshCw } from 'lucide-react'
+import { countActiveAuditFilters, getAuditActionBadgeClass } from '@/lib/admin/audit-display'
+import { ClipboardList, Filter, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 type AuditRow = {
@@ -123,6 +124,16 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
   }, [load])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const activeFilterCount = countActiveAuditFilters({ action, actorUserId, from, to })
+
+  function clearFilters() {
+    setPage(1)
+    setAction('')
+    setActorUserId('')
+    setFrom('')
+    setTo('')
+  }
+
   const containerClass = compact ? 'space-y-5' : 'responsive-page max-w-7xl space-y-6'
 
   const labelCls = 'block text-xs font-medium uppercase tracking-wide text-gray-500'
@@ -168,19 +179,39 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
               <Filter className="h-4 w-4" aria-hidden />
             </span>
             <div>
-              <h3 className="text-sm font-semibold text-gray-900">Filtros</h3>
+              <h3 className="text-sm font-semibold text-gray-900">
+                Filtros
+                {activeFilterCount > 0 ? (
+                  <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-700">
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </h3>
               <p className="text-xs text-gray-500">Acotá por tipo de acción, actor o rango de fechas.</p>
             </div>
           </div>
-          <button
-            type="button"
-            className="btn-secondary inline-flex shrink-0 items-center justify-center gap-2 text-sm disabled:opacity-50"
-            onClick={() => void load()}
-            disabled={loading}
-          >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}
-            {loading ? 'Actualizando…' : 'Aplicar y recargar'}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {activeFilterCount > 0 ? (
+              <button
+                type="button"
+                className="btn-secondary inline-flex items-center justify-center gap-1.5 text-sm"
+                onClick={clearFilters}
+                disabled={loading}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+                Limpiar
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn-secondary inline-flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+              onClick={() => void load()}
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}
+              {loading ? 'Actualizando…' : 'Aplicar y recargar'}
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -279,7 +310,7 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold leading-snug text-gray-900">{r.actionLabel}</div>
-                          <div className="mt-1 inline-flex max-w-full rounded-md bg-slate-100 px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wide text-slate-600">
+                          <div className={`mt-1 inline-flex max-w-full rounded-md px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wide ${getAuditActionBadgeClass(r.action)}`}>
                             <span className="truncate">{r.action}</span>
                           </div>
                         </div>
@@ -368,9 +399,12 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
                           </td>
                           <td className="px-4 py-3.5">
                             <div className="break-words font-medium leading-snug text-gray-900">{r.actionLabel}</div>
-                            <div className="mt-1 truncate font-mono text-[11px] font-medium uppercase tracking-wide text-gray-400" title={r.action}>
-                              {r.action}
-                            </div>
+                            <span
+                              className={`mt-1 inline-flex max-w-full rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-wide ${getAuditActionBadgeClass(r.action)}`}
+                              title={r.action}
+                            >
+                              <span className="truncate">{r.action}</span>
+                            </span>
                           </td>
                           <td className="px-4 py-3.5 text-gray-800">
                             {r.actorName ? (
