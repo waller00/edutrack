@@ -26,6 +26,12 @@ const STATUS_LABEL: Record<string, string> = {
   CLOSED: 'Cerrado',
 }
 
+function getYearStatusBadgeClass(status: string): string {
+  if (status === 'ACTIVE') return 'bg-emerald-100 text-emerald-900'
+  if (status === 'CLOSED') return 'bg-slate-100 text-slate-700'
+  return 'bg-amber-50 text-amber-900 ring-1 ring-amber-200/60'
+}
+
 const ENROLL_LABEL: Record<string, string> = {
   ACTIVE: 'Activo',
   WITHDRAWN: 'Abandonó',
@@ -598,6 +604,109 @@ export default function AdminSchoolYearsPage() {
 
   const copySourceOptions = copyTarget ? sortedYears.filter((y) => y.id !== copyTarget.id) : []
 
+  function renderYearActions(y: SchoolYearApiRow) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-1">
+        <button
+          type="button"
+          className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          onClick={() => openEdit(y)}
+        >
+          <span className="inline-flex items-center gap-1">
+            <Pencil className="h-3.5 w-3.5" aria-hidden />
+            Editar
+          </span>
+        </button>
+        {y.status !== 'ACTIVE' && y.status !== 'CLOSED' && (
+          <button
+            type="button"
+            className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            disabled={busyId === y.id || Boolean(startTarget)}
+            onClick={() => void openStartWizard(y)}
+          >
+            <span className="inline-flex items-center gap-1">
+              {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" aria-hidden />}
+              Iniciar
+            </span>
+          </button>
+        )}
+        {y.status !== 'CLOSED' && (
+          <button
+            type="button"
+            className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+            disabled={busyId === y.id}
+            onClick={() => void doClose(y.id)}
+          >
+            Cerrar
+          </button>
+        )}
+        {y.status !== 'CLOSED' && (
+          <button
+            type="button"
+            disabled={(y.coursesCount ?? 0) > 0}
+            title={
+              (y.coursesCount ?? 0) > 0
+                ? `Este ciclo ya tiene ${y.coursesCount} oferta(s). La replicación solo está permitida con oferta vacía.`
+                : 'Replicar oferta de cursos desde otro ciclo'
+            }
+            className="shrink-0 rounded-lg border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+            onClick={() => {
+              setCopyTarget(y)
+              setCopySourceId(sortedYears.find((o) => o.id !== y.id)?.id ?? '')
+            }}
+          >
+            <span className="inline-flex items-center gap-1">
+              <Copy className="h-3.5 w-3.5" aria-hidden />
+              Replicar oferta
+            </span>
+          </button>
+        )}
+        <button
+          type="button"
+          className="shrink-0 rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+          disabled={deleting}
+          onClick={() => {
+            clearFlash()
+            setDeleteTarget(y)
+          }}
+        >
+          <span className="inline-flex items-center gap-1">
+            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+            Borrar
+          </span>
+        </button>
+      </div>
+    )
+  }
+
+  function renderYearCard(y: SchoolYearApiRow) {
+    return (
+      <div key={y.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-lg font-bold text-gray-900">{y.code}</div>
+            <div className="truncate text-sm text-gray-700">{y.label}</div>
+          </div>
+          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${getYearStatusBadgeClass(y.status)}`}>
+            {STATUS_LABEL[y.status] ?? y.status}
+            {y.id === activeId ? ' · institucional' : ''}
+          </span>
+        </div>
+        <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          <div className="flex gap-2">
+            <dt className="text-gray-500">Inicio:</dt>
+            <dd className="text-gray-800">{toInputDate(y.startsOn) || '—'}</dd>
+          </div>
+          <div className="flex gap-2">
+            <dt className="text-gray-500">Cursos:</dt>
+            <dd className="tabular-nums text-gray-800">{y.coursesCount ?? 0}</dd>
+          </div>
+        </dl>
+        <div className="mt-3 border-t border-gray-100 pt-3">{renderYearActions(y)}</div>
+      </div>
+    )
+  }
+
   return (
     <RoleGuard permission="school-years.manage">
       <main className="responsive-page max-w-[1600px] space-y-4">
@@ -639,7 +748,7 @@ export default function AdminSchoolYearsPage() {
               Recargar
             </button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[900px] table-fixed text-left text-sm">
               <colgroup>
                 <col className="w-[9%]" />
@@ -673,15 +782,7 @@ export default function AdminSchoolYearsPage() {
                     <td className="truncate px-4 py-2.5 text-gray-800 sm:px-5">{y.label}</td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-gray-600 sm:px-5">{toInputDate(y.startsOn) || '—'}</td>
                     <td className="px-4 py-2.5 sm:px-5">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          y.status === 'ACTIVE'
-                            ? 'bg-emerald-100 text-emerald-900'
-                            : y.status === 'CLOSED'
-                              ? 'bg-slate-100 text-slate-700'
-                              : 'bg-amber-50 text-amber-900 ring-1 ring-amber-200/60'
-                        }`}
-                      >
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${getYearStatusBadgeClass(y.status)}`}>
                         {STATUS_LABEL[y.status] ?? y.status}
                         {y.id === activeId ? ' · institucional' : ''}
                       </span>
@@ -689,83 +790,20 @@ export default function AdminSchoolYearsPage() {
                     <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-800 tabular-nums sm:px-5">
                       {y.coursesCount ?? 0}
                     </td>
-                    <td className="px-4 py-2.5 text-right sm:px-5">
-                      <div className="flex flex-wrap items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                          onClick={() => openEdit(y)}
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            <Pencil className="h-3.5 w-3.5" aria-hidden />
-                            Editar
-                          </span>
-                        </button>
-                        {y.status !== 'ACTIVE' && y.status !== 'CLOSED' && (
-                          <button
-                            type="button"
-                            className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                            disabled={busyId === y.id || Boolean(startTarget)}
-                            onClick={() => void openStartWizard(y)}
-                          >
-                            <span className="inline-flex items-center gap-1">
-                              {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" aria-hidden />}
-                              Iniciar
-                            </span>
-                          </button>
-                        )}
-                        {y.status !== 'CLOSED' && (
-                          <button
-                            type="button"
-                            className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                            disabled={busyId === y.id}
-                            onClick={() => void doClose(y.id)}
-                          >
-                            Cerrar
-                          </button>
-                        )}
-                        {y.status !== 'CLOSED' && (
-                          <button
-                            type="button"
-                            disabled={(y.coursesCount ?? 0) > 0}
-                            title={
-                              (y.coursesCount ?? 0) > 0
-                                ? `Este ciclo ya tiene ${y.coursesCount} oferta(s). La replicación solo está permitida con oferta vacía.`
-                                : 'Replicar oferta de cursos desde otro ciclo'
-                            }
-                            className="shrink-0 rounded-lg border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
-                            onClick={() => {
-                              setCopyTarget(y)
-                              setCopySourceId(sortedYears.find((o) => o.id !== y.id)?.id ?? '')
-                            }}
-                          >
-                            <span className="inline-flex items-center gap-1">
-                              <Copy className="h-3.5 w-3.5" aria-hidden />
-                              Replicar oferta
-                            </span>
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                          disabled={deleting}
-                          onClick={() => {
-                            clearFlash()
-                            setDeleteTarget(y)
-                          }}
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                            Borrar
-                          </span>
-                        </button>
-                      </div>
-                    </td>
+                    <td className="px-4 py-2.5 text-right sm:px-5">{renderYearActions(y)}</td>
                   </tr>
                 ))
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="space-y-3 p-4 sm:hidden">
+            {sortedYears.length === 0 ? (
+              <div className="py-5 text-center text-sm text-gray-500">No hay ciclos cargados.</div>
+            ) : (
+              sortedYears.map(renderYearCard)
+            )}
           </div>
         </section>
 
