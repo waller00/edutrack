@@ -9,10 +9,37 @@ function safeReturnTo(value: string | null): string {
   return value && value.startsWith('/') && !value.startsWith('//') ? value : '/'
 }
 
+const AUTO_LOGIN_ATTEMPT_KEY = 'edutrack.login.autostarted'
+
+function wasAutoLoginStarted(): boolean {
+  try {
+    return globalThis.sessionStorage.getItem(AUTO_LOGIN_ATTEMPT_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function markAutoLoginStarted() {
+  try {
+    globalThis.sessionStorage.setItem(AUTO_LOGIN_ATTEMPT_KEY, '1')
+  } catch {
+    // Si el navegador bloquea sessionStorage, seguimos con el flujo manual.
+  }
+}
+
+function clearAutoLoginStarted() {
+  try {
+    globalThis.sessionStorage.removeItem(AUTO_LOGIN_ATTEMPT_KEY)
+  } catch {
+    // No hay nada accionable si el storage no está disponible.
+  }
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const [externalError, setExternalError] = useState('')
   const [loggedOut, setLoggedOut] = useState(false)
+  const [autoLoginBlocked, setAutoLoginBlocked] = useState(false)
   const [sessionPending, setSessionPending] = useState(true)
 
   useEffect(() => {
@@ -27,7 +54,9 @@ export default function LoginPage() {
 
     api('/auth/me')
       .then(() => {
-        if (alive) router.replace(returnTo)
+        if (!alive) return
+        clearAutoLoginStarted()
+        router.replace(returnTo)
       })
       .catch((err: unknown) => {
         if (!alive) return
@@ -43,6 +72,12 @@ export default function LoginPage() {
           setSessionPending(false)
           return
         }
+        if (wasAutoLoginStarted()) {
+          setAutoLoginBlocked(true)
+          setSessionPending(false)
+          return
+        }
+        markAutoLoginStarted()
         globalThis.location.href = loginUrl(returnTo)
       })
 
@@ -78,6 +113,8 @@ export default function LoginPage() {
                 ? 'Podés volver a ingresar cuando lo necesites.'
                 : externalError === 'account'
                   ? 'Tu cuenta está pendiente de aprobación o fue inhabilitada. Contactá a un administrador.'
+                  : autoLoginBlocked
+                    ? 'No pudimos confirmar la sesión en este navegador.'
                   : 'El ingreso venció o fue interrumpido antes de completarse.'}
             </p>
           </div>
@@ -93,11 +130,23 @@ export default function LoginPage() {
               <p className="text-sm text-red-700">Volvé a intentar. Si el problema continúa, contactá al soporte de EduTrack.</p>
             </div>
           )}
+          {autoLoginBlocked && !externalError && !loggedOut && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+              <p className="text-sm text-amber-800">Evitamos reintentar automáticamente para no bloquear el acceso por demasiadas solicitudes.</p>
+            </div>
+          )}
           <button
             className="btn-primary w-full justify-center"
             type="button"
             onClick={() => {
-              globalThis.location.href = externalError === 'account' ? logoutUrl() : loginUrl('/')
+              if (externalError === 'account') {
+                globalThis.location.href = logoutUrl()
+                return
+              }
+              clearAutoLoginStarted()
+              markAutoLoginStarted()
+              globalThis.location.href = loginUrl('/')
             }}
           >
             {externalError === 'account' ? 'Cerrar sesión y cambiar cuenta' : 'Ingresar'}
