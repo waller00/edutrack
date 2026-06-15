@@ -24,20 +24,11 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { logoutUrl } from '@/lib/auth/urls'
-import { clearObservabilityUser, identifyObservabilityUser } from '@/lib/observability/user-session'
+import { clearObservabilityUser } from '@/lib/observability/user-session'
 import { getRoleLabel } from '@/lib/roles/display'
+import { useAuth, type AuthMe } from '@/contexts/AuthContext'
 
-type MeUser = {
-  id?: string
-  role: string
-  name?: string
-  email?: string
-  isApproved?: boolean
-  isActive?: boolean
-  needsProfileCompletion?: boolean
-  permissionIds?: string[]
-  permissions?: Array<{ id: string; scope?: 'own' | 'all' }>
-}
+type MeUser = AuthMe
 
 type NavItem = {
   label: string
@@ -170,26 +161,14 @@ function pathIsActive(pathname: string, href: string) {
 }
 
 export default function UserNav({ children = null }: { children?: React.ReactNode }) {
-  const [me, setMe] = useState<MeUser | null>(null)
+  const { me } = useAuth()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [unreadInApp, setUnreadInApp] = useState(0)
   const pathname = usePathname()
 
-  async function loadMe() {
-    try {
-      const u = await api<MeUser>('/auth/me')
-      setMe(u)
-      if (u.id) identifyObservabilityUser(u.id)
-    } catch {
-      setMe(null)
-      clearObservabilityUser()
-    }
-  }
-
   useEffect(() => {
-    void loadMe()
     setUserMenuOpen(false)
     setMobileOpen(false)
   }, [pathname])
@@ -228,7 +207,6 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
   }, [me, pathname])
 
   async function logout() {
-    setMe(null)
     clearObservabilityUser()
     window.location.href = logoutUrl()
   }
@@ -249,7 +227,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         </div>
         <div className="hidden text-left sm:block">
           <div className="max-w-[180px] truncate text-sm font-medium text-gray-900">{me.name || me.email}</div>
-          <div className="text-xs text-gray-500">{getRoleLabel(me.role)}</div>
+          <div className="text-xs text-gray-500">{me.roleLabel || getRoleLabel(me.role)}</div>
         </div>
         <ChevronDown className="h-4 w-4 text-gray-400" aria-hidden />
       </button>

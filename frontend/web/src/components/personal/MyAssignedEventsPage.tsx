@@ -3,6 +3,7 @@
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api/client'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   getEventTypeLabel,
   getAssignedEventStatusLabel,
@@ -32,26 +33,19 @@ export type AssignedEventRow = {
 }
 
 export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {
-  const [me, setMe] = useState<{ id: string } | null>(null)
+  const { me: authUser, loading: authLoading } = useAuth()
+  const userId = authUser?.id ?? null
   const [events, setEvents] = useState<AssignedEventRow[]>([])
-  const [authLoading, setAuthLoading] = useState(true)
   const [eventsLoading, setEventsLoading] = useState(false)
   const [filter, setFilter] = useState<'upcoming' | 'all'>('upcoming')
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    api<{ id: string }>('/auth/me')
-      .then((u: { id: string }) => {
-        setMe(u)
-        setAuthLoading(false)
-      })
-      .catch(() => {
-        window.location.href = '/login'
-      })
-  }, [])
+    if (!authLoading && !authUser) window.location.href = '/login'
+  }, [authLoading, authUser])
 
   useEffect(() => {
-    if (!me) return
+    if (!userId) return
     let cancelled = false
     async function loadEvents() {
       setEventsLoading(true)
@@ -69,7 +63,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
         const params = new URLSearchParams()
         if (startDate) params.set('startDate', startDate)
         if (endDate) params.set('endDate', endDate)
-        params.set('assignedUserId', me!.id)
+        params.set('assignedUserId', userId ?? '')
         const data = await api<AssignedEventRow[]>(`/events/my-events?${params.toString()}`)
         if (!cancelled) setEvents(data)
       } catch (e) {
@@ -82,7 +76,7 @@ export default function MyAssignedEventsPage(_props: { role?: 'TEACHER' | 'STAFF
     return () => {
       cancelled = true
     }
-  }, [me, filter])
+  }, [userId, filter])
 
   function toggleEventExpansion(eventId: string) {
     setExpandedEvents((prev) => {

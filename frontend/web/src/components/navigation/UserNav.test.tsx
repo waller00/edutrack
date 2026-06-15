@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import UserNav from './UserNav'
+import { AuthProvider } from '@/contexts/AuthContext'
 import { api } from '@/lib/api/client'
 
 const mockUsePathname = vi.fn()
@@ -12,6 +13,19 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
+
+vi.mock('@/lib/observability/user-session', () => ({
+  identifyObservabilityUser: vi.fn(),
+  clearObservabilityUser: vi.fn(),
+}))
+
+function renderNav() {
+  return render(
+    <AuthProvider>
+      <UserNav />
+    </AuthProvider>,
+  )
+}
 
 /**
  * Mock de api resuelto por URL (no por orden de llamada). Evita flakiness:
@@ -44,7 +58,7 @@ describe('UserNav', () => {
   it('shows auth links when there is no session', async () => {
     mockApiByUrl(new Error('unauthorized'))
 
-    render(<UserNav />)
+    renderNav()
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'Iniciar Sesión' })).toBeInTheDocument())
 
@@ -62,7 +76,7 @@ describe('UserNav', () => {
       needsProfileCompletion: false,
     })
 
-    render(<UserNav />)
+    renderNav()
 
     expect(await screen.findByText('A')).toBeInTheDocument()
     expect(screen.queryByText('Mis asistencias')).not.toBeInTheDocument()
@@ -80,7 +94,7 @@ describe('UserNav', () => {
       permissions: [{ id: 'settings.manage', scope: 'all' }],
     })
 
-    render(<UserNav />)
+    renderNav()
 
     expect(await screen.findByText('admin@example.com')).toBeInTheDocument()
     expect(screen.queryByText('Usuarios')).not.toBeInTheDocument()
@@ -104,7 +118,7 @@ describe('UserNav', () => {
       needsProfileCompletion: true,
     })
 
-    render(<UserNav />)
+    renderNav()
 
     await screen.findByText('admin@example.com')
     expect(screen.queryByText('Usuarios')).not.toBeInTheDocument()
@@ -127,7 +141,7 @@ describe('UserNav', () => {
       ],
     })
 
-    render(<UserNav />)
+    renderNav()
 
     await screen.findByRole('link', { name: 'Licencias' })
     expect(screen.queryByRole('link', { name: 'Mis licencias' })).not.toBeInTheDocument()
@@ -149,7 +163,7 @@ describe('UserNav', () => {
       permissions: [{ id: 'users.read', scope: 'all' }],
     })
 
-    render(<UserNav />)
+    renderNav()
 
     expect((await screen.findAllByText('staff@example.com')).length).toBeGreaterThan(0)
     expect(screen.getByRole('link', { name: 'Usuarios' })).toBeInTheDocument()

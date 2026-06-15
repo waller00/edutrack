@@ -1,14 +1,24 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import MyAttendancePage from '@/components/personal/MyAttendancePage'
+import { AuthProvider } from '@/contexts/AuthContext'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 
+vi.mock('@/lib/observability/user-session', () => ({
+  identifyObservabilityUser: vi.fn(),
+  clearObservabilityUser: vi.fn(),
+}))
+
 vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
+
+function renderPage(ui: React.ReactNode) {
+  return render(<AuthProvider>{ui}</AuthProvider>)
+}
 
 vi.mock('@/components/personal/MyAttendanceMarkingPanel', () => ({
   default: () => null,
@@ -53,7 +63,7 @@ describe('MyAttendancePage', () => {
         },
       ] as never)
 
-    render(<MyAttendancePage role="TEACHER" />)
+    renderPage(<MyAttendancePage role="TEACHER" />)
 
     expect(screen.getByText('Cargando...')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('Total: 2 registros')).toBeInTheDocument())
@@ -71,7 +81,7 @@ describe('MyAttendancePage', () => {
       .mockResolvedValueOnce({ id: 'user-1' } as never)
       .mockResolvedValueOnce([] as never)
 
-    render(<MyAttendancePage role="STAFF" />)
+    renderPage(<MyAttendancePage role="STAFF" />)
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('No hay registros de asistencia')).toBeInTheDocument()
@@ -83,7 +93,7 @@ describe('MyAttendancePage', () => {
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never)
 
-    render(<MyAttendancePage role="TEACHER" />)
+    renderPage(<MyAttendancePage role="TEACHER" />)
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
     const endDateInput = await screen.findByLabelText('Fecha fin')
     fireEvent.change(endDateInput, { target: { value: '2026-03-20' } })
@@ -99,7 +109,7 @@ describe('MyAttendancePage', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockedApi.mockRejectedValueOnce(new Error('401'))
 
-    render(<MyAttendancePage role="TEACHER" />)
+    renderPage(<MyAttendancePage role="TEACHER" />)
 
     await waitFor(() => expect(window.location.href).toBe('/login'))
   })
