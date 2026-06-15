@@ -1583,4 +1583,86 @@ describe("events routes (prisma mock)", () => {
       expect(prismaMock.event.create).not.toHaveBeenCalled();
     });
   });
+
+  describe("excepciones por ocurrencia", () => {
+    const recurringParent = {
+      id: "ev-rec",
+      title: "Clase semanal",
+      type: "CLASE",
+      status: "SCHEDULED",
+      description: null,
+      userId: "a",
+      assignedUserId: null,
+      schoolYearId: "sy-default",
+      startDate: new Date("2099-06-15T13:00:00.000Z"),
+      startTime: new Date("2099-06-15T13:00:00.000Z"),
+      endTime: new Date("2099-06-15T14:00:00.000Z"),
+      isRecurring: true,
+      recurrenceType: "DAILY",
+      daysOfWeek: [] as number[],
+      recurrenceEnd: new Date("2099-12-31T00:00:00.000Z"),
+      effectiveFrom: null,
+      effectiveUntil: null,
+    };
+    const adminTok2 = () => signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
+
+    it("POST /:id/occurrences/:ymd/cancel crea una excepción CANCELLED", async () => {
+      prismaMock.event.findUnique.mockResolvedValue(recurringParent);
+      (prismaMock.event as any).findFirst = vi.fn().mockResolvedValue(null);
+      prismaMock.event.create.mockResolvedValue({ id: "child-1" });
+
+      const res = await request(app())
+        .post("/events/ev-rec/occurrences/2099-06-20/cancel")
+        .set("Authorization", `Bearer ${adminTok2()}`)
+        .send({ reason: "Feriado" });
+
+      expect(res.status).toBe(200);
+      const data = prismaMock.event.create.mock.calls[0][0].data;
+      expect(data.parentEventId).toBe("ev-rec");
+      expect(data.status).toBe("CANCELLED");
+    });
+
+    it("POST /:id/occurrences/:ymd/cancel 400 si el evento no es recurrente", async () => {
+      prismaMock.event.findUnique.mockResolvedValue({ ...recurringParent, isRecurring: false, recurrenceType: "NONE" });
+      const res = await request(app())
+        .post("/events/ev-rec/occurrences/2099-06-20/cancel")
+        .set("Authorization", `Bearer ${adminTok2()}`)
+        .send({});
+      expect(res.status).toBe(400);
+    });
+
+    it("POST /:id/occurrences/:ymd/cancel 400 si no hay ocurrencia en esa fecha", async () => {
+      prismaMock.event.findUnique.mockResolvedValue(recurringParent);
+      const res = await request(app())
+        .post("/events/ev-rec/occurrences/2099-06-10/cancel") // antes del inicio
+        .set("Authorization", `Bearer ${adminTok2()}`)
+        .send({});
+      expect(res.status).toBe(400);
+    });
+
+    it("PUT /:id/occurrences/:ymd guarda un override de horario/título", async () => {
+      prismaMock.event.findUnique.mockResolvedValue(recurringParent);
+      (prismaMock.event as any).findFirst = vi.fn().mockResolvedValue(null);
+      prismaMock.event.create.mockResolvedValue({ id: "child-2" });
+
+      const res = await request(app())
+        .put("/events/ev-rec/occurrences/2099-06-20")
+        .set("Authorization", `Bearer ${adminTok2()}`)
+        .send({ title: "Clase movida", startTime: "15:00", endTime: "16:00" });
+
+      expect(res.status).toBe(200);
+      const data = prismaMock.event.create.mock.calls[0][0].data;
+      expect(data.title).toBe("Clase movida");
+      expect(data.status).toBe("SCHEDULED");
+    });
+
+    it("DELETE /:id/occurrences/:ymd 404 si no hay excepción", async () => {
+      prismaMock.event.findUnique.mockResolvedValue(recurringParent);
+      (prismaMock.event as any).findFirst = vi.fn().mockResolvedValue(null);
+      const res = await request(app())
+        .delete("/events/ev-rec/occurrences/2099-06-20")
+        .set("Authorization", `Bearer ${adminTok2()}`);
+      expect(res.status).toBe(404);
+    });
+  });
 });

@@ -86,7 +86,7 @@ describe('AdminEvents', () => {
     render(<AdminEvents />)
     await screen.findAllByText('Clase matutina')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Cancelar' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(
@@ -112,7 +112,7 @@ describe('AdminEvents', () => {
     expect(screen.getByText(/Fin/)).toHaveTextContent(/\d/)
     expect(screen.queryByText('Sin fecha fin')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Editar' }))
     const modal = await screen.findByRole('heading', { name: 'Editar actividad' }).then((h) => h.closest('div')!.parentElement!)
     expect(within(modal).getAllByDisplayValue('2025-06-01')).toHaveLength(2)
     expect(within(modal).getByText('Mismo día que la fecha del evento.')).toBeInTheDocument()
@@ -188,7 +188,7 @@ describe('AdminEvents', () => {
     render(<AdminEvents />)
     await screen.findAllByText('Clase matutina')
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar actividad Clase matutina' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('checkbox', { name: 'Seleccionar actividad Clase matutina' }))
 
     // Esperar a que el botón se habilite (selección aplicada) evita un click
     // no-op por timing en CI que dejaría el DELETE sin disparar.
@@ -215,8 +215,9 @@ describe('AdminEvents', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar todas las actividades' }))
 
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar actividad Clase matutina' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar actividad Clase tarde' })).toBeChecked()
+    const table = screen.getByRole('table')
+    expect(within(table).getByRole('checkbox', { name: 'Seleccionar actividad Clase matutina' })).toBeChecked()
+    expect(within(table).getByRole('checkbox', { name: 'Seleccionar actividad Clase tarde' })).toBeChecked()
   })
 
   it('reactiva evento cancelado', async () => {
@@ -233,7 +234,7 @@ describe('AdminEvents', () => {
     render(<AdminEvents />)
     await screen.findAllByText('Clase matutina')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reactivar' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Reactivar' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(
@@ -261,7 +262,7 @@ describe('AdminEvents', () => {
     render(<AdminEvents />)
     await screen.findAllByText('Clase matutina')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Editar' }))
     const modal = await screen.findByRole('heading', { name: 'Editar actividad' }).then((h) => h.closest('div')!.parentElement!)
     const titleInput = within(modal).getByDisplayValue('Clase matutina')
     fireEvent.change(titleInput, { target: { value: 'Clase vespertina' } })

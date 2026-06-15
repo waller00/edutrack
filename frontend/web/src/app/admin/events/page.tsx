@@ -19,6 +19,18 @@ import {
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { getRoleLabel } from '@/lib/roles/display'
 import {
+  addDaysToYmd,
+  eventAssignedWeekdays,
+  eventOccursOnYmd,
+  getEventsForYmd,
+  getOccurrencesForYmd,
+  uniqueSortedDays,
+  weekdayNumberInUruguay,
+  ymdInUruguay,
+  type EventOccurrence,
+  type OccurrenceChild,
+} from '@/lib/admin/event-occurrences'
+import {
   formatDateInUruguay,
   formatTimeInUruguay,
   formatClockHhMmInUruguayFromIso,
@@ -27,6 +39,7 @@ import {
   APP_TIMEZONE,
 } from '@/lib/forms/datetime-uy'
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
+import EventsCalendar, { type CalendarEvent } from '@/components/admin/EventsCalendar'
 import type { SubstitutionListResponse } from '@/lib/substitutions/types'
 import {
   resolveAdminSchoolYearForEvents,
@@ -85,6 +98,7 @@ type Event = {
   isRecurring: boolean
   daysOfWeek: number[]
   recurrenceEnd?: string
+  childEvents?: OccurrenceChild[]
   _count: {
     attendances: number
   }
@@ -287,53 +301,6 @@ const WEEKDAY_OPTIONS = [
 const WEEKDAY_SHORT_BY_VALUE = new Map(WEEKDAY_OPTIONS.map((d) => [d.value, d.short]))
 type WeekdayValue = (typeof WEEKDAY_OPTIONS)[number]['value']
 
-function weekdayNumberInUruguay(value?: string | null): number | null {
-  if (!value) return null
-  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (ymd) return new Date(Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]))).getUTCDay()
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: APP_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date(value))
-  const y = Number(parts.find((p) => p.type === 'year')?.value)
-  const m = Number(parts.find((p) => p.type === 'month')?.value)
-  const d = Number(parts.find((p) => p.type === 'day')?.value)
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
-}
-
-function uniqueSortedDays(days: number[]): number[] {
-  return Array.from(new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))).sort((a, b) => a - b)
-}
-
-/** YYYY-MM-DD (día civil en Uruguay), comparable lexicográficamente. Mismo parseo que weekdayNumberInUruguay. */
-function ymdInUruguay(value?: string | null): string | null {
-  if (!value) return null
-  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: APP_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date(value))
-  const y = parts.find((p) => p.type === 'year')?.value
-  const m = parts.find((p) => p.type === 'month')?.value
-  const d = parts.find((p) => p.type === 'day')?.value
-  return y && m && d ? `${y}-${m}-${d}` : null
-}
-
-function eventAssignedWeekdays(event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'daysOfWeek' | 'startDate'>): number[] {
-  if (event.isRecurring && event.recurrenceType === 'DAILY') return WEEKDAY_OPTIONS.map((d) => d.value)
-  if (event.isRecurring && event.recurrenceType === 'WEEKLY' && event.daysOfWeek.length > 0) {
-    return uniqueSortedDays(event.daysOfWeek)
-  }
-  const day = weekdayNumberInUruguay(event.startDate)
-  return day === null ? [] : [day]
-}
-
 function formatWeekdayList(days: number[]): string {
   const sorted = uniqueSortedDays(days)
   if (sorted.length === 0) return 'Sin días definidos'
@@ -361,50 +328,6 @@ function formatEventRecurrenceLabel(event: Pick<Event, 'isRecurring' | 'recurren
 
 function formatEventScheduleSummary(event: Pick<Event, 'isRecurring' | 'recurrenceType' | 'daysOfWeek' | 'startDate' | 'startTime' | 'endTime' | 'recurrenceEnd'>): string {
   return `${formatWeekdayList(eventAssignedWeekdays(event))} · ${formatEventTimeRange(event)} · ${formatEventRecurrenceLabel(event)}`
-}
-
-/** Suma `n` días a un YYYY-MM-DD (aritmética de calendario, sin TZ). */
-function addDaysToYmd(ymd: string, n: number): string {
-  const d = new Date(`${ymd}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + n)
-  return d.toISOString().slice(0, 10)
-}
-
-/** ¿El evento ocurre en una fecha concreta (YYYY-MM-DD)? Resuelve la recurrencia. */
-function eventOccursOnYmd(event: Event, ymd: string): boolean {
-  const startYmd = ymdInUruguay(event.startDate)
-  if (!startYmd) return false
-
-  if (!event.isRecurring || event.recurrenceType === 'NONE') {
-    return ymd === startYmd
-  }
-
-  const endYmd = ymdInUruguay(event.recurrenceEnd)
-  if (ymd < startYmd || (endYmd && ymd > endYmd)) return false
-
-  if (event.recurrenceType === 'DAILY') return true
-  if (event.recurrenceType === 'WEEKLY') {
-    const wd = weekdayNumberInUruguay(ymd)
-    if (wd === null) return false
-    const fallback = weekdayNumberInUruguay(event.startDate)
-    const days = event.daysOfWeek.length > 0 ? event.daysOfWeek : fallback === null ? [] : [fallback]
-    return days.includes(wd)
-  }
-  if (event.recurrenceType === 'MONTHLY') {
-    return ymd.slice(8, 10) === startYmd.slice(8, 10)
-  }
-  return false
-}
-
-function getEventsForYmd(events: Event[], ymd: string): Event[] {
-  return events
-    .filter((event) => eventOccursOnYmd(event, ymd))
-    .sort((a, b) => {
-      const aStart = a.startTime ? timeStringToMinutes(formatClockHhMmInUruguayFromIso(a.startTime)) ?? 0 : 0
-      const bStart = b.startTime ? timeStringToMinutes(formatClockHhMmInUruguayFromIso(b.startTime)) ?? 0 : 0
-      if (aStart !== bStart) return aStart - bStart
-      return a.title.localeCompare(b.title)
-    })
 }
 
 /** Etiqueta corta de un día para las tarjetas: "Hoy" / "Mañana" / "Mié". */
@@ -534,6 +457,121 @@ function eventScheduleKey(startDate: string, startTime?: string | null): string 
   return `${getEventDateInputValue(startDate)}|${formatClockHhMmInUruguayFromIso(startTime ?? undefined)}`
 }
 
+function OccurrenceActionModal({
+  occ,
+  busy,
+  onClose,
+  onSuspend,
+  onRestore,
+  onSaveTimes,
+  onEditSeries,
+}: {
+  occ: EventOccurrence<CalendarEvent>
+  busy: boolean
+  onClose: () => void
+  onSuspend: (reason: string) => void
+  onRestore: () => void
+  onSaveTimes: (startTime: string, endTime: string) => void
+  onEditSeries: () => void
+}) {
+  const [editingTimes, setEditingTimes] = useState(false)
+  const [startTime, setStartTime] = useState(occ.startTime ? formatClockHhMmInUruguayFromIso(occ.startTime) : '09:00')
+  const [endTime, setEndTime] = useState(occ.endTime ? formatClockHhMmInUruguayFromIso(occ.endTime) : '10:00')
+  const dateLabel = `${occ.ymd.slice(8, 10)}/${occ.ymd.slice(5, 7)}/${occ.ymd.slice(0, 4)}`
+  const stateLabel = occ.suspended ? ' · Suspendida' : occ.overridden ? ' · Modificada' : ''
+
+  return (
+    <div
+      className="fixed inset-0 z-[2147483646] flex items-end justify-center bg-black/60 p-3 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="w-full max-w-md rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-xl">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-semibold text-gray-900">{occ.title}</h3>
+            <p className="text-sm text-gray-500">
+              {dateLabel}
+              {stateLabel}
+            </p>
+          </div>
+          <button onClick={onClose} className="shrink-0 text-gray-400 hover:text-gray-600" aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
+
+        {editingTimes ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm font-medium text-gray-700">
+                Inicio
+                <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="input-field mt-1" />
+              </label>
+              <label className="block text-sm font-medium text-gray-700">
+                Fin
+                <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="input-field mt-1" />
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onSaveTimes(startTime, endTime)}
+                className="btn-primary flex-1 disabled:opacity-60"
+              >
+                Guardar solo este día
+              </button>
+              <button type="button" onClick={() => setEditingTimes(false)} className="btn-secondary">
+                Volver
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {!occ.suspended && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onSuspend('')}
+                className="w-full rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+              >
+                Suspender solo este día
+              </button>
+            )}
+            {!occ.suspended && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setEditingTimes(true)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Editar horario solo este día
+              </button>
+            )}
+            {(occ.suspended || occ.overridden) && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onRestore}
+                className="w-full rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+              >
+                Restaurar este día (quitar excepción)
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onEditSeries}
+              className="w-full rounded-lg border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+            >
+              Editar la serie completa
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function AdminEvents() {
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
@@ -599,8 +637,14 @@ export default function AdminEvents() {
   const [substitutionEvent, setSubstitutionEvent] = useState<SubstitutionModalEvent | null>(null)
   const [substitutionKeys, setSubstitutionKeys] = useState<Set<string>>(new Set())
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [view, setView] = useState<'list' | 'calendar'>('list')
+  const [calendarEvents, setCalendarEvents] = useState<Event[]>([])
+  const [nonWorkingYmds, setNonWorkingYmds] = useState<Set<string>>(new Set())
+  const [occurrencePanel, setOccurrencePanel] = useState<EventOccurrence<CalendarEvent> | null>(null)
+  const [occurrenceBusy, setOccurrenceBusy] = useState(false)
   // Vista rápida: próximos 7 días con sus actividades reales (resuelve recurrencias, sin vencidos).
   const next7Days = buildNext7DaysSummary(events, getTodayYmdInUruguay())
+  const activeFilterCount = Object.values(filters).filter((value) => value).length
   const selectedDaySummary = selectedDate === null ? null : next7Days.find((day) => day.ymd === selectedDate) ?? null
   const selectedDayEvents = selectedDate === null ? [] : getEventsForYmd(events, selectedDate)
 
@@ -751,6 +795,104 @@ export default function AdminEvents() {
     }
   }
 
+  const schoolYearScopeParams = useCallback(() => {
+    const params = new URLSearchParams()
+    if (syCtx?.allYears) params.set('allYears', '1')
+    else {
+      const syId = syCtx?.selectedId ?? syCtx?.activeId
+      if (syId) params.set('schoolYearId', syId)
+    }
+    return params
+  }, [syCtx?.allYears, syCtx?.selectedId, syCtx?.activeId])
+
+  // El calendario necesita TODOS los eventos del ciclo (no una página): se piden crudos (sin rango
+  // → el server no expande) y se expanden en el cliente con sus excepciones por día.
+  const loadCalendarEvents = useCallback(async () => {
+    try {
+      const all: Event[] = []
+      for (let p = 1; p <= 20; p++) {
+        const params = schoolYearScopeParams()
+        params.set('page', String(p))
+        params.set('pageSize', '100')
+        const data = await api<{ total: number; data: Event[] }>(`/events/all?${params.toString()}`)
+        all.push(...data.data)
+        if (data.data.length === 0 || all.length >= data.total) break
+      }
+      setCalendarEvents(all)
+    } catch (error) {
+      console.error('Error cargando eventos del calendario:', error)
+    }
+  }, [schoolYearScopeParams])
+
+  const loadNonWorkingDays = useCallback(async () => {
+    try {
+      const year = Number(getTodayYmdInUruguay().slice(0, 4))
+      const rows = await api<Array<{ date: string }>>(
+        `/non-working-days?from=${year}-01-01&to=${year + 1}-12-31`,
+      )
+      setNonWorkingYmds(new Set((Array.isArray(rows) ? rows : []).map((r) => String(r.date).slice(0, 10))))
+    } catch {
+      setNonWorkingYmds(new Set())
+    }
+  }, [])
+
+  useEffect(() => {
+    if (view !== 'calendar') return
+    void loadCalendarEvents()
+    void loadNonWorkingDays()
+  }, [view, loadCalendarEvents, loadNonWorkingDays])
+
+  async function suspendOccurrence(reason: string) {
+    if (!occurrencePanel) return
+    setOccurrenceBusy(true)
+    try {
+      await api(`/events/${occurrencePanel.event.id}/occurrences/${occurrencePanel.ymd}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+      setMessage('✅ Día suspendido')
+      setOccurrencePanel(null)
+      await loadCalendarEvents()
+    } catch (e) {
+      setMessage(getApiErrorDetail(e))
+    } finally {
+      setOccurrenceBusy(false)
+    }
+  }
+
+  async function restoreOccurrence() {
+    if (!occurrencePanel) return
+    setOccurrenceBusy(true)
+    try {
+      await api(`/events/${occurrencePanel.event.id}/occurrences/${occurrencePanel.ymd}`, { method: 'DELETE' })
+      setMessage('✅ Se quitó la excepción de ese día')
+      setOccurrencePanel(null)
+      await loadCalendarEvents()
+    } catch (e) {
+      setMessage(getApiErrorDetail(e))
+    } finally {
+      setOccurrenceBusy(false)
+    }
+  }
+
+  async function saveOccurrenceTimes(startTime: string, endTime: string) {
+    if (!occurrencePanel) return
+    setOccurrenceBusy(true)
+    try {
+      await api(`/events/${occurrencePanel.event.id}/occurrences/${occurrencePanel.ymd}`, {
+        method: 'PUT',
+        body: JSON.stringify({ startTime, endTime }),
+      })
+      setMessage('✅ Ocurrencia actualizada solo para ese día')
+      setOccurrencePanel(null)
+      await loadCalendarEvents()
+    } catch (e) {
+      setMessage(getApiErrorDetail(e))
+    } finally {
+      setOccurrenceBusy(false)
+    }
+  }
+
   function resetCreateForm() {
     setSelectedRole('')
     setCreateModalError('')
@@ -849,6 +991,9 @@ export default function AdminEvents() {
       if (endYmd && endYmd < newEvent.startDate) {
         return 'La fecha de fin de recurrencia debe ser igual o posterior a la fecha de inicio.'
       }
+      if (endYmd && endYmd < getTodayYmdInUruguay()) {
+        return 'La fecha de fin de repetición ya pasó. Elegí una fecha futura.'
+      }
       if (newEvent.daysOfWeek.length === 0) {
         return 'Seleccioná al menos un día de la semana para la repetición.'
       }
@@ -897,12 +1042,12 @@ export default function AdminEvents() {
         eventData.subjectId = newEvent.subjectId
       }
 
-      await api(withSchoolYear('/events/', coursePickerQuery), {
+      const created = await api<{ warning?: string }>(withSchoolYear('/events/', coursePickerQuery), {
         method: 'POST',
         body: JSON.stringify(eventData),
       })
 
-      setMessage('✅ Actividad creada correctamente')
+      setMessage(created?.warning ? `✅ Actividad creada. ⚠️ ${created.warning}` : '✅ Actividad creada correctamente')
       await loadEvents()
       setCreating(false)
       resetCreateForm()
@@ -1088,7 +1233,14 @@ export default function AdminEvents() {
         {/* Filtros */}
         <div className="bg-white border rounded-lg p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold">Buscar en agenda</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">Buscar en agenda</h2>
+              {activeFilterCount > 0 && (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                  {activeFilterCount} filtro{activeFilterCount > 1 ? 's' : ''} activo{activeFilterCount > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
             <button
               onClick={() => setFilters({
                 startDate: '',
@@ -1099,12 +1251,44 @@ export default function AdminEvents() {
                 type: '',
                 status: ''
               })}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border"
+              disabled={activeFilterCount === 0}
+              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border disabled:cursor-not-allowed disabled:opacity-50"
             >
               Limpiar filtros
             </button>
           </div>
-          
+
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-gray-500">Atajos:</span>
+            <button
+              type="button"
+              onClick={() => setFilters({ ...filters, type: 'CLASE' })}
+              className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Solo clases
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setFilters({
+                  ...filters,
+                  startDate: getTodayYmdInUruguay(),
+                  endDate: addDaysToYmd(getTodayYmdInUruguay(), 7),
+                })
+              }
+              className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Próximos 7 días
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilters({ ...filters, status: 'SCHEDULED' })}
+              className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Solo programados
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
             <DateRangeFields
               startDate={filters.startDate}
@@ -1206,7 +1390,32 @@ export default function AdminEvents() {
           </div>
         ) : null}
 
+        {/* Selector de vista */}
+        <div className="inline-flex rounded-lg border border-gray-200 p-0.5 text-sm">
+          {(['list', 'calendar'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`rounded-md px-4 py-1.5 font-medium ${
+                view === v ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {v === 'list' ? 'Lista' : 'Calendario'}
+            </button>
+          ))}
+        </div>
+
+        {view === 'calendar' && (
+          <EventsCalendar
+            events={calendarEvents as unknown as CalendarEvent[]}
+            nonWorkingYmds={nonWorkingYmds}
+            onSelectOccurrence={(occ) => setOccurrencePanel(occ)}
+          />
+        )}
+
         {/* Tabla de eventos */}
+        {view === 'list' && (
         <div className="bg-white border rounded-lg shadow-sm">
           <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
             <h2 className="text-lg font-semibold">Actividades programadas</h2>
@@ -1348,7 +1557,59 @@ export default function AdminEvents() {
           {loading ? (
             <div className="p-4 text-center text-gray-500 sm:p-6">Cargando agenda…</div>
           ) : renderEventsEmptyState(events) || (
-            <div className="overflow-x-auto">
+            <>
+            {/* Mobile: tarjetas (evita el scroll horizontal de la tabla) */}
+            <ul className="divide-y divide-gray-100 sm:hidden">
+              {events.map((event) => (
+                <li key={event.id} className="space-y-2 px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="break-words font-medium text-gray-900">{event.title}</div>
+                      <div className="text-xs text-gray-500">
+                        {formatEventTimeRange(event)} · {formatEventRecurrenceLabel(event)}
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={selectedEventIds.includes(event.id)}
+                      onChange={() => toggleEventSelection(event.id)}
+                      aria-label={`Seleccionar actividad ${event.title}`}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                      {getAdminEventTypeLabel(event.type)}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${getAdminEventStatusStyle(event.status)}`}>
+                      {getAdminEventStatusLabel(event.status)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-600">{getEventAcademicSummary(event)}</div>
+                  <div className="text-xs text-gray-500">{getEventAssignedDisplay(event)}</div>
+                  <div className="flex flex-wrap gap-4 pt-1 text-sm">
+                    <button onClick={() => openEditEvent(event)} className="font-medium text-indigo-600">
+                      Editar
+                    </button>
+                    {event.type === 'CLASE' && event.assignedUser && event.status !== 'CANCELLED' ? (
+                      <button onClick={() => setSubstitutionEvent(event)} className="font-medium text-indigo-600">
+                        Suplencia
+                      </button>
+                    ) : null}
+                    {event.status !== 'CANCELLED' ? (
+                      <button onClick={() => cancelEvent(event.id)} className="font-medium text-yellow-600">
+                        Cancelar
+                      </button>
+                    ) : (
+                      <button onClick={() => reactivateEvent(event.id)} className="font-medium text-green-600">
+                        Reactivar
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {/* Desktop: tabla */}
+            <div className="hidden overflow-x-auto sm:block">
               <table className="w-full min-w-[900px] table-fixed">
                 <colgroup>
                   <col className="w-10" />
@@ -1507,10 +1768,28 @@ export default function AdminEvents() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
 
           <PaginationControls page={page} total={total} onPageChange={setPage} />
         </div>
+        )}
+
+        {occurrencePanel ? (
+          <OccurrenceActionModal
+            occ={occurrencePanel}
+            busy={occurrenceBusy}
+            onClose={() => setOccurrencePanel(null)}
+            onSuspend={(reason) => void suspendOccurrence(reason)}
+            onRestore={() => void restoreOccurrence()}
+            onSaveTimes={(startTime, endTime) => void saveOccurrenceTimes(startTime, endTime)}
+            onEditSeries={() => {
+              const target = occurrencePanel.event as unknown as Event
+              setOccurrencePanel(null)
+              openEditEvent(target)
+            }}
+          />
+        ) : null}
 
         {substitutionEvent ? (
           <SubstitutionModal
