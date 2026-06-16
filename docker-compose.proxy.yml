@@ -41,6 +41,7 @@ services:
 networks:
   appnet:
     name: edutrack_net
+    external: true
   moodle-net:
     name: edutrack_moodle-net
     external: true
