@@ -300,8 +300,8 @@ describe('AdminEvents', () => {
       ...baseEvent,
       id: 'future-class',
       assignedUserId: 't1',
-      startDate: `${ymd}T00:00:00.000Z`,
-      endDate: `${ymd}T00:00:00.000Z`,
+      startDate: ymd,
+      endDate: ymd,
       startTime: `${ymd}T15:00:00.000Z`,
       endTime: `${ymd}T16:00:00.000Z`,
     }
@@ -326,7 +326,8 @@ describe('AdminEvents', () => {
     await screen.findAllByText('Clase matutina')
 
     fireEvent.click(screen.getByRole('button', { name: 'Calendario' }))
-    fireEvent.click(await screen.findByRole('button', { name: /Clase matutina/ }))
+    const calendar = await screen.findByRole('region', { name: 'Calendario de actividades' })
+    fireEvent.click(await within(calendar).findByRole('button', { name: /Clase matutina/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Marcar suplencia' }))
 
     expect(await screen.findByRole('heading', { name: 'Suplencia de clase' })).toBeInTheDocument()
@@ -338,8 +339,8 @@ describe('AdminEvents', () => {
       ...baseEvent,
       id: 'past-class',
       assignedUserId: 't1',
-      startDate: `${ymd}T00:00:00.000Z`,
-      endDate: `${ymd}T00:00:00.000Z`,
+      startDate: ymd,
+      endDate: ymd,
       startTime: `${ymd}T15:00:00.000Z`,
       endTime: `${ymd}T16:00:00.000Z`,
     }
