@@ -35,11 +35,11 @@ services:
       timeout: 5s
       retries: 3
     networks:
-      - net
+      - appnet
       - moodle-net
 
 networks:
-  net:
+  appnet:
     name: edutrack_net
   moodle-net:
     name: edutrack_moodle-net
