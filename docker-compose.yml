@@ -155,7 +155,6 @@ services:
     ports:
       - "4000:4000"
       - "8081:8081"
-      - "80:8081"
       - "8088:8081"
     # Moodle en el host (puerto 8080): fuerza IPv4; sin esto Node puede resolver host.docker.internal solo a IPv6 y fallar.
     extra_hosts:
