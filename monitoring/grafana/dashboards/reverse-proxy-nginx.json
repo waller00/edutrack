@@ -1,0 +1,134 @@
+{
+  "uid": "edutrack-reverse-proxy-nginx",
+  "title": "Reverse Proxy Nginx",
+  "tags": ["edutrack", "reverse-proxy", "nginx"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Exporter sees Nginx",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "nginx_up{job=\"reverse-proxy\"}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red" }, { "color": "green", "value": 1 }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Active connections",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "sum(nginx_connections_active{job=\"reverse-proxy\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Requests / second",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(rate(nginx_http_requests_total{job=\"reverse-proxy\"}[1m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Waiting connections",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sum(nginx_connections_waiting{job=\"reverse-proxy\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Connection states",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        { "expr": "sum(nginx_connections_reading{job=\"reverse-proxy\"})", "legendFormat": "reading", "refId": "A" },
+        { "expr": "sum(nginx_connections_writing{job=\"reverse-proxy\"})", "legendFormat": "writing", "refId": "B" },
+        { "expr": "sum(nginx_connections_waiting{job=\"reverse-proxy\"})", "legendFormat": "waiting", "refId": "C" },
+        { "expr": "sum(nginx_connections_active{job=\"reverse-proxy\"})", "legendFormat": "active", "refId": "D" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Nginx request rate",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        {
+          "expr": "sum(rate(nginx_http_requests_total{job=\"reverse-proxy\"}[1m]))",
+          "legendFormat": "requests/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Important log rate",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({compose_service=~\"reverse-proxy|reverse-proxy-local\"} |~ \"(?i)(error|warn| 4[0-9][0-9] | 5[0-9][0-9] |upstream|connect\\\\(\\\\) failed|timed out)\" [5m]))",
+          "legendFormat": "important logs",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "logs",
+      "title": "Important proxy logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "expr": "{compose_service=~\"reverse-proxy|reverse-proxy-local\"} |~ \"(?i)(error|warn| 4[0-9][0-9] | 5[0-9][0-9] |upstream|connect\\\\(\\\\) failed|timed out)\"",
+          "refId": "A"
+        }
+      ],
+      "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true }
+    },
+    {
+      "id": 9,
+      "type": "logs",
+      "title": "Recent proxy access logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 22 },
+      "targets": [
+        {
+          "expr": "{compose_service=~\"reverse-proxy|reverse-proxy-local\"}",
+          "refId": "A"
+        }
+      ],
+      "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true }
+    }
+  ]
+}

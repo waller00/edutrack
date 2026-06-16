@@ -9,6 +9,7 @@ frontend/web/build/
 .env.*
 !.env.monitoring.example
 !.env.k6.example
+!.env.proxy.example
 backend/.env
 frontend/web/.env*
 npm-debug.log*
