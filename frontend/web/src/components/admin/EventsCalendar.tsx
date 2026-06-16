@@ -95,7 +95,11 @@ export default function EventsCalendar({
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div
+      className="rounded-xl border border-gray-200 bg-white shadow-sm"
+      role="region"
+      aria-label="Calendario de actividades"
+    >
       <div className="flex flex-col gap-3 border-b border-gray-100 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
         <div className="flex items-center gap-2">
           <button
