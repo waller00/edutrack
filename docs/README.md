@@ -28,6 +28,7 @@
 | Documento | Para qué |
 |-----------|----------|
 | [MANUAL_DESPLIEGUE_CONTINUO.md](MANUAL_DESPLIEGUE_CONTINUO.md) | CI/CD, testing/producción, smoke tests |
+| [REVERSE_PROXY_CLOUDFLARE.md](REVERSE_PROXY_CLOUDFLARE.md) | Reverse proxy Nginx para Cloudflare antes de activar WAF |
 | [TESTING_DB_RESTORE.md](TESTING_DB_RESTORE.md) | Restaurar dumps en el Droplet |
 | [CIBERSEGURIDAD_CONTINUIDAD.md](CIBERSEGURIDAD_CONTINUIDAD.md) | Seguridad, backups, RTO/RPO, incidentes |
 | [BIOMETRICO_F22.md](BIOMETRICO_F22.md) | Reloj ZKTeco F22 (ADMS) |

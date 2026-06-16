@@ -1,0 +1,43 @@
+# Reverse proxy local para validar ruteo sin TLS, certificados ni Cloudflare.
+# Requiere agregar hosts .local apuntando a 127.0.0.1.
+#
+# Uso esperado:
+#   docker compose -f docker-compose.yml -f docker-compose.moodle.yml -f docker-compose.proxy.local.yml up -d reverse-proxy-local
+
+services:
+  reverse-proxy-local:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./nginx/reverse-proxy/local.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      web:
+        condition: service_started
+      auth:
+        condition: service_started
+      keycloak:
+        condition: service_started
+      moodle:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      appnet:
+        aliases:
+          - reverse-proxy
+      moodle-net:
+        aliases:
+          - reverse-proxy-moodle
+
+networks:
+  appnet:
+    name: edutrack_net
+    external: true
+  moodle-net:
+    name: edutrack_moodle-net
+    external: true
