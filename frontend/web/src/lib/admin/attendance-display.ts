@@ -68,16 +68,32 @@ export function getAdminAttendanceStatusLabel(status: AdminAttendanceStatus): st
   }
 }
 
-/** Estados mostrados en la leyenda de colores de la grilla, con su explicación. */
-export const ADMIN_ATTENDANCE_LEGEND: ReadonlyArray<{
+/**
+ * Entradas de la leyenda de colores de la grilla. `label` opcional permite mostrar
+ * matices que comparten color/estado (p. ej. una ausencia prevista sin suplente, que
+ * es un `ABSENT_NOT_JUSTIFIED` con otro rótulo en la fila).
+ */
+export type AdminAttendanceLegendItem = {
   status: AdminAttendanceStatus
+  label?: string
   description: string
-}> = [
+}
+
+export function getAdminAttendanceLegendLabel(item: AdminAttendanceLegendItem): string {
+  return item.label ?? getAdminAttendanceStatusLabel(item.status)
+}
+
+export const ADMIN_ATTENDANCE_LEGEND: ReadonlyArray<AdminAttendanceLegendItem> = [
   { status: 'PRESENT', description: 'Marcó dentro de la tolerancia' },
   { status: 'LATE', description: 'Llegó tarde (fuera de tolerancia)' },
   { status: 'EXIT', description: 'Salida registrada en horario' },
   { status: 'EARLY_EXIT', description: 'Se retiró antes de hora' },
   { status: 'ABSENT_NOT_JUSTIFIED', description: 'Falta sin justificar' },
+  {
+    status: 'ABSENT_NOT_JUSTIFIED',
+    label: 'Ausencia prevista sin justificar',
+    description: 'Ausencia planificada del titular sin suplente ni justificación',
+  },
   { status: 'ABSENT_JUSTIFIED', description: 'Falta justificada (licencia / justificación)' },
   { status: 'SUBSTITUTED', description: 'Ausencia prevista del titular cubierta por suplente' },
   { status: 'JUSTIFIED', description: 'Tardanza o salida justificada' },

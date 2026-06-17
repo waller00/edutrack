@@ -9,6 +9,7 @@ import {
   ADMIN_ATTENDANCE_LEGEND,
   buildAdminAttendanceAllQueryString,
   getAdminAttendanceDefaultStartDate,
+  getAdminAttendanceLegendLabel,
   getAdminAttendancePlannedTimeLabel,
   getAdminAttendanceStatusLabel,
   getAdminAttendanceStatusStyle,
@@ -1426,9 +1427,9 @@ export default function AdminAttendance() {
           {showLegend ? (
             <div className="flex flex-wrap gap-x-4 gap-y-2 border-b bg-slate-50/60 px-4 py-3 sm:px-6">
               {ADMIN_ATTENDANCE_LEGEND.map((item) => (
-                <div key={item.status} className="flex items-center gap-1.5 text-xs text-gray-600">
+                <div key={item.label ?? item.status} className="flex items-center gap-1.5 text-xs text-gray-600">
                   <span className={`inline-flex rounded-full px-2 py-0.5 font-medium ${getAdminAttendanceStatusStyle(item.status)}`}>
-                    {getAdminAttendanceStatusLabel(item.status)}
+                    {getAdminAttendanceLegendLabel(item)}
                   </span>
                   <span>{item.description}</span>
                 </div>
