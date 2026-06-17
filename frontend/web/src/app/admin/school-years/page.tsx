@@ -3,8 +3,29 @@
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useAdminSchoolYear, type SchoolYearApiRow } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
+import {
+  ACTIONS_WITH_TARGET,
+  buildTargetOptionsForPlan,
+  countStudentsWithoutTarget,
+  courseLabel,
+  filterStartStudents,
+  orientationKey,
+  parseTargetValue,
+  sourceGroupKey,
+  START_ACTION_LABEL,
+  studentHasValidTarget,
+  summarizeClosures,
+  summarizeDestinationCounts,
+  targetValue,
+  type StartAction,
+  type StartDecision,
+  type StartPlanPayload,
+  type StartPlanStudent,
+  type TargetOption,
+} from '@/lib/admin/school-year-start'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  AlertTriangle,
   ArrowRight,
   BookOpen,
   CalendarRange,
@@ -16,6 +37,7 @@ import {
   Plus,
   RefreshCw,
   Rocket,
+  Search,
   Trash2,
   Users,
 } from 'lucide-react'
@@ -58,62 +80,6 @@ type ComparePayload = {
   }
 }
 
-type StartPlanCourse = {
-  id: string
-  name: string
-  code: string | null
-  level: string | null
-  sortOrder: number
-  targetOffered: boolean
-  sourceOffered: boolean
-  recommended: boolean
-  orientations: StartPlanOrientation[]
-}
-
-type StartPlanOrientation = {
-  orientationId: string
-  name: string
-  code: string | null
-  sortOrder: number
-  targetOffered: boolean
-  sourceOffered: boolean
-  recommended: boolean
-}
-
-type StartPlanStudent = {
-  studentId: string
-  firstName: string
-  lastName: string
-  documentId: string | null
-  sourceCourseId: string | null
-  sourceCourseName: string
-  sourceCourseCode: string | null
-  sourceOrientationId: string | null
-  sourceOrientationName: string | null
-  sourceOrientationCode: string | null
-  enrollmentStatus: string
-}
-
-type StartPlanPayload = {
-  target: SchoolYearApiRow
-  source: SchoolYearApiRow | null
-  sourceYears: SchoolYearApiRow[]
-  courses: StartPlanCourse[]
-  students: StartPlanStudent[]
-}
-
-type StartAction = 'PROMOTE' | 'REPEAT' | 'GRADUATED' | 'WITHDRAWN' | 'TRANSFERRED'
-type StartDecision = { action: StartAction; targetCourseId?: string; targetOrientationId?: string; notes?: string }
-
-const START_ACTION_LABEL: Record<StartAction, string> = {
-  PROMOTE: 'Pasa',
-  REPEAT: 'Repite',
-  GRADUATED: 'Egresa',
-  WITHDRAWN: 'No siguió',
-  TRANSFERRED: 'Transferido',
-}
-
-const ACTIONS_WITH_TARGET = new Set<StartAction>(['PROMOTE', 'REPEAT'])
 const START_STEPS = [
   { key: 'courses', label: 'Cursos', Icon: BookOpen },
   { key: 'students', label: 'Estudiantes', Icon: Users },
@@ -125,53 +91,139 @@ function toInputDate(iso: string | null): string {
   return iso.slice(0, 10)
 }
 
-function courseLabel(course: Pick<StartPlanCourse, 'name' | 'code'>): string {
-  return course.code ? `${course.code} · ${course.name}` : course.name
+function StartStudentRow({
+  student,
+  decision,
+  pending,
+  options,
+  onPatch,
+}: {
+  student: StartPlanStudent
+  decision: StartDecision
+  pending: boolean
+  options: TargetOption[]
+  onPatch: (patch: Partial<StartDecision>) => void
+}) {
+  const needsTarget = ACTIONS_WITH_TARGET.has(decision.action)
+  return (
+    <div className={`rounded-lg border p-3 ${pending ? 'border-red-300 bg-red-50/40' : 'border-gray-200'}`}>
+      <div className="grid gap-3 xl:grid-cols-[minmax(180px,1fr)_minmax(280px,1.4fr)_minmax(200px,0.9fr)] xl:items-center">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-gray-900">
+            {student.lastName}, {student.firstName}
+          </p>
+          <p className="truncate text-xs text-gray-500">
+            {student.documentId ?? 'Sin documento'} · {student.sourceCourseName}
+            {student.sourceOrientationName ? ` - ${student.sourceOrientationName}` : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(Object.keys(START_ACTION_LABEL) as StartAction[]).map((action) => (
+            <button
+              key={action}
+              type="button"
+              className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+                decision.action === action
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+              onClick={() => onPatch({ action })}
+            >
+              {START_ACTION_LABEL[action]}
+            </button>
+          ))}
+        </div>
+        {needsTarget ? (
+          <label className="block">
+            <span className="sr-only">Curso destino</span>
+            <select
+              aria-label="Curso destino"
+              className={`select-field w-full text-sm ${pending ? 'border-red-300' : ''}`}
+              value={targetValue(decision.targetCourseId, decision.targetOrientationId)}
+              onChange={(e) => onPatch(parseTargetValue(e.target.value))}
+            >
+              <option value="">Curso destino…</option>
+              {options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <input
+            aria-label="Nota"
+            className="input-field w-full text-sm"
+            value={decision.notes ?? ''}
+            onChange={(e) => onPatch({ notes: e.target.value })}
+            placeholder="Nota opcional"
+          />
+        )}
+      </div>
+    </div>
+  )
 }
 
-function orientationKey(courseId: string, orientationId: string): string {
-  return `${courseId}:${orientationId}`
-}
-
-function targetValue(courseId?: string, orientationId?: string): string {
-  if (!courseId) return ''
-  return orientationId ? `${courseId}:${orientationId}` : courseId
-}
-
-function parseTargetValue(value: string): Partial<StartDecision> {
-  if (!value) return {}
-  const [targetCourseId, targetOrientationId] = value.split(':')
-  return { targetCourseId, targetOrientationId }
-}
-
-function sourceGroupKey(student: Pick<StartPlanStudent, 'sourceCourseId' | 'sourceOrientationId'>): string {
-  return `${student.sourceCourseId ?? 'none'}:${student.sourceOrientationId ?? ''}`
-}
-
-function buildTargetOptionsForPlan(
-  plan: StartPlanPayload,
-  courseIds: Set<string>,
-  orientationKeys: Set<string>,
-): Array<{ value: string; label: string; courseId: string; orientationId?: string }> {
-  const options: Array<{ value: string; label: string; courseId: string; orientationId?: string }> = []
-  for (const course of plan.courses.filter((row) => courseIds.has(row.id))) {
-    const selectedOrientations = course.orientations.filter((orientation) =>
-      orientationKeys.has(orientationKey(course.id, orientation.orientationId)),
-    )
-    if (selectedOrientations.length === 0) {
-      options.push({ value: targetValue(course.id), label: courseLabel(course), courseId: course.id })
-    } else {
-      for (const orientation of selectedOrientations) {
-        options.push({
-          value: targetValue(course.id, orientation.orientationId),
-          label: `${courseLabel(course)} - ${orientation.name}`,
-          courseId: course.id,
-          orientationId: orientation.orientationId,
-        })
-      }
-    }
-  }
-  return options
+function StartBulkBar({
+  visibleCount,
+  options,
+  bulkTarget,
+  onBulkTargetChange,
+  onApplyTarget,
+  onApplyAction,
+}: {
+  visibleCount: number
+  options: TargetOption[]
+  bulkTarget: string
+  onBulkTargetChange: (value: string) => void
+  onApplyTarget: () => void
+  onApplyAction: (action: StartAction) => void
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <p className="text-xs font-medium text-gray-600">
+        Acciones en bloque · {visibleCount} {visibleCount === 1 ? 'estudiante visible' : 'estudiantes visibles'}
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {(Object.keys(START_ACTION_LABEL) as StartAction[]).map((action) => (
+          <button
+            key={action}
+            type="button"
+            className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+            onClick={() => onApplyAction(action)}
+          >
+            {START_ACTION_LABEL[action]} a todos
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label className="flex-1">
+          <span className="sr-only">Asignar curso destino a los visibles</span>
+          <select
+            aria-label="Asignar curso destino a los visibles"
+            className="select-field w-full text-sm"
+            value={bulkTarget}
+            onChange={(e) => onBulkTargetChange(e.target.value)}
+          >
+            <option value="">Asignar curso destino a estos…</option>
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="btn-secondary shrink-0 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!bulkTarget}
+          onClick={onApplyTarget}
+        >
+          Aplicar a estos
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export default function AdminSchoolYearsPage() {
@@ -206,6 +258,9 @@ export default function AdminSchoolYearsPage() {
   const [selectedOrientationKeys, setSelectedOrientationKeys] = useState<Set<string>>(() => new Set())
   const [studentDecisions, setStudentDecisions] = useState<Record<string, StartDecision>>({})
   const [studentCourseFilter, setStudentCourseFilter] = useState('')
+  const [studentSearch, setStudentSearch] = useState('')
+  const [onlyPending, setOnlyPending] = useState(false)
+  const [bulkTarget, setBulkTarget] = useState('')
   const [starting, setStarting] = useState(false)
 
   const [cmpA, setCmpA] = useState('')
@@ -236,10 +291,23 @@ export default function AdminSchoolYearsPage() {
     }
     return [...groups.values()]
   }, [startPlan])
+  const pendingStudentCount = useMemo(
+    () => countStudentsWithoutTarget(startPlan?.students ?? [], studentDecisions, selectedTargetOptions),
+    [startPlan, studentDecisions, selectedTargetOptions],
+  )
   const visibleStartStudents = useMemo(() => {
-    if (!studentCourseFilter) return startPlan?.students ?? []
-    return startPlan?.students.filter((student) => sourceGroupKey(student) === studentCourseFilter) ?? []
-  }, [startPlan, studentCourseFilter])
+    const base = filterStartStudents(startPlan?.students ?? [], studentCourseFilter, studentSearch)
+    if (!onlyPending) return base
+    return base.filter((student) => !studentHasValidTarget(studentDecisions[student.studentId], selectedTargetOptions))
+  }, [startPlan, studentCourseFilter, studentSearch, onlyPending, studentDecisions, selectedTargetOptions])
+  const destinationCounts = useMemo(
+    () => summarizeDestinationCounts(startPlan?.students ?? [], studentDecisions, selectedTargetOptions),
+    [startPlan, studentDecisions, selectedTargetOptions],
+  )
+  const closures = useMemo(
+    () => summarizeClosures(startPlan?.students ?? [], studentDecisions),
+    [startPlan, studentDecisions],
+  )
   const startDecisionSummary = useMemo(() => {
     const summary: Record<StartAction, number> = {
       PROMOTE: 0,
@@ -333,6 +401,9 @@ export default function AdminSchoolYearsPage() {
     setSelectedOrientationKeys(new Set())
     setStudentDecisions({})
     setStudentCourseFilter('')
+    setStudentSearch('')
+    setOnlyPending(false)
+    setBulkTarget('')
   }
 
   function normalizeDecisions(
@@ -405,9 +476,8 @@ export default function AdminSchoolYearsPage() {
     })
   }
 
-  function patchStudentDecision(studentId: string, patch: Partial<StartDecision>) {
-    setStudentDecisions((decisions) => {
-      const current = decisions[studentId] ?? { action: 'PROMOTE' as StartAction }
+  const resolveDecisionPatch = useCallback(
+    (current: StartDecision, patch: Partial<StartDecision>): StartDecision => {
       const next = { ...current, ...patch }
       if (ACTIONS_WITH_TARGET.has(next.action) && !next.targetCourseId) {
         const fallback = selectedTargetOptions[0]
@@ -418,7 +488,28 @@ export default function AdminSchoolYearsPage() {
         delete next.targetCourseId
         delete next.targetOrientationId
       }
-      return { ...decisions, [studentId]: next }
+      return next
+    },
+    [selectedTargetOptions],
+  )
+
+  function patchStudentDecision(studentId: string, patch: Partial<StartDecision>) {
+    setStudentDecisions((decisions) => ({
+      ...decisions,
+      [studentId]: resolveDecisionPatch(decisions[studentId] ?? { action: 'PROMOTE' }, patch),
+    }))
+  }
+
+  /** Aplica una misma decisión (acción o destino) a un conjunto de estudiantes (los visibles según filtro). */
+  function applyBulkDecision(studentIds: string[], patch: Partial<StartDecision>) {
+    if (studentIds.length === 0) return
+    const ids = new Set(studentIds)
+    setStudentDecisions((decisions) => {
+      const updated = { ...decisions }
+      for (const studentId of ids) {
+        updated[studentId] = resolveDecisionPatch(decisions[studentId] ?? { action: 'PROMOTE' }, patch)
+      }
+      return updated
     })
   }
 
@@ -1167,99 +1258,120 @@ export default function AdminSchoolYearsPage() {
 
                 {!startLoading && startPlan && startStep === 'students' && (
                   <div className="space-y-4">
-                    {startStudentGroups.length > 0 && (
-                      <div className="flex gap-2 overflow-x-auto pb-1">
-                        <button
-                          type="button"
-                          className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-medium ${
-                            !studentCourseFilter ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-gray-200 text-gray-700'
-                          }`}
-                          onClick={() => setStudentCourseFilter('')}
-                        >
-                          Todos ({startPlan.students.length})
-                        </button>
-                        {startStudentGroups.map((group) => (
-                          <button
-                            key={group.id}
-                            type="button"
-                            className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-medium ${
-                              studentCourseFilter === group.id ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-gray-200 text-gray-700'
-                            }`}
-                            onClick={() => setStudentCourseFilter(group.id)}
-                          >
-                            {group.label} ({group.students.length})
-                          </button>
-                        ))}
-                      </div>
-                    )}
                     {startPlan.students.length === 0 ? (
                       <div className="rounded-lg border border-gray-200 p-5 text-sm text-gray-600">
                         No hay estudiantes activos en el ciclo origen.
                       </div>
                     ) : (
-                      <div className="space-y-2">
-                        {visibleStartStudents.map((student) => {
-                          const decision = studentDecisions[student.studentId] ?? { action: 'PROMOTE' as StartAction }
-                          return (
-                            <div key={student.studentId} className="rounded-lg border border-gray-200 p-3">
-                              <div className="grid gap-3 xl:grid-cols-[minmax(180px,1fr)_minmax(280px,1.4fr)_minmax(200px,0.9fr)] xl:items-center">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-gray-900">
-                                    {student.lastName}, {student.firstName}
-                                  </p>
-                                  <p className="truncate text-xs text-gray-500">
-                                    {student.documentId ?? 'Sin documento'} · {student.sourceCourseName}
-                                    {student.sourceOrientationName ? ` - ${student.sourceOrientationName}` : ''}
-                                  </p>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {(Object.keys(START_ACTION_LABEL) as StartAction[]).map((action) => (
-                                    <button
-                                      key={action}
-                                      type="button"
-                                      className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
-                                        decision.action === action
-                                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                                      }`}
-                                      onClick={() => patchStudentDecision(student.studentId, { action })}
-                                    >
-                                      {START_ACTION_LABEL[action]}
-                                    </button>
-                                  ))}
-                                </div>
-                                {ACTIONS_WITH_TARGET.has(decision.action) ? (
-                                  <select
-                                    className="select-field w-full text-sm"
-                                    value={targetValue(decision.targetCourseId, decision.targetOrientationId)}
-                                    onChange={(e) => patchStudentDecision(student.studentId, parseTargetValue(e.target.value))}
-                                  >
-                                    <option value="">Curso destino</option>
-                                    {selectedTargetOptions.map((option) => (
-                                      <option key={option.value} value={option.value}>
-                                        {option.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <input
-                                    className="input-field w-full text-sm"
-                                    value={decision.notes ?? ''}
-                                    onChange={(e) => patchStudentDecision(student.studentId, { notes: e.target.value })}
-                                    placeholder="Nota opcional"
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
+                      <>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="relative sm:max-w-xs sm:flex-1">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+                            <input
+                              aria-label="Buscar estudiante"
+                              className="input-field w-full pl-8 text-sm"
+                              value={studentSearch}
+                              onChange={(e) => setStudentSearch(e.target.value)}
+                              placeholder="Buscar por nombre o documento"
+                            />
+                          </div>
+                          {pendingStudentCount > 0 && (
+                            <button
+                              type="button"
+                              aria-pressed={onlyPending}
+                              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium ${
+                                onlyPending ? 'border-red-300 bg-red-50 text-red-800' : 'border-red-200 text-red-700 hover:bg-red-50'
+                              }`}
+                              onClick={() => setOnlyPending((v) => !v)}
+                            >
+                              <AlertTriangle className="h-4 w-4" aria-hidden />
+                              {pendingStudentCount} sin destino
+                            </button>
+                          )}
+                        </div>
+
+                        {startStudentGroups.length > 0 && (
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            <button
+                              type="button"
+                              className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-medium ${
+                                !studentCourseFilter ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-gray-200 text-gray-700'
+                              }`}
+                              onClick={() => setStudentCourseFilter('')}
+                            >
+                              Todos ({startPlan.students.length})
+                            </button>
+                            {startStudentGroups.map((group) => (
+                              <button
+                                key={group.id}
+                                type="button"
+                                className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-medium ${
+                                  studentCourseFilter === group.id ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-gray-200 text-gray-700'
+                                }`}
+                                onClick={() => setStudentCourseFilter(group.id)}
+                              >
+                                {group.label} ({group.students.length})
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        <StartBulkBar
+                          visibleCount={visibleStartStudents.length}
+                          options={selectedTargetOptions}
+                          bulkTarget={bulkTarget}
+                          onBulkTargetChange={setBulkTarget}
+                          onApplyTarget={() =>
+                            applyBulkDecision(
+                              visibleStartStudents.map((s) => s.studentId),
+                              parseTargetValue(bulkTarget),
+                            )
+                          }
+                          onApplyAction={(action) =>
+                            applyBulkDecision(
+                              visibleStartStudents.map((s) => s.studentId),
+                              { action },
+                            )
+                          }
+                        />
+
+                        {visibleStartStudents.length === 0 ? (
+                          <div className="rounded-lg border border-gray-200 p-5 text-sm text-gray-600">
+                            No hay estudiantes que coincidan con el filtro.
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {visibleStartStudents.map((student) => {
+                              const decision = studentDecisions[student.studentId] ?? { action: 'PROMOTE' as StartAction }
+                              return (
+                                <StartStudentRow
+                                  key={student.studentId}
+                                  student={student}
+                                  decision={decision}
+                                  pending={!studentHasValidTarget(decision, selectedTargetOptions)}
+                                  options={selectedTargetOptions}
+                                  onPatch={(patch) => patchStudentDecision(student.studentId, patch)}
+                                />
+                              )
+                            })}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
 
                 {!startLoading && startPlan && startStep === 'review' && (
-                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+                  <div className="space-y-4">
+                    {pendingStudentCount > 0 && (
+                      <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                        <span>
+                          {pendingStudentCount} {pendingStudentCount === 1 ? 'estudiante' : 'estudiantes'} sin curso destino. Volvé al paso anterior para completarlos antes de iniciar el ciclo.
+                        </span>
+                      </div>
+                    )}
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
                     <div className="rounded-lg border border-gray-200 p-4">
                       <BookOpen className="h-5 w-5 text-emerald-700" aria-hidden />
                       <p className="mt-2 text-sm text-gray-500">Cursos activos</p>
@@ -1286,6 +1398,44 @@ export default function AdminSchoolYearsPage() {
                       <p className="text-2xl font-semibold text-gray-900">
                         {startDecisionSummary.GRADUATED + startDecisionSummary.WITHDRAWN + startDecisionSummary.TRANSFERRED}
                       </p>
+                    </div>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-lg border border-gray-200 p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">Estudiantes por clase destino</h4>
+                        {destinationCounts.length === 0 ? (
+                          <p className="mt-2 text-sm text-gray-500">Ningún estudiante pasa o repite todavía.</p>
+                        ) : (
+                          <ul className="mt-2 space-y-1.5">
+                            {destinationCounts.map((row) => (
+                              <li key={row.value} className="flex items-center justify-between gap-3 text-sm">
+                                <span className="truncate text-gray-700">{row.label}</span>
+                                <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                  {row.count}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="rounded-lg border border-gray-200 p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">Cierres de matrícula</h4>
+                        {closures.length === 0 ? (
+                          <p className="mt-2 text-sm text-gray-500">No hay egresos, bajas ni transferencias.</p>
+                        ) : (
+                          <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto">
+                            {closures.map((row) => (
+                              <li key={row.studentId} className="flex items-center justify-between gap-3 text-sm">
+                                <span className="truncate text-gray-700">{row.name}</span>
+                                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                  {row.actionLabel}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}

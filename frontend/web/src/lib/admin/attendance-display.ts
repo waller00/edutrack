@@ -60,7 +60,7 @@ export function getAdminAttendanceStatusLabel(status: AdminAttendanceStatus): st
     case 'JUSTIFIED':
       return 'Justificado'
     case 'SUBSTITUTED':
-      return 'Ausencia prevista sin justificar (suplida)'
+      return 'Suplida'
     case 'OUT_OF_SCHEDULE':
       return 'Fuera de horario'
     default:
@@ -79,7 +79,7 @@ export const ADMIN_ATTENDANCE_LEGEND: ReadonlyArray<{
   { status: 'EARLY_EXIT', description: 'Se retiró antes de hora' },
   { status: 'ABSENT_NOT_JUSTIFIED', description: 'Falta sin justificar' },
   { status: 'ABSENT_JUSTIFIED', description: 'Falta justificada (licencia / justificación)' },
-  { status: 'SUBSTITUTED', description: 'Ausencia prevista cubierta por suplente' },
+  { status: 'SUBSTITUTED', description: 'Ausencia prevista del titular cubierta por suplente' },
   { status: 'JUSTIFIED', description: 'Tardanza o salida justificada' },
 ]
 
