@@ -1225,7 +1225,7 @@ export default function AdminAttendance() {
                             <option value="PRESENT">Presente</option>
                             <option value="LATE">Tarde</option>
                             <option value="ABSENT_NOT_JUSTIFIED">Ausente sin justificar</option>
-                            <option value="SUBSTITUTED">Ausencia prevista sin justificar (suplida)</option>
+                            <option value="SUBSTITUTED">Suplida (ausencia cubierta)</option>
                             <option value="JUSTIFIED">Justificado</option>
                             <option value="ABSENT_JUSTIFIED">Ausente justificada</option>
                           </>
@@ -1510,7 +1510,7 @@ export default function AdminAttendance() {
                         <option value="LATE">Tarde</option>
                         <option value="ABSENT_NOT_JUSTIFIED">Ausente (No Justificada)</option>
                         <option value="ABSENT_JUSTIFIED">Ausente (Justificada)</option>
-                            <option value="SUBSTITUTED">Ausencia prevista sin justificar (suplida)</option>
+                            <option value="SUBSTITUTED">Suplida (ausencia cubierta)</option>
                         <option value="JUSTIFIED">Justificado</option>
                       </>
                     ) : (
