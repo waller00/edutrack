@@ -39,7 +39,7 @@ describe('status style/label (todas las ramas)', () => {
     expect(getAdminAttendanceStatusLabel('ABSENT_NOT_JUSTIFIED')).toContain('No Justificada')
     expect(getAdminAttendanceStatusLabel('ABSENT_JUSTIFIED')).toContain('Justificada')
     expect(getAdminAttendanceStatusLabel('JUSTIFIED')).toBe('Justificado')
-    expect(getAdminAttendanceStatusLabel('SUBSTITUTED')).toContain('suplida')
+    expect(getAdminAttendanceStatusLabel('SUBSTITUTED')).toBe('Suplida')
     expect(getAdminAttendanceStatusLabel('ZZ' as AdminAttendanceStatus)).toBe('ZZ')
   })
 })
