@@ -57,6 +57,7 @@ function ctx(over?: Partial<ReturnType<typeof useAdminSchoolYear>>) {
 describe('SchoolYearsPage', () => {
   beforeEach(() => {
     mockedUseCtx.mockReset()
+    mockedApi.mockReset()
     mockedUseCtx.mockReturnValue(ctx())
   })
 
@@ -82,6 +83,20 @@ describe('SchoolYearsPage', () => {
 
     // Mensaje de vacío en tabla y en la lista mobile.
     expect(screen.getAllByText('No hay ciclos cargados.').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('permite activar manualmente un ciclo cerrado cuando no hay ciclo activo', async () => {
+    const reload = vi.fn()
+    mockedApi.mockResolvedValue({} as never)
+    mockedUseCtx.mockReturnValue(ctx({ activeId: null, years: [years[1]] as never, reload }))
+
+    render(<SchoolYearsPage />)
+    fireEvent.click(screen.getAllByRole('button', { name: /Activar/ })[0])
+
+    await waitFor(() => {
+      expect(mockedApi).toHaveBeenCalledWith('/admin/school-years/y2/activate', { method: 'POST' })
+    })
+    expect(reload).toHaveBeenCalled()
   })
 })
 
