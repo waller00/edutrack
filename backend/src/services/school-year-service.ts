@@ -154,6 +154,45 @@ export async function copyCoursesBetweenSchoolYears(
   return { created, subjectsCreated }
 }
 
+/**
+ * Datos de una asignación asignatura↔curso que se versionan al copiarse a otro ciclo.
+ * `subjectId` referencia el catálogo global de asignaturas (no se duplica el Subject).
+ */
+export type SubjectAssignmentCopy = {
+  subjectId: string
+  level: string | null
+  courseId: string | null
+  orientationId: string | null
+  associationType: string
+  isActive: boolean
+  isOffered: boolean
+  visibleInFilters: boolean
+  sortOrder: number
+  notes: string | null
+}
+
+/** Clave de identidad de una asignación dentro de un ciclo (para evitar duplicados al copiar). */
+export function subjectAssignmentKey(
+  a: Pick<SubjectAssignmentCopy, 'subjectId' | 'courseId' | 'orientationId' | 'level' | 'associationType'>,
+): string {
+  return [a.subjectId, a.courseId ?? '', a.orientationId ?? '', a.level ?? '', a.associationType].join('|')
+}
+
+/**
+ * Filtra las asignaciones del ciclo origen que aún no existen en el destino y las re-etiqueta
+ * al ciclo destino. Idempotente: re-ejecutar no genera duplicados.
+ */
+export function buildSubjectAssignmentsToCopy(
+  source: SubjectAssignmentCopy[],
+  existingTarget: Array<Pick<SubjectAssignmentCopy, 'subjectId' | 'courseId' | 'orientationId' | 'level' | 'associationType'>>,
+  targetSchoolYearId: string,
+): Array<SubjectAssignmentCopy & { schoolYearId: string }> {
+  const existing = new Set(existingTarget.map(subjectAssignmentKey))
+  return source
+    .filter((assignment) => !existing.has(subjectAssignmentKey(assignment)))
+    .map((assignment) => ({ ...assignment, schoolYearId: targetSchoolYearId }))
+}
+
 export async function ensureCourseOffering(
   prisma: PrismaClient,
   courseId: string,

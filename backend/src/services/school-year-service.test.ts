@@ -10,6 +10,9 @@ import {
   ensureCourseOffering,
   assertCourseOfferedInSchoolYear,
   findActiveCourseOffering,
+  buildSubjectAssignmentsToCopy,
+  subjectAssignmentKey,
+  type SubjectAssignmentCopy,
 } from "./school-year-service.js";
 
 function fakePrisma(over: Record<string, any> = {}) {
@@ -212,6 +215,44 @@ describe("copyCoursesBetweenSchoolYears", () => {
     expect(res).toEqual({ created: 1, subjectsCreated: 1 });
     expect(tx.subject.createMany).toHaveBeenCalled();
     expect(tx.subjectCourseAssignment.createMany).toHaveBeenCalled();
+  });
+});
+
+describe("buildSubjectAssignmentsToCopy", () => {
+  const base = (over: Partial<SubjectAssignmentCopy>): SubjectAssignmentCopy => ({
+    subjectId: "s1",
+    level: null,
+    courseId: "c1",
+    orientationId: null,
+    associationType: "CURSO_COMPLETO",
+    isActive: true,
+    isOffered: true,
+    visibleInFilters: true,
+    sortOrder: 0,
+    notes: null,
+    ...over,
+  });
+
+  it("re-etiqueta las asignaciones al ciclo destino", () => {
+    const source = [base({ subjectId: "s1" }), base({ subjectId: "s2", level: "EMS", courseId: null, associationType: "NIVEL_COMPLETO" })];
+    const result = buildSubjectAssignmentsToCopy(source, [], "target");
+    expect(result).toHaveLength(2);
+    expect(result.every((r) => r.schoolYearId === "target")).toBe(true);
+  });
+
+  it("omite las que ya existen en el destino (idempotente)", () => {
+    const source = [base({ subjectId: "s1", courseId: "c1" }), base({ subjectId: "s2", courseId: "c1" })];
+    const existing = [base({ subjectId: "s1", courseId: "c1" })];
+    const result = buildSubjectAssignmentsToCopy(source, existing, "target");
+    expect(result.map((r) => r.subjectId)).toEqual(["s2"]);
+  });
+
+  it("distingue por curso, orientación, nivel y tipo de asociación", () => {
+    const a = base({ subjectId: "s1", courseId: "c1", orientationId: "o1", associationType: "ORIENTACION" });
+    const b = base({ subjectId: "s1", courseId: "c1", orientationId: "o2", associationType: "ORIENTACION" });
+    expect(subjectAssignmentKey(a)).not.toBe(subjectAssignmentKey(b));
+    // 'a' ya existe, 'b' no → solo se copia 'b'
+    expect(buildSubjectAssignmentsToCopy([a, b], [a], "target")).toEqual([{ ...b, schoolYearId: "target" }]);
   });
 });
 

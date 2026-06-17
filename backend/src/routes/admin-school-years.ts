@@ -7,6 +7,7 @@ import {
   assertValidSchoolYearDates,
   activateSchoolYearById,
   copyCoursesBetweenSchoolYears,
+  buildSubjectAssignmentsToCopy,
 } from '../services/school-year-service.js'
 
 const r = Router()
@@ -80,6 +81,7 @@ const startSchema = z.object({
   courseIds: z.array(z.string().uuid()).min(1).max(200),
   orientationSelections: z.array(orientationSelectionSchema).max(500).optional().default([]),
   studentDecisions: z.array(startDecisionSchema).max(2000).optional().default([]),
+  copySubjects: z.boolean().optional().default(true),
 })
 
 const terminalStatusByAction: Partial<Record<z.infer<typeof startDecisionSchema>['action'], StudentEnrollmentStatus>> = {
@@ -574,6 +576,42 @@ r.post('/:id/start', async (req, res) => {
         })
       }
 
+      let subjectsCopied = 0
+      if (parsed.data.sourceSchoolYearId && parsed.data.copySubjects) {
+        const assignmentSelect = {
+          subjectId: true,
+          level: true,
+          courseId: true,
+          orientationId: true,
+          associationType: true,
+          isActive: true,
+          isOffered: true,
+          visibleInFilters: true,
+          sortOrder: true,
+          notes: true,
+        }
+        // Asignaciones del origen: específicas de los cursos elegidos + las de alcance
+        // nivel/orientación (courseId nulo), que aplican aunque el curso no esté seleccionado.
+        const sourceAssignments = await (tx as any).subjectCourseAssignment.findMany({
+          where: {
+            schoolYearId: parsed.data.sourceSchoolYearId,
+            OR: [{ courseId: { in: uniqueCourseIds } }, { courseId: null }],
+          },
+          select: assignmentSelect,
+        })
+        if (sourceAssignments.length) {
+          const existingTarget = await (tx as any).subjectCourseAssignment.findMany({
+            where: { schoolYearId: id },
+            select: { subjectId: true, courseId: true, orientationId: true, level: true, associationType: true },
+          })
+          const toCreate = buildSubjectAssignmentsToCopy(sourceAssignments, existingTarget, id)
+          if (toCreate.length) {
+            await (tx as any).subjectCourseAssignment.createMany({ data: toCreate })
+            subjectsCopied = toCreate.length
+          }
+        }
+      }
+
       const targetOfferings = await (tx as any).courseOffering.findMany({
         where: { schoolYearId: id, courseId: { in: uniqueCourseIds } },
         select: { id: true, courseId: true },
@@ -662,7 +700,7 @@ r.post('/:id/start', async (req, res) => {
         where: { id },
         data: { status: 'ACTIVE' },
       })
-      return { updated, moved, closed, courses: uniqueCourseIds.length, orientations: orientationSelections.length }
+      return { updated, moved, closed, courses: uniqueCourseIds.length, orientations: orientationSelections.length, subjectsCopied }
     })
 
     const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: result.updated.id } })
@@ -672,6 +710,7 @@ r.post('/:id/start', async (req, res) => {
       orientations: result.orientations,
       movedStudents: result.moved,
       closedStudents: result.closed,
+      subjectsCopied: result.subjectsCopied,
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -697,9 +736,6 @@ r.post('/:id/activate', async (req, res) => {
   try {
     const row = await prisma.schoolYear.findUnique({ where: { id } })
     if (!row) return res.status(404).json({ message: 'Ciclo no encontrado' })
-    if (row.status === 'CLOSED') {
-      return res.status(400).json({ message: 'No se puede activar un ciclo ya cerrado' })
-    }
     const updated = await activateSchoolYearById(prisma, id)
     const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: updated.id } })
     return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))

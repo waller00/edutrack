@@ -261,6 +261,7 @@ export default function AdminSchoolYearsPage() {
   const [studentSearch, setStudentSearch] = useState('')
   const [onlyPending, setOnlyPending] = useState(false)
   const [bulkTarget, setBulkTarget] = useState('')
+  const [copyStartSubjects, setCopyStartSubjects] = useState(true)
   const [starting, setStarting] = useState(false)
 
   const [cmpA, setCmpA] = useState('')
@@ -404,6 +405,7 @@ export default function AdminSchoolYearsPage() {
     setStudentSearch('')
     setOnlyPending(false)
     setBulkTarget('')
+    setCopyStartSubjects(true)
   }
 
   function normalizeDecisions(
@@ -544,12 +546,19 @@ export default function AdminSchoolYearsPage() {
           studentId: student.studentId,
           ...studentDecisions[student.studentId],
         })),
+        copySubjects: copyStartSubjects,
       }
-      const result = await api<{ courses: number; orientations: number; movedStudents: number; closedStudents: number }>(
-        `/admin/school-years/${startTarget.id}/start`,
-        { method: 'POST', body: JSON.stringify(payload) },
+      const result = await api<{
+        courses: number
+        orientations: number
+        movedStudents: number
+        closedStudents: number
+        subjectsCopied: number
+      }>(`/admin/school-years/${startTarget.id}/start`, { method: 'POST', body: JSON.stringify(payload) })
+      const subjectsMsg = result.subjectsCopied > 0 ? ` y ${result.subjectsCopied} asignaturas copiadas del ciclo origen` : ''
+      setMsg(
+        `Ciclo iniciado: ${result.courses} cursos, ${result.orientations} orientaciones, ${result.movedStudents} estudiantes inscriptos y ${result.closedStudents} cierres registrados${subjectsMsg}.`,
       )
-      setMsg(`Ciclo iniciado: ${result.courses} cursos, ${result.orientations} orientaciones, ${result.movedStudents} estudiantes inscriptos y ${result.closedStudents} cierres registrados.`)
       closeStartWizard()
       await reload()
     } catch (e) {
@@ -584,6 +593,20 @@ export default function AdminSchoolYearsPage() {
       await reload()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudo cerrar')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function doActivate(y: SchoolYearApiRow) {
+    clearFlash()
+    setBusyId(y.id)
+    try {
+      await api(`/admin/school-years/${y.id}/activate`, { method: 'POST' })
+      setMsg(`Ciclo ${y.code} activado.`)
+      await reload()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo activar')
     } finally {
       setBusyId(null)
     }
@@ -718,6 +741,20 @@ export default function AdminSchoolYearsPage() {
             <span className="inline-flex items-center gap-1">
               {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" aria-hidden />}
               Iniciar
+            </span>
+          </button>
+        )}
+        {y.status === 'CLOSED' && (
+          <button
+            type="button"
+            className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={busyId === y.id || Boolean(activeId)}
+            title={activeId ? 'Ya hay un ciclo lectivo activo. Cerralo antes de activar este ciclo.' : 'Activar este ciclo lectivo cerrado'}
+            onClick={() => void doActivate(y)}
+          >
+            <span className="inline-flex items-center gap-1">
+              {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />}
+              Activar
             </span>
           </button>
         )}
@@ -1203,6 +1240,22 @@ export default function AdminSchoolYearsPage() {
                         </button>
                       </div>
                     </div>
+                    {startSourceId && (
+                      <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4"
+                          checked={copyStartSubjects}
+                          onChange={(e) => setCopyStartSubjects(e.target.checked)}
+                        />
+                        <span>
+                          <span className="font-medium text-gray-900">Copiar asignaturas del ciclo origen</span>
+                          <span className="block text-xs text-gray-500">
+                            Trae la configuración de asignaturas de los cursos al nuevo ciclo (no hace falta recrearlas). No duplica las que ya existan.
+                          </span>
+                        </span>
+                      </label>
+                    )}
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {startPlan.courses.map((course) => {
                         const checked = selectedCourseIds.has(course.id)
