@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildTargetOptionsForPlan,
   countStudentsWithoutTarget,
+  courseLabel,
   filterStartStudents,
+  orientationKey,
   parseTargetValue,
   sourceGroupKey,
   studentHasValidTarget,
@@ -80,9 +82,26 @@ describe('targetValue / parseTargetValue', () => {
   it('serializa y parsea ida y vuelta', () => {
     expect(targetValue('c1', 'o1')).toBe('c1:o1')
     expect(targetValue('c2')).toBe('c2')
-    expect(targetValue(undefined)).toBe('')
+    expect(targetValue()).toBe('')
     expect(parseTargetValue('c1:o1')).toEqual({ targetCourseId: 'c1', targetOrientationId: 'o1' })
     expect(parseTargetValue('')).toEqual({})
+  })
+})
+
+describe('courseLabel / orientationKey', () => {
+  it('antepone el código si existe, si no usa solo el nombre', () => {
+    expect(courseLabel({ name: '1ro', code: 'A' })).toBe('A · 1ro')
+    expect(courseLabel({ name: '1ro', code: null })).toBe('1ro')
+  })
+  it('orientationKey combina curso y orientación', () => {
+    expect(orientationKey('c1', 'o1')).toBe('c1:o1')
+  })
+})
+
+describe('sourceGroupKey · bordes', () => {
+  it('usa centinelas cuando faltan curso u orientación', () => {
+    expect(sourceGroupKey({ sourceCourseId: null, sourceOrientationId: null })).toBe('none:')
+    expect(sourceGroupKey({ sourceCourseId: 'c1', sourceOrientationId: 'o1' })).toBe('c1:o1')
   })
 })
 
@@ -107,6 +126,11 @@ describe('filterStartStudents', () => {
     expect(filterStartStudents(students, '', 'pérez').map((s) => s.studentId)).toEqual(['s2'])
     expect(filterStartStudents(students, '', '999').map((s) => s.studentId)).toEqual(['s2'])
     expect(filterStartStudents(students, '', '').length).toBe(2)
+  })
+  it('soporta estudiantes sin documento al buscar', () => {
+    const sinDoc = [student({ studentId: 's3', lastName: 'Lopez', documentId: null })]
+    expect(filterStartStudents(sinDoc, '', 'lopez').map((s) => s.studentId)).toEqual(['s3'])
+    expect(filterStartStudents(sinDoc, '', 'zzz')).toEqual([])
   })
 })
 
@@ -140,6 +164,13 @@ describe('summarizeDestinationCounts', () => {
     const summary = summarizeDestinationCounts(students, decisions, options)
     expect(summary).toEqual([{ value: 'c2', label: 'B · 2do', count: 2 }])
   })
+  it('ignora destinos fuera de las opciones y estudiantes sin decisión', () => {
+    const students = [student({ studentId: 's1' }), student({ studentId: 's2' })]
+    const decisions: Record<string, StartDecision> = {
+      s1: { action: 'PROMOTE', targetCourseId: 'cX' }, // destino que no está entre las opciones
+    }
+    expect(summarizeDestinationCounts(students, decisions, options)).toEqual([])
+  })
 })
 
 describe('summarizeClosures', () => {
@@ -157,5 +188,9 @@ describe('summarizeClosures', () => {
     const closures = summarizeClosures(students, decisions)
     expect(closures.map((c) => c.name)).toEqual(['Alfa, Ana', 'Zeta, Ana'])
     expect(closures[0].actionLabel).toBe('Egresa')
+  })
+  it('omite estudiantes sin decisión', () => {
+    const students = [student({ studentId: 's1', lastName: 'Sola' })]
+    expect(summarizeClosures(students, {})).toEqual([])
   })
 })
