@@ -122,6 +122,7 @@ jobs:
             echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > performance/results/execution-context.txt
           chmod 0777 performance/results
+          install -m 0666 /dev/null performance/results/production-baseline-summary.json
 
       - name: Comprobar disponibilidad previa
         run: |
