@@ -120,6 +120,8 @@ El proyecto ya incluye scripts utiles:
 - `scripts/export_data_sql.sh`: exporta la base a `data.sql`.
 - `scripts/import_data_sql_on_server.sh`: importa un SQL plano en servidor.
 - `scripts/restore_pg_custom_dump_cloud.sh`: restaura un dump custom de PostgreSQL.
+- `scripts/backup_pg_offsite.sh`: genera un dump custom y lo copia a una VPS externa por SSH.
+- `docs/BACKUP_POSTGRES_OFFSITE.md`: documenta el backup off-site diario hacia la VPS `138.197.35.2`.
 - `docs/TESTING_DB_RESTORE.md`: documenta restauracion en entorno de pruebas.
 
 ### Politica recomendada
@@ -131,28 +133,32 @@ El proyecto ya incluye scripts utiles:
 | Backup previo a despliegue | Antes de cada release | Hasta validar release | Archivo `.dump` fechado |
 | Prueba de restore | Mensual | Evidencia documentada | Entorno de testing |
 
-### Comando recomendado para backup en produccion
+### Backup off-site automatizable
 
-Desde el servidor, se recomienda generar dumps en formato custom:
+El primer paso operativo de continuidad es ejecutar `scripts/backup_pg_offsite.sh` desde el Droplet de produccion. El destino inicial definido para el proyecto es la VPS de testing `138.197.35.2`, usando una ruta remota separada para backups productivos:
 
 ```bash
-mkdir -p /root/backups/edutrack
-docker compose -f docker-compose.cloud.yml exec -T pg \
-  pg_dump -U postgres -d asistencias -Fc --no-owner --no-privileges \
-  > /root/backups/edutrack/asistencias-$(date +%Y%m%d-%H%M).dump
+cd /root/edutrack
+BACKUP_REMOTE_HOST=138.197.35.2 \
+BACKUP_REMOTE_USER=backup \
+BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps \
+BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod \
+BACKUP_REMOTE_RETENTION_DAYS=30 \
+BACKUP_LOCAL_RETENTION_DAYS=3 \
+./scripts/backup_pg_offsite.sh
 ```
 
-Luego el archivo debe copiarse fuera del servidor, por ejemplo a almacenamiento de objetos, otro servidor o repositorio de backups cifrado. No se recomienda guardar backups de produccion dentro del repositorio Git.
+El script genera un `.dump` en formato custom (`pg_dump -Fc`), crea un checksum `.sha256`, copia ambos archivos por SSH/scp y aplica retencion local/remota. No se recomienda guardar backups de produccion dentro del repositorio Git.
 
 ### Automatizacion con cron
 
 Ejemplo de tarea diaria a las 02:00:
 
 ```cron
-0 2 * * * cd /root/edutrack && docker compose -f docker-compose.cloud.yml exec -T pg pg_dump -U postgres -d asistencias -Fc --no-owner --no-privileges > /root/backups/edutrack/asistencias-$(date +\%Y\%m\%d-\%H\%M).dump
+15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=138.197.35.2 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
 ```
 
-Recomendacion: agregar una segunda tarea que copie el dump a un destino externo y elimine backups locales antiguos.
+El detalle completo de instalacion, validacion y prueba mensual de restore esta en `docs/BACKUP_POSTGRES_OFFSITE.md`.
 
 ## Procedimiento de recuperacion
 
@@ -274,14 +280,16 @@ Para produccion se recomienda:
 - `backend/prisma/schema.prisma`: define usuarios, roles, auditoria, sesiones, asistencias, biometria y licencias.
 - `backend/src/app.ts`: configura CORS, Helmet, rutas protegidas e integraciones.
 - `scripts/export_data_sql.sh`: exportacion de datos.
+- `scripts/backup_pg_offsite.sh`: backup off-site de PostgreSQL hacia VPS externa.
 - `scripts/restore_pg_custom_dump_cloud.sh`: restauracion de dump PostgreSQL.
+- `docs/BACKUP_POSTGRES_OFFSITE.md`: procedimiento de backup off-site.
 - `docs/TESTING_DB_RESTORE.md`: procedimiento de restore para pruebas.
 
 ## Roadmap de mejora
 
 | Prioridad | Mejora | Beneficio |
 | --- | --- | --- |
-| Alta | Automatizar backups diarios fuera del Droplet | Reduce perdida de datos ante falla total |
+| Alta | Ejecutar y monitorear `backup_pg_offsite.sh` diariamente | Reduce perdida de datos ante falla total |
 | Alta | Probar restore mensualmente | Asegura que el RTO/RPO sean reales |
 | Alta | Configurar monitoreo y alertas | Reduce tiempo de deteccion |
 | Media | TOTP en Keycloak para administradores | Reduce riesgo de acceso indebido |
