@@ -121,6 +121,7 @@ jobs:
             echo "target=${K6_BASE_URL}"
             echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > performance/results/execution-context.txt
+          chmod 0777 performance/results
 
       - name: Comprobar disponibilidad previa
         run: |
