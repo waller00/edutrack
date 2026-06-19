@@ -13,18 +13,17 @@ La copia remota no reemplaza los snapshots del proveedor. Es una primera capa en
 ```text
 Droplet produccion
   docker compose -> pg_dump -Fc -> /root/backups/edutrack/postgres
-  scp/ssh      -> 138.197.35.2:/srv/edutrack-backups/production/postgres/daily
+  scp/ssh      -> 138.197.35.2:/var/backups/backups/backup-prod
 ```
 
 ## 1. Preparar la VPS destino
 
-En la VPS `138.197.35.2`, crear un usuario de backup y el directorio de destino:
+En la VPS `138.197.35.2`, usar el usuario de sistema `backup` y crear el directorio de destino. Si el usuario ya existe, no hace falta crearlo de nuevo:
 
 ```bash
-sudo useradd --system --create-home --shell /bin/bash backup
-sudo mkdir -p /srv/edutrack-backups/production/postgres/daily
-sudo chown -R backup:backup /srv/edutrack-backups
-sudo chmod -R 700 /srv/edutrack-backups
+id backup || sudo useradd --system --create-home --shell /bin/bash backup
+sudo usermod -s /bin/bash backup
+sudo install -d -m 700 -o backup -g backup /var/backups/backups/backup-prod
 ```
 
 Si se prefiere operar inicialmente con `root`, el script tambien lo permite, pero para una practica mas prolija conviene usar el usuario `backup` sin permisos de sudo y con acceso limitado al directorio de backups.
@@ -51,7 +50,7 @@ sudo chmod 600 /home/backup/.ssh/authorized_keys
 Luego validar conectividad desde produccion:
 
 ```bash
-ssh -i /root/.ssh/edutrack_backup_vps backup@138.197.35.2 "test -d /srv/edutrack-backups/production/postgres/daily && echo ok"
+ssh -i /root/.ssh/edutrack_backup_vps backup@138.197.35.2 "test -d /var/backups/backups/backup-prod && echo ok"
 ```
 
 ## 3. Ejecutar un backup manual
@@ -65,7 +64,7 @@ chmod +x scripts/dc-cloud.sh scripts/backup_pg_offsite.sh
 BACKUP_REMOTE_HOST=138.197.35.2 \
 BACKUP_REMOTE_USER=backup \
 BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps \
-BACKUP_REMOTE_DIR=/srv/edutrack-backups/production/postgres/daily \
+BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod \
 BACKUP_REMOTE_RETENTION_DAYS=30 \
 BACKUP_LOCAL_RETENTION_DAYS=3 \
 ./scripts/backup_pg_offsite.sh
@@ -89,7 +88,7 @@ sudo crontab -e
 Agregar:
 
 ```cron
-15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=138.197.35.2 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/srv/edutrack-backups/production/postgres/daily BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
+15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=138.197.35.2 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
 ```
 
 Con esta configuracion:
@@ -104,13 +103,13 @@ Con esta configuracion:
 En la VPS destino:
 
 ```bash
-sudo ls -lh /srv/edutrack-backups/production/postgres/daily
+sudo ls -lh /var/backups/backups/backup-prod
 ```
 
 Verificar checksum:
 
 ```bash
-cd /srv/edutrack-backups/production/postgres/daily
+cd /var/backups/backups/backup-prod
 sha256sum -c edutrack-postgres-asistencias-YYYYMMDD-HHMMSS.dump.sha256
 ```
 
@@ -119,7 +118,7 @@ sha256sum -c edutrack-postgres-asistencias-YYYYMMDD-HHMMSS.dump.sha256
 Una vez por mes, copiar un backup desde la VPS destino hacia el entorno de testing y ejecutar el restore existente:
 
 ```bash
-scp backup@138.197.35.2:/srv/edutrack-backups/production/postgres/daily/edutrack-postgres-asistencias-YYYYMMDD-HHMMSS.dump /root/prod-asistencias.dump
+scp backup@138.197.35.2:/var/backups/backups/backup-prod/edutrack-postgres-asistencias-YYYYMMDD-HHMMSS.dump /root/prod-asistencias.dump
 
 cd /root/edutrack
 ./scripts/restore_pg_custom_dump_cloud.sh /root/prod-asistencias.dump
@@ -138,7 +137,7 @@ Registrar fecha, backup usado, duracion aproximada del restore, errores encontra
 
 - No guardar backups en Git.
 - No usar la misma llave SSH para deploy y backups.
-- Restringir el usuario remoto a escritura en `/srv/edutrack-backups`.
+- Restringir el usuario remoto a escritura en `/var/backups/backups/backup-prod`.
 - Mantener el puerto SSH de la VPS restringido por firewall si es posible.
 - Los dumps pueden contener datos personales, asistencia, auditoria y otros datos sensibles.
 - Si la VPS de testing tambien se usa para pruebas destructivas, separar bien las rutas de backups y evitar comandos `rm` globales.

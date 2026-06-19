@@ -142,7 +142,7 @@ cd /root/edutrack
 BACKUP_REMOTE_HOST=138.197.35.2 \
 BACKUP_REMOTE_USER=backup \
 BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps \
-BACKUP_REMOTE_DIR=/srv/edutrack-backups/production/postgres/daily \
+BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod \
 BACKUP_REMOTE_RETENTION_DAYS=30 \
 BACKUP_LOCAL_RETENTION_DAYS=3 \
 ./scripts/backup_pg_offsite.sh
@@ -155,7 +155,7 @@ El script genera un `.dump` en formato custom (`pg_dump -Fc`), crea un checksum 
 Ejemplo de tarea diaria a las 02:00:
 
 ```cron
-15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=138.197.35.2 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/srv/edutrack-backups/production/postgres/daily BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
+15 2 * * * cd /root/edutrack && BACKUP_REMOTE_HOST=138.197.35.2 BACKUP_REMOTE_USER=backup BACKUP_SSH_KEY=/root/.ssh/edutrack_backup_vps BACKUP_REMOTE_DIR=/var/backups/backups/backup-prod BACKUP_REMOTE_RETENTION_DAYS=30 BACKUP_LOCAL_RETENTION_DAYS=3 ./scripts/backup_pg_offsite.sh >> /var/log/edutrack-backup.log 2>&1
 ```
 
 El detalle completo de instalacion, validacion y prueba mensual de restore esta en `docs/BACKUP_POSTGRES_OFFSITE.md`.
