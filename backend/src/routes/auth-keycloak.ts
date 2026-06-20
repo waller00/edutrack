@@ -61,6 +61,12 @@ function resolveCookieConfig() {
 function setSessionCookie(res: any, sid: string) {
   const cfg = resolveCookieConfig();
   const days = Number(process.env.SESSION_TTL_DAYS || "7");
+  // Elimina una posible cookie `sid` host-only heredada (de cuando no había
+  // COOKIE_DOMAIN). Si conviven con la de dominio, el navegador manda ambas y el
+  // server lee una u otra al azar -> "Sesión expirada" intermitente.
+  if (cfg.domain) {
+    res.clearCookie("sid", { httpOnly: true, secure: cfg.secure, sameSite: cfg.sameSite, path: "/" });
+  }
   res.cookie("sid", sid, {
     httpOnly: true,
     secure: cfg.secure,
@@ -73,13 +79,10 @@ function setSessionCookie(res: any, sid: string) {
 
 function clearSessionCookie(res: any) {
   const cfg = resolveCookieConfig();
-  res.clearCookie("sid", {
-    httpOnly: true,
-    secure: cfg.secure,
-    sameSite: cfg.sameSite,
-    ...(cfg.domain ? { domain: cfg.domain } : {}),
-    path: "/",
-  });
+  const base = { httpOnly: true, secure: cfg.secure, sameSite: cfg.sameSite, path: "/" } as const;
+  // Borra tanto la cookie con dominio (config actual) como la variante host-only previa.
+  if (cfg.domain) res.clearCookie("sid", { ...base, domain: cfg.domain });
+  res.clearCookie("sid", base);
 }
 
 async function startSessionFromTokens(
