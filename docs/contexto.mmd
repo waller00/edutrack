@@ -1,0 +1,44 @@
+flowchart TB
+    classDef person fill:#08427b,stroke:#052e56,color:#ffffff,rx:6,ry:6
+    classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef ext fill:#8a8a8a,stroke:#5f5f5f,color:#ffffff,rx:6,ry:6
+    classDef device fill:#6f4ea1,stroke:#4a3270,color:#ffffff,rx:6,ry:6
+
+    subgraph USERS["Usuarios de EduTrack"]
+        direction LR
+        ADMIN["Administrador<br/>usuarios, estructura, config"]
+        STAFF["Personal<br/>licencias, suplencias, eventos"]
+        TEACH["Docente<br/>su asistencia y clases"]
+    end
+
+    ZK["Dispositivos ZKTeco<br/>lectores de huella en accesos"]
+
+    ET["EduTrack<br/>Plataforma de gestion educativa integral<br/>asistencia - licencias - academico - biometria - reportes"]
+
+    STU["Estudiante<br/>accede al campus virtual"]
+
+    subgraph EXT["Sistemas externos"]
+        direction LR
+        KC["Keycloak<br/>identidad (OIDC)"]
+        MOODLE["Moodle<br/>campus virtual (LMS)"]
+        DIDIT["Didit<br/>prueba de vida"]
+        OBS["Observabilidad<br/>Sentry - Grafana/Loki - Prometheus"]
+    end
+
+    ADMIN -->|HTTPS| ET
+    STAFF -->|HTTPS| ET
+    TEACH -->|HTTPS| ET
+    ZK -->|"marcas (iclock / ADMS)"| ET
+
+    ET -->|"autentica (OIDC / BFF)"| KC
+    ET -->|"sincroniza cursos / inscripciones"| MOODLE
+    ET -->|"verifica identidad"| DIDIT
+    ET -->|"errores / logs / metricas"| OBS
+
+    STU -->|"accede"| MOODLE
+    TEACH -->|"accede"| MOODLE
+
+    class ADMIN,STAFF,TEACH,STU person
+    class ET system
+    class ZK device
+    class KC,MOODLE,DIDIT,OBS ext

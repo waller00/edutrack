@@ -13,8 +13,7 @@ export function adminRouteUsesSchoolYear(pathname: string | null): boolean {
 }
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
-  const { loading, years, activeId, selectedId, allYears, setSelectedId, setAllYears, schoolYearQuery } =
-    useAdminSchoolYear()
+  const { loading, years, activeId, selectedId, allYears, setSelectedId, setAllYears } = useAdminSchoolYear()
   const pathname = usePathname()
   const showSchoolYearFilter = adminRouteUsesSchoolYear(pathname)
 
@@ -48,9 +47,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 Ver todos los ciclos (sin filtrar)
               </label>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-gray-500">
-              <span className="hidden sm:inline">Filtro API:</span>
-              <code className="rounded bg-slate-100 px-2 py-0.5 max-w-[220px] truncate">{schoolYearQuery || '—'}</code>
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
               <Link href="/admin/school-years" className="text-emerald-700 hover:underline shrink-0">
                 Gestionar ciclos
               </Link>

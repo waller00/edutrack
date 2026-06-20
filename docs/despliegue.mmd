@@ -1,0 +1,79 @@
+flowchart TB
+    classDef container fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef store fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    classDef ext fill:#8a8a8a,stroke:#5f5f5f,color:#ffffff,rx:6,ry:6
+    classDef device fill:#6f4ea1,stroke:#4a3270,color:#ffffff,rx:6,ry:6
+
+    BROWSER["Navegador / Mobile<br/>Admin - Personal - Docente"]:::device
+    STU["Estudiante<br/>(navegador)"]:::device
+    ZK["Lectores biometricos ZKTeco"]:::device
+
+    CF["Cloudflare<br/>SSL / proxy / CDN"]:::ext
+    SENTRY["Sentry (SaaS)<br/>errores"]:::ext
+
+    subgraph GHA["GitHub Actions (runners efimeros)"]
+        direction LR
+        CI["CI/CD<br/>tests - build - deploy"]:::container
+        K6["k6 baseline<br/>de performance"]:::container
+    end
+
+    subgraph APPVPS["VPS Aplicacion (droplet) - Docker Compose"]
+        direction TB
+        subgraph CORE["docker-compose.cloud.yml"]
+            direction TB
+            PROXY["reverse-proxy (nginx)"]:::container
+            WEB["web (Next.js + BFF)"]:::container
+            AUTH["auth (Express API)"]:::container
+            KC["keycloak"]:::container
+            PG[("PostgreSQL")]:::store
+            KCDB[("Keycloak DB")]:::store
+            REDIS[("Redis")]:::store
+        end
+        subgraph MON["docker-compose.monitoring.yml"]
+            direction TB
+            PROM["Prometheus"]:::container
+            GRAF["Grafana"]:::container
+            LOKI["Loki"]:::container
+            ALLOY["Alloy (logs)"]:::container
+            EXP["Exporters<br/>node - cAdvisor - postgres - nginx - blackbox"]:::container
+            RWPROXY["remote-write proxy<br/>(nginx :9201 - Tailscale)"]:::container
+        end
+    end
+
+    subgraph MOODLEVPS["VPS Moodle (Bitnami) - Docker Compose"]
+        direction TB
+        MOODLE["moodle"]:::container
+        MDB[("MariaDB")]:::store
+    end
+
+    %% Trafico de clientes
+    BROWSER --> CF
+    ZK -->|"marcas (iclock)"| CF
+    CF --> PROXY
+    PROXY --> WEB
+    PROXY --> AUTH
+    PROXY --> KC
+    WEB -->|"REST - cookie sid"| AUTH
+    AUTH --> PG
+    AUTH --> REDIS
+    KC --> KCDB
+    AUTH -. "login OIDC" .-> KC
+
+    %% Moodle
+    STU --> CF
+    CF --> MOODLE
+    MOODLE --> MDB
+    AUTH -->|"sync cursos / inscripciones"| MOODLE
+
+    %% Observabilidad
+    EXP --> PROM
+    ALLOY --> LOKI
+    GRAF --> PROM
+    GRAF --> LOKI
+    AUTH -. errores .-> SENTRY
+    WEB -. errores .-> SENTRY
+
+    %% CI/CD y performance
+    CI ==>|"SSH: compose pull + up"| APPVPS
+    K6 -. "Tailscale -> remote-write" .-> RWPROXY
+    RWPROXY --> PROM

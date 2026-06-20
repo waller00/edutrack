@@ -42,7 +42,9 @@ describe('AdminShell school-year filter visibility', () => {
 
     expect(screen.getByText('Ciclo lectivo')).toBeInTheDocument()
     expect(screen.getByLabelText('Seleccionar ciclo lectivo')).toBeInTheDocument()
-    expect(screen.getByText('schoolYearId=sy-2026')).toBeInTheDocument()
+    expect(screen.queryByText('Filtro API:')).not.toBeInTheDocument()
+    expect(screen.queryByText('schoolYearId=sy-2026')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Gestionar ciclos' })).toBeInTheDocument()
     expect(screen.getByText('Contenido')).toBeInTheDocument()
   })
 

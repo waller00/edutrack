@@ -1,0 +1,62 @@
+sequenceDiagram
+    autonumber
+    actor C as Navegador (Cliente)
+    participant ZK as Lectores ZKTeco
+    participant CF as Cloudflare
+    participant RP as reverse-proxy (nginx)
+    participant W as web (Next.js + BFF)
+    participant R as Redis (sesiones)
+    participant KC as Keycloak (OIDC)
+    participant API as auth (Express API)
+    participant PR as Prisma ORM
+    participant DB as PostgreSQL
+
+    rect rgb(235, 244, 255)
+    Note over C,KC: 1) Autenticacion - OIDC con patron BFF
+    C->>CF: GET /login (HTTPS)
+    CF->>RP: reenvia (TLS terminado)
+    RP->>W: /login
+    W-->>C: 302 redirect a Keycloak (authorize + PKCE)
+    C->>KC: credenciales (+ MFA)
+    KC-->>C: 302 callback con authorization code
+    C->>W: GET /callback?code=...
+    W->>KC: intercambia code por tokens (back-channel)
+    KC-->>W: access / id / refresh token
+    W->>R: guarda sesion (tokens) -> genera sid
+    W-->>C: Set-Cookie sid (HttpOnly, Secure, SameSite)
+    end
+
+    rect rgb(236, 248, 240)
+    Note over C,DB: 2) Request autenticado de datos
+    C->>CF: fetch /api/attendance (cookie sid)
+    CF->>RP: reenvia
+    RP->>W: /api/attendance
+    W->>R: valida sid -> recupera sesion
+    alt sesion invalida o expirada
+        W-->>C: 401 -> reinicia login
+    else sesion valida
+        W->>API: proxy del request (contexto de usuario + token)
+        API->>API: autoriza por rol / permiso
+        API->>PR: consulta de dominio
+        PR->>DB: SQL parametrizado
+        DB-->>PR: filas
+        PR-->>API: entidades
+        API->>API: deriva estado de asistencia<br/>(eventos + marcas + licencias + suplencias)
+        API-->>W: JSON
+        W-->>C: JSON (respuesta)
+    end
+    end
+
+    rect rgb(245, 240, 250)
+    Note over ZK,DB: 3) Ingesta biometrica (asincrona)
+    ZK->>CF: POST /iclock (marca + huella)
+    CF->>RP: reenvia
+    RP->>API: /iclock/cdata
+    API->>API: valida dispositivo y marca
+    API->>PR: persiste marca
+    PR->>DB: INSERT
+    DB-->>PR: ok
+    PR-->>API: ok
+    API->>API: alimenta el motor de asistencia
+    API-->>ZK: 200 OK
+    end
