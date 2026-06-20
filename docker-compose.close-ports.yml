@@ -1,0 +1,38 @@
+# Override para validar el despliegue detras del reverse proxy.
+#
+# Uso local recomendado:
+#   docker compose -f docker-compose.yml -f docker-compose.moodle.yml -f docker-compose.proxy.local.yml -f docker-compose.close-ports.yml up -d
+#
+# Efecto: quita publicaciones directas de frontend, API, Keycloak y Moodle.
+# El acceso debe pasar por reverse-proxy-local en http://127.0.0.1:18080
+# usando los hostnames .local definidos en docs/REVERSE_PROXY_CLOUDFLARE.md.
+
+services:
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: http://api.edutrack-uy.local:18080
+    environment:
+      NEXT_PUBLIC_API_URL: http://api.edutrack-uy.local:18080
+    ports: !override []
+
+  auth:
+    environment:
+      FRONTEND_URL: http://edutrack-uy.local:18080
+      CORS_ORIGINS: http://edutrack-uy.local:18080
+      KEYCLOAK_ISSUER_URL: http://auth.edutrack-uy.local:18080/realms/edutrack
+      KEYCLOAK_REDIRECT_URI: http://api.edutrack-uy.local:18080/auth/callback
+      GOOGLE_CALLBACK_URL: http://api.edutrack-uy.local:18080/auth/google/callback
+    ports: !override []
+
+  keycloak:
+    environment:
+      KC_HOSTNAME: http://auth.edutrack-uy.local:18080
+    ports: !override []
+
+  moodle:
+    environment:
+      MOODLE_HOST: moodle.edutrack-uy.local:18080
+      MOODLE_REVERSEPROXY: "no"
+      MOODLE_REVERSE_PROXY: "no"
+    ports: !override []

@@ -49,7 +49,7 @@ if (!$inserted) {
     $content = rtrim($content) . "\n" . $wwwrootLine . "\n";
 }
 
-$content = setCfgBool($content, 'sslproxy', true);
+$content = setCfgBool($content, 'sslproxy', str_starts_with(strtolower($publicUrl), 'https://'));
 $content = setCfgBool($content, 'reverseproxy', true);
 
 if ($content === $original) {
@@ -70,17 +70,24 @@ if (preg_match('/\$CFG->wwwroot\s*=[^;]*localhost/i', $check)) {
     exit(1);
 }
 
-echo "ok wwwroot=$publicUrl sslproxy=1 reverseproxy=1\n";
+$sslproxyValue = str_starts_with(strtolower($publicUrl), 'https://') ? '1' : '0';
+echo "ok wwwroot=$publicUrl sslproxy=$sslproxyValue reverseproxy=1\n";
 
 function setCfgBool(string $content, string $key, bool $value): string
 {
     $line = '$CFG->' . $key . ' = ' . ($value ? 'true' : 'false') . ';';
     if (preg_match('/\$CFG->' . preg_quote($key, '/') . '\s*=\s*[^;]+;/', $content)) {
-        return preg_replace('/\$CFG->' . preg_quote($key, '/') . '\s*=\s*[^;]+;/', $line, $content, 1) ?? $content;
+        $content = preg_replace('/\$CFG->' . preg_quote($key, '/') . '\s*=\s*[^;]+;/', '', $content, 1) ?? $content;
     }
-    $insertBefore = "require_once(dirname(__FILE__) . '/lib/setup.php');";
-    if (str_contains($content, $insertBefore)) {
-        return str_replace($insertBefore, $line . "\n\n" . $insertBefore, $content);
+    foreach (
+        [
+            "require_once(dirname(__FILE__) . '/lib/setup.php');",
+            "require_once(__DIR__ . '/lib/setup.php');",
+        ] as $insertBefore
+    ) {
+        if (str_contains($content, $insertBefore)) {
+            return str_replace($insertBefore, $line . "\n" . $insertBefore, $content);
+        }
     }
     return rtrim($content) . "\n" . $line . "\n";
 }

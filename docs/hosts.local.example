@@ -1,0 +1,14 @@
+# EduTrack reverse proxy local
+# Copiar estas lineas al archivo hosts de la maquina host.
+#
+# Windows:
+#   C:\Windows\System32\drivers\etc\hosts
+#
+# Linux/macOS:
+#   /etc/hosts
+
+127.0.0.1 edutrack-uy.local
+127.0.0.1 www.edutrack-uy.local
+127.0.0.1 api.edutrack-uy.local
+127.0.0.1 auth.edutrack-uy.local
+127.0.0.1 moodle.edutrack-uy.local
