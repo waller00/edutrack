@@ -1,0 +1,23 @@
+# Override productivo para cerrar puertos directos tras validar el reverse proxy.
+#
+# Uso recomendado en produccion:
+#   docker compose -f docker-compose.yml -f docker-compose.moodle.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml config
+#   docker compose -f docker-compose.yml -f docker-compose.moodle.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml up -d
+#
+# Efecto esperado:
+# - Publicos: reverse-proxy en 80/443.
+# - Privados: web, auth, Keycloak y Moodle quedan accesibles solo por redes Docker.
+# - Monitoreo/Tailscale no se toca en este override.
+
+services:
+  web:
+    ports: !override []
+
+  auth:
+    ports: !override []
+
+  keycloak:
+    ports: !override []
+
+  moodle:
+    ports: !override []
