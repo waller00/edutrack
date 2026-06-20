@@ -1,0 +1,60 @@
+flowchart TB
+    %% ===== Clientes =====
+    subgraph CLIENT["Clientes"]
+        WEB["Navegador / Mobile<br/>(Admin / Personal / Docente)"]
+        ZK["Dispositivos biometricos<br/>ZKTeco (huella - protocolo iclock/ADMS)"]
+    end
+
+    %% ===== Borde =====
+    CF["Cloudflare<br/>SSL termination - proxy"]
+
+    %% ===== Plataforma EduTrack =====
+    subgraph APP["EduTrack - Docker Compose (VPS)"]
+        direction TB
+        FE["Next.js (App Router)<br/>Frontend + BFF<br/>TypeScript - Tailwind"]
+        API["Express API (Node)<br/>Rutas - Servicios - Prisma ORM"]
+
+        subgraph DATA["Estado"]
+            PG[("PostgreSQL<br/>fuente de verdad")]
+            REDIS[("Redis<br/>sesiones BFF")]
+        end
+
+        KC["Keycloak<br/>OIDC / IdP"]
+    end
+
+    %% ===== Integraciones =====
+    subgraph INT["Integraciones externas"]
+        MOODLE["Moodle<br/>(servidor aparte)<br/>sync idempotente"]
+        DIDIT["Didit<br/>prueba de vida (liveness)"]
+    end
+
+    %% ===== Observabilidad =====
+    subgraph OBS["Observabilidad"]
+        SENTRY["Sentry<br/>errores (back + front)"]
+        GRAFANA["Grafana + Loki<br/>logs - dashboards"]
+        PROM["Prometheus<br/>metricas (via Tailscale)"]
+    end
+
+    %% ===== CI/CD =====
+    subgraph CICD["CI/CD"]
+        GHA["GitHub Actions<br/>tests - SonarCloud - deploy - k6 baseline"]
+    end
+
+    %% ===== Flujos =====
+    WEB -->|HTTPS| CF --> FE
+    ZK -->|"marcas (iclock)"| CF
+    FE -->|"REST - cookie sid"| API
+    API <--> PG
+    API <--> REDIS
+    FE -. "OIDC login (BFF)" .-> KC
+    API -. "valida sesion" .-> KC
+
+    API -->|"sincroniza cursos / inscripciones"| MOODLE
+    API -->|"verifica identidad"| DIDIT
+
+    API -. eventos .-> SENTRY
+    FE -. eventos .-> SENTRY
+    APP -. logs .-> GRAFANA
+    GHA -. "load test -> metricas" .-> PROM
+
+    GHA ==>|"push a main -> deploy"| APP

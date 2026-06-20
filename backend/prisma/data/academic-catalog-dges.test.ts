@@ -26,7 +26,8 @@ describe('academic-catalog-dges', () => {
   it('oferta 2026 excluye 2 EMS pero lo mantiene en catálogo', () => {
     expect(SCHOOL_YEAR_OFFERS[2026]?.courses['2-EMS']).toBe(false)
     expect(COURSE_PLANS['2-EMS']?.orientaciones).toBeDefined()
-    expect(Object.keys(COURSE_PLANS['2-EMS']!.orientaciones!)).toHaveLength(4)
+    // 2do EMS: 3 trayectos de profundización (Plan EMS 2023 DGES)
+    expect(Object.keys(COURSE_PLANS['2-EMS']!.orientaciones!)).toHaveLength(3)
   })
 
   it('3 EMS tronco común no está duplicado en orientaciones', () => {
@@ -53,7 +54,7 @@ describe('academic-catalog-dges', () => {
     expect(o?.['CIENCIAS-VIDA']).toBe(true)
   })
 
-  it('catálogo de orientaciones incluye las 8 subdivisiones EMS', () => {
-    expect(CATALOG_ORIENTATIONS.length).toBe(8)
+  it('catálogo de orientaciones incluye las 5 orientaciones EMS de secundaria', () => {
+    expect(CATALOG_ORIENTATIONS.length).toBe(5)
   })
 })

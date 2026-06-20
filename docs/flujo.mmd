@@ -1,0 +1,47 @@
+flowchart TD
+    classDef actor fill:#6f4ea1,stroke:#4a3270,color:#ffffff
+    classDef proc fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef dec fill:#e8a33d,stroke:#a9741f,color:#1a1a1a
+    classDef store fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    classDef out fill:#3a7ca5,stroke:#24576f,color:#ffffff
+    classDef state fill:#1b4332,stroke:#0c2a20,color:#ffffff
+
+    U([Usuario]):::actor --> LOGIN{Login OIDC - BFF<br/>autenticado?}:::dec
+    LOGIN -->|No| REJECT[Acceso denegado]:::proc
+    LOGIN -->|Si| ROLE{Rol}:::dec
+
+    ROLE -->|Admin| CFG["Configura ciclo lectivo:<br/>cursos, asignaturas, estudiantes"]:::proc
+    ROLE -->|Personal| OPS["Registra licencias,<br/>suplencias y eventos (clases)"]:::proc
+    ROLE -->|Docente| CONS["Consulta su asistencia<br/>y sus clases"]:::proc
+
+    ZK[/"Marca biometrica ZKTeco<br/>+ prueba de vida"/]:::actor --> INGEST["Ingesta y validacion<br/>de marcas"]:::proc
+
+    CFG --> DB[("PostgreSQL<br/>fuente de verdad")]:::store
+    OPS --> DB
+    INGEST --> DB
+
+    DB --> ENGINE["Motor de asistencia:<br/>cruza eventos planificados +<br/>marcas + licencias + suplencias"]:::proc
+
+    ENGINE --> D1{Hubo marca<br/>en la clase?}:::dec
+    D1 -->|Si| D2{Dentro de<br/>la tolerancia?}:::dec
+    D2 -->|Si| PRES[Presente]:::state
+    D2 -->|No| TARDE[Tarde]:::state
+    D1 -->|No| D3{Licencia o<br/>suplencia?}:::dec
+    D3 -->|Licencia| AJUST[Ausente justificada]:::state
+    D3 -->|Suplencia| SUPL[Suplida]:::state
+    D3 -->|Ninguna| ANJ[Ausente no justificada]:::state
+
+    PRES --> ESTADO[Estado de asistencia derivado]:::proc
+    TARDE --> ESTADO
+    AJUST --> ESTADO
+    SUPL --> ESTADO
+    ANJ --> ESTADO
+    CONS --> ESTADO
+
+    ESTADO --> IND["Indicadores y tableros"]:::out
+    ESTADO --> NLSQL["Consultas en lenguaje<br/>natural (NL -> SQL)"]:::out
+    ESTADO --> REP["Reportes / export<br/>Excel - PDF"]:::out
+
+    DB --> SYNC["Sincronizacion idempotente"]:::proc --> MOODLE[("Moodle<br/>campus virtual")]:::store
+    EST([Estudiante]):::actor -->|accede| MOODLE
+    CONS -->|accede| MOODLE

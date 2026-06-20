@@ -8,6 +8,7 @@ import {
   parseTargetValue,
   sourceGroupKey,
   studentHasValidTarget,
+  suggestTargetForAction,
   summarizeClosures,
   summarizeDestinationCounts,
   targetValue,
@@ -110,6 +111,24 @@ describe('buildTargetOptionsForPlan', () => {
     expect(options.map((o) => o.value)).toEqual(['c1:o1', 'c2'])
     expect(options[0].label).toBe('A · 1ro - Cs')
     expect(options[1].label).toBe('B · 2do')
+  })
+})
+
+describe('suggestTargetForAction', () => {
+  it('sugiere el curso siguiente para Pasa y mantiene editable el valor como decisión común', () => {
+    expect(suggestTargetForAction(student({ sourceCourseId: 'c1' }), 'PROMOTE', plan, options)).toEqual({
+      targetCourseId: 'c2',
+    })
+  })
+
+  it('sugiere el mismo curso y orientación para Repite', () => {
+    expect(
+      suggestTargetForAction(student({ sourceCourseId: 'c1', sourceOrientationId: 'o1' }), 'REPEAT', plan, options),
+    ).toEqual({ targetCourseId: 'c1', targetOrientationId: 'o1' })
+  })
+
+  it('no inventa un destino al promover desde el último curso', () => {
+    expect(suggestTargetForAction(student({ sourceCourseId: 'c2' }), 'PROMOTE', plan, options)).toEqual({})
   })
 })
 

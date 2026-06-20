@@ -168,12 +168,25 @@ describe('SchoolYearsPage · wizard de inicio (asignación de estudiantes)', () 
     expect(screen.getAllByText('Egresa').length).toBeGreaterThanOrEqual(2)
   })
 
-  it('el resumen muestra el conteo por clase destino', async () => {
+  it('el resumen muestra el curso siguiente sugerido para quienes pasan', async () => {
     await openStudentsStep()
     fireEvent.click(screen.getByRole('button', { name: 'Continuar' }))
 
     expect(screen.getByText('Estudiantes por clase destino')).toBeInTheDocument()
-    expect(screen.getByText('A · 1ro')).toBeInTheDocument()
     expect(screen.getByText('B · 2do')).toBeInTheDocument()
+    expect(screen.queryByText('A · 1ro')).not.toBeInTheDocument()
+  })
+
+  it('Repite sugiere el mismo curso y permite cambiar el destino manualmente', async () => {
+    await openStudentsStep()
+
+    const destination = screen.getAllByLabelText('Curso destino')[0]
+    expect(destination).toHaveValue('c2')
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Repite' })[0])
+    expect(destination).toHaveValue('c1')
+
+    fireEvent.change(destination, { target: { value: 'c2' } })
+    expect(destination).toHaveValue('c2')
   })
 })

@@ -14,6 +14,7 @@ import {
   sourceGroupKey,
   START_ACTION_LABEL,
   studentHasValidTarget,
+  suggestTargetForAction,
   summarizeClosures,
   summarizeDestinationCounts,
   targetValue,
@@ -336,18 +337,11 @@ export default function AdminSchoolYearsPage() {
     orientationKeys: Set<string>,
   ): Record<string, StartDecision> {
     const options = buildTargetOptionsForPlan(plan, courseIds, orientationKeys)
-    const fallback = options[0]
     const decisions: Record<string, StartDecision> = {}
     for (const student of plan.students) {
-      const sourceExact = options.find(
-        (option) => option.courseId === student.sourceCourseId && option.orientationId === (student.sourceOrientationId ?? undefined),
-      )
-      const sourceCourse = options.find((option) => option.courseId === student.sourceCourseId)
-      const target = sourceExact ?? sourceCourse ?? fallback
       decisions[student.studentId] = {
         action: 'PROMOTE',
-        ...(target?.courseId ? { targetCourseId: target.courseId } : {}),
-        ...(target?.orientationId ? { targetOrientationId: target.orientationId } : {}),
+        ...suggestTargetForAction(student, 'PROMOTE', plan, options),
       }
     }
     return decisions
@@ -415,7 +409,6 @@ export default function AdminSchoolYearsPage() {
     decisions: Record<string, StartDecision>,
   ): Record<string, StartDecision> {
     const options = buildTargetOptionsForPlan(plan, courseIds, orientationKeys)
-    const fallback = options[0]
     const validValues = new Set(options.map((option) => option.value))
     const updated: Record<string, StartDecision> = {}
     for (const [studentId, decision] of Object.entries(decisions)) {
@@ -424,13 +417,16 @@ export default function AdminSchoolYearsPage() {
         continue
       }
       const currentValue = targetValue(decision.targetCourseId, decision.targetOrientationId)
+      const student = plan.students.find((row) => row.studentId === studentId)
       const target = validValues.has(currentValue)
-        ? { courseId: decision.targetCourseId, orientationId: decision.targetOrientationId }
-        : fallback
+        ? { targetCourseId: decision.targetCourseId, targetOrientationId: decision.targetOrientationId }
+        : student
+          ? suggestTargetForAction(student, decision.action, plan, options)
+          : {}
       updated[studentId] = {
         ...decision,
-        ...(target?.courseId ? { targetCourseId: target.courseId } : { targetCourseId: undefined }),
-        ...(target?.orientationId ? { targetOrientationId: target.orientationId } : { targetOrientationId: undefined }),
+        ...(target.targetCourseId ? { targetCourseId: target.targetCourseId } : { targetCourseId: undefined }),
+        ...(target.targetOrientationId ? { targetOrientationId: target.targetOrientationId } : { targetOrientationId: undefined }),
       }
     }
     return updated
@@ -479,12 +475,14 @@ export default function AdminSchoolYearsPage() {
   }
 
   const resolveDecisionPatch = useCallback(
-    (current: StartDecision, patch: Partial<StartDecision>): StartDecision => {
+    (student: StartPlanStudent | undefined, current: StartDecision, patch: Partial<StartDecision>): StartDecision => {
       const next = { ...current, ...patch }
-      if (ACTIONS_WITH_TARGET.has(next.action) && !next.targetCourseId) {
-        const fallback = selectedTargetOptions[0]
-        next.targetCourseId = fallback?.courseId
-        next.targetOrientationId = fallback?.orientationId
+      if (patch.action && ACTIONS_WITH_TARGET.has(patch.action)) {
+        delete next.targetCourseId
+        delete next.targetOrientationId
+        if (student && startPlan) {
+          Object.assign(next, suggestTargetForAction(student, patch.action, startPlan, selectedTargetOptions))
+        }
       }
       if (!ACTIONS_WITH_TARGET.has(next.action)) {
         delete next.targetCourseId
@@ -492,13 +490,14 @@ export default function AdminSchoolYearsPage() {
       }
       return next
     },
-    [selectedTargetOptions],
+    [selectedTargetOptions, startPlan],
   )
 
   function patchStudentDecision(studentId: string, patch: Partial<StartDecision>) {
+    const student = startPlan?.students.find((row) => row.studentId === studentId)
     setStudentDecisions((decisions) => ({
       ...decisions,
-      [studentId]: resolveDecisionPatch(decisions[studentId] ?? { action: 'PROMOTE' }, patch),
+      [studentId]: resolveDecisionPatch(student, decisions[studentId] ?? { action: 'PROMOTE' }, patch),
     }))
   }
 
@@ -509,7 +508,8 @@ export default function AdminSchoolYearsPage() {
     setStudentDecisions((decisions) => {
       const updated = { ...decisions }
       for (const studentId of ids) {
-        updated[studentId] = resolveDecisionPatch(decisions[studentId] ?? { action: 'PROMOTE' }, patch)
+        const student = startPlan?.students.find((row) => row.studentId === studentId)
+        updated[studentId] = resolveDecisionPatch(student, decisions[studentId] ?? { action: 'PROMOTE' }, patch)
       }
       return updated
     })

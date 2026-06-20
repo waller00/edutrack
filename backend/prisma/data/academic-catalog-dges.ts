@@ -50,15 +50,14 @@ export const CATALOG_COURSES: readonly CatalogCourse[] = [
   { code: '3-EMS', name: '3 EMS', level: 'EMS', sortOrder: 6 },
 ] as const
 
+// Orientaciones de Educación Secundaria (DGES) según el Plan EMS 2023:
+// 2do año -> 3 trayectos de profundización; 3er año -> 5 especializaciones.
 export const CATALOG_ORIENTATIONS: readonly CatalogOrientation[] = [
-  { code: 'CREATIVO-ARTISTICO', name: 'Creativo Artístico', sortOrder: 10 },
-  { code: 'CIENCIAS-VIDA', name: 'Ciencias de la Vida', sortOrder: 20 },
-  { code: 'CIENCIA-TECNOLOGIA', name: 'Ciencia y Tecnología', sortOrder: 30 },
-  { code: 'CSOCIALES-HUMANIDADES', name: 'Ciencias Sociales y Humanidades', sortOrder: 40 },
-  { code: 'CIENCIA-ARTE-DISENO', name: 'Ciencia, Arte y Diseño', sortOrder: 50 },
-  { code: 'HH-CIENCIAS-ECONOMICAS', name: 'Humanidades y Ciencias Económicas', sortOrder: 60 },
-  { code: 'HH-CIENCIA-POLITICA', name: 'Humanidades y Ciencia Política', sortOrder: 70 },
-  { code: 'GENERAL', name: 'General', sortOrder: 80 },
+  { code: 'CIENCIAS-VIDA', name: 'Ciencias de la Vida', sortOrder: 10 },
+  { code: 'CIENCIA-TECNOLOGIA', name: 'Ciencias y Tecnología', sortOrder: 20 },
+  { code: 'CSOCIALES-HUMANIDADES', name: 'Ciencias Sociales y Humanidades', sortOrder: 30 },
+  { code: 'CREATIVO-ARTISTICO', name: 'Creativo Artístico', sortOrder: 40 },
+  { code: 'GENERAL', name: 'General', sortOrder: 50 },
 ] as const
 
 const OPTATIVAS_1_EMS = [
@@ -118,7 +117,7 @@ export const COURSE_PLANS: Readonly<Record<string, CoursePlan>> = {
       'Ciencias de la Computación',
       'Ciencias Físico-Química',
       'Educación Musical',
-      'Educación Ciudadana',
+      'Formación para la Ciudadanía',
     ],
   },
   '9-EBI': {
@@ -134,7 +133,7 @@ export const COURSE_PLANS: Readonly<Record<string, CoursePlan>> = {
       'Ciencias de la Computación',
       'Química',
       'Educación Musical',
-      'Educación Ciudadana',
+      'Formación para la Ciudadanía',
       'Física',
       'Literatura',
     ],
@@ -162,20 +161,13 @@ export const COURSE_PLANS: Readonly<Record<string, CoursePlan>> = {
       'Literatura',
       'Comunicación Visual y Diseño',
       'Filosofía',
-      'Educación Ciudadana',
+      'Formación para la Ciudadanía',
     ],
+    // 2do EMS: general con 3 trayectos de profundización elegibles.
     orientaciones: {
-      'CREATIVO-ARTISTICO': [
-        'Historia del Arte',
-        'Danza',
-        'Educación Física',
-        'Música',
-        'Teatro',
-        'Biología',
-      ],
-      'CIENCIAS-VIDA': ['Biología', 'Física', 'Química', 'Geografía'],
       'CIENCIA-TECNOLOGIA': ['Matemática CTM', 'Química', 'Física', 'Biología'],
       'CSOCIALES-HUMANIDADES': ['Historia', 'Sociología', 'Geografía', 'Biología'],
+      'CREATIVO-ARTISTICO': ['Historia del Arte', 'Danza', 'Música', 'Teatro', 'Biología'],
     },
     optativas: OPTATIVAS_2_3_EMS,
   },
@@ -186,6 +178,8 @@ export const COURSE_PLANS: Readonly<Record<string, CoursePlan>> = {
       'Literatura',
       'Metodología de la Investigación',
     ],
+    // 3er EMS: 5 especializaciones (Ciencias de la Vida, Ciencias y Tecnología,
+    // Ciencias Sociales y Humanidades, Creativo Artístico, General).
     orientaciones: {
       'CIENCIAS-VIDA': [
         'Química',
@@ -194,13 +188,6 @@ export const COURSE_PLANS: Readonly<Record<string, CoursePlan>> = {
         'Biología Vegetal',
         'Biología Humana',
       ],
-      'CIENCIA-ARTE-DISENO': [
-        'Historia del Arte',
-        'Matemática CTA',
-        'Física CTA',
-        'Comunicación Visual y Diseño',
-        'Matemática CT',
-      ],
       'CIENCIA-TECNOLOGIA': [
         'Matemática CTQ',
         'Química',
@@ -208,25 +195,19 @@ export const COURSE_PLANS: Readonly<Record<string, CoursePlan>> = {
         'Matemática CT',
         'Comunicación Visual y Diseño',
       ],
-      'HH-CIENCIAS-ECONOMICAS': [
-        'Matemática CSH1',
-        'Administración y Contabilidad',
-        'Economía y Educación Financiera',
-        'Historia Económica',
-        'Matemática CSH2',
-      ],
-      'HH-CIENCIA-POLITICA': [
+      'CSOCIALES-HUMANIDADES': [
         'Historia',
-        'Derecho y Ciencia Política',
-        'Matemática CSH1',
+        'Sociología',
+        'Geografía',
         'Economía y Educación Financiera',
+        'Derecho y Ciencia Política',
         'Administración y Contabilidad',
+        'Historia Económica',
       ],
       'CREATIVO-ARTISTICO': [
         'Historia del Arte',
         'Música',
         'Danza',
-        'Comunicación Visual y Diseño',
         'Teatro',
         'Medios Audiovisuales',
       ],
@@ -244,6 +225,30 @@ export const COURSE_PLANS: Readonly<Record<string, CoursePlan>> = {
 
 /** Oferta real del liceo por año calendario del ciclo. */
 export const SCHOOL_YEAR_OFFERS: Readonly<Record<number, SchoolYearOfferConfig>> = {
+  2025: {
+    courses: {
+      '7-EBI': true,
+      '8-EBI': true,
+      '9-EBI': true,
+      '1-EMS': true,
+      '2-EMS': true,
+      '3-EMS': true,
+    },
+    orientations: {
+      '2-EMS': {
+        'CIENCIA-TECNOLOGIA': true,
+        'CSOCIALES-HUMANIDADES': true,
+        'CREATIVO-ARTISTICO': true,
+      },
+      '3-EMS': {
+        'CIENCIAS-VIDA': true,
+        'CIENCIA-TECNOLOGIA': true,
+        'CSOCIALES-HUMANIDADES': true,
+        'CREATIVO-ARTISTICO': true,
+        GENERAL: true,
+      },
+    },
+  },
   2026: {
     courses: {
       '7-EBI': true,
@@ -255,17 +260,14 @@ export const SCHOOL_YEAR_OFFERS: Readonly<Record<number, SchoolYearOfferConfig>>
     },
     orientations: {
       '2-EMS': {
-        'CREATIVO-ARTISTICO': false,
-        'CIENCIAS-VIDA': false,
         'CIENCIA-TECNOLOGIA': false,
         'CSOCIALES-HUMANIDADES': false,
+        'CREATIVO-ARTISTICO': false,
       },
       '3-EMS': {
         'CIENCIAS-VIDA': true,
-        'CIENCIA-ARTE-DISENO': true,
         'CIENCIA-TECNOLOGIA': true,
-        'HH-CIENCIAS-ECONOMICAS': true,
-        'HH-CIENCIA-POLITICA': true,
+        'CSOCIALES-HUMANIDADES': true,
         'CREATIVO-ARTISTICO': false,
         GENERAL: false,
       },

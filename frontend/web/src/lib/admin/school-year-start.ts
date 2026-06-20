@@ -108,6 +108,43 @@ export function buildTargetOptionsForPlan(
   return options
 }
 
+/**
+ * Sugiere el destino al cambiar la situación académica. Es solo un valor inicial:
+ * el selector de curso permanece editable en el asistente.
+ */
+export function suggestTargetForAction(
+  student: Pick<StartPlanStudent, 'sourceCourseId' | 'sourceOrientationId'>,
+  action: StartAction,
+  plan: Pick<StartPlanPayload, 'courses'>,
+  options: TargetOption[],
+): Partial<StartDecision> {
+  if (!ACTIONS_WITH_TARGET.has(action) || !student.sourceCourseId) return {}
+
+  let courseId: string | undefined
+  if (action === 'REPEAT') {
+    courseId = student.sourceCourseId
+  } else {
+    const orderedCourses = [...plan.courses].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+    )
+    const sourceIndex = orderedCourses.findIndex((course) => course.id === student.sourceCourseId)
+    courseId = orderedCourses
+      .slice(sourceIndex >= 0 ? sourceIndex + 1 : 0)
+      .find((course) => options.some((option) => option.courseId === course.id))?.id
+  }
+
+  if (!courseId) return {}
+  const sameOrientation = options.find(
+    (option) => option.courseId === courseId && option.orientationId === (student.sourceOrientationId ?? undefined),
+  )
+  const target = sameOrientation ?? options.find((option) => option.courseId === courseId)
+  if (!target) return {}
+  return {
+    targetCourseId: target.courseId,
+    ...(target.orientationId ? { targetOrientationId: target.orientationId } : {}),
+  }
+}
+
 /** Filtra por grupo de curso de origen y por búsqueda libre (nombre/apellido/documento). */
 export function filterStartStudents(
   students: StartPlanStudent[],

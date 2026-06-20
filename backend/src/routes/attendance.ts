@@ -235,6 +235,34 @@ function queryDateToUruguayYmd(value: unknown, fallback: Date) {
   return DateTime.fromJSDate(safeDate, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
 }
 
+function feedItemYmd(value: Date | string): string {
+  return DateTime.fromJSDate(new Date(value), { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
+}
+
+type AttendanceFeedItem = { time: number; rows: any[] }
+
+/**
+ * Agrupa las marcas en items de feed: la entrada y la salida de un mismo
+ * usuario/evento/dia forman UN item, para que la paginacion nunca separe el par
+ * (la causa de que se vea "salida sin entrada" al cortar entre paginas).
+ * Incidencias y ausencias virtuales son items de una sola fila.
+ */
+function buildAttendanceFeedItems(rows: any[]): AttendanceFeedItem[] {
+  const groups = new Map<string, AttendanceFeedItem>()
+  for (const row of rows) {
+    const key = `${row.user?.id ?? 'sin-usuario'}|${row.event?.id ?? 'sin-evento'}|${feedItemYmd(row.date)}`
+    const time = new Date(row.time ?? row.date).getTime()
+    const group = groups.get(key)
+    if (group) {
+      group.rows.push(row)
+      if (time > group.time) group.time = time
+    } else {
+      groups.set(key, { time, rows: [row] })
+    }
+  }
+  return [...groups.values()]
+}
+
 function queryAllowsVirtualAbsenceRows(query: Record<string, unknown>) {
   if (!wantsIncidentRows(query)) return false
   if (query.type && query.type !== 'CHECK_IN') return false
@@ -525,10 +553,7 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
 
     if (wantsIncidentRows(q)) {
       const incidentWhere = buildAdminAttendanceIncidentWhere(q, where)
-      const fetchForMerge = page * pageSize
-      const [attendanceTotal, incidentTotal, attendanceRows, incidentRows, virtualAbsenceRows] = await Promise.all([
-        prisma.attendance.count({ where }),
-        prisma.attendanceIncident.count({ where: incidentWhere }),
+      const [attendanceRows, incidentRows, virtualAbsenceRows] = await Promise.all([
         prisma.attendance.findMany({
           where,
           include: {
@@ -539,8 +564,7 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
               select: { id: true, title: true, type: true, startTime: true, endTime: true }
             }
           },
-          orderBy: [{ date: 'desc' }, { time: 'desc' }],
-          take: fetchForMerge,
+          orderBy: [{ date: 'desc' }, { time: 'asc' }],
         }),
         prisma.attendanceIncident.findMany({
           where: incidentWhere,
@@ -553,24 +577,26 @@ r.get('/all', authGuard, requirePermission('attendance.read', 'all'), async (req
             },
           },
           orderBy: { detectedAt: 'desc' },
-          take: fetchForMerge,
         }),
         buildVirtualAbsenceRows(q, where),
       ]);
 
-      const merged = [
-        ...attendanceRows.map(mapAttendanceUser),
+      // Paginar por ITEMS (un par entrada+salida = 1 item) para no cortar pares
+      // entre paginas. total = cantidad de items mostrados, no de filas crudas.
+      const attendanceItems = buildAttendanceFeedItems(attendanceRows.map(mapAttendanceUser))
+      const otherItems: AttendanceFeedItem[] = [
         ...incidentRows.map(mapAttendanceIncidentAsFeedRow),
         ...virtualAbsenceRows,
-      ]
-        .sort((a: any, b: any) => {
-          const aTime = new Date(a.time ?? a.date).getTime()
-          const bTime = new Date(b.time ?? b.date).getTime()
-          return bTime - aTime
-        })
-        .slice((page - 1) * pageSize, page * pageSize)
+      ].map((row: any) => ({ time: new Date(row.time ?? row.date).getTime(), rows: [row] }))
 
-      return res.json({ total: attendanceTotal + incidentTotal + virtualAbsenceRows.length, page, pageSize, data: merged });
+      const items = [...attendanceItems, ...otherItems].sort((a, b) => b.time - a.time)
+      const data = items
+        .slice((page - 1) * pageSize, page * pageSize)
+        .flatMap((item) =>
+          [...item.rows].sort((a, b) => new Date(a.time ?? a.date).getTime() - new Date(b.time ?? b.date).getTime()),
+        )
+
+      return res.json({ total: items.length, page, pageSize, data });
     }
 
     const [total, attendances] = await Promise.all([
