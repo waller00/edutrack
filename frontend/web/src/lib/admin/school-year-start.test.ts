@@ -130,6 +130,41 @@ describe('suggestTargetForAction', () => {
   it('no inventa un destino al promover desde el último curso', () => {
     expect(suggestTargetForAction(student({ sourceCourseId: 'c2' }), 'PROMOTE', plan, options)).toEqual({})
   })
+
+  it('usa la secuencia académica y no salta de 7 EBI a 9 EBI por el sortOrder', () => {
+    const academicPlan = {
+      ...plan,
+      courses: [
+        { ...plan.courses[0], id: 'c7', code: '7-EBI', name: '7 EBI', level: 'EBI', sortOrder: 30, orientations: [] },
+        { ...plan.courses[0], id: 'c8', code: '8-EBI', name: '8 EBI', level: 'EBI', sortOrder: 50, orientations: [] },
+        { ...plan.courses[0], id: 'c9', code: '9-EBI', name: '9 EBI', level: 'EBI', sortOrder: 40, orientations: [] },
+      ],
+    }
+    const academicOptions: TargetOption[] = [
+      { value: 'c7', label: '7 EBI', courseId: 'c7' },
+      { value: 'c8', label: '8 EBI', courseId: 'c8' },
+      { value: 'c9', label: '9 EBI', courseId: 'c9' },
+    ]
+    expect(
+      suggestTargetForAction(student({ sourceCourseId: 'c7' }), 'PROMOTE', academicPlan, academicOptions),
+    ).toEqual({ targetCourseId: 'c8' })
+  })
+
+  it('no salta a 9 EBI cuando el destino inmediato 8 EBI no está habilitado', () => {
+    const academicPlan = {
+      ...plan,
+      courses: [
+        { ...plan.courses[0], id: 'c7', code: '7-EBI', name: '7 EBI', level: 'EBI', orientations: [] },
+        { ...plan.courses[0], id: 'c8', code: '8-EBI', name: '8 EBI', level: 'EBI', orientations: [] },
+        { ...plan.courses[0], id: 'c9', code: '9-EBI', name: '9 EBI', level: 'EBI', orientations: [] },
+      ],
+    }
+    expect(
+      suggestTargetForAction(student({ sourceCourseId: 'c7' }), 'PROMOTE', academicPlan, [
+        { value: 'c9', label: '9 EBI', courseId: 'c9' },
+      ]),
+    ).toEqual({})
+  })
 })
 
 describe('filterStartStudents', () => {

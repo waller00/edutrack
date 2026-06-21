@@ -121,6 +121,10 @@ describe('executeAbsencesSummary', () => {
     mocks.resolveAttendanceAndJustification.mockResolvedValue([
       resolvedRow({ planned: inst }),
       resolvedRow({ planned: inst, checkInStatusResolved: 'ABSENT_JUSTIFIED' }),
+      // Suplida sin licencia: cuenta como NO justificada (el titular igual faltó).
+      resolvedRow({ planned: inst, checkInStatusResolved: 'SUBSTITUTED' }),
+      // Suplida CON licencia que cubre la fecha: cuenta como justificada.
+      resolvedRow({ planned: inst, checkInStatusResolved: 'SUBSTITUTED', isJustifiedAbsence: true }),
       resolvedRow({
         planned: plannedInstance({ userIdRequired: 'u-2' }),
         userDisplayName: 'Otra Docente',
@@ -130,7 +134,7 @@ describe('executeAbsencesSummary', () => {
     const r = await executeAbsencesSummary(payload({ month: 6, year: 2026, incidentViewMode: 'COUNT_BY_USER' }))
 
     expect(r.rows).toEqual([
-      { persona: 'Jorge Marrero', rol: 'TEACHER', faltas: 2, no_justificadas: 1, justificadas: 1 },
+      { persona: 'Jorge Marrero', rol: 'TEACHER', faltas: 4, no_justificadas: 2, justificadas: 2 },
       { persona: 'Otra Docente', rol: 'TEACHER', faltas: 1, no_justificadas: 1, justificadas: 0 },
     ])
   })
