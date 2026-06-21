@@ -314,8 +314,13 @@ async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanc
   if (!queryAllowsVirtualAbsenceRows(query)) return []
 
   const now = new Date()
-  const from = queryDateToUruguayYmd(query.startDate, now)
   const to = queryDateToUruguayYmd(query.endDate, now)
+  // Sin startDate explícito, derivamos desde el inicio del año del `to` (no solo "hoy"),
+  // para que las ausencias virtuales de días pasados también aparezcan en el panel.
+  const from =
+    typeof query.startDate === 'string' && query.startDate
+      ? queryDateToUruguayYmd(query.startDate, now)
+      : `${to.slice(0, 4)}-01-01`
   const schoolYearId = typeof attendanceWhere.schoolYearId === 'string' ? attendanceWhere.schoolYearId : undefined
   const userIds = query.userId ? undefined : await userIdsForRole(query.role)
   const plannedInstances = await getPlannedInstances({
@@ -337,6 +342,9 @@ async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanc
   const resolved = await resolveAttendanceAndJustification({ plannedInstances: filteredPlannedInstances })
   return resolved
     .filter((row) => {
+      // Si la instancia ya tiene una marca registrada, la trae la consulta de Attendance:
+      // no emitir una ausencia virtual para no duplicarla en el feed.
+      if (row.hasCheckIn) return false
       if (!ABSENCE_RESOLVED_STATUSES.includes(row.checkInStatusResolved as any)) return false
       if (query.status && query.status !== 'ABSENCES' && row.checkInStatusResolved !== query.status) return false
       return true
