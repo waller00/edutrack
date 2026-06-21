@@ -216,6 +216,50 @@ Para notificaciones reales, agregá Alertmanager o configurá alerting en Grafan
 con contact points de email, Slack, Telegram o webhook. No se incluyen secretos
 de notificación en el repositorio.
 
+### Alertas criticas por Telegram
+
+Grafana tambien provisiona reglas Grafana-managed desde
+`monitoring/grafana/provisioning/alerting/critical-alerts.yml`. Estas reglas
+evalúan Prometheus desde Grafana y tienen el label:
+
+```text
+severity=critical
+```
+
+Con una notification policy `severity=critical -> telegram-critical`, Grafana
+envia a Telegram solo alertas criticas. El contact point `telegram-critical` se
+configura manualmente en Grafana para no versionar el token del bot ni el chat
+ID del grupo.
+
+Reglas criticas incluidas:
+
+- Backend `/health` caido.
+- Backend `/ready` caido.
+- Frontend caido.
+- Postgres exporter caido.
+- Metricas del backend no scrapeables.
+- Disco disponible del host por debajo de 8%.
+
+Despues de actualizar el repo en el servidor, reiniciá Grafana para que lea el
+provisioning:
+
+```bash
+docker compose --env-file .env.monitoring -f docker-compose.monitoring.yml up -d grafana
+```
+
+Para probar el ruteo con una alerta no destructiva:
+
+```bash
+docker compose --env-file .env.monitoring -f docker-compose.monitoring.yml stop postgres-exporter
+```
+
+Esperá al menos tres minutos. Deberia dispararse `EduTrack Postgres exporter
+down` y llegar al grupo de Telegram. Luego restaurá el exporter:
+
+```bash
+docker compose --env-file .env.monitoring -f docker-compose.monitoring.yml up -d postgres-exporter
+```
+
 ### Errores HTTP 5xx
 
 El backend expone el contador `edutrack_backend_http_errors_total`, que permite
