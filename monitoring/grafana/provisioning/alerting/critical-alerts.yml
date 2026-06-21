@@ -68,8 +68,11 @@ groups:
         execErrState: Alerting
         for: 2m
         annotations:
-          summary: EduTrack backend health is down
-          description: The backend /health endpoint is not returning a successful response.
+          summary: EduTrack - Backend /health no disponible
+          description: El endpoint interno del backend /health no responde correctamente.
+          impact: La API puede estar caida o inaccesible para el frontend.
+          action: Revisar el contenedor auth, sus logs recientes y el estado HTTP del backend.
+          runbook: cd /root/edutrack && docker compose -f docker-compose.cloud.yml ps auth && docker compose -f docker-compose.cloud.yml logs --tail=100 auth
         labels:
           service: backend
           severity: critical
@@ -137,8 +140,11 @@ groups:
         execErrState: Alerting
         for: 2m
         annotations:
-          summary: EduTrack backend readiness is down
-          description: The backend /ready endpoint is failing, which can indicate database or dependency issues.
+          summary: EduTrack - Backend /ready no disponible
+          description: El backend esta vivo, pero no puede confirmar que sus dependencias esten listas.
+          impact: La aplicacion puede fallar por problemas con PostgreSQL, Redis u otra dependencia interna.
+          action: Revisar /ready, logs del backend y estado de PostgreSQL/Redis.
+          runbook: cd /root/edutrack && docker compose -f docker-compose.cloud.yml ps auth pg redis && docker compose -f docker-compose.cloud.yml logs --tail=100 auth
         labels:
           service: backend
           severity: critical
@@ -206,8 +212,11 @@ groups:
         execErrState: Alerting
         for: 2m
         annotations:
-          summary: EduTrack frontend is down
-          description: The frontend root endpoint is not returning a successful response.
+          summary: EduTrack - Frontend no disponible
+          description: El endpoint interno del frontend no responde correctamente.
+          impact: Los usuarios pueden no poder acceder a la interfaz web de EduTrack.
+          action: Revisar el contenedor web, el reverse proxy y los logs recientes del frontend.
+          runbook: cd /root/edutrack && docker compose -f docker-compose.cloud.yml ps web reverse-proxy && docker compose -f docker-compose.cloud.yml logs --tail=100 web
         labels:
           service: frontend
           severity: critical
@@ -275,8 +284,11 @@ groups:
         execErrState: Alerting
         for: 2m
         annotations:
-          summary: EduTrack Postgres exporter is down
-          description: Grafana cannot confirm PostgreSQL observability because postgres-exporter is unavailable.
+          summary: EduTrack - PostgreSQL exporter no disponible
+          description: Grafana no puede confirmar el monitoreo de PostgreSQL porque postgres-exporter no esta disponible.
+          impact: La base de datos puede seguir funcionando, pero se pierde visibilidad sobre sus metricas.
+          action: Revisar el contenedor postgres-exporter y la conexion configurada hacia PostgreSQL.
+          runbook: cd /root/edutrack && docker compose --env-file .env.monitoring -f docker-compose.monitoring.yml ps postgres-exporter && docker compose --env-file .env.monitoring -f docker-compose.monitoring.yml logs --tail=100 postgres-exporter
         labels:
           service: postgres
           severity: critical
@@ -344,8 +356,11 @@ groups:
         execErrState: Alerting
         for: 2m
         annotations:
-          summary: EduTrack backend metrics are down
-          description: Prometheus cannot scrape the backend metrics endpoint.
+          summary: EduTrack - Metricas del backend no disponibles
+          description: Prometheus no puede recolectar las metricas internas del backend.
+          impact: Se pierde visibilidad sobre tasa de requests, errores 5xx, latencia y metricas del proceso Node.js.
+          action: Revisar que el backend este levantado y que el puerto interno de metricas responda.
+          runbook: cd /root/edutrack && docker compose -f docker-compose.cloud.yml ps auth && docker compose -f docker-compose.cloud.yml logs --tail=100 auth
         labels:
           service: backend
           severity: critical
@@ -413,8 +428,11 @@ groups:
         execErrState: Alerting
         for: 5m
         annotations:
-          summary: EduTrack host disk space is critical
-          description: Available disk space on the Docker host is below 8%.
+          summary: EduTrack - Espacio en disco critico
+          description: El host Docker tiene menos de 8% de espacio disponible.
+          impact: PostgreSQL, Loki, Docker o el despliegue pueden fallar si el disco se llena.
+          action: Revisar uso de disco, logs, imagenes Docker y volumenes antes de continuar operando.
+          runbook: df -h && docker system df
         labels:
           service: host
           severity: critical
