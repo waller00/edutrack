@@ -108,6 +108,20 @@ export function buildTargetOptionsForPlan(
   return options
 }
 
+function academicCourseRank(course: Pick<StartPlanCourse, 'code' | 'name' | 'level'>): number | null {
+  const text = `${course.code ?? ''} ${course.name}`.toUpperCase()
+  const level = course.level?.toUpperCase()
+  if (level === 'EBI' || text.includes('EBI')) {
+    const grade = text.match(/(?:^|\D)([789])(?:\D|$)/)?.[1]
+    return grade ? Number(grade) : null
+  }
+  if (level === 'EMS' || text.includes('EMS')) {
+    const grade = text.match(/(?:^|\D)([123])(?:\D|$)/)?.[1]
+    return grade ? 100 + Number(grade) : null
+  }
+  return null
+}
+
 /**
  * Sugiere el destino al cambiar la situación académica. Es solo un valor inicial:
  * el selector de curso permanece editable en el asistente.
@@ -127,10 +141,18 @@ export function suggestTargetForAction(
     const orderedCourses = [...plan.courses].sort(
       (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
     )
-    const sourceIndex = orderedCourses.findIndex((course) => course.id === student.sourceCourseId)
-    courseId = orderedCourses
-      .slice(sourceIndex >= 0 ? sourceIndex + 1 : 0)
-      .find((course) => options.some((option) => option.courseId === course.id))?.id
+    const sourceCourse = orderedCourses.find((course) => course.id === student.sourceCourseId)
+    const sourceRank = sourceCourse ? academicCourseRank(sourceCourse) : null
+    if (sourceRank != null) {
+      // Se elige primero el nivel académico inmediato, aunque no esté ofertado. Así 7.º nunca salta a 9.º.
+      courseId = orderedCourses
+        .map((course) => ({ course, rank: academicCourseRank(course) }))
+        .filter((entry): entry is { course: StartPlanCourse; rank: number } => entry.rank != null && entry.rank > sourceRank)
+        .sort((a, b) => a.rank - b.rank)[0]?.course.id
+    } else {
+      const sourceIndex = orderedCourses.findIndex((course) => course.id === student.sourceCourseId)
+      courseId = orderedCourses.slice(sourceIndex >= 0 ? sourceIndex + 1 : 0)[0]?.id
+    }
   }
 
   if (!courseId) return {}

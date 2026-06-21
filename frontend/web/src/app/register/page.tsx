@@ -137,6 +137,8 @@ export default function RegisterPage() {
     setPhoneLocal(d.phoneLocal)
     setBirthdate(d.birthdate)
     setRole(d.role)
+    if (typeof d.password === 'string') setPassword(d.password)
+    if (typeof d.confirm === 'string') setConfirm(d.confirm)
     if (d.verificationResults) setVerificationResults(d.verificationResults)
     if (d.identityVerificationMethod === 'didit') setIdentityVerificationMethod('didit')
   }, [sessionGate])
@@ -455,6 +457,8 @@ export default function RegisterPage() {
         phoneLocal,
         birthdate,
         role,
+        password,
+        confirm,
         verificationStep: 0,
         verificationResults,
         dniValidation: null,
@@ -475,6 +479,8 @@ export default function RegisterPage() {
     }
   }, [
     email,
+    password,
+    confirm,
     nationalId,
     firstName,
     lastName,
@@ -579,7 +585,19 @@ export default function RegisterPage() {
                   : 'Revisa tu correo y espera la aprobación de un administrador para habilitar el acceso completo.'}
               </p>
             </div>
-            <a href="/" className="btn-primary w-full text-center justify-center">
+            <a
+              href="/"
+              className="btn-primary w-full text-center justify-center"
+              onClick={() => {
+                // Limpia la marca de auto-login para que /login no muestre el cartel
+                // "No pudimos confirmar la sesión" tras un registro recién hecho.
+                try {
+                  globalThis.sessionStorage.removeItem('edutrack.login.autostarted')
+                } catch {
+                  // sin acción si el navegador bloquea sessionStorage
+                }
+              }}
+            >
               Ir al inicio
             </a>
           </div>

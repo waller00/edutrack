@@ -5,7 +5,13 @@ import { usePathname } from 'next/navigation'
 import { useAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { Loader2 } from 'lucide-react'
 
-const SCHOOL_YEAR_SCOPED_ADMIN_ROUTES = ['/admin/attendance', '/admin/events', '/admin/courses', '/admin/students']
+const SCHOOL_YEAR_SCOPED_ADMIN_ROUTES = [
+  '/admin/attendance',
+  '/admin/events',
+  '/admin/courses',
+  '/admin/students',
+  '/admin/analytics',
+]
 
 export function adminRouteUsesSchoolYear(pathname: string | null): boolean {
   if (!pathname) return false

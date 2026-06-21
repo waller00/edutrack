@@ -27,6 +27,7 @@ describe('AdminShell school-year filter visibility', () => {
     expect(adminRouteUsesSchoolYear('/admin/events/create')).toBe(true)
     expect(adminRouteUsesSchoolYear('/admin/courses')).toBe(true)
     expect(adminRouteUsesSchoolYear('/admin/students')).toBe(true)
+    expect(adminRouteUsesSchoolYear('/admin/analytics')).toBe(true)
 
     expect(adminRouteUsesSchoolYear('/admin/users')).toBe(false)
     expect(adminRouteUsesSchoolYear('/admin/settings')).toBe(false)

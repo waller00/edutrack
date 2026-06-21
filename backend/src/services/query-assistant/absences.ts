@@ -102,8 +102,14 @@ export async function executeAbsencesSummary(
         justificadas: 0,
       }
       acc.total += 1
-      if (row.checkInStatusResolved === 'ABSENT_JUSTIFIED') acc.justificadas += 1
-      else if (row.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED') acc.noJustificadas += 1
+      // Una ausencia "suplida" (SUBSTITUTED) es el titular que no asistió y fue cubierto.
+      // Cuenta como justificada SOLO si tiene una licencia que cubra esa fecha; si no, es
+      // una falta no justificada (la suplencia no la justifica por sí sola).
+      const esJustificada =
+        row.checkInStatusResolved === 'ABSENT_JUSTIFIED' ||
+        (row.checkInStatusResolved === 'SUBSTITUTED' && row.isJustifiedAbsence)
+      if (esJustificada) acc.justificadas += 1
+      else acc.noJustificadas += 1
       byUser.set(uid, acc)
     }
     const rows = [...byUser.values()]

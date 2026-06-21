@@ -17,6 +17,12 @@ export type RegisterDraftSnapshot = {
   phoneLocal: string
   birthdate: string
   role: RegisterRole
+  /**
+   * Contraseña tipeada antes del redirect a Didit. Se persiste solo en sessionStorage
+   * (aislado por pestaña y borrado al cerrarla) para no obligar a reingresarla al volver.
+   */
+  password?: string
+  confirm?: string
   verificationStep: number
   verificationResults: RegisterVerificationResults | null
   dniValidation: RegisterDniValidationSnapshot | null
