@@ -1001,6 +1001,8 @@ r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), asyn
       question: z.string().min(1).max(2000),
       schoolYearId: z.string().uuid().optional(),
       allYears: z.union([z.boolean(), z.literal('1'), z.literal('0')]).optional(),
+      dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     })
     .safeParse(req.body)
   if (!parsed.success) {
@@ -1015,12 +1017,22 @@ r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), asyn
           role: req.user?.role ?? 'ADMIN',
         })
     const schoolYear = schoolYearId
-      ? await prisma.schoolYear.findUnique({ where: { id: schoolYearId }, select: { id: true, code: true } })
+      ? await prisma.schoolYear.findUnique({
+          where: { id: schoolYearId },
+          select: { id: true, code: true, startsOn: true, endsOn: true },
+        })
       : null
+    // Solo aplicamos el filtro de fechas de la UI si vienen ambas y están bien ordenadas.
+    const uiFrom = parsed.data.dateFrom
+    const uiTo = parsed.data.dateTo
+    const hasUiRange = Boolean(uiFrom && uiTo && uiFrom <= uiTo)
     const result = await runAdminQueryAssistant(parsed.data.question, {
       allYears,
       schoolYearId: schoolYear?.id ?? schoolYearId,
       schoolYearCode: schoolYear?.code,
+      schoolYearStartsOn: schoolYear?.startsOn ? schoolYear.startsOn.toISOString().slice(0, 10) : undefined,
+      schoolYearEndsOn: schoolYear?.endsOn ? schoolYear.endsOn.toISOString().slice(0, 10) : undefined,
+      ...(hasUiRange ? { dateFrom: uiFrom, dateTo: uiTo } : {}),
     })
     return res.json(result)
   } catch (e: unknown) {

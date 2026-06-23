@@ -228,16 +228,16 @@ export function heuristicIntentFromQuestion(question: string, defaultYear = Date
     if (relative) {
       return payload('ABSENCES_SUMMARY', { ...relative, ...viewParams, ...roleParams }, '')
     }
-    return payload(
-      'ABSENCES_SUMMARY',
-      {
-        month: month ?? DateTime.now().setZone(getAppTimezone()).month,
-        year: year ?? nowY,
-        ...viewParams,
-        ...roleParams,
-      },
-      '',
-    )
+    if (month != null) {
+      return payload(
+        'ABSENCES_SUMMARY',
+        { month, year: year ?? nowY, ...viewParams, ...roleParams },
+        '',
+      )
+    }
+    // Sin mes ni rango explícito en la pregunta: no fijamos fechas acá. El executor decide el
+    // rango por precedencia (filtro de la UI → ciclo lectivo completo → todos los datos).
+    return payload('ABSENCES_SUMMARY', { ...viewParams, ...roleParams }, '')
   }
 
   /** "¿Quién tiene más llegadas tarde?" → tardanzas por persona (no listado genérico de incidencias). */

@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { getAppTimezone } from '../../config/app-timezone.js'
 import { getPlannedInstances } from '../analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../analytics/resolveInstances.js'
-import { resolveYmdRangeFromPayload } from './date-range.js'
+import { resolveEffectiveYmdRange } from './date-range.js'
 import { resolveUserIdsFromSearch } from './helpers.js'
 import type { LlmIntentPayload, QueryAssistantTableResult } from './schemas.js'
 import { schoolYearSummarySuffix, type QueryAssistantScope } from './scope.js'
@@ -41,7 +41,7 @@ export async function executeAbsencesSummary(
   payload: LlmIntentPayload,
   scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
-  const range = resolveYmdRangeFromPayload(payload.params)
+  const range = resolveEffectiveYmdRange(payload.params, scope)
   if (!range) {
     return {
       intent: 'ABSENCES_SUMMARY',
