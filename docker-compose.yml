@@ -147,6 +147,12 @@ services:
       # URL pública de Moodle para links en emails a alumnos (default: MOODLE_BASE_URL).
       MOODLE_PUBLIC_URL: ${MOODLE_PUBLIC_URL:-}
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-8081}
+      # Dispositivo biométrico F22: el seed usa estos valores para enlazar el equipo físico por su SN.
+      BIOMETRIC_DEVICE_CODE: ${BIOMETRIC_DEVICE_CODE:-}
+      BIOMETRIC_ADMS_SERIAL: ${BIOMETRIC_ADMS_SERIAL:-}
+      BIOMETRIC_DEVICE_NAME: ${BIOMETRIC_DEVICE_NAME:-}
+      BIOMETRIC_DEVICE_SECRET: ${BIOMETRIC_DEVICE_SECRET:-}
+      BIOMETRIC_DEVICE_TZ: ${BIOMETRIC_DEVICE_TZ:-}
       # Observabilidad (Sentry backend): vacio = deshabilitado
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}

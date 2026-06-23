@@ -154,6 +154,12 @@ services:
       MOODLE_PUBLIC_URL: ${MOODLE_PUBLIC_URL:-}
       # ADMS ZKTeco: 0 = mismo puerto que PORT (4000). El reloj usa la URL pública HTTPS del API.
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-0}
+      # Dispositivo biométrico F22: el seed usa estos valores para enlazar el equipo físico por su SN.
+      BIOMETRIC_DEVICE_CODE: ${BIOMETRIC_DEVICE_CODE:-}
+      BIOMETRIC_ADMS_SERIAL: ${BIOMETRIC_ADMS_SERIAL:-}
+      BIOMETRIC_DEVICE_NAME: ${BIOMETRIC_DEVICE_NAME:-}
+      BIOMETRIC_DEVICE_SECRET: ${BIOMETRIC_DEVICE_SECRET:-}
+      BIOMETRIC_DEVICE_TZ: ${BIOMETRIC_DEVICE_TZ:-}
       # Baseline k6 autenticada: apagada por defecto y protegida por secreto.
       EDUTRACK_PERFORMANCE_AUTH_ENABLED: ${EDUTRACK_PERFORMANCE_AUTH_ENABLED:-false}
       EDUTRACK_PERFORMANCE_AUTH_SECRET: ${EDUTRACK_PERFORMANCE_AUTH_SECRET:-}

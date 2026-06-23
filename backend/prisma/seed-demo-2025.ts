@@ -272,15 +272,21 @@ async function seedNonWorkingDays() {
 }
 
 async function seedBiometricDevice(users: Array<Pick<User, 'id'>>) {
+  // Config real del dispositivo F22 (testing) como default, para que al re-sembrar el
+  // lector quede enlazado por su SN real (admsSerial) sin reconfigurar a mano. El entorno
+  // (.env del server) sigue pudiendo sobreescribir cada valor.
+  // IMPORTANTE: el secreto NO se hardcodea (repo público en GitHub). Debe venir de
+  // BIOMETRIC_DEVICE_SECRET en el .env del server; sin esa var, el fallback es solo demo
+  // y el F22 real no autenticará hasta cargar el secreto. allowedIps vacío = cualquier IP.
   const device = await prisma.biometricDevice.create({
     data: {
-      code: 'F22-LICEO-CENTRAL',
-      admsSerial: 'F22-UY-2025-001',
-      name: 'ZKTeco F22 - Acceso principal',
-      secretHash: sha256('liceo-f22-demo-secret'),
-      timezone: getAppTimezone(),
+      code: process.env.BIOMETRIC_DEVICE_CODE || 'F22-TEST-01',
+      admsSerial: process.env.BIOMETRIC_ADMS_SERIAL || 'SRN5260500102',
+      name: process.env.BIOMETRIC_DEVICE_NAME || 'ZKTeco F22 Testing',
+      secretHash: sha256(process.env.BIOMETRIC_DEVICE_SECRET || 'liceo-f22-demo-secret'),
+      timezone: process.env.BIOMETRIC_DEVICE_TZ || getAppTimezone(),
       isActive: true,
-      allowedIps: ['127.0.0.1', '10.10.0.25'],
+      allowedIps: [],
       lastSeenAt: wall('2025-12-05', 18, 22),
     },
   })

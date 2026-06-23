@@ -26,7 +26,7 @@ import {
   Users,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import TrendLineChart from '@/components/charts/TrendLineChart'
 import BreakdownBarChart from '@/components/charts/BreakdownBarChart'
 import StatusDonutChart from '@/components/charts/StatusDonutChart'
@@ -371,7 +371,8 @@ export default function AdminAnalyticsPage() {
   /** Vacío = sin filtro (todos los usuarios planificados en el período). */
   const [roleFilter, setRoleFilter] = useState<string>('')
   const [eventType, setEventType] = useState<string>('')
-  const [granularity, setGranularity] = useState<SeriesGranularity>('week')
+  // null = ninguna granularidad elegida (sin botón resaltado); las tendencias usan 'week' por defecto.
+  const [granularity, setGranularity] = useState<SeriesGranularity | null>(null)
   const [users, setUsers] = useState<AnalyticsUserOption[]>([])
   const [selectedUserId, setSelectedUserId] = useState('')
   const [userSearch, setUserSearch] = useState('')
@@ -387,11 +388,49 @@ export default function AdminAnalyticsPage() {
   const apiUrl = apiBaseUrl()
   const analyticsSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
 
+  // Fila del ciclo lectivo efectivamente filtrado (para derivar su rango de fechas).
+  const selectedYearRow = useMemo(
+    () => (analyticsSchoolYearId ? syCtx?.years.find((y) => y.id === analyticsSchoolYearId) ?? null : null),
+    [syCtx?.years, analyticsSchoolYearId],
+  )
+
+  // Rango de fechas que corresponde al ciclo lectivo en foco: el dashboard debe mirar
+  // el período del ciclo seleccionado, no los últimos 30 días (que suelen quedar fuera
+  // de un ciclo cerrado y dejan todos los KPIs en 0). Se acota a "hoy" para ciclos en curso.
+  const yearRange = useMemo<{ from: string; to: string } | null>(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    if (syCtx?.allYears) {
+      const starts = (syCtx.years ?? [])
+        .map((y) => y.startsOn?.slice(0, 10))
+        .filter((v): v is string => Boolean(v))
+        .sort((a, b) => a.localeCompare(b))
+      if (starts.length === 0) return null
+      return { from: starts[0], to: today }
+    }
+    const start = selectedYearRow?.startsOn?.slice(0, 10)
+    if (!start) return null
+    const end = selectedYearRow?.endsOn?.slice(0, 10)
+    return { from: start, to: end && end < today ? end : today }
+  }, [syCtx?.allYears, syCtx?.years, selectedYearRow])
+
+  // Identidad de la selección de ciclo: cambiar de ciclo (o a "todos") re-sincroniza el rango,
+  // pero ediciones manuales de fecha posteriores se respetan (no se vuelven a sobreescribir).
+  const selectionKey = syCtx?.allYears ? 'ALL' : analyticsSchoolYearId
+  const appliedSelectionRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!yearRange || !selectionKey) return
+    if (appliedSelectionRef.current === selectionKey) return
+    appliedSelectionRef.current = selectionKey
+    setFrom(yearRange.from)
+    setTo(yearRange.to)
+  }, [selectionKey, yearRange])
+
   const loadDashboard = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ from, to, granularity })
+      const params = new URLSearchParams({ from, to, granularity: granularity ?? 'week' })
       if (selectedUserId) params.set('userId', selectedUserId)
       else if (roleFilter) params.set('role', roleFilter)
       if (eventType) params.set('eventType', eventType)
@@ -524,13 +563,20 @@ export default function AdminAnalyticsPage() {
     runExport('course', 'course_report', 'XLSX', `EduTrack_Reporte_por_curso_${from}_${to}.xlsx`, '✅ Reporte por curso listo.')
 
   function clearFiltersAndReload() {
-    const d = new Date()
-    d.setUTCDate(d.getUTCDate() - 29)
-    setFrom(d.toISOString().slice(0, 10))
-    setTo(new Date().toISOString().slice(0, 10))
+    // "Limpiar" vuelve al rango del ciclo lectivo en foco (no a los últimos 30 días,
+    // que para un ciclo cerrado quedan fuera de su período y muestran todo en 0).
+    if (yearRange) {
+      setFrom(yearRange.from)
+      setTo(yearRange.to)
+    } else {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - 29)
+      setFrom(d.toISOString().slice(0, 10))
+      setTo(new Date().toISOString().slice(0, 10))
+    }
     setRoleFilter('')
     setEventType('')
-    setGranularity('week')
+    setGranularity(null)
     setSelectedUserId('')
     setUserSearch('')
     setSelectedUserName('')
@@ -870,7 +916,7 @@ export default function AdminAnalyticsPage() {
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setGranularity(opt.value)}
+                  onClick={() => setGranularity((current) => (current === opt.value ? null : opt.value))}
                   className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                     granularity === opt.value ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
                   }`}
