@@ -123,6 +123,74 @@ function academicCourseRank(course: Pick<StartPlanCourse, 'code' | 'name' | 'lev
 }
 
 /**
+ * Curso académico inmediato superior para promover. `undefined` si el estudiante ya
+ * está en el último ciclo (no hay nada por encima). Se prefiere el nivel académico
+ * inmediato aunque no esté ofertado, y como fallback el orden del plan.
+ */
+export function nextPromotionCourseId(
+  student: Pick<StartPlanStudent, 'sourceCourseId'>,
+  courses: StartPlanCourse[],
+): string | undefined {
+  if (!student.sourceCourseId) return undefined
+  const orderedCourses = [...courses].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+  )
+  const sourceCourse = orderedCourses.find((course) => course.id === student.sourceCourseId)
+  const sourceRank = sourceCourse ? academicCourseRank(sourceCourse) : null
+  if (sourceRank != null) {
+    // Se elige primero el nivel académico inmediato, aunque no esté ofertado. Así 7.º nunca salta a 9.º.
+    return orderedCourses
+      .map((course) => ({ course, rank: academicCourseRank(course) }))
+      .filter((entry): entry is { course: StartPlanCourse; rank: number } => entry.rank != null && entry.rank > sourceRank)
+      .sort((a, b) => a.rank - b.rank)[0]?.course.id
+  }
+  const sourceIndex = orderedCourses.findIndex((course) => course.id === student.sourceCourseId)
+  return orderedCourses.slice(sourceIndex >= 0 ? sourceIndex + 1 : 0)[0]?.id
+}
+
+/**
+ * ¿El estudiante está cursando el último ciclo (p. ej. 3.º EMS)? Es así cuando no existe
+ * ningún curso por encima del de origen al que promoverlo: ese es el caso en que corresponde
+ * egresar en lugar de pasar.
+ */
+export function isLastCycleStudent(
+  student: Pick<StartPlanStudent, 'sourceCourseId'>,
+  courses: StartPlanCourse[],
+): boolean {
+  if (student.sourceCourseId) return nextPromotionCourseId(student, courses) === undefined
+  return false
+}
+
+/**
+ * Ajusta la acción a la situación del estudiante: en el último ciclo "Pasa" se convierte en
+ * "Egresa"; fuera del último ciclo "Egresa" no aplica (no tiene sentido egresar sin terminar)
+ * y vuelve a "Pasa". El resto de acciones se respetan.
+ */
+export function coerceActionForStudent(
+  student: Pick<StartPlanStudent, 'sourceCourseId'>,
+  action: StartAction,
+  courses: StartPlanCourse[],
+): StartAction {
+  const last = isLastCycleStudent(student, courses)
+  if (last && action === 'PROMOTE') return 'GRADUATED'
+  if (!last && action === 'GRADUATED') return 'PROMOTE'
+  return action
+}
+
+/** Acciones ofrecibles para el estudiante: solo el último ciclo puede egresar; el resto, pasar. */
+export function availableActionsForStudent(
+  student: Pick<StartPlanStudent, 'sourceCourseId'>,
+  courses: StartPlanCourse[],
+): StartAction[] {
+  const last = isLastCycleStudent(student, courses)
+  return (Object.keys(START_ACTION_LABEL) as StartAction[]).filter((action) => {
+    if (action === 'GRADUATED') return last
+    if (action === 'PROMOTE') return !last
+    return true
+  })
+}
+
+/**
  * Sugiere el destino al cambiar la situación académica. Es solo un valor inicial:
  * el selector de curso permanece editable en el asistente.
  */
@@ -134,26 +202,7 @@ export function suggestTargetForAction(
 ): Partial<StartDecision> {
   if (!ACTIONS_WITH_TARGET.has(action) || !student.sourceCourseId) return {}
 
-  let courseId: string | undefined
-  if (action === 'REPEAT') {
-    courseId = student.sourceCourseId
-  } else {
-    const orderedCourses = [...plan.courses].sort(
-      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
-    )
-    const sourceCourse = orderedCourses.find((course) => course.id === student.sourceCourseId)
-    const sourceRank = sourceCourse ? academicCourseRank(sourceCourse) : null
-    if (sourceRank != null) {
-      // Se elige primero el nivel académico inmediato, aunque no esté ofertado. Así 7.º nunca salta a 9.º.
-      courseId = orderedCourses
-        .map((course) => ({ course, rank: academicCourseRank(course) }))
-        .filter((entry): entry is { course: StartPlanCourse; rank: number } => entry.rank != null && entry.rank > sourceRank)
-        .sort((a, b) => a.rank - b.rank)[0]?.course.id
-    } else {
-      const sourceIndex = orderedCourses.findIndex((course) => course.id === student.sourceCourseId)
-      courseId = orderedCourses.slice(sourceIndex >= 0 ? sourceIndex + 1 : 0)[0]?.id
-    }
-  }
+  const courseId = action === 'REPEAT' ? student.sourceCourseId : nextPromotionCourseId(student, plan.courses)
 
   if (!courseId) return {}
   const sameOrientation = options.find(

@@ -11,6 +11,7 @@ import {
 const filters = (over?: Partial<StudentListFilters>): StudentListFilters => ({
   q: '',
   courseId: '',
+  orientationId: '',
   status: '',
   tuitionMonth: '',
   tuitionPaid: '',
@@ -53,7 +54,8 @@ describe('countActiveStudentFilters', () => {
   it('cuenta solo filtros activos', () => {
     expect(countActiveStudentFilters(filters())).toBe(0)
     expect(countActiveStudentFilters(filters({ q: '  ' }))).toBe(0)
-    expect(countActiveStudentFilters(filters({ q: 'ana', courseId: 'c1', status: 'ACTIVE', tuitionMonth: '3', tuitionPaid: 'true' }))).toBe(5)
+    expect(countActiveStudentFilters(filters({ q: 'ana', courseId: 'c1', orientationId: 'o1', status: 'ACTIVE', tuitionMonth: '3', tuitionPaid: 'true' }))).toBe(6)
+    expect(countActiveStudentFilters(filters({ orientationId: 'o1' }))).toBe(1)
     expect(countActiveStudentFilters(filters({ tuitionPaid: 'x' }))).toBe(0)
   })
 })
