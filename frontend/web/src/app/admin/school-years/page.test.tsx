@@ -156,16 +156,25 @@ describe('SchoolYearsPage · wizard de inicio (asignación de estudiantes)', () 
     expect(screen.getByText('Pérez, Beto')).toBeInTheDocument()
   })
 
-  it('la acción en bloque "Egresa a todos" se refleja en los cierres del resumen', async () => {
+  it('"Egresa a todos" solo egresa al último ciclo; el resto pasa', async () => {
     await openStudentsStep()
 
     fireEvent.click(screen.getByRole('button', { name: 'Egresa a todos' }))
     fireEvent.click(screen.getByRole('button', { name: 'Continuar' }))
 
     expect(screen.getByText('Cierres de matrícula')).toBeInTheDocument()
-    expect(screen.getByText('García, Ana')).toBeInTheDocument()
+    // Beto está en 2do (último curso del plan): egresa. Ana está en 1ro: no puede egresar y pasa.
     expect(screen.getByText('Pérez, Beto')).toBeInTheDocument()
-    expect(screen.getAllByText('Egresa').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('Egresa')).toBeInTheDocument()
+    expect(screen.queryByText('García, Ana')).not.toBeInTheDocument()
+  })
+
+  it('el último ciclo egresa por defecto y no ofrece "Pasa"; el resto no puede egresar', async () => {
+    await openStudentsStep()
+
+    // Botones de fila: Ana (1ro) ofrece "Pasa" y no "Egresa"; Beto (2do, último) al revés.
+    expect(screen.getAllByRole('button', { name: 'Pasa' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Egresa' })).toHaveLength(1)
   })
 
   it('el resumen muestra el curso siguiente sugerido para quienes pasan', async () => {
