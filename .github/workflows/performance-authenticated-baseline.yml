@@ -147,6 +147,32 @@ jobs:
               /scripts/authenticated-baseline.js
           fi
 
+      - name: Sanitizar summary autenticado
+        if: ${{ always() && inputs.confirmation == 'RUN_AUTHENTICATED_BASELINE' }}
+        run: |
+          set -euo pipefail
+          summary_path="performance/results/authenticated-baseline-summary.json"
+          if [ ! -s "$summary_path" ]; then
+            exit 0
+          fi
+          node - "$summary_path" <<'NODE'
+          const fs = require("node:fs");
+          const path = process.argv[2];
+          let summary;
+          try {
+            summary = JSON.parse(fs.readFileSync(path, "utf8"));
+          } catch {
+            process.exit(0);
+          }
+          if (summary && typeof summary === "object" && summary.setup_data) {
+            delete summary.setup_data.sid;
+            if (Object.keys(summary.setup_data).length === 0) {
+              delete summary.setup_data;
+            }
+          }
+          fs.writeFileSync(path, `${JSON.stringify(summary, null, 2)}\n`);
+          NODE
+
       - name: Generar informe Markdown
         if: ${{ always() && inputs.confirmation == 'RUN_AUTHENTICATED_BASELINE' }}
         env:
