@@ -36,6 +36,7 @@ export function tuitionMonthLabel(status: TuitionMonthState): string {
 export type StudentListFilters = {
   q: string
   courseId: string
+  orientationId: string
   status: string
   tuitionMonth: string
   tuitionPaid: string
@@ -46,6 +47,7 @@ export function countActiveStudentFilters(f: StudentListFilters): number {
   let n = 0
   if (f.q.trim()) n += 1
   if (f.courseId) n += 1
+  if (f.orientationId) n += 1
   if (f.status) n += 1
   if (f.tuitionMonth) n += 1
   if (f.tuitionPaid === 'true' || f.tuitionPaid === 'false') n += 1

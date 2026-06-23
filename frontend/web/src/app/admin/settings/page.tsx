@@ -6,15 +6,14 @@ import AdminOperationalSettingsPanel, {
 } from '@/components/admin/AdminOperationalSettingsPanel'
 import AdminBiometricDevicesPanel from '@/components/admin/AdminBiometricDevicesPanel'
 import AdminMoodlePanel from '@/components/admin/AdminMoodlePanel'
-import AdminTestingPanel from '@/components/admin/AdminTestingPanel'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { api } from '@/lib/api/client'
-import { BookOpen, Cpu, Fingerprint, FlaskConical, Loader2, Settings, Timer } from 'lucide-react'
+import { BookOpen, Cpu, Fingerprint, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 type SettingsResponse = OperationalSettingsData
 
-type SettingsSection = OperationalSettingsSection | 'readers' | 'testing' | 'moodle'
+type SettingsSection = OperationalSettingsSection | 'readers' | 'moodle'
 
 const SETTINGS_SECTIONS: {
   id: SettingsSection
@@ -52,12 +51,6 @@ const SETTINGS_SECTIONS: {
     desc: 'Terminales biométricos habilitados.',
     Icon: Cpu,
   },
-  {
-    id: 'testing',
-    label: 'Pruebas',
-    desc: 'Simular ADMS y limpiar datos de testing.',
-    Icon: FlaskConical,
-  },
 ]
 
 export default function AdminSystemSettingsPage() {
@@ -91,7 +84,7 @@ export default function AdminSystemSettingsPage() {
   useEffect(() => {
     const params = new URLSearchParams(globalThis.location.search)
     const s = params.get('section')
-    if (s === 'attendance' || s === 'identity' || s === 'system' || s === 'readers' || s === 'testing' || s === 'moodle') setSection(s)
+    if (s === 'attendance' || s === 'identity' || s === 'system' || s === 'readers' || s === 'moodle') setSection(s)
   }, [])
 
   function selectSection(nextSection: SettingsSection) {
@@ -186,8 +179,6 @@ export default function AdminSystemSettingsPage() {
               <AdminBiometricDevicesPanel />
             ) : section === 'moodle' ? (
               <AdminMoodlePanel />
-            ) : section === 'testing' ? (
-              <AdminTestingPanel />
             ) : !data ? (
               <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
                 <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
