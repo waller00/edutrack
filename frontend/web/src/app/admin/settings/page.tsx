@@ -9,7 +9,7 @@ import AdminMoodlePanel from '@/components/admin/AdminMoodlePanel'
 import AdminTestingPanel from '@/components/admin/AdminTestingPanel'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { api } from '@/lib/api/client'
-import { BookOpen, Cpu, Fingerprint, FlaskConical, Loader2, Settings, Timer } from 'lucide-react'
+import { BookOpen, Cpu, Fingerprint, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 type SettingsResponse = OperationalSettingsData
@@ -51,12 +51,6 @@ const SETTINGS_SECTIONS: {
     label: 'Lectores',
     desc: 'Terminales biométricos habilitados.',
     Icon: Cpu,
-  },
-  {
-    id: 'testing',
-    label: 'Pruebas',
-    desc: 'Simular ADMS y limpiar datos de testing.',
-    Icon: FlaskConical,
   },
 ]
 
