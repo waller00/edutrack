@@ -94,4 +94,45 @@ describe('resolveAttendanceAndJustification', () => {
     expect(resolved[1]!.checkInNotes).toBe('Entrada automática')
     expect(resolved[1]!.checkOutNotes).toBe('Salida automática')
   })
+
+  it('asigna cada marca a la instancia de su propio usuario (titular suplido vs suplente presente)', async () => {
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: 'titular', email: 't@e', name: 'Tit', username: 'tit', firstName: 'Tit', lastName: 'Ular', orgRole: { code: 'TEACHER' } },
+      { id: 'suplente', email: 's@e', name: 'Sup', username: 'sup', firstName: 'Sup', lastName: 'Lente', orgRole: { code: 'TEACHER' } },
+    ])
+    const titularInst = planned({ eventId: 'ev-bio', plannedInstanceId: 'ev-bio_2026-05-24', userIdRequired: 'titular' })
+    const subInst = planned({
+      eventId: 'ev-bio',
+      plannedInstanceId: 'ev-bio_2026-05-24__sub__suplente',
+      userIdRequired: 'suplente',
+    })
+
+    prismaMock.attendance.findMany.mockResolvedValue([
+      {
+        id: 't-in',
+        userId: 'titular',
+        eventId: 'ev-bio',
+        date: new Date('2026-05-24T00:00:00.000Z'),
+        time: new Date('2026-05-24T21:42:00.000Z'),
+        type: 'CHECK_IN',
+        status: 'SUBSTITUTED',
+        notes: 'suplida',
+      },
+      {
+        id: 's-in',
+        userId: 'suplente',
+        eventId: 'ev-bio',
+        date: new Date('2026-05-24T00:00:00.000Z'),
+        time: new Date('2026-05-24T21:39:00.000Z'),
+        type: 'CHECK_IN',
+        status: 'PRESENT',
+        notes: 'cubre',
+      },
+    ])
+
+    const resolved = await resolveAttendanceAndJustification({ plannedInstances: [titularInst, subInst] })
+    const byUser = new Map(resolved.map((r) => [r.planned.userIdRequired, r]))
+    expect(byUser.get('titular')!.checkInStatusResolved).toBe('SUBSTITUTED')
+    expect(byUser.get('suplente')!.checkInStatusResolved).toBe('PRESENT')
+  })
 })

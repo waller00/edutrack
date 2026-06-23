@@ -25,6 +25,7 @@ const { prismaMock } = vi.hoisted(() => ({
     },
     auditLog: { create: vi.fn() },
     medicalLeave: { findFirst: vi.fn(), findMany: vi.fn() },
+    substitution: { findMany: vi.fn() },
     systemSettings: { upsert: vi.fn() },
     user: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     $queryRaw: vi.fn(),
@@ -69,6 +70,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.attendance.findMany.mockResolvedValue([]);
     prismaMock.user.findMany.mockResolvedValue([]);
     prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    prismaMock.substitution.findMany.mockResolvedValue([]);
     prismaMock.systemSettings.upsert.mockResolvedValue({
       id: "default",
       attendanceNoShowGraceMinutes: 15,

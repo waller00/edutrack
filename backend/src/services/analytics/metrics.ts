@@ -25,6 +25,20 @@ function roundTo(n: number, decimals: number) {
   return Math.round(n * f) / f
 }
 
+/**
+ * Estado de entrada "efectivo" para clasificar/contar. Una clase SUPLIDA no es una
+ * categoría aparte: es una ausencia del titular, NO justificada salvo que tenga una
+ * licencia vigente que cubra la fecha. El resto de estados se devuelven tal cual.
+ */
+export function effectiveCheckInStatus(
+  r: Pick<ResolvedAttendanceByInstance, 'checkInStatusResolved' | 'isJustifiedAbsence'>,
+): AttendanceStatusResolved {
+  if (r.checkInStatusResolved === 'SUBSTITUTED') {
+    return r.isJustifiedAbsence ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED'
+  }
+  return r.checkInStatusResolved
+}
+
 export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance[], opts: { plannedInstancesCount?: number }) {
   const totalPlan = opts.plannedInstancesCount ?? resolvedInstances.length
   if (totalPlan === 0) {
@@ -228,7 +242,6 @@ const STATUS_DISTRIBUTION_ORDER: AttendanceStatusResolved[] = [
   'LATE',
   'ABSENT_NOT_JUSTIFIED',
   'ABSENT_JUSTIFIED',
-  'SUBSTITUTED',
 ]
 
 /** Distribución de estados de entrada (check-in) sobre el total planificado. */
@@ -236,7 +249,7 @@ export function computeStatusDistribution(resolved: ResolvedAttendanceByInstance
   const totalPlanned = resolved.length
   const counts = new Map<AttendanceStatusResolved, number>()
   for (const r of resolved) {
-    const s = r.checkInStatusResolved
+    const s = effectiveCheckInStatus(r)
     counts.set(s, (counts.get(s) ?? 0) + 1)
   }
   const rows = STATUS_DISTRIBUTION_ORDER.map((status) => {
@@ -326,10 +339,13 @@ export function computeTopRiskPeople(
       byUser.set(userId, row)
     }
 
+    // Una suplida cuenta como ausencia del titular (no justificada salvo licencia),
+    // por eso clasificamos con el estado efectivo, no con el crudo.
+    const effective = effectiveCheckInStatus(r)
     row.plannedCount += 1
-    if (r.checkInStatusResolved === 'LATE') row.lateCount += 1
-    if (r.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED') row.absentNotJustifiedCount += 1
-    if (r.checkInStatusResolved === 'ABSENT_JUSTIFIED') row.absentJustifiedCount += 1
+    if (effective === 'LATE') row.lateCount += 1
+    if (effective === 'ABSENT_NOT_JUSTIFIED') row.absentNotJustifiedCount += 1
+    if (effective === 'ABSENT_JUSTIFIED') row.absentJustifiedCount += 1
   }
 
   const out: DashboardTopRiskPerson[] = [...byUser.values()].map((row) => ({

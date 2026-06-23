@@ -5,7 +5,7 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
-import { getRiskScoreBadgeClass } from '@/lib/admin/analytics-display'
+import { getRiskScoreBadgeClass, resolveSchoolYearDateRange } from '@/lib/admin/analytics-display'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   ArrowDownRight,
@@ -26,7 +26,7 @@ import {
   Users,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import TrendLineChart from '@/components/charts/TrendLineChart'
 import BreakdownBarChart from '@/components/charts/BreakdownBarChart'
 import StatusDonutChart from '@/components/charts/StatusDonutChart'
@@ -386,6 +386,27 @@ export default function AdminAnalyticsPage() {
 
   const apiUrl = apiBaseUrl()
   const analyticsSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
+
+  // Encuadra el rango de fechas al ciclo lectivo seleccionado. Sin esto el filtro "no
+  // anda" para años pasados: el rango por defecto (últimos 30 días) cae en el ciclo
+  // actual, así que al elegir 2025 se pedían fechas de 2026 y no traía nada.
+  // Solo reencuadra si el rango actual NO intersecta el ciclo: así mantiene el default
+  // de 30 días del ciclo activo y respeta cualquier ajuste manual de fechas dentro del año.
+  const years = syCtx?.years
+  const fromRef = useRef(from)
+  const toRef = useRef(to)
+  fromRef.current = from
+  toRef.current = to
+  useEffect(() => {
+    if (syCtx?.allYears) return
+    const sy = years?.find((y) => y.id === analyticsSchoolYearId)
+    const range = resolveSchoolYearDateRange(sy, new Date().toISOString().slice(0, 10))
+    if (!range) return
+    const overlapsCurrent = fromRef.current <= range.to && toRef.current >= range.from
+    if (overlapsCurrent) return
+    setFrom(range.from)
+    setTo(range.to)
+  }, [analyticsSchoolYearId, syCtx?.allYears, years])
 
   const loadDashboard = useCallback(async () => {
     setLoading(true)

@@ -137,6 +137,17 @@
     if (flags.isLogin) document.body.classList.add('et-login-screen')
   }
 
+  function markRecoveryCodesSetupScreen() {
+    var pageTitle = document.querySelector('#kc-page-title')
+    var title = ((pageTitle && pageTitle.textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    var isRecoveryCodesSetup = title.indexOf('códigos de autenticación de recuperación') >= 0 ||
+      title.indexOf('recovery authentication codes') >= 0
+
+    if (isRecoveryCodesSetup) {
+      document.body.classList.add('et-recovery-codes-setup-screen')
+    }
+  }
+
   function replaceValue(selector, text) {
     var element = document.querySelector(selector)
     if (element) element.value = text
@@ -387,6 +398,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     installEduTrackFavicon()
     applyScreenClasses()
+    markRecoveryCodesSetupScreen()
     localizeVisibleText()
     localizeActionScreens()
     enhanceGoogleButton()

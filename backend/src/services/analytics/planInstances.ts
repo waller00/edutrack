@@ -86,14 +86,80 @@ function expandEventInstances(ev: EventRow, fromYmd: string, toYmd: string, toDa
   return out
 }
 
-export async function getPlannedInstances(params: {
+type PlanQueryParams = {
   from: string
   to: string
   userId?: string
   userIds?: string[]
   eventType?: EventType
   schoolYearId?: string
-}) {
+}
+
+/**
+ * Instancias planificadas correspondientes a las suplencias del rango: cada `Substitution`
+ * es una obligación del SUPLENTE para cubrir esa clase (ventana horaria propia de la
+ * suplencia). Se filtra por el suplente (no por el titular) para no duplicar la ausencia.
+ */
+async function getSubstituteInstances(params: PlanQueryParams): Promise<PlannedInstance[]> {
+  const { fromDate, toDate } = parseYmdToUtcRange(params.from, params.to)
+  let subUserFilter: Record<string, unknown> = {}
+  if (params.userIds) subUserFilter = { substituteUserId: { in: params.userIds } }
+  else if (params.userId) subUserFilter = { substituteUserId: params.userId }
+
+  const subs = await prisma.substitution.findMany({
+    where: {
+      date: { gte: fromDate, lte: toDate },
+      ...subUserFilter,
+      event: {
+        status: { not: 'CANCELLED' as EventStatus },
+        ...(params.eventType ? { type: params.eventType } : null),
+        ...(params.schoolYearId ? { schoolYearId: params.schoolYearId } : null),
+      },
+    },
+    select: {
+      substituteUserId: true,
+      date: true,
+      startTime: true,
+      endTime: true,
+      event: {
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          courseOfferingId: true,
+          courseOffering: { select: { id: true, course: { select: { name: true, code: true } } } },
+          subject: { select: { name: true } },
+        },
+      },
+    },
+  })
+
+  const out: PlannedInstance[] = []
+  for (const s of subs) {
+    const ymd = toYmdInUruguay(s.date)
+    if (ymd < params.from || ymd > params.to) continue
+    const course = s.event.courseOffering?.course
+    out.push({
+      plannedInstanceId: `${s.event.id}_${ymd}__sub__${s.substituteUserId}`,
+      eventId: s.event.id,
+      eventTitle: s.event.title,
+      eventType: s.event.type,
+      eventStatus: s.event.status,
+      isRecurringInstance: false,
+      plannedDate: ymd,
+      plannedStartTime: combineDateWithUtcTime(ymd, s.startTime),
+      plannedEndTime: combineDateWithUtcTime(ymd, s.endTime),
+      userIdRequired: s.substituteUserId,
+      courseOfferingId: s.event.courseOfferingId ?? null,
+      courseLabel: course ? course.name || course.code || null : null,
+      subjectLabel: s.event.subject?.name ?? null,
+    })
+  }
+  return out
+}
+
+export async function getPlannedInstances(params: PlanQueryParams) {
   const { toDate } = parseYmdToUtcRange(params.from, params.to)
   const fromYmd = params.from
   const toYmd = params.to
@@ -132,6 +198,11 @@ export async function getPlannedInstances(params: {
   for (const ev of events) {
     instances.push(...expandEventInstances(ev, fromYmd, toYmd, toDate))
   }
+
+  // Una clase suplida genera DOS obligaciones planificadas: el titular (que faltó,
+  // resuelto como ausencia/SUBSTITUTED) y el suplente (que la cubrió). Sin esto el
+  // suplente nunca cuenta como "presente sobre lo planificado".
+  instances.push(...(await getSubstituteInstances(params)))
 
   // Orden determinístico para export.
   instances.sort((a, b) => {
