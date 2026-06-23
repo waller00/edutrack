@@ -18,6 +18,10 @@ Valores importantes:
 - `K6_API_PATHS`: rutas `GET` no destructivas separadas por coma.
 - `K6_SESSION_COOKIE`: valor opcional de la cookie BFF `sid` para rutas
   autenticadas. No commitear cookies reales.
+- `K6_AUTH_IDENTIFIER`: email o username del usuario tecnico de performance.
+- `K6_PERFORMANCE_AUTH_SECRET`: secreto compartido con el backend para emitir
+  una sesion BFF temporal. No commitear el valor real.
+- `K6_AUTHENTICATED_PATHS`: rutas autenticadas de lectura, separadas por coma.
 - `K6_WEIGHTED_PATHS`: mezcla de lecturas con formato `ruta:peso`.
 - `EDUTRACK_K6_RATE`: solicitudes por segundo de la prueba de carga.
 - `EDUTRACK_K6_SPIKE_RATE`: pico de solicitudes por segundo.
@@ -52,6 +56,12 @@ Baseline conservadora de produccion:
 
 ```powershell
 docker compose --env-file performance/.env.k6 -f performance/docker-compose.k6.yml run --rm k6 run --summary-export=/results/production-baseline-summary.json /scripts/production-baseline.js
+```
+
+Baseline autenticada de produccion:
+
+```powershell
+docker compose --env-file performance/.env.k6 -f performance/docker-compose.k6.yml run --rm k6 run --summary-export=/results/authenticated-baseline-summary.json /scripts/authenticated-baseline.js
 ```
 
 El contenedor se elimina al terminar. Los resúmenes quedan en
@@ -94,6 +104,41 @@ se considera la baseline oficial. Conservar su artefacto y registrar commit,
 fecha, motivo, recursos del droplet, p95, p99, errores, solicitudes descartadas
 y capturas de los dashboards. No aumentar las tasas hasta analizar al menos
 tres ejecuciones comparables.
+
+## Baseline autenticada de produccion
+
+La baseline autenticada valida el camino publico con una sesion BFF real, pero
+mantiene la prueba en endpoints de lectura. El backend expone
+`POST /auth/performance/session` solamente cuando se habilita de forma explicita
+en el servidor y el request presenta el secreto correcto.
+
+Configurar en el `.env` real del servidor y recrear `auth`:
+
+```env
+EDUTRACK_PERFORMANCE_AUTH_ENABLED=true
+EDUTRACK_PERFORMANCE_AUTH_SECRET=<secreto-largo-generado>
+EDUTRACK_PERFORMANCE_SESSION_TTL_MINUTES=30
+```
+
+Crear o elegir un usuario tecnico aprobado y activo, con permisos minimos de
+lectura para los endpoints que se prueben. En GitHub Actions configurar:
+
+- secret `K6_AUTH_IDENTIFIER`: email o username del usuario tecnico.
+- secret `K6_PERFORMANCE_AUTH_SECRET`: mismo valor que
+  `EDUTRACK_PERFORMANCE_AUTH_SECRET`.
+- variable opcional `K6_AUTHENTICATED_PATHS`: por defecto `/auth/me`; se pueden
+  agregar rutas de lectura separadas por coma, por ejemplo
+  `/auth/me,/events/my-events`.
+
+La ejecucion recomendada se realiza desde GitHub Actions mediante el workflow
+manual **Authenticated Production Performance Baseline**. El workflow exige
+escribir `RUN_AUTHENTICATED_BASELINE`, utiliza el entorno protegido
+`production`, genera un informe Markdown y conserva los resultados como
+artefacto durante 90 dias.
+
+Mantener la prueba autenticada sin escrituras hasta tener varias ejecuciones
+comparables. Si se agregan endpoints como reportes o consultas historicas,
+ajustar los thresholds y correlacionar con PostgreSQL, Redis y Backend RED.
 
 ## Pruebas contra el droplet
 
