@@ -5,6 +5,9 @@ const { prismaMock } = vi.hoisted(() => ({
     event: {
       findMany: vi.fn(),
     },
+    substitution: {
+      findMany: vi.fn(),
+    },
   },
 }))
 
@@ -16,6 +19,7 @@ describe('getPlannedInstances', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     prismaMock.event.findMany.mockResolvedValue([])
+    prismaMock.substitution.findMany.mockResolvedValue([])
   })
 
   it('filtra eventos planificados por ciclo lectivo cuando se recibe schoolYearId', async () => {
@@ -83,5 +87,49 @@ describe('getPlannedInstances', () => {
     expect(previousUruguayDay[0]!.plannedStartTime?.toISOString()).toBe('2026-06-09T01:21:00.000Z')
     expect(previousUruguayDay[0]!.plannedEndTime?.toISOString()).toBe('2026-06-09T01:30:00.000Z')
     expect(nextUtcDay).toHaveLength(0)
+  })
+
+  it('agrega una instancia planificada para el suplente de cada suplencia', async () => {
+    prismaMock.substitution.findMany.mockResolvedValue([
+      {
+        substituteUserId: 'sup-1',
+        date: new Date('2026-06-10T03:00:00.000Z'),
+        startTime: new Date('2026-06-10T18:00:00.000Z'),
+        endTime: new Date('2026-06-10T19:00:00.000Z'),
+        event: {
+          id: 'ev-bio',
+          title: 'Clase Biología',
+          type: 'CLASE',
+          status: 'SCHEDULED',
+          courseOfferingId: null,
+          courseOffering: null,
+          subject: { name: 'Biología' },
+        },
+      },
+    ])
+
+    const out = await getPlannedInstances({ from: '2026-06-10', to: '2026-06-10' })
+
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      plannedInstanceId: 'ev-bio_2026-06-10__sub__sup-1',
+      eventId: 'ev-bio',
+      userIdRequired: 'sup-1',
+      plannedDate: '2026-06-10',
+      subjectLabel: 'Biología',
+    })
+  })
+
+  it('filtra suplencias por suplente y ciclo cuando se reciben esos filtros', async () => {
+    await getPlannedInstances({ from: '2026-03-01', to: '2026-03-31', userId: 'sup-9', schoolYearId: 'sy-2026' })
+
+    expect(prismaMock.substitution.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          substituteUserId: 'sup-9',
+          event: expect.objectContaining({ schoolYearId: 'sy-2026' }),
+        }),
+      }),
+    )
   })
 })

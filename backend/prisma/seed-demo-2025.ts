@@ -17,7 +17,6 @@
  *   npm run seed:demo
  */
 import 'dotenv/config'
-import crypto from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import type { AttendanceStatus, Event, User } from '@prisma/client'
 import { DateTime } from 'luxon'
@@ -110,9 +109,6 @@ function buildValidCi(baseNumber: number) {
   const sum = base7.split('').reduce((acc, digit, index) => acc + Number(digit) * weights[index], 0)
   const checkDigit = (10 - (sum % 10)) % 10
   return `${base7}${checkDigit}`
-}
-function sha256(value: string) {
-  return crypto.createHash('sha256').update(value).digest('hex')
 }
 function ymdToDate(ymd: string) {
   return uruguayWallToUtc(ymd, 0, 0)
@@ -272,15 +268,19 @@ async function seedNonWorkingDays() {
 }
 
 async function seedBiometricDevice(users: Array<Pick<User, 'id'>>) {
+  // Lector biometrico REAL de produccion (terminal fisico ZKTeco F22). Estos valores
+  // —en especial `admsSerial` (SN del aparato) y `secretHash`— deben coincidir con el
+  // dispositivo cargado en prod para que el hardware siga autenticando contra el ADMS
+  // despues de reseedear. NO reemplazar por un lector ficticio.
   const device = await prisma.biometricDevice.create({
     data: {
-      code: 'F22-LICEO-CENTRAL',
-      admsSerial: 'F22-UY-2025-001',
+      code: 'F22-TEST-01',
+      admsSerial: 'SRN5260500102',
       name: 'ZKTeco F22 - Acceso principal',
-      secretHash: sha256('liceo-f22-demo-secret'),
+      secretHash: '92378ca72e05cd1fe74cb1a9a9cd90b8344dbfa1fd900be9c99c59530c9aa7ec',
       timezone: getAppTimezone(),
       isActive: true,
-      allowedIps: ['127.0.0.1', '10.10.0.25'],
+      allowedIps: [],
       lastSeenAt: wall('2025-12-05', 18, 22),
     },
   })

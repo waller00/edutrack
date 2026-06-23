@@ -26,6 +26,7 @@ describe('AdminSystemSettingsPage', () => {
   beforeEach(() => {
     mockedApi.mockReset()
     mockedApi.mockResolvedValue({} as never)
+    window.history.replaceState(null, '', '/admin/settings')
   })
 
   it('muestra tabs de secciones también en mobile (nav duplicada sidebar + tabs)', async () => {
@@ -43,5 +44,21 @@ describe('AdminSystemSettingsPage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Moodle/ })[0])
 
     expect(screen.getByTestId('moodle-panel')).toBeInTheDocument()
+  })
+
+  it('no muestra la sección de pruebas en la navegación visual', async () => {
+    render(<AdminSystemSettingsPage />)
+    await waitFor(() => expect(screen.getByTestId('operational-panel')).toBeInTheDocument())
+
+    expect(screen.queryByRole('button', { name: /Pruebas/ })).not.toBeInTheDocument()
+  })
+
+  it('mantiene pruebas alcanzable por link directo', async () => {
+    window.history.replaceState(null, '', '/admin/settings?section=testing')
+
+    render(<AdminSystemSettingsPage />)
+
+    expect(await screen.findByTestId('testing-panel')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Pruebas/ })).not.toBeInTheDocument()
   })
 })

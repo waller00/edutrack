@@ -72,6 +72,25 @@ describe('computeStatusDistribution', () => {
     expect(dist.totalPlanned).toBe(0)
     expect(dist.rows).toHaveLength(0)
   })
+
+  it('una SUPLIDA cuenta como ausente no justificada (o justificada si hay licencia), nunca como categoría propia', () => {
+    const rows = [
+      resolved('PRESENT', { plannedInstanceId: 'a', eventId: 'e1', plannedDate: '2026-05-01' }),
+      // Suplida sin licencia → ausente NO justificada.
+      resolved('SUBSTITUTED', { plannedInstanceId: 'b', eventId: 'e1', plannedDate: '2026-05-02' }),
+      // Suplida CON licencia vigente → ausente justificada.
+      resolved(
+        'SUBSTITUTED',
+        { plannedInstanceId: 'c', eventId: 'e1', plannedDate: '2026-05-03' },
+        { isJustifiedAbsence: true },
+      ),
+    ]
+    const dist = computeStatusDistribution(rows)
+    expect(dist.rows.some((r) => r.status === 'SUBSTITUTED')).toBe(false)
+    expect(dist.rows.find((r) => r.status === 'ABSENT_NOT_JUSTIFIED')?.count).toBe(1)
+    expect(dist.rows.find((r) => r.status === 'ABSENT_JUSTIFIED')?.count).toBe(1)
+    expect(dist.rows.find((r) => r.status === 'PRESENT')?.count).toBe(1)
+  })
 })
 
 describe('computeBreakdown', () => {
