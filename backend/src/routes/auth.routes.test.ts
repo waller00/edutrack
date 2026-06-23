@@ -20,6 +20,7 @@ const {
   expiryErrorMock,
   getOrgRoleIdMock,
   saveSessionMock,
+  newSessionIdMock,
 } = vi.hoisted(() => ({
   prismaMock: {
     user: {
@@ -60,6 +61,7 @@ const {
   expiryErrorMock: vi.fn().mockReturnValue(null),
   getOrgRoleIdMock: vi.fn().mockResolvedValue("mock-org-role-id"),
   saveSessionMock: vi.fn().mockResolvedValue(undefined),
+  newSessionIdMock: vi.fn().mockReturnValue("perf-sid-1"),
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
@@ -73,7 +75,7 @@ vi.mock("../auth/sso-registration.js", () => ({
   getSsoRegistration: getSsoRegistrationMock,
   consumeSsoRegistration: consumeSsoRegistrationMock,
 }));
-vi.mock("../auth/session-store.js", () => ({ saveSession: saveSessionMock }));
+vi.mock("../auth/session-store.js", () => ({ newSessionId: newSessionIdMock, saveSession: saveSessionMock }));
 vi.mock("../identity/org-role-service.js", () => ({
   normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
   getOrgRoleIdByCodeOrThrow: getOrgRoleIdMock,
@@ -124,6 +126,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expiryErrorMock.mockReturnValue(null);
     getOrgRoleIdMock.mockResolvedValue("mock-org-role-id");
     saveSessionMock.mockResolvedValue(undefined);
+    newSessionIdMock.mockReturnValue("perf-sid-1");
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {
         return (arg as (tx: { user: typeof prismaMock.user; livenessSession: { update: ReturnType<typeof vi.fn> } }) => Promise<unknown>)({
@@ -135,6 +138,9 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     });
     process.env.FRONTEND_URL = "http://frontend.local";
     process.env.NODE_ENV = "test";
+    delete process.env.EDUTRACK_PERFORMANCE_AUTH_ENABLED;
+    delete process.env.EDUTRACK_PERFORMANCE_AUTH_SECRET;
+    delete process.env.EDUTRACK_PERFORMANCE_SESSION_TTL_MINUTES;
   });
 
   // Evita filtrar FRONTEND_URL a otros archivos de test (vitest corre en un único
@@ -143,12 +149,69 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
   afterEach(() => {
     if (previousFrontendUrl === undefined) delete process.env.FRONTEND_URL;
     else process.env.FRONTEND_URL = previousFrontendUrl;
+    delete process.env.EDUTRACK_PERFORMANCE_AUTH_ENABLED;
+    delete process.env.EDUTRACK_PERFORMANCE_AUTH_SECRET;
+    delete process.env.EDUTRACK_PERFORMANCE_SESSION_TTL_MINUTES;
   });
 
   it("GET /auth/check-username nombre corto", async () => {
     const res = await request(app()).get("/auth/check-username").query({ u: "ab" });
     expect(res.status).toBe(200);
     expect(res.body.valid).toBe(false);
+  });
+
+  it("POST /auth/performance/session queda apagado por defecto", async () => {
+    const res = await request(app())
+      .post("/auth/performance/session")
+      .set("x-edutrack-performance-secret", "secret")
+      .send({ identifier: "perf@example.com" });
+
+    expect(res.status).toBe(404);
+    expect(saveSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/performance/session rechaza secret invalido", async () => {
+    process.env.EDUTRACK_PERFORMANCE_AUTH_ENABLED = "true";
+    process.env.EDUTRACK_PERFORMANCE_AUTH_SECRET = "expected-secret";
+
+    const res = await request(app())
+      .post("/auth/performance/session")
+      .set("x-edutrack-performance-secret", "wrong-secret")
+      .send({ identifier: "perf@example.com" });
+
+    expect(res.status).toBe(403);
+    expect(saveSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/performance/session crea sesion para usuario habilitado", async () => {
+    process.env.EDUTRACK_PERFORMANCE_AUTH_ENABLED = "true";
+    process.env.EDUTRACK_PERFORMANCE_AUTH_SECRET = "expected-secret";
+    process.env.EDUTRACK_PERFORMANCE_SESSION_TTL_MINUTES = "15";
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "user-perf-1",
+      email: "perf@example.com",
+      googleId: "kc-perf-1",
+      isActive: true,
+      isApproved: true,
+      lockUntil: null,
+      orgRole: { code: "STAFF", active: true },
+    });
+
+    const res = await request(app())
+      .post("/auth/performance/session")
+      .set("x-edutrack-performance-secret", "expected-secret")
+      .send({ identifier: "perf@example.com" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sid).toBe("perf-sid-1");
+    expect(saveSessionMock).toHaveBeenCalledWith(expect.objectContaining({
+      sid: "perf-sid-1",
+      userId: "user-perf-1",
+      kcId: "kc-perf-1",
+      email: "perf@example.com",
+      role: "STAFF",
+      accessToken: "performance-baseline",
+    }));
   });
 
   it("POST /auth/register crea usuario en Postgres y Keycloak", async () => {

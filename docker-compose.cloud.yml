@@ -154,6 +154,10 @@ services:
       MOODLE_PUBLIC_URL: ${MOODLE_PUBLIC_URL:-}
       # ADMS ZKTeco: 0 = mismo puerto que PORT (4000). El reloj usa la URL pública HTTPS del API.
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-0}
+      # Baseline k6 autenticada: apagada por defecto y protegida por secreto.
+      EDUTRACK_PERFORMANCE_AUTH_ENABLED: ${EDUTRACK_PERFORMANCE_AUTH_ENABLED:-false}
+      EDUTRACK_PERFORMANCE_AUTH_SECRET: ${EDUTRACK_PERFORMANCE_AUTH_SECRET:-}
+      EDUTRACK_PERFORMANCE_SESSION_TTL_MINUTES: ${EDUTRACK_PERFORMANCE_SESSION_TTL_MINUTES:-30}
       # Observabilidad (Sentry backend)
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}

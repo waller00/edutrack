@@ -20,11 +20,43 @@ import { getDocumentExpiryValidationErrorFromDecision } from "../integrations/di
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
 import { createKeycloakUser, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
-import { saveSession } from "../auth/session-store.js";
+import { newSessionId, saveSession } from "../auth/session-store.js";
 import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
 import { generateUniqueUsername as generateUniqueUsernameWith } from "../services/usernames.js";
 
 const r = Router();
+
+function performanceAuthEnabled(): boolean {
+  return (process.env.EDUTRACK_PERFORMANCE_AUTH_ENABLED || "").toLowerCase() === "true";
+}
+
+function performanceAuthSecret(): string {
+  return process.env.EDUTRACK_PERFORMANCE_AUTH_SECRET || "";
+}
+
+function readPerformanceSecret(req: any): string {
+  const header = req.get?.("x-edutrack-performance-secret");
+  if (typeof header === "string") return header;
+  const bodySecret = req.body?.secret;
+  return typeof bodySecret === "string" ? bodySecret : "";
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function performanceSessionTtlMs(): number {
+  const minutes = Number(process.env.EDUTRACK_PERFORMANCE_SESSION_TTL_MINUTES || "30");
+  return Math.max(5, Math.min(Number.isFinite(minutes) ? minutes : 30, 120)) * 60 * 1000;
+}
+
+function readPerformanceIdentifier(req: any): string {
+  const identifier = req.body?.identifier ?? req.body?.email ?? req.body?.username;
+  return typeof identifier === "string" ? identifier.trim() : "";
+}
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -200,6 +232,71 @@ r.get("/check-username", async (req, res) => {
   if (!valid) return res.json({ available: false, valid: false });
   const exist = await prisma.user.findUnique({ where: { username: u } });
   return res.json({ available: !exist, valid: true });
+});
+
+r.post("/performance/session", async (req, res) => {
+  if (!performanceAuthEnabled()) {
+    return res.status(404).json({ message: "No encontrado" });
+  }
+
+  const expectedSecret = performanceAuthSecret();
+  if (!constantTimeEqual(readPerformanceSecret(req), expectedSecret)) {
+    return res.status(403).json({ message: "Prohibido" });
+  }
+
+  const identifier = readPerformanceIdentifier(req);
+  if (!identifier || identifier.length > 255) {
+    return res.status(400).json({ message: "Usuario de performance invalido" });
+  }
+
+  const normalizedEmail = identifier.toLowerCase();
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: normalizedEmail },
+        { username: identifier },
+      ],
+    },
+    select: {
+      id: true,
+      email: true,
+      googleId: true,
+      isActive: true,
+      isApproved: true,
+      lockUntil: true,
+      orgRole: { select: { code: true, active: true } },
+    },
+  });
+
+  if (!user || !user.isActive || !user.isApproved || !user.orgRole?.active) {
+    return res.status(403).json({ message: "Usuario de performance no habilitado" });
+  }
+  if (user.lockUntil && user.lockUntil.getTime() > Date.now()) {
+    return res.status(403).json({ message: "Usuario de performance bloqueado" });
+  }
+
+  const sid = newSessionId();
+  const now = Date.now();
+  await saveSession({
+    sid,
+    userId: user.id,
+    kcId: user.googleId || `performance:${user.id}`,
+    email: user.email,
+    role: user.orgRole.code,
+    accessToken: "performance-baseline",
+    accessTokenExpiresAt: now + performanceSessionTtlMs(),
+    createdAt: now,
+  });
+
+  return res.json({
+    ok: true,
+    sid,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.orgRole.code,
+    },
+  });
 });
 
 r.get("/register/sso", async (req, res) => {
