@@ -1,0 +1,183 @@
+name: Authenticated Production Performance Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Escribir RUN_AUTHENTICATED_BASELINE para confirmar la carga"
+        required: true
+        type: string
+      reason:
+        description: "Motivo o version evaluada"
+        required: true
+        type: string
+      publish_metrics_to_grafana:
+        description: "Enviar metricas k6 a Prometheus mediante Tailscale"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: authenticated-production-performance-baseline
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    name: Baseline autenticada contra produccion
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ 'production' }}
+    timeout-minutes: 20
+    env:
+      K6_BASE_URL: ${{ vars.PRODUCTION_API_URL || 'https://api.edutrack-uy.com' }}
+      K6_AUTHENTICATED_PATHS: ${{ vars.K6_AUTHENTICATED_PATHS || '/auth/me' }}
+      K6_ALLOW_PRODUCTION: "true"
+      K6_PRODUCTION_CONFIRMATION: I_UNDERSTAND_THIS_GENERATES_LOAD
+      EDUTRACK_K6_BASELINE_WARMUP_RATE: "1"
+      EDUTRACK_K6_BASELINE_NORMAL_RATE: "2"
+      EDUTRACK_K6_BASELINE_PEAK_RATE: "3"
+      EDUTRACK_K6_MAX_ALLOWED_RATE: "3"
+      EDUTRACK_K6_PRE_ALLOCATED_VUS: "5"
+      EDUTRACK_K6_MAX_VUS: "15"
+      K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM: "true"
+
+    steps:
+      - name: Validar confirmacion manual
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          PUBLISH_METRICS: ${{ inputs.publish_metrics_to_grafana }}
+          PROMETHEUS_TAILSCALE_HOST: ${{ vars.PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST }}
+          K6_AUTH_IDENTIFIER: ${{ secrets.K6_AUTH_IDENTIFIER }}
+          K6_PERFORMANCE_AUTH_SECRET: ${{ secrets.K6_PERFORMANCE_AUTH_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRMATION" != "RUN_AUTHENTICATED_BASELINE" ]; then
+            echo "Confirmacion invalida. No se genero carga autenticada."
+            exit 1
+          fi
+          if [ -z "$K6_AUTH_IDENTIFIER" ] || [ -z "$K6_PERFORMANCE_AUTH_SECRET" ]; then
+            echo "Faltan secrets K6_AUTH_IDENTIFIER o K6_PERFORMANCE_AUTH_SECRET."
+            exit 1
+          fi
+          if [ "$PUBLISH_METRICS" = "true" ] && [ -z "$PROMETHEUS_TAILSCALE_HOST" ]; then
+            echo "Falta la variable PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Conectar runner efimero a Tailscale
+        if: inputs.publish_metrics_to_grafana
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:github-k6
+          ping: ${{ vars.PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST }}
+
+      - name: Verificar receptor privado de metricas
+        if: inputs.publish_metrics_to_grafana
+        env:
+          PROMETHEUS_TAILSCALE_HOST: ${{ vars.PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST }}
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --max-time 10 "http://${PROMETHEUS_TAILSCALE_HOST}:9201/")"
+          if [ "$status" != "404" ]; then
+            echo "El proxy privado no respondio con el estado esperado (404): $status"
+            exit 1
+          fi
+
+      - name: Registrar contexto de ejecucion
+        env:
+          EXECUTION_REASON: ${{ inputs.reason }}
+        run: |
+          mkdir -p performance/results
+          {
+            echo "reason=${EXECUTION_REASON}"
+            echo "commit=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            echo "runner=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "target=${K6_BASE_URL}"
+            echo "authenticated_paths=${K6_AUTHENTICATED_PATHS}"
+            echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > performance/results/authenticated-execution-context.txt
+          chmod 0777 performance/results
+          install -m 0666 /dev/null performance/results/authenticated-baseline-summary.json
+
+      - name: Comprobar disponibilidad previa
+        run: |
+          set -euo pipefail
+          case "${K6_BASE_URL}" in
+            https://*) ;;
+            *) echo "Produccion requiere una URL HTTPS"; exit 1 ;;
+          esac
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/health"
+          curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready"
+
+      - name: Ejecutar baseline autenticada
+        id: run-baseline
+        env:
+          PUBLISH_METRICS: ${{ inputs.publish_metrics_to_grafana }}
+          PROMETHEUS_TAILSCALE_HOST: ${{ vars.PROMETHEUS_REMOTE_WRITE_TAILSCALE_HOST }}
+          K6_AUTH_IDENTIFIER: ${{ secrets.K6_AUTH_IDENTIFIER }}
+          K6_PERFORMANCE_AUTH_SECRET: ${{ secrets.K6_PERFORMANCE_AUTH_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_METRICS" = "true" ]; then
+            export K6_PROMETHEUS_RW_SERVER_URL="http://${PROMETHEUS_TAILSCALE_HOST}:9201/api/v1/write"
+            docker compose \
+              -f performance/docker-compose.k6.yml \
+              -f performance/docker-compose.k6.tailscale.yml \
+              run --rm k6 run \
+              -o experimental-prometheus-rw \
+              --tag "testid=gha-auth-${GITHUB_RUN_ID}" \
+              --summary-export=/results/authenticated-baseline-summary.json \
+              /scripts/authenticated-baseline.js
+          else
+            docker compose -f performance/docker-compose.k6.yml run --rm k6 run \
+              --summary-export=/results/authenticated-baseline-summary.json \
+              /scripts/authenticated-baseline.js
+          fi
+
+      - name: Generar informe Markdown
+        if: ${{ always() && inputs.confirmation == 'RUN_AUTHENTICATED_BASELINE' }}
+        env:
+          BASELINE_OUTCOME: ${{ steps.run-baseline.outcome }}
+        run: |
+          set -euo pipefail
+          summary_path="performance/results/authenticated-baseline-summary.json"
+          report_path="performance/results/authenticated-baseline-report.md"
+          if [ ! -s "$summary_path" ]; then
+            if [ "$BASELINE_OUTCOME" = "success" ]; then
+              echo "El baseline autenticado termino sin generar un summary JSON valido."
+              exit 1
+            fi
+            echo "::notice::No se genero informe porque k6 no produjo summary JSON. Revisar el primer paso fallido del workflow."
+            exit 0
+          fi
+          if ! node -e "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8'))" "$summary_path"; then
+            if [ "$BASELINE_OUTCOME" = "success" ]; then
+              echo "El summary JSON generado por k6 no es valido."
+              exit 1
+            fi
+            echo "::warning::El summary JSON existe pero no es valido. Revisar el primer paso fallido del workflow."
+            exit 0
+          fi
+          node performance/scripts/render-authenticated-summary.mjs "$summary_path" "$report_path"
+          cat "$report_path" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar resultados
+        if: ${{ always() && inputs.confirmation == 'RUN_AUTHENTICATED_BASELINE' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: authenticated-production-baseline-${{ github.run_number }}
+          path: performance/results/
+          retention-days: 90
