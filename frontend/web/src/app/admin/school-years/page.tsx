@@ -237,7 +237,7 @@ export default function AdminSchoolYearsPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [createCode, setCreateCode] = useState(String(new Date().getFullYear() + 1))
+  const [createCode, setCreateCode] = useState('')
   const [createLabel, setCreateLabel] = useState('')
   const [createStart, setCreateStart] = useState('')
   const [creating, setCreating] = useState(false)
@@ -668,6 +668,7 @@ export default function AdminSchoolYearsPage() {
       if (createStart) body.startsOn = new Date(`${createStart}T00:00:00.000Z`).toISOString()
       await api('/admin/school-years', { method: 'POST', body: JSON.stringify(body) })
       setMsg('Ciclo creado en estado planificado.')
+      setCreateCode('')
       setCreateLabel('')
       setCreateStart('')
       setCreateOpen(false)
@@ -926,6 +927,7 @@ export default function AdminSchoolYearsPage() {
                     type="number"
                     value={createCode}
                     onChange={(e) => setCreateCode(e.target.value)}
+                    placeholder="Ej. 2027"
                     min={1980}
                     max={2100}
                   />
