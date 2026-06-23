@@ -148,6 +148,9 @@ export default function AdminQueryAssistantPage() {
   const [copied, setCopied] = useState(false)
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string | null>(null)
   const [allYears, setAllYears] = useState(false)
+  // Rango de fechas opcional: si se completa, manda sobre el ciclo lectivo.
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   useEffect(() => {
     if (!syCtx || syCtx.loading) return
@@ -170,6 +173,7 @@ export default function AdminQueryAssistantPage() {
           ...(!allYears && selectedSchoolYearId
             ? { schoolYearId: selectedSchoolYearId }
             : {}),
+          ...(dateFrom && dateTo ? { dateFrom, dateTo } : {}),
         }),
       })
       setResult(r)
@@ -179,7 +183,7 @@ export default function AdminQueryAssistantPage() {
     } finally {
       setLoading(false)
     }
-  }, [allYears, question, selectedSchoolYearId])
+  }, [allYears, question, selectedSchoolYearId, dateFrom, dateTo])
 
   function applyExample(text: string) {
     setQuestion(text)
@@ -273,6 +277,61 @@ export default function AdminQueryAssistantPage() {
                   Todos los ciclos
                 </label>
               </div>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2 border-t border-gray-100 pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+              <span className="text-xs font-medium text-gray-600">Rango de fechas (opcional)</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="qa-date-from" className="sr-only">
+                  Desde
+                </label>
+                <input
+                  id="qa-date-from"
+                  type="date"
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm"
+                  value={dateFrom}
+                  max={dateTo || undefined}
+                  onChange={(e) => {
+                    setDateFrom(e.target.value)
+                    setResult(null)
+                    setError(null)
+                  }}
+                />
+                <span className="text-xs text-gray-400">a</span>
+                <label htmlFor="qa-date-to" className="sr-only">
+                  Hasta
+                </label>
+                <input
+                  id="qa-date-to"
+                  type="date"
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={(e) => {
+                    setDateTo(e.target.value)
+                    setResult(null)
+                    setError(null)
+                  }}
+                />
+                {(dateFrom || dateTo) && (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-red-700 hover:text-red-900"
+                    onClick={() => {
+                      setDateFrom('')
+                      setDateTo('')
+                      setResult(null)
+                      setError(null)
+                    }}
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 sm:basis-full">
+                Si completás ambas fechas, manda lo que pongas. Si no, usa todo el ciclo seleccionado (o todos los datos
+                si elegís «Todos los ciclos»).
+              </p>
             </div>
           </section>
         )}

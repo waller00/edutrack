@@ -83,7 +83,11 @@ function currentSqlContextLine(scope?: QueryAssistantScope) {
     : scope?.schoolYearId
       ? `Contexto de ciclo lectivo: filtrar por "schoolYearId" = '${scope.schoolYearId}'${cycleYearNote} en datos académicos/asistencia/eventos.`
       : 'Contexto de ciclo lectivo: si la tabla tiene "schoolYearId", usá el ciclo lectivo activo.'
-  return `Contexto temporal: hoy es ${today} (fecha civil en America/Montevideo).\n${schoolYearLine}`
+  const dateRangeLine =
+    scope?.dateFrom && scope?.dateTo
+      ? `\nFiltro de fechas explícito del usuario: restringí los resultados al rango civil Uruguay entre ${scope.dateFrom} y ${scope.dateTo} (inclusive), sobre el campo de fecha que corresponda; este rango tiene prioridad sobre cualquier mes/año mencionado en la pregunta.`
+      : ''
+  return `Contexto temporal: hoy es ${today} (fecha civil en America/Montevideo).\n${schoolYearLine}${dateRangeLine}`
 }
 
 function getOpenAiClient() {

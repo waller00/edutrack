@@ -1,6 +1,6 @@
 import type { EventStatus, EventType } from '@prisma/client'
 import { prisma } from '../../db/prisma.js'
-import { resolveYmdRangeFromPayload, ymdBoundsUtc } from './date-range.js'
+import { resolveEffectiveYmdRange, ymdBoundsUtc } from './date-range.js'
 import { resolveUserIdsFromSearch, userDisplayName } from './helpers.js'
 import type { LlmIntentPayload, QueryAssistantTableResult } from './schemas.js'
 import { eventSchoolYearWhere, schoolYearSummarySuffix, type QueryAssistantScope } from './scope.js'
@@ -32,7 +32,7 @@ export async function executeAssignedEventsSummary(
   payload: LlmIntentPayload,
   scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
-  const range = resolveYmdRangeFromPayload(payload.params)
+  const range = resolveEffectiveYmdRange(payload.params, scope)
   if (!range) {
     return {
       intent: 'ASSIGNED_EVENTS_SUMMARY',
