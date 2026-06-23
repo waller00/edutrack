@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  availableActionsForStudent,
   buildTargetOptionsForPlan,
+  coerceActionForStudent,
   countStudentsWithoutTarget,
   courseLabel,
   filterStartStudents,
+  isLastCycleStudent,
   orientationKey,
   parseTargetValue,
   sourceGroupKey,
@@ -246,5 +249,39 @@ describe('summarizeClosures', () => {
   it('omite estudiantes sin decisión', () => {
     const students = [student({ studentId: 's1', lastName: 'Sola' })]
     expect(summarizeClosures(students, {})).toEqual([])
+  })
+})
+
+describe('último ciclo (egreso)', () => {
+  it('isLastCycleStudent: es último ciclo solo cuando no hay curso siguiente', () => {
+    expect(isLastCycleStudent(student({ sourceCourseId: 'c1' }), plan.courses)).toBe(false)
+    expect(isLastCycleStudent(student({ sourceCourseId: 'c2' }), plan.courses)).toBe(true)
+    expect(isLastCycleStudent(student({ sourceCourseId: null }), plan.courses)).toBe(false)
+  })
+
+  it('availableActionsForStudent: solo el último ciclo ofrece Egresa; el resto, Pasa', () => {
+    expect(availableActionsForStudent(student({ sourceCourseId: 'c1' }), plan.courses)).toEqual([
+      'PROMOTE',
+      'REPEAT',
+      'WITHDRAWN',
+      'TRANSFERRED',
+    ])
+    expect(availableActionsForStudent(student({ sourceCourseId: 'c2' }), plan.courses)).toEqual([
+      'REPEAT',
+      'GRADUATED',
+      'WITHDRAWN',
+      'TRANSFERRED',
+    ])
+  })
+
+  it('coerceActionForStudent: Pasa↔Egresa según el ciclo, sin tocar el resto', () => {
+    const notLast = student({ sourceCourseId: 'c1' })
+    const last = student({ sourceCourseId: 'c2' })
+    expect(coerceActionForStudent(last, 'PROMOTE', plan.courses)).toBe('GRADUATED')
+    expect(coerceActionForStudent(notLast, 'GRADUATED', plan.courses)).toBe('PROMOTE')
+    expect(coerceActionForStudent(notLast, 'PROMOTE', plan.courses)).toBe('PROMOTE')
+    expect(coerceActionForStudent(last, 'GRADUATED', plan.courses)).toBe('GRADUATED')
+    expect(coerceActionForStudent(last, 'REPEAT', plan.courses)).toBe('REPEAT')
+    expect(coerceActionForStudent(notLast, 'WITHDRAWN', plan.courses)).toBe('WITHDRAWN')
   })
 })

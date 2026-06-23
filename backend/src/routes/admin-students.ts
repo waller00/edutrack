@@ -421,6 +421,7 @@ r.get('/', async (req, res) => {
     const pageSize = Math.min(100, Math.max(1, Number((req.query.pageSize as string) || 20)))
     const q = ((req.query.q as string) || '').trim()
     const courseId = ((req.query.courseId as string) || '').trim()
+    const orientationId = ((req.query.orientationId as string) || '').trim()
     const status = ((req.query.status as string) || '').trim().toUpperCase()
     const tuitionYear = (req.query.tuitionYear as string) || ''
     const tuitionPreviewYear = (req.query.tuitionPreviewYear as string) || ''
@@ -446,6 +447,10 @@ r.get('/', async (req, res) => {
     if (courseId) {
       const parsed = z.string().uuid().safeParse(courseId)
       if (parsed.success) enrollmentWhere.courseOffering = { courseId: parsed.data }
+    }
+    if (orientationId) {
+      const parsed = z.string().uuid().safeParse(orientationId)
+      if (parsed.success) enrollmentWhere.orientationId = parsed.data
     }
     if (status && ['ACTIVE', 'WITHDRAWN', 'GRADUATED', 'TRANSFERRED'].includes(status)) {
       enrollmentWhere.enrollmentStatus = status as StudentEnrollmentStatus

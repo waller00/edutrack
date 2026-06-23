@@ -5,7 +5,9 @@ import { useAdminSchoolYear, type SchoolYearApiRow } from '@/contexts/AdminSchoo
 import { api } from '@/lib/api/client'
 import {
   ACTIONS_WITH_TARGET,
+  availableActionsForStudent,
   buildTargetOptionsForPlan,
+  coerceActionForStudent,
   countStudentsWithoutTarget,
   courseLabel,
   filterStartStudents,
@@ -32,7 +34,6 @@ import {
   CalendarRange,
   CheckCircle2,
   ChevronDown,
-  Copy,
   Loader2,
   Pencil,
   Plus,
@@ -97,12 +98,14 @@ function StartStudentRow({
   decision,
   pending,
   options,
+  actions,
   onPatch,
 }: {
   student: StartPlanStudent
   decision: StartDecision
   pending: boolean
   options: TargetOption[]
+  actions: StartAction[]
   onPatch: (patch: Partial<StartDecision>) => void
 }) {
   const needsTarget = ACTIONS_WITH_TARGET.has(decision.action)
@@ -119,7 +122,7 @@ function StartStudentRow({
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {(Object.keys(START_ACTION_LABEL) as StartAction[]).map((action) => (
+          {actions.map((action) => (
             <button
               key={action}
               type="button"
@@ -244,9 +247,6 @@ export default function AdminSchoolYearsPage() {
   const [editStart, setEditStart] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
 
-  const [copyTarget, setCopyTarget] = useState<SchoolYearApiRow | null>(null)
-  const [copySourceId, setCopySourceId] = useState('')
-  const [copying, setCopying] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<SchoolYearApiRow | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -339,9 +339,11 @@ export default function AdminSchoolYearsPage() {
     const options = buildTargetOptionsForPlan(plan, courseIds, orientationKeys)
     const decisions: Record<string, StartDecision> = {}
     for (const student of plan.students) {
+      // El último ciclo (p. ej. 3.º EMS) egresa por defecto en lugar de pasar.
+      const action = coerceActionForStudent(student, 'PROMOTE', plan.courses)
       decisions[student.studentId] = {
-        action: 'PROMOTE',
-        ...suggestTargetForAction(student, 'PROMOTE', plan, options),
+        action,
+        ...suggestTargetForAction(student, action, plan, options),
       }
     }
     return decisions
@@ -476,12 +478,17 @@ export default function AdminSchoolYearsPage() {
 
   const resolveDecisionPatch = useCallback(
     (student: StartPlanStudent | undefined, current: StartDecision, patch: Partial<StartDecision>): StartDecision => {
-      const next = { ...current, ...patch }
-      if (patch.action && ACTIONS_WITH_TARGET.has(patch.action)) {
+      // Egresar solo aplica al último ciclo; pasar solo a quienes no lo están (y viceversa).
+      const action =
+        patch.action && student && startPlan
+          ? coerceActionForStudent(student, patch.action, startPlan.courses)
+          : patch.action
+      const next = { ...current, ...patch, ...(action ? { action } : {}) }
+      if (action && ACTIONS_WITH_TARGET.has(action)) {
         delete next.targetCourseId
         delete next.targetOrientationId
         if (student && startPlan) {
-          Object.assign(next, suggestTargetForAction(student, patch.action, startPlan, selectedTargetOptions))
+          Object.assign(next, suggestTargetForAction(student, action, startPlan, selectedTargetOptions))
         }
       }
       if (!ACTIONS_WITH_TARGET.has(next.action)) {
@@ -672,29 +679,6 @@ export default function AdminSchoolYearsPage() {
     }
   }
 
-  async function submitCopy() {
-    if (!copyTarget || !copySourceId || copySourceId === copyTarget.id) {
-      setErr('Elegí un ciclo origen distinto al destino.')
-      return
-    }
-    if ((copyTarget.coursesCount ?? 0) > 0) {
-      setErr('El ciclo destino ya tiene ofertas de cursos.')
-      return
-    }
-    clearFlash()
-    setCopying(true)
-    try {
-      await api(`/admin/school-years/${copyTarget.id}/copy-courses-from/${copySourceId}`, { method: 'POST' })
-      setMsg('Oferta de cursos replicada al ciclo destino.')
-      setCopyTarget(null)
-      setCopySourceId('')
-      await reload()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'No se pudo replicar')
-    } finally {
-      setCopying(false)
-    }
-  }
 
   async function loadCompare() {
     setCmpErr('')
@@ -715,8 +699,6 @@ export default function AdminSchoolYearsPage() {
       setCmpLoading(false)
     }
   }
-
-  const copySourceOptions = copyTarget ? sortedYears.filter((y) => y.id !== copyTarget.id) : []
 
   function renderYearActions(y: SchoolYearApiRow) {
     return (
@@ -766,27 +748,6 @@ export default function AdminSchoolYearsPage() {
             onClick={() => void doClose(y.id)}
           >
             Cerrar
-          </button>
-        )}
-        {y.status !== 'CLOSED' && (
-          <button
-            type="button"
-            disabled={(y.coursesCount ?? 0) > 0}
-            title={
-              (y.coursesCount ?? 0) > 0
-                ? `Este ciclo ya tiene ${y.coursesCount} oferta(s). La replicación solo está permitida con oferta vacía.`
-                : 'Replicar oferta de cursos desde otro ciclo'
-            }
-            className="shrink-0 rounded-lg border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
-            onClick={() => {
-              setCopyTarget(y)
-              setCopySourceId(sortedYears.find((o) => o.id !== y.id)?.id ?? '')
-            }}
-          >
-            <span className="inline-flex items-center gap-1">
-              <Copy className="h-3.5 w-3.5" aria-hidden />
-              Replicar oferta
-            </span>
           </button>
         )}
         <button
@@ -949,7 +910,7 @@ export default function AdminSchoolYearsPage() {
               <h2 className="text-lg font-semibold text-gray-900">Nuevo ciclo lectivo</h2>
               <p className="text-sm text-gray-500">
                 {canCreateSchoolYear
-                  ? 'Se crea en estado planificado; luego podés iniciarlo manualmente o replicar ofertas.'
+                  ? 'Se crea en estado planificado; luego podés iniciarlo manualmente y armar su oferta de cursos.'
                   : 'No disponible porque ya hay un ciclo lectivo activo.'}
               </p>
             </div>
@@ -1403,6 +1364,7 @@ export default function AdminSchoolYearsPage() {
                                   decision={decision}
                                   pending={!studentHasValidTarget(decision, selectedTargetOptions)}
                                   options={selectedTargetOptions}
+                                  actions={availableActionsForStudent(student, startPlan?.courses ?? [])}
                                   onPatch={(patch) => patchStudentDecision(student.studentId, patch)}
                                 />
                               )
@@ -1540,45 +1502,6 @@ export default function AdminSchoolYearsPage() {
           </div>
         )}
 
-        {copyTarget && (
-          <div
-            className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center"
-            role="presentation"
-            onClick={(e) => { if (e.target === e.currentTarget) setCopyTarget(null) }}
-            onKeyDown={(e) => { if (e.key === 'Escape') setCopyTarget(null) }}
-          >
-            <div
-              className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl sm:p-5"
-              role="dialog"
-              aria-modal="true"
-            >
-              <h3 className="text-lg font-semibold text-gray-900">Replicar oferta hacia {copyTarget.code}</h3>
-              <p className="mt-1 text-sm text-gray-600">
-                El destino debe tener <strong>0 ofertas</strong> (ahora: {copyTarget.coursesCount ?? 0}). Se activan los
-                mismos cursos del ciclo origen usando el catálogo estable.
-              </p>
-              <div className="mt-4">
-                <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo origen</label>
-                <select className="select-field w-full text-sm" value={copySourceId} onChange={(e) => setCopySourceId(e.target.value)}>
-                  <option value="">— Elegí origen —</option>
-                  {copySourceOptions.map((y) => (
-                    <option key={y.id} value={y.id}>
-                      {y.code} — {y.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="mt-6 flex flex-col justify-end gap-2 sm:flex-row">
-                <button type="button" className="btn-secondary text-sm" onClick={() => setCopyTarget(null)}>
-                  Cancelar
-                </button>
-                <button type="button" className="btn-primary text-sm" disabled={copying} onClick={() => void submitCopy()}>
-                  {copying ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Replicar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
     </RoleGuard>
   )

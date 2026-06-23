@@ -21,6 +21,8 @@ const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 const CURRENT_YEAR = new Date().getFullYear()
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean; offeringIsActive?: boolean | null }
+// Fila de CourseOrientation devuelta por /courses/:courseId/orientations.
+type OrientationOpt = { id: string; orientationId: string; orientation: { id: string; name: string; code: string | null } }
 
 type TuitionRow = {
   year: number
@@ -145,6 +147,7 @@ export default function AdminStudentsPage() {
 
   const [summary, setSummary] = useState<{ total: number; byStatus: Record<string, number> } | null>(null)
   const [courses, setCourses] = useState<CourseOpt[]>([])
+  const [orientations, setOrientations] = useState<OrientationOpt[]>([])
   const [list, setList] = useState<{ total: number; page: number; pageSize: number; data: StudentListRow[] }>({
     total: 0,
     page: 1,
@@ -154,6 +157,7 @@ export default function AdminStudentsPage() {
   const [q, setQ] = useState('')
   const [draftQ, setDraftQ] = useState('')
   const [courseId, setCourseId] = useState('')
+  const [orientationId, setOrientationId] = useState('')
   const [status, setStatus] = useState('')
   const [tuitionYear, setTuitionYear] = useState(String(CURRENT_YEAR))
   const [tuitionMonth, setTuitionMonth] = useState('')
@@ -195,6 +199,20 @@ export default function AdminStudentsPage() {
     }
   }, [coursePickerQuery])
 
+  // Orientaciones del curso elegido: el segundo filtro solo aparece si el curso tiene.
+  const loadOrientations = useCallback(async () => {
+    if (!courseId) {
+      setOrientations([])
+      return
+    }
+    try {
+      const rows = await api<OrientationOpt[]>(withSchoolYear(`/courses/${courseId}/orientations`, coursePickerQuery))
+      setOrientations(Array.isArray(rows) ? rows : [])
+    } catch {
+      setOrientations([])
+    }
+  }, [courseId, coursePickerQuery])
+
   const loadList = useCallback(
     async (page: number) => {
       setLoading(true)
@@ -205,6 +223,7 @@ export default function AdminStudentsPage() {
         if (tuitionYear.trim() && /^\d{4}$/.test(tuitionYear.trim())) sp.set('tuitionPreviewYear', tuitionYear.trim())
         if (q.trim()) sp.set('q', q.trim())
         if (courseId) sp.set('courseId', courseId)
+        if (orientationId) sp.set('orientationId', orientationId)
         if (status) sp.set('status', status)
         if ((tuitionMonth || tuitionPaid) && tuitionYear.trim() && /^\d{4}$/.test(tuitionYear.trim())) {
           sp.set('tuitionYear', tuitionYear.trim())
@@ -224,13 +243,17 @@ export default function AdminStudentsPage() {
         setLoading(false)
       }
     },
-    [q, courseId, status, tuitionYear, tuitionMonth, tuitionPaid, schoolYearQuery],
+    [q, courseId, orientationId, status, tuitionYear, tuitionMonth, tuitionPaid, schoolYearQuery],
   )
 
   useEffect(() => {
     void loadSummary()
     void loadCourses()
   }, [loadSummary, loadCourses])
+
+  useEffect(() => {
+    void loadOrientations()
+  }, [loadOrientations])
 
   useEffect(() => {
     void loadList(1)
@@ -248,6 +271,7 @@ export default function AdminStudentsPage() {
     setDraftQ('')
     setQ('')
     setCourseId('')
+    setOrientationId('')
     setStatus('')
     setTuitionMonth('')
     setTuitionPaid('')
@@ -481,7 +505,7 @@ export default function AdminStudentsPage() {
     )
   }
 
-  const activeFilterCount = countActiveStudentFilters({ q, courseId, status, tuitionMonth, tuitionPaid })
+  const activeFilterCount = countActiveStudentFilters({ q, courseId, orientationId, status, tuitionMonth, tuitionPaid })
   const totalPages = Math.max(1, Math.ceil(list.total / list.pageSize))
   const documentIdTrimmed = form.documentId?.trim() ?? ''
   const documentIdInvalid = documentIdTrimmed !== '' && !isValidUruguayanCI(documentIdTrimmed)
@@ -541,7 +565,10 @@ export default function AdminStudentsPage() {
               <select
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 value={courseId}
-                onChange={(e) => setCourseId(e.target.value)}
+                onChange={(e) => {
+                  setCourseId(e.target.value)
+                  setOrientationId('')
+                }}
                 aria-label="Filtrar por curso"
               >
                 <option value="">Todos</option>
@@ -554,6 +581,25 @@ export default function AdminStudentsPage() {
                 ))}
               </select>
             </div>
+            {courseId && orientations.length > 0 ? (
+              <div className="min-w-0 lg:min-w-[160px]">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Orientación</label>
+                <select
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  value={orientationId}
+                  onChange={(e) => setOrientationId(e.target.value)}
+                  aria-label="Filtrar por orientación"
+                >
+                  <option value="">Todas</option>
+                  {orientations.map((o) => (
+                    <option key={o.orientationId} value={o.orientationId}>
+                      {o.orientation.name}
+                      {o.orientation.code ? ` (${o.orientation.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div className="min-w-0 lg:min-w-[140px]">
               <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
               <select
