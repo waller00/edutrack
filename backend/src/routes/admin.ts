@@ -64,6 +64,7 @@ async function buildAdminUserUpdateData(id: string, payload: {
   lastName?: string
   isApproved?: boolean
   isActive?: boolean
+  emailVerified?: boolean
 }) {
   const data: Record<string, unknown> = {}
   if (payload.role) {
@@ -103,6 +104,15 @@ async function buildAdminUserUpdateData(id: string, payload: {
   if (typeof payload.isActive === 'boolean') {
     data.isActive = payload.isActive
   }
+  if (typeof payload.emailVerified === 'boolean') {
+    if (payload.emailVerified) {
+      // Si ya estaba verificado, conservar la fecha original; si no, marcar ahora.
+      const cur = await prisma.user.findUnique({ where: { id }, select: { emailVerifiedAt: true } })
+      data.emailVerifiedAt = cur?.emailVerifiedAt ?? new Date()
+    } else {
+      data.emailVerifiedAt = null
+    }
+  }
   return data
 }
 
@@ -139,6 +149,7 @@ function computeAuditUserFieldsChanged(
     name?: string | null
     nationalId?: string | null
     nationalIdDocumentExpiresAt?: Date | string | null
+    emailVerifiedAt?: Date | string | null
     isApproved?: boolean | null
     approvedAt?: Date | string | null
     isActive?: boolean | null
@@ -155,6 +166,7 @@ function computeAuditUserFieldsChanged(
         changed = nationalIdComparable(oldVal) !== nationalIdComparable(newVal)
         break
       case 'nationalIdDocumentExpiresAt':
+      case 'emailVerifiedAt':
       case 'approvedAt':
         changed = dateComparableMs(oldVal) !== dateComparableMs(newVal)
         break
@@ -581,6 +593,7 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
       lastName: z.string().min(1).max(80).optional(),
       isApproved: z.boolean().optional(),
       isActive: z.boolean().optional(),
+      emailVerified: z.boolean().optional(),
     })
     .safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
@@ -661,6 +674,7 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
       name: true,
       nationalId: true,
       nationalIdDocumentExpiresAt: true,
+      emailVerifiedAt: true,
       isApproved: true,
       approvedAt: true,
       isActive: true,
@@ -675,11 +689,13 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
 
   try {
     await prisma.user.update({ where: { id }, data: data as Prisma.UserUpdateInput })
-    if (data.username || data.firstName || data.lastName) {
+    const emailVerifiedProvided = Object.prototype.hasOwnProperty.call(data, 'emailVerifiedAt')
+    if (data.username || data.firstName || data.lastName || emailVerifiedProvided) {
       await syncKeycloakUserIdentityByEmail(beforeSnapshot.email, {
         username: typeof data.username === 'string' ? data.username : beforeSnapshot.username,
         firstName: typeof data.firstName === 'string' ? data.firstName : beforeSnapshot.firstName,
         lastName: typeof data.lastName === 'string' ? data.lastName : beforeSnapshot.lastName,
+        ...(emailVerifiedProvided ? { emailVerified: data.emailVerifiedAt !== null } : {}),
       }).catch((error) => console.warn('[admin] keycloak sync user identity skipped:', error))
     }
   } catch (error) {

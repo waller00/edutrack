@@ -88,32 +88,26 @@ export function cloneAdminUser(user: AdminUserRow): AdminUserRow {
   return { ...user }
 }
 
+/** Campos del formulario de edición y cómo se muestran (para diff de confirmación y auditoría). */
+const ADMIN_USER_EDIT_FIELDS: { label: string; of: (u: AdminUserRow) => string }[] = [
+  { label: 'Rol', of: (u) => getRoleLabel(u.role) },
+  { label: 'Usuario', of: (u) => u.username || '-' },
+  { label: 'Nombre', of: (u) => u.firstName || '-' },
+  { label: 'Apellido', of: (u) => u.lastName || '-' },
+  { label: 'Cédula', of: (u) => u.nationalId || '-' },
+  { label: 'Venc. documento', of: (u) => formatYmdDate(u.nationalIdDocumentExpiresAt) },
+  { label: 'Verificación', of: (u) => (u.emailVerifiedAt ? 'Verificado' : 'Sin verificar') },
+  { label: 'Aprobación', of: (u) => (u.isApproved ? 'Aprobado' : 'Pendiente') },
+  { label: 'Estado', of: (u) => (u.isActive ? 'Alta' : 'Baja') },
+]
+
 export function buildAdminUserEditChanges(original: AdminUserRow | null, edited: AdminUserRow): string[] {
   if (!original) return []
   const changes: string[] = []
-  if (original.role !== edited.role) {
-    changes.push(`Rol: ${getRoleLabel(original.role)} → ${getRoleLabel(edited.role)}`)
-  }
-  if ((original.username || '') !== (edited.username || '')) {
-    changes.push(`Usuario: ${original.username || '-'} → ${edited.username || '-'}`)
-  }
-  if ((original.firstName || '') !== (edited.firstName || '')) {
-    changes.push(`Nombre: ${original.firstName || '-'} → ${edited.firstName || '-'}`)
-  }
-  if ((original.lastName || '') !== (edited.lastName || '')) {
-    changes.push(`Apellido: ${original.lastName || '-'} → ${edited.lastName || '-'}`)
-  }
-  if ((original.nationalId || '') !== (edited.nationalId || '')) {
-    changes.push(`Cédula: ${original.nationalId || '-'} → ${edited.nationalId || '-'}`)
-  }
-  const oDoc = formatYmdDate(original.nationalIdDocumentExpiresAt)
-  const eDoc = formatYmdDate(edited.nationalIdDocumentExpiresAt)
-  if (oDoc !== eDoc) changes.push(`Venc. documento: ${oDoc} → ${eDoc}`)
-  if (original.isApproved !== edited.isApproved) {
-    changes.push(`Aprobación: ${original.isApproved ? 'Aprobado' : 'Pendiente'} → ${edited.isApproved ? 'Aprobado' : 'Pendiente'}`)
-  }
-  if (original.isActive !== edited.isActive) {
-    changes.push(`Estado: ${original.isActive ? 'Alta' : 'Baja'} → ${edited.isActive ? 'Alta' : 'Baja'}`)
+  for (const field of ADMIN_USER_EDIT_FIELDS) {
+    const before = field.of(original)
+    const after = field.of(edited)
+    if (before !== after) changes.push(`${field.label}: ${before} → ${after}`)
   }
   return changes
 }

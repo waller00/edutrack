@@ -206,6 +206,7 @@ export default function AdminUsersPage() {
           lastName: edit.lastName,
           isApproved: edit.isApproved,
           isActive: edit.isActive,
+          emailVerified: !!edit.emailVerifiedAt,
         }),
       })
       await load(filters)
@@ -902,6 +903,26 @@ export default function AdminUsersPage() {
                     <option value="true">Alta</option>
                     <option value="false">Baja</option>
                   </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Verificación email</label>
+                  <select
+                    value={edit.emailVerifiedAt ? 'true' : 'false'}
+                    onChange={(e) =>
+                      setEdit({
+                        ...edit,
+                        emailVerifiedAt:
+                          e.target.value === 'true' ? edit.emailVerifiedAt ?? new Date().toISOString() : null,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <option value="false">Sin verificar</option>
+                    <option value="true">Verificado</option>
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Marcá “Verificado” para validar el email a mano si el usuario no recibe el correo.
+                  </p>
                 </div>
               </div>
               {msg && <p className="mt-3 text-sm text-red-600">{msg}</p>}
