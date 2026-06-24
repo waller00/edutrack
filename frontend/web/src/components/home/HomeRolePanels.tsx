@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import type { AssignedEventRow } from '@/components/personal/MyAssignedEventsPage'
+import DateField from '@/components/forms/DateField'
 import {
   getEventTypeLabel,
   getAssignedEventStatusLabel,
@@ -778,10 +779,9 @@ export function HomeAdminTimeline() {
             </div>
 
             <div className="grid gap-2 border-b border-slate-100 px-4 py-3 sm:grid-cols-2 lg:grid-cols-5">
-              <input
-                type="date"
+              <DateField
                 value={filters.date}
-                onChange={(e) => setFilters((prev) => ({ ...prev, date: e.target.value || todayInputValue() }))}
+                onChange={(v) => setFilters((prev) => ({ ...prev, date: v || todayInputValue() }))}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                 aria-label="Fecha"
               />

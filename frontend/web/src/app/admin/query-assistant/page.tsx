@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import DateField from '@/components/forms/DateField'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { rowsToTsv } from '@/lib/admin/query-assistant-export'
@@ -285,14 +286,13 @@ export default function AdminQueryAssistantPage() {
                 <label htmlFor="qa-date-from" className="sr-only">
                   Desde
                 </label>
-                <input
+                <DateField
                   id="qa-date-from"
-                  type="date"
                   className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm"
                   value={dateFrom}
                   max={dateTo || undefined}
-                  onChange={(e) => {
-                    setDateFrom(e.target.value)
+                  onChange={(v) => {
+                    setDateFrom(v)
                     setResult(null)
                     setError(null)
                   }}
@@ -301,14 +301,13 @@ export default function AdminQueryAssistantPage() {
                 <label htmlFor="qa-date-to" className="sr-only">
                   Hasta
                 </label>
-                <input
+                <DateField
                   id="qa-date-to"
-                  type="date"
                   className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm"
                   value={dateTo}
                   min={dateFrom || undefined}
-                  onChange={(e) => {
-                    setDateTo(e.target.value)
+                  onChange={(v) => {
+                    setDateTo(v)
                     setResult(null)
                     setError(null)
                   }}

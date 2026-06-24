@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Clock, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
+import DateField from '@/components/forms/DateField'
 import { formatDateInUruguay, formatTimeInUruguay, getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
 
 type DayEvent = {
@@ -122,10 +123,9 @@ export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
           <Clock className="h-5 w-5 text-emerald-700" aria-hidden />
           <h2 className="text-base font-semibold text-slate-900">Marcar asistencia hoy</h2>
         </div>
-        <input
-          type="date"
+        <DateField
           value={day}
-          onChange={(e) => setDay(e.target.value)}
+          onChange={setDay}
           className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm"
           aria-label="Día a marcar"
         />

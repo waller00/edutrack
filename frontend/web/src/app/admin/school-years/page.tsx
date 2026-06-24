@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import DateField from '@/components/forms/DateField'
 import { useAdminSchoolYear, type SchoolYearApiRow } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import {
@@ -943,7 +944,7 @@ export default function AdminSchoolYearsPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600">Inicio (opc.)</label>
-                  <input className="input-field text-sm" type="date" value={createStart} onChange={(e) => setCreateStart(e.target.value)} />
+                  <DateField className="input-field text-sm" value={createStart} onChange={setCreateStart} />
                 </div>
               </div>
               <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={creating} onClick={() => void submitCreate()}>
@@ -1037,7 +1038,7 @@ export default function AdminSchoolYearsPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600">Inicio</label>
-                  <input className="input-field text-sm" type="date" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
+                  <DateField className="input-field text-sm" value={editStart} onChange={setEditStart} />
                 </div>
               </div>
               <div className="mt-6 flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
