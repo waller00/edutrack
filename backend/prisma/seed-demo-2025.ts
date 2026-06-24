@@ -836,9 +836,9 @@ async function ensureDemoStaffUsers() {
 }
 
 /**
- * Cuenta técnica de performance/CI, igual que en producción: STAFF, activa y aprobada, pero
- * sin nombre/teléfono/CI, con el email sin verificar y sin usuario en Keycloak (es un fixture,
- * no una cuenta de login real). username = 'edutrack.local' tal cual está en prod.
+ * Cuenta técnica de performance/CI, igual que en producción: STAFF, activa, aprobada y con el
+ * email verificado, pero sin nombre/teléfono/CI y sin usuario en Keycloak (es un fixture, no una
+ * cuenta de login real). username = 'edutrack.local' tal cual está en prod.
  */
 async function ensureCiPerformanceUser() {
   const staffRole = await prisma.orgRole.findUnique({ where: { code: 'STAFF' } })
@@ -851,8 +851,9 @@ async function ensureCiPerformanceUser() {
       roleId: staffRole.id,
       isActive: true,
       isApproved: true,
+      emailVerifiedAt: new Date(),
     },
-    update: { roleId: staffRole.id, isActive: true, isApproved: true },
+    update: { roleId: staffRole.id, isActive: true, isApproved: true, emailVerifiedAt: new Date() },
   })
   console.log('[demo] Usuario CI/performance listo: ci.performance@edutrack.local (STAFF)')
 }
