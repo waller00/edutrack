@@ -114,6 +114,7 @@ vi.mock("../auth/keycloak.js", () => ({
   createKeycloakUser: createKeycloakUserMock,
   syncKeycloakUserIdentityByEmail: syncKeycloakUserIdentityByEmailMock,
   deleteKeycloakUserByEmail: deleteKeycloakUserByEmailMock,
+  freeKeycloakUsernameIfOrphan: vi.fn().mockResolvedValue(false),
 }));
 vi.mock("../services/query-assistant/run.js", () => ({
   runAdminQueryAssistant: runAdminQueryAssistantMock,
@@ -448,6 +449,48 @@ describe("admin routes (prisma mock)", () => {
       role: "TEACHER",
       emailVerified: false,
     });
+  });
+
+  it("POST /admin/users 409 si el username ya existe en la app", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue({ id: "otro" });
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
+    expect(res.status).toBe(409);
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /admin/users 409 + rollback si el username está tomado en Keycloak", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "new-id" });
+    prismaMock.user.delete.mockResolvedValue({ id: "new-id" });
+    createKeycloakUserMock.mockRejectedValueOnce(
+      Object.assign(new Error("KEYCLOAK_USERNAME_TAKEN"), { code: "KEYCLOAK_USERNAME_TAKEN" }),
+    );
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/nombre de usuario/i);
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "new-id" } });
+  });
+
+  it("POST /admin/users 502 + rollback si Keycloak falla por otro motivo", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "new-id" });
+    prismaMock.user.delete.mockResolvedValue({ id: "new-id" });
+    createKeycloakUserMock.mockRejectedValueOnce(new Error("Keycloak down"));
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
+    expect(res.status).toBe(502);
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "new-id" } });
   });
 
   it("PUT /admin/users/:id 404 si no existe", async () => {

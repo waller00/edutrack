@@ -294,6 +294,7 @@ export async function createKeycloakUser(input: CreateKeycloakUserInput): Promis
   if (createRes.status === 409) {
     const existingKcId = await findKeycloakUserIdByEmail(token, input.email);
     if (existingKcId) {
+      // Mismo email: es la misma persona (re-registro / cuenta adoptada). La reutilizamos.
       await syncKeycloakUserIdentity({
         kcId: existingKcId,
         email: input.email,
@@ -312,6 +313,11 @@ export async function createKeycloakUser(input: CreateKeycloakUserInput): Promis
       }
       return existingKcId;
     }
+    // 409 sin coincidencia por email = el username (u otro dato único) lo tiene OTRA cuenta.
+    // Error tipado para que el caller responda "nombre de usuario en uso" en vez de un 502 genérico.
+    const takenError = new Error("KEYCLOAK_USERNAME_TAKEN") as Error & { code?: string };
+    takenError.code = "KEYCLOAK_USERNAME_TAKEN";
+    throw takenError;
   }
 
   if (createRes.status !== 201) {
@@ -440,6 +446,57 @@ export async function getKeycloakUserIdByEmail(email: string): Promise<string | 
   if (!email) return null;
   const token = await getAdminToken();
   return findKeycloakUserIdByEmail(token, email);
+}
+
+async function findKeycloakUserByUsername(
+  token: string,
+  username: string,
+): Promise<{ id: string; email: string | null } | null> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const res = await kcFetch(
+    `${base}/admin/realms/${realm}/users?username=${encodeURIComponent(username)}&exact=true`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return null;
+  const users = (await res.json()) as { id?: string; email?: string }[];
+  const u = users[0];
+  return u?.id ? { id: u.id, email: u.email ?? null } : null;
+}
+
+/**
+ * Si el username ya existe en Keycloak pero es una cuenta HUÉRFANA (sin usuario en la app),
+ * la borra para liberar el nombre limpio. Si pertenece a un usuario real de la app, NO la toca.
+ * `hasAppUser(email)` lo provee el caller (consulta la BD de la app; así este módulo no depende de Prisma).
+ * Devuelve true si borró un huérfano. Best-effort: ante un error de Keycloak no bloquea el alta.
+ */
+export async function freeKeycloakUsernameIfOrphan(
+  username: string,
+  hasAppUser: (email: string) => Promise<boolean>,
+): Promise<boolean> {
+  if (!username) return false;
+  try {
+    const token = await getAdminToken();
+    const kc = await findKeycloakUserByUsername(token, username);
+    if (!kc) return false;
+    // Linkeado a un usuario real de la app → no se toca.
+    if (kc.email && (await hasAppUser(kc.email))) return false;
+    const base = adminBaseUrl();
+    const realm = adminRealm();
+    const res = await kcFetch(`${base}/admin/realms/${realm}/users/${kc.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok && res.status !== 404) {
+      console.warn(`[keycloak] no se pudo borrar huérfano ${username}: ${res.status}`);
+      return false;
+    }
+    console.warn(`[keycloak] username huérfano liberado: ${username}`);
+    return true;
+  } catch (e) {
+    console.warn("[keycloak] free orphan username skipped:", e);
+    return false;
+  }
 }
 
 /**

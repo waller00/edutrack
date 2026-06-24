@@ -36,6 +36,12 @@ describe("generateUniqueUsername", () => {
     ).toBe("juan.garcia.l");
   });
 
+  it("agrega más letras del segundo apellido progresivamente ante colisiones", async () => {
+    expect(
+      await generateUniqueUsername("Joaquin", "Waller Peña", takenSet("joaquin.waller", "joaquin.waller.p")),
+    ).toBe("joaquin.waller.pe");
+  });
+
   it("agrega sufijo numérico cuando las variantes están tomadas", async () => {
     expect(
       await generateUniqueUsername("Juan", "García", takenSet("juan.garcia", "juan.garcia1")),

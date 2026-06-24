@@ -41,7 +41,7 @@ import {
   isMoodleIntegrationEnabled,
   reconcileMoodle,
 } from '../integrations/moodle/index.js'
-import { createKeycloakUser, deleteKeycloakUserByEmail, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
+import { createKeycloakUser, deleteKeycloakUserByEmail, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
 import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
@@ -548,6 +548,10 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
   const { email, username } = parsed.data
   const exist = await prisma.user.findUnique({ where: { email } })
   if (exist) return res.status(409).json({ message: 'Correo ya registrado' })
+  if (username) {
+    const usernameTaken = await prisma.user.findFirst({ where: { username }, select: { id: true } })
+    if (usernameTaken) return res.status(409).json({ message: 'Ese nombre de usuario ya está en uso' })
+  }
   const user = await prisma.user.create({
     data: {
       email,
@@ -559,6 +563,14 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
     },
   })
   try {
+    // Si el username está ocupado en Keycloak por una cuenta huérfana (sin usuario en la app),
+    // la liberamos para usar el nombre limpio. Si pertenece a un usuario real, createKeycloakUser
+    // dará 409 (KEYCLOAK_USERNAME_TAKEN) y se maneja abajo.
+    if (username) {
+      await freeKeycloakUsernameIfOrphan(username, async (mail) =>
+        Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
+      )
+    }
     await createKeycloakUser({
       email,
       username,
@@ -566,8 +578,18 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
       emailVerified: false,
     })
   } catch (e) {
+    // Atomicidad: si Keycloak falla, deshacemos el alta local para no dejar usuarios
+    // huérfanos (existen en la app pero no pueden acceder).
+    await prisma.user
+      .delete({ where: { id: user.id } })
+      .catch((delErr) => console.error('[admin] rollback usuario tras fallo Keycloak:', delErr))
+    const usernameTakenInKc = e instanceof Error && (e as { code?: string }).code === 'KEYCLOAK_USERNAME_TAKEN'
     console.error('[admin] keycloak create user:', e)
-    return res.status(502).json({ message: 'Usuario local creado, pero no se pudo activar el acceso.' })
+    return res.status(usernameTakenInKc ? 409 : 502).json({
+      message: usernameTakenInKc
+        ? 'Ese nombre de usuario ya está en uso en el sistema de acceso. Probá con otro.'
+        : 'No se pudo crear el acceso del usuario. No se creó nada; intentá de nuevo.',
+    })
   }
   recordAuditEvent({
     action: AuditAction.USER_CREATED_BY_ADMIN,

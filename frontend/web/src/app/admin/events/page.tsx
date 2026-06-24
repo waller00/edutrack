@@ -1,5 +1,6 @@
 'use client'
 import DateRangeFields from '@/components/forms/DateRangeFields'
+import DateField from '@/components/forms/DateField'
 import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
@@ -2209,11 +2210,10 @@ export default function AdminEvents() {
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio</label>
-                        <input
-                          type="date"
+                        <DateField
                           value={newEvent.startDate}
                           min={createMinStartDateYmd}
-                          onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+                          onChange={(v) => setNewEvent({ ...newEvent, startDate: v })}
                           className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                         <p className="mt-1 text-xs text-gray-500">Desde cuándo empieza a repetirse (primer día).</p>
@@ -2221,11 +2221,10 @@ export default function AdminEvents() {
                       {recurrenceRangeMode === 'custom' ? (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de fin</label>
-                          <input
-                            type="date"
+                          <DateField
                             value={newEvent.recurrenceEnd}
                             min={newEvent.startDate || createMinStartDateYmd}
-                            onChange={(e) => setNewEvent({ ...newEvent, recurrenceEnd: e.target.value })}
+                            onChange={(v) => setNewEvent({ ...newEvent, recurrenceEnd: v })}
                             className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                           />
                           <p className="mt-1 text-xs text-gray-500">Último día en que puede repetirse.</p>
@@ -2245,11 +2244,10 @@ export default function AdminEvents() {
                 ) : (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={newEvent.startDate}
                       min={createMinStartDateYmd}
-                      onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+                      onChange={(v) => setNewEvent({ ...newEvent, startDate: v })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                     />
                   </div>
@@ -2388,21 +2386,19 @@ export default function AdminEvents() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={getEventDateInputValue(editingEvent.startDate)}
                     min={editMinStartDateYmd}
-                    onChange={(e) => setEditingEvent({ ...editingEvent, startDate: e.target.value })}
+                    onChange={(v) => setEditingEvent({ ...editingEvent, startDate: v })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={getEventEndDateInputValue(editingEvent)}
-                    onChange={(e) => setEditingEvent({ ...editingEvent, endDate: e.target.value })}
+                    onChange={(v) => setEditingEvent({ ...editingEvent, endDate: v })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                   {!editingEvent.endDate && (
