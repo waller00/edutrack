@@ -474,9 +474,16 @@ export default function AdminAnalyticsPage() {
 
   const resolvedCount = dashboard?.meta?.resolvedInstanceCount ?? 0
   const generatedLabel = dashboard?.meta?.generatedAt
-    ? new Intl.DateTimeFormat('es-UY', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(
-        new Date(dashboard.meta.generatedAt),
-      ) + ' UTC'
+    ? new Intl.DateTimeFormat('es-UY', {
+        timeZone: 'UTC',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        hourCycle: 'h23',
+      }).format(new Date(dashboard.meta.generatedAt)) + ' UTC'
     : null
 
   const exportFilters = () => ({

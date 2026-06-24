@@ -17,6 +17,24 @@ export function formatDateInUruguay(iso: string | Date): string {
   }).format(new Date(iso))
 }
 
+/** Fecha + hora civil en Uruguay (dd/mm/yyyy, HH:MM 24 h). */
+export function formatDateTimeInUruguay(
+  iso: string | Date,
+  options: { seconds?: boolean } = {},
+): string {
+  return new Intl.DateTimeFormat('es-UY', {
+    timeZone: APP_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(options.seconds ? { second: '2-digit' } : {}),
+    hour12: false,
+    hourCycle: 'h23',
+  }).format(new Date(iso))
+}
+
 /** Hora 24 h civil en Uruguay. */
 export function formatTimeInUruguay(iso: string | Date): string {
   return new Intl.DateTimeFormat('es-UY', {

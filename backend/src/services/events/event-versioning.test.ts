@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   addDaysYmd,
   effectiveWindowIncludesYmd,
+  hasUpcomingWeeklyOccurrence,
   splitEventDefinitionForEdit,
   uyStartOfDayUtc,
   ymdInUruguay,
@@ -33,6 +34,76 @@ describe('effectiveWindowIncludesYmd', () => {
   })
   it('sin límites incluye cualquier fecha', () => {
     expect(effectiveWindowIncludesYmd(null, null, '2030-01-01')).toBe(true)
+  })
+})
+
+describe('hasUpcomingWeeklyOccurrence', () => {
+  // Miércoles 2025-06-04, 18:00 hora de Uruguay (UTC-3) = 21:00 UTC. Wed = día 3.
+  const nowWedEvening = new Date('2025-06-04T21:00:00.000Z')
+
+  it('hoy a las 9:00 ya pasó pero el próximo miércoles existe → permite (true)', () => {
+    expect(
+      hasUpcomingWeeklyOccurrence({
+        anchorYmd: '2025-06-04',
+        startHh: 9,
+        startMm: 0,
+        daysOfWeek: [3],
+        recurrenceEndYmd: '2025-12-05',
+        now: nowWedEvening,
+      }),
+    ).toBe(true)
+  })
+
+  it('hoy a las 20:00 todavía es futuro → incluye hoy (true)', () => {
+    expect(
+      hasUpcomingWeeklyOccurrence({
+        anchorYmd: '2025-06-04',
+        startHh: 20,
+        startMm: 0,
+        daysOfWeek: [3],
+        recurrenceEndYmd: null,
+        now: nowWedEvening,
+      }),
+    ).toBe(true)
+  })
+
+  it('otro día de la semana posterior (viernes) → futuro (true)', () => {
+    expect(
+      hasUpcomingWeeklyOccurrence({
+        anchorYmd: '2025-06-04',
+        startHh: 9,
+        startMm: 0,
+        daysOfWeek: [5],
+        recurrenceEndYmd: null,
+        now: nowWedEvening,
+      }),
+    ).toBe(true)
+  })
+
+  it('único día seleccionado ya pasó hoy y el rango termina hoy → sin futuras (false)', () => {
+    expect(
+      hasUpcomingWeeklyOccurrence({
+        anchorYmd: '2025-06-04',
+        startHh: 9,
+        startMm: 0,
+        daysOfWeek: [3],
+        recurrenceEndYmd: '2025-06-04',
+        now: nowWedEvening,
+      }),
+    ).toBe(false)
+  })
+
+  it('sin días seleccionados → false', () => {
+    expect(
+      hasUpcomingWeeklyOccurrence({
+        anchorYmd: '2025-06-04',
+        startHh: 9,
+        startMm: 0,
+        daysOfWeek: [],
+        recurrenceEndYmd: null,
+        now: nowWedEvening,
+      }),
+    ).toBe(false)
   })
 })
 

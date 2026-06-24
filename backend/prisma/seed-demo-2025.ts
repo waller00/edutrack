@@ -814,6 +814,28 @@ async function ensureDemoStaffUsers() {
   return users
 }
 
+/**
+ * Cuenta técnica de performance/CI, igual que en producción: STAFF, activa y aprobada, pero
+ * sin nombre/teléfono/CI, con el email sin verificar y sin usuario en Keycloak (es un fixture,
+ * no una cuenta de login real). username = 'edutrack.local' tal cual está en prod.
+ */
+async function ensureCiPerformanceUser() {
+  const staffRole = await prisma.orgRole.findUnique({ where: { code: 'STAFF' } })
+  if (!staffRole) return
+  await prisma.user.upsert({
+    where: { email: 'ci.performance@edutrack.local' },
+    create: {
+      email: 'ci.performance@edutrack.local',
+      username: 'edutrack.local',
+      roleId: staffRole.id,
+      isActive: true,
+      isApproved: true,
+    },
+    update: { roleId: staffRole.id, isActive: true, isApproved: true },
+  })
+  console.log('[demo] Usuario CI/performance listo: ci.performance@edutrack.local (STAFF)')
+}
+
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL no esta definida')
 
@@ -822,6 +844,7 @@ async function main() {
   await seedAcademicCatalog({ years: [YEAR] })
   await seedTeachers()
   const staffUsers = await ensureDemoStaffUsers()
+  await ensureCiPerformanceUser()
   const teachers = await prisma.user.findMany({
     where: { orgRole: { code: 'TEACHER' }, isActive: true, teacherProfile: { is: { isActive: true } } },
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],

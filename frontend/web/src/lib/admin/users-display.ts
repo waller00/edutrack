@@ -1,4 +1,5 @@
 import { getRoleLabel } from '@/lib/roles/display'
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 
 export type AdminUserRow = {
   id: string
@@ -177,7 +178,7 @@ export function getLockLabel(lockUntil?: string | null): string {
   if (isAccountLocked(lockUntil)) {
     const d = lockUntil ? new Date(lockUntil) : null
     if (d && !Number.isNaN(d.getTime())) {
-      return `Bloqueado hasta ${d.toLocaleString('es-UY', { dateStyle: 'short', timeStyle: 'short' })}`
+      return `Bloqueado hasta ${formatDateTimeInUruguay(d)}`
     }
     return 'Bloqueado'
   }

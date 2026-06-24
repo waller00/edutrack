@@ -1057,7 +1057,10 @@ export default function AdminEvents() {
       return 'La hora de fin debe ser mayor que la de inicio. Muy común: elegir “12:11 AM” para el fin (eso es 00:11 de la madrugada, antes que las 11:11 de la mañana). Para terminar a las 12:11 del mediodía usá 12:11 en 24 h o “12:11 PM”.'
     }
     if (!newEvent.startDate.trim()) return 'Indicá la fecha del evento.'
-    if (isUruguayWallDateTimeInPast(newEvent.startDate, newEvent.startTime)) {
+    // En repetitivos, la primera ocurrencia (p. ej. hoy a las 9:00 cuando ya son las 18:00)
+    // puede estar en el pasado: la serie arranca sola en la próxima ocurrencia. Solo bloqueamos
+    // el pasado en eventos únicos.
+    if (!newEvent.isRecurring && isUruguayWallDateTimeInPast(newEvent.startDate, newEvent.startTime)) {
       return 'No se pueden crear eventos en el pasado. Elegí una fecha y hora de inicio actuales o futuras.'
     }
     if (newEvent.isRecurring) {
