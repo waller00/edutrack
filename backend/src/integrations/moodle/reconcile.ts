@@ -55,6 +55,8 @@ export type ReconcileSummary = {
   errors: number;
 };
 
+let reconcileInFlight: Promise<ReconcileSummary> | null = null;
+
 type SchoolYearLite = { id: string; label: string | null; code: number };
 type OfferingLite = {
   id: string;
@@ -542,7 +544,7 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
   }
 }
 
-export async function reconcileMoodle(
+async function runReconcileMoodle(
   opts: { syncStudents?: boolean; now?: Date } = {},
 ): Promise<ReconcileSummary> {
   const summary: ReconcileSummary = {
@@ -579,4 +581,17 @@ export async function reconcileMoodle(
   }
 
   return summary;
+}
+
+export async function reconcileMoodle(
+  opts: { syncStudents?: boolean; now?: Date } = {},
+): Promise<ReconcileSummary> {
+  if (reconcileInFlight) return reconcileInFlight;
+  const run = runReconcileMoodle(opts);
+  reconcileInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (reconcileInFlight === run) reconcileInFlight = null;
+  }
 }

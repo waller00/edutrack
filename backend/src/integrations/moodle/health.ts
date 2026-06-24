@@ -67,7 +67,7 @@ export async function getMoodleHealthStatus(): Promise<MoodleHealthStatus> {
       pending: countByStatus("PENDING"),
       processing: countByStatus("PROCESSING"),
       failed: countByStatus("FAILED"),
-      completed: countByStatus("COMPLETED"),
+      completed: countByStatus("DONE"),
     },
   };
 }
