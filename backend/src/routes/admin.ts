@@ -51,6 +51,51 @@ import adminSchoolYearsRoutes from './admin-school-years.js'
 const r = Router()
 r.use(authGuard)
 
+type ManualMoodleReconcileState = {
+  running: boolean
+  startedAt: string | null
+  finishedAt: string | null
+  lastSummary: Record<string, number> | null
+  lastError: string | null
+}
+
+const manualMoodleReconcileState: ManualMoodleReconcileState = {
+  running: false,
+  startedAt: null,
+  finishedAt: null,
+  lastSummary: null,
+  lastError: null,
+}
+
+function startManualMoodleReconcile(syncStudents: boolean): boolean {
+  if (manualMoodleReconcileState.running) return false
+  manualMoodleReconcileState.running = true
+  manualMoodleReconcileState.startedAt = new Date().toISOString()
+  manualMoodleReconcileState.finishedAt = null
+  manualMoodleReconcileState.lastError = null
+
+  void (async () => {
+    try {
+      const summary = await reconcileMoodle({ syncStudents })
+      manualMoodleReconcileState.lastSummary = summary as unknown as Record<string, number>
+      console.log(
+        `[moodle] manual reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} ` +
+          `suplentes=${summary.substituteEnrolments} revocados=${summary.substituteRevocations} ` +
+          `estudiantes=${summary.studentEnrolments} errores=${summary.errors}`,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      manualMoodleReconcileState.lastError = message.slice(0, 1000)
+      console.error('[admin] moodle/reconcile async:', error)
+    } finally {
+      manualMoodleReconcileState.running = false
+      manualMoodleReconcileState.finishedAt = new Date().toISOString()
+    }
+  })()
+
+  return true
+}
+
 async function resolveActiveOrgRole(roleCodeRaw: string) {
   const code = roleCodeRaw.trim().toUpperCase()
   return prisma.orgRole.findFirst({ where: { code, active: true } })
@@ -987,7 +1032,7 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
 r.get('/moodle/status', requirePermission('settings.manage', 'all'), async (_req, res) => {
   try {
     const status = await getMoodleHealthStatus()
-    return res.json(status)
+    return res.json({ ...status, reconcile: manualMoodleReconcileState })
   } catch (error) {
     console.error('[admin] moodle/status:', error)
     return res.status(500).json({ message: 'Error obteniendo estado de Moodle' })
@@ -1000,8 +1045,13 @@ r.post('/moodle/reconcile', requirePermission('settings.manage', 'all'), async (
   }
   try {
     const moodleSettings = await getMoodleOperationalSettings()
-    const summary = await reconcileMoodle({ syncStudents: moodleSettings.syncStudents })
-    return res.json({ message: 'Reconciliación completada', summary })
+    const started = startManualMoodleReconcile(moodleSettings.syncStudents)
+    return res.status(started ? 202 : 200).json({
+      message: started
+        ? 'Sincronización iniciada en segundo plano'
+        : 'Ya hay una sincronización en curso',
+      reconcile: manualMoodleReconcileState,
+    })
   } catch (error) {
     console.error('[admin] moodle/reconcile:', error)
     return res.status(500).json({
