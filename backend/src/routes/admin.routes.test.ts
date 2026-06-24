@@ -8,10 +8,11 @@ import { computeCICheckDigit } from "../identity/uruguay-ci.js";
 import type { BuiltinProfileRole } from "../identity/profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../identity/profile-permissions-defaults.js";
 
-const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock, createKeycloakUserMock, syncKeycloakUserIdentityByEmailMock } = vi.hoisted(() => ({
+const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock, createKeycloakUserMock, syncKeycloakUserIdentityByEmailMock, deleteKeycloakUserByEmailMock } = vi.hoisted(() => ({
   triggerKeycloakPasswordResetMock: vi.fn().mockResolvedValue(undefined),
   createKeycloakUserMock: vi.fn().mockResolvedValue("kc-id-1"),
   syncKeycloakUserIdentityByEmailMock: vi.fn().mockResolvedValue(undefined),
+  deleteKeycloakUserByEmailMock: vi.fn().mockResolvedValue(true),
   runAdminQueryAssistantMock: vi.fn(),
   prismaMock: {
     user: {
@@ -21,6 +22,10 @@ const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
+    },
+    substitution: {
+      deleteMany: vi.fn(),
     },
     orgRole: {
       upsert: vi.fn(),
@@ -108,6 +113,7 @@ vi.mock("../auth/keycloak.js", () => ({
   triggerKeycloakPasswordReset: triggerKeycloakPasswordResetMock,
   createKeycloakUser: createKeycloakUserMock,
   syncKeycloakUserIdentityByEmail: syncKeycloakUserIdentityByEmailMock,
+  deleteKeycloakUserByEmail: deleteKeycloakUserByEmailMock,
 }));
 vi.mock("../services/query-assistant/run.js", () => ({
   runAdminQueryAssistant: runAdminQueryAssistantMock,
@@ -131,6 +137,7 @@ vi.mock("@prisma/client", () => ({
   AuditAction: {
     USER_CREATED_BY_ADMIN: "USER_CREATED_BY_ADMIN",
     USER_UPDATED_BY_ADMIN: "USER_UPDATED_BY_ADMIN",
+    USER_DELETED_BY_ADMIN: "USER_DELETED_BY_ADMIN",
     USER_ACCOUNT_LOCK_TOGGLED: "USER_ACCOUNT_LOCK_TOGGLED",
     ADMIN_PASSWORD_RESET_ISSUED: "ADMIN_PASSWORD_RESET_ISSUED",
     SYSTEM_SETTINGS_UPDATED: "SYSTEM_SETTINGS_UPDATED",
@@ -547,6 +554,78 @@ describe("admin routes (prisma mock)", () => {
         data: expect.objectContaining({ isApproved: false, approvedAt: null, isActive: false }),
       }),
     );
+  });
+
+  it("DELETE /admin/users/:id 404 si no existe", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const res = await request(app()).delete("/admin/users/missing").set(adminHdr());
+    expect(res.status).toBe(404);
+    expect(prismaMock.user.delete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /admin/users/:id 403 no eliminar administrador", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "adm",
+      email: "adm@a.com",
+      name: "Admin",
+      isActive: false,
+      orgRole: { code: "ADMIN" },
+    });
+    const res = await request(app()).delete("/admin/users/adm").set(adminHdr());
+    expect(res.status).toBe(403);
+    expect(prismaMock.user.delete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /admin/users/:id 409 si el usuario sigue activo", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u1@a.com",
+      name: "Activo",
+      isActive: true,
+      orgRole: { code: "TEACHER" },
+    });
+    const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/dado de baja/i);
+    expect(prismaMock.user.delete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /admin/users/:id ok si está de baja: borra suplencias, usuario y cuenta Keycloak", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u1@a.com",
+      name: "De baja",
+      isActive: false,
+      orgRole: { code: "TEACHER" },
+    });
+    prismaMock.substitution.deleteMany.mockResolvedValue({ count: 0 });
+    prismaMock.user.delete.mockResolvedValue({ id: "u1" });
+    const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
+    expect(res.status).toBe(200);
+    expect(prismaMock.substitution.deleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ originalTeacherUserId: "u1" }, { substituteUserId: "u1" }] },
+    });
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "u1" } });
+    expect(deleteKeycloakUserByEmailMock).toHaveBeenCalledWith("u1@a.com");
+  });
+
+  it("DELETE /admin/users/:id 409 si hay FK que lo impiden (P2003)", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u1@a.com",
+      name: "De baja",
+      isActive: false,
+      orgRole: { code: "TEACHER" },
+    });
+    prismaMock.substitution.deleteMany.mockResolvedValue({ count: 0 });
+    const err = new Prisma.PrismaClientKnownRequestError("FK", {
+      code: "P2003",
+      clientVersion: "0.0.0",
+    });
+    prismaMock.user.delete.mockRejectedValueOnce(err);
+    const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/registros asociados/i);
   });
 
   it("PUT /admin/users/:id/lock", async () => {

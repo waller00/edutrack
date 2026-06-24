@@ -442,6 +442,28 @@ export async function getKeycloakUserIdByEmail(email: string): Promise<string | 
   return findKeycloakUserIdByEmail(token, email);
 }
 
+/**
+ * Borra la cuenta de Keycloak asociada a un email (si existe). Idempotente: si no hay
+ * cuenta, no hace nada. Se usa al eliminar definitivamente un usuario para no dejar
+ * cuentas huérfanas en el realm (que luego impiden re-registrar ese email).
+ */
+export async function deleteKeycloakUserByEmail(email: string): Promise<boolean> {
+  if (!email) return false;
+  const token = await getAdminToken();
+  const kcUserId = await findKeycloakUserIdByEmail(token, email);
+  if (!kcUserId) return false;
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${kcUserId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`Keycloak delete user error ${res.status}`);
+  }
+  return true;
+}
+
 type KeycloakCredential = {
   id?: string;
   type?: string;

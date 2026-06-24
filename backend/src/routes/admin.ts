@@ -41,7 +41,7 @@ import {
   isMoodleIntegrationEnabled,
   reconcileMoodle,
 } from '../integrations/moodle/index.js'
-import { createKeycloakUser, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
+import { createKeycloakUser, deleteKeycloakUserByEmail, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
 import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
@@ -710,6 +710,60 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
   ) {
     void ensureMoodleUserById(id)
   }
+  res.json({ ok: true })
+})
+
+// Eliminar definitivamente un usuario. Solo admin (users.update/all) y solo si ya está
+// dado de baja, para evitar borrados accidentales. Borra también la cuenta de Keycloak.
+r.delete('/users/:id', requirePermission('users.update', 'all'), async (req, res) => {
+  const id = req.params.id
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, name: true, isActive: true, ...selectOrgRoleCode },
+  })
+  if (!target) return res.status(404).json({ message: 'Usuario no encontrado' })
+  if ((target.orgRole?.code ?? '') === 'ADMIN') {
+    return res.status(403).json({ message: 'No se puede eliminar al usuario administrador.' })
+  }
+  if (target.isActive) {
+    return res.status(409).json({
+      message: 'Solo se puede eliminar un usuario que esté dado de baja. Dalo de baja primero.',
+    })
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Relaciones con FK Restrict hacia User (suplencias): hay que quitarlas antes de borrar.
+      // El resto de relaciones se resuelven por Cascade / SetNull en el esquema.
+      await tx.substitution.deleteMany({
+        where: { OR: [{ originalTeacherUserId: id }, { substituteUserId: id }] },
+      })
+      await tx.user.delete({ where: { id } })
+    })
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return res.status(409).json({
+        message: 'No se puede eliminar: el usuario tiene registros asociados que lo impiden.',
+      })
+    }
+    throw error
+  }
+
+  // Invalida sesiones BFF y borra la cuenta de Keycloak (best-effort) para no dejar huérfanos.
+  void deleteSessionsForUser(id)
+  void deleteKeycloakUserByEmail(target.email).catch((error) =>
+    console.warn('[admin] keycloak delete user skipped:', error),
+  )
+
+  recordAuditEvent({
+    action: AuditAction.USER_DELETED_BY_ADMIN,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { email: target.email },
+  })
+
   res.json({ ok: true })
 })
 
