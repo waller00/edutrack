@@ -18,7 +18,7 @@ import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/
 import { syncLivenessSessionFromDiditApi, fetchDiditDecisionJson } from "../integrations/didit/sync-session.js";
 import { getDocumentExpiryValidationErrorFromDecision } from "../integrations/didit/register-verification-from-decision.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
-import { createKeycloakUser, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
+import { createKeycloakUser, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
 import { newSessionId, saveSession } from "../auth/session-store.js";
 import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
@@ -124,6 +124,9 @@ async function enabledPermissionsForRole(roleCode: string) {
 }
 
 async function generateUniqueUsername(firstName: string, lastName: string, client: any = prisma) {
+  // Unicidad SOLO contra usuarios reales de la app. Un username que solo exista en Keycloak
+  // (cuenta huérfana) NO bloquea el nombre limpio: ese huérfano se borra antes de crear (ver
+  // freeKeycloakUsernameIfOrphan). Así "joaquin.waller" se reusa en vez de saltar a ".p".
   return generateUniqueUsernameWith(firstName, lastName, async (candidate) => {
     const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
     return Boolean(existing);
@@ -416,8 +419,10 @@ r.post("/register", async (req, res) => {
   }
 
   const nowLv = livenessRequired && livenessRowId ? new Date() : null;
+  // El username se genera ANTES de la transacción: chequea unicidad contra la app y contra
+  // Keycloak (I/O de red), que no debe correr dentro de un $transaction.
+  const generatedUsername = byEmail?.username || (await generateUniqueUsername(firstName, lastName));
   const user = await prisma.$transaction(async (tx) => {
-    const generatedUsername = byEmail?.username || (await generateUniqueUsername(firstName, lastName, tx));
     const userData = {
       email,
       username: generatedUsername,
@@ -467,6 +472,11 @@ r.post("/register", async (req, res) => {
       });
       if (ssoRegistrationToken) await consumeSsoRegistration(ssoRegistrationToken);
     } else {
+      // Si el username quedó ocupado en Keycloak por una cuenta huérfana (sin usuario en la app),
+      // la borramos para usar el nombre limpio (no se crean ni se toleran huérfanos).
+      await freeKeycloakUsernameIfOrphan(user.username, async (mail) =>
+        Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
+      );
       await createKeycloakUser({
         email,
         username: user.username,
@@ -478,8 +488,20 @@ r.post("/register", async (req, res) => {
       });
     }
   } catch (e) {
+    // Atomicidad: si Keycloak falla y nosotros creamos el usuario (no era un placeholder SSO
+    // preexistente), lo borramos para no dejar una cuenta huérfana sin acceso.
+    if (!canCompleteSsoPlaceholder) {
+      await prisma.user
+        .delete({ where: { id: user.id } })
+        .catch((delErr) => console.error("[register] rollback usuario tras fallo Keycloak:", delErr));
+    }
+    const usernameTakenInKc = e instanceof Error && (e as { code?: string }).code === "KEYCLOAK_USERNAME_TAKEN";
     console.error("[register] keycloak create user:", e);
-    return res.status(502).json({ message: "No se pudo activar el acceso de la cuenta." });
+    return res.status(usernameTakenInKc ? 409 : 502).json({
+      message: usernameTakenInKc
+        ? "No pudimos generar tu acceso por un conflicto de nombre de usuario. Probá de nuevo o contactá al administrador."
+        : "No se pudo activar el acceso de la cuenta.",
+    });
   }
 
   // Correo de verificación: best-effort y en segundo plano. No bloquea la respuesta,

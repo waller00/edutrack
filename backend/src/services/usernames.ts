@@ -31,18 +31,23 @@ export async function generateUniqueUsername(
   const first = usernamePart(firstName)[0] || "usuario";
   const lastParts = usernamePart(lastName);
   const firstLast = lastParts[0] || "sinapellido";
-  const secondInitial = lastParts[1]?.charAt(0) || "";
   const base = `${first}.${firstLast}`.slice(0, 30).replace(/[.-]+$/g, "");
 
+  // Letras del/los apellido(s) restantes para desempatar de a poco:
+  // joaquin.waller → joaquin.waller.p → joaquin.waller.pe → … (apellido "peña").
+  const restLetters = lastParts.slice(1).join("");
+
   const candidates = [base];
-  if (secondInitial) candidates.push(fitUsername(base, `.${secondInitial}`));
+  for (let i = 1; i <= restLetters.length; i += 1) {
+    candidates.push(fitUsername(base, `.${restLetters.slice(0, i)}`));
+  }
   for (const candidate of candidates) {
     if (!(await isTaken(candidate))) return candidate;
   }
 
-  const numberedBase = secondInitial ? fitUsername(base, `.${secondInitial}`) : base;
-  for (let i = 1; i <= 9999; i += 1) {
-    const candidate = fitUsername(numberedBase, String(i));
+  // Si hasta el apellido completo coincide, recién ahí se cae a números.
+  for (let i = 2; i <= 9999; i += 1) {
+    const candidate = fitUsername(base, String(i));
     if (!(await isTaken(candidate))) return candidate;
   }
   return fitUsername(base, `.${crypto.randomBytes(2).toString("hex")}`);

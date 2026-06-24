@@ -1,6 +1,7 @@
 'use client'
 import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
+import DateField from '@/components/forms/DateField'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
@@ -1039,10 +1040,9 @@ export default function AdminAttendance() {
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Fecha inicio
               </label>
-              <input
-                type="date"
+              <DateField
                 value={filters.startDate}
-                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                onChange={(v) => setFilters({ ...filters, startDate: v })}
                 className="input-field"
               />
             </div>
@@ -1051,10 +1051,9 @@ export default function AdminAttendance() {
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Fecha fin
               </label>
-              <input
-                type="date"
+              <DateField
                 value={filters.endDate}
-                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                onChange={(v) => setFilters({ ...filters, endDate: v })}
                 className="input-field"
               />
             </div>

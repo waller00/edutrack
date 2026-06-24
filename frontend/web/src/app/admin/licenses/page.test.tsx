@@ -175,8 +175,8 @@ describe('LicensesPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /nueva licencia/i }))
     fireEvent.change(screen.getByLabelText('Usuario de licencia'), { target: { value: 'u1' } })
-    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2025-01-01' } })
-    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '2025-01-03' } })
+    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '01/01/2025' } })
+    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '03/01/2025' } })
     expect(screen.queryByLabelText('Motivo (obligatorio)')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Crear Licencia' }))
 

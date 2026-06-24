@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import DateField from '@/components/forms/DateField'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { isValidUruguayanCI } from '@/lib/forms/uruguay-forms'
@@ -900,11 +901,10 @@ export default function AdminStudentsPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Vencimiento carnet de salud</label>
-                    <input
-                      type="date"
+                    <DateField
                       className="w-full rounded-lg border border-gray-200 px-3 py-2"
                       value={ymd(form.healthCardExpiresAt)}
-                      onChange={(e) => patchForm('healthCardExpiresAt', e.target.value ? `${e.target.value}T00:00:00.000Z` : null)}
+                      onChange={(v) => patchForm('healthCardExpiresAt', v ? `${v}T00:00:00.000Z` : null)}
                     />
                   </div>
                   <div>
@@ -924,11 +924,10 @@ export default function AdminStudentsPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Fecha abandono/egreso</label>
-                    <input
-                      type="date"
+                    <DateField
                       className="w-full rounded-lg border border-gray-200 px-3 py-2"
                       value={ymd(form.withdrawnAt)}
-                      onChange={(e) => patchForm('withdrawnAt', e.target.value ? `${e.target.value}T00:00:00.000Z` : null)}
+                      onChange={(v) => patchForm('withdrawnAt', v ? `${v}T00:00:00.000Z` : null)}
                     />
                   </div>
                   <div>
@@ -1017,12 +1016,11 @@ export default function AdminStudentsPage() {
                           </div>
                           <div>
                             <label className="block text-[10px] uppercase text-gray-500">Fecha pago</label>
-                            <input
-                              type="date"
+                            <DateField
                               className="w-full rounded border border-gray-200 px-2 py-1"
                               value={ymd(t.paidAt)}
-                              onChange={(e) =>
-                                updateTuition(i, { paidAt: e.target.value ? `${e.target.value}T00:00:00.000Z` : null })
+                              onChange={(v) =>
+                                updateTuition(i, { paidAt: v ? `${v}T00:00:00.000Z` : null })
                               }
                             />
                           </div>
