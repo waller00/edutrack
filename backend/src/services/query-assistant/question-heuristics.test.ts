@@ -84,6 +84,27 @@ describe("heuristicIntentFromQuestion", () => {
     expect(r?.params.month).toBe(5);
   });
 
+  it("personal NO docente que más faltó → STAFF y topN=1 (no TEACHER, no lista)", () => {
+    const r = heuristicIntentFromQuestion("decime el personal no docente que mas falto");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.personRoleScope).toBe("STAFF");
+    expect(r?.params.incidentViewMode).toBe("COUNT_BY_USER");
+    expect(r?.params.topN).toBe(1);
+  });
+
+  it("top 5 docentes con más faltas → topN=5", () => {
+    const r = heuristicIntentFromQuestion("top 5 docentes con mas faltas");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.topN).toBe(5);
+  });
+
+  it("los docentes que más faltaron (plural) → sin topN (lista completa)", () => {
+    const r = heuristicIntentFromQuestion("los docentes que mas faltaron");
+    expect(r?.intent).toBe("ABSENCES_SUMMARY");
+    expect(r?.params.personRoleScope).toBe("TEACHER");
+    expect(r?.params.topN).toBeUndefined();
+  });
+
   it("docentes ausentes en junio → listado de faltas", () => {
     const r = heuristicIntentFromQuestion("docentes ausentes en junio");
     expect(r?.intent).toBe("ABSENCES_SUMMARY");

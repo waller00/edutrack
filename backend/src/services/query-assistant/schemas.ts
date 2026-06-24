@@ -31,6 +31,8 @@ export const llmIntentSchema = z.object({
       incidentTypeScope: z.enum(['LATE_ARRIVAL', 'TEACHER_NO_SHOW', 'EARLY_EXIT', 'ALL']).optional(),
       /** Incidencias/faltas: listado detallado (default) o conteo por persona (p. ej. «quién faltó más»). */
       incidentViewMode: z.enum(['LIST', 'COUNT_BY_USER']).optional(),
+      /** Conteo por persona: limitar a los N primeros («el que más faltó» = 1, «top 5» = 5). */
+      topN: z.number().int().min(1).max(50).optional(),
       /** Faltas: limitar a docentes o a funcionarios según cómo pregunta el usuario. */
       personRoleScope: z.enum(['TEACHER', 'STAFF']).optional(),
       /** Licencias: todas, solo vigentes/activas o solo inactivas (cerradas). */

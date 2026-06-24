@@ -112,8 +112,31 @@ const STAFF_WORD = String.raw`funcionarios?|personal|staff|administrativos?|adsc
 
 /** TEACHER/STAFF si la pregunta nombra un colectivo claro; undefined si no distingue. */
 function personRoleScopeFromText(t: string): LlmIntentPayload['params']['personRoleScope'] {
+  // "personal no docente" / "no docentes" → STAFF: la palabra "docente" aparece NEGADA y no
+  // debe clasificarse como docente. Se chequea antes que TEACHER por eso.
+  if (/\bno\s+docentes?\b/.test(t)) return 'STAFF'
   if (new RegExp(`\\b(?:${TEACHER_WORD})\\b`).test(t)) return 'TEACHER'
   if (new RegExp(`\\b(?:${STAFF_WORD})\\b`).test(t)) return 'STAFF'
+  return undefined
+}
+
+/**
+ * Cantidad de filas pedida en un ranking por persona:
+ *  - "top 5" / "los 5 que más" → 5
+ *  - singular ("el/la/quién … más", "qué docente … más") → 1
+ *  - plural ("los/las/quiénes … más") → sin límite (lista completa)
+ */
+function topNFromText(t: string): number | undefined {
+  const explicit = /\btop\s+(\d+)\b/.exec(t) ?? /\b(?:los|las)\s+(\d+)\b/.exec(t)
+  if (explicit) {
+    const n = Number(explicit[1])
+    if (n >= 1 && n <= 50) return n
+  }
+  if (/\bquienes\b/.test(t) || /\b(?:los|las)\b/.test(t)) return undefined
+  const singular =
+    /\b(?:el|la|quien)\b/.test(t) ||
+    /\bque\s+(?:docente|profesor|profesora|profe|maestro|maestra|educador|tutor|funcionario|administrativo|adscripto|bedel|persona|emplead[oa])\b/.test(t)
+  if (singular && /\bmas\b/.test(t)) return 1
   return undefined
 }
 
@@ -213,7 +236,10 @@ export function heuristicIntentFromQuestion(question: string, defaultYear = Date
    */
   const mentionsIncidents = /\bincidencias?\b/.test(t) || /\bno\s+show\b/.test(t)
   if (!mentionsIncidents && new RegExp(`\\b(?:${ABSENCE_WORD})\\b`).test(t)) {
-    const viewParams = wantsCountByUser(t) ? { incidentViewMode: 'COUNT_BY_USER' as const } : {}
+    const topN = topNFromText(t)
+    const viewParams = wantsCountByUser(t)
+      ? { incidentViewMode: 'COUNT_BY_USER' as const, ...(topN ? { topN } : {}) }
+      : {}
     const roleScope = personRoleScopeFromText(t)
     const roleParams = roleScope ? { personRoleScope: roleScope } : {}
 

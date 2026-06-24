@@ -124,7 +124,9 @@ function applyQuestionKeywordEnrichments(parsed: LlmIntentPayload, question: str
       params.incidentViewMode = 'COUNT_BY_USER'
     }
     if (params.personRoleScope == null) {
-      if (/\b(?:docentes?|profesor(?:es)?|profesora(?:s)?|profes?|maestros?|maestras?|educadores?)\b/.test(t)) {
+      if (/\bno\s+docentes?\b/.test(t)) {
+        params.personRoleScope = 'STAFF'
+      } else if (/\b(?:docentes?|profesor(?:es)?|profesora(?:s)?|profes?|maestros?|maestras?|educadores?)\b/.test(t)) {
         params.personRoleScope = 'TEACHER'
       } else if (/\b(?:funcionarios?|personal|staff|administrativos?|adscriptos?|bedeles?)\b/.test(t)) {
         params.personRoleScope = 'STAFF'
