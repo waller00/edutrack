@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
+import DateField from '@/components/forms/DateField'
 import type { SubstitutionRow } from '@/lib/substitutions/types'
 import { getRoleLabel } from '@/lib/roles/display'
 
@@ -148,11 +149,10 @@ export default function SubstitutionModal({ event, teachers, onClose, onSaved, i
             <label htmlFor="sub-occurrence-date" className="mb-1 block text-xs font-medium text-slate-600">
               Fecha de la clase
             </label>
-            <input
+            <DateField
               id="sub-occurrence-date"
-              type="date"
               value={occurrenceDate}
-              onChange={(e) => setOccurrenceDate(e.target.value)}
+              onChange={setOccurrenceDate}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               required
             />

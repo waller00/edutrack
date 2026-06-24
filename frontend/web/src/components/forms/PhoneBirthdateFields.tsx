@@ -1,5 +1,7 @@
 'use client'
 
+import DateField from './DateField'
+
 type PhoneBirthdateFieldsProps = {
   phoneLocal: string
   birthdate: string
@@ -37,15 +39,20 @@ export default function PhoneBirthdateFields({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Fecha de nacimiento</label>
-        <input
+        <label htmlFor="birthdate-input" className="block text-sm font-medium text-gray-700 mb-2">
+          Fecha de nacimiento
+        </label>
+        <DateField
+          id="birthdate-input"
           value={birthdate}
-          onChange={(e) => onBirthdateChange(e.target.value)}
-          type="date"
+          onChange={onBirthdateChange}
           required={birthdateRequired}
           max={new Date().toISOString().split('T')[0]}
-          className="input-field"
+          aria-describedby="birthdate-hint"
         />
+        <p id="birthdate-hint" className="mt-1 text-xs text-gray-500">
+          Formato: día/mes/año (dd/mm/aaaa).
+        </p>
       </div>
     </>
   )

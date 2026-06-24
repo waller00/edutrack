@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import DateField from '@/components/forms/DateField'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
@@ -813,14 +814,14 @@ export default function AdminAnalyticsPage() {
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Desde (período)
               </label>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input-field" />
+              <DateField value={from} onChange={setFrom} className="input-field" />
             </div>
             <div>
               <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Hasta (período)
               </label>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input-field" />
+              <DateField value={to} onChange={setTo} className="input-field" />
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Rol asignado al evento</label>
