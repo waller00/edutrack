@@ -1,6 +1,7 @@
 'use client'
 
 import { api } from '@/lib/api/client'
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 import { Check, Eye, Fingerprint, Loader2, Pencil, Plus, Power, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -65,10 +66,7 @@ function ipsFromText(value: string) {
 function formatDate(value?: string | null) {
   if (!value) return 'Sin conexión'
   try {
-    return new Intl.DateTimeFormat('es-UY', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    }).format(new Date(value))
+    return formatDateTimeInUruguay(value)
   } catch {
     return 'Sin conexión'
   }

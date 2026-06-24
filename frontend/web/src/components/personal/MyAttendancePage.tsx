@@ -7,7 +7,7 @@ import { api } from '@/lib/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import MyAttendanceMarkingPanel from '@/components/personal/MyAttendanceMarkingPanel'
 import AttendanceHeatmap from '@/components/admin/AttendanceHeatmap'
-import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
+import { getTodayYmdInUruguay, formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import type { AttendanceSummaryResponse, AttendanceSummaryPerson } from '@/lib/attendance/summary'
 import {
   getDefaultAttendanceStartDate,
@@ -207,7 +207,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
                   {attendances.map((attendance) => (
                     <tr key={attendance.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(attendance.date).toLocaleDateString('es-ES')}
+                        {formatDateInUruguay(attendance.date)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {new Date(attendance.time).toLocaleTimeString('es-ES', {

@@ -1,6 +1,7 @@
 /**
  * Textos legibles para la columna "Detalle" de auditoría (personal administrativo no técnico).
  */
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 
 const LOGIN_FAILURE_REASONS: Record<string, string> = {
   UNKNOWN_IDENTIFIER_OR_NO_PASSWORD: 'Usuario o contraseña incorrectos.',
@@ -75,7 +76,7 @@ function formatWhenShort(iso: string): string {
   try {
     const d = new Date(iso)
     if (Number.isNaN(d.getTime())) return iso
-    return d.toLocaleString('es-UY', { dateStyle: 'short', timeStyle: 'short' })
+    return formatDateTimeInUruguay(d)
   } catch {
     return iso
   }

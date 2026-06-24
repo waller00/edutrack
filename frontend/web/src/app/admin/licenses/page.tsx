@@ -11,6 +11,7 @@ import {
 } from '@/lib/admin/licenses-display'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
+import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import { Calendar, FileText, Loader2, Plus, Search, Trash2 } from 'lucide-react'
 
 type License = {
@@ -348,7 +349,7 @@ export default function LicensesPage() {
           {getLicenseTypeLabel(license.type)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-          {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
+          {formatDateInUruguay(license.startDate)} - {formatDateInUruguay(license.endDate)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLicenseStatusBadgeClass(license.status)}`}>
@@ -401,7 +402,7 @@ export default function LicensesPage() {
           <div className="flex gap-2">
             <dt className="shrink-0 text-gray-500">Período:</dt>
             <dd className="text-gray-900">
-              {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
+              {formatDateInUruguay(license.startDate)} - {formatDateInUruguay(license.endDate)}
             </dd>
           </div>
           {license.reason ? (
@@ -1098,7 +1099,7 @@ export default function LicensesPage() {
                 {editing.approvedAt && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de aprobación</label>
-                    <p className="text-sm text-gray-900">{new Date(editing.approvedAt).toLocaleDateString('es-ES')}</p>
+                    <p className="text-sm text-gray-900">{formatDateInUruguay(editing.approvedAt)}</p>
                   </div>
                 )}
               </div>

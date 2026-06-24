@@ -3,6 +3,7 @@
 import { api } from '@/lib/api/client'
 import { auditMetadataDisplay } from '@/lib/admin/audit-detail-es'
 import { countActiveAuditFilters, getAuditActionBadgeClass } from '@/lib/admin/audit-display'
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 import { ClipboardList, Filter, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -34,8 +35,7 @@ type ListResponse = {
 
 function formatWhen(iso: string) {
   try {
-    const d = new Date(iso)
-    return d.toLocaleString('es-UY', { dateStyle: 'short', timeStyle: 'medium' })
+    return formatDateTimeInUruguay(iso, { seconds: true })
   } catch {
     return iso
   }
