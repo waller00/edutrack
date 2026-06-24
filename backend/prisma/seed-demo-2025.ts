@@ -315,7 +315,10 @@ async function seedStudents() {
     { count: 3, courseCode: '1-EMS', status: 'WITHDRAWN', note: 'Retiro durante el ciclo' },
     { count: 15, courseCode: '2-EMS', status: 'ACTIVE', note: 'Segundo EMS con orientacion' },
     { count: 2, courseCode: '2-EMS', status: 'TRANSFERRED', note: 'Traslado a otra institucion' },
-    { count: 14, courseCode: '3-EMS', status: 'GRADUATED', note: 'Egreso al cierre del ciclo 2025' },
+    // Tercero EMS (último curso) queda ACTIVO: el egreso NO se pre-carga. Recién egresan cuando
+    // se inicia el siguiente ciclo desde el asistente (que para el último curso sugiere "Egresa"
+    // automáticamente, con la opción de marcarlos "Repite"). Antes de eso no tiene sentido el egreso.
+    { count: 14, courseCode: '3-EMS', status: 'ACTIVE', note: 'Tercero EMS (ultimo curso), matricula activa' },
   ]
 
   let index = 0
