@@ -106,6 +106,64 @@ function orientationKey(courseId: string, orientationId: string): string {
   return `${courseId}:${orientationId}`
 }
 
+/**
+ * Arrastra al ciclo destino las ofertas de curso y orientaciones del ciclo origen que NO se
+ * seleccionaron: quedan creadas pero DESACTIVADAS (no desaparecen del catálogo del ciclo nuevo).
+ * Si ya existen en el destino no se tocan (más arriba ya quedaron desactivadas). El admin las
+ * puede reactivar con el toggle o eliminarlas manualmente.
+ */
+async function carryOverUnselectedAsDeactivated(
+  tx: any,
+  params: {
+    sourceSchoolYearId: string
+    targetSchoolYearId: string
+    selectedCourseIds: string[]
+    selectedOrientationKeys: Set<string>
+  },
+) {
+  const { sourceSchoolYearId, targetSchoolYearId, selectedOrientationKeys } = params
+  const selectedCourses = new Set(params.selectedCourseIds)
+
+  const sourceOfferings = await tx.courseOffering.findMany({
+    where: { schoolYearId: sourceSchoolYearId },
+    select: { courseId: true },
+  })
+  for (const offering of sourceOfferings) {
+    if (selectedCourses.has(offering.courseId)) continue
+    await tx.courseOffering.upsert({
+      where: { courseId_schoolYearId: { courseId: offering.courseId, schoolYearId: targetSchoolYearId } },
+      update: {},
+      create: { courseId: offering.courseId, schoolYearId: targetSchoolYearId, isActive: false, isOffered: false, visibleInFilters: false },
+    })
+  }
+
+  const sourceOrientations = await tx.courseOrientation.findMany({
+    where: { schoolYearId: sourceSchoolYearId },
+    select: { courseId: true, orientationId: true },
+  })
+  for (const co of sourceOrientations) {
+    if (selectedOrientationKeys.has(orientationKey(co.courseId, co.orientationId))) continue
+    await tx.courseOrientation.upsert({
+      where: {
+        courseId_orientationId_schoolYearId: {
+          courseId: co.courseId,
+          orientationId: co.orientationId,
+          schoolYearId: targetSchoolYearId,
+        },
+      },
+      update: {},
+      create: {
+        courseId: co.courseId,
+        orientationId: co.orientationId,
+        schoolYearId: targetSchoolYearId,
+        isActive: false,
+        isOffered: false,
+        visibleInFilters: false,
+      },
+    })
+  }
+}
+
 r.get('/', async (_req, res) => {
   try {
     const rows = await prisma.schoolYear.findMany({ orderBy: [{ code: 'desc' }] })
@@ -573,6 +631,16 @@ r.post('/:id/start', async (req, res) => {
             isOffered: true,
             visibleInFilters: true,
           },
+        })
+      }
+
+      // Lo NO seleccionado del ciclo origen se conserva en el nuevo ciclo, pero desactivado.
+      if (parsed.data.sourceSchoolYearId) {
+        await carryOverUnselectedAsDeactivated(tx, {
+          sourceSchoolYearId: parsed.data.sourceSchoolYearId,
+          targetSchoolYearId: id,
+          selectedCourseIds: uniqueCourseIds,
+          selectedOrientationKeys,
         })
       }
 

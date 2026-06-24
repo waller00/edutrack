@@ -89,8 +89,8 @@ function ResultView({
       </div>
 
       {hasTable ? (
-        <div className="hidden overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm sm:block">
-          <table className="min-w-[640px] text-left text-sm">
+        <div className="hidden overflow-x-auto rounded-xl sm:block">
+          <table className="w-max min-w-[640px] overflow-hidden rounded-xl border border-gray-200 bg-white text-left text-sm shadow-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-slate-50">
                 {result.columns.map((c) => (

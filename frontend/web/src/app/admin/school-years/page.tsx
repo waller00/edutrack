@@ -1250,7 +1250,7 @@ export default function AdminSchoolYearsPage() {
                                       <span key={orientation.orientationId} className="flex items-center gap-2 rounded-md bg-white/70 px-2 py-1">
                                         <input
                                           type="checkbox"
-                                          className="h-3.5 w-3.5 accent-emerald-700"
+                                          className="h-4 w-4 shrink-0 accent-emerald-700"
                                           checked={orientationChecked}
                                           onClick={(e) => e.stopPropagation()}
                                           onChange={(e) => setOrientationSelected(course.id, orientation.orientationId, e.target.checked)}
@@ -1441,11 +1441,11 @@ export default function AdminSchoolYearsPage() {
                         {closures.length === 0 ? (
                           <p className="mt-2 text-sm text-gray-500">No hay egresos, bajas ni transferencias.</p>
                         ) : (
-                          <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto">
+                          <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto pr-2">
                             {closures.map((row) => (
-                              <li key={row.studentId} className="flex items-center justify-between gap-3 text-sm">
+                              <li key={row.studentId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-sm">
                                 <span className="truncate text-gray-700">{row.name}</span>
-                                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                <span className="whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
                                   {row.actionLabel}
                                 </span>
                               </li>
