@@ -42,7 +42,7 @@ const COURSE_OFFERS: Record<number, Record<string, boolean>> = {
 const ORIENTATION_OFFERS: Record<number, Record<string, string[]>> = {
   2025: {
     '2-EMS': ['CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO'],
-    '3-EMS': ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO', 'GENERAL'],
+    '3-EMS': ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO'],
   },
 }
 
@@ -62,7 +62,6 @@ const ORIENTATION_SUBJECTS: Record<string, string[]> = {
   'CIENCIA-TECNOLOGIA': ['Matemática CTQ', 'Química', 'Física', 'Matemática CT'],
   'CSOCIALES-HUMANIDADES': ['Historia', 'Sociología', 'Geografía', 'Economía y Educación Financiera'],
   'CREATIVO-ARTISTICO': ['Historia del Arte', 'Música', 'Danza', 'Teatro'],
-  'GENERAL': ['Matemática', 'Historia', 'Geografía'],
 }
 
 const CLASS_SLOTS = [
@@ -178,7 +177,7 @@ function assertTeacherSpecialties(teachers: Array<Pick<User, 'username' | 'email
   if (missing.length > 0) throw new Error(`[demo] Faltan especialidades docentes para: ${missing.join(', ')}`)
 }
 
-const VALID_ORIENTATION_CODES = ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO', 'GENERAL']
+const VALID_ORIENTATION_CODES = ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO']
 
 async function normalizeSchoolYear() {
   console.log('[demo] Dejando unico ciclo 2025 (CLOSED) y eliminando otros ciclos...')
@@ -306,6 +305,23 @@ async function seedStudents() {
   const offerings = await prisma.courseOffering.findMany({ include: { course: { select: { code: true } } } })
   const offeringId = new Map(offerings.map((row) => [row.course.code, row.id]))
 
+  // Orientaciones ofertadas por curso en el ciclo: para asignar una a cada estudiante de los
+  // cursos que tienen orientación (2-EMS, 3-EMS). Sin esto, ningún alumno pertenece a ninguna
+  // orientación y el filtro por orientación no devuelve a nadie.
+  const courseCodeByCourseId = new Map(offerings.map((row) => [row.courseId, row.course.code]))
+  const courseOrientationRows = (await (prisma as any).courseOrientation.findMany({
+    where: { schoolYear: { code: YEAR } },
+    select: { id: true, courseId: true, orientationId: true },
+  })) as Array<{ id: string; courseId: string; orientationId: string }>
+  const orientationsByCourseCode = new Map<string, Array<{ courseOrientationId: string; orientationId: string }>>()
+  for (const row of courseOrientationRows) {
+    const code = courseCodeByCourseId.get(row.courseId)
+    if (!code) continue
+    const list = orientationsByCourseCode.get(code) ?? []
+    list.push({ courseOrientationId: row.id, orientationId: row.orientationId })
+    orientationsByCourseCode.set(code, list)
+  }
+
   type Status = 'ACTIVE' | 'WITHDRAWN' | 'GRADUATED' | 'TRANSFERRED'
   const plans: Array<{ count: number; courseCode: string; status: Status; note: string }> = [
     { count: 20, courseCode: '7-EBI', status: 'ACTIVE', note: 'Grupo 7mo, matricula activa' },
@@ -351,11 +367,16 @@ async function seedStudents() {
           : plan.status === 'TRANSFERRED'
             ? wall(`${YEAR}-04-${String(10 + (i % 6)).padStart(2, '0')}`, 12, 0)
             : null
+      // Reparte a los estudiantes entre las orientaciones del curso (si tiene).
+      const courseOrients = orientationsByCourseCode.get(plan.courseCode) ?? []
+      const chosenOrientation = courseOrients.length ? courseOrients[i % courseOrients.length] : null
       await prisma.studentEnrollment.create({
         data: {
           studentId: student.id,
           schoolYearId: schoolYear.id,
           courseOfferingId: offeringId.get(plan.courseCode)!,
+          orientationId: chosenOrientation?.orientationId ?? null,
+          courseOrientationId: chosenOrientation?.courseOrientationId ?? null,
           enrollmentStatus: plan.status,
           withdrawnAt,
           withdrawalAcademicYear: withdrawnAt ? YEAR : null,
