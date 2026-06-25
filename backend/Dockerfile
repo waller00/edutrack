@@ -29,6 +29,8 @@ COPY --from=build /app/src ./src
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/prisma ./prisma
+# Scripts de mantenimiento (p. ej. moodle:cleanup-orphans) ejecutables con `docker compose exec`.
+COPY --from=build /app/scripts ./scripts
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 # Normaliza CRLF si el build se hace desde Windows; sin esto el shebang falla en Linux.
