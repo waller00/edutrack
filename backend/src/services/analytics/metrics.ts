@@ -30,7 +30,20 @@ function isAbsentStatus(status: AttendanceStatusResolved) {
 }
 
 function isCoveredStatus(status: AttendanceStatusResolved) {
-  return status === 'PRESENT' || status === 'LATE' || status === 'SUBSTITUTED'
+  // SUBSTITUTED es la ausencia del titular: NO aporta cobertura. La cobertura real proviene de la
+  // presencia efectiva (titular presente/tarde, o el suplente que sí asistió como instancia propia).
+  return status === 'PRESENT' || status === 'LATE'
+}
+
+/**
+ * Estado efectivo para conteos de ausencia. "Suplido" (SUBSTITUTED) no es un estado en sí: es la
+ * ausencia del titular, justificada o no según haya licencia activa que la cubra.
+ */
+export function effectiveAbsenceStatus(r: ResolvedAttendanceByInstance): AttendanceStatusResolved {
+  if (r.checkInStatusResolved === 'SUBSTITUTED') {
+    return (r.isJustifiedAbsence ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED') as AttendanceStatusResolved
+  }
+  return r.checkInStatusResolved
 }
 
 export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance[], opts: { plannedInstancesCount?: number }) {
@@ -229,24 +242,13 @@ const STATUS_DISTRIBUTION_ORDER: AttendanceStatusResolved[] = [
   'ABSENT_JUSTIFIED',
 ]
 
-/**
- * Estado para la distribución del donut. "Suplido" (SUBSTITUTED) NO es un estado en sí: es una
- * ausencia del titular, que cuenta como justificada o no según haya licencia. Por eso se mapea a
- * ABSENT_JUSTIFIED / ABSENT_NOT_JUSTIFIED y nunca aparece como categoría propia.
- */
-function statusForDistribution(r: ResolvedAttendanceByInstance): AttendanceStatusResolved {
-  if (r.checkInStatusResolved === 'SUBSTITUTED') {
-    return (r.isJustifiedAbsence ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED') as AttendanceStatusResolved
-  }
-  return r.checkInStatusResolved
-}
-
 /** Distribución de estados de entrada (check-in) sobre el total planificado. */
 export function computeStatusDistribution(resolved: ResolvedAttendanceByInstance[]): StatusDistribution {
   const totalPlanned = resolved.length
   const counts = new Map<AttendanceStatusResolved, number>()
   for (const r of resolved) {
-    const s = statusForDistribution(r)
+    // "Suplido" no es categoría propia: se mapea a ausencia justificada/no según licencia.
+    const s = effectiveAbsenceStatus(r)
     counts.set(s, (counts.get(s) ?? 0) + 1)
   }
   const rows = STATUS_DISTRIBUTION_ORDER.map((status) => {
@@ -336,10 +338,12 @@ export function computeTopRiskPeople(
       byUser.set(userId, row)
     }
 
+    // "Suplido" del titular se contabiliza como ausencia (justificada/no según licencia).
+    const eff = effectiveAbsenceStatus(r)
     row.plannedCount += 1
-    if (r.checkInStatusResolved === 'LATE') row.lateCount += 1
-    if (r.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED') row.absentNotJustifiedCount += 1
-    if (r.checkInStatusResolved === 'ABSENT_JUSTIFIED') row.absentJustifiedCount += 1
+    if (eff === 'LATE') row.lateCount += 1
+    if (eff === 'ABSENT_NOT_JUSTIFIED') row.absentNotJustifiedCount += 1
+    if (eff === 'ABSENT_JUSTIFIED') row.absentJustifiedCount += 1
   }
 
   const out: DashboardTopRiskPerson[] = [...byUser.values()].map((row) => ({
