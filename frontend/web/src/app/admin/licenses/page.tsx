@@ -1,6 +1,6 @@
 'use client'
 import RoleGuard from '@/components/auth/RoleGuard'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import {
@@ -72,6 +72,14 @@ function formatDateOnlyForDisplay(date: string): string {
   return `${match[3]}/${match[2]}/${match[1]}`
 }
 
+function yearRange(year: number) {
+  return { from: `${year}-01-01`, to: `${year}-12-31` }
+}
+
+function ymdFromApiDate(value: string | null | undefined) {
+  return value ? value.slice(0, 10) : null
+}
+
 export default function LicensesPage() {
   const [activeSection, setActiveSection] = useState<'licenses' | 'non-working'>('licenses')
   const [licenses, setLicenses] = useState<License[]>([])
@@ -117,6 +125,17 @@ export default function LicensesPage() {
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+  const selectedSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
+  const selectedSchoolYear = useMemo(
+    () => (selectedSchoolYearId ? syCtx?.years.find((year) => year.id === selectedSchoolYearId) ?? null : null),
+    [syCtx?.years, selectedSchoolYearId],
+  )
+  const schoolYearDateRange = useMemo(() => {
+    if (syCtx?.allYears) return yearRange(currentYear)
+    const from = ymdFromApiDate(selectedSchoolYear?.startsOn)
+    const to = ymdFromApiDate(selectedSchoolYear?.endsOn)
+    return from && to ? { from, to } : yearRange(currentYear)
+  }, [currentYear, selectedSchoolYear?.endsOn, selectedSchoolYear?.startsOn, syCtx?.allYears])
 
   useEffect(() => {
     loadUsers()
@@ -125,10 +144,11 @@ export default function LicensesPage() {
   // Recarga al cambiar el ciclo lectivo (selector global). Licencias se filtran por solapamiento
   // de fechas con el ciclo; días no laborables por su schoolYearId.
   useEffect(() => {
+    setNonWorkingFilters(schoolYearDateRange)
     loadLicenses()
-    loadNonWorkingDays()
+    loadNonWorkingDays(schoolYearDateRange)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schoolYearQuery])
+  }, [schoolYearQuery, schoolYearDateRange.from, schoolYearDateRange.to])
 
   useEffect(() => {
     setSelectedLicenseIds([])
@@ -166,10 +186,10 @@ export default function LicensesPage() {
     }
   }
 
-  async function loadNonWorkingDays() {
+  async function loadNonWorkingDays(override?: typeof nonWorkingFilters) {
     setLoadingNonWorkingDays(true)
     try {
-      const qs = new URLSearchParams(nonWorkingFilters).toString()
+      const qs = new URLSearchParams(override ?? nonWorkingFilters).toString()
       const data = await api<{ data: NonWorkingDay[] }>(withSchoolYear(`/non-working-days?${qs}`, schoolYearQuery))
       setNonWorkingDays(data.data)
     } catch (error) {

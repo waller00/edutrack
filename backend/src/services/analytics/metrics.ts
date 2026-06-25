@@ -25,6 +25,14 @@ function roundTo(n: number, decimals: number) {
   return Math.round(n * f) / f
 }
 
+function isAbsentStatus(status: AttendanceStatusResolved) {
+  return status === 'ABSENT_NOT_JUSTIFIED' || status === 'ABSENT_JUSTIFIED' || status === 'SUBSTITUTED'
+}
+
+function isCoveredStatus(status: AttendanceStatusResolved) {
+  return status === 'PRESENT' || status === 'LATE' || status === 'SUBSTITUTED'
+}
+
 export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance[], opts: { plannedInstancesCount?: number }) {
   const totalPlan = opts.plannedInstancesCount ?? resolvedInstances.length
   if (totalPlan === 0) {
@@ -45,19 +53,10 @@ export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance
   const M1_PUNCTUALITY_pct = totalIn ? roundTo(pct(onTime, totalIn), 2) : 0
   const M2_LATE_RATE_pct = totalIn ? roundTo(pct(late, totalIn), 2) : 0
 
-  const absent = resolvedInstances.filter(
-    (i) =>
-      i.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED' ||
-      i.checkInStatusResolved === 'ABSENT_JUSTIFIED' ||
-      i.checkInStatusResolved === 'SUBSTITUTED',
-  ).length
+  const absent = resolvedInstances.filter((i) => isAbsentStatus(i.checkInStatusResolved)).length
   const M4_AOP_pct = roundTo(pct(absent, totalPlan), 2)
 
-  const covered = resolvedInstances.filter((i) => {
-    const inCovered = i.checkInStatusResolved === 'PRESENT' || i.checkInStatusResolved === 'LATE'
-    const outCovered = i.checkOutStatusResolved === 'EXIT' || i.checkOutStatusResolved === 'EARLY_EXIT'
-    return inCovered || outCovered
-  }).length
+  const covered = resolvedInstances.filter((i) => isCoveredStatus(i.checkInStatusResolved)).length
   const M6_COVERAGE_CP_pct = roundTo(pct(covered, totalPlan), 2)
 
   // Horas reales vs plan: Delta% con denom planned_total.
