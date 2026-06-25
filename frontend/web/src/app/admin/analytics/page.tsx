@@ -993,8 +993,8 @@ export default function AdminAnalyticsPage() {
                   deltaHigherIsBetter={false}
                 />
                 <KpiCard
-                  label="Ausencias no cubiertas / plan"
-                  hint="Ausencias efectivas contra instancias programadas incluidas en el período."
+                  label="Ausentismo / plan"
+                  hint="Ausencias del titular contra instancias programadas incluidas en el período."
                   tone="red"
                   value={formatPct(dashboard.kpis.M4_AOP_pct)}
                   foot="Ausentismo efectivo institucional"

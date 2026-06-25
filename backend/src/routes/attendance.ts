@@ -310,6 +310,97 @@ function mapResolvedAbsenceAsFeedRow(row: Awaited<ReturnType<typeof resolveAtten
   }
 }
 
+function mapSubstituteNoShowAsFeedRow(sub: any) {
+  const plannedStart = sub.startTime ? new Date(sub.startTime) : new Date(sub.date)
+  const plannedEnd = sub.endTime ? new Date(sub.endTime) : plannedStart
+  const substituteUser = sub.substitute ? attachRoleCode(sub.substitute) : null
+  const ymd = feedItemYmd(sub.date)
+  return {
+    id: `subabsence:${sub.id}`,
+    kind: 'VIRTUAL_ABSENCE',
+    type: 'CHECK_IN',
+    status: 'ABSENT_NOT_JUSTIFIED',
+    date: new Date(`${ymd}T00:00:00.000Z`),
+    time: plannedStart,
+    notes: 'Ausencia del suplente: no registró asistencia a la suplencia asignada',
+    user: substituteUser
+      ? {
+          id: substituteUser.id,
+          name: substituteUser.name,
+          email: substituteUser.email,
+          role: (substituteUser as any).role,
+        }
+      : { id: sub.substituteUserId, name: 'Suplente', email: '', role: 'TEACHER' },
+    event: sub.event
+      ? { id: sub.event.id, title: sub.event.title, type: sub.event.type, startTime: plannedStart, endTime: plannedEnd }
+      : { id: sub.eventId, title: 'Clase', type: 'CLASE', startTime: plannedStart, endTime: plannedEnd },
+  }
+}
+
+/**
+ * Ausencias del SUPLENTE: cuando existe una suplencia cuyo horario ya venció y el suplente
+ * no registró asistencia a la clase que se comprometió a cubrir. El titular ya figura como
+ * SUBSTITUTED (su ausencia prevista); ésta es la inasistencia propia del suplente.
+ * La inasistencia del suplente siempre es no justificada (fue asignado manualmente).
+ */
+async function buildSubstituteAbsenceRows(params: {
+  query: Record<string, unknown>
+  now: Date
+  from: string
+  to: string
+  schoolYearId?: string
+  roleUserIds?: string[]
+}) {
+  const { query, now, from, to, schoolYearId, roleUserIds } = params
+
+  // Las suplencias sólo existen sobre clases.
+  if (typeof query.eventType === 'string' && query.eventType && query.eventType !== 'CLASE') return []
+  // La ausencia del suplente siempre es no justificada: no aplica al filtro de justificadas.
+  if (query.status && query.status !== 'ABSENCES' && query.status !== 'ABSENT_NOT_JUSTIFIED') return []
+
+  const rangeStart = uruguayWallToUtc(from, 0, 0)
+  const rangeEnd = uruguayYmdEndOfDayToUtc(to)
+
+  const where: any = {
+    date: { gte: rangeStart, lte: rangeEnd },
+    endTime: { lte: now },
+  }
+  if (typeof query.eventId === 'string' && query.eventId) where.eventId = query.eventId
+  if (typeof query.userId === 'string' && query.userId) {
+    where.substituteUserId = query.userId
+  } else if (roleUserIds) {
+    where.substituteUserId = { in: roleUserIds }
+  }
+  if (schoolYearId) where.event = { schoolYearId }
+
+  const subs = await (prisma as any).substitution.findMany({
+    where,
+    include: {
+      substitute: { select: { id: true, name: true, email: true, ...selectOrgRoleCode } },
+      event: { select: { id: true, title: true, type: true } },
+    },
+  })
+  if (subs.length === 0) return []
+
+  // Si el suplente registró un CHECK_IN para ese evento ese día, asistió: no es ausencia.
+  const subUserIds: string[] = Array.from(new Set<string>(subs.map((s: any) => s.substituteUserId)))
+  const subEventIds: string[] = Array.from(new Set<string>(subs.map((s: any) => s.eventId)))
+  const attended = await prisma.attendance.findMany({
+    where: {
+      userId: { in: subUserIds },
+      eventId: { in: subEventIds },
+      type: 'CHECK_IN',
+      date: { gte: rangeStart, lte: rangeEnd },
+    },
+    select: { userId: true, eventId: true, date: true },
+  })
+  const attendedKeys = new Set(attended.map((a) => `${a.userId}|${a.eventId}|${feedItemYmd(a.date)}`))
+
+  return subs
+    .filter((s: any) => !attendedKeys.has(`${s.substituteUserId}|${s.eventId}|${feedItemYmd(s.date)}`))
+    .map(mapSubstituteNoShowAsFeedRow)
+}
+
 async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanceWhere: any) {
   if (!queryAllowsVirtualAbsenceRows(query)) return []
 
@@ -340,7 +431,7 @@ async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanc
   })
 
   const resolved = await resolveAttendanceAndJustification({ plannedInstances: filteredPlannedInstances })
-  return resolved
+  const titularAbsenceRows = resolved
     .filter((row) => {
       // Si la instancia ya tiene una marca registrada, la trae la consulta de Attendance:
       // no emitir una ausencia virtual para no duplicarla en el feed.
@@ -350,6 +441,17 @@ async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanc
       return true
     })
     .map(mapResolvedAbsenceAsFeedRow)
+
+  const substituteAbsenceRows = await buildSubstituteAbsenceRows({
+    query,
+    now,
+    from,
+    to,
+    schoolYearId,
+    roleUserIds: userIds,
+  })
+
+  return [...titularAbsenceRows, ...substituteAbsenceRows]
 }
 
 // Registrar asistencia (CHECK_IN o CHECK_OUT) — alta de un registro propio.
