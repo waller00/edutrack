@@ -224,8 +224,8 @@ export default function AdminMoodlePanel() {
             )}
             {!health.reconcile?.running && health.reconcile?.lastSummary && (
               <p>
-                Última sincronización: cursos={health.reconcile.lastSummary.courses ?? 0}, docentes=
-                {health.reconcile.lastSummary.teacherEnrolments ?? 0}, estudiantes=
+                Última sincronización: cursos={health.reconcile.lastSummary.courses ?? 0}, inscripciones docentes=
+                {health.reconcile.lastSummary.teacherEnrolments ?? 0}, inscripciones estudiantes=
                 {health.reconcile.lastSummary.studentEnrolments ?? 0}
                 {(health.reconcile.lastSummary.errors ?? 0) > 0 ? `, avisos=${health.reconcile.lastSummary.errors}` : ''}.
               </p>
