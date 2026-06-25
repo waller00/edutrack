@@ -72,6 +72,17 @@ describe('computeStatusDistribution', () => {
     expect(dist.totalPlanned).toBe(0)
     expect(dist.rows).toHaveLength(0)
   })
+
+  it('mapea SUBSTITUTED (suplido) a ausencia justificada/no según la licencia, nunca como categoría propia', () => {
+    const rows = [
+      resolved('SUBSTITUTED', { plannedInstanceId: 's1', eventId: 'e1', plannedDate: '2026-05-05' }),
+      resolved('SUBSTITUTED', { plannedInstanceId: 's2', eventId: 'e1', plannedDate: '2026-05-06' }, { isJustifiedAbsence: true }),
+    ]
+    const dist = computeStatusDistribution(rows)
+    expect(dist.rows.some((r) => r.status === 'SUBSTITUTED')).toBe(false)
+    expect(dist.rows.find((r) => r.status === 'ABSENT_NOT_JUSTIFIED')?.count).toBe(1)
+    expect(dist.rows.find((r) => r.status === 'ABSENT_JUSTIFIED')?.count).toBe(1)
+  })
 })
 
 describe('computeBreakdown', () => {

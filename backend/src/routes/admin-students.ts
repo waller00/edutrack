@@ -171,6 +171,15 @@ const studentWriteBaseSchema = z.object({
 })
 
 const studentCreateSchema = studentWriteBaseSchema.extend({
+  // La cédula es obligatoria al crear un estudiante.
+  documentId: z.preprocess(
+    clearableEmpty,
+    z
+      .string({ required_error: 'La cédula es obligatoria', invalid_type_error: 'La cédula es obligatoria' })
+      .max(40)
+      .transform((v) => onlyDigits(v))
+      .refine((v) => isValidUruguayanCI(v), 'Cédula inválida: verificá el número y el dígito verificador'),
+  ),
   tuitionYears: z.array(tuitionYearRowSchema).max(80).optional(),
   tuitionMonths: z.array(tuitionMonthRowSchema).max(240).optional(),
 })

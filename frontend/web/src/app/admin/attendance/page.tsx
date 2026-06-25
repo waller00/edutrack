@@ -108,6 +108,11 @@ type AttendanceStats = {
   earlyExitRate: number
 }
 
+function formatRate(value: unknown): string {
+  const rate = Number(value ?? 0)
+  return `${Number.isFinite(rate) ? rate : 0}%`
+}
+
 type User = {
   id: string
   name: string
@@ -1259,7 +1264,7 @@ export default function AdminAttendance() {
           <div className="p-4 bg-white border rounded-lg shadow-sm">
             <div className="text-sm text-gray-500">{showingExitStats ? 'Tasa de Salida' : 'Tasa de Presencia'}</div>
             <div className="text-2xl font-bold text-emerald-600">
-              {statsLoading || !stats ? '—' : `${showingExitStats ? stats.exitRate : stats.attendanceRate}%`}
+              {statsLoading || !stats ? '—' : formatRate(showingExitStats ? stats.exitRate : stats.attendanceRate)}
             </div>
             <div className="text-xs text-gray-500">
               {showingExitStats
@@ -1282,7 +1287,7 @@ export default function AdminAttendance() {
               {statsLoading || !stats ? '—' : showingExitStats ? stats.earlyExitCount : stats.lateCount}
             </div>
             <div className="text-xs text-gray-500">
-              {statsLoading || !stats ? '' : `${showingExitStats ? stats.earlyExitRate : stats.lateRate}%`} tasa
+              {statsLoading || !stats ? '' : `${formatRate(showingExitStats ? stats.earlyExitRate : stats.lateRate)} tasa`}
             </div>
           </div>
 

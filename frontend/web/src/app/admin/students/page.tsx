@@ -336,6 +336,15 @@ export default function AdminStudentsPage() {
   }
 
   async function save() {
+    const doc = form.documentId?.trim() ?? ''
+    if (!doc) {
+      setMsg('La cédula es obligatoria')
+      return
+    }
+    if (!isValidUruguayanCI(doc)) {
+      setMsg('Cédula inválida: verificá el número y el dígito verificador')
+      return
+    }
     setSaving(true)
     setMsg('')
     try {
@@ -817,7 +826,7 @@ export default function AdminStudentsPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Cédula (opcional)</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Cédula *</label>
                     <input
                       className={`w-full rounded-lg border px-3 py-2 ${documentIdInvalid ? 'border-red-400' : 'border-gray-200'}`}
                       value={form.documentId ?? ''}
@@ -856,16 +865,6 @@ export default function AdminStudentsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Teléfono tutor</label>
-                    <input
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                      value={form.tutorPhone ?? ''}
-                      onChange={(e) => patchForm('tutorPhone', e.target.value || null)}
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
                     <input
                       type="email"
@@ -877,6 +876,8 @@ export default function AdminStudentsPage() {
                       Con email se crea su cuenta del aula virtual (Moodle) y le llega la bienvenida.
                     </p>
                   </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Usuario (Moodle)</label>
                     <input
@@ -887,24 +888,6 @@ export default function AdminStudentsPage() {
                         patchForm('username', e.target.value || null)
                       }}
                       placeholder="nombre.apellido"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Dirección</label>
-                  <input
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                    value={form.address ?? ''}
-                    onChange={(e) => patchForm('address', e.target.value || null)}
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Vencimiento carnet de salud</label>
-                    <DateField
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                      value={ymd(form.healthCardExpiresAt)}
-                      onChange={(v) => patchForm('healthCardExpiresAt', v ? `${v}T00:00:00.000Z` : null)}
                     />
                   </div>
                   <div>
@@ -921,46 +904,12 @@ export default function AdminStudentsPage() {
                     </select>
                   </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Fecha abandono/egreso</label>
-                    <DateField
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                      value={ymd(form.withdrawnAt)}
-                      onChange={(v) => patchForm('withdrawnAt', v ? `${v}T00:00:00.000Z` : null)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Año ciclo (informes)</label>
-                    <input
-                      type="number"
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                      placeholder="ej. 2025"
-                      value={form.withdrawalAcademicYear ?? ''}
-                      onChange={(e) =>
-                        patchForm(
-                          'withdrawalAcademicYear',
-                          e.target.value === '' ? null : Number.parseInt(e.target.value, 10),
-                        )
-                      }
-                    />
-                  </div>
-                </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Notas portal liceo / claves</label>
-                  <textarea
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 min-h-[72px]"
-                    value={form.liceoAccessNotes ?? ''}
-                    onChange={(e) => patchForm('liceoAccessNotes', e.target.value || null)}
-                    placeholder="Opcional. Tratá este campo como información sensible."
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Notas internas</label>
-                  <textarea
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 min-h-[56px]"
-                    value={form.internalNotes ?? ''}
-                    onChange={(e) => patchForm('internalNotes', e.target.value || null)}
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Dirección</label>
+                  <input
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2"
+                    value={form.address ?? ''}
+                    onChange={(e) => patchForm('address', e.target.value || null)}
                   />
                 </div>
 
