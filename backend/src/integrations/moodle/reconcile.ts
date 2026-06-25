@@ -16,7 +16,7 @@ import {
   markEnrolmentRevoked,
   upsertEnrolmentMap,
 } from "./enrolment-map.js";
-import { enrolUser, unenrolUser } from "./enrolments.js";
+import { enrolUser, enrolUsersBatch, unenrolUser } from "./enrolments.js";
 import {
   buildSubjectCourseFullname,
   type MoodleSubjectScope,
@@ -471,6 +471,43 @@ async function revokeStaleSubstitutes(
   }
 }
 
+/**
+ * Inscribe al alumno en todas sus asignaturas. Intenta una sola llamada en lote; si falla, cae al
+ * modo uno-por-uno (comportamiento previo, que además rescata el caso "Message was not sent").
+ * Tras inscribir (por cualquiera de los dos caminos) registra el mapeo y suma al resumen.
+ */
+async function enrolStudentInCourses(
+  ctx: ReconcileContext,
+  en: { id: string; studentId: string },
+  moodleUserId: number,
+  courseIds: number[],
+): Promise<void> {
+  let batched = false;
+  if (courseIds.length > 1) {
+    try {
+      await enrolUsersBatch(
+        courseIds.map((moodleCourseId) => ({ moodleUserId, moodleCourseId, roleId: ctx.roles.student })),
+      );
+      batched = true;
+    } catch (e) {
+      logError("inscripción estudiante (lote → reintenta uno-por-uno)", en.studentId, e);
+    }
+  }
+
+  for (const courseId of courseIds) {
+    if (!batched) await enrolUser(moodleUserId, courseId, ctx.roles.student);
+    await upsertEnrolmentMap({
+      userId: en.studentId,
+      moodleUserId,
+      moodleCourseId: courseId,
+      roleId: ctx.roles.student,
+      sourceType: "STUDENT_ENROLLMENT",
+      sourceId: en.id,
+    });
+    ctx.summary.studentEnrolments += 1;
+  }
+}
+
 /** Fase 4 — estudiantes: asignaturas comunes + asignaturas de su orientación, con revocación. */
 async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> {
   const enrolments = await prisma.studentEnrollment.findMany({
@@ -507,20 +544,13 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
         username: en.student.username,
       });
       const targets = await listStudentSubjectTargets(en);
+      const courseIds: number[] = [];
       for (const target of targets) {
         const courseId = await ensureStudentSubjectCourseFor(ctx, target, en.courseOffering);
         desiredKeys.add(`${en.student.id}::${courseId}`);
-        await enrolUser(moodleUserId, courseId, ctx.roles.student);
-        await upsertEnrolmentMap({
-          userId: en.student.id,
-          moodleUserId,
-          moodleCourseId: courseId,
-          roleId: ctx.roles.student,
-          sourceType: "STUDENT_ENROLLMENT",
-          sourceId: en.id,
-        });
-        ctx.summary.studentEnrolments += 1;
+        courseIds.push(courseId);
       }
+      await enrolStudentInCourses(ctx, { id: en.id, studentId: en.student.id }, moodleUserId, courseIds);
     } catch (e) {
       failedStudentIds.add(en.student.id);
       ctx.summary.errors += 1;

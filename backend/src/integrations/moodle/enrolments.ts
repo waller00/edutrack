@@ -53,6 +53,30 @@ export async function enrolUser(
 }
 
 /**
+ * Inscribe varias parejas usuario↔curso en UNA sola llamada (`enrol_manual_enrol_users` acepta un
+ * array). Reduce drásticamente la cantidad de requests del reconcile. Es idempotente en Moodle.
+ *
+ * No replica el rescate de "Message was not sent" de `enrolUser`: si la llamada en lote falla, el
+ * llamador (reconcile) reintenta uno por uno con `enrolUser`, que sí lo maneja.
+ */
+export async function enrolUsersBatch(
+  enrolments: Array<{ moodleUserId: number; moodleCourseId: number; roleId: number; window?: EnrolWindow }>,
+): Promise<void> {
+  if (enrolments.length === 0) return;
+  const params: Record<string, string> = {};
+  enrolments.forEach((e, i) => {
+    params[`enrolments[${i}][roleid]`] = String(e.roleId);
+    params[`enrolments[${i}][userid]`] = String(e.moodleUserId);
+    params[`enrolments[${i}][courseid]`] = String(e.moodleCourseId);
+    const timestart = toUnixSeconds(e.window?.timestart);
+    const timeend = toUnixSeconds(e.window?.timeend);
+    if (timestart != null) params[`enrolments[${i}][timestart]`] = String(timestart);
+    if (timeend != null) params[`enrolments[${i}][timeend]`] = String(timeend);
+  });
+  await moodleRest("enrol_manual_enrol_users", params);
+}
+
+/**
  * Quita la matrícula manual de un usuario en un curso (`enrol_manual_unenrol_users`).
  * Idempotente: si el usuario ya no está inscripto, Moodle no falla.
  */

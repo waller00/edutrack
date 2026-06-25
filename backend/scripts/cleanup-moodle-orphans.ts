@@ -225,6 +225,40 @@ async function deleteUsers(ids: number[]): Promise<DeleteOutcome & { okIds: numb
   return { ok, failed, okIds, failedIds }
 }
 
+type ObjectMapRow = { id: string; objectType: string; localId: string; moodleId: number; idnumber: string }
+
+/**
+ * Mapas locales (`MoodleObjectMap`) de categorías/cursos cuyo dato de EduTrack ya no existe.
+ * Si no se purgan, `getMappedId` devuelve el id Moodle de un objeto ya borrado y el reconcile
+ * intenta crear cursos dentro de categorías inexistentes → `dmlwriteexception` (los "avisos").
+ */
+async function findOrphanStructureMaps(db: DbIds): Promise<ObjectMapRow[]> {
+  const maps = (await prisma.moodleObjectMap.findMany({
+    where: { objectType: { in: ['CATEGORY', 'COURSE', 'SUBJECT_COURSE'] } },
+    select: { id: true, objectType: true, localId: true, moodleId: true, idnumber: true },
+  })) as ObjectMapRow[]
+  return maps.filter((m) => {
+    if (m.objectType === 'CATEGORY') return !db.years.has(m.localId)
+    if (m.objectType === 'COURSE') return !db.offerings.has(m.localId)
+    // SUBJECT_COURSE: el localId ES el idnumber canónico.
+    return classifyCourse(m.localId, db).orphan
+  })
+}
+
+async function pruneStructureMaps(orphans: ObjectMapRow[]) {
+  if (!orphans.length) return { objectMaps: 0, enrolmentMaps: 0 }
+  const courseMoodleIds = orphans
+    .filter((m) => m.objectType === 'COURSE' || m.objectType === 'SUBJECT_COURSE')
+    .map((m) => m.moodleId)
+  const [enrolmentMaps, objectMaps] = await Promise.all([
+    courseMoodleIds.length
+      ? prisma.moodleEnrolmentMap.deleteMany({ where: { moodleCourseId: { in: courseMoodleIds } } })
+      : Promise.resolve({ count: 0 }),
+    prisma.moodleObjectMap.deleteMany({ where: { id: { in: orphans.map((m) => m.id) } } }),
+  ])
+  return { objectMaps: objectMaps.count, enrolmentMaps: enrolmentMaps.count }
+}
+
 async function pruneStudentLocalMaps(mapIds: string[], studentIds: string[]) {
   if (!mapIds.length && !studentIds.length) return { objectMaps: 0, enrolmentMaps: 0 }
   const [objectMaps, enrolmentMaps] = await Promise.all([
@@ -238,6 +272,98 @@ async function pruneStudentLocalMaps(mapIds: string[], studentIds: string[]) {
       : Promise.resolve({ count: 0 }),
   ])
   return { objectMaps: objectMaps.count, enrolmentMaps: enrolmentMaps.count }
+}
+
+type OrphanCourse = { c: MoodleCourse; v: Verdict }
+type OrphanCategory = { c: MoodleCategory; v: Verdict }
+type OrphanStudent = { m: StudentMap; u?: MoodleUser; v: Verdict }
+
+function reportPlan(p: {
+  etCourses: MoodleCourse[]
+  etCategories: MoodleCategory[]
+  etStudentMaps: StudentMap[]
+  orphanCourses: OrphanCourse[]
+  orphanCategories: OrphanCategory[]
+  orphanStudents: OrphanStudent[]
+  orphanStructureMaps: ObjectMapRow[]
+  unknown: { courses: number; categories: number; students: number }
+}) {
+  console.log(`Cursos EduTrack en Moodle: ${p.etCourses.length} | huérfanos: ${p.orphanCourses.length}`)
+  for (const { c, v } of p.orphanCourses) console.log(`  - [curso ${c.id}] ${c.shortname ?? c.idnumber} — ${v.reason}`)
+
+  console.log(`\nCategorías EduTrack en Moodle: ${p.etCategories.length} | huérfanas: ${p.orphanCategories.length}`)
+  for (const { c, v } of p.orphanCategories) console.log(`  - [categoría ${c.id}] ${c.name ?? c.idnumber} — ${v.reason}`)
+
+  console.log(`\nEstudiantes EduTrack mapeados en Moodle: ${p.etStudentMaps.length} | huérfanos: ${p.orphanStudents.length}`)
+  for (const { m, u, v } of p.orphanStudents) {
+    const name = u ? `${u.firstname ?? ''} ${u.lastname ?? ''}`.trim() || u.username || m.idnumber : 'usuario remoto no encontrado'
+    console.log(`  - [usuario ${u?.id ?? m.moodleId}] ${name} — ${v.reason}`)
+  }
+
+  console.log(`\nMapas locales huérfanos (cursos/categorías/subject-course): ${p.orphanStructureMaps.length}`)
+
+  if (p.unknown.courses || p.unknown.categories || p.unknown.students) {
+    console.log(
+      `\n⚠️  Patrones et- no reconocidos (NO se tocan): ${p.unknown.courses} cursos, ${p.unknown.categories} categorías, ${p.unknown.students} estudiantes`,
+    )
+  }
+}
+
+async function applyDeletions(p: {
+  orphanCourses: OrphanCourse[]
+  orphanCategories: OrphanCategory[]
+  orphanStudents: OrphanStudent[]
+  orphanStructureMaps: ObjectMapRow[]
+}) {
+  let coursesOutcome: DeleteOutcome = { ok: 0, failed: 0 }
+  let categoriesOutcome: DeleteOutcome = { ok: 0, failed: 0 }
+  let studentsOutcome: DeleteOutcome & { okIds: number[]; failedIds: number[] } = { ok: 0, failed: 0, okIds: [], failedIds: [] }
+  let studentMapsOutcome = { objectMaps: 0, enrolmentMaps: 0 }
+
+  if (p.orphanCourses.length) {
+    console.log(`\n🗑️  Borrando ${p.orphanCourses.length} cursos (de a uno)…`)
+    coursesOutcome = await deleteCourses(p.orphanCourses.map((x) => x.c.id))
+  }
+  if (p.orphanCategories.length) {
+    console.log(`🗑️  Borrando ${p.orphanCategories.length} categorías (recursivo)…`)
+    categoriesOutcome = await deleteCategories(p.orphanCategories.map((x) => x.c.id))
+  }
+  if (p.orphanStudents.length) {
+    const studentDeleteTargets = Array.from(new Set(p.orphanStudents.map((x) => x.u?.id ?? x.m.moodleId)))
+    console.log(`🗑️  Borrando ${studentDeleteTargets.length} usuarios Moodle de estudiantes…`)
+    studentsOutcome = await deleteUsers(studentDeleteTargets)
+
+    const deletedRemoteIds = new Set(studentsOutcome.okIds)
+    const failedRemoteIds = new Set(studentsOutcome.failedIds)
+    const prunable = p.orphanStudents.filter((x) => {
+      const targetId = x.u?.id ?? x.m.moodleId
+      return !failedRemoteIds.has(targetId) && (!x.u || deletedRemoteIds.has(targetId))
+    })
+    studentMapsOutcome = await pruneStudentLocalMaps(prunable.map((x) => x.m.id), prunable.map((x) => x.m.localId))
+  }
+
+  let structureMapsOutcome = { objectMaps: 0, enrolmentMaps: 0 }
+  if (p.orphanStructureMaps.length) {
+    console.log(`🧽 Purgando ${p.orphanStructureMaps.length} mapas locales huérfanos de cursos/categorías…`)
+    structureMapsOutcome = await pruneStructureMaps(p.orphanStructureMaps)
+  }
+
+  console.log(
+    `\n✅ Cursos borrados: ${coursesOutcome.ok} (fallidos: ${coursesOutcome.failed}) | ` +
+      `Categorías borradas: ${categoriesOutcome.ok} (fallidas: ${categoriesOutcome.failed}) | ` +
+      `Estudiantes Moodle borrados: ${studentsOutcome.ok} (fallidos: ${studentsOutcome.failed})`,
+  )
+  if (studentMapsOutcome.objectMaps || studentMapsOutcome.enrolmentMaps) {
+    console.log(`🧽 Mapas locales de estudiantes limpiados: ${studentMapsOutcome.objectMaps} objetos, ${studentMapsOutcome.enrolmentMaps} inscripciones`)
+  }
+  if (structureMapsOutcome.objectMaps || structureMapsOutcome.enrolmentMaps) {
+    console.log(`🧽 Mapas locales de cursos/categorías purgados: ${structureMapsOutcome.objectMaps} objetos, ${structureMapsOutcome.enrolmentMaps} inscripciones`)
+  }
+  if (coursesOutcome.failed || categoriesOutcome.failed || studentsOutcome.failed) {
+    console.log('ℹ️  Quedaron fallidos (probable timeout puntual). Volvé a correr --apply para terminarlos.\n')
+  } else {
+    console.log('🎉 Limpieza completa.\n')
+  }
 }
 
 async function main() {
@@ -262,6 +388,7 @@ async function main() {
   const etCourses = courses.filter((c) => isEtIdnumber(c.idnumber) && c.id > 1)
   const etCategories = categories.filter((c) => isEtIdnumber(c.idnumber) && c.id > 1)
   const etStudentMaps = studentMaps.filter((m) => isEtIdnumber(m.idnumber))
+  const orphanStructureMaps = await findOrphanStructureMaps(db)
 
   const orphanCourses = etCourses
     .map((c) => ({ c, v: classifyCourse(c.idnumber!, db) }))
@@ -277,75 +404,23 @@ async function main() {
   const unknownCategories = etCategories.filter((c) => classifyCategory(c.idnumber!, db).reason.includes('desconocido'))
   const unknownStudents = etStudentMaps.filter((m) => classifyStudent(m.idnumber, db).reason.includes('desconocido'))
 
-  console.log(`Cursos EduTrack en Moodle: ${etCourses.length} | huérfanos: ${orphanCourses.length}`)
-  for (const { c, v } of orphanCourses) {
-    console.log(`  - [curso ${c.id}] ${c.shortname ?? c.idnumber} — ${v.reason}`)
-  }
-  console.log(`\nCategorías EduTrack en Moodle: ${etCategories.length} | huérfanas: ${orphanCategories.length}`)
-  for (const { c, v } of orphanCategories) {
-    console.log(`  - [categoría ${c.id}] ${c.name ?? c.idnumber} — ${v.reason}`)
-  }
-  console.log(`\nEstudiantes EduTrack mapeados en Moodle: ${etStudentMaps.length} | huérfanos: ${orphanStudents.length}`)
-  for (const { m, u, v } of orphanStudents) {
-    const name = u ? `${u.firstname ?? ''} ${u.lastname ?? ''}`.trim() || u.username || m.idnumber : 'usuario remoto no encontrado'
-    const moodleId = u?.id ?? m.moodleId
-    console.log(`  - [usuario ${moodleId}] ${name} — ${v.reason}`)
-  }
-
-  if (unknownCourses.length || unknownCategories.length || unknownStudents.length) {
-    console.log(
-      `\n⚠️  Patrones et- no reconocidos (NO se tocan): ${unknownCourses.length} cursos, ${unknownCategories.length} categorías, ${unknownStudents.length} estudiantes`,
-    )
-  }
+  reportPlan({
+    etCourses,
+    etCategories,
+    etStudentMaps,
+    orphanCourses,
+    orphanCategories,
+    orphanStudents,
+    orphanStructureMaps,
+    unknown: { courses: unknownCourses.length, categories: unknownCategories.length, students: unknownStudents.length },
+  })
 
   if (!APPLY) {
     console.log('\nℹ️  DRY-RUN: no se borró nada. Re-ejecutá con --apply para borrar los huérfanos listados.\n')
     return
   }
 
-  let coursesOutcome: DeleteOutcome = { ok: 0, failed: 0 }
-  let categoriesOutcome: DeleteOutcome = { ok: 0, failed: 0 }
-  let studentsOutcome: DeleteOutcome & { okIds: number[]; failedIds: number[] } = { ok: 0, failed: 0, okIds: [], failedIds: [] }
-  let studentMapsOutcome = { objectMaps: 0, enrolmentMaps: 0 }
-  if (orphanCourses.length) {
-    console.log(`\n🗑️  Borrando ${orphanCourses.length} cursos (de a uno)…`)
-    coursesOutcome = await deleteCourses(orphanCourses.map((x) => x.c.id))
-  }
-  if (orphanCategories.length) {
-    console.log(`🗑️  Borrando ${orphanCategories.length} categorías (recursivo)…`)
-    categoriesOutcome = await deleteCategories(orphanCategories.map((x) => x.c.id))
-  }
-  if (orphanStudents.length) {
-    const studentDeleteTargets = Array.from(new Set(orphanStudents.map((x) => x.u?.id ?? x.m.moodleId)))
-    console.log(`🗑️  Borrando ${studentDeleteTargets.length} usuarios Moodle de estudiantes…`)
-    studentsOutcome = await deleteUsers(studentDeleteTargets)
-
-    const deletedRemoteIds = new Set(studentsOutcome.okIds)
-    const failedRemoteIds = new Set(studentsOutcome.failedIds)
-    const prunable = orphanStudents.filter((x) => {
-      const targetId = x.u?.id ?? x.m.moodleId
-      return !failedRemoteIds.has(targetId) && (!x.u || deletedRemoteIds.has(targetId))
-    })
-    studentMapsOutcome = await pruneStudentLocalMaps(
-      prunable.map((x) => x.m.id),
-      prunable.map((x) => x.m.localId),
-    )
-  }
-  console.log(
-    `\n✅ Cursos borrados: ${coursesOutcome.ok} (fallidos: ${coursesOutcome.failed}) | ` +
-      `Categorías borradas: ${categoriesOutcome.ok} (fallidas: ${categoriesOutcome.failed}) | ` +
-      `Estudiantes Moodle borrados: ${studentsOutcome.ok} (fallidos: ${studentsOutcome.failed})`,
-  )
-  if (studentMapsOutcome.objectMaps || studentMapsOutcome.enrolmentMaps) {
-    console.log(
-      `🧽 Mapas locales de estudiantes limpiados: ${studentMapsOutcome.objectMaps} objetos, ${studentMapsOutcome.enrolmentMaps} inscripciones`,
-    )
-  }
-  if (coursesOutcome.failed || categoriesOutcome.failed || studentsOutcome.failed) {
-    console.log('ℹ️  Quedaron fallidos (probable timeout puntual). Volvé a correr --apply para terminarlos.\n')
-  } else {
-    console.log('🎉 Limpieza completa.\n')
-  }
+  await applyDeletions({ orphanCourses, orphanCategories, orphanStudents, orphanStructureMaps })
 }
 
 try {
