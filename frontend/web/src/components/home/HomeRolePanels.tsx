@@ -70,6 +70,7 @@ type TimelineItem = {
 
 type AttendanceTimelineStatus =
   | 'REGISTERED'
+  | 'SCHEDULED'
   | 'PRESENT'
   | 'LATE'
   | 'PENDING'
@@ -141,6 +142,7 @@ function labelAttendanceStatus(status: string): string {
     EARLY_EXIT: 'Salida anticipada',
     OUT_OF_SCHEDULE: 'Fuera de horario',
     SUBSTITUTED: 'Suplido',
+    SCHEDULED: 'Programada',
     PENDING: 'Pendiente',
     FREE: 'Libre',
     SUSPENDED: 'Suspendido',
@@ -162,6 +164,7 @@ function badgeClassForStatus(status: string): string {
   if (status === 'ABSENT_NOT_JUSTIFIED') return 'bg-red-100 text-red-800 ring-1 ring-red-200/60'
   if (status === 'ABSENT_JUSTIFIED') return 'bg-slate-100 text-slate-800 ring-1 ring-slate-200/60'
   if (status === 'PRESENT') return 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200/60'
+  if (status === 'SCHEDULED') return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/60'
   if (status === 'EXIT' || status === 'EARLY_EXIT') return 'bg-sky-100 text-sky-900 ring-1 ring-sky-200/60'
   if (status === 'PENDING') return 'bg-red-100 text-red-800 ring-1 ring-red-200/60'
   if (status === 'FREE') return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200/60'
@@ -501,6 +504,7 @@ function humanTimelineTitle(item: AttendanceTimelineApiItem) {
     return `${teacher} tiene ausencia prevista sin justificar en ${className}`
   }
   if (item.type === 'CLASS_ATTENDANCE' && item.status === 'PRESENT') return `${className} - Presente`
+  if (item.type === 'CLASS_ATTENDANCE' && item.status === 'SCHEDULED') return `${className} - Programada`
   return item.title
 }
 
