@@ -228,15 +228,26 @@ const STATUS_DISTRIBUTION_ORDER: AttendanceStatusResolved[] = [
   'LATE',
   'ABSENT_NOT_JUSTIFIED',
   'ABSENT_JUSTIFIED',
-  'SUBSTITUTED',
 ]
+
+/**
+ * Estado para la distribución del donut. "Suplido" (SUBSTITUTED) NO es un estado en sí: es una
+ * ausencia del titular, que cuenta como justificada o no según haya licencia. Por eso se mapea a
+ * ABSENT_JUSTIFIED / ABSENT_NOT_JUSTIFIED y nunca aparece como categoría propia.
+ */
+function statusForDistribution(r: ResolvedAttendanceByInstance): AttendanceStatusResolved {
+  if (r.checkInStatusResolved === 'SUBSTITUTED') {
+    return (r.isJustifiedAbsence ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED') as AttendanceStatusResolved
+  }
+  return r.checkInStatusResolved
+}
 
 /** Distribución de estados de entrada (check-in) sobre el total planificado. */
 export function computeStatusDistribution(resolved: ResolvedAttendanceByInstance[]): StatusDistribution {
   const totalPlanned = resolved.length
   const counts = new Map<AttendanceStatusResolved, number>()
   for (const r of resolved) {
-    const s = r.checkInStatusResolved
+    const s = statusForDistribution(r)
     counts.set(s, (counts.get(s) ?? 0) + 1)
   }
   const rows = STATUS_DISTRIBUTION_ORDER.map((status) => {

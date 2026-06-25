@@ -16,7 +16,6 @@ import {
   Calendar,
   FileSpreadsheet,
   FileText,
-  GraduationCap,
   LayoutGrid,
   Lightbulb,
   Loader2,
@@ -24,7 +23,6 @@ import {
   RefreshCw,
   Search,
   Trash2,
-  Users,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -704,7 +702,7 @@ export default function AdminAnalyticsPage() {
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
+          <div className="flex shrink-0 flex-col gap-3 lg:items-end">
             <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
               <button
                 type="button"
@@ -715,77 +713,46 @@ export default function AdminAnalyticsPage() {
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
                 Refrescar
               </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'xlsx'}
-                className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportAttendance('XLSX')}
-              >
-                {exportingKind === 'xlsx' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                {selectedUserName ? 'Excel detalle' : 'Excel'}
-              </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'csv'}
-                className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportAttendance('CSV')}
-              >
-                {exportingKind === 'csv' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                )}
-                {selectedUserName ? 'CSV detalle' : 'CSV'}
-              </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'pdf'}
-                className="btn-danger inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportMonthly()}
-              >
-                {exportingKind === 'pdf' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                PDF resumen
-              </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'person'}
-                className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportPerson()}
-              >
-                {exportingKind === 'person' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Users className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                Por persona
-              </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'course'}
-                className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportCourse()}
-              >
-                {exportingKind === 'course' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <GraduationCap className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                Por curso
-              </button>
             </div>
-            <p className="max-w-sm text-right text-xs text-gray-500">
-              {selectedUserName
-                ? `Excel/CSV descargan el detalle filtrado de ${selectedUserName}; “Por persona” descarga su resumen.`
-                : 'Las exportaciones reutilizan el motor institucional de reportes sobre el mismo rango vigente.'}
-            </p>
+            <div className="flex flex-col gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase text-emerald-800">
+                <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
+                Exportar asistencias
+              </div>
+              <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                <button
+                  type="button"
+                  disabled={loading || exportingKind === 'xlsx'}
+                  className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                  onClick={() => void runExportAttendance('XLSX')}
+                >
+                  {exportingKind === 'xlsx' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
+                  )}
+                  {selectedUserName ? 'Excel detalle' : 'Excel'}
+                </button>
+                <button
+                  type="button"
+                  disabled={loading || exportingKind === 'csv'}
+                  className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                  onClick={() => void runExportAttendance('CSV')}
+                >
+                  {exportingKind === 'csv' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
+                  )}
+                  {selectedUserName ? 'CSV detalle' : 'CSV'}
+                </button>
+              </div>
+            </div>
+            {selectedUserName ? (
+              <p className="max-w-sm text-left text-xs text-gray-500 lg:text-right">
+                Exportando detalle filtrado de {selectedUserName}.
+              </p>
+            ) : null}
           </div>
         </header>
 

@@ -46,12 +46,13 @@ const medicalLeaveUpdateSchema = z.object({
 // Obtener todas las licencias médicas (solo admin)
 r.get('/all', authGuard, requirePermission('licenses.read', 'all'), async (req, res) => {
   try {
-    const { 
-      userId, 
-      type, 
-      status, 
-      startDate, 
+    const {
+      userId,
+      type,
+      status,
+      startDate,
       endDate,
+      schoolYearId,
       page = 1,
       pageSize = 20
     } = req.query
@@ -63,6 +64,19 @@ r.get('/all', authGuard, requirePermission('licenses.read', 'all'), async (req, 
     if (status) where.status = status
     if (startDate) where.startDate = { gte: new Date(String(startDate)) }
     if (endDate) where.endDate = { lte: new Date(String(endDate)) }
+
+    // Filtro por ciclo lectivo: la licencia no tiene ciclo propio, así que la incluimos si
+    // su período SOLAPA el rango del ciclo (startDate <= fin del ciclo y endDate >= inicio).
+    if (typeof schoolYearId === 'string' && schoolYearId) {
+      const sy = await prisma.schoolYear.findUnique({
+        where: { id: schoolYearId },
+        select: { startsOn: true, endsOn: true },
+      })
+      if (sy?.startsOn && sy.endsOn) {
+        where.startDate = { ...where.startDate, lte: sy.endsOn }
+        where.endDate = { ...where.endDate, gte: sy.startsOn }
+      }
+    }
 
     const skip = (Number(page) - 1) * Number(pageSize)
     const take = Number(pageSize)

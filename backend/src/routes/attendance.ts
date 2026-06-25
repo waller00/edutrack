@@ -1003,8 +1003,15 @@ async function buildAttendanceStatsWhereAsync(query: Record<string, unknown>, us
   return where
 }
 
-function rate(part: number, total: number) {
-  return total > 0 ? Math.round((part / total) * 10000) / 100 : 0
+function statCount(value: unknown) {
+  const count = Number(value ?? 0)
+  return Number.isFinite(count) ? count : 0
+}
+
+function rate(part: unknown, total: unknown) {
+  const safePart = statCount(part)
+  const safeTotal = statCount(total)
+  return safeTotal > 0 ? Math.round((safePart / safeTotal) * 10000) / 100 : 0
 }
 
 // Obtener estadísticas de asistencias
@@ -1059,25 +1066,34 @@ r.get('/stats', authGuard, requirePermission('attendance.read'), async (req, res
       buildVirtualAbsenceRows(q, where),
     ])
 
-    const virtualAbsentCount = virtualAbsenceRows.length
-    const virtualMedicalLeaveCount = virtualAbsenceRows.filter((row: any) => row.status === 'ABSENT_JUSTIFIED').length
-    const totalAttendances = attendanceTotal + incidentAbsentCount + virtualAbsentCount
-    const absentCount = attendanceAbsentCount + incidentAbsentCount + virtualAbsentCount
+    const safeAttendanceTotal = statCount(attendanceTotal)
+    const safePresentCount = statCount(presentCount)
+    const safeAttendanceAbsentCount = statCount(attendanceAbsentCount)
+    const safeLateCount = statCount(lateCount)
+    const safeMedicalLeaveCount = statCount(medicalLeaveCount)
+    const safeExpectedAbsenceCount = statCount(expectedAbsenceCount)
+    const safeExitCount = statCount(exitCount)
+    const safeEarlyExitCount = statCount(earlyExitCount)
+    const safeIncidentAbsentCount = statCount(incidentAbsentCount)
+    const virtualAbsentCount = statCount(virtualAbsenceRows.length)
+    const virtualMedicalLeaveCount = statCount(virtualAbsenceRows.filter((row: any) => row.status === 'ABSENT_JUSTIFIED').length)
+    const totalAttendances = safeAttendanceTotal + safeIncidentAbsentCount + virtualAbsentCount
+    const absentCount = safeAttendanceAbsentCount + safeIncidentAbsentCount + virtualAbsentCount
 
     res.json({
       totalAttendances,
-      presentCount,
+      presentCount: safePresentCount,
       absentCount,
-      lateCount,
-      medicalLeaveCount: medicalLeaveCount + virtualMedicalLeaveCount,
-      expectedAbsenceCount,
-      exitCount,
-      earlyExitCount,
-      attendanceRate: rate(presentCount, totalAttendances),
-      lateRate: rate(lateCount, totalAttendances),
+      lateCount: safeLateCount,
+      medicalLeaveCount: safeMedicalLeaveCount + virtualMedicalLeaveCount,
+      expectedAbsenceCount: safeExpectedAbsenceCount,
+      exitCount: safeExitCount,
+      earlyExitCount: safeEarlyExitCount,
+      attendanceRate: rate(safePresentCount, totalAttendances),
+      lateRate: rate(safeLateCount, totalAttendances),
       absenceRate: rate(absentCount, totalAttendances),
-      exitRate: rate(exitCount, totalAttendances),
-      earlyExitRate: rate(earlyExitCount, totalAttendances),
+      exitRate: rate(safeExitCount, totalAttendances),
+      earlyExitRate: rate(safeEarlyExitCount, totalAttendances),
     });
   } catch (error) {
     console.error('Error obteniendo estadísticas:', error);

@@ -66,6 +66,43 @@ describe('AdminAttendance', () => {
     expect(row?.textContent).toMatch(/Sin salida/)
   })
 
+  it('no muestra tasa de presencia nula al filtrar por usuario', async () => {
+    const user = { id: 'u1', name: 'Pedro', email: 'p@b.com', role: 'STAFF', username: 'pedro' }
+
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('attendance/all')) {
+        return { total: 0, page: 1, pageSize: 20, data: [] }
+      }
+      if (String(url).includes('admin/users')) return { data: [user] }
+      if (String(url).includes('reports/user-events/u1')) return []
+      if (String(url).includes('attendance/stats')) {
+        return {
+          totalAttendances: 0,
+          presentCount: 0,
+          absentCount: 0,
+          lateCount: 0,
+          medicalLeaveCount: 0,
+          attendanceRate: null,
+          lateRate: null,
+          absenceRate: null,
+        } as never
+      }
+      return {}
+    })
+
+    render(<AdminAttendance />)
+
+    fireEvent.focus(await screen.findByPlaceholderText('Buscar por username...'))
+    fireEvent.click(await screen.findByRole('button', { name: '@pedro' }))
+
+    await waitFor(() => {
+      expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/attendance/stats?'))
+      expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('userId=u1'))
+    })
+    expect(screen.getAllByText('0%').length).toBeGreaterThan(0)
+    expect(screen.queryByText('null%')).not.toBeInTheDocument()
+  })
+
   it('muestra ausencias virtuales y permite seleccionarlas', async () => {
     const rec = {
       id: 'absence:ev1_2026-05-20',

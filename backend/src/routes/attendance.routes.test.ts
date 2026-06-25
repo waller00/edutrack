@@ -584,6 +584,26 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendance.count.mock.calls[0][0].where.userId).toBe("user-1");
   });
 
+  it("GET /attendance/stats con filtro userId no serializa tasas nulas", async () => {
+    prismaMock.attendance.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    const res = await request(app())
+      .get("/attendance/stats?userId=user-2")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.attendanceRate).toBe(0);
+    expect(res.body.lateRate).toBe(0);
+    expect(res.body.absenceRate).toBe(0);
+    expect(res.body.exitRate).toBe(0);
+    expect(res.body.earlyExitRate).toBe(0);
+    expect(res.body.attendanceRate).not.toBeNull();
+    expect(prismaMock.attendance.count.mock.calls[0][0].where.userId).toBe("user-2");
+  });
+
   it("POST /attendance/:id/note 400 con nota vacía", async () => {
     const res = await request(app())
       .post("/attendance/a1/note")

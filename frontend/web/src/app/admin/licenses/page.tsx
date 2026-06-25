@@ -2,6 +2,7 @@
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import {
   buildMedicalLeavesQueryString,
   formatLicenseAdminUserDisplayName,
@@ -14,6 +15,11 @@ import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import DateField from '@/components/forms/DateField'
 import { Calendar, FileText, Loader2, Plus, Search, Trash2 } from 'lucide-react'
+
+function withSchoolYear(path: string, schoolYearQuery: string): string {
+  if (!schoolYearQuery) return path
+  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
+}
 
 type License = {
   id: string
@@ -109,11 +115,20 @@ export default function LicensesPage() {
     notes: '',
   })
 
+  const syCtx = useOptionalAdminSchoolYear()
+  const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+
+  useEffect(() => {
+    loadUsers()
+  }, [])
+
+  // Recarga al cambiar el ciclo lectivo (selector global). Licencias se filtran por solapamiento
+  // de fechas con el ciclo; días no laborables por su schoolYearId.
   useEffect(() => {
     loadLicenses()
     loadNonWorkingDays()
-    loadUsers()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolYearQuery])
 
   useEffect(() => {
     setSelectedLicenseIds([])
@@ -125,7 +140,7 @@ export default function LicensesPage() {
       const qs = buildMedicalLeavesQueryString(override ?? filters)
       const data = await api<{
         data: License[]
-      }>(`/medical-leaves/all?${qs}`)
+      }>(withSchoolYear(`/medical-leaves/all?${qs}`, schoolYearQuery))
 
       setLicenses(data.data)
     } catch (error) {
@@ -155,7 +170,7 @@ export default function LicensesPage() {
     setLoadingNonWorkingDays(true)
     try {
       const qs = new URLSearchParams(nonWorkingFilters).toString()
-      const data = await api<{ data: NonWorkingDay[] }>(`/non-working-days?${qs}`)
+      const data = await api<{ data: NonWorkingDay[] }>(withSchoolYear(`/non-working-days?${qs}`, schoolYearQuery))
       setNonWorkingDays(data.data)
     } catch (error) {
       console.error('Error cargando días no laborables:', error)
@@ -178,6 +193,8 @@ export default function LicensesPage() {
           type: newNonWorkingDay.type,
           reason: newNonWorkingDay.reason.trim(),
           notes: newNonWorkingDay.notes.trim() || undefined,
+          // Lo asociamos al ciclo seleccionado para que aparezca bajo ese filtro.
+          schoolYearId: syCtx?.selectedId ?? syCtx?.activeId ?? undefined,
         }),
       })
       setMessage('✅ Día no laborable guardado correctamente')
