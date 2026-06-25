@@ -540,6 +540,10 @@ export default function AdminAnalyticsPage() {
     }
   }
 
+  // Export de asistencias en analítica oculto temporalmente: se reimplementa más adelante.
+  // (El export de la página de Asistencias no se ve afectado.)
+  const showAnalyticsAttendanceExports = false
+
   const runExportAttendance = (format: 'XLSX' | 'CSV') =>
     runExport(
       format === 'XLSX' ? 'xlsx' : 'csv',
@@ -714,41 +718,43 @@ export default function AdminAnalyticsPage() {
                 Refrescar
               </button>
             </div>
-            <div className="flex flex-col gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase text-emerald-800">
-                <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
-                Exportar asistencias
+            {showAnalyticsAttendanceExports ? (
+              <div className="flex flex-col gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase text-emerald-800">
+                  <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
+                  Exportar asistencias
+                </div>
+                <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                  <button
+                    type="button"
+                    disabled={loading || exportingKind === 'xlsx'}
+                    className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                    onClick={() => void runExportAttendance('XLSX')}
+                  >
+                    {exportingKind === 'xlsx' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
+                    )}
+                    {selectedUserName ? 'Excel detalle' : 'Excel'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading || exportingKind === 'csv'}
+                    className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                    onClick={() => void runExportAttendance('CSV')}
+                  >
+                    {exportingKind === 'csv' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
+                    )}
+                    {selectedUserName ? 'CSV detalle' : 'CSV'}
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-                <button
-                  type="button"
-                  disabled={loading || exportingKind === 'xlsx'}
-                  className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                  onClick={() => void runExportAttendance('XLSX')}
-                >
-                  {exportingKind === 'xlsx' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  ) : (
-                    <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
-                  )}
-                  {selectedUserName ? 'Excel detalle' : 'Excel'}
-                </button>
-                <button
-                  type="button"
-                  disabled={loading || exportingKind === 'csv'}
-                  className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                  onClick={() => void runExportAttendance('CSV')}
-                >
-                  {exportingKind === 'csv' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  ) : (
-                    <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                  )}
-                  {selectedUserName ? 'CSV detalle' : 'CSV'}
-                </button>
-              </div>
-            </div>
-            {selectedUserName ? (
+            ) : null}
+            {showAnalyticsAttendanceExports && selectedUserName ? (
               <p className="max-w-sm text-left text-xs text-gray-500 lg:text-right">
                 Exportando detalle filtrado de {selectedUserName}.
               </p>
