@@ -101,7 +101,9 @@ describe('computeRangeKpis', () => {
     expect(kpis.M6_COVERAGE_CP_pct).toBe(0)
   })
 
-  it('cuenta una suplencia como ausencia del titular y como bloque cubierto', () => {
+  it('cuenta la suplencia como ausencia del titular y NO como bloque cubierto', () => {
+    // SUBSTITUTED es la ausencia del titular: aporta ausentismo pero no cobertura. La cobertura
+    // real proviene de la instancia propia del suplente (presente) cuando efectivamente asiste.
     const rows = [
       resolved(
         'SUBSTITUTED',
@@ -112,7 +114,7 @@ describe('computeRangeKpis', () => {
 
     const kpis = computeRangeKpis(rows, { plannedInstancesCount: rows.length })
     expect(kpis.M4_AOP_pct).toBe(100)
-    expect(kpis.M6_COVERAGE_CP_pct).toBe(100)
+    expect(kpis.M6_COVERAGE_CP_pct).toBe(0)
   })
 })
 

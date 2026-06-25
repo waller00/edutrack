@@ -4,19 +4,21 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import { signAccessToken } from '../test-utils/bearer-token.js'
 
-const { prismaMock, getPlannedInstancesMock, resolveMock, resolveSchoolYearMock } = vi.hoisted(() => ({
+const { prismaMock, getPlannedInstancesMock, resolveMock, resolveSubstituteMock, resolveSchoolYearMock } = vi.hoisted(() => ({
   prismaMock: {
     user: { findMany: vi.fn().mockResolvedValue([]) },
     medicalLeave: { count: vi.fn().mockResolvedValue(0) },
   },
   getPlannedInstancesMock: vi.fn(),
   resolveMock: vi.fn(),
+  resolveSubstituteMock: vi.fn(),
   resolveSchoolYearMock: vi.fn().mockResolvedValue('sy-1'),
 }))
 
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
 vi.mock('../services/analytics/planInstances.js', () => ({ getPlannedInstances: getPlannedInstancesMock }))
 vi.mock('../services/analytics/resolveInstances.js', () => ({ resolveAttendanceAndJustification: resolveMock }))
+vi.mock('../services/analytics/resolveSubstituteInstances.js', () => ({ resolveSubstituteInstances: resolveSubstituteMock }))
 vi.mock('../services/school-year-service.js', () => ({ resolveSchoolYearIdForList: resolveSchoolYearMock }))
 
 import analyticsRoutes from './analytics.js'
@@ -71,6 +73,7 @@ describe('analytics /dashboard', () => {
     vi.clearAllMocks()
     getPlannedInstancesMock.mockResolvedValue([])
     resolveMock.mockResolvedValue(fixtureInstances())
+    resolveSubstituteMock.mockResolvedValue([])
     resolveSchoolYearMock.mockResolvedValue('sy-1')
   })
 

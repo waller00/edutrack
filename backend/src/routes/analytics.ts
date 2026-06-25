@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
+import { resolveSubstituteInstances } from '../services/analytics/resolveSubstituteInstances.js'
 import {
   buildDashboardBreakdowns,
   computeDashboardKpis,
@@ -632,7 +633,18 @@ async function resolveInstancesForRange(
     eventType: scope.eventType,
     schoolYearId: scope.schoolYearId,
   })
-  return resolveAttendanceAndJustification({ plannedInstances })
+  const [titularInstances, substituteInstances] = await Promise.all([
+    resolveAttendanceAndJustification({ plannedInstances }),
+    resolveSubstituteInstances({
+      from,
+      to,
+      userId: scope.userId,
+      userIds: scope.userIds,
+      eventType: scope.eventType,
+      schoolYearId: scope.schoolYearId,
+    }),
+  ])
+  return [...titularInstances, ...substituteInstances]
 }
 
 /** Rango previo de igual longitud, inmediatamente anterior a [from, to]. */
