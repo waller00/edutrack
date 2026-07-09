@@ -1,0 +1,27 @@
+# fail2ban — EduTrack
+#
+# Protege el acceso SSH del servidor. El droplet tiene PasswordAuthentication=yes,
+# así que sshd es un objetivo real de fuerza bruta; este jail lo cubre (conexiones
+# directas, IP real → el baneo a nivel de red SÍ funciona).
+#
+# NOTA (importante): NO se banea el tráfico WEB con iptables. El origen está detrás de
+# Cloudflare y a nivel de red solo ve IPs de Cloudflare — un ban de red sería inútil, y
+# peligroso si llegara a banear un rango de CF (dejaría afuera a usuarios legítimos).
+# El baneo efectivo del tráfico web se hace en Cloudflare (WAF/rate-limiting) o vía la
+# API de Cloudflare como acción de fail2ban (requiere un token con permiso de firewall).
+
+[DEFAULT]
+# Whitelist: loopback, redes docker internas, y la IP de administración.
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 167.56.23.240
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+backend  = auto
+
+[sshd]
+enabled  = true
+port     = ssh
+logpath  = %(sshd_log)s
+backend  = %(sshd_backend)s
+maxretry = 5
+bantime  = 2h
