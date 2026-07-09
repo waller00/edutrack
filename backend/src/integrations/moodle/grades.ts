@@ -85,7 +85,23 @@ export async function listCourseAssignments(moodleCourseId: number): Promise<Moo
 /**
  * Notas actuales de una tarea (`mod_assign_get_grades`), indexadas por `moodleUserId`.
  * Moodle usa `-1` para "sin calificar": esos casos se omiten del mapa.
+ *
+ * Una tarea puede tener varias entradas por alumno (reintentos/re-calificaciones) y el orden del
+ * array no garantiza la vigente: nos quedamos con la de mayor `timemodified` (o `attemptnumber`).
  */
+/** Acumula en `best` la nota vigente (mayor timemodified/attempt) de cada alumno de una tarea. */
+function accumulateLatestGrades(rawGrades: unknown, best: Map<number, { grade: number; ts: number }>): void {
+  if (!Array.isArray(rawGrades)) return;
+  for (const g of rawGrades) {
+    const userId = numericField(g, "userid");
+    const grade = numericField(g, "grade");
+    if (userId == null || grade == null || grade < 0) continue;
+    const ts = numericField(g, "timemodified") ?? numericField(g, "attemptnumber") ?? 0;
+    const prev = best.get(userId);
+    if (!prev || ts >= prev.ts) best.set(userId, { grade, ts });
+  }
+}
+
 export async function getAssignmentGrades(assignmentId: number): Promise<Map<number, number>> {
   const data = await moodleRest("mod_assign_get_grades", {
     "assignmentids[0]": String(assignmentId),
@@ -94,27 +110,26 @@ export async function getAssignmentGrades(assignmentId: number): Promise<Map<num
     data && typeof data === "object" && "assignments" in data
       ? (data as { assignments?: unknown }).assignments
       : null;
-  const result = new Map<number, number>();
-  if (!Array.isArray(assignments)) return result;
+  const best = new Map<number, { grade: number; ts: number }>();
+  if (!Array.isArray(assignments)) return new Map();
 
   for (const a of assignments) {
-    const grades =
-      a && typeof a === "object" && "grades" in a ? (a as { grades?: unknown }).grades : null;
-    if (!Array.isArray(grades)) continue;
-    for (const g of grades) {
-      const userId = numericField(g, "userid");
-      const grade = numericField(g, "grade");
-      if (userId == null || grade == null || grade < 0) continue;
-      result.set(userId, grade);
-    }
+    const grades = a && typeof a === "object" && "grades" in a ? (a as { grades?: unknown }).grades : null;
+    accumulateLatestGrades(grades, best);
   }
+
+  const result = new Map<number, number>();
+  for (const [userId, v] of best) result.set(userId, v.grade);
   return result;
 }
 
 /**
  * Escribe la nota de un alumno en una tarea (`mod_assign_save_grade`). Idempotente: sobrescribe
- * la nota existente. `attemptnumber=-1` apunta al último intento; `applytoall=1` cubre entregas
- * grupales. Devuelve `void`; ante error, `moodleRest` lanza `MOODLE_EXCEPTION`.
+ * la nota existente. `attemptnumber=-1` apunta al último intento.
+ *
+ * `applytoall=0` (calificación INDIVIDUAL): la planilla es por-alumno, así que en tareas de
+ * entrega grupal NO se debe propagar la nota al resto del grupo (con `=1` cada grupo quedaría con
+ * la nota del último integrante procesado). Devuelve `void`; ante error, `moodleRest` lanza `MOODLE_EXCEPTION`.
  */
 export async function saveAssignmentGrade(
   assignmentId: number,
@@ -128,6 +143,6 @@ export async function saveAssignmentGrade(
     attemptnumber: "-1",
     addattempt: "0",
     workflowstate: "",
-    applytoall: "1",
+    applytoall: "0",
   });
 }
