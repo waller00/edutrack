@@ -18,6 +18,7 @@ Código: [`backend/src/integrations/moodle/`](../backend/src/integrations/moodle
 | Tracking | `enrolment-map.ts` | Registra qué acceso otorgó la integración (`MoodleEnrolmentMap`) para revocar con seguridad. |
 | Outbox | `outbox.ts` | Cola persistente con reintentos + backoff (reemplaza el *fire-and-forget*). |
 | Reconciliación | `reconcile.ts` | Estado deseado EduTrack→Moodle: cursos + titulares + suplencias + revocación + *drift*. |
+| Notas | `grades.ts` | Lee tareas (`mod_assign`) y notas de un curso, y escribe notas de vuelta (puente offline). |
 
 ### Modelos de datos (Prisma)
 
@@ -224,6 +225,38 @@ Los usuarios espejo creados por la integración con `MOODLE_USER_AUTH=oauth2` se
 
 > Nota: el SSO es configuración de Moodle/Keycloak; EduTrack sólo provisiona el usuario y fija
 > el método de auth. No hay forma de automatizarlo enteramente desde el backend.
+
+## Puente de notas (planilla offline)
+
+A diferencia del resto de la integración, las **notas no se almacenan en EduTrack**: Moodle es la
+fuente de verdad. EduTrack sólo hace de puente para editarlas de forma masiva/offline.
+
+Circuito (pantalla admin `/admin/grades`, permiso `courses.manage` scope ALL):
+
+1. El admin elige curso → asignatura → tarea. `GET /grades/activities` resuelve el curso Moodle por
+   asignatura (`scope.ts` + `MoodleObjectMap` `SUBJECT_COURSE`) y lista sus tareas.
+2. `GET /grades/sheet` genera un `.xlsx` con el roster (`StudentEnrollment` ACTIVE ∩ inscritos en el
+   curso Moodle) y la nota actual de cada alumno. La columna **"Nota nueva"** es la única editable
+   (validación 0..máx); la hoja va protegida.
+3. El admin completa las notas offline y sube la planilla. `POST /grades/sheet/upload` recibe el
+   archivo como **base64 dentro del JSON** (no hay multipart, igual que las imágenes) y por cada fila
+   escribe la nota con `mod_assign_save_grade`. Devuelve `{ updatedCount, errors: [{ row, message }] }`.
+
+La correlación alumno↔Moodle es por el `idnumber` estable `et-student-<id>` de la planilla (nunca
+por el nombre editable). Es **idempotente**: re-subir la misma planilla sobrescribe sin duplicar.
+
+Sólo se admiten tareas con calificación **numérica de punto** (`gradetype = point`); escala/rúbrica
+se muestran pero se bloquean para carga.
+
+### Funciones WS requeridas
+
+El token WS debe tener habilitadas en su *external service*, además de las de sincronización:
+
+- `mod_assign_get_assignments` — listar tareas del curso.
+- `mod_assign_get_grades` — notas actuales (para prellenar la planilla).
+- `mod_assign_save_grade` — escribir la nota de un alumno.
+
+Si faltan, las llamadas fallan con `webservice_access_exception` (visible como `MOODLE_EXCEPTION`).
 
 ## Tema visual EduTrack
 

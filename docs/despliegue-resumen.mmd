@@ -1,0 +1,31 @@
+flowchart TB
+    classDef container fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef store fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    classDef ext fill:#8a8a8a,stroke:#5f5f5f,color:#ffffff
+    classDef device fill:#6f4ea1,stroke:#4a3270,color:#ffffff
+
+    CLIENTS["Navegador / Mobile · ZKTeco · Estudiante"]:::device
+    CF["Cloudflare<br/>SSL / proxy / CDN"]:::ext
+    GHA["GitHub Actions<br/>CI/CD · tests · deploy"]:::ext
+    SAAS["SaaS externos<br/>Sentry"]:::ext
+
+    subgraph APPVPS["VPS Aplicacion — Docker Compose"]
+        direction TB
+        CORE["reverse-proxy · web (BFF) · auth (API) · keycloak"]:::container
+        DB[("PostgreSQL · Redis · KC DB")]:::store
+        MON["Observabilidad<br/>Prometheus · Grafana · Loki"]:::container
+    end
+
+    subgraph MOODLEVPS["VPS Moodle"]
+        direction TB
+        MOODLE["moodle"]:::container
+        MDB[("MariaDB")]:::store
+    end
+
+    CLIENTS --> CF --> CORE
+    CORE --> DB
+    CORE -->|sync| MOODLE
+    MOODLE --> MDB
+    CORE -. errores .-> SAAS
+    CORE -. metricas / logs .-> MON
+    GHA ==>|SSH: compose pull + up| APPVPS

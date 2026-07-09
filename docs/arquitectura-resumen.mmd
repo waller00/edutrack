@@ -1,0 +1,27 @@
+flowchart TB
+    classDef cli fill:#6f4ea1,stroke:#4a3270,color:#ffffff
+    classDef box fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef store fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    classDef ext fill:#8a8a8a,stroke:#5f5f5f,color:#ffffff
+
+    WEB["Clientes<br/>Web / Mobile · Lectores ZKTeco"]:::cli
+    CF["Cloudflare<br/>SSL · proxy"]:::ext
+
+    subgraph APP["EduTrack — Docker Compose (VPS)"]
+        direction TB
+        FE["Next.js<br/>Frontend + BFF"]:::box
+        API["Express API<br/>Servicios · Prisma"]:::box
+        DATA[("PostgreSQL + Redis")]:::store
+        KC["Keycloak (OIDC)"]:::box
+    end
+
+    INT["Integraciones<br/>Moodle · Didit"]:::ext
+    OPS["Observabilidad + CI/CD<br/>Sentry · Grafana · GitHub Actions"]:::ext
+
+    WEB -->|HTTPS| CF --> FE
+    FE -->|REST| API
+    API <--> DATA
+    FE -. OIDC .-> KC
+    API --> INT
+    API -. telemetria .-> OPS
+    OPS ==>|deploy| FE

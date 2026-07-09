@@ -1,0 +1,1530 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EduTrack — Documentación técnica</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<button class="menu-btn" id="menuBtn" aria-label="Menú">☰</button>
+
+<div class="layout">
+
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-logo">E</div>
+      <div>
+        <div class="brand-name">EduTrack</div>
+        <div class="brand-sub">Documentación técnica</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-group">
+        <div class="nav-group-title">Introducción</div>
+        <a href="#overview">Visión general</a>
+        <a href="#stack">Stack tecnológico</a>
+        <a href="#arquitectura">Arquitectura</a>
+        <a href="#estructura">Estructura del repo</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Backend</div>
+        <a href="#backend">Anatomía del backend</a>
+        <a href="#rutas">Rutas / API</a>
+        <a href="#servicios">Servicios</a>
+        <a href="#datos">Modelo de datos</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Frontend</div>
+        <a href="#frontend">App Router &amp; UI</a>
+        <a href="#componentes">Componentes &amp; libs</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Dominio &amp; flujos</div>
+        <a href="#auth">Autenticación (BFF)</a>
+        <a href="#roles">Roles &amp; permisos</a>
+        <a href="#flujo-asistencia">Flujo: asistencia</a>
+        <a href="#flujo-biometrico">Flujo: biometría</a>
+        <a href="#flujo-eventos">Flujo: eventos</a>
+        <a href="#flujo-licencias">Flujo: licencias</a>
+        <a href="#flujo-assistant">Asistente NL→SQL</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Referencia de clases</div>
+        <a href="#ref-attendance">Asistencia (módulos)</a>
+        <a href="#ref-events">Eventos &amp; suplencias</a>
+        <a href="#ref-analytics">Analítica</a>
+        <a href="#ref-auth">Auth &amp; sesiones</a>
+        <a href="#ref-identity">Identidad &amp; permisos</a>
+        <a href="#ref-config">Config &amp; timezone</a>
+        <a href="#ref-assistant">Asistente (módulos)</a>
+        <a href="#ref-moodle">Moodle (módulos)</a>
+        <a href="#ref-utils">Utilidades</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Integraciones</div>
+        <a href="#moodle">Moodle</a>
+        <a href="#didit">Didit (liveness)</a>
+        <a href="#zkteco">ZKTeco</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Operación</div>
+        <a href="#infra">Infra &amp; Docker</a>
+        <a href="#cicd">CI / CD</a>
+        <a href="#observabilidad">Observabilidad</a>
+        <a href="#comandos">Comandos</a>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ============================ CONTENT ============================ -->
+  <main class="content">
+
+    <!-- HERO -->
+    <div class="hero">
+      <h1>EduTrack</h1>
+      <p class="lede">Plataforma web de gestión integral de instituciones educativas: asistencia del personal,
+        eventos y turnos, licencias médicas, estructura académica, biometría, sincronización con Moodle,
+        reportes y analítica.</p>
+      <div class="pill-row">
+        <span class="pill">Next.js 14</span>
+        <span class="pill">Node 20 · Express</span>
+        <span class="pill">Prisma · PostgreSQL 16</span>
+        <span class="pill">Keycloak · BFF</span>
+        <span class="pill">Docker Compose</span>
+        <span class="pill">Moodle</span>
+      </div>
+    </div>
+
+    <!-- ==================== VISIÓN GENERAL ==================== -->
+    <section id="overview">
+      <div class="anchor-h"><span class="section-tag">01</span><h2>Visión general</h2></div>
+      <p class="lede">EduTrack digitaliza la operación de un liceo: quién trabaja, cuándo, con qué grupo,
+        y qué pasó con esa jornada. Combina un registro biométrico físico con una capa administrativa web.</p>
+
+      <div class="grid cols-3">
+        <div class="card feature">
+          <div class="ico">🕐</div>
+          <h4>Asistencia</h4>
+          <p>Entradas/salidas del personal, tolerancias configurables, estados derivados (presente, tarde, salida temprana) e incidencias automáticas.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">📅</div>
+          <h4>Eventos &amp; turnos</h4>
+          <p>Clases, reuniones y jornadas con recurrencia, versionado temporal de series y suplencias docentes.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">🏥</div>
+          <h4>Licencias</h4>
+          <p>Licencias médicas/laborales que justifican ausencias y se reconcilian con la asistencia.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">🎓</div>
+          <h4>Estructura académica</h4>
+          <p>Ciclos lectivos, cursos, ofertas anuales, orientaciones, asignaturas y matrícula de estudiantes.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">🔒</div>
+          <h4>Biometría</h4>
+          <p>Terminales ZKTeco (protocolo ADMS/iclock) que emiten marcas; vinculación segura persona↔dispositivo.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">🔗</div>
+          <h4>Moodle</h4>
+          <p>Sincronización idempotente de usuarios, cursos e inscripciones vía servicios web REST.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">📊</div>
+          <h4>Reportes &amp; analítica</h4>
+          <p>Métricas de asistencia, rankings, exportaciones (PDF/CSV) y comparación entre ciclos.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">🤖</div>
+          <h4>Asistente NL→SQL</h4>
+          <p>Preguntas en lenguaje natural que se resuelven con heurísticas curadas o traducción a SQL con LLM.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">🔔</div>
+          <h4>Notificaciones</h4>
+          <p>Avisos in-app persistentes y Web Push (VAPID) para licencias, asignaciones e incidencias.</p>
+        </div>
+      </div>
+
+      <div class="callout note">
+        <span class="ci">🌐</span>
+        <p><strong>Producción:</strong> <a href="https://edutrack-uy.com/">edutrack-uy.com</a> &nbsp;·&nbsp;
+        <strong>Local:</strong> <code>:3000</code> (frontend) / <code>:4000</code> (API) / <code>:8089</code> (Keycloak)</p>
+      </div>
+    </section>
+
+    <!-- ==================== STACK ==================== -->
+    <section id="stack">
+      <div class="anchor-h"><span class="section-tag">02</span><h2>Stack tecnológico</h2></div>
+      <p>Monorepo con dos aplicaciones (backend Express + frontend Next.js) e infraestructura declarada en Docker Compose.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Capa</th><th>Tecnología</th><th>Notas</th></tr></thead>
+          <tbody>
+            <tr><td>Frontend</td><td>Next.js 14 (App Router), React 18, TypeScript, Tailwind</td><td>SSR + client components; Sentry <code>@sentry/nextjs</code></td></tr>
+            <tr><td>Backend</td><td>Node 20, Express, Prisma ORM</td><td>TypeScript compilado a ESM; <code>tsx</code> en dev</td></tr>
+            <tr><td>Base de datos</td><td>PostgreSQL 16</td><td>Prisma con <code>db push</code> (sin <code>migrate deploy</code>)</td></tr>
+            <tr><td>Identidad</td><td>Keycloak (OIDC) + patrón BFF</td><td>Sesiones en Redis, cookie <code>sid</code> HttpOnly</td></tr>
+            <tr><td>Cache/sesión</td><td>Redis</td><td>Sesiones OIDC, rate-limit</td></tr>
+            <tr><td>Tests</td><td>Vitest (unit), Playwright (e2e)</td><td>Backend + frontend; coverage lcov</td></tr>
+            <tr><td>Calidad</td><td>SonarCloud</td><td>Cognitive complexity ≤ 15; cobertura nueva ≥ 80%</td></tr>
+            <tr><td>CI/CD</td><td>GitHub Actions</td><td><code>ci.yml</code>, <code>sonar.yml</code>, <code>deploy.yml</code>, <code>e2e.yml</code></td></tr>
+            <tr><td>Observabilidad</td><td>Sentry, Grafana + Loki, Prometheus, LogRocket</td><td>Stack de monitoreo separado</td></tr>
+            <tr><td>IA</td><td>OpenAI / Google Generative AI</td><td>Asistente de consultas NL→SQL</td></tr>
+            <tr><td>Infra</td><td>Docker Compose · Terraform · Cloudflare · Nginx</td><td>Local y cloud</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ==================== ARQUITECTURA ==================== -->
+    <section id="arquitectura">
+      <div class="anchor-h"><span class="section-tag">03</span><h2>Arquitectura</h2></div>
+      <p>Arquitectura en capas. El navegador nunca ve tokens OIDC: habla con el backend, que actúa como
+        <em>Backend-for-Frontend</em> (BFF) y guarda las sesiones en Redis.</p>
+
+      <div class="layers">
+        <div class="layer l1">
+          <div><h4>1 · Cliente</h4><p>Navegador — Next.js App Router (SSR + React client)</p></div>
+          <div class="tags">frontend/web · cookie sid</div>
+        </div>
+        <div class="layer l2">
+          <div><h4>2 · API / BFF</h4><p>Express: rutas por dominio, middlewares de auth y permisos, rate-limit</p></div>
+          <div class="tags">backend/src/app.ts · routes/</div>
+        </div>
+        <div class="layer l3">
+          <div><h4>3 · Lógica de negocio</h4><p>Servicios puros y con DB: asistencia, analítica, eventos, Moodle, asistente</p></div>
+          <div class="tags">backend/src/services · attendance · events</div>
+        </div>
+        <div class="layer l4">
+          <div><h4>4 · Persistencia</h4><p>Prisma → PostgreSQL · Redis (sesiones/rate-limit)</p></div>
+          <div class="tags">prisma/schema.prisma · db/prisma.ts</div>
+        </div>
+        <div class="layer l5">
+          <div><h4>5 · Externos</h4><p>Keycloak · Moodle · Didit · terminales ZKTeco · SMTP · Web Push</p></div>
+          <div class="tags">integrations/ · auth/</div>
+        </div>
+      </div>
+
+      <div class="callout tip">
+        <span class="ci">💡</span>
+        <p>El backend corre <code>prisma db push --skip-generate</code> al arrancar (ver <code>backend/docker-entrypoint.sh</code>).
+        No hay tabla <code>_prisma_migrations</code>; las carpetas en <code>prisma/migrations/</code> son <strong>solo documentación</strong>.</p>
+      </div>
+    </section>
+
+    <!-- ==================== ESTRUCTURA ==================== -->
+    <section id="estructura">
+      <div class="anchor-h"><span class="section-tag">04</span><h2>Estructura del repo</h2></div>
+      <p>Raíz del monorepo. Cada archivo <code>docker-compose.*.yml</code> compone un aspecto de la infraestructura (base, cloud, monitoreo, proxy, Moodle).</p>
+
+      <div class="tree">
+<span class="root">final_class/</span>
+├── <span class="dir">backend/</span>                <span class="cmt"># API Express + Prisma</span>
+│   ├── <span class="dir">src/</span>
+│   │   ├── app.ts          <span class="cmt"># montaje de middlewares y rutas</span>
+│   │   ├── server.ts       <span class="cmt"># arranque HTTP + workers</span>
+│   │   ├── instrument.ts   <span class="cmt"># init Sentry</span>
+│   │   ├── <span class="dir">routes/</span>        <span class="cmt"># endpoints (un archivo por dominio)</span>
+│   │   ├── <span class="dir">services/</span>      <span class="cmt"># lógica de negocio</span>
+│   │   ├── <span class="dir">integrations/</span>  <span class="cmt"># moodle · didit · zkteco</span>
+│   │   ├── <span class="dir">auth/</span>          <span class="cmt"># Keycloak BFF, sesiones Redis</span>
+│   │   ├── <span class="dir">attendance/</span>    <span class="cmt"># lógica pura de asistencia</span>
+│   │   ├── <span class="dir">events/</span>        <span class="cmt"># recurrencia, solape, versionado</span>
+│   │   ├── <span class="dir">identity/</span>      <span class="cmt"># roles, permisos, cédula UY</span>
+│   │   ├── <span class="dir">notifications/</span> <span class="cmt"># email, bienvenida estudiante</span>
+│   │   ├── <span class="dir">observability/</span> <span class="cmt"># métricas Prometheus, readiness</span>
+│   │   ├── <span class="dir">middlewares/</span>   <span class="cmt"># auth, permisos, rate-limit</span>
+│   │   ├── <span class="dir">config/</span>        <span class="cmt"># timezone, system-settings</span>
+│   │   └── <span class="dir">db/</span>            <span class="cmt"># prisma & redis singletons</span>
+│   └── <span class="dir">prisma/</span>
+│       ├── schema.prisma   <span class="cmt"># fuente de verdad del esquema</span>
+│       ├── <span class="dir">migrations/</span>    <span class="cmt"># SOLO documentación</span>
+│       └── seed-*.ts/.mjs  <span class="cmt"># seeds (academic, teachers, demo…)</span>
+├── <span class="dir">frontend/web/</span>           <span class="cmt"># Next.js App Router</span>
+│   └── <span class="dir">src/</span>
+│       ├── <span class="dir">app/</span>           <span class="cmt"># páginas por rol (admin/staff/teacher/student)</span>
+│       ├── <span class="dir">components/</span>    <span class="cmt"># UI reutilizable</span>
+│       ├── <span class="dir">lib/</span>           <span class="cmt"># clientes API y helpers por dominio</span>
+│       └── <span class="dir">contexts/</span>      <span class="cmt"># Auth, ciclo lectivo activo</span>
+├── <span class="dir">keycloak/</span>              <span class="cmt"># realm JSON + tema de login</span>
+├── <span class="dir">monitoring/</span>            <span class="cmt"># grafana · loki · prometheus · alloy · blackbox</span>
+├── <span class="dir">performance/</span>           <span class="cmt"># k6, baselines de carga</span>
+├── <span class="dir">nginx/</span> · <span class="dir">terraform/</span>    <span class="cmt"># reverse proxy · IaC</span>
+├── <span class="dir">scripts/</span>               <span class="cmt"># backup, restore, deploy, moodle, keycloak</span>
+├── docker-compose.yml     <span class="cmt"># infraestructura local</span>
+├── docker-compose.cloud.yml
+├── docker-compose.moodle.yml · docker-compose.monitoring.yml
+└── .env.compose.example   <span class="cmt"># plantilla de variables</span>
+      </div>
+    </section>
+
+    <!-- ==================== BACKEND ==================== -->
+    <section id="backend">
+      <div class="anchor-h"><span class="section-tag">05</span><h2>Anatomía del backend</h2></div>
+      <p>El punto de entrada es <code>backend/src/app.ts</code>: arma la app Express, configura CORS
+        (con variantes <code>www.</code> y <code>api.</code>), Helmet, morgan, métricas HTTP y monta cada router bajo su prefijo.</p>
+
+      <h3>Orden de montaje (relevante)</h3>
+      <p>El orden importa: los parsers especiales van <strong>antes</strong> del <code>express.json()</code> global.</p>
+      <ul>
+        <li><code>/iclock</code> → parser de <strong>texto plano</strong> para el protocolo ZKTeco ADMS (con reescritura de <code>/cdata</code>, <code>/getrequest</code>…).</li>
+        <li><code>/webhooks/didit</code> → cuerpo <strong>raw</strong> para validar la firma HMAC.</li>
+        <li>Luego <code>express.json()</code> / <code>urlencoded</code> / <code>cookieParser</code> para el resto.</li>
+        <li><code>/auth/login</code> tiene <code>rateLimit</code> propio (10 req/60s).</li>
+      </ul>
+
+      <pre><code><span class="tok-c">// backend/src/app.ts — montaje de routers</span>
+app.<span class="tok-f">use</span>(<span class="tok-s">"/iclock"</span>, iclockTextParser, zktecoIclockRoutes)
+app.<span class="tok-f">post</span>(<span class="tok-s">"/webhooks/didit"</span>, express.<span class="tok-f">raw</span>(...), diditWebhookHandler)
+app.<span class="tok-f">use</span>(<span class="tok-s">"/auth"</span>, keycloakAuthRoutes)   app.<span class="tok-f">use</span>(<span class="tok-s">"/auth"</span>, authRoutes)
+app.<span class="tok-f">use</span>(<span class="tok-s">"/admin"</span>, adminRoutes)         app.<span class="tok-f">use</span>(<span class="tok-s">"/attendance"</span>, attendanceRoutes)
+app.<span class="tok-f">use</span>(<span class="tok-s">"/events"</span>, eventsRoutes)        app.<span class="tok-f">use</span>(<span class="tok-s">"/courses"</span>, coursesRoutes)
+app.<span class="tok-f">use</span>(<span class="tok-s">"/medical-leaves"</span>, ...)      app.<span class="tok-f">use</span>(<span class="tok-s">"/analytics"</span>, analyticsRoutes)
+app.<span class="tok-f">use</span>(<span class="tok-s">"/biometric"</span>, ...)           app.<span class="tok-f">use</span>(<span class="tok-s">"/substitutions"</span>, ...)
+app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   app.<span class="tok-f">get</span>(<span class="tok-s">"/ready"</span>, ...)  <span class="tok-c">// readiness real</span></code></pre>
+    </section>
+
+    <!-- ==================== RUTAS ==================== -->
+    <section id="rutas">
+      <div class="anchor-h"><span class="section-tag">06</span><h2>Rutas / API</h2></div>
+      <p>Cada dominio tiene un router en <code>backend/src/routes/</code> (y su test <code>*.routes.test.ts</code>). Prefijos montados en <code>app.ts</code>:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Prefijo</th><th>Router</th><th>Responsabilidad</th></tr></thead>
+          <tbody>
+            <tr><td><code>/auth</code></td><td>auth-keycloak.ts · auth.ts · didit-liveness.ts</td><td>Login OIDC/BFF, registro, verificación de email, perfil, prueba de vida</td></tr>
+            <tr><td><code>/admin</code></td><td>admin.ts · admin-school-years.ts · admin-students.ts</td><td>Gestión de usuarios, ciclos lectivos, matrícula de estudiantes</td></tr>
+            <tr><td><code>/admin/testing</code></td><td>admin-testing.ts</td><td>Herramientas de testing (solo entornos no productivos)</td></tr>
+            <tr><td><code>/attendance</code></td><td>attendance.ts</td><td>Registro y consulta de asistencia, justificaciones, resumen</td></tr>
+            <tr><td><code>/attendance-incidents</code></td><td>attendance-incidents.ts</td><td>Incidencias (llegada tarde, ausencia docente, salida temprana)</td></tr>
+            <tr><td><code>/events</code></td><td>events.ts</td><td>CRUD de eventos, recurrencia, versionado de series</td></tr>
+            <tr><td><code>/substitutions</code></td><td>substitutions.ts</td><td>Suplencias docentes por ocurrencia</td></tr>
+            <tr><td><code>/courses</code></td><td>courses.ts</td><td>Catálogo académico: cursos, ofertas, orientaciones, asignaturas</td></tr>
+            <tr><td><code>/medical-leaves</code></td><td>medical-leaves.ts</td><td>Licencias médicas/laborales</td></tr>
+            <tr><td><code>/non-working-days</code></td><td>non-working-days.ts</td><td>Feriados y días no laborables</td></tr>
+            <tr><td><code>/reports</code></td><td>reports.ts</td><td>Reportes operativos</td></tr>
+            <tr><td><code>/analytics</code></td><td>analytics.ts</td><td>Métricas, rankings, series temporales, comparación de ciclos</td></tr>
+            <tr><td><code>/exports</code></td><td>exports.ts</td><td>Exportaciones PDF/CSV (store diferido)</td></tr>
+            <tr><td><code>/biometric</code></td><td>biometric-link.ts · biometric-adms.ts</td><td>Vinculación persona↔terminal, gestión de dispositivos</td></tr>
+            <tr><td><code>/iclock</code></td><td>zkteco-iclock.ts</td><td>Endpoint del protocolo push ZKTeco (texto plano)</td></tr>
+            <tr><td><code>/notifications/web-push</code></td><td>web-push.ts</td><td>Suscripciones Web Push (VAPID)</td></tr>
+            <tr><td><code>/notifications/in-app</code></td><td>in-app-notifications.ts</td><td>Avisos in-app persistentes</td></tr>
+            <tr><td><code>/webhooks/didit</code></td><td>didit-webhook.ts</td><td>Webhook de resultados de prueba de vida (HMAC)</td></tr>
+            <tr><td><code>/health</code> · <code>/ready</code></td><td>app.ts</td><td>Liveness simple y readiness real (DB/Redis)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout note">
+        <span class="ci">🧠</span>
+        <p>El asistente NL→SQL (<code>/admin/query-assistant</code> en el frontend) se sirve desde
+        <code>admin.ts</code> apoyándose en <code>services/query-assistant/</code>. Ver el <a href="#flujo-assistant">flujo dedicado</a>.</p>
+      </div>
+
+      <h3>Endpoints principales</h3>
+      <p>Detalle de los endpoints más usados de cada router (prefijo omitido).</p>
+
+      <h4>Asistencia — <code>/attendance</code></h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Método</th><th>Ruta</th><th>Descripción</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge post">POST</span></td><td><code>/register</code></td><td>Registra una marca (CHECK_IN/CHECK_OUT) manual</td></tr>
+          <tr><td><span class="badge get">GET</span></td><td><code>/my-attendances</code></td><td>Asistencias del usuario autenticado</td></tr>
+          <tr><td><span class="badge get">GET</span></td><td><code>/all</code></td><td>Listado admin (segmentado por ciclo)</td></tr>
+          <tr><td><span class="badge get">GET</span></td><td><code>/summary</code> · <code>/stats</code></td><td>Resumen y estadísticas</td></tr>
+          <tr><td><span class="badge post">POST</span></td><td><code>/materialize-absence</code></td><td>Materializa una falta derivada como fila real</td></tr>
+          <tr><td><span class="badge post">POST</span></td><td><code>/mark-absences</code> · <code>/justify-range</code></td><td>Marca/justifica ausencias en rango</td></tr>
+          <tr><td><span class="badge post">POST</span></td><td><code>/:id/justify</code> · <code>/:id/note</code></td><td>Justifica una marca / agrega nota</td></tr>
+          <tr><td><span class="badge put">PUT</span></td><td><code>/:id</code></td><td>Edita una marca</td></tr>
+          <tr><td><span class="badge del">DEL</span></td><td><code>/:id</code> · <code>/purge-all</code></td><td>Elimina una marca / purga (testing)</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Eventos — <code>/events</code></h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Método</th><th>Ruta</th><th>Descripción</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge post">POST</span></td><td><code>/</code> · <code>/import</code></td><td>Crea evento / importación masiva</td></tr>
+          <tr><td><span class="badge get">GET</span></td><td><code>/my-events</code> · <code>/all</code> · <code>/:id</code></td><td>Consulta (con recurrencia expandida)</td></tr>
+          <tr><td><span class="badge put">PUT</span></td><td><code>/:id</code> · <code>/:id/cancel</code></td><td>Edita serie (versionado) / cancela</td></tr>
+          <tr><td><span class="badge put">PUT</span></td><td><code>/:id/occurrences/:ymd</code></td><td>Edita una ocurrencia puntual de la serie</td></tr>
+          <tr><td><span class="badge post">POST</span></td><td><code>/:id/occurrences/:ymd/cancel</code></td><td>Cancela una ocurrencia concreta</td></tr>
+          <tr><td><span class="badge del">DEL</span></td><td><code>/:id</code> · <code>/:id/occurrences/:ymd</code></td><td>Elimina evento / ocurrencia</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Biometría — <code>/biometric</code></h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Método</th><th>Ruta</th><th>Descripción</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge get">GET</span></td><td><code>/devices</code> · <code>/admin/devices</code></td><td>Lista dispositivos (público/admin)</td></tr>
+          <tr><td><span class="badge post">POST</span></td><td><code>/admin/devices</code></td><td>Alta de terminal</td></tr>
+          <tr><td><span class="badge put">PUT</span></td><td><code>/admin/devices/:id</code></td><td>Edita terminal</td></tr>
+          <tr><td><span class="badge get">GET</span></td><td><code>/me/mapping</code> · <code>/link-requests/active</code></td><td>Mi vínculo / solicitud activa</td></tr>
+          <tr><td><span class="badge post">POST</span></td><td><code>/link-requests</code> · <code>/:id/confirm</code> · <code>/:id/cancel</code></td><td>Flujo de vinculación</td></tr>
+          <tr><td><span class="badge post">POST</span></td><td><code>/admin/users/:userId/biometric/link-requests…</code></td><td>Vinculación en nombre de un usuario (admin)</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Analítica — <code>/analytics</code></h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Método</th><th>Ruta</th><th>Descripción</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge get">GET</span></td><td><code>/dashboard</code></td><td>KPIs, deltas y breakdowns del panel</td></tr>
+          <tr><td><span class="badge get">GET</span></td><td><code>/attendance-timeline</code></td><td>Serie temporal de asistencia</td></tr>
+          <tr><td><span class="badge get">GET</span></td><td><code>/metrics</code> · <code>/rankings</code></td><td>Métricas y rankings de riesgo</td></tr>
+          <tr><td><span class="badge get">GET</span></td><td><code>/alerts/critical</code> · <code>/anomalies</code></td><td>Alertas críticas y anomalías</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <!-- ==================== SERVICIOS ==================== -->
+    <section id="servicios">
+      <div class="anchor-h"><span class="section-tag">07</span><h2>Servicios (lógica de negocio)</h2></div>
+      <p>Los routers son delgados; la lógica vive en <code>backend/src/services/</code> y en módulos de dominio.
+        Muchos servicios están partidos en una función <em>pura</em> (testeable sin DB) y una capa con Prisma.</p>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <h4>attendance/ &amp; attendance-logic.ts</h4>
+          <p class="muted">Cálculo de estado (PRESENT/LATE/EARLY_EXIT) según tolerancias; <code>coverage-spans</code> resuelve qué clases cubre una marca biométrica.</p>
+        </div>
+        <div class="card">
+          <h4>biometric-ingest-core.ts</h4>
+          <p class="muted">Corazón de la ingesta biométrica: valida secreto del terminal, deduplica, ubica el evento asignado y crea la asistencia.</p>
+        </div>
+        <div class="card">
+          <h4>analytics/</h4>
+          <p class="muted"><code>metrics</code>, <code>rankings</code>, <code>planInstances</code>, <code>resolveInstances</code> y <code>resolveSubstituteInstances</code>: expanden recurrencia y suplencias para calcular métricas.</p>
+        </div>
+        <div class="card">
+          <h4>events/</h4>
+          <p class="muted"><code>event-overlap</code> (detección de solapes) y <code>event-versioning</code> (editar series a futuro sin reescribir el pasado).</p>
+        </div>
+        <div class="card">
+          <h4>substitutions.ts · substitution-occurrence.ts</h4>
+          <p class="muted">Crea suplencias por ocurrencia y las resuelve contra la serie recurrente.</p>
+        </div>
+        <div class="card">
+          <h4>medicalLeaveReconciliation.ts</h4>
+          <p class="muted">Cruza licencias aprobadas con las marcas: una licencia vigente convierte una ausencia en justificada.</p>
+        </div>
+        <div class="card">
+          <h4>school-year-service.ts</h4>
+          <p class="muted">Resuelve el ciclo lectivo activo e impone invariantes (un solo ACTIVE).</p>
+        </div>
+        <div class="card">
+          <h4>query-assistant/</h4>
+          <p class="muted">Asistente de consultas: heurísticas + parseo LLM + traducción NL→SQL validada. Ver <a href="#flujo-assistant">flujo</a>.</p>
+        </div>
+        <div class="card">
+          <h4>moodle.ts + integrations/moodle/</h4>
+          <p class="muted">Sincronización idempotente (outbox + reconciliación). Ver <a href="#moodle">Moodle</a>.</p>
+        </div>
+        <div class="card">
+          <h4>audit-log.ts</h4>
+          <p class="muted">Registro append-only (RF-11) de acciones sensibles: login, cambios de usuario, licencias, suplencias, biometría.</p>
+        </div>
+        <div class="card">
+          <h4>webPush.ts · notifications/email.ts</h4>
+          <p class="muted">Envío de Web Push (VAPID) y correos (verificación, bienvenida de estudiante a Moodle).</p>
+        </div>
+        <div class="card">
+          <h4>non-working-days.ts</h4>
+          <p class="muted">Feriados/días no laborables que excluyen ocurrencias del cálculo de ausencias.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== MODELO DE DATOS ==================== -->
+    <section id="datos">
+      <div class="anchor-h"><span class="section-tag">08</span><h2>Modelo de datos (Prisma)</h2></div>
+      <p>Fuente de verdad: <code>backend/prisma/schema.prisma</code> (~1.070 líneas). PostgreSQL 16, IDs <code>uuid</code>.
+        Agrupamos los modelos por dominio.</p>
+
+      <div class="callout warn">
+        <span class="ci">⚠️</span>
+        <p>Como se usa <code>db push --accept-data-loss</code>, <strong>nunca se renombran columnas</strong>: se usa <code>@map</code>
+        (p. ej. <code>Student.email → contactEmail</code>) para no perder datos.</p>
+      </div>
+
+      <h3>Diagrama entidad-relación (por dominio)</h3>
+      <p>Vista de conjunto: cada panel agrupa los modelos de un dominio; las flechas muestran las relaciones (FK) clave entre dominios.
+        ★ marca las entidades centrales (<em>hubs</em>).</p>
+
+      <div class="er-wrap">
+      <svg viewBox="0 0 1180 640" class="er-svg" role="img" aria-label="Diagrama entidad-relación de EduTrack">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L8,3 L0,6 Z" fill="#7c869c"/>
+          </marker>
+        </defs>
+
+        <!-- ===== conectores (debajo de las cajas) ===== -->
+        <g fill="none" stroke="#9aa4b8" stroke-width="1.6" marker-end="url(#arrow)">
+          <path d="M580,140 L600,140"/>
+          <path d="M735,300 L735,330"/>
+          <path d="M870,447 L890,447"/>
+          <path d="M445,300 L445,330"/>
+          <path d="M155,300 L155,330"/>
+          <path d="M310,447 L290,447"/>
+          <path d="M155,70 L155,50 L680,50 L680,70"/>
+          <path d="M200,70 L200,36 L1010,36 L1010,70"/>
+          <path d="M120,560 L120,596 L680,596 L680,560"/>
+          <path d="M245,560 L245,614 L1010,614 L1010,560"/>
+          <path d="M310,250 L299,250 L299,392 L290,392"/>
+        </g>
+
+        <!-- ===== chips de relación ===== -->
+        <g font-family="'JetBrains Mono',monospace" font-size="10.5" text-anchor="middle">
+          <g class="er-chip"><rect x="556" y="112" width="80" height="18" rx="4"/><text x="596" y="125">schoolYearId</text></g>
+          <g class="er-chip"><rect x="702" y="306" width="66" height="18" rx="4"/><text x="735" y="319">eventId</text></g>
+          <g class="er-chip"><rect x="835" y="424" width="92" height="18" rx="4"/><text x="881" y="437">attendanceId</text></g>
+          <g class="er-chip"><rect x="393" y="306" width="104" height="18" rx="4"/><text x="445" y="319">courseOfferingId</text></g>
+          <g class="er-chip"><rect x="112" y="306" width="86" height="18" rx="4"/><text x="155" y="319">moodleUserId</text></g>
+          <g class="er-chip"><rect x="266" y="424" width="68" height="18" rx="4"/><text x="300" y="437">STUDENT</text></g>
+          <g class="er-chip"><rect x="356" y="41" width="88" height="18" rx="4"/><text x="400" y="54">userId</text></g>
+          <g class="er-chip"><rect x="966" y="27" width="88" height="18" rx="4"/><text x="1010" y="40">userId</text></g>
+          <g class="er-chip"><rect x="636" y="587" width="88" height="18" rx="4"/><text x="680" y="600">userId</text></g>
+          <g class="er-chip"><rect x="958" y="605" width="104" height="18" rx="4"/><text x="1010" y="618">userId (punches)</text></g>
+          <g class="er-chip"><rect x="256" y="316" width="86" height="18" rx="4"/><text x="299" y="329">COURSE map</text></g>
+        </g>
+
+        <!-- ===== paneles ===== -->
+        <!-- A · Identidad -->
+        <g class="er-panel">
+          <rect x="20" y="70" width="270" height="230"/>
+          <rect x="20" y="70" width="270" height="28" rx="9" fill="#6d5efc"/>
+          <text x="32" y="89" class="er-title">Identidad &amp; seguridad</text>
+          <text x="32" y="120" class="er-hub">User ★</text>
+          <text x="32" y="140" class="er-ent">OrgRole</text>
+          <text x="32" y="158" class="er-ent">TeacherProfile</text>
+          <text x="32" y="176" class="er-ent">Permission · RolePermission</text>
+          <text x="32" y="194" class="er-ent">EmailVerification</text>
+          <text x="32" y="212" class="er-ent">LivenessSession</text>
+          <text x="32" y="230" class="er-ent">AuditLog</text>
+        </g>
+        <!-- B · Moodle -->
+        <g class="er-panel">
+          <rect x="20" y="330" width="270" height="230"/>
+          <rect x="20" y="330" width="270" height="28" rx="9" fill="#64748b"/>
+          <text x="32" y="349" class="er-title">Integración &amp; sistema</text>
+          <text x="32" y="380" class="er-ent">MoodleObjectMap</text>
+          <text x="32" y="398" class="er-ent">MoodleEnrolmentMap</text>
+          <text x="32" y="416" class="er-ent">MoodleSyncTask</text>
+          <text x="32" y="434" class="er-ent">SystemSettings</text>
+        </g>
+        <!-- C · Académico -->
+        <g class="er-panel">
+          <rect x="310" y="70" width="270" height="230"/>
+          <rect x="310" y="70" width="270" height="28" rx="9" fill="#16b8a6"/>
+          <text x="322" y="89" class="er-title">Estructura académica</text>
+          <text x="322" y="120" class="er-hub">SchoolYear ★</text>
+          <text x="322" y="140" class="er-ent">Course</text>
+          <text x="322" y="158" class="er-ent">CourseOffering</text>
+          <text x="322" y="176" class="er-ent">Orientation</text>
+          <text x="322" y="194" class="er-ent">CourseOrientation</text>
+          <text x="322" y="212" class="er-ent">Subject</text>
+          <text x="322" y="230" class="er-ent">SubjectCourseAssignment</text>
+        </g>
+        <!-- D · Estudiantes -->
+        <g class="er-panel">
+          <rect x="310" y="330" width="270" height="230"/>
+          <rect x="310" y="330" width="270" height="28" rx="9" fill="#23a55a"/>
+          <text x="322" y="349" class="er-title">Estudiantes &amp; matrícula</text>
+          <text x="322" y="380" class="er-ent">Student</text>
+          <text x="322" y="398" class="er-ent">StudentEnrollment</text>
+          <text x="322" y="416" class="er-ent">StudentTuitionYear</text>
+          <text x="322" y="434" class="er-ent">StudentTuitionMonth</text>
+        </g>
+        <!-- E · Eventos -->
+        <g class="er-panel">
+          <rect x="600" y="70" width="270" height="230"/>
+          <rect x="600" y="70" width="270" height="28" rx="9" fill="#0b6bcb"/>
+          <text x="612" y="89" class="er-title">Eventos &amp; turnos</text>
+          <text x="612" y="120" class="er-hub">Event ★</text>
+          <text x="612" y="140" class="er-ent">Substitution</text>
+          <text x="612" y="172" class="er-note">recurrencia · versionado</text>
+          <text x="612" y="190" class="er-note">de series · suplencias</text>
+        </g>
+        <!-- F · Asistencia -->
+        <g class="er-panel">
+          <rect x="600" y="330" width="270" height="230"/>
+          <rect x="600" y="330" width="270" height="28" rx="9" fill="#f0a020"/>
+          <text x="612" y="349" class="er-title">Asistencia</text>
+          <text x="612" y="380" class="er-ent">Attendance</text>
+          <text x="612" y="398" class="er-ent">AttendanceJustification</text>
+          <text x="612" y="416" class="er-ent">AttendanceIncident</text>
+        </g>
+        <!-- G · Licencias -->
+        <g class="er-panel">
+          <rect x="890" y="70" width="270" height="230"/>
+          <rect x="890" y="70" width="270" height="28" rx="9" fill="#e5484d"/>
+          <text x="902" y="89" class="er-title">Licencias &amp; calendario</text>
+          <text x="902" y="120" class="er-ent">MedicalLeave</text>
+          <text x="902" y="138" class="er-ent">NonWorkingDay</text>
+          <text x="902" y="170" class="er-note">justifican ausencias;</text>
+          <text x="902" y="188" class="er-note">excluyen ocurrencias</text>
+        </g>
+        <!-- H · Biometría -->
+        <g class="er-panel">
+          <rect x="890" y="330" width="270" height="230"/>
+          <rect x="890" y="330" width="270" height="28" rx="9" fill="#4b3fd6"/>
+          <text x="902" y="349" class="er-title">Biometría &amp; notificaciones</text>
+          <text x="902" y="380" class="er-ent">BiometricDevice</text>
+          <text x="902" y="398" class="er-ent">BiometricUserMapping</text>
+          <text x="902" y="416" class="er-ent">BiometricPunch</text>
+          <text x="902" y="434" class="er-ent">BiometricLinkRequest</text>
+          <text x="902" y="452" class="er-ent">WebPushSubscription</text>
+          <text x="902" y="470" class="er-ent">InAppNotification</text>
+        </g>
+      </svg>
+      </div>
+
+      <h3>👤 Identidad &amp; seguridad</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Modelo</th><th>Rol</th><th>Campos clave</th></tr></thead>
+        <tbody>
+          <tr><td><code>User</code></td><td>Cuenta de personal (login vía Keycloak)</td><td>email, username, nationalId, roleId, moodleUserId, isActive, lockUntil</td></tr>
+          <tr><td><code>OrgRole</code></td><td>Rol organizacional (code estable)</td><td>code, label, builtIn, active</td></tr>
+          <tr><td><code>TeacherProfile</code></td><td>Perfil docente operativo</td><td>userId, displayName, isActive</td></tr>
+          <tr><td><code>Permission</code> · <code>RolePermission</code></td><td>Catálogo de permisos <code>módulo.acción</code> por rol</td><td>code, module, action · scope (OWN/ALL), label</td></tr>
+          <tr><td><code>EmailVerification</code></td><td>Tokens de verificación de email</td><td>token, expiresAt, usedAt</td></tr>
+          <tr><td><code>AuditLog</code></td><td>Registro append-only de acciones</td><td>action, actorUserId, actorIp, entityType, metadata</td></tr>
+          <tr><td><code>LivenessSession</code></td><td>Sesión de prueba de vida Didit</td><td>diditSessionId, status, email, expiresAt</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>🕐 Asistencia &amp; biometría</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Modelo</th><th>Rol</th><th>Campos clave</th></tr></thead>
+        <tbody>
+          <tr><td><code>Attendance</code></td><td>Marca de entrada/salida</td><td>type (CHECK_IN/OUT), status, date, time, eventId, schoolYearId</td></tr>
+          <tr><td><code>AttendanceJustification</code></td><td>Justificación que cambia el estado</td><td>type, reason, previousStatus → newStatus, attachment</td></tr>
+          <tr><td><code>AttendanceIncident</code></td><td>Incidencia detectada</td><td>type, status, severity, eventId, biometricPunchId</td></tr>
+          <tr><td><code>BiometricDevice</code></td><td>Terminal ZKTeco</td><td>code, admsSerial, secretHash, allowedIps, timezone</td></tr>
+          <tr><td><code>BiometricUserMapping</code></td><td>Vínculo persona↔deviceUserId</td><td>deviceId, userId, deviceUserId, isActive</td></tr>
+          <tr><td><code>BiometricLinkRequest</code></td><td>Flujo de vinculación</td><td>status (WAITING_PUNCH→…→CONFIRMED), candidatePunchId</td></tr>
+          <tr><td><code>BiometricPunch</code></td><td>Marca cruda del terminal</td><td>occurredAt, punchType, processStatus, payload, attendanceId</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Enums de estado de asistencia</h4>
+      <div class="chips">
+        <span class="chip">PRESENT</span><span class="chip">LATE</span><span class="chip">ABSENT_NOT_JUSTIFIED</span>
+        <span class="chip">ABSENT_JUSTIFIED</span><span class="chip">EXIT</span><span class="chip">EARLY_EXIT</span>
+        <span class="chip">JUSTIFIED</span><span class="chip">FREE</span><span class="chip">PENDING_REVIEW</span>
+        <span class="chip">SUBSTITUTED</span><span class="chip">SUSPENDED</span><span class="chip">OUT_OF_SCHEDULE</span>
+        <span class="chip">UNIDENTIFIED_PUNCH</span>
+      </div>
+
+      <h3>📅 Eventos &amp; suplencias</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Modelo</th><th>Rol</th><th>Campos clave</th></tr></thead>
+        <tbody>
+          <tr><td><code>Event</code></td><td>Clase/reunión/jornada; base de la asistencia</td><td>type, startDate, startTime, recurrenceType, daysOfWeek, effectiveFrom/Until, supersededById, revisionOf</td></tr>
+          <tr><td><code>Substitution</code></td><td>Reemplazo docente para una fecha</td><td>eventId, originalTeacher, substitute, date, startTime/endTime</td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted">Tipos de evento: <span class="chip">JORNADA_LABORAL</span> <span class="chip">REUNION</span> <span class="chip">CLASE</span> <span class="chip">EVENTO</span> <span class="chip">CAPACITACION</span> <span class="chip">CITA_MEDICA</span> · Recurrencia: NONE/DAILY/WEEKLY/MONTHLY.</p>
+
+      <h3>🎓 Estructura académica</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Modelo</th><th>Rol</th><th>Campos clave</th></tr></thead>
+        <tbody>
+          <tr><td><code>SchoolYear</code></td><td>Ciclo lectivo (segmentación global)</td><td>code (año), status (PLANNED/ACTIVE/CLOSED)</td></tr>
+          <tr><td><code>Course</code></td><td>Curso del catálogo</td><td>name, code, level (EBI/EMS)</td></tr>
+          <tr><td><code>CourseOffering</code></td><td>Oferta anual de un curso</td><td>courseId + schoolYearId, isOffered, visibleInFilters</td></tr>
+          <tr><td><code>Orientation</code> · <code>CourseOrientation</code></td><td>Orientaciones y su disponibilidad por curso/ciclo</td><td>name, code, isActive</td></tr>
+          <tr><td><code>Subject</code></td><td>Catálogo global de asignaturas (<code>@@map("asignaturas")</code>)</td><td>name, code, sortOrder</td></tr>
+          <tr><td><code>SubjectCourseAssignment</code></td><td>Asociación flexible de asignaturas</td><td>associationType (NIVEL/CURSO/TRONCO/ORIENTACION/OPTATIVA/PERSONALIZADA)</td></tr>
+          <tr><td><code>Student</code></td><td>Estudiante (solo gestión, sin login)</td><td>firstName, lastName, username (Moodle), email (@map contactEmail)</td></tr>
+          <tr><td><code>StudentEnrollment</code></td><td>Matrícula por ciclo</td><td>studentId + schoolYearId, courseOfferingId, enrollmentStatus</td></tr>
+          <tr><td><code>StudentTuitionYear</code> · <code>...Month</code></td><td>Cuotas anuales y mensuales</td><td>year, month, paid, amountCents</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>🏥 Licencias &amp; calendario</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Modelo</th><th>Rol</th><th>Campos clave</th></tr></thead>
+        <tbody>
+          <tr><td><code>MedicalLeave</code></td><td>Licencia médica/laboral</td><td>type, status (ACTIVE/INACTIVE), startDate, endDate, approvedBy</td></tr>
+          <tr><td><code>NonWorkingDay</code></td><td>Feriado/día no laborable</td><td>date, type (HOLIDAY/NON_WORKING_DAY), schoolYearId</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>🔗 Integración &amp; notificaciones</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Modelo</th><th>Rol</th><th>Campos clave</th></tr></thead>
+        <tbody>
+          <tr><td><code>SystemSettings</code></td><td>Config global (fila única <code>default</code>)</td><td>tolerancias de asistencia, flags Moodle, institutionTimezone</td></tr>
+          <tr><td><code>MoodleSyncTask</code></td><td>Cola outbox con reintentos</td><td>type, dedupeKey, status, attempts, runAfter (backoff)</td></tr>
+          <tr><td><code>MoodleObjectMap</code></td><td>Mapeo EduTrack↔objeto Moodle</td><td>objectType, localId, moodleId, idnumber</td></tr>
+          <tr><td><code>MoodleEnrolmentMap</code></td><td>Tracking de inscripciones otorgadas</td><td>sourceType (TEACHER_EVENT/SUBSTITUTE/STUDENT), status, startsAt/endsAt</td></tr>
+          <tr><td><code>InAppNotification</code></td><td>Aviso in-app persistente</td><td>type, title, body, actionUrl, readAt</td></tr>
+          <tr><td><code>WebPushSubscription</code></td><td>Suscripción push (por dispositivo)</td><td>endpoint, p256dh, auth</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <!-- ==================== FRONTEND ==================== -->
+    <section id="frontend">
+      <div class="anchor-h"><span class="section-tag">09</span><h2>Frontend — App Router &amp; UI</h2></div>
+      <p>Next.js 14 con App Router en <code>frontend/web/src/app/</code>. Las páginas se organizan por rol; cada rol
+        tiene sus vistas de asistencia, eventos y licencias. Un <code>RoleGuard</code> protege las rutas.</p>
+
+      <div class="tree">
+<span class="root">src/app/</span>
+├── page.tsx · layout.tsx        <span class="cmt"># home + shell raíz</span>
+├── login/ · register/ · register-step-by-step/
+├── forgot/ · reset/ · verify/   <span class="cmt"># recuperación y verificación</span>
+├── onboarding/ · profile/ · me/ <span class="cmt"># perfil propio</span>
+│   └── me/{attendance,events,licenses}
+├── <span class="dir">admin/</span>                       <span class="cmt"># panel administrativo</span>
+│   ├── users/ · students/ · profiles/
+│   ├── courses/ · school-years/ (+ compare/)
+│   ├── attendance/ · events/ · licenses/
+│   ├── analytics/ · audit/ · settings/
+│   └── query-assistant/         <span class="cmt"># asistente NL→SQL</span>
+├── <span class="dir">teacher/</span>{attendance,events,licenses}
+├── <span class="dir">staff/</span>{attendance,events,licenses}
+├── <span class="dir">student/</span>attendance
+└── notifications/
+      </div>
+
+      <h4>Contextos globales</h4>
+      <ul>
+        <li><code>AuthContext</code> — usuario actual, rol, sesión BFF.</li>
+        <li><code>AdminSchoolYearContext</code> — ciclo lectivo activo seleccionado en el panel admin (segmenta todas las vistas).</li>
+      </ul>
+    </section>
+
+    <!-- ==================== COMPONENTES ==================== -->
+    <section id="componentes">
+      <div class="anchor-h"><span class="section-tag">10</span><h2>Componentes &amp; librerías de cliente</h2></div>
+
+      <h3>Componentes destacados (<code>src/components/</code>)</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Carpeta</th><th>Componentes</th></tr></thead>
+        <tbody>
+          <tr><td><code>admin/</code></td><td>AdminShell, AdminAuditPanel, AdminProfilesPanel, AdminMoodlePanel, AdminBiometricDevicesPanel, AdminIncidentsPanel, AdminOperationalSettingsPanel, AttendanceHeatmap, EventsCalendar, SubstitutionModal, AttendanceJustifyModal, PersonAttendanceDrawer, courses/*</td></tr>
+          <tr><td><code>charts/</code></td><td>BreakdownBarChart, StatusDonutChart, TrendLineChart</td></tr>
+          <tr><td><code>auth/</code></td><td>RoleGuard (protección de rutas por rol)</td></tr>
+          <tr><td><code>navigation/</code></td><td>UserNav</td></tr>
+          <tr><td><code>forms/</code></td><td>DateField, DateRangeFields, PhoneBirthdateFields</td></tr>
+          <tr><td><code>common/</code></td><td>PaginationControls, PasswordVisibilityToggle, PendingButtonContent</td></tr>
+          <tr><td><code>notifications/</code></td><td>WebPushSection</td></tr>
+          <tr><td><code>home/</code> · <code>personal/</code> · <code>profile/</code> · <code>observability/</code></td><td>HomeRolePanels, MyAssignedEventsPage, Observability…</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Librerías de dominio (<code>src/lib/</code>)</h3>
+      <p>Un cliente API central (<code>lib/api/client.ts</code> + <code>base-url.ts</code>) y carpetas por dominio que
+        encapsulan llamadas y tipos: <code>attendance</code>, <code>auth</code>, <code>events</code>, <code>substitutions</code>,
+        <code>admin</code>, <code>roles</code>, <code>media</code>, <code>notifications</code>, <code>observability</code>,
+        <code>profile</code>, <code>forms</code>, <code>home</code>.</p>
+    </section>
+
+    <!-- ==================== AUTH ==================== -->
+    <section id="auth">
+      <div class="anchor-h"><span class="section-tag">11</span><h2>Autenticación — Keycloak + BFF</h2></div>
+      <p>El navegador nunca almacena tokens OIDC. El backend inicia el flujo, guarda los tokens en Redis y
+        entrega al navegador solo la cookie <code>sid</code> (HttpOnly).</p>
+
+      <ol class="steps">
+        <li><h4>Redirección</h4><p>El frontend redirige a <code>GET /auth/login</code> (backend).</p></li>
+        <li><h4>OIDC Authorization Code + PKCE</h4><p>El backend inicia el flujo contra Keycloak. Google OAuth y 2FA (TOTP) se configuran en Keycloak, no en la app.</p></li>
+        <li><h4>Callback</h4><p>Tras el callback, los tokens OIDC quedan en <strong>Redis</strong>; el navegador recibe la cookie HttpOnly <code>sid</code>.</p></li>
+        <li><h4>Sesión</h4><p>Cada request usa <code>sid</code> → el middleware resuelve la sesión desde Redis (<code>auth/session-store.ts</code>).</p></li>
+        <li><h4>Registro &amp; perfil</h4><p>Registro, verificación de email y perfil siguen en <code>/auth/*</code>; las contraseñas viven en Keycloak.</p></li>
+      </ol>
+
+      <p><strong>Componentes:</strong> <code>keycloak/</code> (realm + tema), <code>auth/keycloak.ts</code>,
+        <code>routes/auth-keycloak.ts</code>, <code>auth/session-store.ts</code>, <code>middlewares/auth.ts</code>.</p>
+
+      <div class="callout danger">
+        <span class="ci">🚑</span>
+        <p><strong>Runbook:</strong> error <code>oidc/EAI_AGAIN</code> = el contenedor <code>auth</code> no resuelve
+        <code>keycloak</code>/<code>redis</code> (split de red Docker). Recuperar con <code>force-recreate</code> de
+        <code>auth</code> y <code>web</code>. <em>Nunca</em> usar <code>--remove-orphans</code> (borra Moodle).
+        En mobile/Safari en loop → <code>COOKIE_SAMESITE=none</code>.</p>
+      </div>
+    </section>
+
+    <!-- ==================== ROLES ==================== -->
+    <section id="roles">
+      <div class="anchor-h"><span class="section-tag">12</span><h2>Roles &amp; permisos</h2></div>
+      <p>Roles organizacionales en Postgres (<code>OrgRole</code>), no en el token. Los permisos finos son
+        <code>módulo.acción</code> con alcance <code>OWN</code> o <code>ALL</code> (<code>RolePermission</code>).</p>
+
+      <div class="grid cols-4">
+        <div class="card stat"><div class="num">ADMIN</div><div class="lbl">Gestión total</div></div>
+        <div class="card stat"><div class="num">TEACHER</div><div class="lbl">Docente</div></div>
+        <div class="card stat"><div class="num">STAFF</div><div class="lbl">No docente</div></div>
+        <div class="card stat"><div class="num">STUDENT</div><div class="lbl">Sin panel operativo</div></div>
+      </div>
+
+      <ul>
+        <li>Los <strong>estudiantes del liceo</strong> se gestionan como matrícula administrativa; <em>no</em> requieren cuenta de login en EduTrack (sí en Moodle).</li>
+        <li>El catálogo de permisos (<code>Permission</code>) es global; cada <code>RolePermission</code> define <code>enabled</code>, <code>scope</code> y <code>label</code> por rol.</li>
+        <li>Roles personalizados posibles vía <code>OrgRole.code</code> (p. ej. <code>CUSTOM_1</code>).</li>
+        <li>El frontend protege rutas con <code>RoleGuard</code>; el backend con <code>middlewares/auth-permissions.ts</code>.</li>
+      </ul>
+    </section>
+
+    <!-- ==================== FLUJO ASISTENCIA ==================== -->
+    <section id="flujo-asistencia">
+      <div class="anchor-h"><span class="section-tag">13</span><h2>Flujo: registro de asistencia</h2></div>
+      <p>La lógica pura vive en <code>attendance/attendance-logic.ts</code> (<code>getAttendanceStatus</code>), separada de la DB para poder testearla.</p>
+
+      <div class="flowbar">
+        <span class="flownode">Marca (biométrica o manual)</span><span class="flowarrow">→</span>
+        <span class="flownode">¿Licencia aprobada?</span><span class="flowarrow">→</span>
+        <span class="flownode alt">Compara con horario del evento</span><span class="flowarrow">→</span>
+        <span class="flownode">Estado</span><span class="flowarrow">→</span>
+        <span class="flownode alt">¿Incidencia?</span>
+      </div>
+
+      <ol class="steps">
+        <li><h4>Se recibe la marca</h4><p><code>POST /attendance/register</code> (manual) o ingesta biométrica. Con <code>type</code> (CHECK_IN/CHECK_OUT) y hora real. El horario se normaliza a la zona institucional con <code>config/app-timezone.ts</code> (<code>uruguayWallToUtc</code>, <code>parseEventTimeToUruguayHhMm</code>).</p></li>
+        <li><h4>¿Hay licencia aprobada que cubra el horario?</h4><p><code>findApprovedLicenseCoveringEventTime()</code> (<code>medicalLeaveReconciliation.ts</code>) usa <code>licenseCoversInstant()</code>. Si cubre → estado <code>ABSENT_JUSTIFIED</code>.</p></li>
+        <li><h4>Se compara contra el horario del evento</h4><p><code>getAttendanceStatus()</code> (<code>attendance/attendance-logic.ts</code>): <strong>CHECK_IN</strong> → <code>minutesLate &gt; lateTolerance</code> ⇒ <code>LATE</code>, si no <code>PRESENT</code>. <strong>CHECK_OUT</strong> → <code>minutesEarly &gt; earlyExitTolerance</code> ⇒ <code>EARLY_EXIT</code>, si no <code>EXIT</code>. Duplicados: <code>getDuplicateAttendanceMessage()</code>.</p></li>
+        <li><h4>Persistencia con ciclo lectivo</h4><p><code>attendance-school-year.ts</code> (<code>attachResolvedSchoolYearToAttendanceWhere</code>) fija <code>schoolYearId</code> (del evento o el ciclo activo vía <code>getActiveSchoolYearId()</code>) para segmentar el listado admin.</p></li>
+        <li><h4>Incidencias &amp; justificación</h4><p><code>scanAndCreateTeacherNoShowIncidents()</code> y <code>resolveNoShowIncidentIfAny()</code> (<code>attendance-incidents.ts</code>) generan/cierran <code>AttendanceIncident</code>. Un admin justifica con <code>justifyAttendance()</code> (<code>attendance-justifications.ts</code>) — lanza <code>AttendanceJustificationError</code> si es inválido — cambiando <code>previousStatus → newStatus</code> y registrando <code>recordAuditEvent()</code>.</p></li>
+      </ol>
+
+      <div class="callout note">
+        <span class="ci">📐</span>
+        <p>Tolerancias configurables en <code>SystemSettings</code>: <code>attendanceLateToleranceMinutes</code> (5),
+        <code>attendanceEarlyExitToleranceMinutes</code> (5), <code>attendanceNoShowGraceMinutes</code> (15),
+        <code>attendanceClassBridgeGapMinutes</code> (60).</p>
+      </div>
+
+      <div class="callout tip">
+        <span class="ci">🧩</span>
+        <p><strong>Las faltas son estado derivado, no filas.</strong> Las ausencias se calculan a partir de las
+        ocurrencias planificadas (recurrencia expandida); pueden no existir como filas <code>Attendance</code> hasta que un admin las materializa.</p>
+      </div>
+    </section>
+
+    <!-- ==================== FLUJO BIOMÉTRICO ==================== -->
+    <section id="flujo-biometrico">
+      <div class="anchor-h"><span class="section-tag">14</span><h2>Flujo: ingesta biométrica &amp; vinculación</h2></div>
+      <p>Terminales ZKTeco (F22) hablan el protocolo push ADMS/iclock (texto plano). El parser vive en
+        <code>integrations/zkteco/iclock-parser.ts</code> y la ingesta en <code>services/biometric-ingest-core.ts</code>.</p>
+
+      <h3>Ingesta de una marca — <code>processBiometricIngest()</code></h3>
+      <ol class="steps">
+        <li><h4>El terminal hace POST a <code>/iclock/*</code></h4><p><code>parseAttlogBody()</code> (<code>zkteco/iclock-parser.ts</code>) interpreta el cuerpo de texto; <code>attlogStatusToPunchType()</code> mapea el tipo. El dispositivo se ubica por <code>findBiometricDeviceByAdmsSn()</code> o <code>findBiometricDeviceByCode()</code>, y se valida el secreto con <code>isBiometricSecretValid()</code> (<code>hashBiometricSecret</code> + <code>timingSafeEqual</code>) e IPs permitidas.</p></li>
+        <li><h4>Se crea un <code>BiometricPunch</code></h4><p>Marca cruda con <code>occurredAt</code>, <code>deviceUserId</code> y <code>payload</code>. <code>processStatus = PENDING</code>. Deduplicación por ventana (<code>biometricDuplicateWindowMinutes</code>) y por índice único <code>(deviceId, deviceUserId, occurredAt)</code>.</p></li>
+        <li><h4>Resolución de persona</h4><p>Se busca el <code>BiometricUserMapping</code> (deviceUserId → User). Sin mapping → estado <code>UNIDENTIFIED_PUNCH</code>. Si hay vinculación pendiente, <code>tryCaptureBiometricLinkPunch()</code> captura la marca (<code>LINK_CAPTURED</code>).</p></li>
+        <li><h4>Ubicación del evento</h4><p><code>resolveBiometricAttendanceLinkage()</code> + <code>coverage-spans.ts</code>: <code>fetchTeacherClassSlotsForUruguayDay()</code> trae las clases del día, <code>buildPresenceSpans()</code> arma los tramos de presencia y <code>coverageForOccurrence()</code>/<code>resolveOccurrenceOutcome()</code> deciden qué clase cubre la marca (con <code>earlyEntryWindowMinutes()</code> de entrada anticipada).</p></li>
+        <li><h4>Creación de asistencia</h4><p><code>buildBiometricAttendancePayload()</code> + <code>getBiometricStatus()</code> calculan el estado; se crea la <code>Attendance</code> enlazada al punch (<code>attendanceId</code> único) y se fija el ciclo lectivo.</p></li>
+      </ol>
+
+      <h3>Vinculación persona ↔ terminal</h3>
+      <div class="flowbar">
+        <span class="flownode">WAITING_PUNCH</span><span class="flowarrow">→</span>
+        <span class="flownode alt">PENDING_CONFIRM</span><span class="flowarrow">→</span>
+        <span class="flownode">CONFIRMED</span>
+        <span class="flowarrow">/</span><span class="flownode">EXPIRED · CANCELLED</span>
+      </div>
+      <p>Módulo <code>services/biometric-link.ts</code>. El admin inicia la solicitud con
+        <code>createBiometricLinkRequest()</code>, la persona marca en el terminal, <code>tryCaptureBiometricLinkPunch()</code>
+        detecta el <code>deviceUserId</code> candidato (→ <code>PENDING_CONFIRM</code>) y el admin cierra con
+        <code>confirmBiometricLinkRequest()</code> o <code>cancelBiometricLinkRequest()</code>.
+        Un job (<code>expireStaleBiometricLinkRequests()</code>, TTL de <code>biometricLinkTtlSeconds()</code>) vence las abandonadas.
+        Cada paso queda auditado (<code>BIOMETRIC_LINK_STARTED/DETECTED/CONFIRMED/CANCELLED</code>).</p>
+    </section>
+
+    <!-- ==================== FLUJO EVENTOS ==================== -->
+    <section id="flujo-eventos">
+      <div class="anchor-h"><span class="section-tag">15</span><h2>Flujo: eventos, recurrencia &amp; suplencias</h2></div>
+      <p>Un <code>Event</code> puede ser puntual o recurrente (<code>daysOfWeek</code>, <code>recurrenceType</code>,
+        <code>recurrenceEnd</code>). Las ocurrencias se expanden en TypeScript en <code>events/events-query.ts</code>:
+        <code>generateRecurringInstances()</code> / <code>expandRecurringEvent()</code> producen las instancias,
+        <code>deriveOccurrenceStatus()</code> calcula su estado y <code>resolveRecurringRangeEnd()</code> acota el rango.
+        Los filtros de listado usan <code>buildMyEventsBaseFilter()</code> y <code>applyMyEventsDateFilter()</code>.</p>
+
+      <h3>Versionado temporal de series — <code>event-versioning.ts</code></h3>
+      <p>Editar una serie a futuro no debe reescribir el pasado (que conserva su asistencia histórica). El corte lo
+        realiza <code>splitEventDefinitionForEdit()</code>, apoyado en <code>effectiveWindowIncludesYmd()</code>,
+        <code>hasUpcomingWeeklyOccurrence()</code> e <code>isMovingEventStartToPast()</code>. Sobre el modelo <code>Event</code>:</p>
+      <ul>
+        <li><code>effectiveFrom</code> / <code>effectiveUntil</code> — vigencia de esta versión.</li>
+        <li><code>supersededById</code> — la versión que reemplaza a ésta (corte de edición).</li>
+        <li><code>revisionOf</code> — id de la definición raíz que agrupa todas las versiones.</li>
+      </ul>
+      <p class="muted">Solapes de horario: <code>findEventOverlapConflict()</code> / <code>conflictKindBetween()</code> (<code>event-overlap.ts</code>).</p>
+
+      <h3>Suplencias</h3>
+      <ol class="steps">
+        <li><h4>Se registra una <code>Substitution</code></h4><p><code>createSubstitution()</code> (<code>services/substitutions.ts</code>) para un <code>eventId</code> + <code>date</code> (único), con docente original y suplente y ventana horaria. Valida con <code>SubstitutionError</code> ante conflictos.</p></li>
+        <li><h4>Resolución de ocurrencia</h4><p><code>resolveSubstitutionOccurrence()</code> (<code>substitution-occurrence.ts</code>) aplica la suplencia sobre la ocurrencia recurrente correcta (<code>combineDateWithUtcTime</code>, <code>jsWeekdayInUruguayYmd</code>).</p></li>
+        <li><h4>Analítica</h4><p><code>resolveSubstituteInstances()</code> reasigna las instancias del titular al suplente en el cálculo de métricas.</p></li>
+        <li><h4>Asistencia &amp; Moodle</h4><p>La asistencia de esa fecha pasa a <code>SUBSTITUTED</code> para el titular; el suplente obtiene acceso temporal en Moodle (<code>MoodleEnrolmentMap</code> con <code>SUBSTITUTE</code> y ventana <code>startsAt/endsAt</code>).</p></li>
+      </ol>
+    </section>
+
+    <!-- ==================== FLUJO LICENCIAS ==================== -->
+    <section id="flujo-licencias">
+      <div class="anchor-h"><span class="section-tag">16</span><h2>Flujo: licencias médicas</h2></div>
+      <ol class="steps">
+        <li><h4>Alta de licencia</h4><p>Con <code>type</code> (MEDICAL_LEAVE/WORK_LEAVE/OTHER), rango <code>startDate–endDate</code> y motivo. Estado inicial <code>ACTIVE</code>. Auditado (<code>MEDICAL_LEAVE_CREATED</code>).</p></li>
+        <li><h4>Notificación</h4><p>Se emite <code>InAppNotification</code> (<code>LICENSE_CREATED</code>) y Web Push si hay suscripción.</p></li>
+        <li><h4>Reconciliación con asistencia</h4><p><code>reconcileAttendancesForMedicalLeave()</code> (<code>medicalLeaveReconciliation.ts</code>) cruza la licencia vigente con las marcas usando <code>rangesOverlapInstant()</code>/<code>licenseCoversInstant()</code>: las ausencias dentro del rango se muestran como <code>ABSENT_JUSTIFIED</code>.</p></li>
+        <li><h4>Desactivación</h4><p>Estado <code>INACTIVE</code> con <code>deactivatedBy/At</code> (nunca se borra; queda historial).</p></li>
+      </ol>
+      <div class="callout warn">
+        <span class="ci">🔐</span>
+        <p>Los campos sensibles de la licencia se removieron del modelo (migración <code>remove_medical_leave_sensitive_fields</code>) por privacidad: se guarda lo mínimo para justificar la ausencia.</p>
+      </div>
+    </section>
+
+    <!-- ==================== ASISTENTE NL→SQL ==================== -->
+    <section id="flujo-assistant">
+      <div class="anchor-h"><span class="section-tag">17</span><h2>Asistente de consultas NL→SQL</h2></div>
+      <p>Permite preguntar en lenguaje natural (“¿quién llegó tarde esta semana?”). Vive en
+        <code>services/query-assistant/</code>. Filosofía: <strong>calidad sobre tokens</strong> — nunca degradar la respuesta por ahorrar.</p>
+
+      <div class="flowbar">
+        <span class="flownode">Pregunta</span><span class="flowarrow">→</span>
+        <span class="flownode">Heurística de intención</span><span class="flowarrow">→</span>
+        <span class="flownode alt">Fast-path curado</span>
+        <span class="flowarrow">/</span>
+        <span class="flownode alt">Parseo LLM</span><span class="flowarrow">→</span>
+        <span class="flownode">NL→SQL validado</span><span class="flowarrow">→</span>
+        <span class="flownode">Tabla de resultados</span>
+      </div>
+
+      <p class="muted">Orquestador: <code>runAdminQueryAssistant()</code> (<code>run.ts</code>).</p>
+      <ol class="steps">
+        <li><h4>Enriquecimiento</h4><p><code>enrichPayloadFromQuestion()</code> (<code>enrich-payload.ts</code>) resuelve rangos de fecha relativos con <code>resolveEffectiveYmdRange()</code>/<code>ymdBoundsUtc()</code> (<code>date-range.ts</code>) y el alcance (<code>QueryAssistantScope</code> en <code>scope.ts</code>).</p></li>
+        <li><h4>Heurística de intención</h4><p><code>heuristicIntentFromQuestion()</code> (<code>question-heuristics.ts</code>) clasifica sin LLM, incluso extrayendo mes/año (<code>spanishMonthFromQuestion</code>, <code>yearFromQuestion</code>).</p></li>
+        <li><h4>Fast-path curado</h4><p>Intents con lógica servidor exacta se resuelven sin LLM: <code>executeHoursWorkedSummary()</code>, <code>executeUsersAdminSnapshot()</code> y <code>executeAbsencesSummary()</code> (las faltas son derivadas, el SQL no las calcula bien).</p></li>
+        <li><h4>Parseo LLM → intent</h4><p><code>parseQuestionWithLlm()</code> (<code>llm-parse.ts</code>) mapea a un intent del catálogo <code>QUERY_ASSISTANT_INTENTS</code> (validado con <code>llmIntentSchema</code> Zod; <code>loosenLlmIntentJson()</code> tolera JSON imperfecto). Ejecutores: <code>executeAttendanceIncidentsSummary</code>, <code>executeMedicalLeavesSummary</code>, <code>executeAssignedEventsSummary</code>, <code>executeBiometricIssuesSummary</code>, <code>executeAttendanceLateSummary</code>, <code>executeAuditLogSummary</code>.</p></li>
+        <li><h4>Traducción NL→SQL</h4><p>Si no hay intent, <code>runNaturalLanguageSqlQuery()</code> (<code>llm-sql.ts</code>) traduce a SQL usando <code>DATABASE_CONTEXT</code>/<code>SEMANTIC_SYNONYMS</code> (<code>schema-context.ts</code>); <code>validateReadOnlySql()</code> valida (solo lectura, tablas permitidas) antes de ejecutar. Temperatura vía <code>temperatureParams()</code>.</p></li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="ci">🧠</span>
+        <p>Modelos vía <code>@google/generative-ai</code> / OpenAI. Parámetros en <code>model-params.ts</code>. Se activa con la clave configurada en el entorno.</p>
+      </div>
+    </section>
+
+    <!-- ==================== REFERENCIA: ASISTENCIA ==================== -->
+    <section id="ref-attendance">
+      <div class="anchor-h"><span class="section-tag">R1</span><h2>Referencia · Módulos de asistencia</h2></div>
+      <p class="lede">Detalle de funciones y clases por archivo. La lógica pura (sin DB) está separada de la capa Prisma para poder testearla.</p>
+
+      <h3><code>attendance/attendance-logic.ts</code> — lógica pura</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Función / tipo</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>getAttendanceStatus(params)</code></td><td>Deriva el estado (PRESENT/LATE/EXIT/EARLY_EXIT/ABSENT_JUSTIFIED) según hora real, horario y tolerancias</td></tr>
+          <tr><td><code>getBiometricStatus(...)</code></td><td>Variante para marcas biométricas</td></tr>
+          <tr><td><code>buildBiometricAttendancePayload(...)</code></td><td>Arma el objeto <code>Attendance</code> a persistir desde un punch</td></tr>
+          <tr><td><code>getDuplicateAttendanceMessage(type)</code></td><td>Mensaje de error de marca duplicada</td></tr>
+          <tr><td><code>type RegisterStatus</code></td><td>Unión de estados posibles de registro</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3><code>services/biometric-ingest-core.ts</code> — ingesta</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>processBiometricIngest(params)</code></td><td>Orquesta la ingesta completa de una marca de terminal</td></tr>
+          <tr><td><code>resolveBiometricAttendanceLinkage(...)</code></td><td>Vincula la marca con el evento y estado de asistencia</td></tr>
+          <tr><td><code>findBiometricDeviceByCode / …ByAdmsSn</code></td><td>Ubica el terminal por <code>code</code> o número de serie ADMS</td></tr>
+          <tr><td><code>hashBiometricSecret / isBiometricSecretValid</code></td><td>Hash SHA-256 y verificación en tiempo constante del secreto</td></tr>
+          <tr><td><code>isLateAgainstEventStart(...)</code></td><td>Determina llegada tarde contra el inicio del evento</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3><code>services/attendance/coverage-spans.ts</code> — cobertura</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>fetchTeacherClassSlotsForUruguayDay(...)</code></td><td>Trae las clases del docente para un día civil</td></tr>
+          <tr><td><code>buildPresenceSpans(...)</code></td><td>Arma tramos de presencia a partir de marcas entrada/salida</td></tr>
+          <tr><td><code>coverageForOccurrence(...)</code> · <code>resolveOccurrenceOutcome(...)</code></td><td>Decide si una ocurrencia quedó cubierta y su resultado</td></tr>
+          <tr><td><code>findCoveringSpan / clampedOverlapMinutes / earlyEntryWindowMinutes</code></td><td>Helpers de solape y ventana de entrada anticipada</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3><code>services/attendance-incidents.ts</code> &amp; <code>attendance-justifications.ts</code></h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Función / clase</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>scanAndCreateTeacherNoShowIncidents(...)</code></td><td>Detecta y crea incidencias de ausencia docente</td></tr>
+          <tr><td><code>resolveNoShowIncidentIfAny(...)</code> · <code>findOpenNoShowIncidentForEvents(...)</code></td><td>Cierra/busca incidencias abiertas</td></tr>
+          <tr><td><code>findAssignedEventForAttendanceInstant / …Near…</code></td><td>Ubica el evento asignado exacto o cercano a una marca</td></tr>
+          <tr><td><code>justifyAttendance(...)</code></td><td>Aplica una justificación (cambia estado + audita)</td></tr>
+          <tr><td><code>class AttendanceJustificationError</code></td><td>Error de dominio de justificación inválida</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Ejemplo real — <code>getAttendanceStatus()</code></h4>
+      <pre><code><span class="tok-k">export function</span> <span class="tok-f">getAttendanceStatus</span>(params: {
+  type: <span class="tok-s">'CHECK_IN'</span> | <span class="tok-s">'CHECK_OUT'</span>; actualTime: Date
+  startTime?: Date | <span class="tok-k">null</span>; endTime?: Date | <span class="tok-k">null</span>
+  hasApprovedLicense: <span class="tok-k">boolean</span>; lateToleranceMinutes?: <span class="tok-k">number</span>
+}): RegisterStatus {
+  <span class="tok-k">if</span> (params.hasApprovedLicense) <span class="tok-k">return</span> <span class="tok-s">'ABSENT_JUSTIFIED'</span>
+  <span class="tok-k">const</span> tolerance = params.lateToleranceMinutes ?? <span class="tok-n">5</span>
+  <span class="tok-k">if</span> (params.type === <span class="tok-s">'CHECK_IN'</span>) {
+    <span class="tok-k">if</span> (!params.startTime) <span class="tok-k">return</span> <span class="tok-s">'PRESENT'</span>
+    <span class="tok-k">const</span> minutesLate = Math.<span class="tok-f">floor</span>(
+      (params.actualTime.<span class="tok-f">getTime</span>() - <span class="tok-k">new</span> Date(params.startTime).<span class="tok-f">getTime</span>()) / <span class="tok-n">60000</span>)
+    <span class="tok-k">return</span> minutesLate &gt; tolerance ? <span class="tok-s">'LATE'</span> : <span class="tok-s">'PRESENT'</span>   <span class="tok-c">// entrada</span>
+  }
+  <span class="tok-k">if</span> (!params.endTime) <span class="tok-k">return</span> <span class="tok-s">'EXIT'</span>
+  <span class="tok-k">const</span> minutesEarly = Math.<span class="tok-f">floor</span>(
+    (<span class="tok-k">new</span> Date(params.endTime).<span class="tok-f">getTime</span>() - params.actualTime.<span class="tok-f">getTime</span>()) / <span class="tok-n">60000</span>)
+  <span class="tok-k">return</span> minutesEarly &gt; tolerance ? <span class="tok-s">'EARLY_EXIT'</span> : <span class="tok-s">'EXIT'</span>  <span class="tok-c">// salida</span>
+}</code></pre>
+    </section>
+
+    <!-- ==================== REFERENCIA: EVENTOS ==================== -->
+    <section id="ref-events">
+      <div class="anchor-h"><span class="section-tag">R2</span><h2>Referencia · Eventos &amp; suplencias</h2></div>
+
+      <h3><code>events/events-query.ts</code> — recurrencia</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>generateRecurringInstances(...)</code> · <code>expandRecurringEvent(...)</code></td><td>Expanden una serie en ocurrencias concretas</td></tr>
+          <tr><td><code>deriveOccurrenceStatus(...)</code></td><td>Calcula el estado de cada ocurrencia (programada/en curso/expirada…)</td></tr>
+          <tr><td><code>resolveRecurringRangeEnd(...)</code></td><td>Acota el fin del rango de expansión</td></tr>
+          <tr><td><code>buildMyEventsBaseFilter / applyMyEventsDateFilter / applyEventStartDateFilter</code></td><td>Filtros de listado por usuario y fecha</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3><code>services/events/event-versioning.ts</code> — versionado</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>splitEventDefinitionForEdit(...)</code></td><td>Corta la serie para editar a futuro sin tocar el pasado</td></tr>
+          <tr><td><code>effectiveWindowIncludesYmd(...)</code></td><td>Comprueba si una fecha cae en la vigencia de una versión</td></tr>
+          <tr><td><code>hasUpcomingWeeklyOccurrence(...)</code> · <code>isMovingEventStartToPast(...)</code></td><td>Reglas de edición de series semanales</td></tr>
+          <tr><td><code>ymdInUruguay / uyStartOfDayUtc / addDaysYmd / todayUruguayYmd</code></td><td>Helpers de fecha civil uruguaya</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Solapes &amp; suplencias</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Módulo / función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>event-overlap.ts</code> · <code>findEventOverlapConflict / conflictKindBetween</code></td><td>Detecta conflictos de horario entre eventos</td></tr>
+          <tr><td><code>substitutions.ts</code> · <code>listSubstitutions / createSubstitution / deleteSubstitution</code></td><td>CRUD de suplencias</td></tr>
+          <tr><td><code>substitution-occurrence.ts</code> · <code>resolveSubstitutionOccurrence</code></td><td>Resuelve la suplencia sobre la ocurrencia recurrente</td></tr>
+          <tr><td><code>class SubstitutionError</code></td><td>Error de dominio de suplencia inválida</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Ejemplo real — <code>deriveOccurrenceStatus()</code></h4>
+      <p class="muted">El estado de una ocurrencia no se guarda: se deriva del estado base de la serie y del instante actual.</p>
+      <pre><code><span class="tok-k">export function</span> <span class="tok-f">deriveOccurrenceStatus</span>(baseStatus, occStartAt: Date, occEndAt: Date) {
+  <span class="tok-k">if</span> (baseStatus === <span class="tok-s">'CANCELLED'</span>) <span class="tok-k">return</span> <span class="tok-s">'CANCELLED'</span>
+  <span class="tok-k">if</span> (baseStatus === <span class="tok-s">'EXPIRED'</span>)   <span class="tok-k">return</span> <span class="tok-s">'EXPIRED'</span>
+  <span class="tok-k">const</span> now = <span class="tok-k">new</span> Date()
+  <span class="tok-k">if</span> (occEndAt &lt;= now)                    <span class="tok-k">return</span> <span class="tok-s">'COMPLETED'</span>
+  <span class="tok-k">if</span> (occStartAt &lt;= now &amp;&amp; now &lt; occEndAt) <span class="tok-k">return</span> <span class="tok-s">'IN_PROGRESS'</span>
+  <span class="tok-k">return</span> <span class="tok-s">'SCHEDULED'</span>
+}</code></pre>
+    </section>
+
+    <!-- ==================== REFERENCIA: ANALÍTICA ==================== -->
+    <section id="ref-analytics">
+      <div class="anchor-h"><span class="section-tag">R3</span><h2>Referencia · Analítica</h2></div>
+      <p>Convierte eventos recurrentes + suplencias + asistencias reales en KPIs. El flujo: planificar instancias →
+        resolver asistencia/justificación → reasignar suplencias → calcular métricas.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Módulo · función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>planInstances.ts · getPlannedInstances()</code></td><td>Expande las ocurrencias planificadas del rango</td></tr>
+          <tr><td><code>resolveInstances.ts · resolveAttendanceAndJustification()</code></td><td>Cruza cada instancia con su asistencia y justificación reales</td></tr>
+          <tr><td><code>resolveSubstituteInstances.ts · resolveSubstituteInstances()</code></td><td>Reasigna instancias al docente suplente</td></tr>
+          <tr><td><code>metrics.ts · computeDashboardKpis()</code></td><td>KPIs del dashboard (presentes, tardanzas, ausencias…)</td></tr>
+          <tr><td><code>metrics.ts · computeSeriesByGranularity / computeSeriesByWeek</code></td><td>Series temporales por granularidad</td></tr>
+          <tr><td><code>metrics.ts · computeBreakdown / buildDashboardBreakdowns</code></td><td>Desgloses por dimensión (curso, tipo, rol…)</td></tr>
+          <tr><td><code>metrics.ts · computeTopRiskPeople / computeTopRiskEvents</code></td><td>Rankings de riesgo (más ausencias/incidencias)</td></tr>
+          <tr><td><code>metrics.ts · computeKpiDeltas / computeStatusDistribution</code></td><td>Comparación entre períodos y distribución de estados</td></tr>
+          <tr><td><code>dateRange.ts · parseYmdToUtcRange / toYmdInUruguay</code></td><td>Normalización de rangos de fecha</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Ejemplo real — <code>effectiveAbsenceStatus()</code></h4>
+      <p class="muted">Cuando una clase fue cubierta por un suplente, el estado del titular se traduce a ausencia (justificada o no) para la métrica.</p>
+      <pre><code><span class="tok-k">export function</span> <span class="tok-f">effectiveAbsenceStatus</span>(r: ResolvedAttendanceByInstance) {
+  <span class="tok-k">if</span> (r.checkInStatusResolved === <span class="tok-s">'SUBSTITUTED'</span>) {
+    <span class="tok-k">return</span> r.isJustifiedAbsence ? <span class="tok-s">'ABSENT_JUSTIFIED'</span> : <span class="tok-s">'ABSENT_NOT_JUSTIFIED'</span>
+  }
+  <span class="tok-k">return</span> r.checkInStatusResolved
+}</code></pre>
+    </section>
+
+    <!-- ==================== REFERENCIA: AUTH ==================== -->
+    <section id="ref-auth">
+      <div class="anchor-h"><span class="section-tag">R4</span><h2>Referencia · Auth &amp; sesiones</h2></div>
+
+      <h3><code>auth/keycloak.ts</code> — cliente OIDC + Admin API</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>buildLoginUrl(opts)</code> · <code>redirectUri()</code></td><td>Construye la URL de autorización (Authorization Code + PKCE)</td></tr>
+          <tr><td><code>exchangeCode(...)</code> · <code>refreshTokens(...)</code></td><td>Intercambia el code por tokens y refresca</td></tr>
+          <tr><td><code>buildLogoutUrl(...)</code> · <code>getOidcConfig()</code></td><td>Logout y descubrimiento OIDC</td></tr>
+          <tr><td><code>createKeycloakUser / deleteKeycloakUserByEmail</code></td><td>Provisión de usuarios vía Admin API</td></tr>
+          <tr><td><code>syncKeycloakUserIdentity(ByEmail) / getKeycloakUserIdByEmail</code></td><td>Sincroniza identidad EduTrack↔Keycloak</td></tr>
+          <tr><td><code>freeKeycloakUsernameIfOrphan / getKeycloakUserLoginName</code></td><td>Housekeeping de usernames</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Sesiones, provisión &amp; políticas</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Módulo · símbolo</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>session-store.ts · saveSession / getSession / deleteSession / deleteSessionsForUser</code></td><td>Sesiones BFF en Redis (<code>type BffSession</code>, <code>newSessionId</code>)</td></tr>
+          <tr><td><code>keycloak-provisioning.ts · provisionUserFromClaims()</code></td><td>Crea/actualiza el <code>User</code> local desde los claims OIDC</td></tr>
+          <tr><td><code>class SsoRegistrationRequiredError</code></td><td>Señala que el SSO requiere completar registro</td></tr>
+          <tr><td><code>sso-registration.ts · create/get/consumeSsoRegistration</code></td><td>Registro diferido para altas por SSO</td></tr>
+          <tr><td><code>password-policy.ts · isStrongPassword / strongPasswordSchema</code></td><td>Política de contraseñas (Zod)</td></tr>
+          <tr><td><code>account-validation.ts · usernameSchema / USERNAME_PATTERN</code></td><td>Validación de username</td></tr>
+          <tr><td><code>auth-profile-pure.ts · normalizePhoneUY / buildProfileName / validate*Update</code></td><td>Validaciones puras del perfil</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3><code>middlewares/</code></h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>authGuard(req,res,next)</code></td><td>Exige sesión válida (resuelve <code>sid</code> desde Redis)</td></tr>
+          <tr><td><code>requireRole / requireAnyRole(...)</code></td><td>Restringe por rol organizacional</td></tr>
+          <tr><td><code>requirePermission(code)</code> · <code>userPermissionScope(...)</code></td><td>Autorización fina por permiso <code>módulo.acción</code> y alcance</td></tr>
+          <tr><td><code>rate-limit.ts · rateLimit({bucket,max,windowSeconds})</code></td><td>Límite de tasa (p. ej. login 10/60s) sobre Redis</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Ejemplo real — <code>requirePermission()</code></h4>
+      <p class="muted">Middleware que resuelve el alcance efectivo del permiso y exige <code>all</code> cuando la operación lo requiere.</p>
+      <pre><code><span class="tok-k">export function</span> <span class="tok-f">requirePermission</span>(permissionCode: <span class="tok-k">string</span>, requiredScope?: <span class="tok-s">"own"</span> | <span class="tok-s">"all"</span>) {
+  <span class="tok-k">return async</span> (req, res, next) =&gt; {
+    <span class="tok-k">const</span> u = (req <span class="tok-k">as any</span>).user
+    <span class="tok-k">const</span> userId = u?.id ?? u?.sub
+    <span class="tok-k">if</span> (!userId) <span class="tok-k">return</span> res.<span class="tok-f">status</span>(<span class="tok-n">403</span>).<span class="tok-f">json</span>({ message: <span class="tok-s">"Prohibido"</span> })
+    <span class="tok-k">const</span> scope = <span class="tok-k">await</span> <span class="tok-f">userPermissionScope</span>(userId, permissionCode, u?.role)
+    <span class="tok-k">if</span> (!scope || (requiredScope === <span class="tok-s">"all"</span> &amp;&amp; scope !== <span class="tok-s">"all"</span>)) {
+      <span class="tok-k">return</span> res.<span class="tok-f">status</span>(<span class="tok-n">403</span>).<span class="tok-f">json</span>({ message: <span class="tok-s">"Prohibido"</span> })
+    }
+    <span class="tok-f">next</span>()
+  }
+}</code></pre>
+    </section>
+
+    <!-- ==================== REFERENCIA: IDENTIDAD ==================== -->
+    <section id="ref-identity">
+      <div class="anchor-h"><span class="section-tag">R5</span><h2>Referencia · Identidad, roles &amp; permisos</h2></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Módulo · símbolo</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>org-role-seed.ts · ensureBuiltinOrgRoles()</code></td><td>Siembra los roles built-in (ADMIN/TEACHER/STAFF/STUDENT)</td></tr>
+          <tr><td><code>org-role-service.ts · resolveRoleIdByCode / getOrgRoleIdByCodeOrThrow</code></td><td>Resuelve el <code>OrgRole</code> por su <code>code</code> estable</td></tr>
+          <tr><td><code>org-role-service.ts · normalizeOrgRoleCode / validateOrgRoleCode</code></td><td>Normaliza y valida códigos de rol</td></tr>
+          <tr><td><code>profile-permissions-defaults.ts · DEFAULT_PROFILE_PERMISSIONS</code></td><td>Matriz por defecto de permisos por rol</td></tr>
+          <tr><td><code>profile-permissions-repository.ts · loadProfilePermissionsStore()</code></td><td>Carga el store de permisos efectivos</td></tr>
+          <tr><td><code>…repository.ts · updateRolePermissionGrant / replaceRolePermissionGrants</code></td><td>Edita concesiones por rol</td></tr>
+          <tr><td><code>…repository.ts · createProfileRoleWithPermissions / createCustomPermissionForRole</code></td><td>Crea roles y permisos personalizados</td></tr>
+          <tr><td><code>uruguay-ci.ts · isValidUruguayanCI / computeCICheckDigit</code></td><td>Valida la cédula de identidad uruguaya (dígito verificador)</td></tr>
+          <tr><td><code>user-role-prisma.ts · attachRoleCode / selectOrgRoleCode</code></td><td>Adjunta el <code>code</code> del rol a las consultas de usuario</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Ejemplo real — <code>isValidUruguayanCI()</code></h4>
+      <p class="muted">Dígito verificador de la cédula uruguaya con pesos <code>[2,9,8,7,6,3,4]</code>. Una sola implementación para auth y admin.</p>
+      <pre><code><span class="tok-k">export function</span> <span class="tok-f">computeCICheckDigit</span>(base7: <span class="tok-k">string</span>) {
+  <span class="tok-k">const</span> weights = [<span class="tok-n">2</span>, <span class="tok-n">9</span>, <span class="tok-n">8</span>, <span class="tok-n">7</span>, <span class="tok-n">6</span>, <span class="tok-n">3</span>, <span class="tok-n">4</span>]
+  <span class="tok-k">const</span> sum = base7.<span class="tok-f">padStart</span>(<span class="tok-n">7</span>, <span class="tok-s">"0"</span>).<span class="tok-f">split</span>(<span class="tok-s">""</span>)
+    .<span class="tok-f">map</span>((d, i) =&gt; <span class="tok-f">parseInt</span>(d, <span class="tok-n">10</span>) * weights[i])
+    .<span class="tok-f">reduce</span>((a, b) =&gt; a + b, <span class="tok-n">0</span>)
+  <span class="tok-k">return</span> (<span class="tok-n">10</span> - (sum % <span class="tok-n">10</span>)) % <span class="tok-n">10</span>
+}
+
+<span class="tok-k">export function</span> <span class="tok-f">isValidUruguayanCI</span>(ci: <span class="tok-k">string</span>) {
+  <span class="tok-k">const</span> digits = <span class="tok-f">onlyDigits</span>(ci)
+  <span class="tok-k">if</span> (digits.length &lt; <span class="tok-n">7</span> || digits.length &gt; <span class="tok-n">8</span>) <span class="tok-k">return false</span>
+  <span class="tok-k">const</span> base = digits.<span class="tok-f">slice</span>(<span class="tok-n">0</span>, -<span class="tok-n">1</span>)
+  <span class="tok-k">return</span> <span class="tok-f">computeCICheckDigit</span>(base) === <span class="tok-f">parseInt</span>(digits.<span class="tok-f">slice</span>(-<span class="tok-n">1</span>), <span class="tok-n">10</span>)
+}</code></pre>
+    </section>
+
+    <!-- ==================== REFERENCIA: CONFIG ==================== -->
+    <section id="ref-config">
+      <div class="anchor-h"><span class="section-tag">R6</span><h2>Referencia · Config, timezone &amp; settings</h2></div>
+      <p>Todo el manejo de fechas civiles pasa por la zona horaria institucional (por defecto <code>America/Montevideo</code>).</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Módulo · símbolo</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>app-timezone.ts · uruguayWallToUtc / uruguayYmdEndOfDayToUtc</code></td><td>Convierte hora local ↔ UTC</td></tr>
+          <tr><td><code>app-timezone.ts · parseEventTimeToUruguayHhMm / jsWeekdayInUruguay</code></td><td>Parsea horarios y día de semana en zona local</td></tr>
+          <tr><td><code>app-timezone.ts · uruguayStartOfDayFromInstant / isYmdDateString</code></td><td>Inicio de día civil y validación YMD</td></tr>
+          <tr><td><code>institution-timezone.ts · getInstitutionTimezone / refreshInstitutionTimezoneCache</code></td><td>Zona horaria configurable con caché</td></tr>
+          <tr><td><code>institution-timezone.ts · INSTITUTION_TIMEZONE_OPTIONS / normalizeInstitutionTimezone</code></td><td>Catálogo y normalización de zonas</td></tr>
+          <tr><td><code>system-settings.ts · getOrCreateSystemSettings()</code></td><td>Fila única <code>default</code> de configuración global</td></tr>
+          <tr><td><code>system-settings.ts · getAttendanceOperationalSettings / getMoodleOperationalSettings</code></td><td>Vistas tipadas de las tolerancias y flags Moodle</td></tr>
+          <tr><td><code>system-settings.ts · isDiditConfigured / isLivenessRequiredForRegistration</code></td><td>Flags derivados de entorno/settings</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Ejemplo real — <code>getAttendanceOperationalSettings()</code></h4>
+      <p class="muted">Lee la fila única <code>SystemSettings</code> y devuelve tolerancias saneadas (con <code>clamp</code> defensivo).</p>
+      <pre><code><span class="tok-k">export async function</span> <span class="tok-f">getAttendanceOperationalSettings</span>() {
+  <span class="tok-k">const</span> row = <span class="tok-k">await</span> <span class="tok-f">getOrCreateSystemSettings</span>()
+  <span class="tok-k">return</span> {
+    noShowGraceMinutes:        Math.<span class="tok-f">max</span>(row.attendanceNoShowGraceMinutes ?? <span class="tok-n">15</span>, <span class="tok-n">1</span>),
+    lateToleranceMinutes:      Math.<span class="tok-f">max</span>(row.attendanceLateToleranceMinutes ?? <span class="tok-n">5</span>, <span class="tok-n">0</span>),
+    earlyExitToleranceMinutes: Math.<span class="tok-f">max</span>(row.attendanceEarlyExitToleranceMinutes ?? <span class="tok-n">5</span>, <span class="tok-n">0</span>),
+    classBridgeGapMinutes:     Math.<span class="tok-f">min</span>(Math.<span class="tok-f">max</span>(row.attendanceClassBridgeGapMinutes ?? <span class="tok-n">60</span>, <span class="tok-n">1</span>), <span class="tok-n">1440</span>),
+    monitorEnabled:            row.attendanceMonitorEnabled !== <span class="tok-k">false</span>,
+    biometricDuplicateWindowMinutes: Math.<span class="tok-f">min</span>(Math.<span class="tok-f">max</span>(row.biometricDuplicateWindowMinutes ?? <span class="tok-n">5</span>, <span class="tok-n">0</span>), <span class="tok-n">120</span>),
+  }
+}</code></pre>
+    </section>
+
+    <!-- ==================== REFERENCIA: ASISTENTE ==================== -->
+    <section id="ref-assistant">
+      <div class="anchor-h"><span class="section-tag">R7</span><h2>Referencia · Asistente NL→SQL (módulos)</h2></div>
+      <p>Carpeta <code>services/query-assistant/</code>. Ver el <a href="#flujo-assistant">flujo</a> para el orden de ejecución.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Archivo · símbolo</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>run.ts · runAdminQueryAssistant()</code></td><td>Orquestador: heurística → fast-path → LLM → SQL</td></tr>
+          <tr><td><code>question-heuristics.ts · heuristicIntentFromQuestion()</code></td><td>Clasifica la intención sin LLM (+ mes/año)</td></tr>
+          <tr><td><code>enrich-payload.ts · enrichPayloadFromQuestion()</code></td><td>Enriquece el payload (fechas relativas, scope)</td></tr>
+          <tr><td><code>llm-parse.ts · parseQuestionWithLlm()</code></td><td>Pregunta → intent estructurado (Zod)</td></tr>
+          <tr><td><code>llm-sql.ts · runNaturalLanguageSqlQuery / validateReadOnlySql</code></td><td>Traducción NL→SQL + validación de solo lectura</td></tr>
+          <tr><td><code>schema-context.ts · DATABASE_CONTEXT / SEMANTIC_SYNONYMS</code></td><td>Contexto de esquema y sinónimos para el LLM</td></tr>
+          <tr><td><code>schemas.ts · QUERY_ASSISTANT_INTENTS / llmIntentSchema</code></td><td>Catálogo de intents y validación</td></tr>
+          <tr><td><code>execute*Summary()</code> (absences, incidents, medical-leaves, assigned-events, biometric-issues, attendance-late, audit, hours-worked, users-admin)</td><td>Un ejecutor curado por intent</td></tr>
+          <tr><td><code>date-range.ts · resolveEffectiveYmdRange()</code> · <code>scope.ts · QueryAssistantScope</code></td><td>Rangos de fecha y alcance de la consulta</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Ejemplo real — <code>validateReadOnlySql()</code> (guardrail)</h4>
+      <p class="muted">Antes de ejecutar el SQL generado por el LLM: solo <code>SELECT</code>, un único statement, sin comentarios ni palabras prohibidas, y únicamente tablas de la allowlist.</p>
+      <pre><code><span class="tok-k">export function</span> <span class="tok-f">validateReadOnlySql</span>(sql: <span class="tok-k">string</span>): <span class="tok-k">string</span> {
+  <span class="tok-k">const</span> cleaned = <span class="tok-f">stripTrailingSemicolon</span>(sql)
+  <span class="tok-k">if</span> (!<span class="tok-s">/^select\b/i</span>.<span class="tok-f">test</span>(cleaned)) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">'…_NOT_SELECT'</span>)
+
+  <span class="tok-c">// se analiza el "esqueleto" sin literales, para no rechazar datos legítimos con ';' o '--'</span>
+  <span class="tok-k">const</span> skeleton = <span class="tok-f">blankStringLiterals</span>(cleaned)
+  <span class="tok-k">if</span> (skeleton.<span class="tok-f">includes</span>(<span class="tok-s">';'</span>)) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">'…_MULTIPLE_STATEMENTS'</span>)
+  <span class="tok-k">if</span> (skeleton.<span class="tok-f">includes</span>(<span class="tok-s">'--'</span>) || skeleton.<span class="tok-f">includes</span>(<span class="tok-s">'/*'</span>)) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">'…_COMMENTS_FORBIDDEN'</span>)
+  <span class="tok-k">if</span> (FORBIDDEN_SQL.<span class="tok-f">test</span>(skeleton)) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">'…_FORBIDDEN_KEYWORD'</span>)
+
+  <span class="tok-k">const</span> unknown = <span class="tok-f">referencedTables</span>(cleaned).<span class="tok-f">filter</span>((t) =&gt; !ALLOWED_TABLES.<span class="tok-f">has</span>(t))
+  <span class="tok-k">if</span> (unknown.length &gt; <span class="tok-n">0</span>) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">`…_UNKNOWN_TABLE:${unknown}`</span>)
+  <span class="tok-k">return</span> cleaned
+}</code></pre>
+    </section>
+
+    <!-- ==================== REFERENCIA: MOODLE ==================== -->
+    <section id="ref-moodle">
+      <div class="anchor-h"><span class="section-tag">R8</span><h2>Referencia · Moodle (módulos)</h2></div>
+      <p>Carpeta <code>integrations/moodle/</code>. Ver la <a href="#moodle">integración</a> para la visión de conjunto.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Archivo · función</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>client.ts · moodleRest()</code> + <code>isMoodleIntegrationEnabled()</code></td><td>Cliente HTTP de servicios web + flags de entorno</td></tr>
+          <tr><td><code>users.ts · syncMoodleUser / syncMoodleUserById / getUserIdByField</code></td><td>Usuario espejo del docente</td></tr>
+          <tr><td><code>student-users.ts · ensureStudentMoodleAccount / syncMoodleStudentById</code></td><td>Cuenta Moodle del estudiante</td></tr>
+          <tr><td><code>courses.ts · ensureCategory / ensureCourse / ensureSubjectCourse</code></td><td>Categorías y cursos idempotentes</td></tr>
+          <tr><td><code>scope.ts · resolveMoodleAcademicScope / buildSubjectCourseFullname</code></td><td>Resuelve el curso por asignatura/orientación del evento</td></tr>
+          <tr><td><code>enrolments.ts · enrolUser / enrolUsersBatch / unenrolUser / getEnrolledUserIds</code></td><td>Matriculación con ventana temporal</td></tr>
+          <tr><td><code>enrolment-map.ts · upsertEnrolmentMap / markEnrolmentRevoked / listActiveEnrolments</code></td><td>Tracking para revocación segura</td></tr>
+          <tr><td><code>object-map.ts · getMappedId / saveMapping</code></td><td>Mapeo idempotente EduTrack↔Moodle</td></tr>
+          <tr><td><code>outbox.ts · enqueueUserUpsert / processOutboxOnce / releaseStaleLocks</code></td><td>Cola con reintentos y backoff</td></tr>
+          <tr><td><code>reconcile.ts · reconcileMoodle()</code></td><td>Reconciliación completa periódica</td></tr>
+          <tr><td><code>health.ts · probeMoodleConnection / getMoodleHealthStatus</code></td><td>Chequeo de disponibilidad</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Ejemplo real — <code>ensureCategory()</code> (patrón idempotente)</h4>
+      <p class="muted">Tres pasos que dan idempotencia y recuperan <em>drift</em>: mapeo local → buscar por <code>idnumber</code> en Moodle → crear si no existe.</p>
+      <pre><code><span class="tok-k">export async function</span> <span class="tok-f">ensureCategory</span>(localId, idnumber, name): Promise&lt;<span class="tok-k">number</span>&gt; {
+  <span class="tok-k">const</span> mapped = <span class="tok-k">await</span> <span class="tok-f">getMappedId</span>(<span class="tok-s">"CATEGORY"</span>, localId)
+  <span class="tok-k">if</span> (mapped != <span class="tok-k">null</span>) <span class="tok-k">return</span> mapped                    <span class="tok-c">// 1) ya mapeado</span>
+
+  <span class="tok-k">const</span> found = <span class="tok-k">await</span> <span class="tok-f">moodleRest</span>(<span class="tok-s">"core_course_get_categories"</span>, {  <span class="tok-c">// 2) ¿existe por idnumber?</span>
+    <span class="tok-s">"criteria[0][key]"</span>: <span class="tok-s">"idnumber"</span>, <span class="tok-s">"criteria[0][value]"</span>: idnumber })
+  <span class="tok-k">if</span> (Array.<span class="tok-f">isArray</span>(found) &amp;&amp; found.length &gt; <span class="tok-n">0</span>) {
+    <span class="tok-k">const</span> id = <span class="tok-f">numericField</span>(found[<span class="tok-n">0</span>], <span class="tok-s">"id"</span>)
+    <span class="tok-k">if</span> (id != <span class="tok-k">null</span>) { <span class="tok-k">await</span> <span class="tok-f">saveMapping</span>(<span class="tok-s">"CATEGORY"</span>, localId, id, idnumber); <span class="tok-k">return</span> id }
+  }
+
+  <span class="tok-k">const</span> created = <span class="tok-k">await</span> <span class="tok-f">moodleRest</span>(<span class="tok-s">"core_course_create_categories"</span>, {  <span class="tok-c">// 3) crear</span>
+    <span class="tok-s">"categories[0][name]"</span>: name.<span class="tok-f">slice</span>(<span class="tok-n">0</span>, <span class="tok-n">255</span>),
+    <span class="tok-s">"categories[0][idnumber]"</span>: idnumber,
+    <span class="tok-s">"categories[0][parent]"</span>: <span class="tok-f">String</span>(<span class="tok-f">moodleRootCategoryId</span>()) })
+  <span class="tok-c">// … guarda el mapeo y devuelve el id creado</span>
+}</code></pre>
+    </section>
+
+    <!-- ==================== REFERENCIA: UTILIDADES ==================== -->
+    <section id="ref-utils">
+      <div class="anchor-h"><span class="section-tag">R9</span><h2>Referencia · Utilidades &amp; notificaciones</h2></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Módulo · símbolo</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>school-year-service.ts · getActiveSchoolYear(Id) / activateSchoolYearById</code></td><td>Ciclo lectivo activo e invariantes (un solo ACTIVE)</td></tr>
+          <tr><td><code>school-year-service.ts · copyCoursesBetweenSchoolYears / ensureCourseOffering</code></td><td>Clona catálogo entre ciclos; asegura ofertas</td></tr>
+          <tr><td><code>audit-log.ts · recordAuditEvent / recordAuditEventNow</code></td><td>Registro append-only (RF-11) de acciones sensibles</td></tr>
+          <tr><td><code>audit-log.ts · getAuditActionCatalog / clientIpFromRequest</code></td><td>Catálogo de acciones e IP del cliente</td></tr>
+          <tr><td><code>usernames.ts · generateUniqueUsername / fitUsername</code></td><td>Genera usernames <code>nombre.apellido</code> únicos</td></tr>
+          <tr><td><code>non-working-days.ts · isNonWorkingDate / findNonWorkingDayForDate</code></td><td>Feriados que excluyen ocurrencias del cálculo de ausencias</td></tr>
+          <tr><td><code>webPush.ts · sendWebPushPayloadToUser / getVapidPublicKey / isWebPushConfigured</code></td><td>Notificaciones Web Push (VAPID)</td></tr>
+          <tr><td><code>notifications/email.ts · sendMail()</code></td><td>Envío de correo (SMTP)</td></tr>
+          <tr><td><code>notifications/student-welcome.ts · sendStudentWelcomeEmail / buildStudentWelcomeEmail</code></td><td>Bienvenida del estudiante a Moodle (una sola vez)</td></tr>
+          <tr><td><code>observability/metrics.ts · httpMetricsMiddleware / startMetricsServer</code></td><td>Métricas Prometheus HTTP</td></tr>
+          <tr><td><code>observability/readiness.ts · checkReadiness()</code></td><td>Readiness real (DB/Redis) para <code>/ready</code></td></tr>
+          <tr><td><code>admin-testing-tools.ts · resetDatabaseToSingleAdmin / simulateAdmsPunchForUser</code></td><td>Herramientas de testing (entornos no productivos)</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <!-- ==================== MOODLE ==================== -->
+    <section id="moodle">
+      <div class="anchor-h"><span class="section-tag">18</span><h2>Integración Moodle</h2></div>
+      <p>Sincronización idempotente y resiliente EduTrack→Moodle vía servicios web REST. Inactiva si faltan
+        <code>MOODLE_BASE_URL</code> o <code>MOODLE_WS_TOKEN</code>. Módulo: <code>integrations/moodle/</code>.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Archivo</th><th>Responsabilidad</th></tr></thead>
+        <tbody>
+          <tr><td><code>client.ts</code></td><td>HTTP + variables de entorno Moodle</td></tr>
+          <tr><td><code>scope.ts</code></td><td>Resuelve el curso Moodle por asignatura/orientación de un evento (idnumber estable)</td></tr>
+          <tr><td><code>courses.ts</code></td><td>Categorías y cursos (legacy por oferta y SUBJECT_COURSE por asignatura)</td></tr>
+          <tr><td><code>users.ts</code> · <code>student-users.ts</code></td><td>Usuarios espejo (docentes y estudiantes)</td></tr>
+          <tr><td><code>enrolments.ts</code></td><td>Matriculación con ventana temporal (<code>timestart</code>/<code>timeend</code>)</td></tr>
+          <tr><td><code>enrolment-map.ts</code></td><td>Tracking en <code>MoodleEnrolmentMap</code> para revocar con seguridad</td></tr>
+          <tr><td><code>object-map.ts</code></td><td>Mapeo idempotente EduTrack↔Moodle (<code>MoodleObjectMap</code>)</td></tr>
+          <tr><td><code>outbox.ts</code></td><td>Worker de la cola <code>MoodleSyncTask</code> con reintentos y backoff</td></tr>
+          <tr><td><code>reconcile.ts</code></td><td>Reconciliación completa: titulares + suplentes + revocación + estudiantes</td></tr>
+          <tr><td><code>health.ts</code></td><td>Chequeo de disponibilidad del servicio</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="callout note">
+        <span class="ci">♻️</span>
+        <p><strong>Outbox + reconciliación:</strong> los cambios se encolan en <code>MoodleSyncTask</code> (dedupe + backoff exponencial)
+        y un job periódico (<code>moodleReconcileIntervalMs</code>, 15 min por defecto) repara divergencias. EduTrack es la fuente de verdad.</p>
+      </div>
+
+      <h4>Variables de entorno Moodle</h4>
+      <p class="muted"><code>MOODLE_BASE_URL</code>, <code>MOODLE_WS_TOKEN</code>, <code>MOODLE_CANONICAL_HOST</code>,
+        <code>MOODLE_ROLE_TEACHER_ID</code> (3), <code>MOODLE_ROLE_STUDENT_ID</code> (5),
+        <code>MOODLE_ROLE_SUBSTITUTE_TEACHER_ID</code>, <code>MOODLE_ROOT_CATEGORY_ID</code> (0),
+        <code>MOODLE_USER_AUTH</code> (manual). Flags en <code>SystemSettings</code>: <code>moodleSyncEnabled</code>, <code>moodleSyncStudents</code>.</p>
+    </section>
+
+    <!-- ==================== DIDIT ==================== -->
+    <section id="didit">
+      <div class="anchor-h"><span class="section-tag">19</span><h2>Integración Didit (prueba de vida)</h2></div>
+      <p>Verificación de identidad (liveness) opcional en el registro. Módulo: <code>integrations/didit/</code>.</p>
+      <ol class="steps">
+        <li><h4>Se crea una <code>LivenessSession</code></h4><p>El <code>id</code> se envía como <code>vendor_data</code>; puede ligarse a un email.</p></li>
+        <li><h4>El usuario realiza la prueba</h4><p>Estados: PENDING → IN_PROGRESS → APPROVED/DECLINED/EXPIRED…</p></li>
+        <li><h4>Webhook con HMAC</h4><p><code>POST /webhooks/didit</code> (cuerpo raw). <code>signature.ts</code> valida la firma; <code>register-verification-from-decision.ts</code> aplica la decisión.</p></li>
+        <li><h4>Se marca <code>livenessVerifiedAt</code></h4><p>En <code>User</code>, si el sistema exigía prueba de vida (<code>livenessCheckEnabled</code> en <code>SystemSettings</code>).</p></li>
+      </ol>
+    </section>
+
+    <!-- ==================== ZKTECO ==================== -->
+    <section id="zkteco">
+      <div class="anchor-h"><span class="section-tag">20</span><h2>Integración ZKTeco (terminales)</h2></div>
+      <p>Terminales biométricos F22 con protocolo push ADMS. El servidor expone endpoints <code>/iclock/*</code> que
+        el terminal consulta periódicamente.</p>
+      <ul>
+        <li><strong>Reescritura de rutas:</strong> algunos F22 llaman <code>/cdata</code>, <code>/getrequest</code>, <code>/registry</code>, <code>/devicecmd</code> sin prefijo → <code>app.ts</code> los reescribe a <code>/iclock/*</code>.</li>
+        <li><strong>Parser:</strong> <code>integrations/zkteco/iclock-parser.ts</code> interpreta el cuerpo de texto plano.</li>
+        <li><strong>Identidad del terminal:</strong> por <code>admsSerial</code> (query <code>SN</code>) o <code>code</code>; secreto por <code>secretHash</code> e <code>allowedIps</code>.</li>
+      </ul>
+    </section>
+
+    <!-- ==================== INFRA ==================== -->
+    <section id="infra">
+      <div class="anchor-h"><span class="section-tag">21</span><h2>Infraestructura &amp; Docker</h2></div>
+      <p>Infra declarada en múltiples <code>docker-compose.*.yml</code> que se combinan según el entorno.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Archivo</th><th>Propósito</th></tr></thead>
+        <tbody>
+          <tr><td><code>docker-compose.yml</code></td><td>Local: <code>pg</code>, <code>redis</code>, <code>keycloak-db</code>, <code>keycloak</code>, <code>auth</code> (backend), <code>web</code> (frontend)</td></tr>
+          <tr><td><code>docker-compose.cloud.yml</code></td><td>Producción (VPS)</td></tr>
+          <tr><td><code>docker-compose.moodle.yml</code></td><td>Moodle (Bitnami) en servidor aparte</td></tr>
+          <tr><td><code>docker-compose.monitoring.yml</code></td><td>Grafana + Loki + Prometheus + Alloy + Blackbox</td></tr>
+          <tr><td><code>docker-compose.proxy.yml</code></td><td>Reverse proxy (Nginx / Cloudflare)</td></tr>
+          <tr><td><code>docker-compose.close-ports.*.yml</code></td><td>Cierre de puertos expuestos (hardening)</td></tr>
+          <tr><td><code>docker-compose.sonarqube.yml</code></td><td>SonarQube local (:9000)</td></tr>
+        </tbody>
+      </table></div>
+
+      <p><strong>Otras carpetas de infra:</strong> <code>nginx/</code> (reverse proxy), <code>terraform/</code> (IaC),
+        <code>monitoring/</code> (config de los agentes), <code>performance/</code> (k6 + baselines), <code>keycloak/</code> (realm + tema).</p>
+
+      <div class="callout tip">
+        <span class="ci">🐳</span>
+        <p>El backend ejecuta <code>prisma db push</code> al arrancar. En local se usa
+        <code>PRISMA_DB_PUSH_FLAGS=--accept-data-loss</code> para absorber cambios destructivos en bases de desarrollo.</p>
+      </div>
+    </section>
+
+    <!-- ==================== CI/CD ==================== -->
+    <section id="cicd">
+      <div class="anchor-h"><span class="section-tag">22</span><h2>CI / CD</h2></div>
+      <p>GitHub Actions en <code>.github/workflows/</code>. El deploy de producción es completamente automático al hacer push a <code>main</code>.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Workflow</th><th>Cuándo</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>ci.yml</code></td><td>push/PR a main y develop</td><td>typecheck + tests (backend y frontend)</td></tr>
+          <tr><td><code>sonar.yml</code></td><td>push/PR a main y develop</td><td>Análisis SonarCloud (secret <code>SONAR_TOKEN</code>)</td></tr>
+          <tr><td><code>e2e.yml</code></td><td>push/PR</td><td>Tests Playwright end-to-end</td></tr>
+          <tr><td><code>ci-security.yml</code></td><td>push/PR</td><td>Chequeos de seguridad</td></tr>
+          <tr><td><code>deploy.yml</code></td><td>push a main</td><td>Deploy al VPS (SSH + <code>docker compose pull</code> + <code>up</code>)</td></tr>
+          <tr><td><code>deploy-recover.yml</code></td><td>manual</td><td>Recuperación de deploy</td></tr>
+          <tr><td><code>docker-publish.yml</code></td><td>push</td><td>Publicación de imágenes Docker</td></tr>
+          <tr><td><code>performance-*.yml</code></td><td>programado/manual</td><td>Baselines de carga (k6) autenticado y producción</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="callout note">
+        <span class="ci">✅</span>
+        <p><strong>Quality Gate (SonarCloud):</strong> cobertura nueva ≥ 80 %, 0 issues Blocker/Critical en código nuevo,
+        complejidad cognitiva máxima por función = 15 (<code>typescript:S3776</code>). Analiza <code>backend/src</code> + <code>frontend/web/src</code>.</p>
+      </div>
+    </section>
+
+    <!-- ==================== OBSERVABILIDAD ==================== -->
+    <section id="observabilidad">
+      <div class="anchor-h"><span class="section-tag">23</span><h2>Observabilidad</h2></div>
+      <div class="grid cols-2">
+        <div class="card">
+          <h4>Sentry</h4>
+          <p class="muted">Backend (<code>backend/src/instrument.ts</code>) y frontend (<code>@sentry/nextjs</code>). Activo si hay DSN. Captura de errores de Express vía <code>Sentry.setupExpressErrorHandler</code>.</p>
+        </div>
+        <div class="card">
+          <h4>Métricas Prometheus</h4>
+          <p class="muted"><code>observability/metrics.ts</code> — middleware HTTP + métricas de la app. <code>readiness.ts</code> chequea DB/Redis en <code>/ready</code>.</p>
+        </div>
+        <div class="card">
+          <h4>Grafana + Loki</h4>
+          <p class="muted">Stack de logs y dashboards en <code>monitoring/</code> (+ Alloy y Blackbox para probes). Compose dedicado.</p>
+        </div>
+        <div class="card">
+          <h4>LogRocket</h4>
+          <p class="muted">Session replay del frontend, recomendado solo en producción.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== COMANDOS ==================== -->
+    <section id="comandos">
+      <div class="anchor-h"><span class="section-tag">24</span><h2>Arranque &amp; comandos</h2></div>
+
+      <h3>Arranque local</h3>
+      <pre><code><span class="tok-c"># 1. Copiar variables y levantar toda la infra</span>
+cp .env.compose.example .env
+docker compose up -d --build
+
+<span class="tok-c"># URLs: web :3000 · API :4000 · Keycloak :8089</span>
+docker compose logs -f auth web keycloak
+docker compose down</code></pre>
+
+      <h3>Backend</h3>
+      <pre><code>cd backend
+npm run dev              <span class="tok-c"># servidor con hot-reload (tsx watch)</span>
+npm run test             <span class="tok-c"># vitest (unit)</span>
+npm run test:coverage    <span class="tok-c"># genera coverage/lcov.info</span>
+npm run typecheck        <span class="tok-c"># ./node_modules/.bin/tsc --noEmit (NO npx tsc)</span>
+npm run prisma:studio    <span class="tok-c"># Prisma Studio en :5555</span>
+npm run seed:academic    <span class="tok-c"># seeds: academic · teachers · demo · realistic…</span></code></pre>
+
+      <h3>Frontend</h3>
+      <pre><code>cd frontend/web
+npm run dev
+npm run test
+npm run typecheck
+npm run test:e2e         <span class="tok-c"># Playwright</span></code></pre>
+
+      <div class="callout warn">
+        <span class="ci">⚠️</span>
+        <p>En el backend, usar <code>./node_modules/.bin/tsc --noEmit</code>, <strong>no</strong> <code>npx tsc</code>
+        (npm puede resolver el paquete obsoleto <code>tsc@2.0.4</code>).</p>
+      </div>
+
+      <h3>Variables de entorno críticas (auth)</h3>
+      <ul>
+        <li><code>REDIS_URL</code> — obligatorio para sesiones BFF.</li>
+        <li><code>KEYCLOAK_ISSUER_URL</code>, <code>KEYCLOAK_CLIENT_SECRET</code>, <code>KEYCLOAK_REDIRECT_URI</code>.</li>
+        <li><code>FRONTEND_URL</code>, <code>NEXT_PUBLIC_API_URL</code>.</li>
+        <li>Tras HTTPS: <code>COOKIE_SECURE=true</code> y URLs alineadas frontend/backend/Keycloak.</li>
+      </ul>
+      <p class="muted">Plantilla completa: <code>.env.compose.example</code>. Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle, OpenAI/Gemini.</p>
+    </section>
+
+    <div class="footer">
+      <p>EduTrack — Documentación técnica generada a partir del código fuente
+      (<code>schema.prisma</code>, <code>app.ts</code>, <code>routes/</code>, <code>services/</code>, <code>frontend/web/src/</code>).
+      Plataforma de gestión educativa · Node 20 · Next.js 14 · PostgreSQL 16.</p>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // Menú móvil
+  const menuBtn = document.getElementById('menuBtn');
+  const sidebar = document.getElementById('sidebar');
+  menuBtn.addEventListener('click', () => sidebar.classList.toggle('open'));
+  sidebar.addEventListener('click', (e) => {
+    if (e.target.tagName === 'A') sidebar.classList.remove('open');
+  });
+
+  // Scrollspy: resalta el enlace de la sección visible
+  const links = Array.from(document.querySelectorAll('.nav a'));
+  const map = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(a => a.classList.remove('active'));
+        const active = map.get(entry.target.id);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px', threshold: 0 });
+  document.querySelectorAll('section[id]').forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

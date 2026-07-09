@@ -1,0 +1,19 @@
+flowchart TD
+    classDef actor fill:#6f4ea1,stroke:#4a3270,color:#ffffff
+    classDef proc fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef dec fill:#e8a33d,stroke:#a9741f,color:#1a1a1a
+    classDef store fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    classDef out fill:#3a7ca5,stroke:#24576f,color:#ffffff
+
+    U([Usuario]):::actor --> LOGIN{Login OIDC<br/>autenticado?}:::dec
+    LOGIN -->|No| REJECT[Acceso denegado]:::proc
+    LOGIN -->|Si| OPS["Configura academico ·<br/>licencias · suplencias · eventos"]:::proc
+
+    ZK[/"Marcas ZKTeco<br/>+ prueba de vida"/]:::actor --> OPS
+
+    OPS --> DB[("PostgreSQL<br/>fuente de verdad")]:::store
+    DB --> ENGINE["Motor de asistencia<br/>cruza eventos + marcas +<br/>licencias + suplencias"]:::proc
+    ENGINE --> ESTADO["Estados derivados<br/>Presente · Tarde · Ausente just. ·<br/>Suplida · Ausente"]:::proc
+
+    ESTADO --> OUT["Indicadores · NL→SQL ·<br/>Reportes (Excel/PDF)"]:::out
+    DB --> MOODLE[("Moodle<br/>sync idempotente")]:::store

@@ -1,0 +1,21 @@
+flowchart TB
+    classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef ext fill:#8a8a8a,stroke:#5f5f5f,color:#ffffff
+
+    USERS["Usuarios internos<br/>Admin · Personal · Docente"]:::person
+    ZK["Lectores ZKTeco<br/>(huella)"]:::person
+    STU["Estudiante"]:::person
+
+    ET["EduTrack<br/>Gestion educativa integral<br/>asistencia · academico · biometria · reportes"]:::system
+
+    KC["Keycloak<br/>identidad (OIDC)"]:::ext
+    MOODLE["Moodle<br/>campus virtual"]:::ext
+    SVCS["Servicios externos<br/>Didit (liveness) · Observabilidad"]:::ext
+
+    USERS -->|HTTPS| ET
+    ZK -->|marcas| ET
+    ET -->|autentica| KC
+    ET -->|sincroniza| MOODLE
+    ET -->|integra| SVCS
+    STU -->|accede| MOODLE
