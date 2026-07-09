@@ -1,6 +1,8 @@
-import { Router, type Response } from 'express'
+import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
+import { AuditAction } from '@prisma/client'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
+import { recordAuditEvent } from '../services/audit-log.js'
 import { prisma } from '../db/prisma.js'
 import { isMoodleIntegrationEnabled } from '../integrations/moodle/client.js'
 import { resolveMoodleAcademicScope } from '../integrations/moodle/scope.js'
@@ -210,6 +212,39 @@ async function resolveGradeRow(row: ParsedGradeRow, assignment: MoodleAssignment
   return { moodleUserId, grade: row.grade }
 }
 
+/** Escrituras concurrentes a Moodle: la planilla puede tener decenas de alumnos y `api()` del
+ *  front aborta a los 12s. Un pool acotado preserva el orden y no satura el WS de Moodle. */
+const UPLOAD_CONCURRENCY = 5
+
+type RowOutcome = { ok: boolean; error?: { row: number; message: string } }
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const i = cursor++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length || 1) }, worker))
+  return results
+}
+
+/** Resuelve y escribe una fila; nunca lanza (devuelve el desenlace). */
+async function pushGradeRow(row: ParsedGradeRow, assignment: MoodleAssignment, assignmentId: number): Promise<RowOutcome> {
+  const resolvedRow = await resolveGradeRow(row, assignment)
+  if ('skip' in resolvedRow) return { ok: false }
+  if ('error' in resolvedRow) return { ok: false, error: { row: row.rowNumber, message: resolvedRow.error } }
+  try {
+    await saveAssignmentGrade(assignmentId, resolvedRow.moodleUserId, resolvedRow.grade)
+    return { ok: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: { row: row.rowNumber, message: `Moodle rechazó la nota: ${message}` } }
+  }
+}
+
 // POST /grades/sheet/upload → parsea la planilla y escribe las notas en Moodle (por fila, tolerante a fallos).
 r.post('/sheet/upload', authGuard, requirePermission('courses.manage', 'all'), async (req, res) => {
   const parsed = uploadBody.safeParse(req.body)
@@ -229,24 +264,27 @@ r.post('/sheet/upload', authGuard, requirePermission('courses.manage', 'all'), a
     }
 
     const rows = await parseGradeSheet(decodeBase64File(fileBase64))
-    const errors: Array<{ row: number; message: string }> = []
-    let updatedCount = 0
+    const outcomes = await mapWithConcurrency(rows, UPLOAD_CONCURRENCY, (row) =>
+      pushGradeRow(row, assignment, assignmentId),
+    )
+    const errors = outcomes.flatMap((o) => (o.error ? [o.error] : []))
+    const updatedCount = outcomes.filter((o) => o.ok).length
 
-    for (const row of rows) {
-      const resolvedRow = await resolveGradeRow(row, assignment)
-      if ('skip' in resolvedRow) continue
-      if ('error' in resolvedRow) {
-        errors.push({ row: row.rowNumber, message: resolvedRow.error })
-        continue
-      }
-      try {
-        await saveAssignmentGrade(assignmentId, resolvedRow.moodleUserId, resolvedRow.grade)
-        updatedCount += 1
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        errors.push({ row: row.rowNumber, message: `Moodle rechazó la nota: ${message}` })
-      }
-    }
+    recordAuditEvent({
+      action: AuditAction.MOODLE_GRADES_PUSHED,
+      actorUserId: (req as Request & { user?: { id?: string } }).user?.id ?? null,
+      req,
+      entityType: 'moodle-assignment',
+      entityId: String(assignmentId),
+      metadata: {
+        courseLabel: resolved.courseLabel,
+        assignmentName: assignment.name,
+        courseOfferingId: scopeInput.courseOfferingId,
+        subjectId: scopeInput.subjectId,
+        updatedCount,
+        errorCount: errors.length,
+      },
+    })
 
     return res.json({ updatedCount, errors })
   } catch (error) {

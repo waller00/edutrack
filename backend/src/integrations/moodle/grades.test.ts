@@ -69,6 +69,23 @@ describe("getAssignmentGrades", () => {
     expect(grades.size).toBe(2);
   });
 
+  it("con varias entradas por alumno se queda con la de mayor timemodified", async () => {
+    moodleRestMock.mockResolvedValue({
+      assignments: [
+        {
+          assignmentid: 5,
+          grades: [
+            { userid: 42, grade: "50", timemodified: 100 },
+            { userid: 42, grade: "80", timemodified: 300 }, // vigente
+            { userid: 42, grade: "70", timemodified: 200 },
+          ],
+        },
+      ],
+    });
+    const grades = await getAssignmentGrades(5);
+    expect(grades.get(42)).toBe(80);
+  });
+
   it("devuelve mapa vacío si la respuesta no trae assignments", async () => {
     moodleRestMock.mockResolvedValue({ warnings: [] });
     expect((await getAssignmentGrades(5)).size).toBe(0);
@@ -86,7 +103,7 @@ describe("saveAssignmentGrade", () => {
       attemptnumber: "-1",
       addattempt: "0",
       workflowstate: "",
-      applytoall: "1",
+      applytoall: "0",
     });
   });
 });

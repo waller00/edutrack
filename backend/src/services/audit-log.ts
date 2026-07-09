@@ -30,6 +30,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   ATTENDANCE_JUSTIFIED: "Asistencia justificada",
   ATTENDANCE_INCIDENT_RESOLVED: "Incidente de asistencia resuelto",
   SUBSTITUTION_CREATED: "Suplencia registrada",
+  MOODLE_GRADES_PUSHED: "Notas empujadas a Moodle",
 };
 
 export function parseAuditActionFilter(raw: string | undefined): AuditAction | undefined {
