@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /**
  * Resolución del "scope académico Moodle" de un evento.
  *
@@ -38,6 +40,22 @@ export type MoodleSubjectScope = {
 
 const SUBJECT_PREFIX = "et-subject-offering";
 
+/** Límite de `mdl_course.idnumber` (varchar(100)) en Moodle. */
+const MOODLE_IDNUMBER_MAX = 100;
+
+/**
+ * `idnumber` seguro para Moodle (≤100 chars). El scheme natural con orientación (~142 chars) excede
+ * el `varchar(100)` de `mdl_course.idnumber` y provoca `dmlwriteexception`. Cuando el idnumber lógico
+ * supera el límite se reemplaza por una forma compacta y determinística derivada de la clave completa
+ * (estable e idempotente). Los idnumbers base (~93 chars) quedan intactos → los cursos ya creados no
+ * se recrean.
+ */
+function toMoodleIdnumber(logical: string): string {
+  if (logical.length <= MOODLE_IDNUMBER_MAX) return logical;
+  const digest = createHash("sha256").update(logical).digest("hex").slice(0, 40);
+  return `et-sc-${digest}`;
+}
+
 /**
  * Devuelve el scope Moodle por asignatura del evento, o `null` si el evento no es asignable
  * a un curso por asignatura (falta `courseOfferingId` o `subjectId`). Para `subjectId` nulo
@@ -46,21 +64,21 @@ const SUBJECT_PREFIX = "et-subject-offering";
 export function resolveMoodleAcademicScope(ev: EventScopeInput): MoodleSubjectScope | null {
   if (!ev.courseOfferingId || !ev.subjectId) return null;
 
-  let idnumber = `${SUBJECT_PREFIX}-${ev.courseOfferingId}-${ev.subjectId}`;
+  let key = `${SUBJECT_PREFIX}-${ev.courseOfferingId}-${ev.subjectId}`;
   let courseOrientationId: string | null = null;
   let orientationId: string | null = null;
 
   if (ev.courseOrientationId) {
     courseOrientationId = ev.courseOrientationId;
-    idnumber += `-corientation-${ev.courseOrientationId}`;
+    key += `-corientation-${ev.courseOrientationId}`;
   } else if (ev.orientationId) {
     orientationId = ev.orientationId;
-    idnumber += `-orientation-${ev.orientationId}`;
+    key += `-orientation-${ev.orientationId}`;
   }
 
   return {
-    key: idnumber,
-    idnumber,
+    key,
+    idnumber: toMoodleIdnumber(key),
     schoolYearId: ev.schoolYearId,
     courseOfferingId: ev.courseOfferingId,
     subjectId: ev.subjectId,

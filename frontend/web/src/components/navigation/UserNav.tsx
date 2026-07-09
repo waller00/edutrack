@@ -71,6 +71,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage' },
       { label: 'Cursos', href: '/admin/courses', permission: 'courses.manage' },
+      { label: 'Notas (Moodle)', href: '/admin/grades', permission: 'courses.manage' },
       { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage' },
     ],
   },

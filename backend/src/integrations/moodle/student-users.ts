@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
-import { isMoodleIntegrationEnabled, moodleRest, moodleUserLang } from "./client.js";
+import { isMoodleIntegrationEnabled, moodleRest, moodleUserLangParam } from "./client.js";
 import { getMappedId, saveMapping } from "./object-map.js";
 import { sendStudentWelcomeEmail } from "../../notifications/student-welcome.js";
 
@@ -21,7 +21,8 @@ export type StudentAccountInput = {
   username?: string | null;
 };
 
-function studentIdnumber(studentId: string): string {
+/** Clave estable e idempotente del alumno en Moodle (sobrevive a recreaciones de la cuenta). */
+export function studentIdnumber(studentId: string): string {
   return `et-student-${studentId}`;
 }
 
@@ -91,7 +92,7 @@ async function upgradeStudentToManual(moodleId: number, s: StudentAccountInput):
     "users[0][email]": real.email,
     "users[0][firstname]": firstname,
     "users[0][lastname]": lastname,
-    "users[0][lang]": moodleUserLang(),
+    ...moodleUserLangParam("users[0]"),
   });
 }
 
@@ -113,7 +114,7 @@ async function createStudentMoodleUser(s: StudentAccountInput, hasReal: boolean)
     "users[0][auth]": hasReal ? "manual" : "nologin",
     "users[0][idnumber]": idnumber,
     "users[0][maildisplay]": "0",
-    "users[0][lang]": moodleUserLang(),
+    ...moodleUserLangParam("users[0]"),
   });
   const id = Array.isArray(created) ? numericField(created[0], "id") : null;
   if (id == null) {

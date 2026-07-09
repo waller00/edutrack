@@ -1,0 +1,44 @@
+flowchart TB
+    classDef root fill:#08427b,stroke:#052e56,color:#ffffff
+    classDef l1 fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef l2 fill:#3a7ca5,stroke:#24576f,color:#ffffff
+
+    ROOT["EduTrack<br/>Plataforma de gestion educativa"]:::root
+
+    G["1. Gestion del proyecto"]:::l1
+    A["2. Analisis y diseno"]:::l1
+    D["3. Desarrollo"]:::l1
+    Q["4. Calidad (QA)"]:::l1
+    I["5. Infraestructura y despliegue"]:::l1
+    E["6. Documentacion y entrega"]:::l1
+
+    ROOT --> G & A & D & Q & I & E
+
+    G --> G1["1.1 Planificacion<br/>y cronograma"]:::l2
+    G --> G2["1.2 Seguimiento<br/>y control"]:::l2
+    G --> G3["1.3 Gestion<br/>de riesgos"]:::l2
+
+    A --> A1["2.1 Relevamiento<br/>(Liceo Los Olivos)"]:::l2
+    A --> A2["2.2 Requerimientos"]:::l2
+    A --> A3["2.3 Arquitectura"]:::l2
+    A --> A4["2.4 Modelo de datos"]:::l2
+    A --> A5["2.5 Diseno UX/UI"]:::l2
+
+    D --> D1["3.1 Backend<br/>(API · Prisma)"]:::l2
+    D --> D2["3.2 Frontend<br/>(Next.js · paneles)"]:::l2
+    D --> D3["3.3 Autenticacion<br/>(Keycloak · BFF)"]:::l2
+    D --> D4["3.4 Base de datos<br/>(PostgreSQL)"]:::l2
+    D --> D5["3.5 Integraciones<br/>(Moodle · Didit · ZKTeco)"]:::l2
+
+    Q --> Q1["4.1 Pruebas<br/>(unit · integ. · e2e)"]:::l2
+    Q --> Q2["4.2 CI/CD<br/>(GitHub Actions)"]:::l2
+    Q --> Q3["4.3 Analisis estatico<br/>(SonarCloud)"]:::l2
+    Q --> Q4["4.4 Seguridad<br/>(Trivy)"]:::l2
+
+    I --> I1["5.1 Contenedores<br/>(Docker Compose)"]:::l2
+    I --> I2["5.2 Cloud<br/>(DigitalOcean · Cloudflare)"]:::l2
+    I --> I3["5.3 Observabilidad<br/>(Sentry · Grafana · Prometheus)"]:::l2
+
+    E --> E1["6.1 Documentacion<br/>tecnica"]:::l2
+    E --> E2["6.2 Manuales<br/>(instalacion · usuario)"]:::l2
+    E --> E3["6.3 Capacitacion<br/>y entrega final"]:::l2
