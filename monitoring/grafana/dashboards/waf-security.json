@@ -1,0 +1,131 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "title": "WAF — Seguridad del borde",
+  "uid": "waf-security",
+  "version": 1,
+  "schemaVersion": 39,
+  "tags": ["waf", "seguridad", "nginx"],
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Bloqueos (444/403/405)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" }, "unit": "short" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({container=\"edutrack-reverse-proxy-1\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_>` | status=~\"444|403|405\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Rate-limited (429)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "orange" }, "unit": "short" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({container=\"edutrack-reverse-proxy-1\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_>` | status=~\"429\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Sospechosos (WAF_SUSPICIOUS)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "yellow" }, "unit": "short" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({container=\"edutrack-reverse-proxy-1\"} |= \"WAF_SUSPICIOUS\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Requests totales",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" }, "unit": "short" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({container=\"edutrack-reverse-proxy-1\"} != \"WAF_SUSPICIOUS\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Respuestas del WAF por código",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 20, "stacking": { "mode": "normal" } }, "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" },
+          "legendFormat": "{{status}}",
+          "expr": "sum by (status) (count_over_time({container=\"edutrack-reverse-proxy-1\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_>` | status=~\"403|405|429|444\" [$__auto]))" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Top IPs bloqueadas",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto" } }, "overrides": [] },
+      "options": { "showHeader": true },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "format": "table", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "topk(15, sum by (ip) (count_over_time({container=\"edutrack-reverse-proxy-1\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_>` | status=~\"444|403|405|429\" [$__range])))" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Top rutas atacadas (bloqueadas)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto" } }, "overrides": [] },
+      "options": { "showHeader": true },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "format": "table", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "topk(15, sum by (path) (count_over_time({container=\"edutrack-reverse-proxy-1\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_>` | status=~\"444|403|405\" [$__range])))" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "logs",
+      "title": "Detección de inyección (WAF_SUSPICIOUS)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{container=\"edutrack-reverse-proxy-1\"} |= \"WAF_SUSPICIOUS\"" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "logs",
+      "title": "Bloqueos recientes (444/403/405/429)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 29 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{container=\"edutrack-reverse-proxy-1\"} | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_>` | status=~\"444|403|405|429\"" }
+      ]
+    }
+  ]
+}
