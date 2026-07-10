@@ -60,6 +60,52 @@ Reglas:
 - reply: una frase corta en español al usuario (confirmación o aclaración mínima).
 - JSON único, sin markdown.`
 
+/**
+ * Prompt compacto para Ollama en CPU: evita timeouts por entrada excesiva.
+ * Conserva los intents y reglas esenciales para clasificación operativa.
+ */
+const OLLAMA_COMPACT_SYSTEM_PROMPT = `Clasificá la consulta en un JSON válido con:
+{ "intent": string, "params": object, "reply": string }
+
+Intents válidos:
+- HOURS_WORKED_SUMMARY
+- ABSENCES_SUMMARY
+- ATTENDANCE_INCIDENTS_SUMMARY
+- MEDICAL_LEAVES_SUMMARY
+- ASSIGNED_EVENTS_SUMMARY
+- BIOMETRIC_ISSUES_SUMMARY
+- ATTENDANCE_LATE_SUMMARY
+- USERS_ADMIN_SNAPSHOT
+- AUDIT_LOG_SUMMARY
+- UNKNOWN
+
+Reglas:
+- Devolver SOLO JSON (sin markdown).
+- "reply" debe ser una frase corta en español.
+- Si hay mes sin año, usar "defaultYear" del contexto.
+- month y year como números.
+- Si la consulta es ambigua, usar UNKNOWN.
+- Si menciona faltas/ausencias → ABSENCES_SUMMARY.
+- Si menciona incidencias/no show/salida anticipada → ATTENDANCE_INCIDENTS_SUMMARY.
+- Si menciona tardanzas/llegadas tarde → ATTENDANCE_LATE_SUMMARY.
+- Si menciona licencias/permisos médicos → MEDICAL_LEAVES_SUMMARY.
+- Si menciona eventos asignados → ASSIGNED_EVENTS_SUMMARY.
+- Si menciona cuentas/usuarios pendientes/inactivos/bloqueados → USERS_ADMIN_SNAPSHOT.
+- Si menciona auditoría/logs/login del sistema → AUDIT_LOG_SUMMARY.
+
+Parámetros posibles (solo si aplican):
+- year, month
+- dateFrom, dateTo (YYYY-MM-DD)
+- userSearch
+- incidentViewMode: LIST | COUNT_BY_USER
+- personRoleScope: TEACHER | STAFF
+- incidentStatusScope: OPEN_ONLY | ALL
+- incidentTypeScope: LATE_ARRIVAL | TEACHER_NO_SHOW | EARLY_EXIT | ALL
+- leaveStatusScope: ALL | ACTIVE_ONLY | INACTIVE_ONLY
+- biometricIssueScope: FAILED | PENDING | BOTH
+- userAdminScope: PENDING_APPROVAL | INACTIVE | DOC_EXPIRING_90D | LOCKED | ACTIVE_RECENT
+- auditActionKeyword`
+
 function currentContextLine(defaultYear = new Date().getUTCFullYear()) {
   const now = new Date()
   return `Contexto: fecha/hora servidor UTC aproximada: ${now.toISOString().slice(0, 10)}. Año por defecto para meses sin año explícito: ${defaultYear}.`
@@ -81,6 +127,10 @@ export async function parseQuestionWithLlm(question: string, options?: { default
     process.env.QUERY_ASSISTANT_MODEL?.trim() ||
     process.env.OPENAI_MODEL?.trim() ||
     defaultIntentModelForProvider(provider)
+  const systemPrompt =
+    provider === 'ollama'
+      ? OLLAMA_COMPACT_SYSTEM_PROMPT
+      : `${SYSTEM_PROMPT}\n\n${SEMANTIC_SYNONYMS}`
 
   let completion
   try {
@@ -89,9 +139,8 @@ export async function parseQuestionWithLlm(question: string, options?: { default
       ...temperatureParams(model, 0.1),
       response_format: { type: 'json_object' },
       messages: [
-        // System 100% estático (clasificador + sinónimos) → prefijo cacheable por OpenAI.
-        // Sin el esquema completo de tablas: el clasificador no lo necesita.
-        { role: 'system', content: `${SYSTEM_PROMPT}\n\n${SEMANTIC_SYNONYMS}` },
+        // En Ollama usamos versión compacta para evitar timeout en CPU.
+        { role: 'system', content: systemPrompt },
         // Lo volátil (fecha, año por defecto) va en el mensaje del usuario.
         { role: 'user', content: `${currentContextLine(options?.defaultYear)}\n\nConsulta: ${question.trim().slice(0, 2000)}` },
       ],
