@@ -6,6 +6,7 @@ import { executeAuditLogSummary } from './audit-summary.js'
 import { executeBiometricIssuesSummary } from './biometric-issues.js'
 import { executeHoursWorkedSummary } from './hours-worked.js'
 import { executeAttendanceIncidentsSummary } from './incidents.js'
+import { isQueryAssistantConfigErrorMessage } from './llm-client.js'
 import { runNaturalLanguageSqlQuery } from './llm-sql.js'
 import { parseQuestionWithLlm } from './llm-parse.js'
 import { executeMedicalLeavesSummary } from './medical-leaves.js'
@@ -83,9 +84,9 @@ async function tryHeuristicReport(
   return executeIntentPayload(enriched, scope)
 }
 
-function isOpenAiConfigError(e: unknown): boolean {
+function isLlmConfigError(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e)
-  return msg === 'OPENAI_API_KEY_NOT_CONFIGURED' || msg.startsWith('OPENAI_API_KEY_INVALID_FORMAT:')
+  return isQueryAssistantConfigErrorMessage(msg)
 }
 
 /** Modo legacy `intent`: clasificador (heurística + LLM) con informes prearmados, sin SQL libre. */
@@ -121,7 +122,7 @@ export async function runAdminQueryAssistant(
   try {
     return await runNaturalLanguageSqlQuery(trimmed, scope)
   } catch (e) {
-    if (mode === 'sql' || isOpenAiConfigError(e)) throw e
+    if (mode === 'sql' || isLlmConfigError(e)) throw e
     console.warn('[query-assistant] NL→SQL falló; intento informe prearmado de respaldo', e)
     const fallback = await tryHeuristicReport(trimmed, scope)
     if (fallback) return fallback

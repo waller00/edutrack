@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { z } from 'zod'
 import { getAppTimezone } from '../../config/app-timezone.js'
 import { prisma } from '../../db/prisma.js'
+import { defaultModelForProvider, getQueryAssistantLlmClient } from './llm-client.js'
 import { temperatureParams } from './model-params.js'
 import { DATABASE_CONTEXT } from './schema-context.js'
 import type { QueryAssistantTableResult } from './schemas.js'
@@ -88,17 +89,6 @@ function currentSqlContextLine(scope?: QueryAssistantScope) {
       ? `\nFiltro de fechas explícito del usuario: restringí los resultados al rango civil Uruguay entre ${scope.dateFrom} y ${scope.dateTo} (inclusive), sobre el campo de fecha que corresponda; este rango tiene prioridad sobre cualquier mes/año mencionado en la pregunta.`
       : ''
   return `Contexto temporal: hoy es ${today} (fecha civil en America/Montevideo).\n${schoolYearLine}${dateRangeLine}`
-}
-
-function getOpenAiClient() {
-  const apiKey = process.env.OPENAI_API_KEY?.trim()
-  if (!apiKey) throw new Error('OPENAI_API_KEY_NOT_CONFIGURED')
-  if (!apiKey.startsWith('sk-')) {
-    throw new Error(
-      'OPENAI_API_KEY_INVALID_FORMAT: Usá una "Secret key" de OpenAI que empiece con sk- (creada en https://platform.openai.com/api-keys). Sin comillas ni espacios en el .env.',
-    )
-  }
-  return new OpenAI({ apiKey })
 }
 
 function stripTrailingSemicolon(sql: string): string {
@@ -190,8 +180,14 @@ function rowsToTableResult(title: string, summary: string, rows: Record<string, 
 }
 
 /** Modelo para generación de SQL. Permite uno más capaz que el de clasificación. */
-function sqlModel(): string {
-  return process.env.OPENAI_SQL_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini'
+function sqlModel(provider: 'openai' | 'ollama'): string {
+  return (
+    process.env.QUERY_ASSISTANT_SQL_MODEL?.trim() ||
+    process.env.OPENAI_SQL_MODEL?.trim() ||
+    process.env.QUERY_ASSISTANT_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    defaultModelForProvider(provider)
+  )
 }
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
@@ -211,23 +207,20 @@ async function requestSqlPlan(
     })
   } catch (e: unknown) {
     if (e instanceof APIError) {
-      const hint =
-        e.status === 401
-          ? ' Revisá que OPENAI_API_KEY sea una clave válida de https://platform.openai.com/api-keys (debe empezar con sk-).'
-          : ''
-      throw new Error(`OpenAI API (${e.status ?? '?'}): ${e.message}.${hint}`)
+      const providerName = client.baseURL?.includes('11434') ? 'Ollama' : 'OpenAI'
+      throw new Error(`${providerName} API (${e.status ?? '?'}): ${e.message}`)
     }
     throw e
   }
 
   const raw = completion.choices[0]?.message?.content
-  if (!raw) throw new Error('OPENAI_EMPTY_RESPONSE')
+  if (!raw) throw new Error('LLM_EMPTY_RESPONSE')
 
   let parsedJson: unknown
   try {
     parsedJson = JSON.parse(raw)
   } catch {
-    throw new Error('OPENAI_INVALID_JSON')
+    throw new Error('LLM_INVALID_JSON')
   }
   return sqlPlanSchema.parse(parsedJson)
 }
@@ -301,8 +294,8 @@ export async function runNaturalLanguageSqlQuery(
   question: string,
   scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
-  const client = getOpenAiClient()
-  const model = sqlModel()
+  const { client, provider } = getQueryAssistantLlmClient()
+  const model = sqlModel(provider)
 
   const messages: ChatMessage[] = [
     // System 100% estático (instrucciones + esquema + sinónimos) → prefijo cacheable por OpenAI.

@@ -1181,12 +1181,22 @@ r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), asyn
     const msg = e instanceof Error ? e.message : String(e)
     if (msg === 'OPENAI_API_KEY_NOT_CONFIGURED') {
       return res.status(503).json({
-        message: 'El asistente no está configurado. Definí OPENAI_API_KEY en el servidor.',
+        message: 'El asistente no está configurado. Definí OPENAI_API_KEY o configurá QUERY_ASSISTANT_LLM_PROVIDER=ollama con OLLAMA_BASE_URL.',
       })
     }
     if (msg.startsWith('OPENAI_API_KEY_INVALID_FORMAT:')) {
       return res.status(503).json({
         message: msg.replace(/^OPENAI_API_KEY_INVALID_FORMAT:\s*/, ''),
+      })
+    }
+    if (msg === 'OLLAMA_BASE_URL_NOT_CONFIGURED') {
+      return res.status(503).json({
+        message: 'El asistente no está configurado para Ollama. Definí OLLAMA_BASE_URL en el servidor.',
+      })
+    }
+    if (msg.startsWith('QUERY_ASSISTANT_LLM_PROVIDER_INVALID:')) {
+      return res.status(503).json({
+        message: msg.replace(/^QUERY_ASSISTANT_LLM_PROVIDER_INVALID:\s*/, ''),
       })
     }
     console.error('[query-assistant]', e)
