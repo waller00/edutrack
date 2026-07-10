@@ -1069,6 +1069,16 @@ describe("admin routes (prisma mock)", () => {
       expect(res.body.message).toMatch(/formato esperado/i);
     });
 
+    it("503 si Ollama no está configurado", async () => {
+      runAdminQueryAssistantMock.mockRejectedValueOnce(new Error("OLLAMA_BASE_URL_NOT_CONFIGURED"));
+      const res = await request(app())
+        .post("/admin/query-assistant")
+        .set(adminHdr())
+        .send({ question: "¿Cuántos alumnos hay?" });
+      expect(res.status).toBe(503);
+      expect(res.body.message).toMatch(/Ollama/i);
+    });
+
     it("500 ante error inesperado del asistente", async () => {
       runAdminQueryAssistantMock.mockRejectedValueOnce(new Error("boom"));
       const res = await request(app())
