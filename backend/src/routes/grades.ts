@@ -339,16 +339,23 @@ r.get('/sheet', authGuard, requirePermission('courses.manage', 'all'), async (re
     const roster = await loadRosterStudents(offering.id)
 
     const entries: GradeWorkbookEntry[] = []
+    let syncedCourses = 0
     for (const subject of subjects) {
       const resolved = await resolveSubjectCourse(offering, subject, filter, orientationName)
       if (!resolved) {
         if (filter.subjectId) throw new GradeBridgeError(409, NOT_SYNCED_MESSAGE)
         continue // curso amplio: las asignaturas sin curso Moodle no pueden tener notas
       }
+      syncedCourses += 1
       entries.push(...(await buildSubjectEntries(resolved, roster, assignmentId ?? null, Boolean(filter.subjectId))))
     }
     if (entries.length === 0) {
-      throw new GradeBridgeError(404, 'No hay tareas Moodle para el alcance elegido.')
+      throw new GradeBridgeError(
+        404,
+        syncedCourses === 0
+          ? 'Ninguna asignatura del alcance está sincronizada con Moodle. Ejecutá la reconciliación e intentá de nuevo.'
+          : `Los ${syncedCourses} curso(s) Moodle del alcance no tienen tareas con calificación numérica. Creá una "Tarea" en el curso Moodle (o elegí otro alcance) e intentá de nuevo.`,
+      )
     }
     const buffer = await buildGradeWorkbook(entries)
 
