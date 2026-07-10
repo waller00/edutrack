@@ -289,8 +289,8 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         <div className="space-y-1.5">
           {groups.map((group) => {
             const Icon = group.icon
-            const expanded = openGroups[group.title] ?? false
             const groupActive = group.items.some((item) => pathIsActive(pathname, item.href))
+            const expanded = openGroups[group.title] ?? (groupActive || group.title === 'Inicio')
             return (
               <div key={group.title}>
                 <button
