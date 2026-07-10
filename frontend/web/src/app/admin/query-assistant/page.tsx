@@ -168,6 +168,7 @@ export default function AdminQueryAssistantPage() {
     try {
       const r = await api<AssistantResponse>('/admin/query-assistant', {
         method: 'POST',
+        timeoutMs: 120000,
         body: JSON.stringify({
           question: q,
           ...(allYears ? { allYears: true } : {}),
