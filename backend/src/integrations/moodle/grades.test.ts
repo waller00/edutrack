@@ -29,6 +29,7 @@ describe("listCourseAssignments", () => {
 
     expect(moodleRestMock).toHaveBeenCalledWith("mod_assign_get_assignments", {
       "courseids[0]": "100",
+      includenotenrolledcourses: "1",
     });
     expect(list).toEqual([
       { id: 5, cmid: 50, name: "Tarea puntaje", maxGrade: 100, gradeType: "point" },

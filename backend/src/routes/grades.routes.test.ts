@@ -240,6 +240,20 @@ describe('grades routes', () => {
       const res = await request(app()).get(`/grades/sheet?courseOfferingId=${OFF}&subjectId=${SUB3}`)
       expect(res.status).toBe(409)
     })
+
+    it('404 con mensaje accionable cuando los cursos no tienen tareas', async () => {
+      assignmentsByCourse.clear()
+      const res = await request(app()).get(`/grades/sheet?courseOfferingId=${OFF}`)
+      expect(res.status).toBe(404)
+      expect(res.body.message).toContain('no tienen tareas')
+    })
+
+    it('404 distinto cuando ninguna asignatura está sincronizada', async () => {
+      mappedIds.clear()
+      const res = await request(app()).get(`/grades/sheet?courseOfferingId=${OFF}`)
+      expect(res.status).toBe(404)
+      expect(res.body.message).toContain('sincronizada')
+    })
   })
 
   describe('POST /grades/sheet/upload', () => {

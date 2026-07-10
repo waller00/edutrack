@@ -50,8 +50,11 @@ function gradeTypeFromRaw(raw: number | null): { gradeType: AssignmentGradeType;
 
 /** Lista las tareas de un curso Moodle (`mod_assign_get_assignments`). */
 export async function listCourseAssignments(moodleCourseId: number): Promise<MoodleAssignment[]> {
+  // Sin `includenotenrolledcourses`, Moodle sólo devuelve cursos donde el usuario del token está
+  // matriculado (ni siquiera el admin pasa): responde `courses: []` con warning "not enrolled".
   const data = await moodleRest("mod_assign_get_assignments", {
     "courseids[0]": String(moodleCourseId),
+    includenotenrolledcourses: "1",
   });
   const courses =
     data && typeof data === "object" && "courses" in data
