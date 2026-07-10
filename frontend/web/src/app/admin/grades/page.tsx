@@ -8,6 +8,7 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { fileToDataUrl } from '@/lib/media/image-upload'
 
 type CourseOpt = { id: string; name: string; courseOfferingId: string | null }
+type OrientationOpt = { id: string; orientationId: string; orientation: { name: string } }
 type SubjectOpt = { id: string; name: string }
 type Assignment = {
   id: number
@@ -16,22 +17,27 @@ type Assignment = {
   maxGrade: number | null
   gradeType: 'point' | 'scale' | 'none'
 }
-type UploadResult = { updatedCount: number; errors: Array<{ row: number; message: string }> }
+type UploadResult = { updatedCount: number; errors: Array<{ sheet?: string; row?: number; message: string }> }
 
 function withSchoolYear(path: string, schoolYearQuery: string): string {
   if (!schoolYearQuery) return path
   return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
 }
 
+/** La subida multi-hoja puede tardar más que el timeout por defecto de `api()` (12s). */
+const UPLOAD_TIMEOUT_MS = 180_000
+
 function AdminGradesInner() {
   const syCtx = useOptionalAdminSchoolYear()
   const coursePickerQuery = syCtx?.schoolYearScopedQuery ?? syCtx?.schoolYearQuery ?? ''
 
   const [courses, setCourses] = useState<CourseOpt[]>([])
+  const [orientations, setOrientations] = useState<OrientationOpt[]>([])
   const [subjects, setSubjects] = useState<SubjectOpt[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
 
   const [courseId, setCourseId] = useState('')
+  const [courseOrientationId, setCourseOrientationId] = useState('')
   const [subjectId, setSubjectId] = useState('')
   const [assignmentId, setAssignmentId] = useState('')
 
@@ -45,6 +51,8 @@ function AdminGradesInner() {
 
   const selectedCourse = courses.find((c) => c.id === courseId) ?? null
   const courseOfferingId = selectedCourse?.courseOfferingId ?? null
+  const selectedOrientation = orientations.find((o) => o.id === courseOrientationId) ?? null
+  const orientationCatalogId = selectedOrientation?.orientationId ?? ''
   const selectedAssignment = assignments.find((a) => String(a.id) === assignmentId) ?? null
 
   // Cargar cursos del ciclo activo.
@@ -54,17 +62,42 @@ function AdminGradesInner() {
       .catch((e) => setError(e instanceof Error ? e.message : 'No se pudieron cargar los cursos'))
   }, [coursePickerQuery])
 
-  // Al cambiar de curso: cargar asignaturas y limpiar lo dependiente.
+  // Al cambiar de curso: cargar sus orientaciones (si tiene) y limpiar lo dependiente.
+  useEffect(() => {
+    setOrientations([])
+    setCourseOrientationId('')
+    if (!courseId) return
+    api<OrientationOpt[]>(withSchoolYear(`/courses/${courseId}/orientations`, coursePickerQuery))
+      .then(setOrientations)
+      .catch(() => setOrientations([])) // sin orientaciones: el filtro simplemente no se muestra
+  }, [courseId, coursePickerQuery])
+
+  // Al cambiar curso u orientación: recargar asignaturas y limpiar lo dependiente.
   useEffect(() => {
     setSubjects([])
     setSubjectId('')
     setAssignments([])
     setAssignmentId('')
     if (!courseId) return
-    api<SubjectOpt[]>(withSchoolYear(`/courses/${courseId}/subjects`, coursePickerQuery))
+    const orientationParam = orientationCatalogId ? `?orientationId=${orientationCatalogId}` : ''
+    api<SubjectOpt[]>(withSchoolYear(`/courses/${courseId}/subjects${orientationParam}`, coursePickerQuery))
       .then(setSubjects)
       .catch((e) => setError(e instanceof Error ? e.message : 'No se pudieron cargar las asignaturas'))
-  }, [courseId, coursePickerQuery])
+  }, [courseId, orientationCatalogId, coursePickerQuery])
+
+  /** Parámetros de alcance compartidos por /activities, descarga y subida. */
+  const scopeParams = useCallback(
+    (extra: Record<string, string> = {}) => {
+      const params = new URLSearchParams({ courseOfferingId: courseOfferingId ?? '', ...extra })
+      if (subjectId) params.set('subjectId', subjectId)
+      if (courseOrientationId && orientationCatalogId) {
+        params.set('courseOrientationId', courseOrientationId)
+        params.set('orientationId', orientationCatalogId)
+      }
+      return params
+    },
+    [courseOfferingId, subjectId, courseOrientationId, orientationCatalogId],
+  )
 
   // Al elegir asignatura: pedir las tareas del curso Moodle.
   useEffect(() => {
@@ -73,32 +106,38 @@ function AdminGradesInner() {
     if (!courseOfferingId || !subjectId) return
     setLoadingActivities(true)
     setError('')
-    api<{ assignments: Assignment[] }>(
-      `/grades/activities?courseOfferingId=${courseOfferingId}&subjectId=${subjectId}`,
-    )
+    api<{ assignments: Assignment[] }>(`/grades/activities?${scopeParams().toString()}`)
       .then((r) => setAssignments(r.assignments))
       .catch((e) => setError(e instanceof Error ? e.message : 'No se pudieron cargar las tareas de Moodle'))
       .finally(() => setLoadingActivities(false))
-  }, [courseOfferingId, subjectId])
+  }, [courseOfferingId, subjectId, scopeParams])
 
   const downloadSheet = useCallback(async () => {
-    if (!courseOfferingId || !subjectId || !assignmentId) return
+    if (!courseOfferingId) return
     setDownloading(true)
     setError('')
     setMessage('')
     setResult(null)
     try {
-      const url = `${apiBaseUrl()}/grades/sheet?courseOfferingId=${courseOfferingId}&subjectId=${subjectId}&assignmentId=${assignmentId}`
-      const res = await fetch(url, { credentials: 'include', cache: 'no-store' })
+      const params = scopeParams(assignmentId ? { assignmentId } : {})
+      const res = await fetch(`${apiBaseUrl()}/grades/sheet?${params.toString()}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
         throw new Error(data?.message || `Error ${res.status}`)
       }
       const blob = await res.blob()
       const objectUrl = URL.createObjectURL(blob)
+      const scopeName =
+        selectedAssignment?.name ??
+        subjects.find((s) => s.id === subjectId)?.name ??
+        selectedCourse?.name ??
+        'planilla'
       const a = document.createElement('a')
       a.href = objectUrl
-      a.download = `Notas_${selectedAssignment?.name ?? 'tarea'}.xlsx`.replace(/[^a-zA-Z0-9_.-]+/g, '_')
+      a.download = `Notas_${scopeName}.xlsx`.replace(/[^a-zA-Z0-9_.-]+/g, '_')
       a.click()
       a.remove()
       URL.revokeObjectURL(objectUrl)
@@ -108,28 +147,38 @@ function AdminGradesInner() {
     } finally {
       setDownloading(false)
     }
-  }, [courseOfferingId, subjectId, assignmentId, selectedAssignment])
+  }, [courseOfferingId, subjectId, assignmentId, scopeParams, selectedAssignment, selectedCourse, subjects])
 
   const uploadSheet = useCallback(
     async (file: File) => {
-      if (!courseOfferingId || !subjectId || !assignmentId) return
+      if (!courseOfferingId) return
       setUploading(true)
       setError('')
       setMessage('')
       setResult(null)
       try {
         const fileBase64 = await fileToDataUrl(file)
-        const res = await api<UploadResult>('/grades/sheet/upload', {
-          method: 'POST',
-          body: JSON.stringify({
-            courseOfferingId,
-            subjectId,
-            assignmentId: Number(assignmentId),
-            fileBase64,
-          }),
-        })
-        setResult(res)
-        setMessage(`Se actualizaron ${res.updatedCount} nota(s) en Moodle.`)
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
+        try {
+          const res = await api<UploadResult>('/grades/sheet/upload', {
+            method: 'POST',
+            signal: controller.signal,
+            body: JSON.stringify({
+              courseOfferingId,
+              ...(subjectId ? { subjectId } : {}),
+              ...(courseOrientationId && orientationCatalogId
+                ? { courseOrientationId, orientationId: orientationCatalogId }
+                : {}),
+              ...(assignmentId ? { assignmentId: Number(assignmentId) } : {}),
+              fileBase64,
+            }),
+          })
+          setResult(res)
+          setMessage(`Se actualizaron ${res.updatedCount} nota(s) en Moodle.`)
+        } finally {
+          clearTimeout(timeout)
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'No se pudo subir la planilla')
       } finally {
@@ -137,23 +186,25 @@ function AdminGradesInner() {
         if (fileInputRef.current) fileInputRef.current.value = ''
       }
     },
-    [courseOfferingId, subjectId, assignmentId],
+    [courseOfferingId, subjectId, assignmentId, courseOrientationId, orientationCatalogId],
   )
 
-  const canGrade = selectedAssignment?.gradeType === 'point'
-  const ready = Boolean(courseOfferingId && subjectId && assignmentId)
+  // Con una tarea puntual elegida se exige nota numérica; sin tarea, la validación es por hoja.
+  const canGrade = !selectedAssignment || selectedAssignment.gradeType === 'point'
+  const ready = Boolean(courseOfferingId)
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4">
       <header>
         <h1 className="text-2xl font-bold text-gray-900">Notas (Moodle)</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Descargá la planilla de una tarea, cargá las notas offline y subila para escribirlas en Moodle.
+          Descargá la planilla de un curso, asignatura o tarea; cargá las notas offline y subila para
+          escribirlas en Moodle. Con menos filtros, la planilla trae una hoja por tarea.
         </p>
       </header>
 
       <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className={`grid gap-4 ${orientations.length > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-gray-700">Curso</span>
             <select
@@ -170,6 +221,24 @@ function AdminGradesInner() {
             </select>
           </label>
 
+          {orientations.length > 0 ? (
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-gray-700">Orientación</span>
+              <select
+                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                value={courseOrientationId}
+                onChange={(e) => setCourseOrientationId(e.target.value)}
+              >
+                <option value="">General / todas</option>
+                {orientations.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.orientation.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-gray-700">Asignatura</span>
             <select
@@ -178,7 +247,7 @@ function AdminGradesInner() {
               onChange={(e) => setSubjectId(e.target.value)}
               disabled={!courseId}
             >
-              <option value="">Elegí una asignatura…</option>
+              <option value="">Todas las asignaturas</option>
               {subjects.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -195,7 +264,7 @@ function AdminGradesInner() {
               onChange={(e) => setAssignmentId(e.target.value)}
               disabled={!subjectId || loadingActivities}
             >
-              <option value="">{loadingActivities ? 'Cargando…' : 'Elegí una tarea…'}</option>
+              <option value="">{loadingActivities ? 'Cargando…' : 'Todas las tareas'}</option>
               {assignments.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -256,9 +325,13 @@ function AdminGradesInner() {
             Filas con problemas ({result.errors.length})
           </h2>
           <ul className="space-y-1 text-sm text-gray-700">
-            {result.errors.map((err) => (
-              <li key={err.row}>
-                <span className="font-medium">Fila {err.row}:</span> {err.message}
+            {result.errors.map((err, idx) => (
+              <li key={`${err.sheet ?? ''}-${err.row ?? 'hoja'}-${idx}`}>
+                <span className="font-medium">
+                  {err.sheet ? `${err.sheet} — ` : ''}
+                  {err.row != null ? `Fila ${err.row}:` : 'Hoja:'}
+                </span>{' '}
+                {err.message}
               </li>
             ))}
           </ul>

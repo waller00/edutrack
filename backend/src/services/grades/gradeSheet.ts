@@ -5,10 +5,12 @@ import type { MoodleAssignment } from '../../integrations/moodle/grades.js'
 /**
  * Planilla de notas offline (puente EduTrack↔Moodle).
  *
- * `buildGradeSheet` genera un `.xlsx` con el roster de una tarea Moodle y su nota actual; la
- * columna "Nota nueva" es la única editable (validación 0..máx). `parseGradeSheet` lee esa planilla
- * de vuelta y devuelve las filas por `idnumber` (clave estable `et-student-<id>`), sin confiar en
- * el nombre —que el usuario podría editar— para identificar al alumno.
+ * `buildGradeWorkbook` genera un `.xlsx` con una hoja por tarea Moodle (roster + nota actual); la
+ * columna "Nota nueva" es la única editable (validación 0..máx). Cada hoja embebe una celda de
+ * metadatos (`et-gradesheet|…`) que identifica asignatura/tarea/orientación, así la subida no
+ * depende de los filtros elegidos al descargar. `parseGradeWorkbook` lee esa planilla de vuelta y
+ * devuelve las filas por `idnumber` (clave estable `et-student-<id>`), sin confiar en el nombre
+ * —que el usuario podría editar— para identificar al alumno.
  */
 
 export type GradeSheetStudent = {
@@ -22,23 +24,77 @@ export type GradeSheetStudent = {
   hasMoodleAccount: boolean
 }
 
-export type BuildGradeSheetArgs = {
+/** Identificación embebida de la hoja: a qué asignatura/tarea/orientación pertenece. */
+export type GradeSheetMeta = {
+  subjectId: string
+  assignmentId: number
+  courseOrientationId: string | null
+  orientationId: string | null
+}
+
+export type GradeWorkbookEntry = {
   /** Etiqueta legible del curso/asignatura (para el título). */
   courseLabel: string
   assignment: MoodleAssignment
   students: GradeSheetStudent[]
+  meta: GradeSheetMeta
+  /** Nombre sugerido de la hoja (se sanea, trunca a 31 chars y desambigua). */
+  sheetTitle: string
 }
 
 const HEADERS = ['Alumno', 'idnumber', 'Nota actual', 'Nota nueva'] as const
 const HEADER_ROW = 2
 const COL_IDNUMBER = 2
 const COL_NEW_GRADE = 4
+/** Columna (oculta) donde se escribe la celda de metadatos, en la fila del título. */
+const COL_META = 6
 
-/** Genera el `.xlsx` de carga de notas. La columna "Nota nueva" queda desbloqueada; el resto, protegido. */
-export async function buildGradeSheet(args: BuildGradeSheetArgs): Promise<Buffer> {
-  const { courseLabel, assignment, students } = args
-  const workbook = new ExcelJS.Workbook()
-  const sheet = workbook.addWorksheet('Notas')
+const META_PREFIX = 'et-gradesheet'
+const META_VERSION = 'v1'
+
+function encodeMeta(meta: GradeSheetMeta): string {
+  return [
+    META_PREFIX,
+    META_VERSION,
+    meta.subjectId,
+    String(meta.assignmentId),
+    meta.courseOrientationId ?? '',
+    meta.orientationId ?? '',
+  ].join('|')
+}
+
+/** Decodifica una celda de metadatos, o `null` si no tiene el formato esperado. */
+function decodeMeta(value: string): GradeSheetMeta | null {
+  const parts = value.split('|')
+  if (parts[0] !== META_PREFIX || parts[1] !== META_VERSION || parts.length < 6) return null
+  const assignmentId = Number(parts[3])
+  if (!parts[2] || !Number.isInteger(assignmentId) || assignmentId <= 0) return null
+  return {
+    subjectId: parts[2],
+    assignmentId,
+    courseOrientationId: parts[4] || null,
+    orientationId: parts[5] || null,
+  }
+}
+
+/** Nombre de hoja válido para Excel: sin `\/*?:[]`, ≤31 chars y único dentro del workbook. */
+function safeSheetName(title: string, used: Set<string>): string {
+  const base = (title.replace(/[\\/*?:[\]]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Notas').slice(0, 31)
+  let candidate = base
+  let n = 2
+  while (used.has(candidate.toLowerCase())) {
+    const suffix = ` (${n})`
+    candidate = base.slice(0, 31 - suffix.length) + suffix
+    n += 1
+  }
+  used.add(candidate.toLowerCase())
+  return candidate
+}
+
+/** Agrega la hoja de una tarea al workbook: título, roster y columna editable protegida. */
+async function addGradeSheet(workbook: ExcelJS.Workbook, entry: GradeWorkbookEntry, used: Set<string>): Promise<void> {
+  const { courseLabel, assignment, students } = entry
+  const sheet = workbook.addWorksheet(safeSheetName(entry.sheetTitle, used))
 
   const maxLabel = assignment.maxGrade != null ? ` — máx: ${assignment.maxGrade}` : ''
   sheet.addRow([`Notas — ${assignment.name} (${courseLabel})${maxLabel}`])
@@ -50,6 +106,10 @@ export async function buildGradeSheet(args: BuildGradeSheetArgs): Promise<Buffer
   }
 
   formatWorksheetForExport(sheet, { headerRow: HEADER_ROW, autoFilter: false })
+
+  // Celda de metadatos: en la fila del título, columna oculta y bloqueada.
+  sheet.getRow(1).getCell(COL_META).value = encodeMeta(entry.meta)
+  sheet.getColumn(COL_META).hidden = true
 
   // La columna editable: desbloqueada + validación de rango cuando hay nota máxima de puntaje.
   const firstDataRow = HEADER_ROW + 1
@@ -74,7 +134,15 @@ export async function buildGradeSheet(args: BuildGradeSheetArgs): Promise<Buffer
 
   // Protege la hoja para que sólo "Nota nueva" sea editable (sin contraseña, permite navegar celdas).
   await sheet.protect('', { selectLockedCells: true, selectUnlockedCells: true })
+}
 
+/** Genera el `.xlsx` de carga de notas: una hoja por tarea. */
+export async function buildGradeWorkbook(entries: GradeWorkbookEntry[]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook()
+  const used = new Set<string>()
+  for (const entry of entries) {
+    await addGradeSheet(workbook, entry, used)
+  }
   const arrayBuffer = await workbook.xlsx.writeBuffer()
   return Buffer.from(arrayBuffer)
 }
@@ -89,6 +157,13 @@ export type ParsedGradeRow = {
   rowNumber: number
 }
 
+export type ParsedGradeSheet = {
+  sheetName: string
+  /** Metadatos embebidos, o `null` en planillas viejas/externas (el llamador decide el fallback). */
+  meta: GradeSheetMeta | null
+  rows: ParsedGradeRow[]
+}
+
 function cellText(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'object') {
@@ -101,17 +176,22 @@ function cellText(value: ExcelJS.CellValue): string {
   return String(value)
 }
 
-/**
- * Lee una planilla de notas subida. Localiza la fila de encabezado por sus columnas conocidas
- * (tolera filas de título arriba) y devuelve sólo las filas con `idnumber` presente.
- */
-export async function parseGradeSheet(buffer: Buffer): Promise<ParsedGradeRow[]> {
-  const workbook = new ExcelJS.Workbook()
-  // ExcelJS acepta un Buffer de Node en runtime; el cast salva el desajuste de tipos con @types/node.
-  await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer)
-  const sheet = workbook.worksheets[0]
-  if (!sheet) return []
+/** Busca la celda de metadatos en las primeras filas de la hoja. */
+function findMeta(sheet: ExcelJS.Worksheet): GradeSheetMeta | null {
+  let meta: GradeSheetMeta | null = null
+  sheet.eachRow((row, rowNumber) => {
+    if (meta || rowNumber > HEADER_ROW + 1) return
+    row.eachCell((cell) => {
+      if (meta) return
+      const text = cellText(cell.value).trim()
+      if (text.startsWith(`${META_PREFIX}|`)) meta = decodeMeta(text)
+    })
+  })
+  return meta
+}
 
+/** Lee las filas de notas de una hoja. Localiza el encabezado por sus columnas conocidas. */
+function parseSheetRows(sheet: ExcelJS.Worksheet): ParsedGradeRow[] {
   // Ubicar la fila de encabezado (por si el título ocupa filas arriba).
   let headerRow = HEADER_ROW
   let idnumberCol = COL_IDNUMBER
@@ -142,4 +222,16 @@ export async function parseGradeSheet(buffer: Buffer): Promise<ParsedGradeRow[]>
     })
   })
   return rows
+}
+
+/** Lee una planilla de notas subida: todas las hojas, cada una con sus metadatos (si los tiene). */
+export async function parseGradeWorkbook(buffer: Buffer): Promise<ParsedGradeSheet[]> {
+  const workbook = new ExcelJS.Workbook()
+  // ExcelJS acepta un Buffer de Node en runtime; el cast salva el desajuste de tipos con @types/node.
+  await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer)
+  return workbook.worksheets.map((sheet) => ({
+    sheetName: sheet.name,
+    meta: findMeta(sheet),
+    rows: parseSheetRows(sheet),
+  }))
 }
