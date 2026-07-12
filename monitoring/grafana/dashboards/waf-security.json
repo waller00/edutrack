@@ -15,7 +15,7 @@
       "id": 1,
       "type": "stat",
       "title": "Bloqueos (444/403/405)",
-      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" }, "unit": "short" }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
@@ -28,7 +28,7 @@
       "id": 2,
       "type": "stat",
       "title": "Rate-limited (429)",
-      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "orange" }, "unit": "short" }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
@@ -41,7 +41,7 @@
       "id": 3,
       "type": "stat",
       "title": "Sospechosos (WAF_SUSPICIOUS)",
-      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "yellow" }, "unit": "short" }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
@@ -54,13 +54,26 @@
       "id": 10,
       "type": "stat",
       "title": "Bloqueados por firma (WAF_BLOCKED)",
-      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "dark-red" }, "unit": "short" }, "overrides": [] },
       "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
         { "refId": "A", "queryType": "instant", "datasource": { "type": "loki", "uid": "loki" },
           "expr": "sum(count_over_time({container=\"edutrack-reverse-proxy-1\"} |= \"WAF_BLOCKED\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Drops silenciosos (WAF_DROPPED)",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" }, "unit": "short" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "queryType": "instant", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({container=\"edutrack-reverse-proxy-1\"} |= \"WAF_DROPPED\" [$__range]))" }
       ]
     },
     {
@@ -73,7 +86,7 @@
       "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
         { "refId": "A", "queryType": "instant", "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum(count_over_time({container=\"edutrack-reverse-proxy-1\"} != \"WAF_SUSPICIOUS\" != \"WAF_BLOCKED\" [$__range]))" }
+          "expr": "sum(count_over_time({container=\"edutrack-reverse-proxy-1\"} != \"WAF_SUSPICIOUS\" != \"WAF_BLOCKED\" != \"WAF_DROPPED\" [$__range]))" }
       ]
     },
     {
@@ -141,10 +154,22 @@
       ]
     },
     {
+      "id": 13,
+      "type": "logs",
+      "title": "Drops silenciosos (WAF_DROPPED)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{container=\"edutrack-reverse-proxy-1\"} |= \"WAF_DROPPED\"" }
+      ]
+    },
+    {
       "id": 9,
       "type": "logs",
       "title": "Bloqueos recientes (444/403/405/429)",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 45 },
       "datasource": { "type": "loki", "uid": "loki" },
       "options": { "showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending" },
       "targets": [
