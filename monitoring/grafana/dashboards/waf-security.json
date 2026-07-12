@@ -40,7 +40,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Sospechosos (WAF_SUSPICIOUS)",
+      "title": "WAF_SUSPICIOUS",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "yellow" }, "unit": "short" }, "overrides": [] },
@@ -53,7 +53,7 @@
     {
       "id": 10,
       "type": "stat",
-      "title": "Bloqueados por firma (WAF_BLOCKED)",
+      "title": "WAF_BLOCKED",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "dark-red" }, "unit": "short" }, "overrides": [] },
@@ -66,7 +66,7 @@
     {
       "id": 12,
       "type": "stat",
-      "title": "Drops silenciosos (WAF_DROPPED)",
+      "title": "WAF_DROPPED",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" }, "unit": "short" }, "overrides": [] },
