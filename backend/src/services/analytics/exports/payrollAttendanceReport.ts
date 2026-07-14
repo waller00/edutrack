@@ -40,6 +40,10 @@ export type PayrollEventRow = {
   horaRealIn: string
   horaRealOut: string
   estado: string
+  /** Status crudo (`checkInStatusResolved`), para consumidores que agregan por estado. */
+  statusCode: string
+  /** `true` si la fila es cobertura de suplencia (horas del suplente). */
+  isCoverage: boolean
   minTarde: number
   horasTrab: number
   licencia: 'SI' | 'NO'
@@ -326,6 +330,8 @@ function toEventRow(it: ResolvedItem): PayrollEventRow {
     horaRealIn: presence ? fmtUyHm(it.actualInTime) : '',
     horaRealOut: presence ? fmtUyHm(it.actualOutTime) : '',
     estado,
+    statusCode: it.checkInStatusResolved,
+    isCoverage: Boolean(it.isCoverage),
     minTarde: lateMinutesOf(it),
     horasTrab: roundTo(it.durationMinutes / 60),
     licencia: it.isJustifiedAbsence ? 'SI' : 'NO',

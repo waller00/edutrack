@@ -57,6 +57,15 @@
         <a href="#flujo-eventos">Flujo: eventos</a>
         <a href="#flujo-licencias">Flujo: licencias</a>
         <a href="#flujo-assistant">Asistente NL→SQL</a>
+        <a href="#flujo-notas">Flujo: notas (Moodle)</a>
+        <a href="#flujo-reportes">Flujo: reportes &amp; sueldos</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Calidad &amp; defensa</div>
+        <a href="#patrones">Patrones de diseño</a>
+        <a href="#testing">Testing por pipeline</a>
+        <a href="#defensa">Preguntas de defensa</a>
       </div>
 
       <div class="nav-group">
@@ -148,7 +157,7 @@
         <div class="card feature">
           <div class="ico">📊</div>
           <h4>Reportes &amp; analítica</h4>
-          <p>Métricas de asistencia, rankings, exportaciones (PDF/CSV) y comparación entre ciclos.</p>
+          <p>Métricas de asistencia, rankings, exportaciones (XLSX/CSV/PDF), novedades de liquidación de sueldos y comparación entre ciclos.</p>
         </div>
         <div class="card feature">
           <div class="ico">🤖</div>
@@ -274,6 +283,73 @@
 ├── docker-compose.moodle.yml · docker-compose.monitoring.yml
 └── .env.compose.example   <span class="cmt"># plantilla de variables</span>
       </div>
+
+      <h3>Carpetas de la raíz, una por una</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Carpeta</th><th>Qué contiene y para qué sirve</th></tr></thead>
+        <tbody>
+          <tr><td><code>backend/</code></td><td>La API Express + Prisma. Todo el dominio del negocio vive acá (ver desglose abajo).</td></tr>
+          <tr><td><code>frontend/web/</code></td><td>La app Next.js 14 (App Router). Único frontend del monorepo (ver desglose abajo).</td></tr>
+          <tr><td><code>keycloak/</code></td><td>El realm exportado en JSON (usuarios/clientes/flows preconfigurados que Keycloak importa al arrancar) y el tema custom de la pantalla de login.</td></tr>
+          <tr><td><code>docs/</code></td><td>Documentación técnica en Markdown + diagramas Mermaid (<code>.mmd</code>) con sus exports PNG/SVG: arquitectura, contexto, despliegue, EDT, testing, runbooks (backups, ciberseguridad, biométrico F22, Moodle).</td></tr>
+          <tr><td><code>docs-site/</code></td><td>Este sitio: <code>index.html</code> + <code>styles.css</code> estáticos, sin build. Es la documentación navegable para estudiar/defender.</td></tr>
+          <tr><td><code>scripts/</code></td><td>Operación: backup/restore de Postgres (<code>backup_pg_offsite.sh</code>), helpers de deploy (<code>deploy-*.sh</code>), configuración de Keycloak (<code>keycloak-*.sh</code>) y de Moodle (<code>moodle-config-*.php/.sh</code>: SSO, webservices, tema, permisos), y generadores de planillas de clases de equivalencia para testing.</td></tr>
+          <tr><td><code>monitoring/</code></td><td>Configuración de los agentes del stack de observabilidad: Grafana (dashboards/datasources), Loki, Prometheus, Alloy (recolector) y Blackbox (probes HTTP).</td></tr>
+          <tr><td><code>performance/</code></td><td>Pruebas de carga con k6: scripts, <code>baselines/</code> versionados (para detectar regresiones de performance) y composes propios.</td></tr>
+          <tr><td><code>nginx/</code></td><td>Configuración del reverse proxy (TLS interno, rutas hacia <code>web</code>/<code>auth</code>) que en producción queda detrás de Cloudflare.</td></tr>
+          <tr><td><code>terraform/</code></td><td>Infraestructura como código para el aprovisionamiento cloud (VPS, DNS, firewall).</td></tr>
+          <tr><td><code>deploy/</code></td><td>Extras de hardening del servidor: configuración de <code>fail2ban</code>.</td></tr>
+          <tr><td><code>moodle/</code></td><td>El tema visual EduTrack para Moodle (se instala en el contenedor con <code>scripts/moodle-apply-edutrack-theme.sh</code>).</td></tr>
+          <tr><td><code>src/</code> (raíz)</td><td>Solo <code>__tests__/</code> de nivel repo (smoke transversales). No confundir con <code>backend/src</code>.</td></tr>
+          <tr><td><code>tessdata_local/</code></td><td>Modelo de idioma español para Tesseract OCR (<code>spa.traineddata</code>), usado para leer certificados adjuntos.</td></tr>
+          <tr><td><code>.github/workflows/</code></td><td>CI/CD: <code>ci.yml</code>, <code>sonar.yml</code>, <code>e2e.yml</code>, <code>ci-security.yml</code>, <code>deploy.yml</code>, <code>performance-*.yml</code>, <code>docker-publish.yml</code>.</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3><code>backend/src/</code> carpeta por carpeta</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Carpeta</th><th>Responsabilidad</th><th>Archivos clave</th></tr></thead>
+        <tbody>
+          <tr><td><code>routes/</code></td><td>Endpoints Express, <strong>un archivo por dominio</strong>. Los routers son delgados: validan con Zod, chequean permisos y delegan a servicios. Cada uno tiene su <code>*.routes.test.ts</code> al lado.</td><td><code>attendance.ts</code>, <code>events.ts</code>, <code>grades.ts</code>, <code>exports.ts</code>, <code>admin.ts</code>…</td></tr>
+          <tr><td><code>services/</code></td><td>Lógica de negocio con acceso a DB. Contiene subcarpetas por dominio (abajo) y servicios sueltos (<code>substitutions.ts</code>, <code>audit-log.ts</code>, <code>school-year-service.ts</code>, <code>biometric-ingest-core.ts</code>, <code>webPush.ts</code>…).</td><td></td></tr>
+          <tr><td><code>services/analytics/</code></td><td>El pipeline de métricas: expandir instancias planificadas, conciliar con fichajes, reasignar suplencias, calcular KPIs/series/rankings.</td><td><code>planInstances.ts</code>, <code>resolveInstances.ts</code>, <code>metrics.ts</code></td></tr>
+          <tr><td><code>services/analytics/exports/</code></td><td>Generadores de reportes descargables (XLSX/CSV/PDF) sobre ese pipeline: asistencia detallada, por dimensión, resumen mensual, novedades de sueldos. Helpers Excel compartidos.</td><td><code>payrollAttendanceReport.ts</code>, <code>payrollNovedadesExport.ts</code>, <code>excel-format.ts</code>, <code>exportScope.ts</code></td></tr>
+          <tr><td><code>services/attendance/</code></td><td>Cobertura de clases por tramos de presencia (qué clase cubre cada marca).</td><td><code>coverage-spans.ts</code></td></tr>
+          <tr><td><code>services/events/</code></td><td>Reglas de series recurrentes: versionado temporal y detección de solapes.</td><td><code>event-versioning.ts</code>, <code>event-overlap.ts</code></td></tr>
+          <tr><td><code>services/exports/</code></td><td>Store en memoria de exportaciones generadas (pending → done → download).</td><td><code>exportStore.ts</code></td></tr>
+          <tr><td><code>services/grades/</code></td><td>Planillas del puente de notas: generar el workbook multi-hoja y parsearlo de vuelta.</td><td><code>gradeSheet.ts</code></td></tr>
+          <tr><td><code>services/query-assistant/</code></td><td>Asistente NL→SQL: orquestador, heurísticas, parseo LLM, ejecutores curados, validación de SQL de solo lectura.</td><td><code>run.ts</code>, <code>llm-sql.ts</code>, <code>schemas.ts</code></td></tr>
+          <tr><td><code>integrations/moodle/</code></td><td>Cliente WS de Moodle + sincronización idempotente (outbox, reconcile, object-map) y capa mod_assign de notas.</td><td><code>reconcile.ts</code>, <code>outbox.ts</code>, <code>scope.ts</code>, <code>grades.ts</code></td></tr>
+          <tr><td><code>integrations/didit/</code></td><td>Prueba de vida: firma HMAC del webhook y aplicación de la decisión al registro.</td><td><code>signature.ts</code></td></tr>
+          <tr><td><code>integrations/zkteco/</code></td><td>Parser del protocolo iclock/ADMS de los terminales biométricos (texto plano).</td><td><code>iclock-parser.ts</code></td></tr>
+          <tr><td><code>auth/</code></td><td>Todo lo OIDC/BFF: cliente Keycloak (login/refresh/Admin API), sesiones en Redis, provisión de usuarios desde claims, políticas de contraseña y validaciones de perfil.</td><td><code>keycloak.ts</code>, <code>session-store.ts</code>, <code>keycloak-provisioning.ts</code></td></tr>
+          <tr><td><code>attendance/</code></td><td>Lógica <strong>pura</strong> de asistencia (sin DB): derivación de estados con tolerancias y segmentación por ciclo.</td><td><code>attendance-logic.ts</code>, <code>attendance-school-year.ts</code></td></tr>
+          <tr><td><code>events/</code></td><td>Lógica <strong>pura</strong> de consulta de eventos: expansión de recurrencia, estado derivado de ocurrencias, filtros.</td><td><code>events-query.ts</code></td></tr>
+          <tr><td><code>identity/</code></td><td>Roles organizacionales, matriz de permisos por rol y validación de la cédula uruguaya.</td><td><code>org-role-service.ts</code>, <code>profile-permissions-*.ts</code>, <code>uruguay-ci.ts</code></td></tr>
+          <tr><td><code>middlewares/</code></td><td>Cadena de autorización (<code>authGuard</code> → <code>requireRole</code> → <code>requirePermission</code>) y rate-limit sobre Redis.</td><td><code>auth.ts</code>, <code>rate-limit.ts</code></td></tr>
+          <tr><td><code>notifications/</code></td><td>Correo saliente (SMTP/SendGrid) y el email de bienvenida del estudiante a Moodle.</td><td><code>email.ts</code>, <code>student-welcome.ts</code></td></tr>
+          <tr><td><code>config/</code></td><td>Zona horaria institucional (conversión hora civil↔UTC) y la fila única <code>SystemSettings</code> con vistas tipadas.</td><td><code>app-timezone.ts</code>, <code>system-settings.ts</code></td></tr>
+          <tr><td><code>observability/</code></td><td>Métricas Prometheus (middleware HTTP) y readiness real de DB/Redis para <code>/ready</code>.</td><td><code>metrics.ts</code>, <code>readiness.ts</code></td></tr>
+          <tr><td><code>db/</code></td><td>Singletons de Prisma y Redis (una sola conexión por proceso).</td><td><code>prisma.ts</code></td></tr>
+          <tr><td><code>test-utils/</code> · <code>__tests__/</code></td><td>Helpers de test (tokens firmados para supertest) y tests de integración ligera de la app HTTP.</td><td><code>bearer-token.ts</code>, <code>app.integration.test.ts</code></td></tr>
+        </tbody>
+      </table></div>
+
+      <h3><code>frontend/web/</code> carpeta por carpeta</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Carpeta</th><th>Responsabilidad</th></tr></thead>
+        <tbody>
+          <tr><td><code>src/app/</code></td><td>Páginas del App Router: cada carpeta con <code>page.tsx</code> es una URL. Público (<code>login</code>, <code>register</code>, <code>register-step-by-step</code>, <code>forgot</code>/<code>reset</code>/<code>verify</code>, <code>onboarding</code>), personal (<code>me/</code> con attendance/events/licenses, <code>profile</code>, <code>notifications</code>) y paneles por rol.</td></tr>
+          <tr><td><code>src/app/admin/</code></td><td>El panel administrativo completo, una carpeta por módulo: <code>users</code>, <code>students</code>, <code>profiles</code> (roles/permisos), <code>courses</code>, <code>school-years</code>, <code>attendance</code>, <code>events</code>, <code>licenses</code>, <code>grades</code> (puente de notas), <code>analytics</code> (+ exportaciones y novedades de sueldos), <code>audit</code>, <code>settings</code>, <code>query-assistant</code>. El <code>layout.tsx</code> monta <code>AdminShell</code> (sidebar + selector de ciclo lectivo).</td></tr>
+          <tr><td><code>src/app/teacher/ · staff/ · student/</code></td><td>Vistas por rol que reutilizan los componentes de <code>components/personal/</code> (mi asistencia, mis eventos, mis licencias); student solo asistencia.</td></tr>
+          <tr><td><code>src/components/</code></td><td>UI reutilizable por dominio: <code>admin/</code> (AdminShell, calendario de eventos, heatmap, modales de suplencia/justificación, paneles Moodle/biometría/incidencias), <code>charts/</code> (barras, donut, líneas), <code>auth/</code> (RoleGuard), <code>forms/</code> (campos de fecha/teléfono con máscara UY), <code>common/</code> (paginación, botones pendientes), <code>personal/</code> (páginas "mi…" compartidas entre roles), <code>home/</code>, <code>navigation/</code>, <code>notifications/</code>, <code>observability/</code>, <code>profile/</code>.</td></tr>
+          <tr><td><code>src/lib/</code></td><td>Lógica de cliente <strong>sin React</strong> (testeable como funciones puras): <code>api/</code> (cliente HTTP central), <code>admin/</code> (display-helpers: formatear estados, recurrencia en cliente, export del asistente), <code>attendance/</code>, <code>auth/</code> (validación de registro, fuerza de contraseña, drafts), <code>events/</code>, <code>forms/</code> (fechas/máscaras UY), <code>home/</code>, <code>media/</code> (upload a data-URL), <code>notifications/</code>, <code>observability/</code> (LogRocket), <code>profile/</code>, <code>roles/</code>, <code>substitutions/</code>.</td></tr>
+          <tr><td><code>src/contexts/</code></td><td><code>AuthContext</code> (usuario/rol/sesión BFF) y <code>AdminSchoolYearContext</code> (ciclo lectivo seleccionado que segmenta todo el panel admin).</td></tr>
+          <tr><td><code>src/test/</code></td><td><code>setup.ts</code> de Vitest (jsdom + Testing Library).</td></tr>
+          <tr><td><code>e2e/</code></td><td>Specs de Playwright (<code>smoke.spec.ts</code>).</td></tr>
+          <tr><td><code>public/</code></td><td>Estáticos (íconos, manifest, service worker de Web Push).</td></tr>
+        </tbody>
+      </table></div>
     </section>
 
     <!-- ==================== BACKEND ==================== -->
@@ -319,6 +395,7 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
             <tr><td><code>/events</code></td><td>events.ts</td><td>CRUD de eventos, recurrencia, versionado de series</td></tr>
             <tr><td><code>/substitutions</code></td><td>substitutions.ts</td><td>Suplencias docentes por ocurrencia</td></tr>
             <tr><td><code>/courses</code></td><td>courses.ts</td><td>Catálogo académico: cursos, ofertas, orientaciones, asignaturas</td></tr>
+            <tr><td><code>/grades</code></td><td>grades.ts</td><td>Puente de notas EduTrack↔Moodle: planillas XLSX de tareas (descarga/carga)</td></tr>
             <tr><td><code>/medical-leaves</code></td><td>medical-leaves.ts</td><td>Licencias médicas/laborales</td></tr>
             <tr><td><code>/non-working-days</code></td><td>non-working-days.ts</td><td>Feriados y días no laborables</td></tr>
             <tr><td><code>/reports</code></td><td>reports.ts</td><td>Reportes operativos</td></tr>
@@ -451,6 +528,14 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
         <div class="card">
           <h4>non-working-days.ts</h4>
           <p class="muted">Feriados/días no laborables que excluyen ocurrencias del cálculo de ausencias.</p>
+        </div>
+        <div class="card">
+          <h4>grades/gradeSheet.ts</h4>
+          <p class="muted">Planillas de notas offline: genera el workbook multi-hoja (una hoja por tarea Moodle, con metadatos embebidos) y lo parsea de vuelta. Ver <a href="#flujo-notas">flujo</a>.</p>
+        </div>
+        <div class="card">
+          <h4>analytics/exports/</h4>
+          <p class="muted">Generadores de reportes (XLSX/CSV/PDF): asistencia detallada, resumen mensual, por persona/curso y <strong>novedades de liquidación de sueldos</strong>. Ver <a href="#flujo-reportes">flujo</a>.</p>
         </div>
       </div>
     </section>
@@ -711,11 +796,51 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
 └── notifications/
       </div>
 
+      <h4>Cómo usamos App Router acá</h4>
+      <ul>
+        <li>Casi todas las páginas son <strong>client components</strong> (<code>'use client'</code>): la app es un panel interactivo
+          detrás de login, así que SSR aporta poco; Next da el routing por carpetas, los layouts anidados y el build.</li>
+        <li><code>app/layout.tsx</code> (raíz) monta los providers globales (<code>AuthProvider</code>, tema, Sentry/LogRocket);
+          <code>app/admin/layout.tsx</code> agrega <code>AdminShell</code> (sidebar de módulos) y <code>AdminSchoolYearProvider</code>.</li>
+        <li>No usamos server actions ni route handlers de Next: <strong>toda</strong> la data va contra la API Express vía
+          <code>lib/api/client.ts</code>, manteniendo un único backend con permisos.</li>
+      </ul>
+
       <h4>Contextos globales</h4>
       <ul>
-        <li><code>AuthContext</code> — usuario actual, rol, sesión BFF.</li>
-        <li><code>AdminSchoolYearContext</code> — ciclo lectivo activo seleccionado en el panel admin (segmenta todas las vistas).</li>
+        <li><code>AuthContext</code> — hace <code>GET /auth/me</code> al montar y expone <code>{ me, loading, refresh }</code>.
+          <code>AuthMe</code> trae rol, flags (<code>isActive</code>, <code>isApproved</code>, <code>needsProfileCompletion</code>) y los
+          <strong>permisos efectivos con su scope</strong> (own/all), que el guard usa para decidir acceso.</li>
+        <li><code>AdminSchoolYearContext</code> — el selector de ciclo lectivo del panel admin. Expone <code>activeId</code>,
+          <code>selectedId</code>, <code>allYears</code> y, clave, <code>schoolYearQuery</code>: el sufijo listo para URL
+          (<code>schoolYearId=…</code> o <code>allYears=1</code>) que todas las páginas admin anexan a sus llamadas — así una sola
+          pieza de estado segmenta usuarios, asistencia, eventos, cursos y reportes por ciclo.</li>
       </ul>
+
+      <h4>Protección de rutas — <code>RoleGuard</code></h4>
+      <p>Cada página protegida envuelve su contenido en <code>&lt;RoleGuard allow={[...]}&gt;</code> o
+        <code>&lt;RoleGuard permission="modulo.accion"&gt;</code>. El guard espera al <code>AuthContext</code> y redirige en cascada:
+        sin sesión → <code>/login</code>; perfil incompleto → <code>/onboarding</code>; cuenta inactiva/no aprobada → <code>/</code>;
+        sin rol <em>ni</em> permiso requerido → <code>/</code>. Acepta scope (<code>own</code>/<code>all</code>) espejando el modelo del
+        backend — la UI oculta, pero <strong>la autorización real siempre la impone el backend</strong> (<code>requirePermission</code>).</p>
+
+      <h4>Anatomía de una página típica (ejemplo real: <code>admin/grades/page.tsx</code>)</h4>
+      <ol class="steps">
+        <li><h4>Guard + contextos</h4><p>El default export solo envuelve: <code>&lt;RoleGuard permission="courses.manage"&gt;&lt;Inner/&gt;&lt;/RoleGuard&gt;</code>.
+          Adentro se leen los contextos (<code>useOptionalAdminSchoolYear()</code> para el ciclo).</p></li>
+        <li><h4>Estado local + fetch en <code>useEffect</code></h4><p>Sin librerías de data-fetching: <code>useState</code> por recurso y un
+          <code>useEffect</code> por dependencia. Los <strong>selects encadenados</strong> se modelan con efectos en cascada: cambiar curso
+          resetea orientación/asignatura/tarea y dispara la carga del siguiente nivel; cada efecto limpia lo dependiente primero.</p></li>
+        <li><h4>Llamadas con <code>api()</code></h4><p>Cliente central tipado por genérico (<code>api&lt;CourseOpt[]&gt;('/courses?…')</code>).
+          Los errores se muestran en un estado <code>error</code> renderizado como banner; los éxitos en <code>message</code>.</p></li>
+        <li><h4>Acciones binarias (descarga/subida)</h4><p>Descargas: <code>fetch</code> crudo + <code>URL.createObjectURL</code> + click
+          programático de un <code>&lt;a download&gt;</code>. Subidas de archivo: <code>&lt;input type="file" hidden&gt;</code> +
+          <code>fileToDataUrl()</code> (base64) en el body JSON. Operaciones largas pasan un <code>AbortController</code> propio a
+          <code>api()</code> para extender el timeout.</p></li>
+        <li><h4>Exports con polling</h4><p>Las páginas de reportes (<code>admin/analytics</code>) usan <code>runExport()</code>:
+          <code>POST /exports</code> → polling a <code>GET /exports/:id</code> (250 ms, máx 30 intentos) → descarga del blob. Un estado
+          <code>exportingKind</code> deshabilita el botón correcto y muestra el spinner.</p></li>
+      </ol>
     </section>
 
     <!-- ==================== COMPONENTES ==================== -->
@@ -742,6 +867,37 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
         encapsulan llamadas y tipos: <code>attendance</code>, <code>auth</code>, <code>events</code>, <code>substitutions</code>,
         <code>admin</code>, <code>roles</code>, <code>media</code>, <code>notifications</code>, <code>observability</code>,
         <code>profile</code>, <code>forms</code>, <code>home</code>.</p>
+
+      <h3>El cliente API — <code>lib/api/client.ts</code></h3>
+      <p>Una sola función <code>api&lt;T&gt;(path, init?)</code> concentra todas las decisiones de red:</p>
+      <ul>
+        <li><strong><code>credentials: 'include'</code></strong> en cada request: la sesión viaja en la cookie <code>sid</code> (BFF), nunca hay token en JS.</li>
+        <li><strong>Timeout de 12 s</strong> con <code>AbortController</code> propio; si el caller pasa su <code>signal</code>, ese manda (así la subida
+          de planillas de notas usa 180 s sin duplicar el cliente).</li>
+        <li><strong>Errores normalizados:</strong> respuestas no-ok se convierten en <code>Error</code> con <code>status</code> y <code>data</code>
+          adjuntos y el <code>message</code> del backend si vino JSON; fallos de red/timeout dan mensajes en español
+          ("API sin respuesta" / "No se pudo conectar con la API") con <code>status = 0</code>.</li>
+        <li><code>cache: 'no-store'</code> siempre (panel operativo: nada de datos viejos) y <code>Content-Type: application/json</code> por defecto.</li>
+        <li><code>base-url.ts</code> resuelve la URL de la API según entorno (<code>NEXT_PUBLIC_API_URL</code>).</li>
+      </ul>
+
+      <h3>Patrón "display libs": la lógica de UI también se testea</h3>
+      <p>Las páginas no formatean ni calculan: delegan en módulos puros de <code>lib/</code> — <code>admin/attendance-display.ts</code>
+        (etiquetas y colores por estado), <code>admin/event-recurrence.ts</code> (expansión de recurrencia <em>en el cliente</em> para
+        el calendario), <code>admin/events-display.ts</code>, <code>attendance/summary.ts</code>, <code>forms/datetime-uy.ts</code>
+        (fechas/máscaras uruguayas), <code>auth/register-form-validation.ts</code>… Cada uno tiene su <code>.test.ts</code> al lado:
+        es el equivalente frontend del patrón "lógica pura vs capa con I/O" del backend, y es donde vive la mayor parte de los
+        ~450 tests del front.</p>
+
+      <h3>Estilos &amp; observabilidad de cliente</h3>
+      <ul>
+        <li><strong>Tailwind</strong> con clases utilitarias propias definidas en <code>globals.css</code> (<code>.card</code>,
+          <code>.btn-primary/.btn-secondary/.btn-success</code>, <code>.table-wrap</code>): los estilos se leen en el JSX, sin CSS-in-JS.</li>
+        <li><strong>Sentry</strong> (<code>@sentry/nextjs</code>) captura errores de render y de red; <strong>LogRocket</strong>
+          (<code>lib/observability/</code>) graba sesiones en producción para reproducir bugs de UI reportados.</li>
+        <li><strong>Web Push:</strong> el service worker en <code>public/</code> + <code>components/notifications/WebPushSection</code>
+          gestionan la suscripción VAPID contra <code>/notifications/web-push</code>.</li>
+      </ul>
     </section>
 
     <!-- ==================== AUTH ==================== -->
@@ -929,6 +1085,147 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
         <span class="ci">🧠</span>
         <p>Modelos vía <code>@google/generative-ai</code> / OpenAI. Parámetros en <code>model-params.ts</code>. Se activa con la clave configurada en el entorno.</p>
       </div>
+    </section>
+
+    <!-- ==================== FLUJO NOTAS (MOODLE) ==================== -->
+    <section id="flujo-notas">
+      <div class="anchor-h"><span class="section-tag">25</span><h2>Flujo: puente de notas (Moodle)</h2></div>
+      <p>Permite calificar <strong>offline</strong>: el admin descarga una planilla Excel con el roster y las notas actuales
+        de las tareas Moodle, la completa (o la reparte a los docentes) y la sube; EduTrack escribe las notas en Moodle.
+        <strong>EduTrack no almacena notas: Moodle es la fuente de verdad.</strong>
+        Módulos: <code>routes/grades.ts</code>, <code>services/grades/gradeSheet.ts</code>, <code>integrations/moodle/grades.ts</code>.
+        UI: <code>admin/grades/page.tsx</code>.</p>
+
+      <div class="flowbar">
+        <span class="flownode">Filtros (curso → orientación → asignatura → tarea)</span><span class="flowarrow">→</span>
+        <span class="flownode alt">Resolver curso Moodle</span><span class="flowarrow">→</span>
+        <span class="flownode">Descargar planilla</span><span class="flowarrow">→</span>
+        <span class="flownode alt">Cargar notas</span><span class="flowarrow">→</span>
+        <span class="flownode">Subir → mod_assign</span>
+      </div>
+
+      <ol class="steps">
+        <li><h4>Filtros con alcance flexible</h4><p>El único filtro obligatorio es el <strong>curso</strong> (oferta). Sin asignatura, la planilla
+          abarca todas las asignaturas sincronizadas (una hoja por tarea); con asignatura, todas sus tareas; con tarea puntual, una sola hoja.
+          Si el curso tiene orientaciones aparece ese filtro también.</p></li>
+        <li><h4>Resolución del curso Moodle — <code>resolveSubjectCourse()</code></h4><p>Prueba la orientación de más específica a más
+          general (<code>courseOrientationId</code> → <code>orientationId</code> → curso general), porque los cursos Moodle se crean desde
+          eventos que pueden llevar cualquiera de las tres formas. Cada candidato se resuelve con
+          <code>resolveMoodleAcademicScope()</code> (idnumber estable) + <code>getMappedId('SUBJECT_COURSE', …)</code>.</p></li>
+        <li><h4>Descarga — <code>GET /grades/sheet</code></h4><p>Por cada tarea: <code>listCourseAssignments()</code>
+          (con <code>includenotenrolledcourses=1</code>: sin eso Moodle solo devuelve cursos donde el usuario del token está matriculado),
+          <code>getAssignmentGrades()</code> (nota vigente = mayor <code>timemodified</code>) y el roster de alumnos ACTIVE con su cuenta Moodle.
+          <code>buildGradeWorkbook()</code> arma el XLSX: hoja protegida, solo la columna "Nota nueva" editable (validación 0..máx).</p></li>
+        <li><h4>Metadatos embebidos por hoja</h4><p>Cada hoja lleva una celda oculta <code>et-gradesheet|v1|subjectId|assignmentId|orientación</code>:
+          la subida identifica la tarea de cada hoja <em>sin depender de los filtros elegidos</em>. La clave de cada fila es el
+          <code>idnumber</code> del alumno (<code>et-student-&lt;id&gt;</code>), nunca el nombre (que el usuario podría editar).</p></li>
+        <li><h4>Subida — <code>POST /grades/sheet/upload</code></h4><p><code>parseGradeWorkbook()</code> lee todas las hojas; por hoja se
+          re-resuelve el curso, se valida que la tarea exista y sea de nota numérica, y <code>pushGradeRow()</code> escribe cada fila con
+          <code>saveAssignmentGrade()</code> (<code>mod_assign_save_grade</code> con <code>applytoall=0</code>: calificación individual, no grupal).
+          Un pool de concurrencia acotado (<code>mapWithConcurrency</code>, 5) evita saturar el WS. Errores <strong>por hoja y por fila</strong>,
+          tolerante a fallos; todo queda auditado (<code>MOODLE_GRADES_PUSHED</code>).</p></li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="ci">🔁</span>
+        <p><strong>Round-trip verificable:</strong> si volvés a descargar la planilla después de subirla, las notas aparecen en
+        "Nota actual" — confirmación de que Moodle las guardó. Las filas vacías nunca pisan notas existentes.</p>
+      </div>
+    </section>
+
+    <!-- ==================== FLUJO REPORTES & SUELDOS ==================== -->
+    <section id="flujo-reportes">
+      <div class="anchor-h"><span class="section-tag">26</span><h2>Flujo: reportes, exportaciones &amp; novedades de sueldos</h2></div>
+      <p>Todos los reportes comparten un mismo pipeline de conciliación y una misma infraestructura de descarga.
+        Módulos: <code>services/analytics/exports/</code>, <code>routes/exports.ts</code>, <code>services/exports/exportStore.ts</code>.</p>
+
+      <h3>Pipeline de conciliación (compartido)</h3>
+      <div class="flowbar">
+        <span class="flownode">getPlannedInstances()</span><span class="flowarrow">→</span>
+        <span class="flownode alt">resolveAttendanceAndJustification()</span><span class="flowarrow">→</span>
+        <span class="flownode alt">buildCoverageItems() (suplencias)</span><span class="flowarrow">→</span>
+        <span class="flownode">computeStats() por persona</span>
+      </div>
+      <p><code>payrollAttendanceReport.ts · buildPayrollAttendanceData()</code>: expande la recurrencia del rango, cruza cada instancia
+        con los fichajes reales (horas efectivas = <strong>solape</strong> entre presencia real y ventana planificada,
+        <code>clampedOverlapMinutes</code>), agrega instancias sintéticas de <em>cobertura</em> (el suplente que cubrió una clase ajena,
+        con sus propios fichajes) y agrega por persona: presentes, tardanzas, ausencias, horas trabajadas vs planificadas.</p>
+
+      <h3>Infra de exportación — <code>POST /exports</code></h3>
+      <ol class="steps">
+        <li><h4>Solicitud</h4><p>Body Zod: <code>reportKey</code> (attendance_detail · monthly_summary · person_report · course_report · payroll_novedades),
+          <code>format</code> (XLSX/CSV/PDF), rango <code>from/to</code> y filtros. Permiso <code>exports.create</code>.</p></li>
+        <li><h4>Generación síncrona + store en memoria</h4><p><code>createPendingExport()</code> → se genera el buffer → <code>markDone()</code>.
+          El buffer vive en RAM (<code>exportStore.ts</code>, Map): simple, sin archivos huérfanos; se pierde al reiniciar (aceptable: se regenera).</p></li>
+        <li><h4>Descarga</h4><p>El frontend (<code>runExport()</code> en <code>admin/analytics/page.tsx</code>) hace polling a
+          <code>GET /exports/:id</code> y baja de <code>GET /exports/:id/download</code> (<code>Content-Disposition</code>).</p></li>
+      </ol>
+
+      <h3>Novedades de liquidación de sueldos (liceos privados UY)</h3>
+      <p>Investigación de mercado (2026): los sistemas de sueldos uruguayos (GNS Personal, Memory/Siigo, Kash, LIDESU, Saico) no
+        publican APIs — el mecanismo universal es <strong>importar un archivo mensual de novedades</strong>: una fila por
+        empleado×concepto con la cantidad, usando la <strong>cédula</strong> como clave (la misma de BPS/ATYRO). Solo Buk ofrece API REST.
+        Por eso el export es genérico (CSV/XLSX) y sin montos: EduTrack aporta cantidades; las tarifas viven en el sistema de sueldos.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Concepto</th><th>Cómo se calcula (<code>payrollNovedadesExport.ts</code>)</th></tr></thead>
+        <tbody>
+          <tr><td><code>HORAS_DICTADAS</code></td><td>Suma de horas de filas propias PRESENT/LATE (excluye cobertura y suplidos)</td></tr>
+          <tr><td><code>HORAS_SUPLENCIA</code></td><td>Suma de horas de filas <code>isCoverage</code> — se pagan al suplente</td></tr>
+          <tr><td><code>FALTAS_INJUSTIFICADAS</code></td><td>Count de ABSENT_NOT_JUSTIFIED <strong>excluyendo feriados</strong> (<code>NonWorkingDay</code>)</td></tr>
+          <tr><td><code>DIAS_LICENCIA</code></td><td>Días calendario de <code>MedicalLeave</code> ACTIVE clampeados al mes, fusionando solapes (<code>mergeAndCountDays</code>) — como liquida BPS/DISSE</td></tr>
+        </tbody>
+      </table></div>
+
+      <ul>
+        <li><strong>Formato:</strong> CSV con separador <code>;</code>, decimal con coma y BOM UTF-8 (Excel es-UY); XLSX con hoja
+          "Advertencias" que lista docentes sin cédula (se exportan igual, con CI vacía, para que el admin la complete).</li>
+        <li><strong>Solo cantidades &gt; 0:</strong> las novedades son deltas; los importadores no esperan filas en cero.</li>
+        <li><strong>UI:</strong> card "Novedades de liquidación" en <code>/admin/analytics</code> con selector de mes → botones Excel/CSV.</li>
+      </ul>
+    </section>
+
+    <!-- ==================== PATRONES DE DISEÑO ==================== -->
+    <section id="patrones">
+      <div class="anchor-h"><span class="section-tag">27</span><h2>Patrones de diseño — cómo resolvimos cada problema</h2></div>
+      <p class="lede">Los patrones transversales del sistema, con el problema que resuelven y dónde verlos en el código.
+        Es el material central para justificar decisiones en la defensa.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Patrón</th><th>Problema</th><th>Cómo lo hicimos · dónde</th></tr></thead>
+        <tbody>
+          <tr><td><strong>BFF (Backend-for-Frontend)</strong></td><td>Tokens OIDC en el navegador = superficie de ataque (XSS)</td>
+            <td>El navegador solo tiene la cookie <code>sid</code> HttpOnly; los tokens viven en Redis. <code>auth/session-store.ts</code>, <code>middlewares/auth.ts</code></td></tr>
+          <tr><td><strong>Lógica pura vs capa con DB</strong></td><td>Testear reglas de negocio sin base de datos</td>
+            <td>Las reglas son funciones puras (<code>attendance-logic.ts</code>, <code>event-versioning.ts</code>, <code>gradeSheet.ts</code>, <code>coverage-spans.ts</code>) y la capa Prisma queda aparte; los tests unitarios cubren la regla sin mocks pesados</td></tr>
+          <tr><td><strong>Estado derivado, no almacenado</strong></td><td>Guardar estados que cambian con el tiempo genera inconsistencias</td>
+            <td>Las <em>faltas</em> se calculan de ocurrencias planificadas vs fichajes (no hay fila hasta materializarla); el estado de una ocurrencia se deriva del reloj (<code>deriveOccurrenceStatus</code>); las notas viven solo en Moodle</td></tr>
+          <tr><td><strong>Outbox + reconciliación</strong></td><td>Moodle puede estar caído; no se puede perder la sincronización</td>
+            <td>Cambios → cola <code>MoodleSyncTask</code> (dedupe + backoff exponencial + <code>runAfter</code>); un job cada 15 min (<code>reconcileMoodle()</code>) repara cualquier divergencia. <code>integrations/moodle/outbox.ts</code> · <code>reconcile.ts</code></td></tr>
+          <tr><td><strong>Idempotencia por clave natural</strong></td><td>Reintentos y re-ejecuciones no deben duplicar objetos</td>
+            <td>Cada objeto Moodle tiene un <code>idnumber</code> estable y determinístico; patrón <code>ensure*()</code> en 3 pasos: mapeo local → buscar por idnumber → crear. <code>object-map.ts</code>, <code>courses.ts</code>, <code>scope.ts</code> (hash SHA-256 si supera varchar(100))</td></tr>
+          <tr><td><strong>Versionado temporal de series</strong></td><td>Editar una clase recurrente no debe reescribir el pasado (asistencia histórica)</td>
+            <td>Corte de la serie con <code>effectiveFrom/effectiveUntil</code>, <code>supersededById</code> y <code>revisionOf</code>. <code>splitEventDefinitionForEdit()</code> en <code>event-versioning.ts</code></td></tr>
+          <tr><td><strong>Autorización en dos niveles</strong></td><td>Roles gruesos no alcanzan (¿ver lo propio o lo de todos?)</td>
+            <td>Middleware chain: <code>authGuard</code> → <code>requirePermission('modulo.accion', 'own'|'all')</code>; matriz <code>RolePermission</code> en Postgres editable por admin</td></tr>
+          <tr><td><strong>Guardrails para el LLM</strong></td><td>Un LLM no puede tener acceso libre a la base</td>
+            <td>Fast-paths curados sin LLM para intents conocidos; si genera SQL, <code>validateReadOnlySql()</code> exige un solo SELECT, sin comentarios, solo tablas de la allowlist. <code>query-assistant/llm-sql.ts</code></td></tr>
+          <tr><td><strong>Validación en el borde (Zod)</strong></td><td>Inputs malformados no deben llegar a la lógica</td>
+            <td>Cada ruta parsea body/query con esquemas Zod y responde 400 con detalle; los tipos TS se derivan con <code>z.infer</code></td></tr>
+          <tr><td><strong>Errores de dominio tipados</strong></td><td>Distinguir errores esperables de bugs</td>
+            <td><code>GradeBridgeError</code> (con httpStatus), <code>SubstitutionError</code>, <code>AttendanceJustificationError</code>, <code>SsoRegistrationRequiredError</code>: la ruta los mapea a HTTP; lo inesperado cae al handler global (Sentry)</td></tr>
+          <tr><td><strong>Zona horaria civil única</strong></td><td>Fechas "de pared" vs UTC generan off-by-one</td>
+            <td>Todo pasa por <code>config/app-timezone.ts</code> (<code>uruguayWallToUtc</code>, <code>toYmdInUruguay</code>…); la DB guarda UTC, la UI y las reglas razonan en día civil uruguayo</td></tr>
+          <tr><td><strong>Seguridad de integraciones entrantes</strong></td><td>Terminales y webhooks son endpoints públicos</td>
+            <td>Didit: HMAC SHA-256 sobre el cuerpo raw. ZKTeco: <code>secretHash</code> + <code>timingSafeEqual</code> + allowlist de IPs + dedupe por índice único. Login: rate-limit en Redis (10/60s)</td></tr>
+          <tr><td><strong>Pool de concurrencia acotado</strong></td><td>N llamadas externas en paralelo saturan al tercero</td>
+            <td><code>mapWithConcurrency(items, 5, fn)</code> en la subida de notas: preserva orden y limita presión sobre el WS de Moodle</td></tr>
+          <tr><td><strong>Feature flags por configuración</strong></td><td>Integraciones opcionales no deben romper el arranque</td>
+            <td><code>isMoodleIntegrationEnabled()</code>, <code>isDiditConfigured()</code>, <code>isWebPushConfigured()</code>: sin variables de entorno, el módulo queda inactivo con mensaje claro</td></tr>
+          <tr><td><strong>Auditoría append-only</strong></td><td>Trazabilidad de acciones sensibles (RF-11)</td>
+            <td><code>recordAuditEvent()</code> en cada acción crítica (login, licencias, suplencias, notas, biometría) con actor, IP y metadata; nunca se edita ni borra</td></tr>
+        </tbody>
+      </table></div>
     </section>
 
     <!-- ==================== REFERENCIA: ASISTENCIA ==================== -->
@@ -1265,6 +1562,7 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
           <tr><td><code>object-map.ts · getMappedId / saveMapping</code></td><td>Mapeo idempotente EduTrack↔Moodle</td></tr>
           <tr><td><code>outbox.ts · enqueueUserUpsert / processOutboxOnce / releaseStaleLocks</code></td><td>Cola con reintentos y backoff</td></tr>
           <tr><td><code>reconcile.ts · reconcileMoodle()</code></td><td>Reconciliación completa periódica</td></tr>
+          <tr><td><code>grades.ts · listCourseAssignments / getAssignmentGrades / saveAssignmentGrade</code></td><td>Capa <code>mod_assign</code> del puente de notas (nota vigente por <code>timemodified</code>; escritura individual <code>applytoall=0</code>)</td></tr>
           <tr><td><code>health.ts · probeMoodleConnection / getMoodleHealthStatus</code></td><td>Chequeo de disponibilidad</td></tr>
         </tbody>
       </table></div>
@@ -1330,6 +1628,7 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
           <tr><td><code>object-map.ts</code></td><td>Mapeo idempotente EduTrack↔Moodle (<code>MoodleObjectMap</code>)</td></tr>
           <tr><td><code>outbox.ts</code></td><td>Worker de la cola <code>MoodleSyncTask</code> con reintentos y backoff</td></tr>
           <tr><td><code>reconcile.ts</code></td><td>Reconciliación completa: titulares + suplentes + revocación + estudiantes</td></tr>
+          <tr><td><code>grades.ts</code></td><td>Tareas y calificaciones (<code>mod_assign</code>) para el <a href="#flujo-notas">puente de notas</a></td></tr>
           <tr><td><code>health.ts</code></td><td>Chequeo de disponibilidad del servicio</td></tr>
         </tbody>
       </table></div>
@@ -1491,6 +1790,202 @@ npm run test:e2e         <span class="tok-c"># Playwright</span></code></pre>
         <li>Tras HTTPS: <code>COOKIE_SECURE=true</code> y URLs alineadas frontend/backend/Keycloak.</li>
       </ul>
       <p class="muted">Plantilla completa: <code>.env.compose.example</code>. Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle, OpenAI/Gemini.</p>
+    </section>
+
+    <!-- ==================== TESTING ==================== -->
+    <section id="testing">
+      <div class="anchor-h"><span class="section-tag">28</span><h2>Testing — mapa de pruebas por pipeline</h2></div>
+      <p class="lede">Dónde está la prueba de cada cosa y qué verifica. Backend: <strong>~90 archivos / ~1.030 tests</strong> (Vitest).
+        Frontend: <strong>~75 archivos / ~450 tests</strong> (Vitest + Testing Library). E2E: Playwright. Carga: k6.</p>
+
+      <h3>Convenciones</h3>
+      <ul>
+        <li><strong>Ubicación:</strong> cada test vive <em>al lado</em> del módulo que prueba (<code>foo.ts</code> → <code>foo.test.ts</code>); las rutas usan el sufijo <code>*.routes.test.ts</code>.</li>
+        <li><strong>Rutas con supertest:</strong> se monta el router en un Express mínimo, la auth se mockea (admin fijo o token firmado de <code>test-utils/bearer-token.ts</code>) y Prisma se reemplaza con <code>vi.mock('../db/prisma.js')</code>. Nada toca una base real.</li>
+        <li><strong><code>vi.hoisted()</code>:</strong> los mocks de módulos se declaran hoisted al tope del archivo (patrón obligatorio del repo) para que <code>vi.mock()</code> los vea antes de los imports.</li>
+        <li><strong>Lógica pura primero:</strong> las reglas de negocio (tolerancias, recurrencia, versionado, planillas) se prueban como funciones puras, sin mocks pesados — por eso están separadas de la capa Prisma.</li>
+        <li><strong>Quality Gate:</strong> SonarCloud exige cobertura ≥ 80% en código nuevo; <code>npm run test:coverage</code> genera el lcov que consume.</li>
+      </ul>
+
+      <h3>Pipeline de asistencia</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Test</th><th>Qué verifica</th></tr></thead>
+        <tbody>
+          <tr><td><code>attendance/attendance-logic.test.ts</code></td><td>Estados PRESENT/LATE/EXIT/EARLY_EXIT según tolerancias; licencia ⇒ ABSENT_JUSTIFIED; mensajes de duplicado</td></tr>
+          <tr><td><code>services/attendance/coverage-spans.test.ts</code></td><td>Tramos de presencia desde marcas; casos borde reales (presente 8-9, falta 11-12, vuelve 14-15); solape clampeado</td></tr>
+          <tr><td><code>routes/attendance.routes.test.ts</code> · <code>attendance-summary.routes.test.ts</code></td><td><code>/register</code> (validaciones, duplicados, ciclo), <code>/summary</code> y <code>/justify-range</code></td></tr>
+          <tr><td><code>services/attendance-justifications.test.ts</code></td><td><code>justifyAttendance</code>: cambio de estado válido/inválido + auditoría</td></tr>
+          <tr><td><code>attendance/attendance-school-year.test.ts</code></td><td>Segmentación por ciclo lectivo en los listados</td></tr>
+          <tr><td><code>routes/attendance-incidents.routes.test.ts</code></td><td>Incidencias: detección de no-show y resolución</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Biometría (ZKTeco)</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Test</th><th>Qué verifica</th></tr></thead>
+        <tbody>
+          <tr><td><code>integrations/zkteco/iclock-parser.test.ts</code></td><td>Parser del protocolo ADMS (attlog de texto plano, respuesta de opciones)</td></tr>
+          <tr><td><code>routes/zkteco-iclock.routes.test.ts</code> · <code>biometric-adms.routes.test.ts</code></td><td>Endpoints <code>/iclock/*</code>: identidad del terminal, secreto, ingesta y dedupe</td></tr>
+          <tr><td><code>services/biometric-link.test.ts</code> · <code>routes/biometric-link.routes.test.ts</code></td><td>Ciclo de vinculación WAITING_PUNCH → PENDING_CONFIRM → CONFIRMED/EXPIRED</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Eventos, recurrencia &amp; suplencias</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Test</th><th>Qué verifica</th></tr></thead>
+        <tbody>
+          <tr><td><code>events/events-query.test.ts</code> · <code>events-query.recurrence.test.ts</code></td><td>Expansión de series (daysOfWeek, fin de rango), estado derivado de ocurrencias, filtros</td></tr>
+          <tr><td><code>services/events/event-versioning.test.ts</code></td><td>Corte de series (<code>splitEventDefinitionForEdit</code>), ventanas de vigencia, reglas de edición</td></tr>
+          <tr><td><code>services/events/event-overlap.test.ts</code></td><td>Conflictos de horario docente, incluso entre recurrencias</td></tr>
+          <tr><td><code>routes/events.routes.test.ts</code></td><td>CRUD + importación masiva + edición de ocurrencias puntuales</td></tr>
+          <tr><td><code>services/substitution-occurrence.test.ts</code> · <code>routes/substitutions.routes.test.ts</code></td><td>Resolución de la suplencia sobre la ocurrencia correcta; API de suplencias</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Licencias &amp; calendario</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Test</th><th>Qué verifica</th></tr></thead>
+        <tbody>
+          <tr><td><code>services/medicalLeaveReconciliation.test.ts</code></td><td>Solape licencia↔marca (<code>licenseCoversInstant</code>), reconciliación de ausencias</td></tr>
+          <tr><td><code>routes/medical-leaves.routes.test.ts</code></td><td>Alta/baja de licencias, notificaciones, permisos</td></tr>
+          <tr><td><code>services/non-working-days.test.ts</code> · <code>routes/non-working-days.routes.test.ts</code></td><td>Feriados: normalización de fecha UTC y exclusión de ocurrencias</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Analítica, reportes &amp; sueldos</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Test</th><th>Qué verifica</th></tr></thead>
+        <tbody>
+          <tr><td><code>services/analytics/planInstances.test.ts</code></td><td>Expansión de instancias planificadas del rango</td></tr>
+          <tr><td><code>services/analytics/resolveInstances.test.ts</code></td><td>Conciliación instancia↔fichajes: estados y <code>durationMinutes</code> (solape)</td></tr>
+          <tr><td><code>services/analytics/resolveSubstituteInstances.test.ts</code></td><td>Reasignación de instancias al suplente</td></tr>
+          <tr><td><code>services/analytics/metrics.dimensions.test.ts</code> · <code>metrics.rankings.test.ts</code></td><td>KPIs, distribución de estados, rankings de riesgo</td></tr>
+          <tr><td><code>routes/analytics.routes.test.ts</code></td><td><code>/dashboard</code> y <code>/attendance-timeline</code> (mock del pipeline)</td></tr>
+          <tr><td><code>exports/payrollAttendanceReport.test.ts</code> · <code>dimensionReportExport.test.ts</code></td><td>Reporte de liquidación (cobertura de suplencias, stats) y reportes por dimensión</td></tr>
+          <tr><td><code>exports/payrollNovedadesExport.test.ts</code></td><td>Novedades: horas propias vs suplencia, faltas sin feriados, licencias clampeadas/fusionadas, CI vacía → advertencia, CSV <code>;</code>+BOM+coma decimal, XLSX con hoja Advertencias</td></tr>
+          <tr><td><code>routes/exports.routes.test.ts</code></td><td><code>POST /exports</code>: cada reportKey×formato, formatos rechazados (400), rol docente forzado en novedades</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Moodle (sync + puente de notas)</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Test</th><th>Qué verifica</th></tr></thead>
+        <tbody>
+          <tr><td><code>integrations/moodle/scope.test.ts</code></td><td>Precedencia de orientación en el idnumber; hash cuando supera varchar(100) de Moodle</td></tr>
+          <tr><td><code>integrations/moodle/courses.test.ts</code> · <code>users.test.ts</code> · <code>student-users.test.ts</code> · <code>enrolments.test.ts</code></td><td>Patrón <code>ensure*</code> idempotente, usuarios espejo, matriculación con ventana temporal</td></tr>
+          <tr><td><code>integrations/moodle/outbox.test.ts</code> · <code>reconcile.test.ts</code></td><td>Cola con dedupe/backoff; reconciliación completa (titulares, suplentes, revocación, estudiantes)</td></tr>
+          <tr><td><code>integrations/moodle/grades.test.ts</code></td><td>Capa mod_assign: normalización de tipo de nota, nota vigente por <code>timemodified</code>, <code>includenotenrolledcourses=1</code>, escritura individual</td></tr>
+          <tr><td><code>services/grades/gradeSheet.test.ts</code></td><td>Round-trip del workbook: metadatos por hoja, nombres únicos saneados, coma decimal, planillas externas sin metadatos</td></tr>
+          <tr><td><code>routes/grades.routes.test.ts</code></td><td>Puente completo con mocks: descarga por curso/asignatura/tarea, fallback de orientación, subida multi-hoja con errores por hoja/fila, planilla legada</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Auth, identidad &amp; asistente</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Test</th><th>Qué verifica</th></tr></thead>
+        <tbody>
+          <tr><td><code>middlewares/auth*.test.ts</code></td><td><code>authGuard</code> (sesión BFF, estado de cuenta), <code>requireRole</code>, <code>requirePermission</code> con scope</td></tr>
+          <tr><td><code>auth/keycloak-provisioning.test.ts</code> · <code>password-policy.test.ts</code> · <code>auth-profile-pure.test.ts</code></td><td>Provisión desde claims OIDC, política de contraseñas, validaciones puras de perfil</td></tr>
+          <tr><td><code>routes/auth.routes.test.ts</code> · <code>auth-keycloak.routes.test.ts</code></td><td>Registro, verificación de email, cuenta</td></tr>
+          <tr><td><code>identity/uruguay-ci.test.ts</code> · <code>org-role-service.test.ts</code> · <code>profile-permissions-*.test.ts</code></td><td>Dígito verificador de la cédula, roles built-in, matriz de permisos</td></tr>
+          <tr><td><code>query-assistant/run.test.ts</code> + 8 archivos</td><td>Orquestación SQL-first, heurísticas de intención, parseo LLM, <code>validateReadOnlySql</code> (guardrail), ejecutores curados</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Frontend, E2E &amp; carga</h3>
+      <ul>
+        <li><strong>Páginas:</strong> <code>app/**/page.test.tsx</code> (attendance, events, licenses, school-years, users, students, query-assistant, login/register…) — render, interacción y llamadas API mockeadas con Testing Library.</li>
+        <li><strong>Componentes:</strong> <code>components/**/*.test.tsx</code> (RoleGuard, AdminShell, AttendanceHeatmap, PersonAttendanceDrawer, formularios…).</li>
+        <li><strong>Libs puras:</strong> <code>lib/**/*.test.ts</code> — display helpers, recurrencia en cliente, validaciones de formularios, cliente API (timeouts/errores), fechas UY.</li>
+        <li><strong>E2E:</strong> <code>frontend/web/e2e/smoke.spec.ts</code> (Playwright, workflow <code>e2e.yml</code>) — humo del flujo real navegando la app.</li>
+        <li><strong>Carga:</strong> <code>performance/k6/</code> con baselines versionados (workflows <code>performance-*.yml</code>).</li>
+      </ul>
+
+      <pre><code><span class="tok-c"># correr todo</span>
+cd backend && npm run test           <span class="tok-c"># ~1.030 tests</span>
+cd frontend/web && npm run test      <span class="tok-c"># ~450 tests</span>
+npm run test:coverage                <span class="tok-c"># lcov para SonarCloud</span>
+npm run test:e2e                     <span class="tok-c"># Playwright</span></code></pre>
+    </section>
+
+    <!-- ==================== DEFENSA ==================== -->
+    <section id="defensa">
+      <div class="anchor-h"><span class="section-tag">29</span><h2>Preguntas típicas de defensa (con respuesta)</h2></div>
+      <p class="lede">Las preguntas que más probablemente hagan, con la respuesta corta y el lugar del código que la respalda.</p>
+
+      <h4>1 · ¿Por qué BFF y no guardar el token en el navegador?</h4>
+      <p>Un token en localStorage es robable por XSS. Con BFF el navegador solo tiene una cookie <code>sid</code> HttpOnly
+        (no legible por JS); los tokens OIDC viven en Redis del lado servidor, que además permite invalidar sesiones
+        centralizadamente (<code>deleteSessionsForUser</code>). <em>Código:</em> <code>auth/session-store.ts</code>.</p>
+
+      <h4>2 · ¿Cómo calculan una falta si nadie marcó nada?</h4>
+      <p>La falta es <strong>estado derivado</strong>: se expande la recurrencia (¿qué clases <em>debían</em> pasar?) y se cruza con
+        los fichajes; si no hay marca ni licencia que cubra la fecha, la instancia resuelve ABSENT_NOT_JUSTIFIED — sin fila en la DB
+        hasta que un admin la materializa. Evita inconsistencias entre lo guardado y lo real. <em>Código:</em>
+        <code>planInstances.ts</code> → <code>resolveInstances.ts</code>.</p>
+
+      <h4>3 · ¿Qué pasa si Moodle está caído cuando cambia algo?</h4>
+      <p>Nada se pierde: el cambio queda encolado en <code>MoodleSyncTask</code> (outbox) con reintentos y backoff exponencial, y
+        aunque la tarea falle definitivamente, la <strong>reconciliación</strong> periódica (cada 15 min) recorre el estado deseado
+        completo y repara divergencias. EduTrack es la fuente de verdad. <em>Código:</em> <code>outbox.ts</code>, <code>reconcile.ts</code>.</p>
+
+      <h4>4 · ¿Cómo evitan crear cursos duplicados en Moodle al reintentar?</h4>
+      <p>Idempotencia por clave natural: cada objeto tiene un <code>idnumber</code> determinístico (p. ej.
+        <code>et-subject-offering-&lt;oferta&gt;-&lt;asignatura&gt;</code>). El patrón <code>ensure*</code> primero mira el mapeo local
+        (<code>MoodleObjectMap</code>), después busca por idnumber en Moodle (recupera drift) y recién ahí crea. Si el idnumber lógico
+        supera el varchar(100) de Moodle, se usa un hash SHA-256 estable. <em>Código:</em> <code>scope.ts</code>, <code>courses.ts</code>.</p>
+
+      <h4>5 · ¿Editar una clase recurrente no rompe la asistencia histórica?</h4>
+      <p>No: la serie se <strong>versiona</strong>. Editar "a futuro" corta la definición vigente (<code>effectiveUntil</code>) y crea una
+        nueva versión (<code>supersededById</code>, <code>revisionOf</code>); el pasado conserva su definición y su asistencia.
+        <em>Código:</em> <code>splitEventDefinitionForEdit()</code> en <code>event-versioning.ts</code>.</p>
+
+      <h4>6 · ¿Cómo garantizan que el asistente con LLM no dañe la base?</h4>
+      <p>Tres barreras: (1) las preguntas frecuentes se resuelven con ejecutores curados <em>sin</em> LLM; (2) el SQL generado pasa por
+        <code>validateReadOnlySql()</code> — un solo SELECT, sin comentarios ni keywords prohibidas, solo tablas de una allowlist —;
+        (3) se ejecuta con el cliente de solo lectura. Además las faltas nunca van por SQL (son derivadas, el SQL las calcularía mal).
+        <em>Código:</em> <code>query-assistant/llm-sql.ts</code>, <code>run.ts</code>.</p>
+
+      <h4>7 · ¿Cómo sabe el sistema qué clase cubre una marca biométrica?</h4>
+      <p>Con <em>coverage spans</em>: se traen las clases del docente del día civil, se arman los tramos de presencia
+        (entrada→salida) y se calcula el solape de cada ocurrencia con esos tramos, con ventana de entrada anticipada y tolerancias
+        configurables. <em>Código:</em> <code>coverage-spans.ts</code> (<code>buildPresenceSpans</code>, <code>coverageForOccurrence</code>).</p>
+
+      <h4>8 · ¿Cómo manejan la zona horaria?</h4>
+      <p>La DB guarda UTC; todas las reglas razonan en el día civil de <code>America/Montevideo</code> a través de un único módulo
+        (<code>config/app-timezone.ts</code>: <code>uruguayWallToUtc</code>, <code>toYmdInUruguay</code>…). Eso evita off-by-one en
+        recurrencias, feriados y reportes. La zona es configurable en <code>SystemSettings</code>.</p>
+
+      <h4>9 · ¿Qué impide que cualquiera le mande marcas falsas al endpoint del terminal?</h4>
+      <p>Cada terminal tiene un secreto (guardado como hash SHA-256, comparado con <code>timingSafeEqual</code> para evitar timing
+        attacks) y una allowlist de IPs; las marcas se deduplican por índice único <code>(deviceId, deviceUserId, occurredAt)</code> y
+        ventana temporal. El webhook de Didit valida firma HMAC sobre el cuerpo raw. <em>Código:</em>
+        <code>biometric-ingest-core.ts</code>, <code>didit/signature.ts</code>.</p>
+
+      <h4>10 · ¿Cómo prueban las rutas sin base de datos?</h4>
+      <p>Supertest sobre el router montado en un Express mínimo, con Prisma y la auth mockeados vía <code>vi.mock</code> +
+        <code>vi.hoisted</code>. La lógica de negocio se prueba aparte como funciones puras. Ver el <a href="#testing">mapa de testing</a>.</p>
+
+      <h4>11 · ¿Por qué <code>db push</code> y no migraciones?</h4>
+      <p>Simplifica el ciclo (el contenedor sincroniza el esquema al arrancar) a costa de disciplina: como corre con
+        <code>--accept-data-loss</code>, <strong>nunca se renombran columnas</strong> — se usa <code>@map</code> para renombrar a nivel
+        Prisma sin tocar la columna física. DDL manual va como SQL idempotente en <code>db:optimize</code>.</p>
+
+      <h4>12 · En una suplencia, ¿quién "cobra" esas horas?</h4>
+      <p>El suplente: el reporte de liquidación genera una instancia de <em>cobertura</em> con las horas efectivas del suplente
+        (según sus propios fichajes), y el titular queda SUBSTITUTED (ausencia justificada o no según licencia). En las novedades de
+        sueldos eso sale como <code>HORAS_SUPLENCIA</code> del suplente. <em>Código:</em> <code>buildCoverageItems()</code> en
+        <code>payrollAttendanceReport.ts</code>.</p>
+
+      <h4>13 · ¿Cómo llega la nota de un docente a Moodle?</h4>
+      <p>Por el puente de notas: se descarga una planilla por curso/asignatura/tarea (roster + nota actual), se completa la columna
+        "Nota nueva" y se sube; cada fila se identifica por el idnumber inmutable del alumno y cada hoja por metadatos embebidos, y se
+        escribe con <code>mod_assign_save_grade</code> individual. EduTrack no almacena notas. Ver <a href="#flujo-notas">flujo 25</a>.</p>
+
+      <h4>14 · ¿Cómo se conecta con el sistema de sueldos del colegio?</h4>
+      <p>Los sistemas uruguayos (GNS, Memory, Kash, LIDESU) no tienen API: importan archivos de novedades. EduTrack genera ese
+        archivo mensual (CSV/Excel, una fila por docente×concepto, clave = cédula) con horas dictadas, suplencias, faltas y días de
+        licencia — sin montos, que son del sistema de sueldos. Ver <a href="#flujo-reportes">flujo 26</a>.</p>
     </section>
 
     <div class="footer">

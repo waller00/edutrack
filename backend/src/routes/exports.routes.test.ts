@@ -16,6 +16,9 @@ const {
   payrollPdfMock,
   monthlyPdfMock,
   resolveSchoolYearMock,
+  novedadesBuildMock,
+  novedadesXlsxMock,
+  novedadesCsvMock,
 } = vi.hoisted(() => ({
   prismaMock: { user: { findMany: vi.fn().mockResolvedValue([]) }, medicalLeave: { count: vi.fn().mockResolvedValue(0) } },
   getPlannedInstancesMock: vi.fn().mockResolvedValue([]),
@@ -28,6 +31,9 @@ const {
   payrollPdfMock: vi.fn().mockResolvedValue(Buffer.from('apdf')),
   monthlyPdfMock: vi.fn().mockResolvedValue(Buffer.from('mpdf')),
   resolveSchoolYearMock: vi.fn().mockResolvedValue('sy-1'),
+  novedadesBuildMock: vi.fn().mockResolvedValue({ from: '', to: '', periodo: '', rows: [], warnings: [] }),
+  novedadesXlsxMock: vi.fn().mockResolvedValue(Buffer.from('nxlsx')),
+  novedadesCsvMock: vi.fn().mockReturnValue('CI;Nombre'),
 }))
 
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
@@ -44,6 +50,11 @@ vi.mock('../services/analytics/exports/payrollAttendanceReport.js', () => ({
   generatePayrollAttendancePdf: payrollPdfMock,
 }))
 vi.mock('../services/analytics/exports/monthlySummaryPdf.js', () => ({ generateMonthlySummaryPdf: monthlyPdfMock }))
+vi.mock('../services/analytics/exports/payrollNovedadesExport.js', () => ({
+  buildPayrollNovedadesData: novedadesBuildMock,
+  generatePayrollNovedadesXlsx: novedadesXlsxMock,
+  generatePayrollNovedadesCsv: novedadesCsvMock,
+}))
 vi.mock('../services/school-year-service.js', () => ({ resolveSchoolYearIdForList: resolveSchoolYearMock }))
 
 import exportsRoutes from './exports.js'
@@ -118,6 +129,37 @@ describe('exports routes', () => {
     expect(res.status).toBe(201)
     expect(payrollBuildMock).toHaveBeenCalled()
     expect(payrollXlsxMock).toHaveBeenCalled()
+  })
+
+  it('novedades de liquidación en XLSX: fuerza rol docente', async () => {
+    const res = await request(app())
+      .post('/exports')
+      .set(adminHdr())
+      .send({ ...baseBody, reportKey: 'payroll_novedades', format: 'XLSX' })
+    expect(res.status).toBe(201)
+    expect(res.body.downloadUrl).toBeTruthy()
+    expect(novedadesBuildMock).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: expect.objectContaining({ role: 'TEACHER' }) }),
+    )
+    expect(novedadesXlsxMock).toHaveBeenCalled()
+  })
+
+  it('novedades de liquidación en CSV', async () => {
+    const res = await request(app())
+      .post('/exports')
+      .set(adminHdr())
+      .send({ ...baseBody, reportKey: 'payroll_novedades', format: 'CSV' })
+    expect(res.status).toBe(201)
+    expect(novedadesCsvMock).toHaveBeenCalled()
+  })
+
+  it('rechaza PDF para novedades de liquidación', async () => {
+    const res = await request(app())
+      .post('/exports')
+      .set(adminHdr())
+      .send({ ...baseBody, reportKey: 'payroll_novedades', format: 'PDF' })
+    expect(res.status).toBe(400)
+    expect(novedadesBuildMock).not.toHaveBeenCalled()
   })
 
   it('respeta allYears omitiendo la resolución de ciclo', async () => {
