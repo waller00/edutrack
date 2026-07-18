@@ -1,5 +1,4 @@
 import * as oidc from "openid-client";
-import crypto from "node:crypto";
 
 /**
  * Integracion con Keycloak para el patron BFF.
@@ -536,100 +535,197 @@ function isKeycloakSecondFactorCredential(credential: KeycloakCredential): boole
   return Boolean(credential.id && credential.type && KEYCLOAK_SECOND_FACTOR_CREDENTIAL_TYPES.has(credential.type));
 }
 
-function parseCredentialJson(value?: string): Record<string, unknown> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
-function numberFromCredential(value: unknown, fallback: number): number {
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
 function normalizeOtpCode(code: string): string {
   return code.replace(/[\s-]/g, "");
 }
 
-function stripTrailingEquals(value: string): string {
-  let end = value.length;
-  while (end > 0 && value[end - 1] === "=") end -= 1;
-  return value.slice(0, end);
-}
+// ---------------------------------------------------------------------------
+// Verificación de códigos TOTP vía direct grant
+// ---------------------------------------------------------------------------
+//
+// La Admin API de Keycloak nunca devuelve el `secretData` de las credenciales
+// (lo vacía por seguridad), así que el backend no puede recalcular el código
+// TOTP por su cuenta. La validación se delega en el propio Keycloak: un flujo
+// de direct grant que solo exige usuario + OTP (sin contraseña), enlazado a un
+// cliente confidencial dedicado cuyo secreto vive solo en Keycloak y se lee
+// por Admin API. Si el endpoint de token emite un token, el código es válido
+// (el token se descarta). Flujo y cliente se aprovisionan de forma idempotente.
 
-function base32Decode(value: string): Buffer {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const clean = stripTrailingEquals(value.toUpperCase().replace(/[\s-]/g, ""));
-  const bytes: number[] = [];
-  let bits = 0;
-  let buffer = 0;
-  for (const char of clean) {
-    const index = alphabet.indexOf(char);
-    if (index < 0) throw new Error("Secreto OTP base32 inválido.");
-    buffer = (buffer << 5) | index;
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((buffer >> (bits - 8)) & 0xff);
-      bits -= 8;
+const OTP_VERIFY_FLOW_ALIAS = "edutrack-direct-grant-otp";
+const OTP_VERIFY_CLIENT_ID = "edutrack-otp-check";
+
+type KeycloakFlowSummary = { id?: string; alias?: string };
+type KeycloakExecutionSummary = { id?: string; requirement?: string };
+type KeycloakClientSummary = {
+  id?: string;
+  clientId?: string;
+  authenticationFlowBindingOverrides?: Record<string, string>;
+};
+
+async function ensureOtpVerifyFlow(token: string): Promise<string> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  const listFlows = async (): Promise<KeycloakFlowSummary[]> => {
+    const res = await kcFetch(`${base}/admin/realms/${realm}/authentication/flows`, { headers: authHeaders });
+    if (!res.ok) throw new Error(`Keycloak flows error ${res.status}`);
+    return (await res.json()) as KeycloakFlowSummary[];
+  };
+
+  const existing = (await listFlows()).find((flow) => flow.alias === OTP_VERIFY_FLOW_ALIAS);
+  if (existing?.id) return existing.id;
+
+  const createRes = await kcFetch(`${base}/admin/realms/${realm}/authentication/flows`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({
+      alias: OTP_VERIFY_FLOW_ALIAS,
+      description: "Valida usuario + código TOTP sin contraseña (verificación de 2FA del BFF).",
+      providerId: "basic-flow",
+      topLevel: true,
+      builtIn: false,
+    }),
+  });
+  // 409: otro proceso lo creó en paralelo; seguimos y reutilizamos.
+  if (!createRes.ok && createRes.status !== 409) {
+    throw new Error(`Keycloak create flow error ${createRes.status}`);
+  }
+
+  const flowPath = `${base}/admin/realms/${realm}/authentication/flows/${encodeURIComponent(OTP_VERIFY_FLOW_ALIAS)}`;
+  for (const provider of ["direct-grant-validate-username", "direct-grant-validate-otp"]) {
+    const res = await kcFetch(`${flowPath}/executions/execution`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ provider }),
+    });
+    if (!res.ok && res.status !== 409) {
+      throw new Error(`Keycloak add execution ${provider} error ${res.status}`);
     }
   }
-  return Buffer.from(bytes);
-}
 
-function hmacDigestName(algorithm: unknown): "sha1" | "sha256" | "sha512" {
-  const normalized = String(algorithm || "").toLowerCase();
-  if (normalized.includes("sha512")) return "sha512";
-  if (normalized.includes("sha256")) return "sha256";
-  return "sha1";
-}
-
-function hotp(secret: Buffer, counter: number, digits: number, algorithm: "sha1" | "sha256" | "sha512"): string {
-  const counterBuffer = Buffer.alloc(8);
-  counterBuffer.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
-  counterBuffer.writeUInt32BE(counter >>> 0, 4);
-  const digest = crypto.createHmac(algorithm, secret).update(counterBuffer).digest();
-  const offset = digest[digest.length - 1] & 0x0f;
-  const binary =
-    ((digest[offset] & 0x7f) << 24) |
-    ((digest[offset + 1] & 0xff) << 16) |
-    ((digest[offset + 2] & 0xff) << 8) |
-    (digest[offset + 3] & 0xff);
-  return String(binary % 10 ** digits).padStart(digits, "0");
-}
-
-function timingSafeCodeEqual(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && crypto.timingSafeEqual(left, right);
-}
-
-function getOtpSecret(credential: KeycloakCredential): string | null {
-  const secretData = parseCredentialJson(credential.secretData);
-  const value = secretData.value ?? secretData.secret ?? secretData.otpSecret;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function verifyTotpCode(input: {
-  secret: string;
-  code: string;
-  digits: number;
-  period: number;
-  algorithm: "sha1" | "sha256" | "sha512";
-  now?: number;
-}): boolean {
-  const normalizedCode = normalizeOtpCode(input.code);
-  if (!new RegExp(`^\\d{${input.digits}}$`).test(normalizedCode)) return false;
-  const secret = base32Decode(input.secret);
-  const currentCounter = Math.floor((input.now ?? Date.now()) / 1000 / input.period);
-  for (let drift = -1; drift <= 1; drift += 1) {
-    const expected = hotp(secret, currentCounter + drift, input.digits, input.algorithm);
-    if (timingSafeCodeEqual(expected, normalizedCode)) return true;
+  const execRes = await kcFetch(`${flowPath}/executions`, { headers: authHeaders });
+  if (!execRes.ok) throw new Error(`Keycloak executions error ${execRes.status}`);
+  const executions = (await execRes.json()) as KeycloakExecutionSummary[];
+  for (const execution of executions) {
+    if (execution.requirement === "REQUIRED") continue;
+    const res = await kcFetch(`${flowPath}/executions`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ ...execution, requirement: "REQUIRED" }),
+    });
+    if (!res.ok) throw new Error(`Keycloak update execution error ${res.status}`);
   }
-  return false;
+
+  const created = (await listFlows()).find((flow) => flow.alias === OTP_VERIFY_FLOW_ALIAS);
+  if (!created?.id) throw new Error("Keycloak no devolvió el flujo de verificación de OTP recién creado.");
+  return created.id;
+}
+
+async function ensureOtpVerifyClient(token: string, flowId: string): Promise<string> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  const findClient = async (): Promise<KeycloakClientSummary | undefined> => {
+    const res = await kcFetch(
+      `${base}/admin/realms/${realm}/clients?clientId=${encodeURIComponent(OTP_VERIFY_CLIENT_ID)}`,
+      { headers: authHeaders },
+    );
+    if (!res.ok) throw new Error(`Keycloak clients error ${res.status}`);
+    const clients = (await res.json()) as KeycloakClientSummary[];
+    return clients.find((client) => client.clientId === OTP_VERIFY_CLIENT_ID);
+  };
+
+  const existing = await findClient();
+  if (existing?.id) {
+    if (existing.authenticationFlowBindingOverrides?.direct_grant !== flowId) {
+      const res = await kcFetch(`${base}/admin/realms/${realm}/clients/${existing.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          authenticationFlowBindingOverrides: {
+            ...existing.authenticationFlowBindingOverrides,
+            direct_grant: flowId,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(`Keycloak update client error ${res.status}`);
+    }
+    return existing.id;
+  }
+
+  const createRes = await kcFetch(`${base}/admin/realms/${realm}/clients`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({
+      clientId: OTP_VERIFY_CLIENT_ID,
+      name: "EduTrack verificación 2FA",
+      description: "Cliente interno del BFF para validar códigos TOTP. No usar para login.",
+      protocol: "openid-connect",
+      enabled: true,
+      publicClient: false,
+      standardFlowEnabled: false,
+      implicitFlowEnabled: false,
+      directAccessGrantsEnabled: true,
+      serviceAccountsEnabled: false,
+      fullScopeAllowed: false,
+      authenticationFlowBindingOverrides: { direct_grant: flowId },
+      attributes: { "access.token.lifespan": "60" },
+    }),
+  });
+  if (!createRes.ok && createRes.status !== 409) {
+    throw new Error(`Keycloak create client error ${createRes.status}`);
+  }
+
+  const created = await findClient();
+  if (!created?.id) throw new Error("Keycloak no devolvió el cliente de verificación de OTP recién creado.");
+  return created.id;
+}
+
+async function getOtpVerifyClientSecret(token: string, clientUuid: string): Promise<string> {
+  const base = adminBaseUrl();
+  const realm = adminRealm();
+  const res = await kcFetch(`${base}/admin/realms/${realm}/clients/${clientUuid}/client-secret`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Keycloak client secret error ${res.status}`);
+  const json = (await res.json()) as { value?: string };
+  if (!json.value) throw new Error("Keycloak no devolvió el secreto del cliente de verificación de OTP.");
+  return json.value;
+}
+
+let otpVerifySetupPromise: Promise<{ clientSecret: string }> | null = null;
+
+function ensureOtpVerifySetup(): Promise<{ clientSecret: string }> {
+  if (!otpVerifySetupPromise) {
+    otpVerifySetupPromise = (async () => {
+      const token = await getAdminToken();
+      const flowId = await ensureOtpVerifyFlow(token);
+      const clientUuid = await ensureOtpVerifyClient(token, flowId);
+      const clientSecret = await getOtpVerifyClientSecret(token, clientUuid);
+      return { clientSecret };
+    })().catch((error) => {
+      otpVerifySetupPromise = null;
+      throw error;
+    });
+  }
+  return otpVerifySetupPromise;
+}
+
+async function requestOtpVerifyToken(input: { clientSecret: string; username: string; code: string }): Promise<Response> {
+  const body = new URLSearchParams({
+    grant_type: "password",
+    client_id: OTP_VERIFY_CLIENT_ID,
+    client_secret: input.clientSecret,
+    username: input.username,
+    totp: input.code,
+  });
+  return kcFetch(`${adminBaseUrl()}/realms/${adminRealm()}/protocol/openid-connect/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
 }
 
 type KeycloakUserProfile = {
@@ -674,35 +770,27 @@ export async function getKeycloakUserOtpStatus(kcUserId: string): Promise<{ enab
 export async function verifyKeycloakUserOtpCode(kcUserId: string, code: string): Promise<boolean> {
   const normalizedCode = normalizeOtpCode(code);
   if (!kcUserId || !/^\d{6,8}$/.test(normalizedCode)) return false;
-  const token = await getAdminToken();
-  const base = adminBaseUrl();
-  const realm = adminRealm();
-  const res = await kcFetch(`${base}/admin/realms/${realm}/users/${encodeURIComponent(kcUserId)}/credentials`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Keycloak credentials error ${res.status}: ${detail}`);
+  const username = await getKeycloakUserLoginName(kcUserId);
+  if (!username) return false;
+
+  let setup = await ensureOtpVerifySetup();
+  let res = await requestOtpVerifyToken({ clientSecret: setup.clientSecret, username, code: normalizedCode });
+  if (res.ok) return true;
+
+  let detail = await res.text().catch(() => "");
+  // Secreto/cliente cacheado obsoleto (p. ej. secreto rotado a mano): se
+  // reprovisiona una única vez y se reintenta.
+  if (detail.includes("invalid_client") || detail.includes("unauthorized_client")) {
+    otpVerifySetupPromise = null;
+    setup = await ensureOtpVerifySetup();
+    res = await requestOtpVerifyToken({ clientSecret: setup.clientSecret, username, code: normalizedCode });
+    if (res.ok) return true;
+    detail = await res.text().catch(() => "");
   }
-  const credentials = (await res.json()) as KeycloakCredential[];
-  const otpCredentials = credentials.filter((credential) => credential.type === "otp");
-  let couldValidate = false;
-  for (const credential of otpCredentials) {
-    const credentialData = parseCredentialJson(credential.credentialData);
-    const subType = typeof credentialData.subType === "string" ? credentialData.subType.toLowerCase() : "totp";
-    if (subType && subType !== "totp") continue;
-    const secret = getOtpSecret(credential);
-    if (!secret) continue;
-    couldValidate = true;
-    const digits = numberFromCredential(credentialData.digits, normalizedCode.length);
-    const period = numberFromCredential(credentialData.period, 30);
-    const algorithm = hmacDigestName(credentialData.algorithm);
-    if (verifyTotpCode({ secret, code: normalizedCode, digits, period, algorithm })) return true;
-  }
-  if (otpCredentials.length > 0 && !couldValidate) {
-    throw new Error("Keycloak no devolvió el secreto OTP necesario para validar el código.");
-  }
-  return false;
+
+  // invalid_grant = credenciales del usuario incorrectas (código TOTP inválido).
+  if (detail.includes("invalid_grant")) return false;
+  throw new Error(`Keycloak OTP verify error ${res.status}: ${detail}`);
 }
 
 export async function deleteKeycloakUserOtpCredentials(kcUserId: string): Promise<number> {
