@@ -23,13 +23,27 @@ export type NovedadConcept = { code: string; label: string; unit: NovedadUnit }
 
 /** Códigos estables; se pueden re-mapear por sistema pasando otro set al builder. */
 export const NOVEDADES_CONCEPTS = {
+  // Horas dictadas = horas NOMINALES de la designación (ventana planificada), no las biométricas:
+  // el titular cobra por sus horas asignadas, no por la precisión del reloj. Las faltas descuentan
+  // aparte (modelo "nominal − faltas").
   HORAS_DICTADAS: { code: 'HORAS_DICTADAS', label: 'Horas dictadas', unit: 'HORAS' },
   HORAS_SUPLENCIA: { code: 'HORAS_SUPLENCIA', label: 'Horas de suplencia', unit: 'HORAS' },
   FALTAS_INJUSTIFICADAS: { code: 'FALTAS_INJUSTIFICADAS', label: 'Inasistencias injustificadas', unit: 'CANTIDAD' },
-  DIAS_LICENCIA: { code: 'DIAS_LICENCIA', label: 'Días de licencia médica', unit: 'DIAS' },
+  // Días de licencia separados por tipo: EduTrack emite la cantidad por tipo; la decisión
+  // paga/no-paga la toma el sistema de sueldos.
+  DIAS_LICENCIA_MEDICA: { code: 'DIAS_LICENCIA_MEDICA', label: 'Días de licencia médica', unit: 'DIAS' },
+  DIAS_LICENCIA_ESPECIAL: { code: 'DIAS_LICENCIA_ESPECIAL', label: 'Días de licencia especial', unit: 'DIAS' },
+  DIAS_LICENCIA_OTRA: { code: 'DIAS_LICENCIA_OTRA', label: 'Días de licencia (otra)', unit: 'DIAS' },
 } as const satisfies Record<string, NovedadConcept>
 
 export type NovedadesConceptSet = typeof NOVEDADES_CONCEPTS
+
+/** Mapa tipo de licencia (`MedicalLeaveType`) → concepto de novedad. */
+function leaveConceptForType(concepts: NovedadesConceptSet, type: string): NovedadConcept {
+  if (type === 'MEDICAL_LEAVE') return concepts.DIAS_LICENCIA_MEDICA
+  if (type === 'WORK_LEAVE') return concepts.DIAS_LICENCIA_ESPECIAL
+  return concepts.DIAS_LICENCIA_OTRA
+}
 
 export type NovedadRow = {
   ci: string
@@ -97,8 +111,12 @@ export type PersonConceptTotals = { horasDictadas: number; horasSuplencia: numbe
 
 /**
  * Acumula los conceptos de asistencia de una persona a partir de las filas ya conciliadas.
- * Las faltas en días no laborables (feriados) no se cuentan: el pipeline global todavía no
- * descuenta `NonWorkingDay`, así que se filtra acá por fecha.
+ *
+ * Base "nominal − faltas": las horas se toman de la designación (`horasPlan`, ventana planificada),
+ * NO de la marca biométrica (`horasTrab`) — un docente titular cobra sus horas asignadas, no lo que
+ * el reloj alcanzó a medir. Las inasistencias injustificadas van como línea de descuento aparte.
+ * Las filas en días no laborables (feriados) no suman ni a horas ni a faltas: el pipeline global
+ * todavía no descuenta `NonWorkingDay`, así que se filtra acá por fecha.
  */
 export function accumulatePersonConcepts(
   person: PayrollPersonReport,
@@ -108,11 +126,12 @@ export function accumulatePersonConcepts(
   let horasSuplencia = 0
   let faltas = 0
   for (const r of person.rows) {
+    if (nonWorkingYmd.has(r.fecha)) continue // feriado: ni horas ni faltas
     if (r.isCoverage) {
-      horasSuplencia += r.horasTrab
+      horasSuplencia += r.horasPlan // horas nominales de la ventana cubierta
     } else if (r.statusCode === 'PRESENT' || r.statusCode === 'LATE') {
-      horasDictadas += r.horasTrab
-    } else if (r.statusCode === 'ABSENT_NOT_JUSTIFIED' && !nonWorkingYmd.has(r.fecha)) {
+      horasDictadas += r.horasPlan // horas nominales de la designación (no biométricas)
+    } else if (r.statusCode === 'ABSENT_NOT_JUSTIFIED') {
       faltas += 1
     }
   }
@@ -147,17 +166,21 @@ export async function buildPayrollNovedadesData(
     userIds.length
       ? prisma.medicalLeave.findMany({
           where: { status: 'ACTIVE', userId: { in: userIds }, startDate: { lte: toDate }, endDate: { gte: fromDate } },
-          select: { userId: true, startDate: true, endDate: true },
+          select: { userId: true, type: true, startDate: true, endDate: true },
         })
       : Promise.resolve([]),
   ])
 
   const nonWorkingYmd = new Set(nonWorkingDays.map((d) => d.date.toISOString().slice(0, 10)))
   const ciByUser = new Map(users.map((u) => [u.id, u.nationalId ?? '']))
-  const leavesByUser = new Map<string, Array<{ start: Date; end: Date }>>()
+  // Licencias agrupadas por (usuario, tipo): cada tipo se emite como un concepto distinto.
+  const leavesByUserType = new Map<string, Map<string, Array<{ start: Date; end: Date }>>>()
   for (const l of leaves) {
-    if (!leavesByUser.has(l.userId)) leavesByUser.set(l.userId, [])
-    leavesByUser.get(l.userId)!.push({ start: l.startDate, end: l.endDate })
+    if (!leavesByUserType.has(l.userId)) leavesByUserType.set(l.userId, new Map())
+    const byType = leavesByUserType.get(l.userId)!
+    const type = String(l.type)
+    if (!byType.has(type)) byType.set(type, [])
+    byType.get(type)!.push({ start: l.startDate, end: l.endDate })
   }
 
   const rows: NovedadRow[] = []
@@ -170,12 +193,13 @@ export async function buildPayrollNovedadesData(
     pushConceptRow(rows, base, concepts.HORAS_DICTADAS, totals.horasDictadas)
     pushConceptRow(rows, base, concepts.HORAS_SUPLENCIA, totals.horasSuplencia)
     pushConceptRow(rows, base, concepts.FALTAS_INJUSTIFICADAS, totals.faltas)
-    pushConceptRow(
-      rows,
-      base,
-      concepts.DIAS_LICENCIA,
-      mergeAndCountDays(leavesByUser.get(person.userId) ?? [], fromDate, toDate),
-    )
+    // Una fila por tipo de licencia con días en el período (fusionando solapes dentro del tipo).
+    const byType = leavesByUserType.get(person.userId)
+    if (byType) {
+      for (const [type, ranges] of byType) {
+        pushConceptRow(rows, base, leaveConceptForType(concepts, type), mergeAndCountDays(ranges, fromDate, toDate))
+      }
+    }
   }
 
   return { from: params.from, to: params.to, periodo, rows, warnings }
