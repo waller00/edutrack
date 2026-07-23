@@ -51,6 +51,7 @@
       <div class="nav-group">
         <div class="nav-group-title">Dominio &amp; flujos</div>
         <a href="#auth">Autenticación (BFF)</a>
+        <a href="#2fa">2FA &amp; cuenta</a>
         <a href="#roles">Roles &amp; permisos</a>
         <a href="#flujo-asistencia">Flujo: asistencia</a>
         <a href="#flujo-biometrico">Flujo: biometría</a>
@@ -91,8 +92,11 @@
       <div class="nav-group">
         <div class="nav-group-title">Operación</div>
         <a href="#infra">Infra &amp; Docker</a>
+        <a href="#waf">WAF (reverse proxy)</a>
         <a href="#cicd">CI / CD</a>
         <a href="#observabilidad">Observabilidad</a>
+        <a href="#backups">Backups &amp; continuidad</a>
+        <a href="#incidentes">Incidentes reales</a>
         <a href="#comandos">Comandos</a>
       </div>
     </nav>
@@ -917,6 +921,42 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
       <p><strong>Componentes:</strong> <code>keycloak/</code> (realm + tema), <code>auth/keycloak.ts</code>,
         <code>routes/auth-keycloak.ts</code>, <code>auth/session-store.ts</code>, <code>middlewares/auth.ts</code>.</p>
 
+      <h3 id="2fa">Seguridad de la cuenta: contraseña, 2FA y recuperación</h3>
+      <p>Todo lo sensible se delega en Keycloak: EduTrack orquesta los flujos desde el perfil
+        (<code>routes/auth-keycloak.ts</code> + <code>auth/keycloak.ts</code>) pero <strong>nunca ve contraseñas ni
+        secretos TOTP</strong>.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Acción</th><th>Cómo funciona</th></tr></thead>
+        <tbody>
+          <tr><td>Cambiar contraseña</td><td>Re-login con la required action <code>UPDATE_PASSWORD</code> de Keycloak (<code>GET /auth/account/password</code>). El reset por email (<code>execute-actions-email</code>) limpia antes cualquier <code>CONFIGURE_TOTP</code> pendiente, para que un reset de contraseña nunca encadene un alta de 2FA no pedida.</td></tr>
+          <tr><td>Activar 2FA (TOTP)</td><td>Re-login con la required action <code>CONFIGURE_TOTP</code>: Keycloak muestra el QR y guarda el secreto. La app no lo conoce en ningún momento.</td></tr>
+          <tr><td>Códigos de respaldo</td><td>Required action <code>CONFIGURE_RECOVERY_AUTHN_CODES</code> (mismo mecanismo de re-login).</td></tr>
+          <tr><td>Desactivar 2FA con código</td><td><code>POST /auth/account/2fa/disable</code> exige un código TOTP vigente. Como la Admin API de Keycloak <strong>nunca devuelve el secreto</strong> de las credenciales, el backend no puede recalcular el código: la validación se delega en Keycloak vía <em>direct grant</em> — un flujo que solo valida usuario + OTP (<code>edutrack-direct-grant-otp</code>) enlazado a un cliente confidencial dedicado (<code>edutrack-otp-check</code>), ambos <strong>auto-provisionados</strong> por Admin API en el primer uso. Si el endpoint de token emite un token, el código era válido (el token se descarta); <code>invalid_grant</code> → 401 "código incorrecto". Validado el código, se borran las credenciales OTP y de recovery del usuario.</td></tr>
+          <tr><td>Desactivar 2FA por correo</td><td>Para quien perdió el autenticador: se envía un enlace con token HMAC firmado (<code>TWO_FACTOR_DISABLE_EMAIL_SECRET</code>, sin fallback hardcodeado) con expiración y <strong>nonce de un solo uso</strong> reservado en Redis (<code>SET NX EX</code>: el enlace no se puede reutilizar). El GET solo muestra la confirmación; la acción destructiva vive en el POST, así los pre-fetchers de los clientes de correo no la disparan. La variante pública responde siempre lo mismo para no revelar si una cuenta existe.</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="callout note">
+        <span class="ci">🛡️</span>
+        <p><strong>CSRF sin tokens:</strong> las acciones sensibles van por <code>POST</code>/<code>DELETE</code> y la
+        cookie <code>sid</code> es <code>SameSite=Lax</code> → en un envío cross-site de método no seguro la cookie no
+        viaja, así que un sitio externo no puede disparar estas acciones. El propio atributo de la cookie es la defensa.</p>
+      </div>
+
+      <h4>Inventario del realm <code>edutrack</code></h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Pieza</th><th>Rol</th></tr></thead>
+        <tbody>
+          <tr><td>Cliente <code>edutrack-web</code></td><td>Confidencial, del BFF: authorization code + PKCE, service accounts para tareas administrativas</td></tr>
+          <tr><td>Cliente <code>moodle</code></td><td>SSO OIDC de Moodle: los usuarios entran a Moodle con su cuenta EduTrack</td></tr>
+          <tr><td>Cliente <code>edutrack-otp-check</code></td><td>Interno, solo direct grant de verificación 2FA (auto-provisionado por el backend)</td></tr>
+          <tr><td>IdP Google</td><td>Login federado con cuenta Google</td></tr>
+          <tr><td>Tema <code>edutrack</code></td><td>Pantallas de login/acciones con la identidad visual del proyecto (<code>keycloak/themes/</code>)</td></tr>
+          <tr><td><code>keycloak-apply-realm-settings.sh</code></td><td>Reaplica en cada deploy los ajustes del realm (idempotente): la config de Keycloak también es código</td></tr>
+        </tbody>
+      </table></div>
+
       <div class="callout danger">
         <span class="ci">🚑</span>
         <p><strong>Runbook:</strong> error <code>oidc/EAI_AGAIN</code> = el contenedor <code>auth</code> no resuelve
@@ -975,10 +1015,39 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
         <code>attendanceClassBridgeGapMinutes</code> (60).</p>
       </div>
 
+      <h3>Catálogo de estados (<code>AttendanceStatus</code>)</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Grupo</th><th>Estados</th><th>Significado</th></tr></thead>
+        <tbody>
+          <tr><td>Entrada (CHECK_IN)</td><td><code>PRESENT</code> · <code>LATE</code></td><td>Marca dentro / fuera de la tolerancia de llegada</td></tr>
+          <tr><td>Salida (CHECK_OUT)</td><td><code>EXIT</code> · <code>EARLY_EXIT</code></td><td>Salida normal / anticipada respecto del fin del evento</td></tr>
+          <tr><td>Faltas</td><td><code>ABSENT_NOT_JUSTIFIED</code> · <code>ABSENT_JUSTIFIED</code></td><td>Falta sin / con justificación (licencia aprobada o decisión del admin)</td></tr>
+          <tr><td>Cobertura</td><td><code>SUBSTITUTED</code></td><td>La clase la cubrió un suplente: el titular no computa una falta simple y el suplente cobra la hora</td></tr>
+          <tr><td>Calendario</td><td><code>FREE</code> · <code>SUSPENDED</code></td><td>Día libre / actividad suspendida — no genera falta</td></tr>
+          <tr><td>Revisión</td><td><code>JUSTIFIED</code> · <code>PENDING_REVIEW</code> · <code>OUT_OF_SCHEDULE</code> · <code>UNIDENTIFIED_PUNCH</code></td><td>Estados operativos: justificación administrativa, marca a revisar, marca fuera de todo horario, marca biométrica sin persona identificada</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Las faltas son estado derivado, no filas</h3>
+      <p>La decisión de diseño más importante del dominio: <strong>no existe un job que inserte una fila de falta por
+        cada clase sin marca</strong>. La ausencia se <em>deriva</em> en el momento de consultar: se expanden las series
+        recurrentes a ocurrencias concretas (<code>events-query.ts</code> + versionado de series), se cruzan contra la
+        evidencia que sí existe — marcas <code>Attendance</code>, licencias aprobadas, suplencias — y toda ocurrencia
+        que queda descubierta <em>es</em> una falta, aunque no haya ninguna fila en la base. La verdad siempre es
+        <em>plan − evidencia</em>, recalculada con las mismas funciones puras testeadas.</p>
+
+      <ol class="steps">
+        <li><h4>Dónde se deriva</h4><p>En el listado admin de faltas (<code>routes/attendance.ts</code> computa las ausencias del rango al vuelo), en la analítica (<code>services/analytics/resolveInstances.ts</code> y <code>resolveSubstituteInstances.ts</code> convierten plan + realidad en KPIs y en los reportes de sueldos) y en el asistente NL→SQL (las preguntas de faltas van al camino <code>ABSENCES_SUMMARY</code>, nunca a SQL directo — la falta no está en ninguna tabla que se pueda consultar).</p></li>
+        <li><h4>Cuándo se materializa</h4><p>Recién cuando un admin actúa sobre una falta concreta (justificarla, dejarla asentada) se crea la fila <code>Attendance</code> con <code>ABSENT_NOT_JUSTIFIED</code>, que puede transicionar a <code>ABSENT_JUSTIFIED</code> vía <code>justifyAttendance()</code> — siempre con <code>recordAuditEvent()</code> del cambio <code>previousStatus → newStatus</code>.</p></li>
+        <li><h4>Por qué así</h4><p>(1) Editar una serie de eventos hacia atrás re-deriva las faltas automáticamente, sin migrar filas obsoletas. (2) No hay job nocturno que pueda atrasarse, duplicar o quedar a medias. (3) Las licencias médicas aprobadas convierten faltas del rango en justificadas por <em>reconciliación</em> (<code>medicalLeaveReconciliation.ts</code>), sin tocar lo ya materializado a mano.</p></li>
+      </ol>
+
       <div class="callout tip">
         <span class="ci">🧩</span>
-        <p><strong>Las faltas son estado derivado, no filas.</strong> Las ausencias se calculan a partir de las
-        ocurrencias planificadas (recurrencia expandida); pueden no existir como filas <code>Attendance</code> hasta que un admin las materializa.</p>
+        <p><strong>Falta derivada ≠ incidencia no-show.</strong> La incidencia (<code>AttendanceIncident</code>) es el
+        aviso <em>en caliente</em>: a los <code>attendanceNoShowGraceMinutes</code> de empezar la clase sin marca se crea
+        y se notifica, y se cierra sola si el docente marca después. La falta derivada es el <em>histórico</em> que
+        alimenta analítica, sueldos y el asistente. Son dos vistas del mismo hecho con ciclos de vida distintos.</p>
       </div>
     </section>
 
@@ -1613,8 +1682,18 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
     <!-- ==================== MOODLE ==================== -->
     <section id="moodle">
       <div class="anchor-h"><span class="section-tag">18</span><h2>Integración Moodle</h2></div>
-      <p>Sincronización idempotente y resiliente EduTrack→Moodle vía servicios web REST. Inactiva si faltan
-        <code>MOODLE_BASE_URL</code> o <code>MOODLE_WS_TOKEN</code>. Módulo: <code>integrations/moodle/</code>.</p>
+      <p>EduTrack replica su estructura académica en Moodle (categorías, cursos por asignatura, usuarios espejo,
+        matriculaciones) vía servicios web REST, de forma <strong>idempotente y resiliente</strong>: cualquier
+        sincronización puede re-ejecutarse sin duplicar nada, y si Moodle está caído el sistema se recupera solo.
+        Inactiva si faltan <code>MOODLE_BASE_URL</code> o <code>MOODLE_WS_TOKEN</code>. Módulo: <code>integrations/moodle/</code>.</p>
+
+      <h3>Cómo sincroniza (outbox + reconciliación)</h3>
+      <ol class="steps">
+        <li><h4>Un cambio en EduTrack encola una tarea</h4><p>Altas/ediciones de eventos, ofertas, suplencias o matrículas escriben en la cola <code>MoodleSyncTask</code> (patrón <em>outbox</em>): el cambio local y la intención de sincronizar quedan guardados juntos, y <strong>nunca</strong> se llama a Moodle dentro del request del usuario — la API responde rápido aunque Moodle esté lento o caído.</p></li>
+        <li><h4>Un worker procesa la cola</h4><p><code>outbox.ts</code> deduplica tareas equivalentes y reintenta con <em>backoff</em> exponencial ante fallas (timeout, Moodle caído, error transitorio del WS).</p></li>
+        <li><h4>Cada objeto queda mapeado (idempotencia)</h4><p>Todo lo creado en Moodle se registra en <code>MoodleObjectMap</code> con un <code>idnumber</code> estable y determinístico (derivado de la entidad EduTrack). Re-ejecutar una sync encuentra el objeto existente por <code>idnumber</code> en vez de duplicarlo.</p></li>
+        <li><h4>La reconciliación repara divergencias</h4><p>Un job periódico (<code>moodleReconcileIntervalMs</code>, 15 min por defecto) recalcula el estado deseado completo: docentes titulares, <strong>suplentes con ventana temporal</strong> (<code>timestart</code>/<code>timeend</code>: el suplente entra y sale del curso Moodle en las fechas de la suplencia) y estudiantes. Las <strong>revocaciones son seguras</strong>: solo se desmatricula lo que EduTrack matriculó (tracking en <code>MoodleEnrolmentMap</code>); una matrícula manual hecha en Moodle jamás se toca.</p></li>
+      </ol>
 
       <div class="table-wrap"><table>
         <thead><tr><th>Archivo</th><th>Responsabilidad</th></tr></thead>
@@ -1635,8 +1714,17 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
 
       <div class="callout note">
         <span class="ci">♻️</span>
-        <p><strong>Outbox + reconciliación:</strong> los cambios se encolan en <code>MoodleSyncTask</code> (dedupe + backoff exponencial)
-        y un job periódico (<code>moodleReconcileIntervalMs</code>, 15 min por defecto) repara divergencias. EduTrack es la fuente de verdad.</p>
+        <p><strong>EduTrack es la fuente de verdad.</strong> Moodle nunca se edita a mano para estructura/matrículas:
+        cualquier divergencia se considera un desvío y la reconciliación la corrige. Esto permite que la sync sea
+        agresiva sin miedo a pisar trabajo manual (lo manual queda fuera del <code>MoodleEnrolmentMap</code> y no se toca).</p>
+      </div>
+
+      <div class="callout tip">
+        <span class="ci">🔑</span>
+        <p><strong>SSO y bienvenida:</strong> los usuarios entran a Moodle con su cuenta EduTrack vía OIDC
+        (cliente <code>moodle</code> del realm Keycloak). El alta de un estudiante dispara el correo de bienvenida
+        (<code>notifications/student-welcome.ts</code>). La config del lado Moodle (webservices, SSO, tema, permisos)
+        se aplica con <code>scripts/moodle-config-*.php/.sh</code>, y el tema visual EduTrack vive en <code>moodle/</code>.</p>
       </div>
 
       <h4>Variables de entorno Moodle</h4>
@@ -1661,13 +1749,28 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
     <!-- ==================== ZKTECO ==================== -->
     <section id="zkteco">
       <div class="anchor-h"><span class="section-tag">20</span><h2>Integración ZKTeco (terminales)</h2></div>
-      <p>Terminales biométricos F22 con protocolo push ADMS. El servidor expone endpoints <code>/iclock/*</code> que
-        el terminal consulta periódicamente.</p>
+      <p>Terminales biométricos F22 con protocolo <strong>push ADMS/iclock</strong>: el servidor nunca consulta al lector —
+        es el lector el que llama por HTTP, sube marcas y pregunta si hay comandos pendientes. Todo el protocolo es
+        <strong>texto plano</strong> (ni JSON ni XML), por eso <code>/iclock</code> monta su propio parser
+        (<code>integrations/zkteco/iclock-parser.ts</code>) <em>antes</em> del <code>express.json()</code> global.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Endpoint</th><th>Dirección</th><th>Qué hace</th></tr></thead>
+        <tbody>
+          <tr><td><code>/iclock/cdata</code></td><td>lector → servidor</td><td>Handshake de opciones y subida de marcas <code>ATTLOG</code> (usuario del dispositivo, timestamp, tipo de marca)</td></tr>
+          <tr><td><code>/iclock/getrequest</code></td><td>lector → servidor (polling)</td><td>Pregunta periódica por comandos pendientes; funciona además como heartbeat del terminal</td></tr>
+          <tr><td><code>/iclock/registry</code></td><td>lector → servidor</td><td>Registro/identificación del dispositivo</td></tr>
+          <tr><td><code>/iclock/devicecmd</code></td><td>lector → servidor</td><td>Confirmación del resultado de comandos ejecutados</td></tr>
+        </tbody>
+      </table></div>
+
       <ul>
-        <li><strong>Reescritura de rutas:</strong> algunos F22 llaman <code>/cdata</code>, <code>/getrequest</code>, <code>/registry</code>, <code>/devicecmd</code> sin prefijo → <code>app.ts</code> los reescribe a <code>/iclock/*</code>.</li>
-        <li><strong>Parser:</strong> <code>integrations/zkteco/iclock-parser.ts</code> interpreta el cuerpo de texto plano.</li>
-        <li><strong>Identidad del terminal:</strong> por <code>admsSerial</code> (query <code>SN</code>) o <code>code</code>; secreto por <code>secretHash</code> e <code>allowedIps</code>.</li>
+        <li><strong>Reescritura de rutas:</strong> algunos F22 llaman <code>/cdata</code>, <code>/getrequest</code>, <code>/registry</code>, <code>/devicecmd</code> sin el prefijo → <code>app.ts</code> los reescribe a <code>/iclock/*</code>, y el reverse proxy también rutea esos alias directo al backend.</li>
+        <li><strong>Identidad y autenticación del terminal:</strong> el dispositivo se resuelve por <code>admsSerial</code> (query <code>SN</code>) o por <code>code</code>; el secreto se valida contra <code>secretHash</code> con <code>timingSafeEqual</code> y se chequea la lista de <code>allowedIps</code>. Necesario porque el protocolo ADMS no trae autenticación propia.</li>
+        <li><strong>HTTP plano, sin Cloudflare:</strong> los lectores no hablan TLS ni siguen redirects a HTTPS → el reverse proxy expone <code>/iclock/*</code> por el puerto 80 directo al backend, <a href="#waf">exento del filtro CF-only del WAF</a>. Las compensaciones son el secreto por dispositivo, las IPs permitidas y la deduplicación de marcas.</li>
       </ul>
+      <p class="muted">La ingesta de la marca (dedupe por ventana e índice único, resolución de persona, cobertura de clase
+        y creación de la <code>Attendance</code>) está detallada en el <a href="#flujo-biometrico">flujo biométrico</a>.</p>
     </section>
 
     <!-- ==================== INFRA ==================== -->
@@ -1691,6 +1794,64 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
       <p><strong>Otras carpetas de infra:</strong> <code>nginx/</code> (reverse proxy), <code>terraform/</code> (IaC),
         <code>monitoring/</code> (config de los agentes), <code>performance/</code> (k6 + baselines), <code>keycloak/</code> (realm + tema).</p>
 
+      <h3>Topología en producción</h3>
+      <div class="flowbar">
+        <span class="flownode">Navegador</span><span class="flowarrow">→</span>
+        <span class="flownode alt">Cloudflare (proxy + TLS)</span><span class="flowarrow">→</span>
+        <span class="flownode alt">nginx (WAF)</span><span class="flowarrow">→</span>
+        <span class="flownode">web · auth · keycloak · moodle</span>
+      </div>
+      <p>Un VPS (DigitalOcean) corre la app; Moodle vive en un servidor aparte. El <strong>único contenedor con puertos
+        publicados es el reverse proxy</strong> (80/443): el resto habla por redes internas de Docker
+        (<code>edutrack_net</code> para app + Keycloak + datos, <code>edutrack_moodle-net</code> compartida con Moodle) y los
+        <code>docker-compose.close-ports.*.yml</code> quitan los puertos que los servicios exponían en desarrollo.
+        El borde público está detrás de Cloudflare (DNS proxied + terminación TLS del visitante) con
+        <strong>certificado de origen Cloudflare</strong> entre Cloudflare y nginx (TLS 1.2/1.3).
+        El aprovisionamiento del VPS, DNS y firewall está declarado en <code>terraform/</code>.</p>
+
+      <h3 id="waf">WAF a medida en el reverse proxy</h3>
+      <p>Delante de la app hay un WAF hecho a medida en nginx (<code>nginx/reverse-proxy/nginx.conf</code>), como capa de
+        <strong>defensa en profundidad</strong>: Cloudflare filtra primero, este WAF corta lo que se cuela, y la app
+        (Helmet + rate limits propios) es la última línea. Las reglas, en orden de evaluación:</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Capa</th><th>Regla</th><th>Acción</th></tr></thead>
+        <tbody>
+          <tr><td>IP real</td><td>Restaura la IP del visitante desde <code>CF-Connecting-IP</code>, aceptándola solo si el peer pertenece a los rangos publicados de Cloudflare (<code>set_real_ip_from</code>). Sin esto, todo filtrado por IP apuntaría a Cloudflare.</td><td>—</td></tr>
+          <tr><td>Solo-Cloudflare</td><td><code>$cf_ok</code>: al origen solo llegan el peer real de Cloudflare o redes internas (healthchecks, Docker). Atacar la IP del VPS directo, salteando Cloudflare, no responde. Exentos: <code>/healthz</code> y <code>/iclock/*</code>.</td><td><code>444</code> (corta sin responder)</td></tr>
+          <tr><td>Higiene de protocolo</td><td>Solo métodos <code>GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS</code>; <code>server_tokens off</code>; timeouts anti-slowloris (<code>client_header/body_timeout 15s</code>).</td><td><code>405</code></td></tr>
+          <tr><td>Rutas de escaneo (<code>$bad_path</code>)</td><td>Rutas de otros stacks que EduTrack no usa: <code>.git</code>, <code>.env</code>, <code>.aws</code>, <code>wp-admin</code>, <code>wp-login.php</code>, <code>xmlrpc.php</code>, <code>phpmyadmin</code>, <code>adminer</code>, <code>.vscode/.idea</code>…</td><td><code>444</code></td></tr>
+          <tr><td>User-agents hostiles (<code>$bad_ua</code>)</td><td>Herramientas de ataque/escaneo: <code>sqlmap</code>, <code>nikto</code>, <code>nmap</code>, <code>masscan</code>, <code>acunetix</code>, <code>nessus</code>, <code>zgrab</code>, <code>dirbuster</code>, <code>wpscan</code>, <code>nuclei</code>.</td><td><code>444</code></td></tr>
+          <tr><td>Bloqueo de inyección (<code>$block_injection</code>)</td><td>Firmas <strong>evidentes</strong> en la query string, con bajo riesgo de falso positivo — SQLi: <code>union select</code>, <code>information_schema</code>/<code>pg_catalog</code>, <code>pg_sleep()/sleep()/benchmark()</code>; traversal/LFI/RFI: <code>../</code> (y sus encodings), <code>/etc/passwd</code>, <code>php://</code>/<code>file://</code>; RCE/webshell: <code>/bin/sh</code>, <code>cmd.exe</code>, <code>powershell</code>, <code>base64_decode</code>, <code>shell_exec</code>.</td><td><code>403</code></td></tr>
+          <tr><td>Detección sin bloqueo (<code>$susp_injection</code>)</td><td>Firmas <strong>amplias</strong> que podrían dar falsos positivos — SQLi genérica (<code>or 1=1</code>, comentarios <code>--</code>/<code>#</code>), XSS (<code>&lt;script</code>, <code>onerror=</code>, <code>javascript:</code>, <code>&lt;iframe</code>/<code>&lt;svg</code>), <code>eval(</code>/<code>system(</code>.</td><td>solo log</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Rate limiting (backstop anti-flood y anti fuerza bruta)</h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Zona</th><th>Límite</th><th>Aplica a</th></tr></thead>
+        <tbody>
+          <tr><td><code>perip</code></td><td>100 r/s · burst 200</td><td>Tráfico general de web, API y Keycloak</td></tr>
+          <tr><td><code>authz</code></td><td>60 r/m · burst 20</td><td><code>/auth/login·register·verify·forgot-password·check-username</code> (la app además limita login por su cuenta)</td></tr>
+          <tr><td><code>costoso</code></td><td>30 r/m · burst 10</td><td>Endpoints pesados: <code>/exports</code>, <code>/reports</code>, <code>/analytics</code>, <code>/admin/query-assistant</code>, <code>/grades/sheet</code></td></tr>
+          <tr><td><code>connperip</code></td><td>100 conexiones/IP</td><td>Todos los vhosts. Moodle solo tiene este límite (sus páginas cargan decenas de assets; un <code>limit_req</code> las rompería)</td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted">Los límites son generosos a propósito: solo cortan floods, no usuarios reales. Respuesta al exceder: <code>429</code>.</p>
+
+      <div class="callout note">
+        <span class="ci">📈</span>
+        <p><strong>De detección a bloqueo, con datos:</strong> cada regla emite logs etiquetados
+        (<code>WAF_BLOCKED</code>, <code>WAF_DROPPED</code> con el motivo, <code>WAF_SUSPICIOUS</code>) que van por stdout
+        → Alloy → Loki y se visualizan en el dashboard Grafana <code>waf-security</code>. Las firmas amplias arrancaron en
+        <strong>modo detección</strong>: se observó qué matcheaban en tráfico real, se tunearon, y recién entonces las
+        evidentes se promovieron a bloqueo. Así se evita romper usuarios legítimos con falsos positivos.</p>
+      </div>
+
+      <p class="muted">Las cabeceras de seguridad (HSTS, <code>nosniff</code>, <code>X-Frame-Options</code>,
+        <code>Referrer-Policy</code>) se agregan <strong>solo en el vhost del frontend</strong>: Next.js no las emite,
+        mientras que Keycloak y Moodle ya mandan las suyas (más estrictas) y la API usa Helmet — duplicarlas causa conflictos.</p>
+
       <div class="callout tip">
         <span class="ci">🐳</span>
         <p>El backend ejecuta <code>prisma db push</code> al arrancar. En local se usa
@@ -1701,7 +1862,11 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
     <!-- ==================== CI/CD ==================== -->
     <section id="cicd">
       <div class="anchor-h"><span class="section-tag">22</span><h2>CI / CD</h2></div>
-      <p>GitHub Actions en <code>.github/workflows/</code>. El deploy de producción es completamente automático al hacer push a <code>main</code>.</p>
+      <p>GitHub Actions en <code>.github/workflows/</code>. Hay dos entornos con la misma mecánica:
+        push a <code>develop</code> despliega <strong>TESTING</strong> y push a <code>main</code> despliega
+        <strong>PRODUCCIÓN</strong>, ambos de forma completamente automática. En paralelo corren los pipelines de
+        calidad (tests, Sonar, e2e, seguridad), que dan visibilidad aunque no bloquean el deploy — el candado del
+        deploy es el job <code>validate</code>.</p>
 
       <div class="table-wrap"><table>
         <thead><tr><th>Workflow</th><th>Cuándo</th><th>Qué hace</th></tr></thead>
@@ -1710,12 +1875,22 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
           <tr><td><code>sonar.yml</code></td><td>push/PR a main y develop</td><td>Análisis SonarCloud (secret <code>SONAR_TOKEN</code>)</td></tr>
           <tr><td><code>e2e.yml</code></td><td>push/PR</td><td>Tests Playwright end-to-end</td></tr>
           <tr><td><code>ci-security.yml</code></td><td>push/PR</td><td>Chequeos de seguridad</td></tr>
-          <tr><td><code>deploy.yml</code></td><td>push a main</td><td>Deploy al VPS (SSH + <code>docker compose pull</code> + <code>up</code>)</td></tr>
+          <tr><td><code>deploy.yml</code></td><td>push a main (prod) y develop (testing)</td><td>Deploy al VPS por SSH: sync del repo + build en el servidor + recreación ordenada</td></tr>
           <tr><td><code>deploy-recover.yml</code></td><td>manual</td><td>Recuperación de deploy</td></tr>
           <tr><td><code>docker-publish.yml</code></td><td>push</td><td>Publicación de imágenes Docker</td></tr>
           <tr><td><code>performance-*.yml</code></td><td>programado/manual</td><td>Baselines de carga (k6) autenticado y producción</td></tr>
         </tbody>
       </table></div>
+
+      <h3>El deploy, paso a paso</h3>
+      <ol class="steps">
+        <li><h4>Candado de calidad</h4><p>El job <code>validate</code> (typecheck) debe pasar antes de cualquier deploy. <code>concurrency</code> por rama evita deploys simultáneos del mismo entorno, y en el servidor un <code>flock</code> con timeout actúa de segundo candado.</p></li>
+        <li><h4>Sync del repo en el VPS</h4><p>Por SSH: <code>git fetch</code> + <code>reset --hard</code> al commit exacto + <code>clean -fd</code>. Consecuencia importante: <strong>un hotfix manual en el servidor se revierte en el próximo deploy</strong> si no está commiteado en la rama.</p></li>
+        <li><h4>Limpieza de disco inteligente</h4><p>Prune liviano de contenedores/imágenes siempre; el <em>build cache</em> solo se vacía si el disco supera el 80 %. (Vaciarlo en cada deploy obligaba a <code>next build</code> a recompilar de cero y volteaba el deploy por timeout — incidente 2026-06-13.)</p></li>
+        <li><h4>Build en el servidor</h4><p><code>compose build auth web</code>: las imágenes se construyen en el propio VPS aprovechando el cache local de Docker; no hay registry intermedio para las imágenes de la app.</p></li>
+        <li><h4>Recreación ordenada</h4><p>Primero los datos (<code>pg</code>, <code>redis</code>, <code>keycloak-db</code>), después Keycloak + su configuración de realm (<code>keycloak-apply-realm-settings.sh</code>), y al final <code>auth</code> y <code>web</code>. El entrypoint del backend aplica el esquema con <code>prisma db push</code> al arrancar (no hay <code>migrate deploy</code>).</p></li>
+        <li><h4>Verificación post-deploy</h4><p><code>verify-auth-keycloak-network.sh</code> confirma que <code>auth</code> y <code>keycloak</code> quedaron en la misma red Docker — un split de esa red fue causa real de un login caído en producción.</p></li>
+      </ol>
 
       <div class="callout note">
         <span class="ci">✅</span>
@@ -1744,6 +1919,110 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
           <h4>LogRocket</h4>
           <p class="muted">Session replay del frontend, recomendado solo en producción.</p>
         </div>
+      </div>
+
+      <h3>Qué corre en producción</h3>
+      <p>Además del stack central, una flota de exporters alimenta Prometheus:
+        <code>node-exporter</code> (host), <code>postgres-exporter</code> (base), <code>nginx-exporter</code>
+        (<code>stub_status</code> del reverse proxy), <code>cadvisor</code> (recursos por contenedor) y
+        <code>blackbox-exporter</code> (probes HTTP de los dominios públicos — detecta caídas desde afuera).</p>
+      <div class="flowbar">
+        <span class="flownode">stdout de cada contenedor</span><span class="flowarrow">→</span>
+        <span class="flownode alt">Alloy</span><span class="flowarrow">→</span>
+        <span class="flownode alt">Loki</span><span class="flowarrow">→</span>
+        <span class="flownode">Grafana</span>
+      </div>
+      <p class="muted">Los dashboards están versionados en <code>monitoring/grafana/dashboards/</code> (p. ej.
+        <code>waf-security</code>, que grafica los logs etiquetados del <a href="#waf">WAF</a>): la observabilidad
+        también es código y se reprovisiona sola.</p>
+    </section>
+
+    <!-- ==================== BACKUPS & CONTINUIDAD ==================== -->
+    <section id="backups">
+      <div class="anchor-h"><span class="section-tag">25</span><h2>Backups &amp; continuidad</h2></div>
+      <p>El dato crítico es la base <code>asistencias</code> (usuarios, asistencias, licencias, eventos, auditoría).
+        La estrategia: <strong>backup diario off-site</strong> + snapshots del proveedor + restore ensayado.
+        Detalle completo: <code>docs/BACKUP_POSTGRES_OFFSITE.md</code> y <code>docs/CIBERSEGURIDAD_CONTINUIDAD.md</code>.</p>
+
+      <div class="flowbar">
+        <span class="flownode">Droplet producción</span><span class="flowarrow">→</span>
+        <span class="flownode alt">pg_dump -Fc</span><span class="flowarrow">→</span>
+        <span class="flownode alt">scp por SSH (llave dedicada)</span><span class="flowarrow">→</span>
+        <span class="flownode">VPS externa (usuario <code>backup</code>)</span>
+      </div>
+
+      <p><code>scripts/backup_pg_offsite.sh</code> genera un dump custom de PostgreSQL y lo copia a una VPS distinta
+        del Droplet de producción, con un usuario de sistema <code>backup</code> sin sudo y un directorio <code>700</code>
+        — si comprometen producción, el histórico de backups no se pierde con ella. La copia off-site
+        <strong>complementa</strong> (no reemplaza) los snapshots del proveedor.</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Tipo</th><th>Frecuencia</th><th>Retención</th></tr></thead>
+        <tbody>
+          <tr><td>Dump completo PostgreSQL off-site</td><td>Diario</td><td>7–14 días</td></tr>
+          <tr><td>Snapshot del Droplet/volumen</td><td>Semanal</td><td>4 semanas</td></tr>
+          <tr><td>Backup pre-release</td><td>Antes de cada deploy relevante</td><td>Hasta validar el release</td></tr>
+          <tr><td>Prueba de restore</td><td>Mensual, en testing</td><td>Evidencia documentada (<code>docs/TESTING_DB_RESTORE.md</code>)</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4>Objetivos de continuidad (RTO / RPO)</h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Componente</th><th>Criticidad</th><th>RTO</th><th>RPO</th></tr></thead>
+        <tbody>
+          <tr><td>PostgreSQL</td><td>Crítica</td><td>2 h</td><td>24 h</td></tr>
+          <tr><td>Backend API / Frontend</td><td>Crítica / Alta</td><td>1 h</td><td>n/a — se reconstruyen desde código e imagen</td></tr>
+          <tr><td>Notificaciones (email/push)</td><td>Media</td><td>4 h</td><td>24 h</td></tr>
+          <tr><td>Integraciones externas (Didit, Google, IA)</td><td>Media</td><td>8 h</td><td>según proveedor — hay modo degradado</td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted">Un backup diario implica RPO de 24 h: en el peor caso se pierde un día de marcas. Para bajarlo a
+        ~1 h el camino es WAL archiving / backups incrementales — asumido explícitamente como mejora futura, no como
+        deuda oculta. Herramientas de restore: <code>restore_pg_custom_dump_cloud.sh</code>,
+        <code>export_data_sql.sh</code> / <code>import_data_sql_on_server.sh</code>.</p>
+    </section>
+
+    <!-- ==================== INCIDENTES REALES ==================== -->
+    <section id="incidentes">
+      <div class="anchor-h"><span class="section-tag">26</span><h2>Incidentes reales &amp; lecciones</h2></div>
+      <p>Problemas que ocurrieron de verdad operando el sistema, con su causa raíz y lo que cambió a partir de cada uno.
+        Cada incidente dejó un control permanente — ninguno quedó solo en "se arregló".</p>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>Incidente</th><th>Causa raíz</th><th>Fix + lección permanente</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Login caído en producción (<code>error=oidc</code>)</td>
+            <td>Split de red Docker: tras un deploy, <code>auth</code> quedó fuera de la red de <code>keycloak</code>/<code>redis</code> (<code>EAI_AGAIN</code> al resolver los hostnames).</td>
+            <td>Recuperación con <code>force-recreate</code> de <code>auth</code>/<code>web</code>; se agregó <code>verify-auth-keycloak-network.sh</code> como verificación <strong>post-deploy automática</strong>. Regla operativa: nunca <code>--remove-orphans</code> (borraría Moodle).</td>
+          </tr>
+          <tr>
+            <td>Login en loop, solo en móviles</td>
+            <td>La cookie <code>sid</code> con <code>SameSite=Lax</code> no viaja en los <code>fetch</code> cross-origin de Safari/Chrome iOS entre el frontend y la API.</td>
+            <td><code>COOKIE_SAMESITE=none</code> (+ <code>Secure</code>) en producción. Lección: probar auth en móvil real, no solo en desktop — las políticas de cookies difieren por navegador.</td>
+          </tr>
+          <tr>
+            <td>Deploys volteados por timeout (2026-06-13)</td>
+            <td>La limpieza de disco vaciaba el build cache de Docker en cada deploy → <code>next build</code> recompilaba de cero y superaba el <code>command_timeout</code>.</td>
+            <td>Limpieza a fondo condicionada: solo si el disco supera el 80 %. Lección: el cache de build es parte de la disponibilidad del pipeline, no basura.</td>
+          </tr>
+          <tr>
+            <td>Sync Moodle con errores <code>invalidparameter</code>/<code>dmlwriteexception</code></td>
+            <td>Tres causas apiladas: la key <code>confirmed</code> prohibida al crear usuarios por WS, idioma no instalado en Moodle, e <code>idnumber</code> de más de 100 caracteres.</td>
+            <td>Saneo de payloads en el cliente WS (campos permitidos, límites de largo). Lección: prender el debug de Moodle para ver <code>debuginfo</code> — el error genérico no dice nada.</td>
+          </tr>
+          <tr>
+            <td>502 al desactivar 2FA ("No se pudo conectar con la API", 2026-07-18)</td>
+            <td>El backend intentaba validar el TOTP leyendo el secreto por Admin API — pero Keycloak <strong>nunca</strong> devuelve <code>secretData</code>: la función no pudo haber funcionado jamás.</td>
+            <td>Validación delegada en Keycloak vía direct grant (<a href="#2fa">detalle</a>). Lección: los caminos de error poco transitados necesitan un test de integración real, no solo unitarios con mocks.</td>
+          </tr>
+        </tbody>
+      </table></div>
+
+      <div class="callout note">
+        <span class="ci">📚</span>
+        <p>Los runbooks operativos completos viven en <code>docs/</code> (backups, ciberseguridad, biométrico F22,
+        Moodle). Esta tabla es el resumen ejecutivo para la defensa: <em>qué se rompió, por qué, y qué control quedó</em>.</p>
       </div>
     </section>
 

@@ -34,6 +34,7 @@ function row(partial: Partial<PayrollEventRow>): PayrollEventRow {
     statusCode: 'PRESENT',
     isCoverage: false,
     minTarde: 0,
+    horasPlan: 0,
     horasTrab: 0,
     licencia: 'NO',
     observaciones: '-',
@@ -56,17 +57,18 @@ beforeEach(() => {
 })
 
 describe('buildPayrollNovedadesData', () => {
-  it('acumula horas dictadas (propias PRESENT/LATE), suplencias y faltas; excluye faltas en feriados', async () => {
+  it('horas dictadas = nominal (horasPlan), no biométrica; suplencia nominal; excluye feriados', async () => {
     buildDataMock.mockResolvedValue({
       persons: [
         person('u1', 'Pérez, Ana', [
-          row({ statusCode: 'PRESENT', horasTrab: 2 }),
-          row({ statusCode: 'LATE', horasTrab: 1.5 }),
-          row({ statusCode: 'SUBSTITUTED', horasTrab: 0 }),
-          row({ statusCode: 'PRESENT', horasTrab: 3, isCoverage: true }), // suplencia hecha por Ana
-          row({ statusCode: 'ABSENT_NOT_JUSTIFIED', fecha: '2026-07-10' }),
-          row({ statusCode: 'ABSENT_NOT_JUSTIFIED', fecha: '2026-07-18' }), // feriado: no cuenta
-          row({ statusCode: 'ABSENT_JUSTIFIED', fecha: '2026-07-20' }),
+          // horasTrab (biométrica) < horasPlan (nominal): debe liquidarse el nominal.
+          row({ statusCode: 'PRESENT', horasPlan: 2, horasTrab: 1.8 }),
+          row({ statusCode: 'LATE', horasPlan: 1.5, horasTrab: 1.2 }),
+          row({ statusCode: 'SUBSTITUTED', horasPlan: 1, horasTrab: 0 }), // suplido: no cuenta al titular
+          row({ statusCode: 'PRESENT', horasPlan: 3, horasTrab: 2.5, isCoverage: true }), // suplencia hecha por Ana
+          row({ statusCode: 'ABSENT_NOT_JUSTIFIED', fecha: '2026-07-10', horasPlan: 1 }),
+          row({ statusCode: 'ABSENT_NOT_JUSTIFIED', fecha: '2026-07-18', horasPlan: 1 }), // feriado: no cuenta
+          row({ statusCode: 'ABSENT_JUSTIFIED', fecha: '2026-07-20', horasPlan: 1 }),
         ]),
       ],
     })
@@ -78,26 +80,29 @@ describe('buildPayrollNovedadesData', () => {
     expect(data.periodo).toBe('2026-07')
     expect(data.warnings).toEqual([])
     expect(data.rows).toEqual([
-      expect.objectContaining({ ci: '4.123.456-7', codigo: 'HORAS_DICTADAS', cantidad: 3.5, unidad: 'HORAS' }),
-      expect.objectContaining({ codigo: 'HORAS_SUPLENCIA', cantidad: 3 }),
-      expect.objectContaining({ codigo: 'FALTAS_INJUSTIFICADAS', cantidad: 1, unidad: 'CANTIDAD' }),
+      expect.objectContaining({ ci: '4.123.456-7', codigo: 'HORAS_DICTADAS', cantidad: 3.5, unidad: 'HORAS' }), // 2 + 1.5 nominal
+      expect.objectContaining({ codigo: 'HORAS_SUPLENCIA', cantidad: 3 }), // nominal de la ventana cubierta
+      expect.objectContaining({ codigo: 'FALTAS_INJUSTIFICADAS', cantidad: 1, unidad: 'CANTIDAD' }), // feriado excluido
     ])
   })
 
-  it('licencias: clampea al mes y fusiona solapes; consulta sólo licencias ACTIVE del rango', async () => {
+  it('licencias: separa por tipo, clampea al mes y fusiona solapes; consulta sólo ACTIVE del rango', async () => {
     buildDataMock.mockResolvedValue({ persons: [person('u1', 'Pérez, Ana', [])] })
     prismaMock.user.findMany.mockResolvedValue([{ id: 'u1', nationalId: '1.234.567-8' }])
     prismaMock.medicalLeave.findMany.mockResolvedValue([
-      // Empieza 5 días antes del mes → clampea al 1° de julio; termina el 10.
-      { userId: 'u1', startDate: new Date('2026-06-26T00:00:00Z'), endDate: new Date('2026-07-10T00:00:00Z') },
-      // Solapa con la anterior: no debe duplicar días.
-      { userId: 'u1', startDate: new Date('2026-07-08T00:00:00Z'), endDate: new Date('2026-07-12T00:00:00Z') },
+      // Médica: empieza 5 días antes del mes → clampea al 1° de julio; termina el 10.
+      { userId: 'u1', type: 'MEDICAL_LEAVE', startDate: new Date('2026-06-26T00:00:00Z'), endDate: new Date('2026-07-10T00:00:00Z') },
+      // Médica que solapa con la anterior: no debe duplicar días (fusiona dentro del tipo).
+      { userId: 'u1', type: 'MEDICAL_LEAVE', startDate: new Date('2026-07-08T00:00:00Z'), endDate: new Date('2026-07-12T00:00:00Z') },
+      // Especial: tipo distinto → concepto propio, 2 días.
+      { userId: 'u1', type: 'WORK_LEAVE', startDate: new Date('2026-07-20T00:00:00Z'), endDate: new Date('2026-07-21T00:00:00Z') },
     ])
 
     const data = await buildPayrollNovedadesData(PARAMS)
 
     expect(data.rows).toEqual([
-      expect.objectContaining({ codigo: 'DIAS_LICENCIA', cantidad: 12, unidad: 'DIAS' }), // 1 al 12 de julio
+      expect.objectContaining({ codigo: 'DIAS_LICENCIA_MEDICA', cantidad: 12, unidad: 'DIAS' }), // 1 al 12 de julio
+      expect.objectContaining({ codigo: 'DIAS_LICENCIA_ESPECIAL', cantidad: 2, unidad: 'DIAS' }),
     ])
     expect(prismaMock.medicalLeave.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ status: 'ACTIVE', userId: { in: ['u1'] } }) }),
@@ -106,7 +111,7 @@ describe('buildPayrollNovedadesData', () => {
 
   it('docente sin cédula: exporta con CI vacía y lo lista en advertencias', async () => {
     buildDataMock.mockResolvedValue({
-      persons: [person('u2', 'Sin Cédula, Juan', [row({ statusCode: 'PRESENT', horasTrab: 4 })])],
+      persons: [person('u2', 'Sin Cédula, Juan', [row({ statusCode: 'PRESENT', horasPlan: 4, horasTrab: 4 })])],
     })
     prismaMock.user.findMany.mockResolvedValue([{ id: 'u2', nationalId: null }])
 
