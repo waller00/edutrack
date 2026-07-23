@@ -153,6 +153,24 @@ describe('exports routes', () => {
     expect(novedadesCsvMock).toHaveBeenCalled()
   })
 
+  it('novedades reenvía los filtros de asistencia (tipo de actividad, evento y estado)', async () => {
+    const res = await request(app())
+      .post('/exports')
+      .set(adminHdr())
+      .send({
+        ...baseBody,
+        reportKey: 'payroll_novedades',
+        format: 'XLSX',
+        filters: { eventType: 'CLASE', status: 'PRESENT' },
+      })
+    expect(res.status).toBe(201)
+    expect(novedadesBuildMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({ eventType: 'CLASE', status: 'PRESENT', role: 'TEACHER' }),
+      }),
+    )
+  })
+
   it('rechaza PDF para novedades de liquidación', async () => {
     const res = await request(app())
       .post('/exports')

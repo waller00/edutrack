@@ -382,10 +382,9 @@ export default function AdminAnalyticsPage() {
   const [error, setError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
   const [exportingKind, setExportingKind] = useState<
-    'xlsx' | 'csv' | 'pdf' | 'person' | 'course' | 'novedades-xlsx' | 'novedades-csv' | null
+    'xlsx' | 'csv' | 'pdf' | 'person' | 'course' | null
   >(null)
   const [exportNotice, setExportNotice] = useState<string>('')
-  const [novedadesMonth, setNovedadesMonth] = useState(() => new Date().toISOString().slice(0, 7))
 
   const apiUrl = apiBaseUrl()
   const analyticsSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
@@ -497,7 +496,7 @@ export default function AdminAnalyticsPage() {
 
   /** Crea la exportación, espera a que termine y dispara la descarga del archivo. */
   const runExport = async (
-    kind: 'xlsx' | 'csv' | 'pdf' | 'person' | 'course' | 'novedades-xlsx' | 'novedades-csv',
+    kind: 'xlsx' | 'csv' | 'pdf' | 'person' | 'course',
     reportKey: string,
     format: 'XLSX' | 'CSV' | 'PDF',
     filename: string,
@@ -581,24 +580,6 @@ export default function AdminAnalyticsPage() {
 
   const runExportCourse = () =>
     runExport('course', 'course_report', 'XLSX', `EduTrack_Reporte_por_curso_${from}_${to}.xlsx`, '✅ Reporte por curso listo.')
-
-  /** Rango [primer día, último día] del mes elegido para novedades. */
-  const novedadesRange = () => {
-    const [y, m] = novedadesMonth.split('-').map(Number)
-    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
-    return { from: `${novedadesMonth}-01`, to: `${novedadesMonth}-${String(lastDay).padStart(2, '0')}` }
-  }
-
-  // El mes define el período completo; allYears evita que el ciclo lectivo en foco recorte eventos.
-  const runExportNovedades = (format: 'XLSX' | 'CSV') =>
-    runExport(
-      format === 'XLSX' ? 'novedades-xlsx' : 'novedades-csv',
-      'payroll_novedades',
-      format,
-      `EduTrack_Novedades_Liquidacion_${novedadesMonth}.${format === 'XLSX' ? 'xlsx' : 'csv'}`,
-      `✅ Novedades de liquidación de ${novedadesMonth} listas.`,
-      { ...novedadesRange(), filters: { allYears: '1' } },
-    )
 
   function clearFiltersAndReload() {
     // "Limpiar" vuelve al rango del ciclo lectivo en foco (no a los últimos 30 días,
@@ -745,51 +726,6 @@ export default function AdminAnalyticsPage() {
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
                 Refrescar
               </button>
-            </div>
-            <div className="flex flex-col gap-2 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase text-indigo-800">
-                <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
-                Novedades de liquidación (sueldos)
-              </div>
-              <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
-                <input
-                  type="month"
-                  value={novedadesMonth}
-                  onChange={(e) => setNovedadesMonth(e.target.value)}
-                  aria-label="Mes a liquidar"
-                  className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                />
-                <button
-                  type="button"
-                  disabled={!novedadesMonth || exportingKind === 'novedades-xlsx'}
-                  className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                  onClick={() => void runExportNovedades('XLSX')}
-                >
-                  {exportingKind === 'novedades-xlsx' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  ) : (
-                    <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
-                  )}
-                  Excel
-                </button>
-                <button
-                  type="button"
-                  disabled={!novedadesMonth || exportingKind === 'novedades-csv'}
-                  className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                  onClick={() => void runExportNovedades('CSV')}
-                >
-                  {exportingKind === 'novedades-csv' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  ) : (
-                    <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                  )}
-                  CSV
-                </button>
-              </div>
-              <p className="max-w-xs text-left text-xs text-indigo-900/70 lg:text-right">
-                Una fila por docente y concepto (CI, horas dictadas, suplencias, faltas, licencias). Para importar en el
-                sistema de sueldos (GNS, Memory, Kash, LIDESU).
-              </p>
             </div>
             {showAnalyticsAttendanceExports ? (
               <div className="flex flex-col gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">

@@ -29,6 +29,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   FileText,
+  Loader2,
   Search,
   Trash2,
 } from 'lucide-react'
@@ -636,6 +637,7 @@ export default function AdminAttendance() {
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [novedadesExporting, setNovedadesExporting] = useState<'' | 'XLSX' | 'CSV'>('')
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
@@ -961,6 +963,86 @@ export default function AdminAttendance() {
     }
   }
 
+  // El export de novedades sólo acepta estados del enum de la asistencia conciliada; el valor
+  // especial "ABSENCES" (usado en pantalla para agrupar ausencias) no aplica al backend de exports.
+  function toExportStatus(status: string): string | undefined {
+    const allowed = [
+      'PRESENT',
+      'LATE',
+      'ABSENT_NOT_JUSTIFIED',
+      'ABSENT_JUSTIFIED',
+      'EXIT',
+      'EARLY_EXIT',
+      'JUSTIFIED',
+      'SUBSTITUTED',
+    ]
+    return allowed.includes(status) ? status : undefined
+  }
+
+  // Novedades de liquidación de sueldos: una fila por docente y concepto (CI, horas dictadas,
+  // suplencias, faltas, licencias). Respeta exactamente los mismos filtros que la tabla en pantalla.
+  async function exportNovedades(format: 'XLSX' | 'CSV') {
+    setNovedadesExporting(format)
+    try {
+      const apiUrl = apiBaseUrl()
+      const to = filters.endDate || new Date().toISOString().split('T')[0]
+      const from = filters.startDate || `${to.slice(0, 4)}-01-01`
+
+      const payload = {
+        reportKey: 'payroll_novedades',
+        format,
+        from,
+        to,
+        filters: {
+          role: filters.role || undefined,
+          userId: filters.userId || undefined,
+          eventId: filters.eventId || undefined,
+          eventType: filters.eventType || undefined,
+          status: toExportStatus(filters.status),
+          ...(syCtx?.allYears ? { allYears: true } : {}),
+          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
+            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
+            : {}),
+        },
+      }
+
+      const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(payload) })
+      const exportId = res.exportId
+
+      let exportDone = false
+      for (let i = 0; i < 40; i++) {
+        const st = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        if (st.status === 'DONE') {
+          exportDone = true
+          break
+        }
+        if (st.status === 'FAILED') throw new Error(st.errorMessage || 'Error generando novedades')
+        await new Promise((r) => setTimeout(r, 250))
+      }
+      if (!exportDone) throw new Error('La exportación tardó demasiado en generarse')
+
+      const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
+      if (!dl.ok) throw new Error(`Error descargando novedades: ${dl.status}`)
+
+      const blob = await dl.blob()
+      const url = globalThis.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `EduTrack_Novedades_Liquidacion_${from.slice(0, 7)}_${to.slice(0, 7)}.${format === 'XLSX' ? 'xlsx' : 'csv'}`
+      document.body.appendChild(a)
+      a.click()
+      globalThis.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      setMessage(`✅ Novedades de liquidación (${format}) generadas correctamente`)
+    } catch (error: any) {
+      console.error('Error novedades:', error)
+      setMessage(`❌ Error: ${error.message || 'Error al exportar novedades'}`)
+    } finally {
+      setNovedadesExporting('')
+    }
+  }
+
   return (
     <RoleGuard permission="attendance.read" permissionScope="all">
       <main className="responsive-page max-w-7xl space-y-8">
@@ -1255,6 +1337,49 @@ export default function AdminAttendance() {
                 <option value="TEACHER">Docente</option>
                 <option value="STAFF">Personal</option>
               </select>
+            </div>
+          </div>
+
+          {/* Novedades de liquidación de sueldos: usa exactamente los filtros de arriba */}
+          <div className="mt-4 flex flex-col gap-3 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2">
+              <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-indigo-700" aria-hidden />
+              <div>
+                <div className="text-sm font-semibold text-indigo-900">Novedades de liquidación (sueldos)</div>
+                <p className="mt-0.5 max-w-lg text-xs text-indigo-900/70">
+                  Una fila por docente y concepto (CI, horas dictadas, suplencias, faltas, licencias) según los filtros
+                  aplicados. Para importar en el sistema de sueldos (GNS, Memory, Kash, LIDESU). Si no elegís persona ni
+                  perfil, se toman todos los docentes.
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={novedadesExporting !== ''}
+                onClick={() => exportNovedades('XLSX')}
+                className="btn-success inline-flex items-center gap-1.5 text-sm disabled:opacity-50"
+              >
+                {novedadesExporting === 'XLSX' ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                ) : (
+                  <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+                Excel
+              </button>
+              <button
+                type="button"
+                disabled={novedadesExporting !== ''}
+                onClick={() => exportNovedades('CSV')}
+                className="btn-success inline-flex items-center gap-1.5 text-sm disabled:opacity-50"
+              >
+                {novedadesExporting === 'CSV' ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
+                )}
+                CSV
+              </button>
             </div>
           </div>
         </div>
