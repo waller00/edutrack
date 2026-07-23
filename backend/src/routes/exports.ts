@@ -184,6 +184,11 @@ async function buildPayrollNovedades(format: ExportFormat, from: string, to: str
       // Las novedades son de docentes; con un userId puntual se respeta ese filtro.
       role: filters?.userId ? filters?.role : (filters?.role ?? 'TEACHER'),
       userId: filters?.userId,
+      // Se reenvían el resto de filtros de la vista de Asistencias (tipo de actividad, evento y estado)
+      // para que las novedades respeten exactamente el mismo alcance que la tabla en pantalla.
+      eventType: filters?.eventType,
+      eventId: filters?.eventId,
+      status: filters?.status,
       schoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
       allYears: allYearsExport,
     },
