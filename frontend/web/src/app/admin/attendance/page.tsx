@@ -1076,6 +1076,7 @@ export default function AdminAttendance() {
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                 <button
                   onClick={() => exportReport('excel')}
+                  aria-label="Exportar asistencias a Excel"
                   className="btn-success inline-flex items-center gap-1.5 text-sm"
                 >
                   <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
@@ -1083,6 +1084,7 @@ export default function AdminAttendance() {
                 </button>
                 <button
                   onClick={() => exportReport('pdf')}
+                  aria-label="Exportar asistencias a PDF"
                   className="btn-danger inline-flex items-center gap-1.5 text-sm"
                 >
                   <FileText className="h-4 w-4 shrink-0" aria-hidden />
@@ -1358,6 +1360,7 @@ export default function AdminAttendance() {
                 type="button"
                 disabled={novedadesExporting !== ''}
                 onClick={() => exportNovedades('XLSX')}
+                aria-label="Exportar novedades de liquidación a Excel"
                 className="btn-success inline-flex items-center gap-1.5 text-sm disabled:opacity-50"
               >
                 {novedadesExporting === 'XLSX' ? (
@@ -1371,6 +1374,7 @@ export default function AdminAttendance() {
                 type="button"
                 disabled={novedadesExporting !== ''}
                 onClick={() => exportNovedades('CSV')}
+                aria-label="Exportar novedades de liquidación a CSV"
                 className="btn-success inline-flex items-center gap-1.5 text-sm disabled:opacity-50"
               >
                 {novedadesExporting === 'CSV' ? (
