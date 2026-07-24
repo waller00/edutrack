@@ -444,7 +444,7 @@ describe('AdminAttendance', () => {
     render(<AdminAttendance />)
     await screen.findByText('EduTrack')
 
-    fireEvent.click(screen.getByRole('button', { name: /Excel/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Exportar asistencias a Excel' }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled()
