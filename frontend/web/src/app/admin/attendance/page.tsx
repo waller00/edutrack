@@ -3,7 +3,7 @@ import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
 import DateField from '@/components/forms/DateField'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import {
@@ -27,12 +27,20 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
+  Download,
   FileSpreadsheet,
   FileText,
   Loader2,
   Search,
   Trash2,
 } from 'lucide-react'
+
+type NovedadesFormat = 'XLSX' | 'CSV'
+
+const NOVEDADES_EXPORT_FORMATS: { value: NovedadesFormat; label: string; hint: string }[] = [
+  { value: 'XLSX', label: 'Excel (.xlsx)', hint: 'Para revisar y ajustar antes de importar' },
+  { value: 'CSV', label: 'CSV (.csv)', hint: 'Formato universal de importación' },
+]
 
 function withSchoolYear(path: string, schoolYearQuery: string): string {
   if (!schoolYearQuery) return path
@@ -637,7 +645,26 @@ export default function AdminAttendance() {
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
-  const [novedadesExporting, setNovedadesExporting] = useState<'' | 'XLSX' | 'CSV'>('')
+  const [novedadesExporting, setNovedadesExporting] = useState<'' | NovedadesFormat>('')
+  const [novedadesMenuOpen, setNovedadesMenuOpen] = useState(false)
+  const novedadesMenuRef = useRef<HTMLDivElement | null>(null)
+
+  // El menú de formato de novedades se cierra al hacer clic fuera o con Escape.
+  useEffect(() => {
+    if (!novedadesMenuOpen) return
+    function onPointerDown(event: MouseEvent) {
+      if (!novedadesMenuRef.current?.contains(event.target as Node)) setNovedadesMenuOpen(false)
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setNovedadesMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [novedadesMenuOpen])
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
@@ -981,7 +1008,8 @@ export default function AdminAttendance() {
 
   // Novedades de liquidación de sueldos: una fila por docente y concepto (CI, horas dictadas,
   // suplencias, faltas, licencias). Respeta exactamente los mismos filtros que la tabla en pantalla.
-  async function exportNovedades(format: 'XLSX' | 'CSV') {
+  async function exportNovedades(format: NovedadesFormat) {
+    setNovedadesMenuOpen(false)
     setNovedadesExporting(format)
     try {
       const apiUrl = apiBaseUrl()
@@ -1343,47 +1371,64 @@ export default function AdminAttendance() {
           </div>
 
           {/* Novedades de liquidación de sueldos: usa exactamente los filtros de arriba */}
-          <div className="mt-4 flex flex-col gap-3 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-2">
-              <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-indigo-700" aria-hidden />
+          <div className="mt-6 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2.5">
+              <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />
               <div>
-                <div className="text-sm font-semibold text-indigo-900">Novedades de liquidación (sueldos)</div>
-                <p className="mt-0.5 max-w-lg text-xs text-indigo-900/70">
-                  Una fila por docente y concepto (CI, horas dictadas, suplencias, faltas, licencias) según los filtros
-                  aplicados. Para importar en el sistema de sueldos (GNS, Memory, Kash, LIDESU). Si no elegís persona ni
+                <div className="text-sm font-medium text-gray-900">Novedades de liquidación (sueldos)</div>
+                <p className="mt-0.5 max-w-xl text-xs leading-relaxed text-gray-500">
+                  Una fila por docente y concepto (CI, horas dictadas, suplencias, faltas, licencias) con los filtros
+                  aplicados, para importar en el sistema de sueldos (GNS, Memory, Kash, LIDESU). Si no elegís persona ni
                   perfil, se toman todos los docentes.
                 </p>
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
+
+            <div className="relative shrink-0" ref={novedadesMenuRef}>
               <button
                 type="button"
                 disabled={novedadesExporting !== ''}
-                onClick={() => exportNovedades('XLSX')}
-                aria-label="Exportar novedades de liquidación a Excel"
-                className="btn-success inline-flex items-center gap-1.5 text-sm disabled:opacity-50"
+                onClick={() => setNovedadesMenuOpen(!novedadesMenuOpen)}
+                aria-haspopup="menu"
+                aria-expanded={novedadesMenuOpen}
+                className="btn-secondary inline-flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-50 sm:w-auto"
               >
-                {novedadesExporting === 'XLSX' ? (
+                {novedadesExporting !== '' ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
                 ) : (
-                  <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
+                  <Download className="h-4 w-4 shrink-0" aria-hidden />
                 )}
-                Excel
+                {novedadesExporting !== '' ? 'Generando…' : 'Exportar novedades'}
+                <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
               </button>
-              <button
-                type="button"
-                disabled={novedadesExporting !== ''}
-                onClick={() => exportNovedades('CSV')}
-                aria-label="Exportar novedades de liquidación a CSV"
-                className="btn-success inline-flex items-center gap-1.5 text-sm disabled:opacity-50"
-              >
-                {novedadesExporting === 'CSV' ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                )}
-                CSV
-              </button>
+
+              {novedadesMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Formato de exportación de novedades"
+                  className="absolute right-0 z-20 mt-2 w-64 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg"
+                >
+                  {NOVEDADES_EXPORT_FORMATS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => exportNovedades(option.value)}
+                      className="flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-emerald-50"
+                    >
+                      {option.value === 'XLSX' ? (
+                        <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                      ) : (
+                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                      )}
+                      <span>
+                        <span className="block text-sm font-medium text-gray-900">{option.label}</span>
+                        <span className="block text-xs text-gray-500">{option.hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
