@@ -19,22 +19,19 @@
  */
 import { PrismaClient } from '@prisma/client'
 import { isMoodleIntegrationEnabled, moodleRest } from '../src/integrations/moodle/client.js'
+import {
+  buildLiveSubjectCourseIdnumbers,
+  classifyCategory,
+  classifyCourse,
+  classifyStudent,
+  isEtIdnumber,
+  type DbIds,
+  type Verdict,
+} from '../src/integrations/moodle/orphan-idnumbers.js'
 
 const prisma = new PrismaClient()
 
 const APPLY = process.argv.includes('--apply')
-const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
-
-const RE_OFFERING = new RegExp(`^et-offering-(${UUID})$`)
-const RE_SUBJECT = new RegExp(
-  `^et-subject-offering-(${UUID})-(${UUID})(?:-corientation-(${UUID}))?(?:-orientation-(${UUID}))?$`,
-)
-const RE_YEAR = new RegExp(`^et-year-(${UUID})$`)
-const RE_STUDENT = new RegExp(`^et-student-(${UUID})$`)
-
-// Esquemas de idnumber que el código actual ya NO genera: cualquier objeto con estos prefijos es
-// de una versión vieja de la integración y, por definición, huérfano (no lo produce ningún dato vivo).
-const LEGACY_COURSE_PREFIXES = ['et-subject-h-']
 
 type MoodleCourse = { id: number; idnumber?: string; shortname?: string; fullname?: string }
 type MoodleCategory = { id: number; idnumber?: string; name?: string }
@@ -47,7 +44,6 @@ type MoodleUser = {
   email?: string
 }
 type StudentMap = { id: string; localId: string; moodleId: number; idnumber: string }
-type Verdict = { orphan: boolean; reason: string }
 
 async function loadDbIds() {
   const [years, offerings, subjects, courseOrientations, orientations, students] = await Promise.all([
@@ -68,59 +64,23 @@ async function loadDbIds() {
   }
 }
 
-type DbIds = Awaited<ReturnType<typeof loadDbIds>>
-
-/** Decide si un curso `et-*` es huérfano según los ids vivos en la base actual. */
-function classifyCourse(idnumber: string, db: DbIds): Verdict {
-  const offering = RE_OFFERING.exec(idnumber)
-  if (offering) {
-    const id = offering[1]!
-    return db.offerings.has(id)
-      ? { orphan: false, reason: 'oferta vigente' }
-      : { orphan: true, reason: `oferta inexistente (${id})` }
-  }
-
-  const subject = RE_SUBJECT.exec(idnumber)
-  if (subject) {
-    const [, offeringId, subjectId, corientationId, orientationId] = subject
-    if (!db.offerings.has(offeringId!)) return { orphan: true, reason: `oferta inexistente (${offeringId})` }
-    if (!db.subjects.has(subjectId!)) return { orphan: true, reason: `asignatura inexistente (${subjectId})` }
-    if (corientationId && !db.courseOrientations.has(corientationId)) {
-      return { orphan: true, reason: `orientación-curso inexistente (${corientationId})` }
-    }
-    if (orientationId && !db.orientations.has(orientationId)) {
-      return { orphan: true, reason: `orientación inexistente (${orientationId})` }
-    }
-    return { orphan: false, reason: 'curso por asignatura vigente' }
-  }
-
-  if (LEGACY_COURSE_PREFIXES.some((p) => idnumber.startsWith(p))) {
-    return { orphan: true, reason: 'esquema viejo de idnumber (legacy, ya no se usa)' }
-  }
-
-  return { orphan: false, reason: 'patrón et- desconocido (no se toca)' }
-}
-
-function classifyCategory(idnumber: string, db: DbIds): Verdict {
-  const year = RE_YEAR.exec(idnumber)
-  if (year) {
-    const id = year[1]!
-    return db.years.has(id)
-      ? { orphan: false, reason: 'ciclo lectivo vigente' }
-      : { orphan: true, reason: `ciclo lectivo inexistente (${id})` }
-  }
-  return { orphan: false, reason: 'patrón et- desconocido (no se toca)' }
-}
-
-function classifyStudent(idnumber: string, db: DbIds): Verdict {
-  const student = RE_STUDENT.exec(idnumber)
-  if (student) {
-    const id = student[1]!
-    return db.students.has(id)
-      ? { orphan: false, reason: 'estudiante vigente' }
-      : { orphan: true, reason: `estudiante inexistente (${id})` }
-  }
-  return { orphan: false, reason: 'patrón et- desconocido (no se toca)' }
+/**
+ * Idnumbers de curso-por-asignatura que los datos vivos podrían generar. Necesario para clasificar
+ * la forma compacta `et-sc-<hash>`, que no se puede revertir a los UUIDs que la originaron.
+ */
+async function loadLiveSubjectCourseIdnumbers(): Promise<Set<string>> {
+  const [offerings, subjects, courseOrientations, orientations] = await Promise.all([
+    prisma.courseOffering.findMany({ select: { id: true, schoolYearId: true } }),
+    prisma.subject.findMany({ select: { id: true } }),
+    prisma.courseOrientation.findMany({ select: { id: true } }),
+    prisma.orientation.findMany({ select: { id: true } }),
+  ])
+  return buildLiveSubjectCourseIdnumbers({
+    offerings,
+    subjectIds: subjects.map((r) => r.id),
+    courseOrientationIds: courseOrientations.map((r) => r.id),
+    orientationIds: orientations.map((r) => r.id),
+  })
 }
 
 async function fetchMoodleCourses(): Promise<MoodleCourse[]> {
@@ -160,9 +120,6 @@ async function fetchStudentMaps(): Promise<StudentMap[]> {
   })
 }
 
-function isEtIdnumber(idnumber?: string): idnumber is string {
-  return typeof idnumber === 'string' && idnumber.startsWith('et-')
-}
 
 type DeleteOutcome = { ok: number; failed: number }
 
@@ -232,7 +189,7 @@ type ObjectMapRow = { id: string; objectType: string; localId: string; moodleId:
  * Si no se purgan, `getMappedId` devuelve el id Moodle de un objeto ya borrado y el reconcile
  * intenta crear cursos dentro de categorías inexistentes → `dmlwriteexception` (los "avisos").
  */
-async function findOrphanStructureMaps(db: DbIds): Promise<ObjectMapRow[]> {
+async function findOrphanStructureMaps(db: DbIds, liveSubjectCourseIdnumbers: Set<string>): Promise<ObjectMapRow[]> {
   const maps = (await prisma.moodleObjectMap.findMany({
     where: { objectType: { in: ['CATEGORY', 'COURSE', 'SUBJECT_COURSE'] } },
     select: { id: true, objectType: true, localId: true, moodleId: true, idnumber: true },
@@ -241,7 +198,7 @@ async function findOrphanStructureMaps(db: DbIds): Promise<ObjectMapRow[]> {
     if (m.objectType === 'CATEGORY') return !db.years.has(m.localId)
     if (m.objectType === 'COURSE') return !db.offerings.has(m.localId)
     // SUBJECT_COURSE: el localId ES el idnumber canónico.
-    return classifyCourse(m.localId, db).orphan
+    return classifyCourse(m.localId, db, liveSubjectCourseIdnumbers).orphan
   })
 }
 
@@ -376,6 +333,7 @@ async function main() {
   console.log(`\n🧹 Limpieza de huérfanos Moodle — modo: ${APPLY ? 'APPLY (borra)' : 'DRY-RUN (no borra)'}\n`)
 
   const db = await loadDbIds()
+  const liveSubjectCourses = await loadLiveSubjectCourseIdnumbers()
   const [courses, categories, studentMaps] = await Promise.all([
     fetchMoodleCourses(),
     fetchMoodleCategories(),
@@ -388,10 +346,10 @@ async function main() {
   const etCourses = courses.filter((c) => isEtIdnumber(c.idnumber) && c.id > 1)
   const etCategories = categories.filter((c) => isEtIdnumber(c.idnumber) && c.id > 1)
   const etStudentMaps = studentMaps.filter((m) => isEtIdnumber(m.idnumber))
-  const orphanStructureMaps = await findOrphanStructureMaps(db)
+  const orphanStructureMaps = await findOrphanStructureMaps(db, liveSubjectCourses)
 
   const orphanCourses = etCourses
-    .map((c) => ({ c, v: classifyCourse(c.idnumber!, db) }))
+    .map((c) => ({ c, v: classifyCourse(c.idnumber!, db, liveSubjectCourses) }))
     .filter((x) => x.v.orphan)
   const orphanCategories = etCategories
     .map((c) => ({ c, v: classifyCategory(c.idnumber!, db) }))
@@ -400,7 +358,9 @@ async function main() {
     .map((m) => ({ m, u: studentUsersByIdnumber.get(m.idnumber), v: classifyStudent(m.idnumber, db) }))
     .filter((x) => x.v.orphan)
 
-  const unknownCourses = etCourses.filter((c) => classifyCourse(c.idnumber!, db).reason.includes('desconocido'))
+  const unknownCourses = etCourses.filter((c) =>
+    classifyCourse(c.idnumber!, db, liveSubjectCourses).reason.includes('desconocido'),
+  )
   const unknownCategories = etCategories.filter((c) => classifyCategory(c.idnumber!, db).reason.includes('desconocido'))
   const unknownStudents = etStudentMaps.filter((m) => classifyStudent(m.idnumber, db).reason.includes('desconocido'))
 

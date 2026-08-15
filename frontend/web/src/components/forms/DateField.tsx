@@ -20,6 +20,8 @@ type DateFieldProps = {
   placeholder?: string
   'aria-label'?: string
   'aria-describedby'?: string
+  'aria-invalid'?: boolean
+  onBlur?: () => void
   /** Muestra el botón de calendario nativo (default true). */
   withCalendar?: boolean
 }

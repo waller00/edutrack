@@ -5,8 +5,12 @@ import { z } from 'zod'
 import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { assertCourseOfferedInSchoolYear, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
-import { generateUniqueUsername } from '../services/usernames.js'
 import { enqueueStudentUserUpsert } from '../integrations/moodle/outbox.js'
+import {
+  getStudentMoodleVerifications,
+  resendStudentMoodleWelcome,
+  type MoodleStudentVerification,
+} from '../integrations/moodle/student-users.js'
 import { isValidUruguayanCI, onlyDigits } from '../identity/uruguay-ci.js'
 
 const r = Router()
@@ -107,12 +111,21 @@ function clearableEmpty(v: unknown): unknown {
 function clearableTrimmed(max: number) {
   return z.preprocess(clearableEmpty, z.string().max(max).nullable().optional())
 }
-const clearableEmail = z.preprocess(
-  (v) => {
-    const r = clearableEmpty(v)
-    return typeof r === 'string' ? r.toLowerCase() : r
-  },
-  z.string().email('Email inválido').max(200).nullable().optional(),
+const requiredStudentEmail = z.preprocess(
+  (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+  z
+    .string({ required_error: 'El email es obligatorio', invalid_type_error: 'El email es obligatorio' })
+    .min(1, 'El email es obligatorio')
+    .email('Email inválido')
+    .max(200),
+)
+const requiredStudentUsername = z.preprocess(
+  (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+  z
+    .string({ required_error: 'El usuario Moodle es obligatorio', invalid_type_error: 'El usuario Moodle es obligatorio' })
+    .min(3, 'El usuario Moodle debe tener al menos 3 caracteres')
+    .max(30)
+    .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, 'Usuario inválido (use letras, números, puntos o guiones)'),
 )
 const clearableUruguayanCI = z.preprocess(
   clearableEmpty,
@@ -146,18 +159,8 @@ const studentWriteBaseSchema = z.object({
   schoolYearId: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().uuid().optional()),
   contactPhone: clearableTrimmed(40),
   tutorPhone: clearableTrimmed(40),
-  username: z.preprocess(
-    emptyToUndefined,
-    z
-      .string()
-      .trim()
-      .toLowerCase()
-      .min(3)
-      .max(30)
-      .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, 'Usuario inválido (use letras, números, puntos o guiones)')
-      .optional(),
-  ),
-  email: clearableEmail,
+  username: requiredStudentUsername,
+  email: requiredStudentEmail,
   address: clearableTrimmed(500),
   healthCardExpiresAt: clearableDateString,
   liceoAccessNotes: clearableTrimmed(8000),
@@ -200,6 +203,36 @@ type TuitionMonthDbRow = {
   notes: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+function unavailableMoodleVerification(): MoodleStudentVerification {
+  return {
+    state: 'UNAVAILABLE',
+    verified: null,
+    accountExists: false,
+    moodleUserId: null,
+    firstAccessAt: null,
+  }
+}
+
+async function safeStudentMoodleVerifications(studentIds: string[]) {
+  try {
+    return await getStudentMoodleVerifications(studentIds)
+  } catch (error) {
+    console.warn('[admin/students] no se pudo consultar el estado Moodle:', error)
+    return new Map(studentIds.map((id) => [id, unavailableMoodleVerification()]))
+  }
+}
+
+function serializeMoodleStatus(
+  verification: MoodleStudentVerification | undefined,
+  welcomeSentAt: Date | null | undefined,
+) {
+  const value = verification ?? unavailableMoodleVerification()
+  return {
+    ...value,
+    welcomeSentAt: welcomeSentAt?.toISOString() ?? null,
+  }
 }
 
 async function schoolYearIdsByCode(years: number[]): Promise<Map<number, string>> {
@@ -335,6 +368,8 @@ function serializeStudentDetail(row: {
   withdrawnAt: Date | null
   withdrawalAcademicYear: number | null
   internalNotes: string | null
+  moodleWelcomeSentAt: Date | null
+  moodleVerification?: MoodleStudentVerification
   createdAt: Date
   updatedAt: Date
   tuitionYears: Array<{
@@ -381,6 +416,7 @@ function serializeStudentDetail(row: {
     withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
     withdrawalAcademicYear: row.withdrawalAcademicYear,
     internalNotes: row.internalNotes,
+    moodle: serializeMoodleStatus(row.moodleVerification, row.moodleWelcomeSentAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     tuitionYears: [...row.tuitionYears].sort((a, b) => b.year - a.year).map(serializeTuitionRow),
@@ -560,6 +596,10 @@ r.get('/', async (req, res) => {
         [...enrollmentRows.map((row) => row.studentId), ...orphanRows.map((row) => row.id)],
         previewYear,
       )
+      const moodleVerifications = await safeStudentMoodleVerifications([
+        ...enrollmentRows.map((row) => row.studentId),
+        ...orphanRows.map((row) => row.id),
+      ])
       const enrollmentData = enrollmentRows.map((enrollment) => {
         const row = enrollment.student
         const courseOffering = enrollment.courseOffering ?? null
@@ -579,6 +619,7 @@ r.get('/', async (req, res) => {
           withdrawnAt: enrollment.withdrawnAt?.toISOString() ?? null,
           withdrawalAcademicYear: enrollment.withdrawalAcademicYear ?? null,
           healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+          moodle: serializeMoodleStatus(moodleVerifications.get(row.id), row.moodleWelcomeSentAt),
           createdAt: row.createdAt.toISOString(),
           tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
             year: t.year,
@@ -603,6 +644,7 @@ r.get('/', async (req, res) => {
         withdrawnAt: null,
         withdrawalAcademicYear: null,
         healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+        moodle: serializeMoodleStatus(moodleVerifications.get(row.id), row.moodleWelcomeSentAt),
         createdAt: row.createdAt.toISOString(),
         tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
           year: t.year,
@@ -636,6 +678,7 @@ r.get('/', async (req, res) => {
       rowsAny.map((row) => row.id),
       previewYear,
     )
+    const moodleVerifications = await safeStudentMoodleVerifications(rowsAny.map((row) => row.id))
 
     const data = rowsAny.map((row) => {
       const enrollment = row.enrollments?.[0] ?? null
@@ -653,6 +696,7 @@ r.get('/', async (req, res) => {
           withdrawnAt: enrollment?.withdrawnAt?.toISOString() ?? null,
           withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? null,
           healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+          moodle: serializeMoodleStatus(moodleVerifications.get(row.id), row.moodleWelcomeSentAt),
           createdAt: row.createdAt.toISOString(),
           tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
             year: t.year,
@@ -686,6 +730,7 @@ r.get('/:id', async (req, res) => {
       },
     })
     if (!row) return res.status(404).json({ message: 'Estudiante no encontrado' })
+    const moodleVerifications = await safeStudentMoodleVerifications([row.id])
     const rowAny = row as any
     const enrollment = rowAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
@@ -699,6 +744,7 @@ r.get('/:id', async (req, res) => {
       enrollmentStatus: enrollment?.enrollmentStatus ?? 'ACTIVE',
       withdrawnAt: enrollment?.withdrawnAt ?? null,
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? null,
+      moodleVerification: moodleVerifications.get(row.id),
       tuitionMonths,
     }))
   } catch (e) {
@@ -769,21 +815,15 @@ r.post('/', async (req, res) => {
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      const username =
-        body.username ??
-        (await generateUniqueUsername(body.firstName, body.lastName, async (candidate) => {
-          const exist = await (tx.student as any).findUnique({ where: { username: candidate }, select: { id: true } })
-          return Boolean(exist)
-        }))
       const s = await tx.student.create({
         data: {
           firstName: body.firstName,
           lastName: body.lastName,
           documentId: body.documentId ?? null,
-          username,
+          username: body.username,
           contactPhone: body.contactPhone ?? null,
           tutorPhone: body.tutorPhone ?? null,
-          email: body.email ?? null,
+          email: body.email,
           address: body.address ?? null,
           healthCardExpiresAt: health ?? null,
           liceoAccessNotes: body.liceoAccessNotes ?? null,
@@ -850,7 +890,7 @@ r.post('/', async (req, res) => {
     })
 
     const createdAny = created as any
-    if (createdAny.email) void enqueueStudentUserUpsert(created.id)
+    void enqueueStudentUserUpsert(created.id)
     const enrollment = createdAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const createdTuitionMonths = (await findTuitionMonths([created.id]))[created.id] ?? []
@@ -863,6 +903,7 @@ r.post('/', async (req, res) => {
       enrollmentStatus: enrollment?.enrollmentStatus ?? (body.enrollmentStatus ?? 'ACTIVE'),
       withdrawnAt: enrollment?.withdrawnAt ?? withdrawn ?? null,
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
+      moodleVerification: (await safeStudentMoodleVerifications([created.id])).get(created.id),
       tuitionMonths: createdTuitionMonths,
     }))
   } catch (e: unknown) {
@@ -875,6 +916,35 @@ r.post('/', async (req, res) => {
     }
     console.error('[admin/students POST]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.post('/:id/moodle-welcome/resend', async (req, res) => {
+  const id = req.params.id
+  try {
+    const sentAt = await resendStudentMoodleWelcome(id)
+    const moodleVerification = (await safeStudentMoodleVerifications([id])).get(id)
+    return res.json({
+      ok: true,
+      message: 'Correo de acceso a Moodle reenviado',
+      moodle: serializeMoodleStatus(moodleVerification, sentAt),
+    })
+  } catch (error) {
+    const code = error instanceof Error ? error.message : String(error)
+    if (code === 'MOODLE_STUDENT_NOT_FOUND') {
+      return res.status(404).json({ message: 'Estudiante no encontrado' })
+    }
+    if (code === 'MOODLE_STUDENT_ACCOUNT_FIELDS_REQUIRED') {
+      return res.status(400).json({ message: 'El email y el usuario Moodle son obligatorios' })
+    }
+    if (code === 'MOODLE_STUDENT_ALREADY_VERIFIED') {
+      return res.status(409).json({ message: 'La cuenta ya fue verificada en Moodle' })
+    }
+    if (code === 'MOODLE_NOT_CONFIGURED') {
+      return res.status(503).json({ message: 'La integración con Moodle no está disponible' })
+    }
+    console.error('[admin/students/:id/moodle-welcome/resend]', error)
+    return res.status(502).json({ message: 'No se pudo reenviar el correo de acceso a Moodle' })
   }
 })
 
@@ -898,7 +968,13 @@ r.put('/:id', async (req, res) => {
     })
     if (!existing) return res.status(404).json({ message: 'Estudiante no encontrado' })
 
-    if (body.email) {
+    const finalEmail = body.email !== undefined ? body.email : existing.email
+    const finalUsername = body.username !== undefined ? body.username : existing.username
+    if (!finalEmail || !finalUsername) {
+      return res.status(400).json({ message: 'El email y el usuario Moodle son obligatorios' })
+    }
+
+    if (body.email !== undefined) {
       const conflict = await findEmailConflict(body.email, id)
       if (conflict) return res.status(409).json({ message: conflict })
     }
@@ -957,21 +1033,8 @@ r.put('/:id', async (req, res) => {
     }
     if (body.contactPhone !== undefined) data.contactPhone = body.contactPhone ?? null
     if (body.tutorPhone !== undefined) data.tutorPhone = body.tutorPhone ?? null
-    if (body.username !== undefined) data.username = body.username ?? null
-    if (body.email !== undefined) data.email = body.email ?? null
-    // Alta tardía: si el alumno gana email y aún no tiene username, generarlo para
-    // habilitar su cuenta Moodle sin que el admin tenga que inventarlo.
-    const finalEmail = body.email !== undefined ? body.email ?? null : existing.email
-    if (finalEmail && !existing.username && body.username === undefined) {
-      data.username = await generateUniqueUsername(
-        body.firstName ?? existing.firstName,
-        body.lastName ?? existing.lastName,
-        async (candidate) => {
-          const exist = await (prisma.student as any).findUnique({ where: { username: candidate }, select: { id: true } })
-          return Boolean(exist)
-        },
-      )
-    }
+    if (body.username !== undefined) data.username = body.username
+    if (body.email !== undefined) data.email = body.email
     if (body.address !== undefined) data.address = body.address ?? null
     if (body.healthCardExpiresAt !== undefined) {
       data.healthCardExpiresAt = body.healthCardExpiresAt
@@ -1085,6 +1148,7 @@ r.put('/:id', async (req, res) => {
       enrollmentStatus: enrollment?.enrollmentStatus ?? body.enrollmentStatus ?? 'ACTIVE',
       withdrawnAt: enrollment?.withdrawnAt ?? (body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null),
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
+      moodleVerification: (await safeStudentMoodleVerifications([updated.id])).get(updated.id),
       tuitionMonths: updatedTuitionMonths,
     }))
   } catch (e: unknown) {
