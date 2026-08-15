@@ -181,7 +181,10 @@ jobs:
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
             git_sync_from_url "$REPO_HTTPS" origin/main
             . scripts/deploy-compose-functions.sh
-            CF="-f docker-compose.cloud.yml"
+            # El reverse proxy y el cierre de puertos son parte del despliegue, no un ajuste manual:
+            # sin `close-ports.prod.yml`, `docker-compose.cloud.yml` vuelve a publicar 3000/4000/8089
+            # en 0.0.0.0 y deja la API, el front y Keycloak accesibles sin pasar por Cloudflare.
+            CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
             compose $CF up -d --no-build pg redis keycloak-db keycloak
@@ -337,7 +340,10 @@ jobs:
             flock -w 900 200 || { echo "Timeout esperando lock de deploy"; exit 1; }
             git_sync_from_url "$REPO_HTTPS" "$TARGET_REF"
             . scripts/deploy-compose-functions.sh
-            CF="-f docker-compose.cloud.yml"
+            # El reverse proxy y el cierre de puertos son parte del despliegue, no un ajuste manual:
+            # sin `close-ports.prod.yml`, `docker-compose.cloud.yml` vuelve a publicar 3000/4000/8089
+            # en 0.0.0.0 y deja la API, el front y Keycloak accesibles sin pasar por Cloudflare.
+            CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
             compose $CF up -d --no-build pg redis keycloak-db keycloak
