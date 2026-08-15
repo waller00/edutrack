@@ -29,6 +29,14 @@ print_diagnostics() {
   echo "== Logs auth ==" >&2
   # shellcheck disable=SC2086
   docker compose $COMPOSE_FILES logs --tail=220 auth >&2 || true
+  echo "== Logs web ==" >&2
+  # shellcheck disable=SC2086
+  docker compose $COMPOSE_FILES logs --tail=220 web >&2 || true
+  echo "== Prueba interna web ==" >&2
+  # No ocultar el error: muestra si fue rechazo HTTP o conexion a 127.0.0.1.
+  # shellcheck disable=SC2086
+  docker compose $COMPOSE_FILES exec -T web node -e \
+    "fetch('$WEB_URL').then(async r=>{console.error('HTTP',r.status,r.url);process.exit(r.ok?0:1)}).catch(e=>{console.error(e.cause?.code||e.message);process.exit(1)})" >&2 || true
   echo "== Logs db:optimize auth ==" >&2
   # shellcheck disable=SC2086
   docker compose $COMPOSE_FILES exec -T auth sh -lc 'tail -120 /tmp/db-optimize.log 2>/dev/null || true' >&2 || true
