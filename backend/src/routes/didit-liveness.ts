@@ -261,6 +261,8 @@ r.post('/didit/register-field-verify', async (req, res) => {
     verifiedFields: out.verifiedFields,
     totalFields: out.totalFields,
     verification: out.verification,
+    // Datos leídos del documento: la pantalla de revisión los muestra junto a los declarados.
+    documentFields: out.documentFields,
   })
 })
 

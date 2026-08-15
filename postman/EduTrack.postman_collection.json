@@ -1,0 +1,6335 @@
+{
+  "info": {
+    "_postman_id": "109bdd2c-5d00-49ed-8992-5c3f4c907be4",
+    "name": "EduTrack · API",
+    "description": "# EduTrack · API\n\nColección completa del backend de EduTrack (Express + Prisma), generada a partir de las rutas reales del repo.\n\n## Autenticación\n\nEduTrack usa **patrón BFF**: no hay Bearer token. La sesión es una cookie `sid` respaldada en Redis,\nemitida cuando Keycloak completa el flujo OIDC. Un script a nivel colección inyecta `Cookie: sid={{sid}}`\nen todas las requests, salvo las que se autentican de otra forma (dispositivos biométricos, webhooks) o son públicas.\n\nPara conseguir el `sid`, mirá la carpeta **01 · Sesión (empezar acá)**.\n\n## Entornos\n\n| Entorno | baseUrl |\n| --- | --- |\n| Local | `http://localhost:4000` |\n| Producción | `https://api.edutrack-uy.com` |\n\n## Convenciones\n\n- Las fechas de rango van en `YYYY-MM-DD` y se interpretan como día civil en `America/Montevideo`.\n- `allYears=1` desactiva el filtro por ciclo lectivo; si se omite `schoolYearId`, se usa el ciclo activo.\n- Los parámetros marcados como deshabilitados en cada request son opcionales: activalos según necesites.\n- Los IDs se guardan solos en variables de entorno (`userId`, `eventId`, …) cuando corrés los listados.\n\n## Cuidado\n\nLa carpeta **24 · Destructivo** borra datos reales. Verificá `baseUrl` antes de usarla.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 · Salud del servicio",
+      "description": "Chequeos de vida y readiness. No requieren sesión — sirven para verificar que el API responde antes de nada.",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Siempre 200 si el proceso está vivo."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ready"
+              ]
+            },
+            "description": "200 si Postgres y Redis responden; 503 si alguna dependencia está caída. Es el endpoint a mirar cuando el login falla con error=oidc."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 · Sesión (empezar acá)",
+      "description": "EduTrack usa patrón BFF: la sesión es una cookie `sid` guardada en Redis, NO un Bearer token.\n\nDos formas de obtener el `sid`:\n\n1. **Atajo programático** (solo si el server tiene `EDUTRACK_PERFORMANCE_AUTH_ENABLED=true`, típicamente local):\n   ejecutá \"Crear sesión (performance)\" y el `sid` queda guardado en el environment automáticamente.\n\n2. **Login real por navegador** (lo normal en producción): abrí `{{baseUrl}}/auth/login` en el browser,\n   completá Keycloak, y copiá la cookie `sid` desde DevTools → Application → Cookies. Pegala en la variable `sid`.\n\nUn script a nivel colección inyecta `Cookie: sid={{sid}}` en cada request.",
+      "item": [
+        {
+          "name": "Crear sesión (performance) → guarda sid",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-edutrack-performance-secret",
+                "value": "{{perfSecret}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/performance/session",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "performance",
+                "session"
+              ]
+            },
+            "description": "Emite una sesión BFF sin pasar por Keycloak. Requiere EDUTRACK_PERFORMANCE_AUTH_ENABLED=true y EDUTRACK_PERFORMANCE_AUTH_SECRET en el backend.\nDevuelve 404 si la función está apagada (así es en producción por defecto).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{perfUser}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const b = pm.response.json();",
+                  "  pm.environment.set(\"sid\", b.sid);",
+                  "  pm.environment.set(\"userId\", b.user.id);",
+                  "  console.log(\"sid guardado para\", b.user.email, b.user.role);",
+                  "}",
+                  "if (pm.response.code === 404) {",
+                  "  console.warn(\"Performance auth apagado en este server: usá el login por navegador y pegá el sid a mano.\");",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (redirect a Keycloak)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "returnTo",
+                  "value": "/admin",
+                  "disabled": true,
+                  "description": "Path del frontend al que volver tras loguear"
+                }
+              ]
+            },
+            "description": "Devuelve un 302 a Keycloak. Desde Postman no completa el flujo: abrilo en el navegador."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Callback OIDC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/callback?code=&state=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "callback"
+              ],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "",
+                  "description": "Código de autorización que devuelve Keycloak"
+                },
+                {
+                  "key": "state",
+                  "value": "",
+                  "description": "State de la request de login"
+                }
+              ]
+            },
+            "description": "Lo llama Keycloak, no vos. Está acá para documentar el flujo: acá se crea la sesión en Redis y se setea la cookie sid."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refrescar sesión",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva el access token de Keycloak asociado a la sesión."
+          },
+          "response": []
+        },
+        {
+          "name": "Yo (perfil de la sesión)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Usuario + rol + permisos efectivos. Es el mejor test de que la cookie sid está funcionando."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Sesión activa\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) { pm.environment.set(\"userId\", pm.response.json().id || pm.environment.get(\"userId\")); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Destruye la sesión en Redis, limpia la cookie y cierra la sesión en Keycloak.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"returnTo\": \"/login\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout (enlace de navegador)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ],
+              "query": [
+                {
+                  "key": "returnTo",
+                  "value": "/login",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Misma operación que el POST, en forma de link navegable."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 · Cuenta y 2FA",
+      "description": "Gestión de la propia cuenta contra Keycloak (cambio de contraseña, segundo factor, códigos de recuperación).",
+      "item": [
+        {
+          "name": "Ir a la cuenta Keycloak",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account"
+              ]
+            },
+            "description": "Redirect a la consola de cuenta de Keycloak."
+          },
+          "response": []
+        },
+        {
+          "name": "Ir a cambiar contraseña",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "password"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Ir a configurar 2FA",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/2fa",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "2fa"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Estado del 2FA",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/2fa/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "2fa",
+                "status"
+              ]
+            },
+            "description": "Indica si el usuario tiene OTP configurado."
+          },
+          "response": []
+        },
+        {
+          "name": "Seguridad de la cuenta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/security",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "security"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Códigos de recuperación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/recovery-codes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "recovery-codes"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Desactivar 2FA con código OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/2fa/disable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "2fa",
+                "disable"
+              ]
+            },
+            "description": "El código se valida contra Keycloak vía direct grant (Keycloak nunca devuelve el secretData).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Desactivar 2FA (borrado directo)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/2fa",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "2fa"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Pedir desactivación de 2FA por correo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/2fa/disable-email",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "2fa",
+                "disable-email"
+              ]
+            },
+            "description": "Envía un mail con token firmado. Requiere correo verificado."
+          },
+          "response": []
+        },
+        {
+          "name": "Pedir desactivación por correo (sin sesión)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/2fa/disable-email-public",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "2fa",
+                "disable-email-public"
+              ]
+            },
+            "description": "Para quien quedó afuera por el 2FA. Responde HTML genérico siempre (no revela si el usuario existe).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"usuario@ejemplo.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Página de confirmación por correo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/2fa/disable-email?token=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "2fa",
+                "disable-email"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "",
+                  "description": "Token firmado que llega por mail"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirmar desactivación por correo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/account/2fa/disable-email/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "account",
+                "2fa",
+                "disable-email",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<token del mail>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Olvidé mi contraseña",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Dispara el reset de Keycloak. Siempre responde ok para no filtrar qué correos existen.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"usuario@ejemplo.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 · Registro y perfil propio",
+      "description": "Alta de usuarios desde el formulario público y edición del propio perfil.",
+      "item": [
+        {
+          "name": "Opciones de registro",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/registration-options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "registration-options"
+              ]
+            },
+            "description": "Dice si la prueba de vida (Didit) es obligatoria y si está configurada."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "¿Username disponible?",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/check-username?u=jperez",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "check-username"
+              ],
+              "query": [
+                {
+                  "key": "u",
+                  "value": "jperez"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Datos precargados de registro SSO",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register/sso?token=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register",
+                "sso"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "",
+                  "description": "Token de registro emitido tras login con Google"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Registrar usuario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "password y livenessToken son opcionales según configuración (SSO / liveness apagado).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nuevo.docente@ejemplo.com\",\n  \"password\": \"Contrasena.Fuerte1\",\n  \"nationalId\": \"12345672\",\n  \"firstName\": \"Ana\",\n  \"lastName\": \"Pérez\",\n  \"phone\": \"099123456\",\n  \"birthdate\": \"1990-05-12T00:00:00.000Z\",\n  \"role\": \"TEACHER\",\n  \"livenessToken\": \"{{livenessToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verificar correo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "verify"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<token del mail>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reenviar verificación",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/verify/resend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "verify",
+                "resend"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Actualizar mi perfil",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "profile"
+              ]
+            },
+            "description": "La cédula solo se puede fijar una vez (después la cambia un admin). Cambiar el email invalida la verificación.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Ana\",\n  \"lastName\": \"Pérez\",\n  \"username\": \"ana.perez\",\n  \"phone\": \"099123456\",\n  \"nationalId\": \"12345672\",\n  \"birthdate\": \"1990-05-12\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 · Prueba de vida (Didit)",
+      "description": "Liveness para el registro. Inactivo si faltan DIDIT_API_KEY / DIDIT_WORKFLOW_ID.",
+      "item": [
+        {
+          "name": "Crear sesión de liveness",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/didit/liveness-session",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "didit",
+                "liveness-session"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nuevo.docente@ejemplo.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { pm.environment.set(\"livenessToken\", pm.response.json().id || \"\"); }"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estado de la sesión de liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/liveness/status?token={{livenessToken}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "liveness",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{livenessToken}}",
+                  "description": "UUID interno o didit_session_id"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verificar campos contra el documento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/didit/register-field-verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "didit",
+                "register-field-verify"
+              ]
+            },
+            "description": "Contrasta lo que escribió la persona contra lo que leyó Didit del documento.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"livenessToken\": \"{{livenessToken}}\",\n  \"email\": \"nuevo.docente@ejemplo.com\",\n  \"firstName\": \"Ana\",\n  \"lastName\": \"Pérez\",\n  \"nationalId\": \"12345672\",\n  \"birthdate\": \"1990-05-12\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Webhook de Didit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-signature",
+                "value": "<HMAC>"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/didit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "didit"
+              ]
+            },
+            "description": "Lo llama Didit, no vos. El cuerpo se lee en raw para validar el HMAC — está documentado acá por completitud.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"session_id\":\"...\",\"status\":\"Approved\"}",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 · Admin · Usuarios",
+      "description": "ABM de usuarios del sistema. Requiere permisos users.*. El usuario ADMIN está protegido: no se puede bloquear, bajar ni cambiarle el rol desde acá.",
+      "item": [
+        {
+          "name": "Listar usuarios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Busca en email, username, nombre y apellido"
+                },
+                {
+                  "key": "role",
+                  "value": "TEACHER",
+                  "disabled": true,
+                  "description": "Código de perfil (TEACHER, STAFF, ...)"
+                },
+                {
+                  "key": "approved",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "active",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "verified",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "locked",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "docExpiring",
+                  "value": "true",
+                  "disabled": true,
+                  "description": "Carné de salud próximo a vencer"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); if (b.items && b.items.length) pm.environment.set(\"userId\", b.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear usuario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users"
+              ]
+            },
+            "description": "Crea el usuario en EduTrack y en Keycloak. No se puede crear con rol ADMIN.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nuevo.staff@ejemplo.com\",\n  \"role\": \"STAFF\",\n  \"username\": \"nuevo.staff\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Actualizar usuario",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Ana\",\n  \"lastName\": \"Pérez\",\n  \"username\": \"ana.perez\",\n  \"nationalId\": \"12345672\",\n  \"role\": \"TEACHER\",\n  \"isApproved\": true,\n  \"isActive\": true,\n  \"emailVerified\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Bloquear / desbloquear usuario",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/{{userId}}/lock?lock=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}",
+                "lock"
+              ],
+              "query": [
+                {
+                  "key": "lock",
+                  "value": "true",
+                  "description": "true bloquea 15 min y mata las sesiones; false desbloquea"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Forzar reset de contraseña",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/{{userId}}/password/reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}",
+                "password",
+                "reset"
+              ]
+            },
+            "description": "Manda el mail de reset de Keycloak e invalida las sesiones BFF activas."
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar usuario",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 · Admin · Perfiles y permisos",
+      "description": "Roles de la organización (OrgRole) y la matriz de permisos por perfil. Cada permiso tiene alcance own | all.",
+      "item": [
+        {
+          "name": "Listar roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/org-roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "org-roles"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Crear rol",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/org-roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "org-roles"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"COORDINADOR\",\n  \"label\": \"Coordinación\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar rol",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/org-roles/{{roleCode}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "org-roles",
+                "{{roleCode}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Coordinación académica\",\n  \"active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar rol",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/org-roles/{{roleCode}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "org-roles",
+                "{{roleCode}}"
+              ]
+            },
+            "description": "Los roles builtIn (ADMIN/TEACHER/STAFF) no se pueden borrar."
+          },
+          "response": []
+        },
+        {
+          "name": "Matriz de permisos por perfil",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "profiles"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Crear perfil con permisos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "profiles"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"COORDINADOR\",\n  \"label\": \"Coordinación\",\n  \"permissions\": [\n    {\n      \"id\": \"attendance.read\",\n      \"enabled\": true,\n      \"scope\": \"all\"\n    },\n    {\n      \"id\": \"events.read\",\n      \"enabled\": true,\n      \"scope\": \"all\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reemplazar permisos del perfil",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/profiles/{{roleCode}}/permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "profiles",
+                "{{roleCode}}",
+                "permissions"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissions\": [\n    {\n      \"id\": \"attendance.read\",\n      \"enabled\": true,\n      \"scope\": \"all\"\n    },\n    {\n      \"id\": \"attendance.update\",\n      \"enabled\": false\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ajustar un permiso puntual",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/profiles/{{roleCode}}/permissions/{{permissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "profiles",
+                "{{roleCode}}",
+                "permissions",
+                "{{permissionId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"scope\": \"all\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Crear permiso a medida",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/profiles/{{roleCode}}/permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "profiles",
+                "{{roleCode}}",
+                "permissions"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"module\": \"reports\",\n  \"action\": \"export\",\n  \"label\": \"Exportar reportes\",\n  \"enabled\": true,\n  \"scope\": \"own\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07 · Admin · Ajustes, Moodle y auditoría",
+      "description": "Parámetros operativos del sistema (tolerancias de asistencia, ventana antiduplicado biométrica, sincronización Moodle), auditoría y asistente de consultas.",
+      "item": [
+        {
+          "name": "Leer ajustes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/system-settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "system-settings"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Guardar ajustes",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/system-settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "system-settings"
+              ]
+            },
+            "description": "Todos los campos son opcionales: mandá solo los que querés cambiar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"livenessCheckEnabled\": false,\n  \"attendanceLateToleranceMinutes\": 10,\n  \"attendanceNoShowGraceMinutes\": 30,\n  \"attendanceEarlyExitToleranceMinutes\": 10,\n  \"attendanceClassBridgeGapMinutes\": 30,\n  \"attendanceMonitorEnabled\": true,\n  \"attendanceMonitorIntervalMs\": 300000,\n  \"biometricDuplicateWindowMinutes\": 5,\n  \"moodleSyncEnabled\": true,\n  \"moodleSyncStudents\": true,\n  \"moodleReconcileIntervalMs\": 3600000,\n  \"institutionTimezone\": \"America/Montevideo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Estado de la integración Moodle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moodle/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moodle",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Reconciliar Moodle ahora",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moodle/reconcile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moodle",
+                "reconcile"
+              ]
+            },
+            "description": "Sincronización idempotente EduTrack→Moodle: cursos, titulares, suplentes, estudiantes y revocaciones."
+          },
+          "response": []
+        },
+        {
+          "name": "Bitácora de auditoría",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit-logs?page=1&pageSize=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit-logs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "25"
+                },
+                {
+                  "key": "action",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Filtra por tipo de acción (ej. USER_ACCOUNT_LOCK_TOGGLED)"
+                },
+                {
+                  "key": "actorUserId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "from",
+                  "value": "{{dateFrom}}",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "{{dateTo}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Asistente de consultas (NL→SQL)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/query-assistant",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "query-assistant"
+              ]
+            },
+            "description": "Traduce lenguaje natural a consultas sobre el modelo. Las preguntas de faltas se responden desde el resumen de ausencias, no con SQL crudo (las faltas son estado derivado).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"¿Qué docentes tuvieron más faltas injustificadas este mes?\",\n  \"dateFrom\": \"{{dateFrom}}\",\n  \"dateTo\": \"{{dateTo}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "08 · Admin · Estudiantes",
+      "description": "Padrón de estudiantes, matrícula por ciclo lectivo y control de pagos (anual y mensual).",
+      "item": [
+        {
+          "name": "Resumen por estado",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/students/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "students",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "courseId",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Listar estudiantes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/students?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "students"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Nombre, apellido, cédula o email"
+                },
+                {
+                  "key": "courseId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "orientationId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "disabled": true,
+                  "description": "ACTIVE | GRADUATED | WITHDRAWN | TRANSFERRED"
+                },
+                {
+                  "key": "tuitionYear",
+                  "value": "2026",
+                  "disabled": true,
+                  "description": "Filtra por estado de pago anual"
+                },
+                {
+                  "key": "tuitionMonth",
+                  "value": "3",
+                  "disabled": true
+                },
+                {
+                  "key": "tuitionPaid",
+                  "value": "false",
+                  "disabled": true
+                },
+                {
+                  "key": "tuitionPreviewYear",
+                  "value": "2026",
+                  "disabled": true,
+                  "description": "Año a mostrar en la grilla de cuotas"
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true,
+                  "description": "Ciclo lectivo; si se omite se usa el activo"
+                },
+                {
+                  "key": "allYears",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "1 = ignorar filtro de ciclo lectivo"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); if (b.items && b.items.length) pm.environment.set(\"studentId\", b.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ver estudiante",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/students/{{studentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "students",
+                "{{studentId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Crear estudiante",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/students",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "students"
+              ]
+            },
+            "description": "La cédula es obligatoria y se valida con dígito verificador uruguayo. El email debe ser único entre estudiantes y usuarios (Moodle exige unicidad).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Lucía\",\n  \"lastName\": \"Rodríguez\",\n  \"documentId\": \"12345672\",\n  \"courseId\": \"{{courseId}}\",\n  \"schoolYearId\": \"{{schoolYearId}}\",\n  \"email\": \"lucia.rodriguez@ejemplo.com\",\n  \"username\": \"lucia.rodriguez\",\n  \"contactPhone\": \"099111222\",\n  \"tutorPhone\": \"099333444\",\n  \"address\": \"Av. Siempreviva 742\",\n  \"healthCardExpiresAt\": \"2027-03-01\",\n  \"enrollmentStatus\": \"ACTIVE\",\n  \"tuitionYears\": [\n    {\n      \"year\": 2026,\n      \"paid\": false\n    }\n  ],\n  \"tuitionMonths\": [\n    {\n      \"year\": 2026,\n      \"month\": 3,\n      \"paid\": true,\n      \"amountCents\": 850000\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Actualizar estudiante",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/students/{{studentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "students",
+                "{{studentId}}"
+              ]
+            },
+            "description": "Todos los campos son opcionales (PATCH semántico). Mandar \"\" en un campo limpiable lo deja en null.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contactPhone\": \"099555666\",\n  \"enrollmentStatus\": \"ACTIVE\",\n  \"internalNotes\": \"Cambio de teléfono informado por el tutor.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar estudiante",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/students/{{studentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "students",
+                "{{studentId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "09 · Admin · Ciclos lectivos",
+      "description": "Alta, activación y cierre de años lectivos, y el pasaje de un ciclo al siguiente (promoción/repetición de estudiantes + copia de cursos).",
+      "item": [
+        {
+          "name": "Listar ciclos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); const rows = Array.isArray(b) ? b : (b.items || []); if (rows.length) pm.environment.set(\"schoolYearId\", rows[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ciclo activo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "active"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Comparar dos ciclos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/compare-metrics?a={{schoolYearId}}&b={{sourceSchoolYearId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "compare-metrics"
+              ],
+              "query": [
+                {
+                  "key": "a",
+                  "value": "{{schoolYearId}}"
+                },
+                {
+                  "key": "b",
+                  "value": "{{sourceSchoolYearId}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Plan de inicio de ciclo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/{{schoolYearId}}/start-plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "{{schoolYearId}}",
+                "start-plan"
+              ],
+              "query": [
+                {
+                  "key": "sourceSchoolYearId",
+                  "value": "{{sourceSchoolYearId}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Devuelve cursos y estudiantes candidatos con la decisión sugerida. Es el paso previo a POST /start."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear ciclo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years"
+              ]
+            },
+            "description": "No se puede crear directo en ACTIVE: para eso está POST /:id/activate.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": 2027,\n  \"label\": \"Ciclo 2027\",\n  \"startsOn\": \"2027-03-01\",\n  \"endsOn\": \"2027-12-15\",\n  \"status\": \"PLANNED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar ciclo",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/{{schoolYearId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "{{schoolYearId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Ciclo 2027 (ajustado)\",\n  \"startsOn\": \"2027-03-05\",\n  \"endsOn\": \"2027-12-20\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Iniciar ciclo (promoción de estudiantes)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/{{schoolYearId}}/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "{{schoolYearId}}",
+                "start"
+              ]
+            },
+            "description": "action: PROMOTE | REPEAT | GRADUATED | WITHDRAWN | TRANSFERRED. Las dos primeras exigen targetCourseId dentro de courseIds.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceSchoolYearId\": \"{{sourceSchoolYearId}}\",\n  \"courseIds\": [\n    \"{{courseId}}\"\n  ],\n  \"orientationSelections\": [\n    {\n      \"courseId\": \"{{courseId}}\",\n      \"orientationId\": \"{{orientationId}}\"\n    }\n  ],\n  \"studentDecisions\": [\n    {\n      \"studentId\": \"{{studentId}}\",\n      \"action\": \"PROMOTE\",\n      \"targetCourseId\": \"{{courseId}}\",\n      \"targetOrientationId\": \"{{orientationId}}\"\n    }\n  ],\n  \"copySubjects\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Activar ciclo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/{{schoolYearId}}/activate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "{{schoolYearId}}",
+                "activate"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Cerrar ciclo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/{{schoolYearId}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "{{schoolYearId}}",
+                "close"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Copiar cursos desde otro ciclo",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/{{schoolYearId}}/copy-courses-from/{{sourceSchoolYearId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "{{schoolYearId}}",
+                "copy-courses-from",
+                "{{sourceSchoolYearId}}"
+              ]
+            },
+            "description": "Solo funciona si el ciclo destino no tiene cursos todavía."
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar ciclo",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/school-years/{{schoolYearId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "school-years",
+                "{{schoolYearId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10 · Estructura académica (cursos, orientaciones, asignaturas)",
+      "description": "Catálogo académico. Los cursos se ofrecen por ciclo lectivo (CourseOffering); las asignaturas se asocian por nivel, curso, tronco común, orientación u optativa.",
+      "item": [
+        {
+          "name": "Listar orientaciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/orientations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "orientations"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); const rows = Array.isArray(b) ? b : (b.items || []); if (rows.length) pm.environment.set(\"orientationId\", rows[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear orientación",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/orientations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "orientations"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Científico\",\n  \"code\": \"CIE\",\n  \"description\": \"Bachillerato científico\",\n  \"isActive\": true,\n  \"sortOrder\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar orientación",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/orientations/{{orientationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "orientations",
+                "{{orientationId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Científico-Biológico\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar orientación",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/orientations/{{orientationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "orientations",
+                "{{orientationId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Listar cursos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses"
+              ],
+              "query": [
+                {
+                  "key": "all",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "Admin: incluye inactivos"
+                },
+                {
+                  "key": "includeNotOffered",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "Admin: incluye cursos sin oferta en el ciclo"
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true,
+                  "description": "Ciclo lectivo; si se omite se usa el activo"
+                },
+                {
+                  "key": "allYears",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "1 = ignorar filtro de ciclo lectivo"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); const rows = Array.isArray(b) ? b : (b.items || []); if (rows.length) pm.environment.set(\"courseId\", rows[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear curso",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses"
+              ]
+            },
+            "description": "level: EBI (ciclo básico) | EMS (bachillerato).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"1º Bachillerato\",\n  \"code\": \"1BACH\",\n  \"level\": \"EMS\",\n  \"sortOrder\": 10,\n  \"description\": \"Primer año de bachillerato\",\n  \"isActive\": true,\n  \"offerInSchoolYear\": true,\n  \"schoolYearId\": \"{{schoolYearId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar curso",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"1º Bachillerato A\",\n  \"offeringIsActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar curso",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Orientaciones de un curso",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/orientations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "orientations"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); const rows = Array.isArray(b) ? b : (b.items || []); if (rows.length) pm.environment.set(\"courseOrientationId\", rows[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Asociar orientación al curso",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/orientations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "orientations"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orientationId\": \"{{orientationId}}\",\n  \"isActive\": true,\n  \"schoolYearId\": \"{{schoolYearId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Quitar orientación del curso",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/orientations/{{courseOrientationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "orientations",
+                "{{courseOrientationId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Asignaturas del curso",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "subjects"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); const rows = Array.isArray(b) ? b : (b.items || []); if (rows.length) pm.environment.set(\"subjectId\", rows[0].id || rows[0].subjectId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear asignatura en el curso",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/subjects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "subjects"
+              ]
+            },
+            "description": "associationType: NIVEL_COMPLETO | CURSO_COMPLETO | TRONCO_COMUN_CURSO | ORIENTACION | OPTATIVA | PERSONALIZADA. Para ORIENTACION hay que mandar orientationId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Matemática\",\n  \"code\": \"MAT\",\n  \"associationType\": \"CURSO_COMPLETO\",\n  \"level\": \"EMS\",\n  \"sortOrder\": 1,\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar asignatura del curso",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/subjects/{{subjectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "subjects",
+                "{{subjectId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Matemática I\",\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Quitar asignatura del curso",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/subjects/{{subjectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "subjects",
+                "{{subjectId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "11 · Eventos y horarios",
+      "description": "Clases, jornadas laborales y reuniones. Los eventos recurrentes generan ocurrencias virtuales: se editan/cancelan por fecha (ymd) sin romper la serie.",
+      "item": [
+        {
+          "name": "Mis eventos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/my-events?startDate={{dateFrom}}&endDate={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "my-events"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{dateFrom}}",
+                  "description": "YYYY-MM-DD (día civil Uruguay)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{dateTo}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "type",
+                  "value": "CLASE",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "SCHEDULED",
+                  "disabled": true
+                },
+                {
+                  "key": "courseId",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Todos los eventos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/all?page=1&pageSize=20&startDate={{dateFrom}}&endDate={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "startDate",
+                  "value": "{{dateFrom}}",
+                  "description": "YYYY-MM-DD (día civil Uruguay)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{dateTo}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "assignedUserId",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Docente designado"
+                },
+                {
+                  "key": "type",
+                  "value": "CLASE",
+                  "disabled": true,
+                  "description": "JORNADA_LABORAL | REUNION | CLASE"
+                },
+                {
+                  "key": "status",
+                  "value": "SCHEDULED",
+                  "disabled": true,
+                  "description": "SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED | EXPIRED"
+                },
+                {
+                  "key": "courseId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true,
+                  "description": "Ciclo lectivo; si se omite se usa el activo"
+                },
+                {
+                  "key": "allYears",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "1 = ignorar filtro de ciclo lectivo"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); if (b.items && b.items.length) pm.environment.set(\"eventId\", b.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ver evento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Crear evento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ]
+            },
+            "description": "startDate acepta YYYY-MM-DD y las horas HH:MM en hora de Uruguay (se normalizan a UTC). daysOfWeek: 0=domingo.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Matemática 1ºA\",\n  \"description\": \"Clase semanal\",\n  \"type\": \"CLASE\",\n  \"startDate\": \"{{dateFrom}}\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"09:30\",\n  \"assignedUserId\": \"{{userId}}\",\n  \"courseId\": \"{{courseId}}\",\n  \"subjectId\": \"{{subjectId}}\",\n  \"courseOrientationId\": \"{{courseOrientationId}}\",\n  \"isRecurring\": true,\n  \"recurrenceType\": \"WEEKLY\",\n  \"daysOfWeek\": [\n    1,\n    3\n  ],\n  \"recurrenceEnd\": \"{{dateTo}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) { const b = pm.response.json(); if (b.id) pm.environment.set(\"eventId\", b.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Editar evento",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Matemática 1ºA (aula 12)\",\n  \"startTime\": \"08:15\",\n  \"endTime\": \"09:45\",\n  \"status\": \"SCHEDULED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar evento",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "cancel"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Paro docente\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar evento",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Importar eventos (CSV parseado)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/import",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "import"
+              ],
+              "query": [
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "dryRun=true valida sin escribir. Máximo 500 filas por lote.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dryRun\": true,\n  \"rows\": [\n    {\n      \"title\": \"Historia 2ºB\",\n      \"type\": \"CLASE\",\n      \"startDate\": \"2026-08-03\",\n      \"startTime\": \"10:00\",\n      \"endTime\": \"11:30\",\n      \"docente\": \"ana.perez\",\n      \"curso\": \"2BACH\",\n      \"asignatura\": \"HIS\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar una ocurrencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/occurrences/{{ymd}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "occurrences",
+                "{{ymd}}",
+                "cancel"
+              ]
+            },
+            "description": "ymd en formato YYYY-MM-DD. Materializa un evento hijo cancelado sin tocar la serie madre.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Feriado institucional\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar una ocurrencia",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/occurrences/{{ymd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "occurrences",
+                "{{ymd}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Matemática (clase de consulta)\",\n  \"startTime\": \"09:00\",\n  \"endTime\": \"10:30\",\n  \"assignedUserId\": \"{{userId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Restaurar una ocurrencia",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/occurrences/{{ymd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "occurrences",
+                "{{ymd}}"
+              ]
+            },
+            "description": "Borra la excepción materializada: la ocurrencia vuelve a seguir la serie madre."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "12 · Suplencias",
+      "description": "Cobertura de una clase por otro docente. La suplencia hace que el titular quede como SUBSTITUTED (ausencia prevista cubierta) cuando el suplente ficha.",
+      "item": [
+        {
+          "name": "Listar suplencias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/substitutions?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "substitutions"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{dateFrom}}",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "{{dateTo}}",
+                  "disabled": true
+                },
+                {
+                  "key": "eventId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "originalTeacherUserId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "substituteUserId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); if (b.items && b.items.length) pm.environment.set(\"substitutionId\", b.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear suplencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/substitutions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "substitutions"
+              ]
+            },
+            "description": "occurrenceDate limita la suplencia a una fecha puntual de un evento recurrente.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"substituteUserId\": \"{{userId}}\",\n  \"reason\": \"Licencia médica del titular\",\n  \"notes\": \"Cubre solo esta semana\",\n  \"occurrenceDate\": \"{{ymd}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar suplencia",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/substitutions/{{substitutionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "substitutions",
+                "{{substitutionId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "13 · Asistencia",
+      "description": "Registro y conciliación de asistencia.\n\nOjo con el modelo: **las faltas no son filas**. Una ausencia se deriva comparando la designación planificada contra las marcas existentes,\ny solo se materializa como fila cuando alguien la justifica o la marca explícitamente. Por eso `status=ABSENCES` en los filtros es un\ncentinela que agrupa ABSENT_NOT_JUSTIFIED + ABSENT_JUSTIFIED + SUBSTITUTED.",
+      "item": [
+        {
+          "name": "Registrar marca manual",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "register"
+              ]
+            },
+            "description": "date y time en ISO/UTC. eventId es obligatorio.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"CHECK_IN\",\n  \"date\": \"2026-08-03T00:00:00.000Z\",\n  \"time\": \"2026-08-03T11:05:00.000Z\",\n  \"eventId\": \"{{eventId}}\",\n  \"notes\": \"Registro manual por falla del lector\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mis asistencias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/my-attendances?startDate={{dateFrom}}&endDate={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "my-attendances"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{dateFrom}}",
+                  "description": "YYYY-MM-DD (día civil Uruguay)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{dateTo}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "type",
+                  "value": "CHECK_IN",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "PRESENT",
+                  "disabled": true
+                },
+                {
+                  "key": "includeAbsences",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "Suma las ausencias derivadas (no persistidas)"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Listado administrativo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/all?page=1&pageSize=20&startDate={{dateFrom}}&endDate={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "startDate",
+                  "value": "{{dateFrom}}",
+                  "description": "YYYY-MM-DD (día civil Uruguay)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{dateTo}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "eventId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "eventType",
+                  "value": "CLASE",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "CHECK_IN",
+                  "disabled": true,
+                  "description": "CHECK_IN | CHECK_OUT"
+                },
+                {
+                  "key": "status",
+                  "value": "ABSENCES",
+                  "disabled": true,
+                  "description": "Centinela ABSENCES = todas las ausencias"
+                },
+                {
+                  "key": "role",
+                  "value": "TEACHER",
+                  "disabled": true
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true,
+                  "description": "Ciclo lectivo; si se omite se usa el activo"
+                },
+                {
+                  "key": "allYears",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "1 = ignorar filtro de ciclo lectivo"
+                }
+              ]
+            },
+            "description": "Paginado por ítems (un par entrada+salida cuenta como uno) para no cortar pares entre páginas."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); if (b.items && b.items.length && b.items[0].id) pm.environment.set(\"attendanceId\", b.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estadísticas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/stats?startDate={{dateFrom}}&endDate={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "stats"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{dateFrom}}",
+                  "description": "YYYY-MM-DD (día civil Uruguay)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{dateTo}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "eventType",
+                  "value": "CLASE",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "CHECK_IN",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "TEACHER",
+                  "disabled": true
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true,
+                  "description": "Ciclo lectivo; si se omite se usa el activo"
+                },
+                {
+                  "key": "allYears",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "1 = ignorar filtro de ciclo lectivo"
+                }
+              ]
+            },
+            "description": "Tasa de presencia/salida, presentes, ausencias y llegadas tarde del filtro aplicado."
+          },
+          "response": []
+        },
+        {
+          "name": "Resumen por rango",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/summary?from={{dateFrom}}&to={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{dateFrom}}"
+                },
+                {
+                  "key": "to",
+                  "value": "{{dateTo}}"
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Editar asistencia",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/{{attendanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "{{attendanceId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"JUSTIFIED\",\n  \"notes\": \"Certificado presentado en secretaría\",\n  \"reason\": \"Corrección administrativa\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Justificar una asistencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/{{attendanceId}}/justify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "{{attendanceId}}",
+                "justify"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ABSENCE\",\n  \"reason\": \"Certificado médico\",\n  \"notes\": \"Presentado el 04/08\",\n  \"attachment\": \"https://...\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Justificar un rango completo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/justify-range",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "justify-range"
+              ]
+            },
+            "description": "Justifica de una todas las faltas (y opcionalmente tardanzas) ya vencidas de la persona en el rango.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"from\": \"{{dateFrom}}\",\n  \"to\": \"{{dateTo}}\",\n  \"type\": \"ABSENCE\",\n  \"reason\": \"Licencia sin goce de sueldo\",\n  \"notes\": \"Aprobada por dirección\",\n  \"includeLate\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Materializar una ausencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/materialize-absence",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "materialize-absence"
+              ]
+            },
+            "description": "Convierte una ausencia derivada en una fila real de Attendance.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"eventId\": \"{{eventId}}\",\n  \"date\": \"{{ymd}}\",\n  \"status\": \"ABSENT_NOT_JUSTIFIED\",\n  \"notes\": \"No se presentó\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Marcar ausencias automáticamente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/mark-absences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "mark-absences"
+              ]
+            },
+            "description": "Barre el rango y materializa las ausencias que corresponden según eventos, licencias y días no laborables.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startDate\": \"{{dateFrom}}\",\n  \"endDate\": \"{{dateTo}}\",\n  \"userId\": \"{{userId}}\",\n  \"expectedAbsence\": false,\n  \"schoolYearId\": \"{{schoolYearId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Agregar nota administrativa",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/{{attendanceId}}/note",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "{{attendanceId}}",
+                "note"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Llegó tarde por paro de transporte\",\n  \"markLate\": true,\n  \"markEarlyExit\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar asistencia",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/{{attendanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "{{attendanceId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "14 · Incidencias de asistencia",
+      "description": "Incidencias accionables detectadas por el monitor (docente que no se presentó, salida sin entrada).",
+      "item": [
+        {
+          "name": "Listar incidencias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance-incidents?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance-incidents"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "OPEN",
+                  "disabled": true,
+                  "description": "OPEN | ACKNOWLEDGED | RESOLVED"
+                },
+                {
+                  "key": "type",
+                  "value": "TEACHER_NO_SHOW",
+                  "disabled": true
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "eventId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); if (b.items && b.items.length) pm.environment.set(\"incidentId\", b.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Escanear ahora",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance-incidents/scan-now",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance-incidents",
+                "scan-now"
+              ]
+            },
+            "description": "Corre el detector fuera del intervalo programado."
+          },
+          "response": []
+        },
+        {
+          "name": "Resolver incidencia",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance-incidents/{{incidentId}}/resolve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance-incidents",
+                "{{incidentId}}",
+                "resolve"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "15 · Licencias médicas",
+      "description": "Licencias por tipo (MEDICAL_LEAVE, WORK_LEAVE, OTHER). Una licencia activa bloquea las marcas biométricas del período.",
+      "item": [
+        {
+          "name": "Todas las licencias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/medical-leaves/all?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medical-leaves",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "MEDICAL_LEAVE",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "disabled": true
+                },
+                {
+                  "key": "startDate",
+                  "value": "{{dateFrom}}",
+                  "disabled": true
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{dateTo}}",
+                  "disabled": true
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); if (b.items && b.items.length) pm.environment.set(\"leaveId\", b.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mis licencias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/medical-leaves/my-leaves?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medical-leaves",
+                "my-leaves"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Ver licencia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/medical-leaves/{{leaveId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medical-leaves",
+                "{{leaveId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Crear licencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/medical-leaves",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medical-leaves"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"type\": \"MEDICAL_LEAVE\",\n  \"startDate\": \"2026-08-03T00:00:00.000Z\",\n  \"endDate\": \"2026-08-07T23:59:59.000Z\",\n  \"reason\": \"Certificado médico\",\n  \"notes\": \"Presentado en secretaría\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar licencia",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/medical-leaves/{{leaveId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medical-leaves",
+                "{{leaveId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endDate\": \"2026-08-10T23:59:59.000Z\",\n  \"notes\": \"Prórroga presentada\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar licencia",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/medical-leaves/{{leaveId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medical-leaves",
+                "{{leaveId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "16 · Días no laborables",
+      "description": "Feriados y días no laborables institucionales. Una marca biométrica en estos días se rechaza y no computa horas ni faltas.",
+      "item": [
+        {
+          "name": "Listar",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/non-working-days",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "non-working-days"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{dateFrom}}",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "{{dateTo}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); const rows = Array.isArray(b) ? b : (b.items || []); if (rows.length) pm.environment.set(\"nonWorkingDayId\", rows[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/non-working-days",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "non-working-days"
+              ]
+            },
+            "description": "type: HOLIDAY | NON_WORKING_DAY.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2026-08-25\",\n  \"type\": \"HOLIDAY\",\n  \"reason\": \"Declaratoria de la Independencia\",\n  \"schoolYearId\": \"{{schoolYearId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Eliminar",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/non-working-days/{{nonWorkingDayId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "non-working-days",
+                "{{nonWorkingDayId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "17 · Analítica",
+      "description": "Tablero de indicadores para dirección: series temporales, distribución de estados, comparación con el período anterior y rankings de riesgo.",
+      "item": [
+        {
+          "name": "Tablero",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/dashboard?from={{dateFrom}}&to={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "dashboard"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{dateFrom}}"
+                },
+                {
+                  "key": "to",
+                  "value": "{{dateTo}}"
+                },
+                {
+                  "key": "role",
+                  "value": "TEACHER",
+                  "disabled": true
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "eventType",
+                  "value": "CLASE",
+                  "disabled": true
+                },
+                {
+                  "key": "granularity",
+                  "value": "day",
+                  "disabled": true,
+                  "description": "day | week | month"
+                },
+                {
+                  "key": "compareToPrevious",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true,
+                  "description": "Ciclo lectivo; si se omite se usa el activo"
+                },
+                {
+                  "key": "allYears",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "1 = ignorar filtro de ciclo lectivo"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Línea de tiempo del día",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/attendance-timeline",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "attendance-timeline"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "{{ymd}}",
+                  "disabled": true
+                },
+                {
+                  "key": "teacherId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "groupId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true,
+                  "description": "Ciclo lectivo; si se omite se usa el activo"
+                },
+                {
+                  "key": "allYears",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "1 = ignorar filtro de ciclo lectivo"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Rankings de riesgo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/rankings?from={{dateFrom}}&to={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "rankings"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{dateFrom}}"
+                },
+                {
+                  "key": "to",
+                  "value": "{{dateTo}}"
+                },
+                {
+                  "key": "role",
+                  "value": "TEACHER",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Métricas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "metrics"
+              ]
+            },
+            "description": "Contrato reservado para la fase 2: hoy devuelve un stub."
+          },
+          "response": []
+        },
+        {
+          "name": "Alertas críticas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/alerts/critical",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "alerts",
+                "critical"
+              ]
+            },
+            "description": "Contrato reservado: hoy devuelve lista vacía."
+          },
+          "response": []
+        },
+        {
+          "name": "Anomalías",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/anomalies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "anomalies"
+              ]
+            },
+            "description": "Contrato reservado: hoy devuelve lista vacía."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "18 · Reportes",
+      "description": "Reportes renderizados en el momento (a diferencia de /exports, que va por trabajo asincrónico).",
+      "item": [
+        {
+          "name": "Reporte de asistencia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/report?format=excel&startDate={{dateFrom}}&endDate={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "report"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "excel",
+                  "description": "excel | pdf"
+                },
+                {
+                  "key": "startDate",
+                  "value": "{{dateFrom}}",
+                  "description": "YYYY-MM-DD (día civil Uruguay)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{dateTo}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "eventId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "eventType",
+                  "value": "CLASE",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "CHECK_IN",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "PRESENT",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "TEACHER",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Eventos de una persona",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/user-events/{{userId}}?startDate={{dateFrom}}&endDate={{dateTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "user-events",
+                "{{userId}}"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{dateFrom}}",
+                  "description": "YYYY-MM-DD (día civil Uruguay)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{dateTo}}",
+                  "description": "YYYY-MM-DD"
+                },
+                {
+                  "key": "schoolYearId",
+                  "value": "{{schoolYearId}}",
+                  "disabled": true,
+                  "description": "Ciclo lectivo; si se omite se usa el activo"
+                },
+                {
+                  "key": "allYears",
+                  "value": "1",
+                  "disabled": true,
+                  "description": "1 = ignorar filtro de ciclo lectivo"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "19 · Exportaciones",
+      "description": "Exportaciones asincrónicas en tres pasos: **POST /exports** devuelve un `exportId` → **GET /exports/:id** consulta el estado\n(PENDING → DONE | FAILED) → **GET /exports/:id/download** baja el archivo.\n\nFormatos válidos por reporte:\n- `attendance_detail`: XLSX, PDF, CSV\n- `monthly_summary`: XLSX, PDF\n- `person_report` / `course_report`: XLSX, PDF (CSV no aplica)\n- `payroll_novedades`: XLSX, CSV (PDF no aplica)",
+      "item": [
+        {
+          "name": "Crear exportación · Asistencia detallada",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/exports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exports"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reportKey\": \"attendance_detail\",\n  \"format\": \"XLSX\",\n  \"from\": \"{{dateFrom}}\",\n  \"to\": \"{{dateTo}}\",\n  \"filters\": {\n    \"role\": \"TEACHER\",\n    \"type\": \"CHECK_IN\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) pm.environment.set(\"exportId\", pm.response.json().exportId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear exportación · Resumen mensual",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/exports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exports"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reportKey\": \"monthly_summary\",\n  \"format\": \"PDF\",\n  \"from\": \"{{dateFrom}}\",\n  \"to\": \"{{dateTo}}\",\n  \"filters\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) pm.environment.set(\"exportId\", pm.response.json().exportId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear exportación · Reporte por persona",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/exports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exports"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reportKey\": \"person_report\",\n  \"format\": \"XLSX\",\n  \"from\": \"{{dateFrom}}\",\n  \"to\": \"{{dateTo}}\",\n  \"filters\": {\n    \"userId\": \"{{userId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) pm.environment.set(\"exportId\", pm.response.json().exportId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear exportación · Reporte por curso",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/exports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exports"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reportKey\": \"course_report\",\n  \"format\": \"XLSX\",\n  \"from\": \"{{dateFrom}}\",\n  \"to\": \"{{dateTo}}\",\n  \"filters\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) pm.environment.set(\"exportId\", pm.response.json().exportId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear exportación · Novedades de liquidación (sueldos)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/exports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exports"
+              ]
+            },
+            "description": "Una fila por docente y concepto (CI, horas dictadas, suplencias, faltas, licencias) para importar en GNS / Memory / Kash / LIDESU.\nLas horas son NOMINALES (de la designación), no las biométricas: el titular cobra sus horas asignadas y las faltas descuentan como concepto aparte.\nCSV sale con separador \";\" y BOM UTF-8. PDF no es un formato válido para este reporte.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reportKey\": \"payroll_novedades\",\n  \"format\": \"CSV\",\n  \"from\": \"{{dateFrom}}\",\n  \"to\": \"{{dateTo}}\",\n  \"filters\": {\n    \"role\": \"TEACHER\",\n    \"schoolYearId\": \"{{schoolYearId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) pm.environment.set(\"exportId\", pm.response.json().exportId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estado de la exportación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/exports/{{exportId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exports",
+                "{{exportId}}"
+              ]
+            },
+            "description": "Devuelve status PENDING | DONE | FAILED. La UI hace polling cada 250 ms hasta 40 intentos."
+          },
+          "response": []
+        },
+        {
+          "name": "Descargar exportación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/exports/{{exportId}}/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "exports",
+                "{{exportId}}",
+                "download"
+              ]
+            },
+            "description": "Devuelve el binario con el content-type correspondiente. En Postman: \"Send and Download\" para guardarlo."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "20 · Calificaciones (puente Moodle)",
+      "description": "Planilla de notas por asignatura: se baja un XLSX con una hoja por tarea, se completa y se sube. Requiere que el curso ya esté sincronizado con Moodle.",
+      "item": [
+        {
+          "name": "Tareas de la asignatura",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/grades/activities?courseOfferingId={{courseOfferingId}}&subjectId={{subjectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grades",
+                "activities"
+              ],
+              "query": [
+                {
+                  "key": "courseOfferingId",
+                  "value": "{{courseOfferingId}}"
+                },
+                {
+                  "key": "subjectId",
+                  "value": "{{subjectId}}"
+                },
+                {
+                  "key": "orientationId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "courseOrientationId",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "409 si la asignatura todavía no tiene curso Moodle asociado."
+          },
+          "response": []
+        },
+        {
+          "name": "Descargar planilla de notas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/grades/sheet?courseOfferingId={{courseOfferingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grades",
+                "sheet"
+              ],
+              "query": [
+                {
+                  "key": "courseOfferingId",
+                  "value": "{{courseOfferingId}}"
+                },
+                {
+                  "key": "subjectId",
+                  "value": "{{subjectId}}",
+                  "disabled": true,
+                  "description": "Sin esto baja todas las asignaturas de la oferta"
+                },
+                {
+                  "key": "assignmentId",
+                  "value": "{{assignmentId}}",
+                  "disabled": true,
+                  "description": "Requiere subjectId"
+                },
+                {
+                  "key": "orientationId",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Subir planilla de notas",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/grades/sheet/upload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "grades",
+                "sheet",
+                "upload"
+              ]
+            },
+            "description": "Devuelve cuántas notas se actualizaron y el detalle de errores por fila.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"courseOfferingId\": \"{{courseOfferingId}}\",\n  \"subjectId\": \"{{subjectId}}\",\n  \"assignmentId\": 1,\n  \"fileBase64\": \"UEsDBBQ...  (xlsx en base64 o data-URL)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "21 · Biometría · Dispositivos y vinculación",
+      "description": "Alta de lectores y enrolamiento PIN→persona.\n\nEl flujo de vinculación: se crea un link-request → la próxima huella que llegue de un PIN sin mapear se **consume** para la vinculación\n(no genera asistencia) → se confirma. Por eso el request queda en WAITING_PUNCH hasta que la persona apoya el dedo.",
+      "item": [
+        {
+          "name": "Lectores disponibles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "devices"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Lectores (administración)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/admin/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "admin",
+                "devices"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); const rows = Array.isArray(b) ? b : (b.items || []); if (rows.length) { pm.environment.set(\"deviceId\", rows[0].id); pm.environment.set(\"deviceCode\", rows[0].code); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear lector",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/admin/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "admin",
+                "devices"
+              ]
+            },
+            "description": "admsSerial es el SN que manda el reloj en /iclock. allowedIps vacío = sin restricción de IP.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"F22-PLANTA-BAJA\",\n  \"name\": \"ZKTeco F22 · Planta baja\",\n  \"secret\": \"un-secreto-largo-y-unico\",\n  \"admsSerial\": \"CGV9234500123\",\n  \"timezone\": \"America/Montevideo\",\n  \"isActive\": true,\n  \"allowedIps\": [\n    \"192.168.1.50\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Editar lector",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/admin/devices/{{deviceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "admin",
+                "devices",
+                "{{deviceId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"ZKTeco F22 · Entrada principal\",\n  \"isActive\": true,\n  \"allowedIps\": [\n    \"192.168.1.50\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mi vinculación",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/me/mapping",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "me",
+                "mapping"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Borrar mi vinculación",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/me/mapping",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "me",
+                "mapping"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Vinculación activa",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/link-requests/active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "link-requests",
+                "active"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Crear pedido de vinculación",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/link-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "link-requests"
+              ]
+            },
+            "description": "Alternativamente deviceCode. Queda en WAITING_PUNCH hasta que llegue una huella (TTL por BIOMETRIC_LINK_TTL_SECONDS, 120s por defecto).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) { const b = pm.response.json(); if (b.id) pm.environment.set(\"linkRequestId\", b.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirmar vinculación",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/link-requests/{{linkRequestId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "link-requests",
+                "{{linkRequestId}}",
+                "confirm"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar vinculación",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/link-requests/{{linkRequestId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "link-requests",
+                "{{linkRequestId}}",
+                "cancel"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Biometría de un usuario",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/admin/users/{{userId}}/biometric",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "admin",
+                "users",
+                "{{userId}}",
+                "biometric"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Borrar mapeo de un usuario",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/admin/users/{{userId}}/biometric/mapping",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "admin",
+                "users",
+                "{{userId}}",
+                "biometric",
+                "mapping"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Vincular a un usuario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/admin/users/{{userId}}/biometric/link-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "admin",
+                "users",
+                "{{userId}}",
+                "biometric",
+                "link-requests"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) { const b = pm.response.json(); if (b.id) pm.environment.set(\"linkRequestId\", b.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirmar vinculación de un usuario",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/admin/users/{{userId}}/biometric/link-requests/{{linkRequestId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "admin",
+                "users",
+                "{{userId}}",
+                "biometric",
+                "link-requests",
+                "{{linkRequestId}}",
+                "confirm"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar vinculación de un usuario",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/admin/users/{{userId}}/biometric/link-requests/{{linkRequestId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "admin",
+                "users",
+                "{{userId}}",
+                "biometric",
+                "link-requests",
+                "{{linkRequestId}}",
+                "cancel"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "22 · Biometría · Ingesta de marcas",
+      "description": "Dos caminos para que una marca entre al sistema. Ninguno usa la cookie de sesión: se autentican como dispositivo.\n\n**Genérico (JSON)**: `POST /biometric/adms-ingest` con el header `x-biometric-secret`.\n\n**Protocolo push ZKTeco (ADMS)**: el reloj F22 habla texto plano contra `/iclock/*` y se identifica por SN + IP permitida.\nEl template de la huella nunca sale del dispositivo: solo viaja PIN + timestamp + status.",
+      "item": [
+        {
+          "name": "Ingesta genérica (JSON)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-biometric-secret",
+                "value": "{{deviceSecret}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/biometric/adms-ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "biometric",
+                "adms-ingest"
+              ]
+            },
+            "description": "Si se omite punchType, el tipo se infiere alternando contra la última marca del día. externalId da idempotencia.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceCode\": \"{{deviceCode}}\",\n  \"deviceUserId\": \"101\",\n  \"timestamp\": \"2026-08-03T11:02:00.000Z\",\n  \"punchType\": \"CHECK_IN\",\n  \"externalId\": \"manual-101-20260803T110200\",\n  \"payload\": {\n    \"source\": \"postman\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ZKTeco · handshake (options=all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/iclock/cdata?SN={{deviceSn}}&options=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "iclock",
+                "cdata"
+              ],
+              "query": [
+                {
+                  "key": "SN",
+                  "value": "{{deviceSn}}"
+                },
+                {
+                  "key": "options",
+                  "value": "all"
+                }
+              ]
+            },
+            "description": "Lo primero que pide el reloj al arrancar. Devuelve la configuración: Realtime=1, TimeZone=-3, delays."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ZKTeco · enviar fichadas (ATTLOG)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/iclock/cdata?SN={{deviceSn}}&table=ATTLOG",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "iclock",
+                "cdata"
+              ],
+              "query": [
+                {
+                  "key": "SN",
+                  "value": "{{deviceSn}}"
+                },
+                {
+                  "key": "table",
+                  "value": "ATTLOG"
+                }
+              ]
+            },
+            "description": "Formato TSV: PIN \\t timestamp \\t status \\t verifyMode. status 0=entrada, 1=salida.\nEl timestamp va en hora local del reloj (se convierte con la timezone del dispositivo).\nResponde OK:<n> con la cantidad de marcas procesadas.",
+            "body": {
+              "mode": "raw",
+              "raw": "101\t2026-08-03 08:02:11\t0\t1\n101\t2026-08-03 12:31:40\t1\t1",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ZKTeco · latido (getrequest)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/iclock/getrequest?SN={{deviceSn}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "iclock",
+                "getrequest"
+              ],
+              "query": [
+                {
+                  "key": "SN",
+                  "value": "{{deviceSn}}"
+                }
+              ]
+            },
+            "description": "El reloj pregunta si hay comandos pendientes. Actualiza lastSeenAt."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ZKTeco · registro del terminal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/iclock/registry?SN={{deviceSn}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "iclock",
+                "registry"
+              ],
+              "query": [
+                {
+                  "key": "SN",
+                  "value": "{{deviceSn}}"
+                }
+              ]
+            },
+            "description": "Registro / capacidades del terminal. La ruta acepta cualquier método (el F22 usa GET o POST según firmware).",
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ZKTeco · confirmación de comando",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/iclock/devicecmd?SN={{deviceSn}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "iclock",
+                "devicecmd"
+              ],
+              "query": [
+                {
+                  "key": "SN",
+                  "value": "{{deviceSn}}"
+                }
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "23 · Notificaciones",
+      "description": "Push web (VAPID) y notificaciones dentro de la app.",
+      "item": [
+        {
+          "name": "Clave pública VAPID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/web-push/vapid-public-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "web-push",
+                "vapid-public-key"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
+                  "pm.request.headers.remove(\"Cookie\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estado de mi suscripción push",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/web-push/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "web-push",
+                "status"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Suscribirme a push",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/web-push/subscribe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "web-push",
+                "subscribe"
+              ]
+            },
+            "description": "503 si el servidor no tiene VAPID configurado.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription\": {\n    \"endpoint\": \"https://fcm.googleapis.com/fcm/send/...\",\n    \"expirationTime\": null,\n    \"keys\": {\n      \"p256dh\": \"<clave p256dh>\",\n      \"auth\": \"<clave auth>\"\n    }\n  },\n  \"userAgent\": \"Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar suscripción push",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/web-push/subscribe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "web-push",
+                "subscribe"
+              ]
+            },
+            "description": "Sin endpoint borra todas las suscripciones del usuario.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint\": \"https://fcm.googleapis.com/fcm/send/...\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Enviarme una push de prueba",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/web-push/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "web-push",
+                "test"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Mis notificaciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/in-app?unreadOnly=false&take=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "in-app"
+              ],
+              "query": [
+                {
+                  "key": "unreadOnly",
+                  "value": "false",
+                  "description": "true | false"
+                },
+                {
+                  "key": "take",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json(); const rows = b.items || b; if (Array.isArray(rows) && rows.length) pm.environment.set(\"notificationId\", rows[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cantidad sin leer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/in-app/unread-count",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "in-app",
+                "unread-count"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Marcar como leída",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/in-app/{{notificationId}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "in-app",
+                "{{notificationId}}",
+                "read"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Marcar todas como leídas",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/in-app/read-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "in-app",
+                "read-all"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "24 · ⚠️ Destructivo (NO correr contra producción)",
+      "description": "**Estos endpoints borran datos de verdad.** Antes de mandar cualquiera de estos, verificá que `{{baseUrl}}` apunte a local.\n\nLas herramientas de /admin/testing además requieren que el backend tenga habilitado el flag de testing;\nen producción responden con error si está apagado.",
+      "item": [
+        {
+          "name": "Contexto de testing",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/testing/context",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "testing",
+                "context"
+              ]
+            },
+            "description": "Único endpoint no destructivo de esta carpeta: dice si las herramientas están habilitadas y lista usuarios/lectores disponibles."
+          },
+          "response": []
+        },
+        {
+          "name": "Simular marca ADMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/testing/simulate-adms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "testing",
+                "simulate-adms"
+              ]
+            },
+            "description": "Inyecta una marca como si viniera del lector, usando el mapeo existente del usuario. Útil para probar el pipeline sin el hardware.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"deviceId\": \"{{deviceId}}\",\n  \"punchType\": \"CHECK_IN\",\n  \"timestamp\": \"2026-08-03T11:02:00.000Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "⚠️ Borrar todas las asistencias",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/purge-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "purge-all"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "⚠️ Borrar todos los eventos",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/purge-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "purge-all"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "⚠️ Limpiar datos operativos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/testing/wipe-operational",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "testing",
+                "wipe-operational"
+              ]
+            },
+            "description": "Borra asistencias, eventos, licencias y marcas. Conserva usuarios, roles y lectores.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirm\": \"LIMPIAR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "⚠️ Reiniciar la base entera",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/testing/reset-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "testing",
+                "reset-all"
+              ]
+            },
+            "description": "Deja solo un usuario administrador y un ciclo lectivo nuevo. Devuelve la contraseña generada del admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirm\": \"BORRAR TODO\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// EduTrack usa cookie de sesión (patrón BFF), no Bearer token.",
+          "// Inyectamos la cookie sid en cada request para no depender del cookie jar de Postman.",
+          "const sid = pm.environment.get(\"sid\") || pm.collectionVariables.get(\"sid\");",
+          "if (sid) {",
+          "  pm.request.headers.upsert({ key: \"Cookie\", value: \"sid=\" + sid });",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.response.code === 401) {",
+          "  console.warn(\"401: la cookie sid falta o venció. Volvé a la carpeta 01 · Sesión.\");",
+          "}",
+          "if (pm.response.code === 403) {",
+          "  console.warn(\"403: la sesión existe pero al perfil le falta el permiso para este endpoint.\");",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "sid",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "perfSecret",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "perfUser",
+      "value": "admin@edutrack-uy.com",
+      "type": "string"
+    },
+    {
+      "key": "dateFrom",
+      "value": "2026-07-01",
+      "type": "string"
+    },
+    {
+      "key": "dateTo",
+      "value": "2026-07-31",
+      "type": "string"
+    },
+    {
+      "key": "ymd",
+      "value": "2026-07-15",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "roleCode",
+      "value": "TEACHER",
+      "type": "string"
+    },
+    {
+      "key": "permissionId",
+      "value": "attendance.read",
+      "type": "string"
+    },
+    {
+      "key": "studentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "schoolYearId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sourceSchoolYearId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "courseId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "courseOfferingId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orientationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "courseOrientationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "subjectId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "assignmentId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "eventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "attendanceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "incidentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "substitutionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "leaveId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nonWorkingDayId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "exportId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "notificationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceSecret",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceSn",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "linkRequestId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "livenessToken",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

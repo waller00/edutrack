@@ -15,7 +15,7 @@ import {
   type TuitionMonthState,
 } from '@/lib/admin/students-display'
 import { useCallback, useEffect, useState } from 'react'
-import { CalendarCheck, ChevronLeft, ChevronRight, GraduationCap, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { CalendarCheck, ChevronLeft, ChevronRight, GraduationCap, Loader2, Mail, Plus, Trash2, X } from 'lucide-react'
 
 const PAGE_SIZE = 20
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
@@ -34,6 +34,15 @@ type TuitionRow = {
   notes: string | null
 }
 
+type MoodleAccountStatus = {
+  state: 'VERIFIED' | 'PENDING' | 'NOT_FOUND' | 'UNAVAILABLE'
+  verified: boolean | null
+  accountExists: boolean
+  moodleUserId: number | null
+  firstAccessAt: string | null
+  welcomeSentAt: string | null
+}
+
 type StudentListRow = {
   id: string
   studentId?: string
@@ -49,6 +58,7 @@ type StudentListRow = {
   withdrawnAt: string | null
   withdrawalAcademicYear: number | null
   healthCardExpiresAt: string | null
+  moodle?: MoodleAccountStatus
   createdAt: string
   tuitionMonthsPreview: { year: number; month: number; paid: boolean }[]
 }
@@ -71,6 +81,7 @@ type StudentDetail = {
   withdrawnAt: string | null
   withdrawalAcademicYear: number | null
   internalNotes: string | null
+  moodle: MoodleAccountStatus
   createdAt: string
   updatedAt: string
   tuitionMonths: {
@@ -100,7 +111,7 @@ function withSchoolYear(path: string, schoolYearQuery: string): string {
   return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
 }
 
-/** Sugerencia local de usuario `nombre.apellido`; el backend valida/genera la definitiva. */
+/** Sugerencia local de usuario `nombre.apellido`; el backend valida la definitiva. */
 function suggestUsername(firstName: string, lastName: string): string {
   const part = (s: string) =>
     s
@@ -134,6 +145,14 @@ function emptyDraft(): Omit<StudentFormState, 'id'> {
     withdrawnAt: null,
     withdrawalAcademicYear: null,
     internalNotes: null,
+    moodle: {
+      state: 'NOT_FOUND',
+      verified: false,
+      accountExists: false,
+      moodleUserId: null,
+      firstAccessAt: null,
+      welcomeSentAt: null,
+    },
     tuitionMonths: [],
   }
 }
@@ -171,7 +190,9 @@ export default function AdminStudentsPage() {
     ...emptyDraft(),
   }))
   const [saving, setSaving] = useState(false)
+  const [resendingId, setResendingId] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
   const [usernameTouched, setUsernameTouched] = useState(false)
 
   // Mientras el admin no edite el usuario a mano, en el alta se sugiere nombre.apellido.
@@ -280,6 +301,7 @@ export default function AdminStudentsPage() {
 
   function openCreate() {
     setMsg('')
+    setSuccessMsg('')
     setEditId(null)
     setUsernameTouched(false)
     setForm({ id: '', ...emptyDraft() })
@@ -288,6 +310,7 @@ export default function AdminStudentsPage() {
 
   async function openEdit(row: StudentListRow) {
     setMsg('')
+    setSuccessMsg('')
     // En modo allYears row.id es compuesto (studentId:enrollmentId); el PUT
     // necesita el studentId real, no el compuesto.
     setEditId(row.studentId ?? row.id)
@@ -345,6 +368,14 @@ export default function AdminStudentsPage() {
       setMsg('Cédula inválida: verificá el número y el dígito verificador')
       return
     }
+    if (!form.email?.trim()) {
+      setMsg('El email es obligatorio para la cuenta Moodle')
+      return
+    }
+    if (!form.username?.trim()) {
+      setMsg('El usuario Moodle es obligatorio')
+      return
+    }
     setSaving(true)
     setMsg('')
     try {
@@ -356,8 +387,8 @@ export default function AdminStudentsPage() {
         courseId: form.courseId || undefined,
         contactPhone: form.contactPhone?.trim() || null,
         tutorPhone: form.tutorPhone?.trim() || null,
-        username: form.username?.trim() || undefined,
-        email: form.email?.trim() || null,
+        username: form.username.trim(),
+        email: form.email.trim(),
         address: form.address?.trim() || null,
         healthCardExpiresAt: form.healthCardExpiresAt ? `${ymd(form.healthCardExpiresAt)}T12:00:00.000Z` : null,
         liceoAccessNotes: form.liceoAccessNotes?.trim() || null,
@@ -394,6 +425,26 @@ export default function AdminStudentsPage() {
       await loadList(list.page)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Error al eliminar')
+    }
+  }
+
+  async function resendMoodleWelcome(id: string, name: string) {
+    if (!globalThis.confirm(`¿Reenviar el acceso de Moodle a ${name}? Se generará una nueva contraseña temporal.`)) return
+    setResendingId(id)
+    setMsg('')
+    setSuccessMsg('')
+    try {
+      const response = await api<{ message: string; moodle: MoodleAccountStatus }>(
+        `/admin/students/${id}/moodle-welcome/resend`,
+        { method: 'POST' },
+      )
+      setSuccessMsg(response.message || 'Correo de acceso a Moodle reenviado')
+      setForm((current) => (current.id === id ? { ...current, moodle: response.moodle } : current))
+      await loadList(list.page)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'No se pudo reenviar el correo de acceso a Moodle')
+    } finally {
+      setResendingId(null)
     }
   }
 
@@ -469,6 +520,48 @@ export default function AdminStudentsPage() {
     )
   }
 
+  function moodleStatusView(moodle: MoodleAccountStatus | undefined) {
+    if (moodle?.state === 'VERIFIED') {
+      return { label: 'Verificado', className: 'bg-emerald-100 text-emerald-800' }
+    }
+    if (moodle?.state === 'PENDING') {
+      return { label: 'Pendiente', className: 'bg-amber-100 text-amber-800' }
+    }
+    if (moodle?.state === 'NOT_FOUND') {
+      return { label: 'Sin sincronizar', className: 'bg-red-100 text-red-700' }
+    }
+    return { label: 'No disponible', className: 'bg-gray-100 text-gray-600' }
+  }
+
+  function canResendMoodle(moodle: MoodleAccountStatus | undefined) {
+    return moodle?.state === 'PENDING' || moodle?.state === 'NOT_FOUND'
+  }
+
+  function renderMoodleStatus(row: StudentListRow) {
+    const statusView = moodleStatusView(row.moodle)
+    const studentId = row.studentId ?? row.id
+    const name = `${row.firstName} ${row.lastName}`
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusView.className}`}>
+          {statusView.label}
+        </span>
+        {canResendMoodle(row.moodle) ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+            disabled={resendingId === studentId}
+            onClick={() => void resendMoodleWelcome(studentId, name)}
+            aria-label={`Reenviar correo Moodle a ${name}`}
+          >
+            {resendingId === studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Mail className="h-3.5 w-3.5" aria-hidden />}
+            Reenviar
+          </button>
+        ) : null}
+      </div>
+    )
+  }
+
   function renderStudentCard(row: StudentListRow) {
     return (
       <div key={row.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -504,6 +597,10 @@ export default function AdminStudentsPage() {
             <dt className="text-gray-500">Curso:</dt>
             <dd className="text-gray-700">{row.course?.name ?? '—'}</dd>
           </div>
+          <div className="flex items-center gap-2">
+            <dt className="text-gray-500">Moodle:</dt>
+            <dd>{renderMoodleStatus(row)}</dd>
+          </div>
         </dl>
         <div className="mt-2">
           <div className="mb-1 text-[11px] font-medium uppercase text-gray-500">
@@ -531,8 +628,7 @@ export default function AdminStudentsPage() {
               Estudiantes (gestión)
             </h1>
             <p className="max-w-3xl text-sm text-gray-600">
-              Registros administrativos sin cuenta en el sistema: curso, contacto, cuotas por año y estado de matrícula para
-              seguimiento y tasas de abandono.
+              Gestión de matrícula, contacto, cuotas y acceso de estudiantes al aula virtual Moodle.
             </p>
           </div>
           <button type="button" onClick={openCreate} className="btn-primary inline-flex items-center gap-2 shrink-0">
@@ -676,15 +772,17 @@ export default function AdminStudentsPage() {
           </div>
 
           {msg && !modal && <p className="text-sm text-red-600">{msg}</p>}
+          {successMsg && !modal && <p className="text-sm text-emerald-700">{successMsg}</p>}
 
           <div className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 sm:block">
-            <table className="w-full min-w-[960px] table-fixed text-sm">
+            <table className="w-full min-w-[1080px] table-fixed text-sm">
               <colgroup>
-                <col className={syCtx?.allYears ? 'w-[20%]' : 'w-[24%]'} />
+                <col className={syCtx?.allYears ? 'w-[18%]' : 'w-[21%]'} />
                 {syCtx?.allYears ? <col className="w-[9%]" /> : null}
-                <col className="w-[14%]" />
-                <col className="w-[11%]" />
-                <col className={syCtx?.allYears ? 'w-[44%]' : 'w-[47%]'} />
+                <col className="w-[12%]" />
+                <col className="w-[10%]" />
+                <col className="w-[18%]" />
+                <col className={syCtx?.allYears ? 'w-[29%]' : 'w-[35%]'} />
                 <col className="w-[4%]" />
               </colgroup>
               <thead className="bg-gray-50/80">
@@ -693,6 +791,7 @@ export default function AdminStudentsPage() {
                   {syCtx?.allYears ? <th className="px-4 py-2.5 font-medium">Ciclo</th> : null}
                   <th className="px-4 py-2.5 font-medium">Curso</th>
                   <th className="px-4 py-2.5 font-medium">Estado</th>
+                  <th className="px-4 py-2.5 font-medium">Moodle</th>
                   <th className="px-4 py-2.5 font-medium">
                     Mensualidades {syCtx?.allYears ? 'del ciclo' : tuitionYear || CURRENT_YEAR}
                   </th>
@@ -702,13 +801,13 @@ export default function AdminStudentsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={syCtx?.allYears ? 6 : 5} className="px-4 py-5 text-center text-gray-500">
+                    <td colSpan={syCtx?.allYears ? 7 : 6} className="px-4 py-5 text-center text-gray-500">
                       <Loader2 className="inline h-6 w-6 animate-spin text-emerald-600" aria-hidden />
                     </td>
                   </tr>
                 ) : list.data.length === 0 ? (
                   <tr>
-                    <td colSpan={syCtx?.allYears ? 6 : 5} className="px-4 py-5 text-center text-gray-500">
+                    <td colSpan={syCtx?.allYears ? 7 : 6} className="px-4 py-5 text-center text-gray-500">
                       No hay registros con estos filtros.
                     </td>
                   </tr>
@@ -734,6 +833,7 @@ export default function AdminStudentsPage() {
                           {getStudentStatusLabel(row.enrollmentStatus)}
                         </span>
                       </td>
+                      <td className="px-4 py-2.5">{renderMoodleStatus(row)}</td>
                       <td className="px-4 py-2.5">{renderTuitionChips(row)}</td>
                       <td className="px-4 py-2.5 text-right">
                         <button
@@ -806,6 +906,7 @@ export default function AdminStudentsPage() {
               </div>
               <div className="max-h-[70vh] overflow-y-auto px-4 py-4 space-y-4 text-sm">
                 {msg && <p className="text-sm text-red-600">{msg}</p>}
+                {successMsg && <p className="text-sm text-emerald-700">{successMsg}</p>}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Nombre *</label>
@@ -865,12 +966,13 @@ export default function AdminStudentsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
                     <input
                       type="email"
                       className="w-full rounded-lg border border-gray-200 px-3 py-2"
                       value={form.email ?? ''}
                       onChange={(e) => patchForm('email', e.target.value || null)}
+                      required
                     />
                     <p className="mt-1 text-[11px] text-gray-500">
                       Con email se crea su cuenta del aula virtual (Moodle) y le llega la bienvenida.
@@ -879,7 +981,7 @@ export default function AdminStudentsPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Usuario (Moodle)</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Usuario (Moodle) *</label>
                     <input
                       className="w-full rounded-lg border border-gray-200 px-3 py-2"
                       value={form.username ?? ''}
@@ -888,6 +990,7 @@ export default function AdminStudentsPage() {
                         patchForm('username', e.target.value || null)
                       }}
                       placeholder="nombre.apellido"
+                      required
                     />
                   </div>
                   <div>
@@ -904,6 +1007,27 @@ export default function AdminStudentsPage() {
                     </select>
                   </div>
                 </div>
+                {modal === 'edit' ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-slate-50 p-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase text-gray-500">Estado en Moodle</p>
+                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${moodleStatusView(form.moodle).className}`}>
+                        {moodleStatusView(form.moodle).label}
+                      </span>
+                    </div>
+                    {canResendMoodle(form.moodle) && editId ? (
+                      <button
+                        type="button"
+                        className="btn-secondary inline-flex items-center gap-2"
+                        disabled={resendingId === editId}
+                        onClick={() => void resendMoodleWelcome(editId, `${form.firstName} ${form.lastName}`)}
+                      >
+                        {resendingId === editId ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Mail className="h-4 w-4" aria-hidden />}
+                        Reenviar correo Moodle
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Dirección</label>
                   <input
@@ -1006,7 +1130,15 @@ export default function AdminStudentsPage() {
                 <button
                   type="button"
                   className="btn-primary inline-flex items-center gap-2"
-                  disabled={saving || !form.firstName.trim() || !form.lastName.trim() || documentIdInvalid}
+                  disabled={
+                    saving ||
+                    !form.firstName.trim() ||
+                    !form.lastName.trim() ||
+                    !documentIdTrimmed ||
+                    documentIdInvalid ||
+                    !form.email?.trim() ||
+                    !form.username?.trim()
+                  }
                   onClick={() => void save()}
                 >
                   {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
