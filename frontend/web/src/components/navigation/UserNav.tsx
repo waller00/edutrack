@@ -162,7 +162,7 @@ function pathIsActive(pathname: string, href: string) {
 }
 
 export default function UserNav({ children = null }: { children?: React.ReactNode }) {
-  const { me } = useAuth()
+  const { me, loading } = useAuth()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
@@ -263,6 +263,34 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     </div>
   ) : null
 
+  // Fuera de las rutas públicas, un usuario sin sesión siempre está en camino al
+  // login (lo mandan `AuthGuard`, `RoleGuard` o la home). Pintar el header público
+  // en esa ventana hace parpadear "Iniciar Sesión" justo antes del salto, así que
+  // dejamos que se vea únicamente el placeholder del guard.
+  if (!isPublicPath(pathname) && !me) {
+    return <>{children}</>
+  }
+
+  // En rutas públicas sí corresponde el header, pero mientras `/auth/me` no resuelve
+  // no sabemos si mostrar la cuenta o los botones de sesión: reservamos el espacio.
+  let authActions: React.ReactNode
+  if (loading) {
+    authActions = <div className="h-10 w-32 animate-pulse rounded-lg bg-gray-100" aria-hidden />
+  } else if (me) {
+    authActions = accountButton
+  } else {
+    authActions = (
+      <>
+        <a href="/login" className="btn-secondary px-3 text-sm">
+          Iniciar Sesión
+        </a>
+        <a href="/register" className="btn-primary px-3 text-sm">
+          Registrarse
+        </a>
+      </>
+    )
+  }
+
   const sidebar = hasDashboardShell ? (
     <aside className="sidebar-modern fixed inset-y-0 left-0 z-40 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-white lg:w-72">
       <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-5">
@@ -345,18 +373,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
               <span className="truncate">EduTrack</span>
             </a>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-              {me ? (
-                accountButton
-              ) : (
-                <>
-                  <a href="/login" className="btn-secondary px-3 text-sm">
-                    Iniciar Sesión
-                  </a>
-                  <a href="/register" className="btn-primary px-3 text-sm">
-                    Registrarse
-                  </a>
-                </>
-              )}
+              {authActions}
             </div>
           </div>
         </header>

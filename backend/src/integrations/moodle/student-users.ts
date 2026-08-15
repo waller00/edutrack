@@ -21,6 +21,16 @@ export type StudentAccountInput = {
   username?: string | null;
 };
 
+export type MoodleStudentVerificationState = "VERIFIED" | "PENDING" | "NOT_FOUND" | "UNAVAILABLE";
+
+export type MoodleStudentVerification = {
+  state: MoodleStudentVerificationState;
+  verified: boolean | null;
+  accountExists: boolean;
+  moodleUserId: number | null;
+  firstAccessAt: string | null;
+};
+
 /** Clave estable e idempotente del alumno en Moodle (sobrevive a recreaciones de la cuenta). */
 export function studentIdnumber(studentId: string): string {
   return `et-student-${studentId}`;
@@ -32,6 +42,94 @@ function numericField(row: unknown, key: string): number | null {
     if (Number.isFinite(v)) return v;
   }
   return null;
+}
+
+function booleanField(row: unknown, key: string): boolean | null {
+  if (!row || typeof row !== "object" || !(key in row)) return null;
+  const value = (row as Record<string, unknown>)[key];
+  if (value === true || value === 1 || value === "1") return true;
+  if (value === false || value === 0 || value === "0") return false;
+  return null;
+}
+
+function stringField(row: unknown, key: string): string | null {
+  if (!row || typeof row !== "object" || !(key in row)) return null;
+  const value = (row as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
+}
+
+function hasForcedPasswordChange(row: unknown): boolean {
+  if (!row || typeof row !== "object") return false;
+  const preferences = (row as Record<string, unknown>).preferences;
+  if (!Array.isArray(preferences)) return false;
+  return preferences.some((preference) => {
+    if (!preference || typeof preference !== "object") return false;
+    const p = preference as Record<string, unknown>;
+    return (p.name ?? p.type) === "auth_forcepasswordchange" && String(p.value) === "1";
+  });
+}
+
+function unavailableVerification(): MoodleStudentVerification {
+  return {
+    state: "UNAVAILABLE",
+    verified: null,
+    accountExists: false,
+    moodleUserId: null,
+    firstAccessAt: null,
+  };
+}
+
+/**
+ * Consulta el estado remoto de varias cuentas en una sola llamada. Consideramos verificada la
+ * cuenta cuando Moodle registra al menos un acceso y ya no exige cambiar la clave temporal.
+ */
+export async function getStudentMoodleVerifications(
+  studentIds: string[],
+): Promise<Map<string, MoodleStudentVerification>> {
+  const ids = [...new Set(studentIds.filter(Boolean))];
+  const result = new Map<string, MoodleStudentVerification>();
+  if (!isMoodleIntegrationEnabled()) {
+    for (const id of ids) result.set(id, unavailableVerification());
+    return result;
+  }
+
+  for (const id of ids) {
+    result.set(id, {
+      state: "NOT_FOUND",
+      verified: false,
+      accountExists: false,
+      moodleUserId: null,
+      firstAccessAt: null,
+    });
+  }
+  if (ids.length === 0) return result;
+
+  const params: Record<string, string> = { field: "idnumber" };
+  ids.forEach((id, index) => {
+    params[`values[${index}]`] = studentIdnumber(id);
+  });
+  const rows = await moodleRest("core_user_get_users_by_field", params);
+  if (!Array.isArray(rows)) return result;
+
+  for (const row of rows) {
+    const idnumber = stringField(row, "idnumber");
+    if (!idnumber?.startsWith("et-student-")) continue;
+    const studentId = idnumber.slice("et-student-".length);
+    if (!result.has(studentId)) continue;
+
+    const moodleUserId = numericField(row, "id");
+    const firstAccess = numericField(row, "firstaccess") ?? 0;
+    const confirmed = booleanField(row, "confirmed");
+    const verified = firstAccess > 0 && confirmed !== false && !hasForcedPasswordChange(row);
+    result.set(studentId, {
+      state: verified ? "VERIFIED" : "PENDING",
+      verified,
+      accountExists: moodleUserId != null,
+      moodleUserId,
+      firstAccessAt: firstAccess > 0 ? new Date(firstAccess * 1000).toISOString() : null,
+    });
+  }
+  return result;
 }
 
 function randomStudentPassword(): string {
@@ -48,14 +146,31 @@ function readableTempPassword(): string {
   return `Edu-${letters}-${digits}!`;
 }
 
-/** Fija una contraseña temporal y fuerza el cambio en el primer ingreso del alumno. */
-async function setStudentTempPassword(moodleId: number, password: string): Promise<void> {
+/**
+ * Fija la contraseña del alumno en Moodle. Con `forceChange` se le exige cambiarla en el primer
+ * ingreso (camino de la bienvenida); sin eso queda usable tal cual, que es lo que necesitan los
+ * datos de demo para poder mostrar el login de un alumno en vivo.
+ */
+export async function setStudentMoodlePassword(
+  moodleId: number,
+  password: string,
+  opts: { forceChange?: boolean } = {},
+): Promise<void> {
   await moodleRest("core_user_update_users", {
     "users[0][id]": String(moodleId),
     ["users[0][pass" + "word]"]: password,
-    "users[0][preferences][0][type]": "auth_forcepasswordchange",
-    "users[0][preferences][0][value]": "1",
+    ...(opts.forceChange
+      ? {
+          "users[0][preferences][0][type]": "auth_forcepasswordchange",
+          "users[0][preferences][0][value]": "1",
+        }
+      : {}),
   });
+}
+
+/** Fija una contraseña temporal y fuerza el cambio en el primer ingreso del alumno. */
+async function setStudentTempPassword(moodleId: number, password: string): Promise<void> {
+  await setStudentMoodlePassword(moodleId, password, { forceChange: true });
 }
 
 function realAccountData(s: StudentAccountInput): { username: string; email: string } | null {
@@ -203,4 +318,36 @@ async function sendWelcomeOnce(
       .catch(() => {});
     throw e;
   }
+}
+
+/**
+ * Regenera las credenciales temporales y reenvía la bienvenida mientras la cuenta todavía no
+ * completó su primer acceso. No permite resetear desde este botón a un alumno ya verificado.
+ */
+export async function resendStudentMoodleWelcome(studentId: string): Promise<Date> {
+  if (!isMoodleIntegrationEnabled()) throw new Error("MOODLE_NOT_CONFIGURED");
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    select: { id: true, firstName: true, lastName: true, email: true, username: true },
+  });
+  if (!student) throw new Error("MOODLE_STUDENT_NOT_FOUND");
+  const real = realAccountData(student);
+  if (!real) throw new Error("MOODLE_STUDENT_ACCOUNT_FIELDS_REQUIRED");
+
+  const before = await getStudentMoodleVerifications([studentId]);
+  if (before.get(studentId)?.verified) throw new Error("MOODLE_STUDENT_ALREADY_VERIFIED");
+
+  const { moodleId } = await ensureStudentMoodleAccount(student, { forceUpdate: true });
+  const tempPassword = readableTempPassword();
+  await setStudentTempPassword(moodleId, tempPassword);
+  await sendStudentWelcomeEmail({
+    to: real.email,
+    firstName: student.firstName,
+    username: real.username,
+    tempPassword,
+  });
+
+  const sentAt = new Date();
+  await prisma.student.updateMany({ where: { id: studentId }, data: { moodleWelcomeSentAt: sentAt } });
+  return sentAt;
 }

@@ -828,12 +828,12 @@ model Student {
   /// Documento identificatorio (opcional; no implica usuario del sistema).
   documentId String?
 
-  /// Usuario para Moodle, formato nombre.apellido (no es login de EduTrack).
+  /// Usuario para Moodle, formato nombre.apellido (obligatorio en API/UI; nullable por registros históricos).
   username String? @unique
 
   contactPhone String?
   tutorPhone   String?
-  /// Email del alumno. @map preserva la columna histórica `contactEmail`
+  /// Email del alumno (obligatorio en API/UI; nullable por registros históricos). @map preserva la columna histórica `contactEmail`
   /// (renombrarla con `db push` implicaría drop+add y pérdida de datos).
   email   String? @map("contactEmail")
   address String?
