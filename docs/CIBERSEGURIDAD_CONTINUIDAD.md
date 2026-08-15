@@ -168,25 +168,25 @@ El detalle completo de instalacion, validacion y prueba mensual de restore esta 
 2. Verificar estado de contenedores:
 
 ```bash
-docker compose -f docker-compose.cloud.yml ps
+./scripts/dc-cloud.sh ps
 ```
 
 3. Revisar logs:
 
 ```bash
-docker compose -f docker-compose.cloud.yml logs --tail=200 auth web
+./scripts/dc-cloud.sh logs --tail=200 auth web
 ```
 
 4. Reiniciar servicios afectados:
 
 ```bash
-docker compose -f docker-compose.cloud.yml up -d web auth
+./scripts/dc-cloud.sh up -d web auth reverse-proxy
 ```
 
 5. Validar disponibilidad:
 
 ```bash
-curl -f http://localhost:4000/health
+./scripts/dc-cloud.sh exec -T auth node -e "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 ```
 
 RTO esperado: menor a 1 hora.

@@ -70,11 +70,13 @@ Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle, OpenAI (asistente
 ## Producción / cloud
 
 ```bash
-docker compose -f docker-compose.cloud.yml up -d --build
+./scripts/dc-cloud.sh up -d --build
 ```
 
 Detalle operativo: [docs/MANUAL_DESPLIEGUE_CONTINUO.md](docs/MANUAL_DESPLIEGUE_CONTINUO.md)
 
+El wrapper cloud levanta el reverse proxy publico en `80/443` y mantiene privados
+`web`, `auth` y `keycloak`; evita exponer directo `3000`, `4000` y `8089`.
 Tras HTTPS: `COOKIE_SECURE=true` y URLs alineadas entre frontend, backend y Keycloak.
 
 ## Datos entre entornos
