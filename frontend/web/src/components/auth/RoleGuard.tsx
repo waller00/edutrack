@@ -1,5 +1,8 @@
 'use client'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import AuthLoadingScreen from '@/components/auth/AuthLoadingScreen'
+import { resolveAuthRedirect } from '@/components/auth/auth-redirect'
 import { useAuth, type AuthMe } from '@/contexts/AuthContext'
 
 function hasAnyPermission(me: AuthMe, permission?: string | string[], permissionScope?: 'own' | 'all') {
@@ -26,19 +29,20 @@ export default function RoleGuard({
   children: React.ReactNode
 }) {
   const { me, loading } = useAuth()
+  const pathname = usePathname()
   const [ok, setOk] = useState(false)
 
   useEffect(() => {
     if (loading) return
-    if (!me) { globalThis.location.href = '/login'; return }
-    if (me.needsProfileCompletion) { globalThis.location.href = '/onboarding'; return }
-    if (!me.isActive || !me.isApproved) { globalThis.location.href = '/'; return }
+    const redirect = resolveAuthRedirect(me, pathname)
+    if (redirect) { globalThis.location.href = redirect; return }
+    if (!me) return // inalcanzable: sin sesión `resolveAuthRedirect` ya devolvió el login
     const roleAllowed = !allow || allow.includes(me.role)
     const permissionAllowed = hasAnyPermission(me, permission, permissionScope)
     if (!roleAllowed && !permissionAllowed) { globalThis.location.href = '/'; return }
     setOk(true)
-  }, [me, loading, allow, permission, permissionScope])
+  }, [me, loading, pathname, allow, permission, permissionScope])
 
-  if (!ok) return null
+  if (!ok) return <AuthLoadingScreen />
   return <>{children}</>
 }

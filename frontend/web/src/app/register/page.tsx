@@ -13,10 +13,6 @@ import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { loginUrl, logoutUrl } from '@/lib/auth/urls'
 import { PASSWORD_MAX_LENGTH, getPasswordStrength, getStrengthBarClass } from '@/lib/auth/password-strength'
 import {
-  getRegisterVerificationFieldLabel,
-  getRegisterVerificationMessageClass,
-  getRegisterVerificationMessageIcon,
-  isWarningRegisterVerificationMessage,
   validateRegisterIdentityBeforeVerification,
   validateRegisterForm,
   type RegisterRole,
@@ -28,6 +24,16 @@ import {
   saveRegisterDraft,
   type RegisterDraftSnapshot,
 } from '@/lib/auth/register-draft'
+import {
+  isRegisterDataStepComplete,
+  validateRegisterFields,
+  type RegisterFieldName,
+  type RegisterFieldValues,
+} from '@/lib/auth/register-field-validation'
+import FormField, { fieldInputClass } from '@/components/forms/FormField'
+import RegisterStepper from '@/components/auth/RegisterStepper'
+import RegisterReview from '@/components/auth/RegisterReview'
+import type { DiditDocumentFields } from '@/lib/auth/register-review'
 
 type DiditFieldVerifyApiResponse = {
   success?: boolean
@@ -35,7 +41,14 @@ type DiditFieldVerifyApiResponse = {
   verifiedFields?: number
   totalFields?: number
   verification?: RegisterVerificationResults['verification']
+  /** Datos leídos del documento, para el mapeo del paso de revisión. */
+  documentFields?: DiditDocumentFields
 }
+
+/** Pasos del alta: datos → verificación de identidad → revisión y confirmación. */
+const STEP_DATA = 0
+const STEP_IDENTITY = 1
+const STEP_REVIEW = 2
 
 type IdentityVerificationMethod = 'didit' | null
 
@@ -79,6 +92,10 @@ export default function RegisterPage() {
   const [ssoRegistrationToken, setSsoRegistrationToken] = useState<string | null>(null)
   const [ssoEmailLocked, setSsoEmailLocked] = useState(false)
   const [ssoPrefillLoading, setSsoPrefillLoading] = useState(false)
+  const [step, setStep] = useState(STEP_DATA)
+  /** Un campo solo muestra su error después de que el usuario lo tocó (o al intentar avanzar). */
+  const [touched, setTouched] = useState<Partial<Record<RegisterFieldName, boolean>>>({})
+  const [documentFields, setDocumentFields] = useState<DiditDocumentFields | undefined>(undefined)
 
   const registerDraftRestoredRef = useRef(false)
   const diditVerifySeqRef = useRef(0)
@@ -141,6 +158,10 @@ export default function RegisterPage() {
     if (typeof d.confirm === 'string') setConfirm(d.confirm)
     if (d.verificationResults) setVerificationResults(d.verificationResults)
     if (d.identityVerificationMethod === 'didit') setIdentityVerificationMethod('didit')
+    // Al volver de Didit el usuario retoma donde estaba, no en el paso 1.
+    if (typeof d.verificationStep === 'number' && d.verificationStep >= STEP_DATA && d.verificationStep <= STEP_REVIEW) {
+      setStep(d.verificationStep)
+    }
   }, [sessionGate])
 
   useEffect(() => {
@@ -279,8 +300,11 @@ export default function RegisterPage() {
           verifiedFields: response.verifiedFields ?? 0,
           totalFields: response.totalFields ?? 0,
         })
+        setDocumentFields(response.documentFields)
         setIdentityVerificationMethod('didit')
         setError('')
+        // Con la comparación lista, el usuario pasa a revisar el mapeo antes de crear la cuenta.
+        setStep(STEP_REVIEW)
       } else {
         const msg =
           typeof response.message === 'string'
@@ -386,6 +410,54 @@ export default function RegisterPage() {
     setNationalId(formatted)
   }
 
+  const fieldValues: RegisterFieldValues = {
+    email,
+    password,
+    confirm,
+    nationalId,
+    firstName,
+    lastName,
+    phoneLocal,
+    birthdate,
+    role,
+  }
+  const passwordRequired = !ssoRegistrationToken
+  const fieldErrors = validateRegisterFields(fieldValues, { passwordRequired })
+  const dataStepComplete = isRegisterDataStepComplete(fieldValues, { passwordRequired })
+
+  /** Error a mostrar: solo si el campo fue tocado, para no gritarle al usuario al entrar. */
+  function fieldError(field: RegisterFieldName): string | undefined {
+    return touched[field] ? fieldErrors[field] : undefined
+  }
+
+  function fieldValid(field: RegisterFieldName, value: string): boolean {
+    return Boolean(touched[field] && value.trim() && !fieldErrors[field])
+  }
+
+  function markTouched(field: RegisterFieldName) {
+    setTouched((t) => (t[field] ? t : { ...t, [field]: true }))
+  }
+
+  function goToIdentityStep() {
+    if (!dataStepComplete) {
+      // Al intentar avanzar se revelan todos los errores pendientes de una vez.
+      setTouched({
+        email: true,
+        password: true,
+        confirm: true,
+        nationalId: true,
+        firstName: true,
+        lastName: true,
+        phoneLocal: true,
+        birthdate: true,
+        role: true,
+      })
+      return
+    }
+    setError('')
+    setStep(STEP_IDENTITY)
+  }
+
   function verificationHasIssues() {
     if (!verificationResults?.verification) return true
     return Object.values(verificationResults.verification).some((field: any) =>
@@ -459,7 +531,7 @@ export default function RegisterPage() {
         role,
         password,
         confirm,
-        verificationStep: 0,
+        verificationStep: STEP_IDENTITY,
         verificationResults,
         dniValidation: null,
         dniFileName: '',
@@ -494,8 +566,8 @@ export default function RegisterPage() {
   const strength = getPasswordStrength(password)
   const identityVerifyBusy = processingDiditFields
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  /** Crea la cuenta. Se dispara desde «Terminar registro» en el paso de revisión. */
+  async function submitRegistration() {
     setError('')
     const v = validate()
     if (v) { setError(v); return }
@@ -617,8 +689,22 @@ export default function RegisterPage() {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Crear Cuenta</h1>
             <p className="text-gray-600">Completa tus datos para registrarte</p>
           </div>
-          
-          <form onSubmit={onSubmit} className="space-y-6">
+
+          <RegisterStepper current={step} />
+
+          {step === STEP_DATA && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              goToIdentityStep()
+            }}
+            className="space-y-6"
+            noValidate
+          >
+            <p className="text-sm text-gray-600">
+              Los campos marcados con <span className="font-semibold text-red-500">*</span> son obligatorios.
+            </p>
+
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
               <p className="text-sm text-emerald-800 mb-3">También puedes entrar con Google. Después se te pedirá esta misma validación con DNI y completar solo los datos faltantes.</p>
               <button
@@ -639,30 +725,49 @@ export default function RegisterPage() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Correo</label>
-                <input 
-                  value={email} 
-                  onChange={e=>setEmail(e.target.value)} 
-                  type="email" 
-                  required 
+              <FormField
+                id="register-email"
+                label="Correo"
+                required
+                error={fieldError('email')}
+                valid={fieldValid('email', email)}
+                className="md:col-span-2"
+              >
+                <input
+                  id="register-email"
+                  value={email}
+                  onChange={e=>setEmail(e.target.value)}
+                  onBlur={() => markTouched('email')}
+                  type="email"
                   disabled={ssoEmailLocked}
-                  className="input-field"
+                  aria-required
+                  aria-invalid={Boolean(fieldError('email'))}
+                  aria-describedby={fieldError('email') ? 'register-email-error' : undefined}
+                  className={fieldInputClass('input-field', fieldError('email'), fieldValid('email', email))}
                   placeholder="tu@correo.com"
                 />
-              </div>
+              </FormField>
 
               {!ssoRegistrationToken && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
+                  <FormField
+                    id="register-password"
+                    label="Contraseña"
+                    required
+                    error={fieldError('password')}
+                    valid={fieldValid('password', password)}
+                  >
                     <div className="relative">
                       <input
+                        id="register-password"
                         value={password}
                         onChange={e=>setPassword(e.target.value)}
+                        onBlur={() => markTouched('password')}
                         type={showPwd?'text':'password'}
-                        required
-                        className="input-field pr-10"
+                        aria-required
+                        aria-invalid={Boolean(fieldError('password'))}
+                        aria-describedby={fieldError('password') ? 'register-password-error' : undefined}
+                        className={fieldInputClass('input-field pr-10', fieldError('password'), fieldValid('password', password))}
                         placeholder="Mín 8, Aa y 0-9"
                         maxLength={PASSWORD_MAX_LENGTH}
                       />
@@ -671,17 +776,26 @@ export default function RegisterPage() {
                     <div className="h-2 bg-gray-200 rounded mt-2">
                       <div className={`${getStrengthBarClass(strength)} h-2 rounded transition-all duration-300`} style={{width: `${strength}%`}} />
                     </div>
-                  </div>
+                  </FormField>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar contraseña</label>
+                  <FormField
+                    id="register-confirm"
+                    label="Confirmar contraseña"
+                    required
+                    error={fieldError('confirm')}
+                    valid={fieldValid('confirm', confirm)}
+                  >
                     <div className="relative">
                       <input
+                        id="register-confirm"
                         value={confirm}
                         onChange={e=>setConfirm(e.target.value)}
+                        onBlur={() => markTouched('confirm')}
                         type={showConfirm?'text':'password'}
-                        required
-                        className="input-field pr-10"
+                        aria-required
+                        aria-invalid={Boolean(fieldError('confirm'))}
+                        aria-describedby={fieldError('confirm') ? 'register-confirm-error' : undefined}
+                        className={fieldInputClass('input-field pr-10', fieldError('confirm'), fieldValid('confirm', confirm))}
                         placeholder="Repite tu contraseña"
                         maxLength={PASSWORD_MAX_LENGTH}
                       />
@@ -691,65 +805,134 @@ export default function RegisterPage() {
                         field="confirmación"
                       />
                     </div>
-                  </div>
+                  </FormField>
                 </>
               )}
-              
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Cédula</label>
-                <input 
-                  value={nationalId} 
-                  onChange={e=>handleNationalIdChange(e.target.value)} 
-                  placeholder="X.XXX.XXX-X" 
-                  className="input-field"
+
+              <FormField
+                id="register-national-id"
+                label="Cédula"
+                required
+                error={fieldError('nationalId')}
+                valid={fieldValid('nationalId', nationalId)}
+                hint="Con dígito verificador, como figura en tu documento."
+              >
+                <input
+                  id="register-national-id"
+                  value={nationalId}
+                  onChange={e=>handleNationalIdChange(e.target.value)}
+                  onBlur={() => markTouched('nationalId')}
+                  placeholder="X.XXX.XXX-X"
+                  inputMode="numeric"
+                  aria-required
+                  aria-invalid={Boolean(fieldError('nationalId'))}
+                  aria-describedby={fieldError('nationalId') ? 'register-national-id-error' : 'register-national-id-hint'}
+                  className={fieldInputClass('input-field', fieldError('nationalId'), fieldValid('nationalId', nationalId))}
                 />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nombres</label>
-                <input 
-                  value={firstName} 
-                  onChange={e=>setFirstName(e.target.value)} 
-                  required 
-                  className="input-field"
+              </FormField>
+
+              <FormField
+                id="register-first-name"
+                label="Nombres"
+                required
+                error={fieldError('firstName')}
+                valid={fieldValid('firstName', firstName)}
+              >
+                <input
+                  id="register-first-name"
+                  value={firstName}
+                  onChange={e=>setFirstName(e.target.value)}
+                  onBlur={() => markTouched('firstName')}
+                  aria-required
+                  aria-invalid={Boolean(fieldError('firstName'))}
+                  aria-describedby={fieldError('firstName') ? 'register-first-name-error' : undefined}
+                  className={fieldInputClass('input-field', fieldError('firstName'), fieldValid('firstName', firstName))}
                   placeholder="Tus nombres"
                 />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Apellidos</label>
-                <input 
-                  value={lastName} 
-                  onChange={e=>setLastName(e.target.value)} 
-                  required 
-                  className="input-field"
+              </FormField>
+
+              <FormField
+                id="register-last-name"
+                label="Apellidos"
+                required
+                error={fieldError('lastName')}
+                valid={fieldValid('lastName', lastName)}
+              >
+                <input
+                  id="register-last-name"
+                  value={lastName}
+                  onChange={e=>setLastName(e.target.value)}
+                  onBlur={() => markTouched('lastName')}
+                  aria-required
+                  aria-invalid={Boolean(fieldError('lastName'))}
+                  aria-describedby={fieldError('lastName') ? 'register-last-name-error' : undefined}
+                  className={fieldInputClass('input-field', fieldError('lastName'), fieldValid('lastName', lastName))}
                   placeholder="Tus apellidos"
                 />
-              </div>
-              
+              </FormField>
+
               <PhoneBirthdateFields
                 phoneLocal={phoneLocal}
                 birthdate={birthdate}
                 onPhoneChange={setPhoneLocal}
                 onBirthdateChange={setBirthdate}
                 birthdateRequired
+                phoneError={fieldError('phoneLocal')}
+                birthdateError={fieldError('birthdate')}
+                onPhoneBlur={() => markTouched('phoneLocal')}
+                onBirthdateBlur={() => markTouched('birthdate')}
               />
 
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Perfil</label>
-                <select 
-                  value={role} 
-                  onChange={e=>setRole(e.target.value as RegisterRole)} 
-                  className="select-field"
-                  required
+              <FormField
+                id="register-role"
+                label="Perfil"
+                required
+                error={fieldError('role')}
+                valid={fieldValid('role', role)}
+                className="md:col-span-2"
+              >
+                <select
+                  id="register-role"
+                  value={role}
+                  onChange={e=>{ setRole(e.target.value as RegisterRole); markTouched('role') }}
+                  onBlur={() => markTouched('role')}
+                  aria-required
+                  aria-invalid={Boolean(fieldError('role'))}
+                  aria-describedby={fieldError('role') ? 'register-role-error' : undefined}
+                  className={fieldInputClass('select-field', fieldError('role'), fieldValid('role', role))}
                 >
                   <option value="">Seleccioná un perfil</option>
                   <option value="STAFF">Personal</option>
                   <option value="TEACHER">Docente</option>
                 </select>
-              </div>
+              </FormField>
             </div>
+
+            {error && (
+              <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-red-600 text-sm">{error}</p>
+              </div>
+            )}
+
+            <div className="flex gap-4 pt-6 border-t border-gray-200">
+              <button type="submit" className="btn-primary flex-1 disabled:opacity-60" disabled={!dataStepComplete}>
+                Continuar
+              </button>
+              <a href={ssoRegistrationToken ? logoutUrl('/login') : '/login'} className="btn-secondary flex-1 text-center">
+                Cancelar
+              </a>
+            </div>
+
+            {!dataStepComplete && Object.keys(touched).length > 0 && (
+              <p className="text-center text-sm text-gray-500">
+                Completá los campos marcados en rojo para continuar.
+              </p>
+            )}
+          </form>
+          )}
+
+          {step === STEP_IDENTITY && (
+          <div className="space-y-6">
 
             {/* Verificación identidad */}
             <div className="mt-8 pt-6 border-t border-gray-200">
@@ -839,124 +1022,67 @@ export default function RegisterPage() {
               )}
               
               {verificationResults && (
-                <div className="mt-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-medium text-gray-800">Resultados de Verificación:</h4>
-                    <div className="flex gap-2 flex-wrap justify-end">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void runDiditFieldVerify()
-                        }}
-                        className="btn-secondary text-sm px-3 py-1"
-                        disabled={
-                          identityVerifyBusy ||
-                          !(identityVerificationMethod === 'didit' && livenessCheckEnabled && livenessApproved)
-                        }
-                      >
-                        🔄 Volver a Verificar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setVerificationResults(null)
-                          setIdentityVerificationMethod(null)
-                          setError('')
-                        }}
-                        className="btn-secondary text-sm px-3 py-1"
-                        disabled={identityVerifyBusy}
-                      >
-                        ↻ Reiniciar verificación
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {Object.entries(verificationResults.verification).map(([field, data]) => (
-                    <div key={field} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-xl">
-                          {getRegisterVerificationMessageIcon(data.message)}
-                        </span>
-                        <div>
-                          <p className="font-medium text-gray-800 capitalize">
-                            {getRegisterVerificationFieldLabel(field)}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            {field === 'nationalIdDocumentExpiresAt' &&
-                            (data.provided === '—' || data.provided === '(OCR)') ? (
-                              <span>
-                                Origen:{' '}
-                                <span className="font-medium">lectura automática</span>
-                              </span>
-                            ) : (
-                              <>
-                                Ingresado: <span className="font-medium">{data.provided}</span>
-                              </>
-                            )}
-                          </p>
-                          {data.extracted && (
-                            <p className="text-sm text-gray-600">
-                              Registro muestra:
-                              {' '}
-                              <span className="font-medium">{data.extracted}</span>
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className={`text-sm font-medium ${getRegisterVerificationMessageClass(data.message)}`}>
-                        {data.message}
-                      </div>
-                    </div>
-                  ))}
-                  
-                  <div className="text-center p-3 bg-blue-50 rounded-lg">
-                    <p className="text-sm font-medium text-blue-800">
-                      Verificación: {verificationResults.verifiedFields}/{verificationResults.totalFields} campos correctos
-                    </p>
-                    {Object.values(verificationResults.verification).some(isWarningRegisterVerificationMessage) && (
-                      <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                        <p className="text-sm text-orange-600 font-medium">
-                          ⚠️ Completa todos los campos correctamente antes de crear la cuenta
-                        </p>
-                        <p className="text-xs text-orange-500 mt-1">
-                          Corregí los datos y tocá «Volver a Verificar».
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-sm font-medium text-emerald-800">
+                    Comparación lista: {verificationResults.verifiedFields}/{verificationResults.totalFields} campos
+                    coinciden con tu documento.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setStep(STEP_REVIEW)}
+                    className="btn-primary mt-3"
+                  >
+                    Ver la revisión
+                  </button>
                 </div>
               )}
             </div>
 
             {error && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-red-600 text-sm">{error}</p>
               </div>
             )}
-            
+
             <div className="flex gap-4 pt-6 border-t border-gray-200">
               <button
-                disabled={
-                  loading ||
-                  verificationHasIssues() ||
-                  (livenessCheckEnabled && !diditConfiguredOnServer) ||
-                  (livenessCheckEnabled && !livenessApproved)
-                }
-                className="btn-primary flex-1 disabled:opacity-60"
+                type="button"
+                onClick={() => { setError(''); setStep(STEP_DATA) }}
+                className="btn-secondary flex-1"
+                disabled={identityVerifyBusy || livenessStarting}
               >
-                <PendingButtonContent pending={loading} pendingText="Creando…" idle="Crear cuenta" />
+                Volver a mis datos
               </button>
-              <a href={ssoRegistrationToken ? logoutUrl('/login') : '/login'} className="btn-secondary flex-1 text-center">
-                Cancelar
-              </a>
             </div>
-            
+
             <div className="mt-6 pt-6 border-t border-gray-200 text-center">
               <p className="text-sm text-gray-500">
                 El registro quedó unificado: siempre se valida identidad con DNI y luego un administrador aprueba el alta.
               </p>
             </div>
-          </form>
+          </div>
+          )}
+
+          {step === STEP_REVIEW && (
+            <RegisterReview
+              verificationResults={verificationResults}
+              documentFields={documentFields}
+              account={{
+                email,
+                phone: phoneLocal ? `+598 ${phoneLocal}` : '',
+                roleLabel: role === 'TEACHER' ? 'Docente' : role === 'STAFF' ? 'Personal' : '—',
+              }}
+              submitting={loading}
+              onBack={() => { setError(''); setStep(STEP_DATA) }}
+              onConfirm={() => { void submitRegistration() }}
+            />
+          )}
+
+          {step === STEP_REVIEW && error && (
+            <div role="alert" className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          )}
         </div>
       </div>
     </main>

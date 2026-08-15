@@ -9,7 +9,11 @@ export {
 } from "./outbox.js";
 export {
   ensureStudentMoodleAccount,
+  getStudentMoodleVerifications,
+  resendStudentMoodleWelcome,
   syncMoodleStudentById,
+  type MoodleStudentVerification,
+  type MoodleStudentVerificationState,
   type StudentAccountInput,
 } from "./student-users.js";
 export { reconcileMoodle } from "./reconcile.js";

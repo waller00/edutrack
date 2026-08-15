@@ -20,7 +20,13 @@ vi.mock("../../notifications/student-welcome.js", () => ({
 }));
 vi.mock("../../db/prisma.js", () => ({ prisma: prismaMock }));
 
-import { ensureStudentMoodleAccount, syncMoodleStudentById } from "./student-users.js";
+import {
+  ensureStudentMoodleAccount,
+  getStudentMoodleVerifications,
+  resendStudentMoodleWelcome,
+  setStudentMoodlePassword,
+  syncMoodleStudentById,
+} from "./student-users.js";
 
 const realStudent = {
   id: "s1-uuid",
@@ -114,6 +120,79 @@ describe("ensureStudentMoodleAccount", () => {
   });
 });
 
+describe("getStudentMoodleVerifications", () => {
+  it("consulta varios idnumber en una llamada y marca verificado tras el primer acceso", async () => {
+    restByFunction({
+      core_user_get_users_by_field: [
+        {
+          id: 72,
+          idnumber: "et-student-s1-uuid",
+          confirmed: true,
+          firstaccess: 1_700_000_000,
+          preferences: [{ name: "auth_forcepasswordchange", value: "0" }],
+        },
+      ],
+    });
+
+    const statuses = await getStudentMoodleVerifications(["s1-uuid", "s2-uuid"]);
+
+    expect(statuses.get("s1-uuid")).toEqual(
+      expect.objectContaining({ state: "VERIFIED", verified: true, accountExists: true, moodleUserId: 72 }),
+    );
+    expect(statuses.get("s2-uuid")).toEqual(
+      expect.objectContaining({ state: "NOT_FOUND", verified: false, accountExists: false }),
+    );
+    expect(restCall("core_user_get_users_by_field")).toEqual({
+      field: "idnumber",
+      "values[0]": "et-student-s1-uuid",
+      "values[1]": "et-student-s2-uuid",
+    });
+  });
+
+  it("mantiene pendiente si Moodle todavía exige cambiar la contraseña temporal", async () => {
+    restByFunction({
+      core_user_get_users_by_field: [
+        {
+          id: 72,
+          idnumber: "et-student-s1-uuid",
+          confirmed: 1,
+          firstaccess: 1_700_000_000,
+          preferences: [{ name: "auth_forcepasswordchange", value: "1" }],
+        },
+      ],
+    });
+
+    const status = (await getStudentMoodleVerifications(["s1-uuid"])).get("s1-uuid");
+    expect(status).toEqual(expect.objectContaining({ state: "PENDING", verified: false }));
+  });
+
+  it("devuelve estado no disponible sin consultar la red si Moodle está deshabilitado", async () => {
+    enabledMock.mockReturnValue(false);
+    const status = (await getStudentMoodleVerifications(["s1-uuid"])).get("s1-uuid");
+    expect(status).toEqual(expect.objectContaining({ state: "UNAVAILABLE", verified: null }));
+    expect(moodleRestMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("setStudentMoodlePassword", () => {
+  it("por defecto deja la contraseña usable sin forzar el cambio (datos de demo)", async () => {
+    restByFunction({ core_user_update_users: [] });
+    await setStudentMoodlePassword(70, "Estudiante123!");
+    const updated = restCall("core_user_update_users")!;
+    expect(updated["users[0][id]"]).toBe("70");
+    expect(updated["users[0][password]"]).toBe("Estudiante123!");
+    expect(updated["users[0][preferences][0][type]"]).toBeUndefined();
+  });
+
+  it("con forceChange exige el cambio en el primer ingreso", async () => {
+    restByFunction({ core_user_update_users: [] });
+    await setStudentMoodlePassword(70, "Edu-abc123-4567!", { forceChange: true });
+    const updated = restCall("core_user_update_users")!;
+    expect(updated["users[0][preferences][0][type]"]).toBe("auth_forcepasswordchange");
+    expect(updated["users[0][preferences][0][value]"]).toBe("1");
+  });
+});
+
 describe("syncMoodleStudentById", () => {
   const dbStudent = { ...realStudent, email: "ana@test.com", moodleWelcomeSentAt: null };
 
@@ -182,5 +261,39 @@ describe("syncMoodleStudentById", () => {
     const revert = prismaMock.student.updateMany.mock.calls[1][0];
     expect(revert.where).toEqual({ id: "s1-uuid" });
     expect(revert.data.moodleWelcomeSentAt).toBeNull();
+  });
+});
+
+describe("resendStudentMoodleWelcome", () => {
+  it("regenera la contraseña y reenvía el correo de una cuenta pendiente", async () => {
+    prismaMock.student.findUnique.mockResolvedValue(realStudent);
+    restByFunction({
+      core_user_get_users_by_field: [],
+      core_user_create_users: [{ id: 91 }],
+      core_user_update_users: [],
+    });
+
+    const sentAt = await resendStudentMoodleWelcome("s1-uuid");
+
+    expect(sentAt).toBeInstanceOf(Date);
+    expect(sendWelcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "ana@test.com", username: "ana.diaz", tempPassword: expect.stringMatching(/^Edu-/) }),
+    );
+    expect(prismaMock.student.updateMany).toHaveBeenCalledWith({
+      where: { id: "s1-uuid" },
+      data: { moodleWelcomeSentAt: sentAt },
+    });
+  });
+
+  it("rechaza el reenvío si el alumno ya verificó su acceso", async () => {
+    prismaMock.student.findUnique.mockResolvedValue(realStudent);
+    restByFunction({
+      core_user_get_users_by_field: [
+        { id: 72, idnumber: "et-student-s1-uuid", confirmed: 1, firstaccess: 1_700_000_000 },
+      ],
+    });
+
+    await expect(resendStudentMoodleWelcome("s1-uuid")).rejects.toThrow("MOODLE_STUDENT_ALREADY_VERIFIED");
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
   });
 });

@@ -26,6 +26,7 @@ import { seedAcademicCatalog } from './seed-academic-catalog.js'
 import { runBootstrap } from './seed-bootstrap.js'
 import { seedTeachers } from './seed-teachers.js'
 import { getAppTimezone, uruguayWallToUtc } from '../src/config/app-timezone.js'
+import { generateUniqueUsername } from '../src/services/usernames.js'
 
 const prisma = new PrismaClient()
 
@@ -344,16 +345,24 @@ async function seedStudents() {
       const firstName = STUDENT_FIRST_NAMES[index % STUDENT_FIRST_NAMES.length]
       const lastName = `${STUDENT_LAST_NAMES[index % STUDENT_LAST_NAMES.length]} ${STUDENT_LAST_NAMES[(index * 7 + 3) % STUDENT_LAST_NAMES.length]}`
       const documentId = buildValidCi(3_100_000 + index * 37)
-      const cleanFirst = firstName.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
-      const cleanLast = lastName.split(' ')[0].toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+      // Mismo formato `nombre.apellido` que usa el alta real de estudiantes: es la cuenta con la
+      // que el alumno entra a Moodle (ver scripts/provision-demo-moodle-students.ts).
+      const username = await generateUniqueUsername(firstName, lastName, async (candidate) => {
+        const exist = await prisma.student.findUnique({ where: { username: candidate }, select: { id: true } })
+        return Boolean(exist)
+      })
       const student = await prisma.student.create({
         data: {
           firstName,
           lastName,
           documentId,
+          username,
           contactPhone: `+5989${intBetween(`phone-a-${index}`, 1000000, 9999999)}`,
           tutorPhone: `+5989${intBetween(`phone-b-${index}`, 1000000, 9999999)}`,
-          email: `${cleanFirst}.${cleanLast}${index}@familias.liceo.test`,
+          email: `${username}@estudiantes.liceo.test`,
+          // Bienvenida ya "enviada": ademas de ser el estado realista para la demo, bloquea el
+          // envio real de mails a estos dominios inexistentes si el outbox procesa al alumno.
+          moodleWelcomeSentAt: wall(`${YEAR}-02-11`, 9, index % 50),
           address: `${pick(['Rivera', 'Artigas', 'Lavalleja', 'Sarandi', 'Rincon', 'Treinta y Tres'], `street-${index}`)} ${intBetween(`door-${index}`, 1000, 4999)}`,
           healthCardExpiresAt: wall(`2026-${String(3 + (index % 7)).padStart(2, '0')}-15`, 12, 0),
           internalNotes: `${plan.note}. Dato de demo.`,
@@ -895,6 +904,10 @@ async function main() {
       attendanceEarlyExitToleranceMinutes: 5,
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
+      // Sincronizacion Moodle prendida (incluyendo alumnos) para que, una vez aprovisionadas las
+      // cuentas, el tick del server mantenga las matriculas al dia. No-op si falta MOODLE_BASE_URL.
+      moodleSyncEnabled: true,
+      moodleSyncStudents: true,
     },
   })
 

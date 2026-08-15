@@ -1,6 +1,28 @@
-/** Cruza texto crudo devuelto por Didit (decision/) con datos del formulario de registro. */
+/** Cruza los datos del documento leídos por Didit (decision/) con los del formulario de registro. */
 
 import type { RegisterVerificationLite } from './register-verification-types.js'
+import { extractDiditDocumentFields, type DiditDocumentFields } from './document-fields.js'
+
+/** Mayúsculas sin acentos ni signos: para comparar nombres del OCR con los declarados. */
+function foldForCompare(value: string): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replaceAll(/[^A-Z0-9\s]/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+}
+
+/** Todas las palabras declaradas (≥2 letras) aparecen en el valor del documento. */
+function declaredWordsAppearIn(documentValue: string, declared: string): boolean {
+  const hay = foldForCompare(documentValue)
+  const words = foldForCompare(declared)
+    .split(' ')
+    .filter((w) => w.length > 1)
+  if (words.length === 0 || !hay) return false
+  return words.every((w) => hay.includes(w))
+}
 
 function haystack(decision: unknown): string {
   return JSON.stringify(decision ?? {})
@@ -145,6 +167,34 @@ export function getDocumentExpiryValidationErrorFromDecision(
   return null
 }
 
+/**
+ * Compara un campo declarado contra el valor real del documento cuando Didit lo devolvió;
+ * si ese campo no vino en el OCR, cae al match por texto sobre toda la decisión.
+ *
+ * Devuelve además `extracted`, que ahora es el valor **del documento** (antes era un eco
+ * del dato declarado, con lo que la pantalla nunca podía mostrar una discrepancia real).
+ */
+function compareField(params: {
+  declared: string
+  documentValue?: string
+  matches: (documentValue: string, declared: string) => boolean
+  fallbackOk: boolean
+}): { ok: boolean; extracted?: string; fromDocument: boolean } {
+  const { declared, documentValue, matches, fallbackOk } = params
+  if (documentValue) {
+    return { ok: matches(documentValue, declared), extracted: documentValue, fromDocument: true }
+  }
+  return { ok: fallbackOk, extracted: undefined, fromDocument: false }
+}
+
+function nameMessage(label: string, result: { ok: boolean; extracted?: string; fromDocument: boolean }): string {
+  if (result.ok) return `✓ ${label} verificado${label === 'Apellidos' ? 's' : ''} correctamente (Didit)`
+  if (result.fromDocument) {
+    return `✗ No coincide: el documento dice «${result.extracted}».`
+  }
+  return `✗ No encontramos ${label.toLowerCase()} en la respuesta de Didit. Volvé a verificar.`
+}
+
 /** Construye el mismo formato “card” que el paso OCR (mensajes ✓). Sin fecha de vencimiento manual: se infiere de Didit. */
 export function buildRegisterVerificationComparison(
   decision: unknown,
@@ -154,20 +204,50 @@ export function buildRegisterVerificationComparison(
     nationalId: string
     birthdate: string
   },
-): RegisterVerificationLite {
+): RegisterVerificationLite & { documentFields: DiditDocumentFields } {
   const hay = haystack(decision)
   const hayU = hay.toUpperCase()
   const fn = input.firstName.trim()
   const ln = input.lastName.trim()
   const idDigits = normDigits(input.nationalId)
+  const doc = extractDiditDocumentFields(decision)
 
-  const firstNameOk = wordsLikelyPresent(hayU, fn)
-  const lastNameOk = wordsLikelyPresent(hayU, ln)
-  const idOk = idDigits.length >= 7 && hayHasCiDigits(hayNorm(hay), idDigits)
+  const firstNameResult = compareField({
+    declared: fn,
+    documentValue: doc.firstName,
+    matches: declaredWordsAppearIn,
+    fallbackOk: wordsLikelyPresent(hayU, fn),
+  })
+  const lastNameResult = compareField({
+    declared: ln,
+    documentValue: doc.lastName,
+    matches: declaredWordsAppearIn,
+    fallbackOk: wordsLikelyPresent(hayU, ln),
+  })
+  const idResult = compareField({
+    declared: input.nationalId.trim(),
+    documentValue: doc.documentNumber,
+    matches: (documentValue, declared) => {
+      const a = normDigits(documentValue)
+      const b = normDigits(declared)
+      return a.length >= 7 && b.length >= 7 && a === b
+    },
+    fallbackOk: idDigits.length >= 7 && hayHasCiDigits(hayNorm(hay), idDigits),
+  })
+  const bdResult = compareField({
+    declared: normalizeDateForCompare(input.birthdate),
+    documentValue: doc.dateOfBirth,
+    matches: (documentValue, declared) => documentValue === declared,
+    fallbackOk: hayHasDate(hay, normalizeDateForCompare(input.birthdate)),
+  })
 
-  const bdOk = hayHasDate(hay, normalizeDateForCompare(input.birthdate))
+  const firstNameOk = firstNameResult.ok
+  const lastNameOk = lastNameResult.ok
+  const idOk = idResult.ok
+  const bdOk = bdResult.ok
 
-  const expiryIso = extractLikelyExpiryIsoFromDecision(decision, input.birthdate)
+  // El vencimiento estructurado es confiable; la heurística de "fecha más lejana" es el respaldo.
+  const expiryIso = doc.expirationDate ?? extractLikelyExpiryIsoFromDecision(decision, input.birthdate)
   let expMessage: string
   let extractedExpiry: string | undefined
   if (!expiryIso) {
@@ -184,31 +264,31 @@ export function buildRegisterVerificationComparison(
 
   const firstNameEntry = {
     provided: fn,
-    extracted: firstNameOk ? fn.toUpperCase() : undefined,
-    message: firstNameOk
-      ? '✓ Nombre verificado correctamente (Didit)'
-      : '✗ No encontramos el nombre en la respuesta de Didit. Probá subir una foto del DNI abajo.',
+    extracted: firstNameResult.extracted,
+    message: nameMessage('Nombre', firstNameResult),
   }
   const lastNameEntry = {
     provided: ln,
-    extracted: lastNameOk ? ln.toUpperCase() : undefined,
-    message: lastNameOk
-      ? '✓ Apellidos verificados correctamente (Didit)'
-      : '✗ No encontramos los apellidos en la respuesta de Didit. Probá subir una foto del DNI abajo.',
+    extracted: lastNameResult.extracted,
+    message: nameMessage('Apellidos', lastNameResult),
   }
   const nationalIdEntry = {
     provided: input.nationalId.trim(),
-    extracted: idOk ? input.nationalId.trim() : undefined,
+    extracted: idResult.extracted,
     message: idOk
       ? '✓ Cédula verificada correctamente (Didit)'
-      : '✗ No encontramos la cédula en la respuesta de Didit. Probá subir una foto del DNI abajo.',
+      : idResult.fromDocument
+        ? `✗ No coincide: el documento dice «${idResult.extracted}».`
+        : '✗ No encontramos la cédula en la respuesta de Didit. Volvé a verificar.',
   }
   const birthEntry = {
     provided: input.birthdate.trim(),
-    extracted: bdOk ? input.birthdate.trim() : undefined,
+    extracted: bdResult.extracted,
     message: bdOk
       ? '✓ Fecha de nacimiento verificada correctamente (Didit)'
-      : '⚠️ No encontramos esa fecha en el texto que devolvió Didit; confirmala o usá foto del DNI abajo.',
+      : bdResult.fromDocument
+        ? `✗ No coincide: el documento dice «${bdResult.extracted}».`
+        : '⚠️ No encontramos esa fecha en el texto que devolvió Didit; confirmala y volvé a verificar.',
   }
   const expEntry = {
     provided: '—',
@@ -225,7 +305,7 @@ export function buildRegisterVerificationComparison(
   }
 
   let okFields = 0
-  let totalFields = Object.keys(ver).length
+  const totalFields = Object.keys(ver).length
   for (const k of Object.keys(ver) as (keyof typeof ver)[]) {
     const m = String(ver[k].message ?? '')
     if (m.includes('✓')) okFields++
@@ -235,5 +315,6 @@ export function buildRegisterVerificationComparison(
     verifiedFields: okFields,
     totalFields,
     verification: ver,
+    documentFields: doc,
   }
 }

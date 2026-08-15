@@ -7,6 +7,10 @@ vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/admin/attendance',
+}))
+
 vi.mock('@/lib/observability/user-session', () => ({
   identifyObservabilityUser: vi.fn(),
   clearObservabilityUser: vi.fn(),
@@ -53,7 +57,7 @@ describe('RoleGuard', () => {
     expect(window.location.href).toBe('')
   })
 
-  it('redirects to login when me is null', async () => {
+  it('redirects to login preserving the current path when me is null', async () => {
     mockedApi.mockResolvedValue(null as never)
 
     renderGuarded(
@@ -62,7 +66,7 @@ describe('RoleGuard', () => {
       </RoleGuard>,
     )
 
-    await waitFor(() => expect(window.location.href).toBe('/login'))
+    await waitFor(() => expect(window.location.href).toBe('/login?returnTo=%2Fadmin%2Fattendance'))
   })
 
   it('redirects to login when auth lookup fails', async () => {
@@ -74,7 +78,7 @@ describe('RoleGuard', () => {
       </RoleGuard>,
     )
 
-    await waitFor(() => expect(window.location.href).toBe('/login'))
+    await waitFor(() => expect(window.location.href).toBe('/login?returnTo=%2Fadmin%2Fattendance'))
     expect(screen.queryByText('contenido protegido')).not.toBeInTheDocument()
   })
 
