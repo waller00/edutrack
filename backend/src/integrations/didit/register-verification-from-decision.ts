@@ -224,14 +224,19 @@ export function buildRegisterVerificationComparison(
     matches: declaredWordsAppearIn,
     fallbackOk: wordsLikelyPresent(hayU, ln),
   })
+  // La cédula puede venir en más de un campo del documento (`personal_number`,
+  // `document_number`…). Coincide si el dato declarado es igual a cualquiera de ellos;
+  // si no coincide con ninguno, se muestra el candidato preferido, que es el que
+  // representa a la persona y no el número de serie del cartón.
+  const idCandidates = doc.documentNumberCandidates ?? (doc.documentNumber ? [doc.documentNumber] : [])
+  const matchedId = idCandidates.find((candidate) => {
+    const a = normDigits(candidate)
+    return a.length >= 7 && idDigits.length >= 7 && a === idDigits
+  })
   const idResult = compareField({
     declared: input.nationalId.trim(),
-    documentValue: doc.documentNumber,
-    matches: (documentValue, declared) => {
-      const a = normDigits(documentValue)
-      const b = normDigits(declared)
-      return a.length >= 7 && b.length >= 7 && a === b
-    },
+    documentValue: matchedId ?? doc.documentNumber,
+    matches: () => Boolean(matchedId),
     fallbackOk: idDigits.length >= 7 && hayHasCiDigits(hayNorm(hay), idDigits),
   })
   const bdResult = compareField({

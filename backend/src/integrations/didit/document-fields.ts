@@ -14,7 +14,19 @@ export type DiditDocumentFields = {
   firstName?: string
   lastName?: string
   fullName?: string
+  /**
+   * Identificador de la persona (cédula). Se prefiere `personal_number` sobre
+   * `document_number`: en la cédula uruguaya —y en general en documentos con MRZ—
+   * `document_number` es el número de serie del cartón, que cambia en cada renovación,
+   * mientras que `personal_number` es la cédula propiamente dicha.
+   */
   documentNumber?: string
+  /**
+   * Todos los identificadores hallados, en orden de preferencia. Hay documentos donde
+   * el número nacional viene en `document_number` y no en `personal_number`, así que
+   * la comparación acepta que el dato declarado coincida con cualquiera de ellos.
+   */
+  documentNumberCandidates?: string[]
   /** `yyyy-mm-dd` */
   dateOfBirth?: string
   /** `yyyy-mm-dd` */
@@ -24,21 +36,25 @@ export type DiditDocumentFields = {
 /** Contenedores donde Didit suele anidar el OCR; se priorizan sobre el resto del objeto. */
 const PREFERRED_CONTAINERS = ['id_verification', 'idverification', 'id_verifications', 'document', 'kyc']
 
-const FIELD_KEYS: Record<keyof DiditDocumentFields, string[]> = {
+/** Campos escalares que se resuelven por nombre de clave (excluye la lista de candidatos). */
+type ScalarField = Exclude<keyof DiditDocumentFields, 'documentNumberCandidates'>
+
+const FIELD_KEYS: Record<ScalarField, string[]> = {
   firstName: ['first_name', 'firstname', 'given_name', 'given_names', 'names', 'nombre', 'nombres'],
   lastName: ['last_name', 'lastname', 'surname', 'family_name', 'apellido', 'apellidos'],
   fullName: ['full_name', 'fullname', 'name_on_document', 'nombre_completo'],
+  // Orden = preferencia. `document_number` va último a propósito (ver DiditDocumentFields).
   documentNumber: [
-    'document_number',
-    'documentnumber',
     'personal_number',
     'personalnumber',
-    'id_number',
-    'idnumber',
     'national_id',
     'nationalid',
-    'numero_documento',
     'cedula',
+    'numero_documento',
+    'id_number',
+    'idnumber',
+    'document_number',
+    'documentnumber',
   ],
   dateOfBirth: ['date_of_birth', 'dateofbirth', 'birth_date', 'birthdate', 'dob', 'fecha_nacimiento'],
   expirationDate: [
@@ -54,7 +70,7 @@ const FIELD_KEYS: Record<keyof DiditDocumentFields, string[]> = {
   ],
 }
 
-const DATE_FIELDS = new Set<keyof DiditDocumentFields>(['dateOfBirth', 'expirationDate'])
+const DATE_FIELDS = new Set<ScalarField>(['dateOfBirth', 'expirationDate'])
 
 function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[\s-]/g, '_')
@@ -121,22 +137,50 @@ function walkEntries(root: unknown, visit: (key: string, value: unknown) => void
   }
 }
 
-function collectFrom(source: unknown, into: DiditDocumentFields): void {
+/**
+ * Junta, por nombre de clave normalizado, todos los valores escalares del objeto.
+ *
+ * Se indexa por clave en vez de resolver campo por campo durante el recorrido para que
+ * gane el orden de preferencia de `FIELD_KEYS` y no el orden en que aparecen las claves
+ * en el JSON: si no, `document_number` le ganaba a `personal_number` solo por venir antes.
+ */
+function collectValuesByKey(source: unknown, into: Map<string, string[]>): void {
   walkEntries(source, (key, value) => {
+    const scalar = scalarToString(value)
+    if (!scalar) return
     const normalized = normalizeKey(key)
-    for (const field of Object.keys(FIELD_KEYS) as (keyof DiditDocumentFields)[]) {
-      if (into[field] !== undefined) continue
-      if (!FIELD_KEYS[field].includes(normalized)) continue
-      const scalar = scalarToString(value)
-      if (!scalar) continue
-      if (DATE_FIELDS.has(field)) {
-        const date = normalizeDiditDate(scalar)
-        if (date) into[field] = date
-      } else {
-        into[field] = scalar
-      }
+    const list = into.get(normalized)
+    if (list) {
+      if (!list.includes(scalar)) list.push(scalar)
+    } else {
+      into.set(normalized, [scalar])
     }
   })
+}
+
+/** Valores hallados para un campo lógico, en orden de preferencia y sin repetidos. */
+function valuesForField(byKey: Map<string, string[]>, field: ScalarField): string[] {
+  const out: string[] = []
+  for (const key of FIELD_KEYS[field]) {
+    for (const value of byKey.get(key) ?? []) {
+      if (!out.includes(value)) out.push(value)
+    }
+  }
+  return out
+}
+
+/** Asigna a cada campo lógico su mejor valor: el primero según el orden de preferencia. */
+function resolveFields(byKey: Map<string, string[]>, out: DiditDocumentFields): void {
+  for (const field of Object.keys(FIELD_KEYS) as ScalarField[]) {
+    const values = valuesForField(byKey, field)
+    if (values.length === 0) continue
+    if (DATE_FIELDS.has(field)) {
+      const date = values.map(normalizeDiditDate).find(Boolean)
+      if (date) out[field] = date
+    } else {
+      out[field] = values[0]
+    }
+  }
 }
 
 /** Sub-objetos donde Didit anida el OCR, para mirarlos antes que el resto de la decisión. */
@@ -159,8 +203,14 @@ export function extractDiditDocumentFields(decision: unknown): DiditDocumentFiel
 
   // Primero los contenedores de OCR conocidos: evita capturar, por ejemplo, el
   // `first_name` que el propio formulario mandó como vendor_data.
-  for (const container of preferredContainers(decision)) collectFrom(container, out)
-  collectFrom(decision, out)
+  const byKey = new Map<string, string[]>()
+  for (const container of preferredContainers(decision)) collectValuesByKey(container, byKey)
+  collectValuesByKey(decision, byKey)
+
+  resolveFields(byKey, out)
+
+  const idCandidates = valuesForField(byKey, 'documentNumber')
+  if (idCandidates.length > 0) out.documentNumberCandidates = idCandidates
 
   if (!out.firstName && !out.lastName && out.fullName) {
     // Algunos workflows solo devuelven el nombre completo.
