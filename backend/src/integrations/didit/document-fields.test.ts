@@ -35,9 +35,51 @@ describe('extractDiditDocumentFields', () => {
       firstName: 'JUAN CARLOS',
       lastName: 'PEREZ RODRIGUEZ',
       documentNumber: '1.234.567-8',
+      documentNumberCandidates: ['1.234.567-8'],
       dateOfBirth: '1990-01-15',
       expirationDate: '2030-06-10',
     })
+  })
+
+  it('prefiere personal_number sobre document_number para la cédula', () => {
+    // Forma real de una cédula uruguaya en Didit: `document_number` es el número de
+    // serie del cartón (dorso, cambia en cada renovación) y `personal_number` la cédula.
+    const decision = {
+      id_verification: {
+        document_type: 'Identity Card',
+        issuing_state: 'URY',
+        document_number: '0000310IX',
+        personal_number: '5327814-1',
+        first_name: 'JOAQUIN ANDRES',
+        last_name: 'WALLER PEÑA',
+      },
+    }
+
+    const fields = extractDiditDocumentFields(decision)
+
+    expect(fields.documentNumber).toBe('5327814-1')
+    // El serie del cartón se conserva como alternativa, pero nunca primero.
+    expect(fields.documentNumberCandidates).toEqual(['5327814-1', '0000310IX'])
+  })
+
+  it('usa document_number cuando el documento no trae personal_number', () => {
+    const fields = extractDiditDocumentFields({
+      id_verification: { document_number: '1.234.567-8' },
+    })
+
+    expect(fields.documentNumber).toBe('1.234.567-8')
+  })
+
+  it('la preferencia no depende del orden de las claves en el JSON', () => {
+    const conDocPrimero = extractDiditDocumentFields({
+      id_verification: { document_number: '0000310IX', personal_number: '5327814-1' },
+    })
+    const conPersonalPrimero = extractDiditDocumentFields({
+      id_verification: { personal_number: '5327814-1', document_number: '0000310IX' },
+    })
+
+    expect(conDocPrimero.documentNumber).toBe('5327814-1')
+    expect(conPersonalPrimero.documentNumber).toBe('5327814-1')
   })
 
   it('lee el OCR desde id_verifications (array) y formatos de fecha con barras', () => {
@@ -57,6 +99,7 @@ describe('extractDiditDocumentFields', () => {
       firstName: 'ANA',
       lastName: 'GOMEZ',
       documentNumber: '4.567.890-1',
+      documentNumberCandidates: ['4.567.890-1'],
       dateOfBirth: '1985-03-02',
       expirationDate: '2029-12-11',
     })

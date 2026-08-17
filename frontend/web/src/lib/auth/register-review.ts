@@ -9,7 +9,9 @@ export type DiditDocumentFields = {
   firstName?: string
   lastName?: string
   fullName?: string
+  /** Cédula de la persona (no el número de serie del cartón). */
   documentNumber?: string
+  documentNumberCandidates?: string[]
   dateOfBirth?: string
   expirationDate?: string
 }
