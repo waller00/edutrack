@@ -26,6 +26,7 @@ const WITH_MISMATCH: RegisterVerificationResults = {
 function renderReview(results: RegisterVerificationResults | null, overrides = {}) {
   const onBack = vi.fn()
   const onCancel = vi.fn()
+  const onRetryVerification = vi.fn()
   const onConfirm = vi.fn()
   render(
     <RegisterReview
@@ -34,11 +35,12 @@ function renderReview(results: RegisterVerificationResults | null, overrides = {
       submitting={false}
       onBack={onBack}
       onCancel={onCancel}
+      onRetryVerification={onRetryVerification}
       onConfirm={onConfirm}
       {...overrides}
     />,
   )
-  return { onBack, onCancel, onConfirm }
+  return { onBack, onCancel, onRetryVerification, onConfirm }
 }
 
 describe('RegisterReview', () => {
@@ -117,5 +119,43 @@ describe('RegisterReview', () => {
 
     expect(onCancel).toHaveBeenCalledTimes(1)
     expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  describe('cuando el error puede ser de la lectura del documento', () => {
+    it('ofrece rehacer la verificación ante una discrepancia', () => {
+      const { onRetryVerification, onBack } = renderReview(WITH_MISMATCH)
+
+      fireEvent.click(screen.getByRole('button', { name: /verificar de nuevo/i }))
+
+      expect(onRetryVerification).toHaveBeenCalledTimes(1)
+      expect(onBack).not.toHaveBeenCalled()
+    })
+
+    it('no da por sentado que el error es del dato declarado', () => {
+      renderReview(WITH_MISMATCH)
+
+      const alerta = screen.getByRole('alert')
+      // El mensaje anterior mandaba a "corregir" asumiendo que el usuario se equivocó.
+      expect(alerta).not.toHaveTextContent(/volvé al paso 1 y corregilo/i)
+      expect(alerta).toHaveTextContent(/puede haber fallado la lectura del documento/i)
+    })
+
+    it('deja rehacer la verificación aunque el bloqueo sea por un campo sin confirmar', () => {
+      const { onRetryVerification } = renderReview({
+        verifiedFields: 0,
+        totalFields: 1,
+        verification: {
+          nationalIdDocumentExpiresAt: { provided: '—', message: '⚠️ No pudimos determinar la fecha' },
+        },
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: /verificar de nuevo/i }))
+      expect(onRetryVerification).toHaveBeenCalledTimes(1)
+    })
+
+    it('bloquea el reintento mientras se crea la cuenta', () => {
+      renderReview(ALL_MATCH, { submitting: true })
+      expect(screen.getByRole('button', { name: /verificar de nuevo/i })).toBeDisabled()
+    })
   })
 })
