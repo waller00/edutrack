@@ -43,6 +43,7 @@ export default function RegisterReview({
   account,
   submitting,
   onBack,
+  onCancel,
   onConfirm,
 }: {
   verificationResults: RegisterVerificationResults | null
@@ -51,6 +52,8 @@ export default function RegisterReview({
   account: { email: string; phone: string; roleLabel: string }
   submitting: boolean
   onBack: () => void
+  /** Abandona el alta por completo. Sin esto el paso queda sin salida. */
+  onCancel: () => void
   onConfirm: () => void
 }) {
   const rows = buildReviewRows(verificationResults, documentFields)
@@ -138,6 +141,17 @@ export default function RegisterReview({
           title={canConfirm ? undefined : (blockingReason ?? undefined)}
         >
           <PendingButtonContent pending={submitting} pendingText="Creando cuenta…" idle="Terminar registro" />
+        </button>
+      </div>
+
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={submitting}
+          className="text-sm text-gray-500 underline underline-offset-2 hover:text-gray-700 disabled:opacity-60"
+        >
+          Cancelar registro
         </button>
       </div>
     </div>

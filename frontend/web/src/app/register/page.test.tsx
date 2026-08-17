@@ -138,12 +138,38 @@ describe('RegisterPage', () => {
 
     render(<RegisterPage />)
 
-    await waitFor(() => {
-      const cancel = screen.getByRole('link', { name: /^cancelar$/i })
-      expect(cancel).toHaveAttribute(
-        'href',
-        'http://localhost:4000/auth/logout?returnTo=%2Flogin',
-      )
-    })
+    const cancel = await screen.findByRole('button', { name: /^cancelar$/i })
+    fireEvent.click(cancel)
+
+    // Con alta por Google hay sesión abierta: cancelar tiene que cerrarla, y el
+    // destino lleva `cancelled=1` para que /login no rebote al proveedor de identidad.
+    await waitFor(() =>
+      expect(locationMock.href).toBe(
+        'http://localhost:4000/auth/logout?returnTo=%2Flogin%3Fcancelled%3D1',
+      ),
+    )
+  })
+
+  it('cancelar borra el borrador y el token de verificación pendientes', async () => {
+    const locationMock = { href: '', replace: vi.fn(), search: '' }
+    Object.defineProperty(window, 'location', { configurable: true, value: locationMock })
+    sessionStorage.setItem('edutrack_register_draft', JSON.stringify({ v: 1 }))
+    sessionStorage.setItem('edutrack_liveness_token', 'token-viejo')
+    sessionStorage.setItem('edutrack.login.autostarted', '1')
+
+    mockedApi
+      .mockImplementationOnce(() => Promise.reject(new Error('401')))
+      .mockResolvedValue({ livenessCheckEnabled: true })
+
+    render(<RegisterPage />)
+    await screen.findByText('Crear Cuenta')
+
+    fireEvent.click(await screen.findByRole('button', { name: /^cancelar$/i }))
+
+    await waitFor(() => expect(locationMock.href).toBe('/login?cancelled=1'))
+    // Si algo de esto sobrevive, al volver a /register el wizard retoma un paso viejo.
+    expect(sessionStorage.getItem('edutrack_register_draft')).toBeNull()
+    expect(sessionStorage.getItem('edutrack_liveness_token')).toBeNull()
+    expect(sessionStorage.getItem('edutrack.login.autostarted')).toBeNull()
   })
 })

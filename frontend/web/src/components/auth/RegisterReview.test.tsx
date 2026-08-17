@@ -25,6 +25,7 @@ const WITH_MISMATCH: RegisterVerificationResults = {
 
 function renderReview(results: RegisterVerificationResults | null, overrides = {}) {
   const onBack = vi.fn()
+  const onCancel = vi.fn()
   const onConfirm = vi.fn()
   render(
     <RegisterReview
@@ -32,11 +33,12 @@ function renderReview(results: RegisterVerificationResults | null, overrides = {
       account={ACCOUNT}
       submitting={false}
       onBack={onBack}
+      onCancel={onCancel}
       onConfirm={onConfirm}
       {...overrides}
     />,
   )
-  return { onBack, onConfirm }
+  return { onBack, onCancel, onConfirm }
 }
 
 describe('RegisterReview', () => {
@@ -100,10 +102,20 @@ describe('RegisterReview', () => {
     expect(screen.getByText(/no lo pudimos leer/i)).toBeInTheDocument()
   })
 
-  it('bloquea ambos botones mientras se está creando la cuenta', () => {
+  it('bloquea todos los botones mientras se está creando la cuenta', () => {
     renderReview(ALL_MATCH, { submitting: true })
 
     expect(screen.getByRole('button', { name: /creando cuenta/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /volver y corregir/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /cancelar registro/i })).toBeDisabled()
+  })
+
+  it('permite abandonar el alta desde la revisión', () => {
+    const { onCancel, onConfirm } = renderReview(WITH_MISMATCH)
+
+    fireEvent.click(screen.getByRole('button', { name: /cancelar registro/i }))
+
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    expect(onConfirm).not.toHaveBeenCalled()
   })
 })

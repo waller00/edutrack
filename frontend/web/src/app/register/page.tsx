@@ -438,6 +438,26 @@ export default function RegisterPage() {
     setTouched((t) => (t[field] ? t : { ...t, [field]: true }))
   }
 
+  /**
+   * Abandona el alta y deja el navegador limpio.
+   *
+   * No alcanza con navegar a `/login`: si queda el borrador o el token de liveness en
+   * sessionStorage, al volver a `/register` el wizard retoma un paso intermedio con
+   * datos viejos. Y `edutrack.login.autostarted` hay que borrarlo porque si no, la
+   * pantalla de login muestra "no pudimos confirmar la sesión" en vez del ingreso.
+   */
+  function cancelRegistration() {
+    clearRegisterDraft()
+    try {
+      globalThis.sessionStorage.removeItem('edutrack_liveness_token')
+      globalThis.sessionStorage.removeItem('edutrack.login.autostarted')
+    } catch {
+      /* navegador sin sessionStorage */
+    }
+    const target = '/login?cancelled=1'
+    globalThis.location.href = ssoRegistrationToken ? logoutUrl(target) : target
+  }
+
   function goToIdentityStep() {
     if (!dataStepComplete) {
       // Al intentar avanzar se revelan todos los errores pendientes de una vez.
@@ -918,9 +938,9 @@ export default function RegisterPage() {
               <button type="submit" className="btn-primary flex-1 disabled:opacity-60" disabled={!dataStepComplete}>
                 Continuar
               </button>
-              <a href={ssoRegistrationToken ? logoutUrl('/login') : '/login'} className="btn-secondary flex-1 text-center">
+              <button type="button" onClick={cancelRegistration} className="btn-secondary flex-1">
                 Cancelar
-              </a>
+              </button>
             </div>
 
             {!dataStepComplete && Object.keys(touched).length > 0 && (
@@ -928,6 +948,12 @@ export default function RegisterPage() {
                 Completá los campos marcados en rojo para continuar.
               </p>
             )}
+
+            <div className="mt-6 pt-6 border-t border-gray-200 text-center">
+              <p className="text-sm text-gray-500">
+                Siempre se valida la identidad con el DNI y luego un administrador aprueba el alta.
+              </p>
+            </div>
           </form>
           )}
 
@@ -1053,12 +1079,15 @@ export default function RegisterPage() {
               >
                 Volver a mis datos
               </button>
-            </div>
-
-            <div className="mt-6 pt-6 border-t border-gray-200 text-center">
-              <p className="text-sm text-gray-500">
-                El registro quedó unificado: siempre se valida identidad con DNI y luego un administrador aprueba el alta.
-              </p>
+              {/* Sin esto el paso queda sin salida cuando la verificación no está disponible. */}
+              <button
+                type="button"
+                onClick={cancelRegistration}
+                className="btn-secondary flex-1"
+                disabled={identityVerifyBusy || livenessStarting}
+              >
+                Cancelar registro
+              </button>
             </div>
           </div>
           )}
@@ -1074,6 +1103,7 @@ export default function RegisterPage() {
               }}
               submitting={loading}
               onBack={() => { setError(''); setStep(STEP_DATA) }}
+              onCancel={cancelRegistration}
               onConfirm={() => { void submitRegistration() }}
             />
           )}
