@@ -85,10 +85,12 @@ export function canConfirmRegistration(rows: ReviewRow[]): boolean {
 export function getReviewBlockingReason(rows: ReviewRow[]): string | null {
   if (rows.length === 0) return 'Todavía no verificaste tu identidad.'
 
+  // Sin dar por sentado de qué lado está el error: puede ser el dato declarado o la
+  // lectura del documento, y el usuario necesita saber que tiene las dos salidas.
   const mismatched = rows.filter((r) => r.status === 'mismatch')
   if (mismatched.length > 0) {
     const labels = mismatched.map((r) => r.label.toLowerCase()).join(', ')
-    return `Lo que declaraste no coincide con tu documento en: ${labels}. Volvé al paso 1 y corregilo.`
+    return `No coincide con tu documento en: ${labels}.`
   }
 
   const unknown = rows.filter((r) => r.status === 'unknown')

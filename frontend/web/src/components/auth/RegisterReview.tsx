@@ -1,6 +1,6 @@
 'use client'
 
-import { AlertTriangle, ArrowLeft, Check, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Check, RefreshCw, X } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import {
   buildReviewRows,
@@ -44,6 +44,7 @@ export default function RegisterReview({
   submitting,
   onBack,
   onCancel,
+  onRetryVerification,
   onConfirm,
 }: {
   verificationResults: RegisterVerificationResults | null
@@ -54,6 +55,8 @@ export default function RegisterReview({
   onBack: () => void
   /** Abandona el alta por completo. Sin esto el paso queda sin salida. */
   onCancel: () => void
+  /** Descarta la lectura del documento y arranca una verificación nueva. */
+  onRetryVerification: () => void
   onConfirm: () => void
 }) {
   const rows = buildReviewRows(verificationResults, documentFields)
@@ -125,6 +128,10 @@ export default function RegisterReview({
       {blockingReason && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4">
           <p className="text-sm font-medium text-red-700">{blockingReason}</p>
+          <p className="mt-2 text-sm text-red-700">
+            Si lo que ingresaste está bien, puede haber fallado la lectura del documento:
+            probá <strong>verificar de nuevo</strong> con mejor luz y sin reflejos.
+          </p>
         </div>
       )}
 
@@ -132,6 +139,15 @@ export default function RegisterReview({
         <button type="button" onClick={onBack} disabled={submitting} className="btn-secondary flex-1 justify-center">
           <ArrowLeft className="mr-1 h-4 w-4" aria-hidden />
           Volver y corregir
+        </button>
+        <button
+          type="button"
+          onClick={onRetryVerification}
+          disabled={submitting}
+          className="btn-secondary flex-1 justify-center"
+        >
+          <RefreshCw className="mr-1 h-4 w-4" aria-hidden />
+          Verificar de nuevo
         </button>
         <button
           type="button"

@@ -138,8 +138,12 @@ describe('RegisterPage', () => {
 
     render(<RegisterPage />)
 
-    const cancel = await screen.findByRole('button', { name: /^cancelar$/i })
-    fireEvent.click(cancel)
+    // El botón aparece antes de que resuelva el prefill de Google. Si se hace clic ahí,
+    // todavía no hay `ssoRegistrationToken` y cancelar toma la rama sin sesión: hay que
+    // esperar a que el alta esté efectivamente en modo Google.
+    await screen.findByText(/El correo queda fijado por la cuenta de Google/i)
+
+    fireEvent.click(screen.getByRole('button', { name: /^cancelar$/i }))
 
     // Con alta por Google hay sesión abierta: cancelar tiene que cerrarla, y el
     // destino lleva `cancelled=1` para que /login no rebote al proveedor de identidad.

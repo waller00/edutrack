@@ -45,6 +45,26 @@ type DiditFieldVerifyApiResponse = {
   documentFields?: DiditDocumentFields
 }
 
+/**
+ * Borra de la URL los parámetros que deja el retorno de Didit.
+ *
+ * Es imprescindible al reiniciar una verificación: el efecto que retoma la sesión corre
+ * también en cada `focus` de la ventana, así que si `status=approved` sigue en la URL
+ * vuelve a marcar la verificación como aprobada y deshace el reinicio.
+ */
+function clearDiditUrlParams(): void {
+  try {
+    const u = new URL(globalThis.location.href)
+    for (const k of ['status', 'verificationSessionId', 'session_id', 'vendor_data', 'liveness']) {
+      u.searchParams.delete(k)
+    }
+    const q = u.searchParams.toString()
+    globalThis.history.replaceState(null, '', `${u.pathname}${q ? `?${q}` : ''}`)
+  } catch {
+    /* history bloqueado */
+  }
+}
+
 /** Pasos del alta: datos → verificación de identidad → revisión y confirmación. */
 const STEP_DATA = 0
 const STEP_IDENTITY = 1
@@ -458,6 +478,31 @@ export default function RegisterPage() {
     globalThis.location.href = ssoRegistrationToken ? logoutUrl(target) : target
   }
 
+  /**
+   * Descarta la verificación hecha y vuelve al paso de identidad para arrancar una nueva.
+   *
+   * Una discrepancia no siempre es culpa del dato declarado: la lectura del documento
+   * puede fallar (foto borrosa, reflejo, campo mal reconocido). Sin esto, el usuario cuyos
+   * datos están bien no tiene salida, porque "volver y corregir" lo invita a romper datos
+   * correctos y la sesión de Didit ya usada no se puede re-consultar.
+   */
+  function retryIdentityVerification() {
+    setVerificationResults(null)
+    setDocumentFields(undefined)
+    setIdentityVerificationMethod(null)
+    setLivenessApproved(false)
+    setLivenessToken(null)
+    setLivenessPollError('')
+    setError('')
+    try {
+      globalThis.sessionStorage.removeItem('edutrack_liveness_token')
+    } catch {
+      /* navegador sin sessionStorage */
+    }
+    clearDiditUrlParams()
+    setStep(STEP_IDENTITY)
+  }
+
   function goToIdentityStep() {
     if (!dataStepComplete) {
       // Al intentar avanzar se revelan todos los errores pendientes de una vez.
@@ -630,14 +675,7 @@ export default function RegisterPage() {
           globalThis.sessionStorage.removeItem('edutrack_liveness_token')
         } catch { /* */ }
         setError('')
-        try {
-          const u = new URL(globalThis.location.href)
-          ;['status', 'verificationSessionId', 'session_id', 'vendor_data', 'liveness'].forEach((k) =>
-            u.searchParams.delete(k),
-          )
-          const q = u.searchParams.toString()
-          globalThis.history.replaceState(null, '', `${u.pathname}${q ? `?${q}` : ''}`)
-        } catch { /* */ }
+        clearDiditUrlParams()
       } else {
         const isBareStatus = /^API \d{3}$/i.test(apiMsg.trim())
         if (!isBareStatus && apiMsg) {
@@ -1030,6 +1068,16 @@ export default function RegisterPage() {
                           </span>
                         )}
                       </p>
+                      {/* La lectura del documento puede haber salido mal aunque la
+                          verificación biométrica se apruebe. */}
+                      <button
+                        type="button"
+                        onClick={retryIdentityVerification}
+                        disabled={identityVerifyBusy}
+                        className="text-sm text-emerald-700 underline underline-offset-2 hover:text-emerald-800 disabled:opacity-60"
+                      >
+                        Verificar de nuevo
+                      </button>
                     </div>
                   )}
                   {livenessPollError && <p className="text-sm text-red-600 mt-2">{livenessPollError}</p>}
@@ -1104,6 +1152,7 @@ export default function RegisterPage() {
               submitting={loading}
               onBack={() => { setError(''); setStep(STEP_DATA) }}
               onCancel={cancelRegistration}
+              onRetryVerification={retryIdentityVerification}
               onConfirm={() => { void submitRegistration() }}
             />
           )}
