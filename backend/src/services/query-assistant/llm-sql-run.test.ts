@@ -5,6 +5,11 @@ const { createMock, queryRawUnsafeMock } = vi.hoisted(() => ({
   queryRawUnsafeMock: vi.fn(),
 }))
 
+/** Cliente readonly simulado; se pone en `null` para probar el fallo cerrado. */
+let readonlyClient: { $queryRawUnsafe: typeof queryRawUnsafeMock } | null = {
+  $queryRawUnsafe: queryRawUnsafeMock,
+}
+
 vi.mock('openai', () => {
   class APIError extends Error {
     status?: number
@@ -17,7 +22,10 @@ vi.mock('openai', () => {
   }
 })
 
-vi.mock('../../db/prisma.js', () => ({ prisma: { $queryRawUnsafe: queryRawUnsafeMock } }))
+// El SQL del modelo se ejecuta con el cliente de solo lectura, nunca con el principal.
+vi.mock('../../db/prisma-readonly.js', () => ({
+  getReadonlyPrisma: () => readonlyClient,
+}))
 
 import { runNaturalLanguageSqlQuery } from './llm-sql.js'
 
@@ -32,6 +40,7 @@ function planResponse(sql: string, title = 'Título', summary = 'Resumen') {
 beforeEach(() => {
   createMock.mockReset()
   queryRawUnsafeMock.mockReset()
+  readonlyClient = { $queryRawUnsafe: queryRawUnsafeMock }
   process.env.OPENAI_API_KEY = 'sk-test-key'
 })
 
@@ -142,5 +151,15 @@ describe('runNaturalLanguageSqlQuery', () => {
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1)
     expect(r.rows).toEqual([])
     expect(r.summary).toContain('No se encontraron filas')
+  })
+
+  it('falla cerrado si no hay base de solo lectura: no llama al modelo ni ejecuta SQL', async () => {
+    readonlyClient = null
+
+    await expect(runNaturalLanguageSqlQuery('emails')).rejects.toThrow(
+      'QUERY_ASSISTANT_READONLY_DB_NOT_CONFIGURED',
+    )
+    expect(createMock).not.toHaveBeenCalled()
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled()
   })
 })

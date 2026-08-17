@@ -40,7 +40,36 @@ afterEach(() => {
   else process.env.QUERY_ASSISTANT_MODE = ORIGINAL_MODE
 })
 
-describe('runAdminQueryAssistant — orquestación SQL-first', () => {
+describe('runAdminQueryAssistant — modo seguro por defecto', () => {
+  it('sin QUERY_ASSISTANT_MODE usa el clasificador y nunca el traductor NL→SQL', async () => {
+    mocks.parse.mockResolvedValue({ intent: 'AUDIT_LOG_SUMMARY', params: {}, reply: 'ok' })
+    mocks.audit.mockResolvedValue(tableResult('AUDIT_LOG_SUMMARY'))
+
+    const r = await runAdminQueryAssistant('¿qué asignaturas tienen más eventos en junio?')
+
+    expect(r.intent).toBe('AUDIT_LOG_SUMMARY')
+    expect(mocks.parse).toHaveBeenCalled()
+    // Lo que importa: el modelo no llega a escribir SQL si falta la variable de entorno.
+    expect(mocks.sql).not.toHaveBeenCalled()
+  })
+
+  it('un valor desconocido de QUERY_ASSISTANT_MODE tampoco habilita SQL libre', async () => {
+    process.env.QUERY_ASSISTANT_MODE = 'sql-libre-por-favor'
+    mocks.parse.mockResolvedValue({ intent: 'AUDIT_LOG_SUMMARY', params: {}, reply: 'ok' })
+    mocks.audit.mockResolvedValue(tableResult('AUDIT_LOG_SUMMARY'))
+
+    await runAdminQueryAssistant('cualquier cosa')
+
+    expect(mocks.sql).not.toHaveBeenCalled()
+  })
+})
+
+describe('runAdminQueryAssistant — modo hybrid (NL→SQL con respaldo)', () => {
+  beforeEach(() => {
+    // El SQL libre es opt-in explícito; sin esto el default es el clasificador.
+    process.env.QUERY_ASSISTANT_MODE = 'hybrid'
+  })
+
   it('"horas trabajadas mayo" usa el informe curado sin llamar al LLM', async () => {
     mocks.hours.mockResolvedValue(tableResult('HOURS_WORKED_SUMMARY'))
 

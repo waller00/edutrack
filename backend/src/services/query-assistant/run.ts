@@ -18,9 +18,9 @@ import { executeUsersAdminSnapshot } from './users-admin.js'
 /**
  * Intents que la heurística local resuelve con precisión suficiente como para
  * saltear el LLM: cálculos con lógica curada en el servidor (horas efectivas)
- * o listados administrativos fijos. El resto de las preguntas va directo al
- * traductor NL→SQL, que entiende sinónimos y fraseo libre mucho mejor que las
- * reglas por regex.
+ * o listados administrativos fijos. Solo se usa en modo `hybrid`; ahí el resto
+ * de las preguntas va al traductor NL→SQL, que entiende sinónimos y fraseo libre
+ * mucho mejor que las reglas por regex.
  *
  * ABSENCES_SUMMARY es fast-path por necesidad, no por ahorro: las faltas se
  * derivan de las ocurrencias planificadas (recurrencia expandida en TypeScript)
@@ -99,20 +99,26 @@ async function runIntentPipeline(
 }
 
 /**
- * Orquestación por defecto (SQL-first):
- * 1. Heurística local solo para intents de alta precisión (cero tokens).
- * 2. Traductor NL→SQL con esquema + sinónimos (una llamada, prefijo cacheable).
- * 3. Si el SQL falla por causas ajenas a la configuración, informe heurístico de respaldo.
+ * Orquestación del asistente. El modo se elige con `QUERY_ASSISTANT_MODE`:
  *
- * `QUERY_ASSISTANT_MODE=sql` fuerza solo SQL; `intent` mantiene el pipeline clásico.
+ * - `intent` (**default**): clasificador + informes prearmados. El modelo nunca escribe
+ *   SQL; solo devuelve una etiqueta y parámetros, y las consultas las ejecuta código
+ *   curado. Es el modo seguro y por eso es el comportamiento por omisión.
+ * - `sql`: solo el traductor NL→SQL.
+ * - `hybrid`: heurística local para intents de alta precisión y luego NL→SQL, con
+ *   informe prearmado de respaldo si el SQL falla.
+ *
+ * Los modos que dejan al modelo generar SQL son **opt-in explícito**: se ejecuta contra
+ * la base con `$queryRawUnsafe`, así que un `.env` incompleto no debe habilitarlos por
+ * accidente. Ver también el chequeo de base de solo lectura en `llm-sql.ts`.
  */
 export async function runAdminQueryAssistant(
   question: string,
   scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
-  const mode = process.env.QUERY_ASSISTANT_MODE
+  const mode = process.env.QUERY_ASSISTANT_MODE?.trim() || 'intent'
   const trimmed = question.trim()
-  if (mode === 'intent') return runIntentPipeline(trimmed, scope)
+  if (mode !== 'sql' && mode !== 'hybrid') return runIntentPipeline(trimmed, scope)
 
   if (mode !== 'sql') {
     const fast = await tryHeuristicReport(trimmed, scope, FAST_PATH_INTENTS)

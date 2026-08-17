@@ -46,6 +46,7 @@ enum AuditAction {
   ATTENDANCE_INCIDENT_RESOLVED
   SUBSTITUTION_CREATED
   MOODLE_GRADES_PUSHED
+  QUERY_ASSISTANT_QUERY_EXECUTED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).

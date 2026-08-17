@@ -2,7 +2,7 @@ import OpenAI, { APIError } from 'openai'
 import { DateTime } from 'luxon'
 import { z } from 'zod'
 import { getAppTimezone } from '../../config/app-timezone.js'
-import { prisma } from '../../db/prisma.js'
+import { getReadonlyPrisma } from '../../db/prisma-readonly.js'
 import { defaultModelForProvider, getQueryAssistantLlmClient } from './llm-client.js'
 import { temperatureParams } from './model-params.js'
 import { DATABASE_CONTEXT } from './schema-context.js'
@@ -97,13 +97,51 @@ function stripTrailingSemicolon(sql: string): string {
   return clean.trim()
 }
 
+/**
+ * Tablas referenciadas en las cláusulas FROM/JOIN.
+ *
+ * Toma la lista completa que sigue a cada `FROM`, no solo el primer identificador:
+ * `FROM "User", "BiometricDevice"` es un cross join válido y con la versión anterior
+ * (que solo miraba el token pegado al FROM) la segunda tabla se colaba sin control.
+ */
 function referencedTables(sql: string): string[] {
   const found = new Set<string>()
-  const quoted = sql.matchAll(/\b(?:from|join)\s+"([^"]+)"/giu)
-  for (const match of quoted) found.add(match[1])
-  const unquoted = sql.matchAll(/\b(?:from|join)\s+([A-Za-z_][A-Za-z0-9_]*)/giu)
-  for (const match of unquoted) found.add(match[1])
+
+  const addName = (raw: string) => {
+    const name = raw.trim().replace(/^"(.*)"$/s, '$1')
+    if (name) found.add(name)
+  }
+
+  // Cada JOIN referencia una sola tabla.
+  for (const match of sql.matchAll(/\bjoin\s+("(?:[^"]+)"|[A-Za-z_][A-Za-z0-9_]*)/giu)) {
+    addName(match[1])
+  }
+
+  // El FROM puede listar varias separadas por coma, con alias intercalados.
+  for (const match of sql.matchAll(/\bfrom\s+([\s\S]*?)(?=\b(?:where|group|order|having|limit|offset|union|intersect|except|window|join|on|returning)\b|$)/giu)) {
+    for (const part of match[1].split(',')) {
+      const trimmed = part.trim()
+      // Subconsultas y funciones se validan por su propio FROM / por la denylist.
+      if (!trimmed || trimmed.startsWith('(')) continue
+      const first = /^("(?:[^"]+)"|[A-Za-z_][A-Za-z0-9_]*)/u.exec(trimmed)
+      if (first) addName(first[1])
+    }
+  }
+
   return [...found]
+}
+
+/**
+ * Funciones que permiten leer el sistema de archivos, abrir conexiones, cambiar
+ * parámetros de sesión o colgar la consulta. No las cubre `FORBIDDEN_SQL` porque
+ * ninguna es una palabra reservada.
+ */
+const FORBIDDEN_FUNCTIONS =
+  /\b(pg_sleep|pg_sleep_for|pg_sleep_until|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_file|pg_logdir_ls|lo_import|lo_export|dblink|dblink_connect|postgres_fdw_handler|set_config|current_setting|query_to_xml|query_to_xml_and_xmlschema|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|txid_current)\s*\(/i
+
+/** `true` si la consulta contiene alguna llamada a función. */
+function hasFunctionCall(sql: string): boolean {
+  return /[A-Za-z_][A-Za-z0-9_]*\s*\(/u.test(sql)
 }
 
 /**
@@ -141,11 +179,20 @@ export function validateReadOnlySql(sql: string): string {
     throw new Error('QUERY_ASSISTANT_SQL_COMMENTS_FORBIDDEN')
   }
   if (FORBIDDEN_SQL.test(skeleton)) throw new Error('QUERY_ASSISTANT_SQL_FORBIDDEN_KEYWORD')
+  if (FORBIDDEN_FUNCTIONS.test(skeleton)) throw new Error('QUERY_ASSISTANT_SQL_FORBIDDEN_FUNCTION')
 
   // Las tablas se detectan sobre los identificadores intactos del SQL original.
   const tables = referencedTables(cleaned)
   const unknown = tables.filter((t) => !ALLOWED_TABLES.has(t))
   if (unknown.length > 0) throw new Error(`QUERY_ASSISTANT_SQL_UNKNOWN_TABLE:${unknown.join(',')}`)
+
+  // Sin FROM no hay tabla que validar, así que la allowlist no aplica y cualquier
+  // función del sistema pasaría. Se admite solo el SELECT inocuo que el propio system
+  // prompt pide devolver cuando la pregunta no se puede responder:
+  //   SELECT 'No se puede responder...' AS "Mensaje" WHERE false
+  if (tables.length === 0 && hasFunctionCall(skeleton)) {
+    throw new Error('QUERY_ASSISTANT_SQL_NO_TABLE_WITH_FUNCTION')
+  }
 
   return cleaned
 }
@@ -294,6 +341,12 @@ export async function runNaturalLanguageSqlQuery(
   question: string,
   scope?: QueryAssistantScope,
 ): Promise<QueryAssistantTableResult> {
+  // Falla cerrado: sin base de solo lectura no se ejecuta SQL escrito por el modelo.
+  // El cliente principal se conecta con el dueño de la base, así que caer a él dejaría
+  // al validador de texto como única barrera contra escrituras.
+  const readonlyPrisma = getReadonlyPrisma()
+  if (!readonlyPrisma) throw new Error('QUERY_ASSISTANT_READONLY_DB_NOT_CONFIGURED')
+
   const { client, provider } = getQueryAssistantLlmClient()
   const model = sqlModel(provider)
 
@@ -311,7 +364,9 @@ export async function runNaturalLanguageSqlQuery(
   for (;;) {
     let rows: Record<string, unknown>[]
     try {
-      rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(limitedSql(validateReadOnlySql(plan.sql)))
+      rows = await readonlyPrisma.$queryRawUnsafe<Record<string, unknown>[]>(
+        limitedSql(validateReadOnlySql(plan.sql)),
+      )
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e)
       const next = isRepairableError(message) ? await repairPlan(client, model, messages, plan, message, budget) : null

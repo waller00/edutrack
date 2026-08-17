@@ -62,4 +62,68 @@ describe('validateReadOnlySql', () => {
       /QUERY_ASSISTANT_SQL_UNKNOWN_TABLE/,
     )
   })
+
+  describe('evasiones de la lista de tablas', () => {
+    it('rechaza una tabla no permitida agregada al FROM con coma (cross join)', () => {
+      expect(() => validateReadOnlySql('SELECT * FROM "User", "BiometricDevice"')).toThrow(
+        /QUERY_ASSISTANT_SQL_UNKNOWN_TABLE.*BiometricDevice/,
+      )
+    })
+
+    it('rechaza la tabla no permitida aunque venga con alias', () => {
+      expect(() =>
+        validateReadOnlySql('SELECT u."email" FROM "User" u, "SystemSettings" s WHERE true'),
+      ).toThrow(/QUERY_ASSISTANT_SQL_UNKNOWN_TABLE.*SystemSettings/)
+    })
+
+    it('rechaza una tabla no permitida traída por UNION', () => {
+      expect(() =>
+        validateReadOnlySql('SELECT "id" FROM "User" UNION SELECT "id" FROM "LivenessSession"'),
+      ).toThrow(/QUERY_ASSISTANT_SQL_UNKNOWN_TABLE.*LivenessSession/)
+    })
+
+    it('sigue aceptando varias tablas permitidas separadas por coma', () => {
+      expect(() =>
+        validateReadOnlySql('SELECT * FROM "User", "Attendance" WHERE "User"."id" = "Attendance"."userId"'),
+      ).not.toThrow()
+    })
+  })
+
+  describe('consultas sin FROM', () => {
+    it('rechaza funciones de sistema que cuelgan la consulta', () => {
+      expect(() => validateReadOnlySql('SELECT pg_sleep(300)')).toThrow(
+        'QUERY_ASSISTANT_SQL_FORBIDDEN_FUNCTION',
+      )
+    })
+
+    it('rechaza lectura de archivos del servidor', () => {
+      expect(() => validateReadOnlySql("SELECT pg_read_file('/etc/passwd')")).toThrow(
+        'QUERY_ASSISTANT_SQL_FORBIDDEN_FUNCTION',
+      )
+    })
+
+    it('rechaza cualquier otra llamada a función sin tabla que validar', () => {
+      expect(() => validateReadOnlySql('SELECT version()')).toThrow(
+        'QUERY_ASSISTANT_SQL_NO_TABLE_WITH_FUNCTION',
+      )
+    })
+
+    it('acepta el SELECT inocuo que pide el system prompt cuando no se puede responder', () => {
+      expect(() =>
+        validateReadOnlySql(
+          `SELECT 'No se puede responder con el esquema disponible' AS "Mensaje" WHERE false`,
+        ),
+      ).not.toThrow()
+    })
+  })
+
+  it('rechaza funciones peligrosas aunque haya una tabla permitida', () => {
+    expect(() => validateReadOnlySql('SELECT pg_sleep(300) FROM "User"')).toThrow(
+      'QUERY_ASSISTANT_SQL_FORBIDDEN_FUNCTION',
+    )
+  })
+
+  it('sigue aceptando funciones de agregación normales', () => {
+    expect(() => validateReadOnlySql('SELECT count(*) FROM "User"')).not.toThrow()
+  })
 })

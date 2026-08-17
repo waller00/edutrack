@@ -84,6 +84,8 @@ services:
       NODE_ENV: production
       PORT: 4000
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@pg:5432/${POSTGRES_DB:-asistencias}?schema=public}
+      # Solo lectura para el asistente NL->SQL; si falta, ese modo no ejecuta nada.
+      DATABASE_URL_READONLY: ${DATABASE_URL_READONLY:-}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---

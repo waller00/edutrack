@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { Prisma, AuditAction } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
+import { rateLimit } from '../middlewares/rate-limit.js'
 import { z } from 'zod'
 import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
 import { isDiditConfigured, isMoodleSyncEnabledFromEnv, getMoodleOperationalSettings } from '../config/system-settings.js'
@@ -1137,7 +1138,11 @@ r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRou
 r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSchoolYearsRoutes)
 
 /** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
-r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), async (req, res) => {
+// Cada consulta puede disparar varias llamadas al LLM; sin techo, un solo usuario con
+// el permiso satura el modelo para todos los demás.
+const queryAssistantRateLimit = rateLimit({ bucket: 'query-assistant', max: 20, windowSeconds: 60 })
+
+r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), queryAssistantRateLimit, async (req, res) => {
   const parsed = z
     .object({
       question: z.string().min(1).max(2000),
@@ -1176,9 +1181,33 @@ r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), asyn
       schoolYearEndsOn: schoolYear?.endsOn ? schoolYear.endsOn.toISOString().slice(0, 10) : undefined,
       ...(hasUiRange ? { dateFrom: uiFrom, dateTo: uiTo } : {}),
     })
+
+    // Trazabilidad: qué se preguntó, con qué alcance y qué resolvió el asistente.
+    // Fire-and-forget para no sumar latencia a una respuesta que ya esperó al modelo.
+    recordAuditEvent({
+      action: AuditAction.QUERY_ASSISTANT_QUERY_EXECUTED,
+      actorUserId: req.user?.id ?? null,
+      req,
+      entityType: 'QueryAssistant',
+      metadata: {
+        question: parsed.data.question.slice(0, 500),
+        mode: process.env.QUERY_ASSISTANT_MODE?.trim() || 'intent',
+        intent: result.intent,
+        rowCount: result.rows.length,
+        schoolYearId: schoolYear?.id ?? schoolYearId ?? null,
+        allYears,
+      },
+    })
+
     return res.json(result)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'QUERY_ASSISTANT_READONLY_DB_NOT_CONFIGURED') {
+      return res.status(503).json({
+        message:
+          'El asistente no puede ejecutar consultas SQL: falta DATABASE_URL_READONLY (base de solo lectura) en el servidor.',
+      })
+    }
     if (msg === 'OPENAI_API_KEY_NOT_CONFIGURED') {
       return res.status(503).json({
         message: 'El asistente no está configurado. Definí OPENAI_API_KEY o configurá QUERY_ASSISTANT_LLM_PROVIDER=ollama con OLLAMA_BASE_URL.',

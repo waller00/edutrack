@@ -65,6 +65,7 @@ export function isQueryAssistantConfigErrorMessage(message: string): boolean {
     message === 'OPENAI_API_KEY_NOT_CONFIGURED' ||
     message.startsWith('OPENAI_API_KEY_INVALID_FORMAT:') ||
     message === 'OLLAMA_BASE_URL_NOT_CONFIGURED' ||
+    message === 'QUERY_ASSISTANT_READONLY_DB_NOT_CONFIGURED' ||
     message.startsWith('QUERY_ASSISTANT_LLM_PROVIDER_INVALID:')
   )
 }
