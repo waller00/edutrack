@@ -84,26 +84,41 @@ describe('AdminStudentsPage', () => {
 
     expect(screen.queryByRole('button', { name: /Limpiar/ })).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Filtrar por estado'), { target: { value: 'ACTIVE' } })
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'ACTIVE' } })
 
-    const clear = await screen.findByRole('button', { name: 'Limpiar (1)' })
+    const clear = await screen.findByRole('button', { name: /Limpiar/ })
+    expect(clear).toHaveTextContent('1')
     fireEvent.click(clear)
 
     await waitFor(() => expect(screen.queryByRole('button', { name: /Limpiar/ })).not.toBeInTheDocument())
   })
 
-  it('reenvía el correo Moodle desde la fila pendiente', async () => {
-    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
+  it('reenvía el correo Moodle tras confirmar en el diálogo', async () => {
     render(<AdminStudentsPage />)
     const table = await screen.findByRole('table')
 
     fireEvent.click(within(table).getByRole('button', { name: 'Reenviar correo Moodle a Ana García' }))
 
+    // Ya no hay confirm() nativo: la confirmación es un diálogo accesible.
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reenviar' }))
+
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/admin/students/s1/moodle-welcome/resend', { method: 'POST' }),
     )
-    expect(await screen.findByText('Correo de acceso a Moodle reenviado')).toBeInTheDocument()
-    confirmSpy.mockRestore()
+    expect(await screen.findByText(/Correo de acceso a Moodle reenviado/)).toBeInTheDocument()
+  })
+
+  it('pide confirmación antes de eliminar y no llama al API si se cancela', async () => {
+    render(<AdminStudentsPage />)
+    const table = await screen.findByRole('table')
+
+    fireEvent.click(within(table).getByRole('button', { name: 'Eliminar a García, Ana' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(mockedApi).not.toHaveBeenCalledWith('/admin/students/s1', { method: 'DELETE' })
   })
 
   it('marca email y usuario Moodle como obligatorios en el alta', async () => {

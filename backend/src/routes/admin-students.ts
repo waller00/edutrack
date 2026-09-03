@@ -157,6 +157,8 @@ const studentWriteBaseSchema = z.object({
     z.string().uuid().optional(),
   ),
   schoolYearId: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().uuid().optional()),
+  /// Orientación de la matrícula. `null` la limpia (tronco común); omitirla no la toca.
+  orientationId: z.preprocess((v) => (v === '' ? null : v), z.string().uuid().nullable().optional()),
   contactPhone: clearableTrimmed(40),
   tutorPhone: clearableTrimmed(40),
   username: requiredStudentUsername,
@@ -222,6 +224,17 @@ async function safeStudentMoodleVerifications(studentIds: string[]) {
     console.warn('[admin/students] no se pudo consultar el estado Moodle:', error)
     return new Map(studentIds.map((id) => [id, unavailableMoodleVerification()]))
   }
+}
+
+/**
+ * Verificación Moodle para LISTADOS: `getStudentMoodleVerifications` llama al web service de
+ * Moodle de forma sincrónica, así que en el listado es opcional (`?includeMoodle=1`) y por
+ * defecto se devuelve el estado desconocido. En el detalle de un estudiante sigue siendo
+ * incondicional, que es donde el dato realmente importa.
+ */
+async function listMoodleVerifications(studentIds: string[], include: boolean) {
+  if (!include) return new Map(studentIds.map((id) => [id, unavailableMoodleVerification()]))
+  return safeStudentMoodleVerifications(studentIds)
 }
 
 function serializeMoodleStatus(
@@ -474,6 +487,8 @@ r.get('/', async (req, res) => {
     const tuitionPaid = (req.query.tuitionPaid as string) || ''
 
     const allYears = req.query.allYears === '1'
+    // Opt-in: evita una llamada sincrónica al web service de Moodle en cada listado.
+    const includeMoodle = req.query.includeMoodle === '1'
     const schoolYearId = await scopedSchoolYearId(req)
     const and: any[] = []
     const enrollmentWhere: any = {}
@@ -596,10 +611,10 @@ r.get('/', async (req, res) => {
         [...enrollmentRows.map((row) => row.studentId), ...orphanRows.map((row) => row.id)],
         previewYear,
       )
-      const moodleVerifications = await safeStudentMoodleVerifications([
-        ...enrollmentRows.map((row) => row.studentId),
-        ...orphanRows.map((row) => row.id),
-      ])
+      const moodleVerifications = await listMoodleVerifications(
+        [...enrollmentRows.map((row) => row.studentId), ...orphanRows.map((row) => row.id)],
+        includeMoodle,
+      )
       const enrollmentData = enrollmentRows.map((enrollment) => {
         const row = enrollment.student
         const courseOffering = enrollment.courseOffering ?? null
@@ -678,13 +693,17 @@ r.get('/', async (req, res) => {
       rowsAny.map((row) => row.id),
       previewYear,
     )
-    const moodleVerifications = await safeStudentMoodleVerifications(rowsAny.map((row) => row.id))
+    const moodleVerifications = await listMoodleVerifications(rowsAny.map((row) => row.id), includeMoodle)
 
     const data = rowsAny.map((row) => {
       const enrollment = row.enrollments?.[0] ?? null
       const courseOffering = enrollment?.courseOffering ?? null
       return {
           id: row.id,
+          // `studentId` se emite en AMBAS ramas (con y sin allYears): el cliente nunca
+          // tiene que deducirlo del id compuesto `studentId:enrollmentId`.
+          studentId: row.id,
+          enrollmentId: enrollment?.id ?? null,
           firstName: row.firstName,
           lastName: row.lastName,
           documentId: row.documentId,
@@ -709,6 +728,53 @@ r.get('/', async (req, res) => {
     return res.json({ total, page, pageSize, data })
   } catch (e) {
     console.error('[admin/students]', e)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Historial completo de matrículas del estudiante, un registro por ciclo.
+ * El detalle (`GET /:id`) devuelve solo la matrícula del ciclo seleccionado (`take: 1`),
+ * así que sin este endpoint no hay forma de ver el recorrido académico.
+ */
+r.get('/:id/enrollments', async (req, res) => {
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    })
+    if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    const rows = await (prisma as any).studentEnrollment.findMany({
+      where: { studentId: student.id },
+      include: {
+        schoolYear: { select: { id: true, code: true, name: true } },
+        courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } },
+        orientation: { select: { id: true, name: true, code: true } },
+      },
+      orderBy: { schoolYear: { code: 'desc' } },
+    })
+
+    return res.json(
+      rows.map((row: any) => ({
+        id: row.id,
+        schoolYearId: row.schoolYearId,
+        schoolYearCode: row.schoolYear?.code ?? null,
+        schoolYearName: row.schoolYear?.name ?? null,
+        courseId: row.courseOffering?.courseId ?? null,
+        courseName: row.courseOffering?.course?.name ?? null,
+        courseCode: row.courseOffering?.course?.code ?? null,
+        orientationId: row.orientationId ?? null,
+        orientationName: row.orientation?.name ?? null,
+        enrollmentStatus: row.enrollmentStatus,
+        withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
+        withdrawalAcademicYear: row.withdrawalAcademicYear ?? null,
+        notes: row.notes ?? null,
+        createdAt: row.createdAt.toISOString(),
+      })),
+    )
+  } catch (error) {
+    console.error('[admin/students] enrollments:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -1055,6 +1121,30 @@ r.put('/:id', async (req, res) => {
         : null
       const finalCourseOfferingId =
         nextCourseOfferingId !== undefined ? nextCourseOfferingId : currentEnrollment?.courseOfferingId
+      // `courseOrientationId` se deriva de (curso, orientación, ciclo): es el vínculo que ya
+      // usan los eventos y la resolución de cohorte del pase de lista.
+      let orientationPatch: Record<string, unknown> = {}
+      if (body.orientationId !== undefined && targetSchoolYearId && finalCourseOfferingId) {
+        if (body.orientationId === null) {
+          orientationPatch = { orientationId: null, courseOrientationId: null }
+        } else {
+          const offering = await (tx as any).courseOffering.findUnique({
+            where: { id: finalCourseOfferingId },
+            select: { courseId: true },
+          })
+          const link = offering
+            ? await (tx as any).courseOrientation.findFirst({
+                where: {
+                  courseId: offering.courseId,
+                  orientationId: body.orientationId,
+                  OR: [{ schoolYearId: targetSchoolYearId }, { schoolYearId: null }],
+                },
+                select: { id: true },
+              })
+            : null
+          orientationPatch = { orientationId: body.orientationId, courseOrientationId: link?.id ?? null }
+        }
+      }
       if (targetSchoolYearId && finalCourseOfferingId) {
         await (tx as any).studentEnrollment.upsert({
           where: { studentId_schoolYearId: { studentId: id, schoolYearId: targetSchoolYearId } },
@@ -1064,11 +1154,13 @@ r.put('/:id', async (req, res) => {
             ...(body.withdrawnAt !== undefined ? { withdrawnAt: body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null } : {}),
             ...(body.withdrawalAcademicYear !== undefined ? { withdrawalAcademicYear: body.withdrawalAcademicYear ?? null } : {}),
             ...(body.internalNotes !== undefined ? { notes: body.internalNotes ?? null } : {}),
+            ...orientationPatch,
           },
           create: {
             studentId: id,
             schoolYearId: targetSchoolYearId,
             courseOfferingId: finalCourseOfferingId,
+            ...orientationPatch,
             enrollmentStatus: (body.enrollmentStatus ?? 'ACTIVE') as StudentEnrollmentStatus,
             withdrawnAt: body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null,
             withdrawalAcademicYear: body.withdrawalAcademicYear ?? null,

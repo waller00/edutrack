@@ -240,6 +240,36 @@ Registro **sin login obligatorio** del alumnado:
 
 ---
 
+## 11 bis. Pase de lista estudiantil
+
+Concepto **distinto** de la asistencia del personal: `Attendance` registra al personal (marcas
+biométricas, ligadas a `User`), mientras que el pase de lista lo carga el docente sobre sus
+estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a propósito.
+
+**Pantallas:** `/me/roll-call` (agenda del día del docente) y `/me/roll-call/[eventId]/[ymd]`
+(la planilla, pensada para el celular). Control: `/admin/student-attendance`.
+
+- **Estados:** Presente, Llegada tarde, Ausente, Ausente justificado. El docente marca los
+  primeros tres; el justificado es acto de administración y deja una fila de transición
+  (`StudentAttendanceJustification`) con motivo obligatorio, igual que en el personal.
+- **Unidad:** una lista por **ocurrencia de clase**, identificada por `(eventId, día civil)`.
+  Dos horas seguidas del mismo grupo son dos listas distintas.
+- **Copiar la hora anterior:** si el mismo grupo ya tiene una lista tomada ese día, se ofrece
+  precargarla. Es siempre una sugerencia que el docente confirma, y los alumnos que no estaban
+  en la hora anterior quedan explícitamente sin marcar.
+- **Cohorte:** se resuelve desde el evento con la misma precedencia que la integración Moodle
+  (`courseOrientationId` > `orientationId` > tronco común) sobre las matrículas activas del ciclo.
+- **Ventana de edición:** el docente edita durante N horas tras el fin de la clase
+  (`studentRollCallEditWindowHours`, por defecto 48); después solo administración, con auditoría.
+- **Listas sin pasar:** una clase terminada sin lista queda **pendiente**; no se generan faltas
+  automáticas. Administración las ve en un panel por curso y fecha.
+- **Faltas:** se guardan por clase. La consolidación diaria (presente / media falta / falta) se
+  **deriva** al leer, según `studentDailyAbsenceThresholdPercent`. La llegada tarde cuenta como
+  asistencia, y las clases sin lista tomada no entran en ningún denominador.
+- **Suplencias:** el suplente oficial del día puede pasar la lista igual que el titular.
+
+---
+
 ## 12. Notificaciones
 
 **Pantalla:** `/notifications`
@@ -342,16 +372,16 @@ EduTrack **no** sincroniza calificaciones ni contenidos de cursos Moodle en esta
 `/forgot` y `/reset` redirigen al login de Keycloak (recupero gestionado en el IdP).
 
 ### Administración
-`/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/analytics`, `/admin/query-assistant`, `/admin/settings`, `/admin/profiles`, `/admin/audit`, `/admin/train-dni`, `/admin/test-preprocessing`
+`/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/student-attendance`, `/admin/analytics`, `/admin/query-assistant`, `/admin/settings`, `/admin/profiles`, `/admin/audit`, `/admin/train-dni`, `/admin/test-preprocessing`
 
 ### Personal (rutas legacy por rol)
 `/teacher/*`, `/staff/*` — equivalentes a módulos “mis …”
 
 ### Unificadas “mis datos”
-`/me/attendance`, `/me/events`, `/me/licenses`
+`/me/attendance`, `/me/events`, `/me/licenses`, `/me/roll-call`, `/me/roll-call/[eventId]/[ymd]`
 
 ### General
-`/`, `/profile`, `/notifications`, `/student/attendance`
+`/`, `/profile`, `/notifications` (`/student/attendance` es legacy y redirige a `/me/roll-call`)
 
 El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por rol fijo.
 
@@ -369,6 +399,8 @@ El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por ro
 | `events` | Eventos y turnos |
 | `attendance` | CRUD asistencias, listados |
 | `attendance-incidents` | Incidencias |
+| `student-attendance` | Pase de lista del docente por ocurrencia de clase |
+| `admin-student-attendance` | Control: listas sin pasar, justificación de faltas, ficha por alumno |
 | `medical-leaves` | Licencias |
 | `biometric-adms` | Ingesta biométrica |
 | `reports` / `exports` | Reportes Excel/PDF |
@@ -406,7 +438,8 @@ Funcionalidades **no** implementadas:
 | App móvil nativa | **No**; web responsive |
 | Sincronización bidireccional Moodle (notas, tareas) | **No**; solo usuarios |
 | Pagos en línea de cuotas estudiantiles | **No**; solo registro administrativo de cuotas |
-| Control de asistencia estudiantil masivo por biométrico | Enfocado en **personal**; estudiantes son registro admin |
+| Control de asistencia estudiantil **por biométrico** | **No**; el biométrico es solo para personal. La asistencia de alumnos la carga el docente (ver §11 bis) |
+| Autogestión del alumno (ver su propia asistencia) | **No**; `Student` no tiene cuenta ni rol. Se consulta desde administración |
 
 ---
 
@@ -417,8 +450,8 @@ Funcionalidades **no** implementadas:
 | **Visitante** | Registrarse, verificar email, Didit (si activo), recuperar contraseña |
 | **Usuario pendiente** | Completar perfil; sin módulos operativos hasta aprobación |
 | **Administrador** | Todo lo anterior + usuarios, asistencias, eventos, licencias, académico, reportes, analítica, consultas, auditoría, configuración, perfiles |
-| **Docente / Staff** | Ver propias asistencias, eventos, licencias; notificaciones |
-| **Estudiante (cuenta)** | Sin dashboard; posible consulta asistencia si se habilita |
+| **Docente / Staff** | Ver propias asistencias, eventos, licencias; notificaciones; **pasar lista de sus clases** |
+| **Estudiante** | Sin cuenta ni login. Es un registro administrativo: su matrícula, cuotas y asistencia las gestionan administración y sus docentes |
 | **Dispositivo biométrico** | Enviar fichadas ADMS autenticadas |
 | **Moodle** | Recibir usuarios creados/actualizados vía WS |
 

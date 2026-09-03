@@ -46,6 +46,9 @@ export async function getOrCreateSystemSettings() {
       moodleReconcileIntervalMs: 900000,
       moodleSyncStudents: false,
       institutionTimezone: 'America/Montevideo',
+      studentRollCallEditWindowHours: 48,
+      studentRollCallCopyPreviousEnabled: true,
+      studentDailyAbsenceThresholdPercent: 50,
     } as any,
     update: {},
   })
@@ -78,5 +81,23 @@ export async function getAttendanceOperationalSettings() {
     monitorEnabled: row.attendanceMonitorEnabled !== false,
     monitorIntervalMs: Math.max(row.attendanceMonitorIntervalMs ?? 120000, 30000),
     biometricDuplicateWindowMinutes: Math.min(Math.max(settings.biometricDuplicateWindowMinutes ?? 5, 0), 120),
+  }
+}
+
+/**
+ * Configuración del pase de lista estudiantil.
+ *
+ * La ventana de edición se *calcula* (no se congela al tomar la lista), así que bajarla
+ * de 48 h a 24 h aplica retroactivamente: es la semántica esperada por dirección.
+ */
+export async function getStudentRollCallSettings() {
+  const row = (await getOrCreateSystemSettings()) as Record<string, unknown>
+  return {
+    editWindowHours: Math.min(Math.max(Number(row.studentRollCallEditWindowHours ?? 48), 1), 720),
+    copyPreviousEnabled: row.studentRollCallCopyPreviousEnabled !== false,
+    dailyAbsenceThresholdPercent: Math.min(
+      Math.max(Number(row.studentDailyAbsenceThresholdPercent ?? 50), 1),
+      100,
+    ),
   }
 }

@@ -6,6 +6,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import { api, apiBaseUrl } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { fileToDataUrl } from '@/lib/media/image-upload'
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 
 type CourseOpt = { id: string; name: string; courseOfferingId: string | null }
 type OrientationOpt = { id: string; orientationId: string; orientation: { name: string } }
@@ -18,11 +19,6 @@ type Assignment = {
   gradeType: 'point' | 'scale' | 'none'
 }
 type UploadResult = { updatedCount: number; errors: Array<{ sheet?: string; row?: number; message: string }> }
-
-function withSchoolYear(path: string, schoolYearQuery: string): string {
-  if (!schoolYearQuery) return path
-  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
-}
 
 /** La subida multi-hoja puede tardar más que el timeout por defecto de `api()` (12s). */
 const UPLOAD_TIMEOUT_MS = 180_000

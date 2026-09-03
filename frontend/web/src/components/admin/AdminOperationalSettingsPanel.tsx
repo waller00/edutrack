@@ -26,6 +26,9 @@ export type OperationalSettingsData = {
   biometricDuplicateWindowMinutes: number
   institutionTimezone: string
   institutionTimezoneOptions: ReadonlyArray<{ value: string; label: string }>
+  studentRollCallEditWindowHours: number
+  studentRollCallCopyPreviousEnabled: boolean
+  studentDailyAbsenceThresholdPercent: number
 }
 
 export type OperationalSettingsSection = 'system' | 'attendance'
@@ -226,6 +229,70 @@ export default function AdminOperationalSettingsPanel({
                 value={data.attendanceEarlyExitToleranceMinutes}
                 onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceEarlyExitToleranceMinutes: Number(e.target.value) || 0 } : prev))}
               />
+            </label>
+          </section>
+
+          <section className={`${shellCard} space-y-5 lg:col-span-2`}>
+            <div className="border-b border-gray-100 pb-4">
+              <h3 className="text-sm font-semibold text-gray-900">Pase de lista estudiantil</h3>
+              <p className="text-xs text-gray-500">
+                Reglas del pase de lista que toman los docentes sobre sus clases. No afectan la asistencia del personal.
+              </p>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <label className="block space-y-2">
+                <span className={labelCls}>Ventana de edición del docente (horas)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={720}
+                  className="input-modern w-full text-sm tabular-nums"
+                  value={data.studentRollCallEditWindowHours}
+                  onChange={(e) =>
+                    setData((prev) => (prev ? { ...prev, studentRollCallEditWindowHours: Number(e.target.value) || 1 } : prev))
+                  }
+                />
+                <span className="block text-xs text-slate-500">
+                  Horas tras el fin de la clase en que el docente todavía puede corregir su planilla. Después solo
+                  administración, y el cambio queda en auditoría. Se aplica retroactivamente al cambiarla.
+                </span>
+              </label>
+              <label className="block space-y-2">
+                <span className={labelCls}>Umbral de falta diaria (%)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="input-modern w-full text-sm tabular-nums"
+                  value={data.studentDailyAbsenceThresholdPercent}
+                  onChange={(e) =>
+                    setData((prev) =>
+                      prev ? { ...prev, studentDailyAbsenceThresholdPercent: Number(e.target.value) || 1 } : prev,
+                    )
+                  }
+                />
+                <span className="block text-xs text-slate-500">
+                  Porcentaje de clases del día con ausencia a partir del cual el día cuenta como falta entera. Por
+                  debajo, y con al menos una ausencia, cuenta como media falta.
+                </span>
+              </label>
+            </div>
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                checked={data.studentRollCallCopyPreviousEnabled}
+                onChange={(e) =>
+                  setData((prev) => (prev ? { ...prev, studentRollCallCopyPreviousEnabled: e.target.checked } : prev))
+                }
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-gray-900">Sugerir copiar la hora anterior</span>
+                <span className="block text-xs text-slate-500">
+                  Cuando el mismo grupo ya tiene una lista tomada ese día, ofrecer precargarla. Siempre es una
+                  sugerencia editable que el docente debe confirmar.
+                </span>
+              </span>
             </label>
           </section>
 

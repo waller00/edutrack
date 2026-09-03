@@ -27,6 +27,20 @@ export function tuitionMonthChipClass(status: TuitionMonthState): string {
   return 'border-gray-300 bg-white text-gray-500'
 }
 
+/**
+ * Variante interactiva del chip: misma paleta que `tuitionMonthChipClass` más el hover.
+ * Se deriva de la estática para que ambas no puedan divergir.
+ */
+export function tuitionMonthButtonClass(status: TuitionMonthState): string {
+  const hover =
+    status === 'paid'
+      ? 'hover:bg-emerald-200'
+      : status === 'pending'
+        ? 'hover:bg-amber-200'
+        : 'hover:border-emerald-300 hover:text-emerald-700'
+  return `${tuitionMonthChipClass(status)} ${hover}`
+}
+
 export function tuitionMonthLabel(status: TuitionMonthState): string {
   if (status === 'paid') return 'pagado'
   if (status === 'pending') return 'pendiente'
@@ -52,4 +66,25 @@ export function countActiveStudentFilters(f: StudentListFilters): number {
   if (f.tuitionMonth) n += 1
   if (f.tuitionPaid === 'true' || f.tuitionPaid === 'false') n += 1
   return n
+}
+
+export type MoodleStudentState = 'VERIFIED' | 'PENDING' | 'NOT_FOUND' | 'UNAVAILABLE'
+
+/** Vista del estado de la cuenta Moodle del estudiante (etiqueta + color). */
+export function getMoodleStatusView(state: MoodleStudentState | undefined): { label: string; className: string } {
+  switch (state) {
+    case 'VERIFIED':
+      return { label: 'Verificado', className: 'bg-emerald-100 text-emerald-800' }
+    case 'PENDING':
+      return { label: 'Pendiente', className: 'bg-amber-100 text-amber-800' }
+    case 'NOT_FOUND':
+      return { label: 'Sin sincronizar', className: 'bg-red-100 text-red-700' }
+    default:
+      return { label: 'No disponible', className: 'bg-gray-100 text-gray-600' }
+  }
+}
+
+/** Solo tiene sentido reenviar el acceso si la cuenta no está verificada todavía. */
+export function canResendMoodleWelcome(state: MoodleStudentState | undefined): boolean {
+  return state === 'PENDING' || state === 'NOT_FOUND'
 }

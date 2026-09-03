@@ -47,6 +47,11 @@ enum AuditAction {
   SUBSTITUTION_CREATED
   MOODLE_GRADES_PUSHED
   QUERY_ASSISTANT_QUERY_EXECUTED
+  STUDENT_ROLL_CALL_TAKEN
+  STUDENT_ROLL_CALL_UPDATED
+  STUDENT_ROLL_CALL_DELETED
+  STUDENT_ROLL_CALL_REOPENED
+  STUDENT_ATTENDANCE_JUSTIFIED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
@@ -66,51 +71,55 @@ model OrgRole {
 }
 
 model User {
-  id                          String                 @id @default(uuid())
-  email                       String                 @unique
-  username                    String?                @unique
-  nationalId                  String?                @unique
+  id                                     String                           @id @default(uuid())
+  email                                  String                           @unique
+  username                               String?                          @unique
+  nationalId                             String?                          @unique
   /// Vencimiento de la cédula de identidad (según DNI / OCR).
-  nationalIdDocumentExpiresAt DateTime?
-  firstName                   String?
-  lastName                    String?
-  name                        String?
-  phone                       String?
-  birthdate                   DateTime?
-  googleId                    String?                @unique
+  nationalIdDocumentExpiresAt            DateTime?
+  firstName                              String?
+  lastName                               String?
+  name                                   String?
+  phone                                  String?
+  birthdate                              DateTime?
+  googleId                               String?                          @unique
   /// Id del usuario espejo en Moodle (integración). Fuente de verdad sigue siendo EduTrack.
-  moodleUserId                Int?                   @unique
-  roleId                      String
-  orgRole                     OrgRole                @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  createdAt                   DateTime               @default(now())
-  updatedAt                   DateTime               @updatedAt
+  moodleUserId                           Int?                             @unique
+  roleId                                 String
+  orgRole                                OrgRole                          @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  createdAt                              DateTime                         @default(now())
+  updatedAt                              DateTime                         @updatedAt
   // relations
-  emailVerifications          EmailVerification[]
-  attendances                 Attendance[]
-  events                      Event[]
-  assignedEvents              Event[]                @relation("EventAssignment")
-  medicalLeaves               MedicalLeave[]
-  webPushSubscriptions        WebPushSubscription[]
-  inAppNotifications          InAppNotification[]
-  biometricMappings           BiometricUserMapping[]
-  biometricLinkRequests       BiometricLinkRequest[]
-  biometricPunches            BiometricPunch[]
-  attendanceIncidents         AttendanceIncident[]
-  attendanceJustificationsCreated AttendanceJustification[] @relation("AttendanceJustificationCreatedBy")
-  substitutionsCreated        Substitution[]          @relation("SubstitutionCreatedBy")
-  substitutionsAsOriginal     Substitution[]          @relation("SubstitutionOriginalTeacher")
-  substitutionsAsSubstitute   Substitution[]          @relation("SubstitutionSubstituteTeacher")
-  auditEvents                 AuditLog[]
-  teacherProfile              TeacherProfile?
+  emailVerifications                     EmailVerification[]
+  attendances                            Attendance[]
+  events                                 Event[]
+  assignedEvents                         Event[]                          @relation("EventAssignment")
+  medicalLeaves                          MedicalLeave[]
+  webPushSubscriptions                   WebPushSubscription[]
+  inAppNotifications                     InAppNotification[]
+  biometricMappings                      BiometricUserMapping[]
+  biometricLinkRequests                  BiometricLinkRequest[]
+  biometricPunches                       BiometricPunch[]
+  attendanceIncidents                    AttendanceIncident[]
+  attendanceJustificationsCreated        AttendanceJustification[]        @relation("AttendanceJustificationCreatedBy")
+  studentRollCallsTaken                  StudentAttendanceSession[]       @relation("StudentAttendanceSessionTakenBy")
+  studentRollCallsLocked                 StudentAttendanceSession[]       @relation("StudentAttendanceSessionLockedBy")
+  studentAttendanceEntries               StudentAttendanceEntry[]         @relation("StudentAttendanceEntryMarkedBy")
+  studentAttendanceJustificationsCreated StudentAttendanceJustification[] @relation("StudentAttendanceJustificationCreatedBy")
+  substitutionsCreated                   Substitution[]                   @relation("SubstitutionCreatedBy")
+  substitutionsAsOriginal                Substitution[]                   @relation("SubstitutionOriginalTeacher")
+  substitutionsAsSubstitute              Substitution[]                   @relation("SubstitutionSubstituteTeacher")
+  auditEvents                            AuditLog[]
+  teacherProfile                         TeacherProfile?
   // security
-  emailVerifiedAt             DateTime?
-  failedLoginAttempts         Int                    @default(0)
-  lockUntil                   DateTime?
-  isApproved                  Boolean                @default(true)
-  approvedAt                  DateTime?
-  isActive                    Boolean                @default(true)
+  emailVerifiedAt                        DateTime?
+  failedLoginAttempts                    Int                              @default(0)
+  lockUntil                              DateTime?
+  isApproved                             Boolean                          @default(true)
+  approvedAt                             DateTime?
+  isActive                               Boolean                          @default(true)
   /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
-  livenessVerifiedAt          DateTime?
+  livenessVerifiedAt                     DateTime?
 
   @@index([roleId])
 }
@@ -177,8 +186,8 @@ model AuditLog {
 
 /// Configuración global (fila única `default`).
 model SystemSettings {
-  id                              String   @id @default("default")
-  livenessCheckEnabled            Boolean  @default(false)
+  id                                  String   @id @default("default")
+  livenessCheckEnabled                Boolean  @default(false)
   attendanceNoShowGraceMinutes        Int      @default(15)
   attendanceLateToleranceMinutes      Int      @default(5)
   attendanceEarlyExitToleranceMinutes Int      @default(5)
@@ -195,27 +204,35 @@ model SystemSettings {
   moodleSyncStudents                  Boolean  @default(false)
   /// Zona horaria IANA institucional (fechas civiles, horarios, asistencias).
   institutionTimezone                 String   @default("America/Montevideo")
+  /// Horas tras el fin de la clase (o el pase de lista, lo que sea posterior) en que el
+  /// docente todavía puede editar su planilla. Después solo admin, con auditoría.
+  studentRollCallEditWindowHours      Int      @default(48)
+  /// Habilita la sugerencia "copiar la lista de la hora anterior" del mismo grupo.
+  studentRollCallCopyPreviousEnabled  Boolean  @default(true)
+  /// % de clases del día con ausencia a partir del cual el día consolida como falta entera
+  /// (por debajo, y con al menos una ausencia, consolida como media falta).
+  studentDailyAbsenceThresholdPercent Int      @default(50)
   updatedAt                           DateTime @updatedAt
 }
 
 /// Cola persistente (patrón outbox) para sincronizar entidades con Moodle con reintentos.
 /// Garantiza que un fallo transitorio no desincronice de forma permanente y silenciosa.
 model MoodleSyncTask {
-  id          String           @id @default(uuid())
+  id          String             @id @default(uuid())
   type        MoodleSyncTaskType
   /// Clave de deduplicación (p. ej. "user:<uuid>"): evita encolar duplicados pendientes.
-  dedupeKey   String           @unique
+  dedupeKey   String             @unique
   payload     Json
-  status      MoodleSyncStatus @default(PENDING)
-  attempts    Int              @default(0)
-  maxAttempts Int              @default(8)
-  lastError   String?          @db.Text
+  status      MoodleSyncStatus   @default(PENDING)
+  attempts    Int                @default(0)
+  maxAttempts Int                @default(8)
+  lastError   String?            @db.Text
   /// No procesar antes de este instante (backoff exponencial).
-  runAfter    DateTime         @default(now())
+  runAfter    DateTime           @default(now())
   /// Marca de claim para evitar doble procesamiento entre ticks.
   lockedAt    DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 
   @@index([status, runAfter])
 }
@@ -387,26 +404,26 @@ enum AttendanceStatus {
 }
 
 model Attendance {
-  id             String               @id @default(uuid())
+  id             String                    @id @default(uuid())
   userId         String
-  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   type           AttendanceType
-  status         AttendanceStatus     @default(PRESENT)
+  status         AttendanceStatus          @default(PRESENT)
   date           DateTime
   time           DateTime
   notes          String?
   eventId        String?
-  event          Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  event          Event?                    @relation(fields: [eventId], references: [id], onDelete: SetNull)
   /// Ciclo lectivo de la marca. Se deriva del evento cuando hay uno; para marcas sin
   /// evento (manual / biométrica fuera de horario) se fija el ciclo activo al crearla.
   /// Permite segmentar el listado admin por ciclo sin depender de la relación con Event.
   schoolYearId   String?
-  schoolYear     SchoolYear?          @relation(fields: [schoolYearId], references: [id], onDelete: SetNull)
+  schoolYear     SchoolYear?               @relation(fields: [schoolYearId], references: [id], onDelete: SetNull)
   biometricPunch BiometricPunch?
   incidents      AttendanceIncident[]
   justifications AttendanceJustification[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
 
   @@index([userId])
   @@index([date])
@@ -481,21 +498,21 @@ model AttendanceIncident {
 }
 
 model BiometricDevice {
-  id         String                 @id @default(uuid())
-  code       String                 @unique
+  id           String                 @id @default(uuid())
+  code         String                 @unique
   /// Número de serie ADMS del terminal (query `SN`); si no se define, se usa `code`.
-  admsSerial String?                @unique
-  name       String
-  secretHash String
-  timezone   String                 @default("America/Montevideo")
-  isActive   Boolean                @default(true)
-  allowedIps String[]               @default([])
-  lastSeenAt DateTime?
-  createdAt  DateTime               @default(now())
-  updatedAt  DateTime               @updatedAt
-  punches       BiometricPunch[]
-  mappings      BiometricUserMapping[]
-  linkRequests  BiometricLinkRequest[]
+  admsSerial   String?                @unique
+  name         String
+  secretHash   String
+  timezone     String                 @default("America/Montevideo")
+  isActive     Boolean                @default(true)
+  allowedIps   String[]               @default([])
+  lastSeenAt   DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  punches      BiometricPunch[]
+  mappings     BiometricUserMapping[]
+  linkRequests BiometricLinkRequest[]
 
   @@index([isActive])
 }
@@ -644,42 +661,43 @@ enum SubjectAssociationType {
 }
 
 model SchoolYear {
-  id                 String                @id @default(uuid())
+  id                        String                     @id @default(uuid())
   /// Año calendario del ciclo (ej. 2026); único en la institución.
-  code               Int                   @unique
-  label              String
-  startsOn           DateTime?
-  endsOn             DateTime?
-  status             SchoolYearStatus      @default(PLANNED)
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-  courseOfferings    CourseOffering[]
-  events             Event[]
-  attendances        Attendance[]
-  studentEnrollments StudentEnrollment[]
-  tuitionYears       StudentTuitionYear[]
-  tuitionMonths      StudentTuitionMonth[]
-  nonWorkingDays     NonWorkingDay[]
-  courseOrientations CourseOrientation[]
-  subjectAssignments SubjectCourseAssignment[]
+  code                      Int                        @unique
+  label                     String
+  startsOn                  DateTime?
+  endsOn                    DateTime?
+  status                    SchoolYearStatus           @default(PLANNED)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  courseOfferings           CourseOffering[]
+  events                    Event[]
+  attendances               Attendance[]
+  studentEnrollments        StudentEnrollment[]
+  studentAttendanceSessions StudentAttendanceSession[]
+  tuitionYears              StudentTuitionYear[]
+  tuitionMonths             StudentTuitionMonth[]
+  nonWorkingDays            NonWorkingDay[]
+  courseOrientations        CourseOrientation[]
+  subjectAssignments        SubjectCourseAssignment[]
 
   @@index([status])
 }
 
 /// Cursos para asociar eventos (clases / grupos).
 model Course {
-  id          String           @id @default(uuid())
-  name        String
-  code        String?          @unique
-  level       AcademicLevel?
-  sortOrder   Int              @default(0)
-  description String?
-  isActive    Boolean          @default(true)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  legacySubjects Subject[]
-  offerings   CourseOffering[]
-  orientations CourseOrientation[]
+  id                 String                    @id @default(uuid())
+  name               String
+  code               String?                   @unique
+  level              AcademicLevel?
+  sortOrder          Int                       @default(0)
+  description        String?
+  isActive           Boolean                   @default(true)
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  legacySubjects     Subject[]
+  offerings          CourseOffering[]
+  orientations       CourseOrientation[]
   subjectAssignments SubjectCourseAssignment[]
 
   @@index([isActive])
@@ -688,18 +706,19 @@ model Course {
 
 /// Catálogo configurable de orientaciones/subdivisiones académicas.
 model Orientation {
-  id          String              @id @default(uuid())
-  name        String
-  code        String?             @unique
-  description String?             @db.Text
-  isActive    Boolean             @default(true)
-  sortOrder   Int                 @default(0)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  courses     CourseOrientation[]
-  subjectAssignments SubjectCourseAssignment[]
-  events      Event[]
-  studentEnrollments StudentEnrollment[]
+  id                        String                     @id @default(uuid())
+  name                      String
+  code                      String?                    @unique
+  description               String?                    @db.Text
+  isActive                  Boolean                    @default(true)
+  sortOrder                 Int                        @default(0)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  courses                   CourseOrientation[]
+  subjectAssignments        SubjectCourseAssignment[]
+  events                    Event[]
+  studentEnrollments        StudentEnrollment[]
+  studentAttendanceSessions StudentAttendanceSession[]
 
   @@index([isActive])
   @@index([sortOrder, name])
@@ -708,20 +727,21 @@ model Orientation {
 /// Oferta anual de un curso del catálogo dentro de un ciclo lectivo.
 /// Permite cerrar/abrir años sin duplicar Course ni sus Subject.
 model CourseOffering {
-  id                 String              @id @default(uuid())
-  courseId           String
-  course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  schoolYearId       String
-  schoolYear         SchoolYear          @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
-  isActive           Boolean             @default(true)
-  isOffered          Boolean             @default(true)
-  visibleInFilters   Boolean             @default(true)
-  notes              String?             @db.Text
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  events             Event[]
-  studentEnrollments StudentEnrollment[]
-  legacySubjects     Subject[]
+  id                        String                     @id @default(uuid())
+  courseId                  String
+  course                    Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  schoolYearId              String
+  schoolYear                SchoolYear                 @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  isActive                  Boolean                    @default(true)
+  isOffered                 Boolean                    @default(true)
+  visibleInFilters          Boolean                    @default(true)
+  notes                     String?                    @db.Text
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  events                    Event[]
+  studentEnrollments        StudentEnrollment[]
+  legacySubjects            Subject[]
+  studentAttendanceSessions StudentAttendanceSession[]
 
   @@unique([courseId, schoolYearId])
   @@index([schoolYearId, isActive])
@@ -731,21 +751,22 @@ model CourseOffering {
 
 /// Relación opcional de orientación disponible para un curso y, si corresponde, ciclo lectivo.
 model CourseOrientation {
-  id            String       @id @default(uuid())
-  courseId      String
-  course        Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  orientationId String
-  orientation   Orientation  @relation(fields: [orientationId], references: [id], onDelete: Cascade)
-  schoolYearId  String?
-  schoolYear    SchoolYear?  @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
-  isActive      Boolean      @default(true)
-  isOffered     Boolean      @default(true)
-  visibleInFilters Boolean   @default(true)
-  notes         String?      @db.Text
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  events        Event[]
-  studentEnrollments StudentEnrollment[]
+  id                        String                     @id @default(uuid())
+  courseId                  String
+  course                    Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  orientationId             String
+  orientation               Orientation                @relation(fields: [orientationId], references: [id], onDelete: Cascade)
+  schoolYearId              String?
+  schoolYear                SchoolYear?                @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  isActive                  Boolean                    @default(true)
+  isOffered                 Boolean                    @default(true)
+  visibleInFilters          Boolean                    @default(true)
+  notes                     String?                    @db.Text
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  events                    Event[]
+  studentEnrollments        StudentEnrollment[]
+  studentAttendanceSessions StudentAttendanceSession[]
 
   @@unique([courseId, orientationId, schoolYearId])
   @@index([courseId, isActive])
@@ -757,22 +778,23 @@ model CourseOrientation {
 /// Catálogo global de asignaturas. La disponibilidad por nivel/curso/orientación
 /// se define en SubjectCourseAssignment.
 model Subject {
-  id               String          @id @default(uuid())
-  name             String
-  code             String?
-  description      String?         @db.Text
-  sortOrder        Int             @default(0)
-  isActive         Boolean         @default(true)
+  id                        String                     @id @default(uuid())
+  name                      String
+  code                      String?
+  description               String?                    @db.Text
+  sortOrder                 Int                        @default(0)
+  isActive                  Boolean                    @default(true)
   /// Compatibilidad histórica: asignaturas creadas antes del catálogo flexible.
-  courseId         String?
-  course           Course?         @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  courseId                  String?
+  course                    Course?                    @relation(fields: [courseId], references: [id], onDelete: SetNull)
   /// Compatibilidad histórica por ciclo.
-  courseOfferingId String?
-  courseOffering   CourseOffering? @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
-  courseAssignments SubjectCourseAssignment[]
-  events           Event[]
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  courseOfferingId          String?
+  courseOffering            CourseOffering?            @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  courseAssignments         SubjectCourseAssignment[]
+  events                    Event[]
+  studentAttendanceSessions StudentAttendanceSession[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
   @@index([courseId])
   @@index([courseOfferingId])
@@ -784,24 +806,24 @@ model Subject {
 /// Asociación flexible de asignaturas: nivel completo, curso completo, tronco común
 /// de curso, orientación o configuración personalizada por ciclo.
 model SubjectCourseAssignment {
-  id              String                 @id @default(uuid())
-  subjectId       String
-  subject         Subject                @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  level           AcademicLevel?
-  courseId        String?
-  course          Course?                @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  orientationId   String?
-  orientation     Orientation?           @relation(fields: [orientationId], references: [id], onDelete: Cascade)
-  schoolYearId    String?
-  schoolYear      SchoolYear?            @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
-  associationType SubjectAssociationType
-  isActive        Boolean                @default(true)
-  isOffered       Boolean                @default(true)
-  visibleInFilters Boolean               @default(true)
-  sortOrder       Int                    @default(0)
-  notes           String?                @db.Text
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  id               String                 @id @default(uuid())
+  subjectId        String
+  subject          Subject                @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  level            AcademicLevel?
+  courseId         String?
+  course           Course?                @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  orientationId    String?
+  orientation      Orientation?           @relation(fields: [orientationId], references: [id], onDelete: Cascade)
+  schoolYearId     String?
+  schoolYear       SchoolYear?            @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  associationType  SubjectAssociationType
+  isActive         Boolean                @default(true)
+  isOffered        Boolean                @default(true)
+  visibleInFilters Boolean                @default(true)
+  sortOrder        Int                    @default(0)
+  notes            String?                @db.Text
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
 
   @@index([subjectId, isActive])
   @@index([level, isActive])
@@ -836,8 +858,8 @@ model Student {
   tutorPhone   String?
   /// Email del alumno (obligatorio en API/UI; nullable por registros históricos). @map preserva la columna histórica `contactEmail`
   /// (renombrarla con `db push` implicaría drop+add y pérdida de datos).
-  email   String? @map("contactEmail")
-  address String?
+  email        String? @map("contactEmail")
+  address      String?
 
   /// Momento en que se envió el mail de bienvenida a Moodle (exactamente una vez).
   moodleWelcomeSentAt DateTime?
@@ -849,9 +871,10 @@ model Student {
 
   internalNotes String? @db.Text
 
-  tuitionYears  StudentTuitionYear[]
-  tuitionMonths StudentTuitionMonth[]
-  enrollments   StudentEnrollment[]
+  tuitionYears      StudentTuitionYear[]
+  tuitionMonths     StudentTuitionMonth[]
+  enrollments       StudentEnrollment[]
+  attendanceEntries StudentAttendanceEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -879,6 +902,8 @@ model StudentEnrollment {
   notes                  String?                 @db.Text
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
+
+  attendanceEntries StudentAttendanceEntry[]
 
   @@unique([studentId, schoolYearId])
   @@index([schoolYearId, enrollmentStatus])
@@ -931,50 +956,51 @@ model StudentTuitionMonth {
 }
 
 model Event {
-  id                  String               @id @default(uuid())
-  title               String
-  description         String?
-  type                EventType
-  status              EventStatus          @default(SCHEDULED)
-  startDate           DateTime
-  endDate             DateTime?
-  startTime           DateTime?
-  endTime             DateTime?
-  location            String?
-  userId              String
-  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedUserId      String?
-  assignedUser        User?                @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  schoolYearId        String
-  schoolYear          SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
-  courseOfferingId    String?
-  courseOffering      CourseOffering?      @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
-  orientationId        String?
-  orientation          Orientation?         @relation(fields: [orientationId], references: [id], onDelete: SetNull)
-  courseOrientationId  String?
-  courseOrientation    CourseOrientation?   @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
-  subjectId           String?
-  subject             Subject?             @relation(fields: [subjectId], references: [id], onDelete: SetNull)
-  recurrenceType      RecurrenceType       @default(NONE)
-  recurrenceEnd       DateTime?
-  isRecurring         Boolean              @default(false)
-  daysOfWeek          Int[]                @default([]) // Array de días de la semana (0=Domingo, 1=Lunes, etc.)
-  parentEventId       String?
-  parentEvent         Event?               @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
-  childEvents         Event[]              @relation("EventRecurrence")
+  id                        String                     @id @default(uuid())
+  title                     String
+  description               String?
+  type                      EventType
+  status                    EventStatus                @default(SCHEDULED)
+  startDate                 DateTime
+  endDate                   DateTime?
+  startTime                 DateTime?
+  endTime                   DateTime?
+  location                  String?
+  userId                    String
+  user                      User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedUserId            String?
+  assignedUser              User?                      @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  schoolYearId              String
+  schoolYear                SchoolYear                 @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  courseOfferingId          String?
+  courseOffering            CourseOffering?            @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  orientationId             String?
+  orientation               Orientation?               @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  courseOrientationId       String?
+  courseOrientation         CourseOrientation?         @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
+  subjectId                 String?
+  subject                   Subject?                   @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  recurrenceType            RecurrenceType             @default(NONE)
+  recurrenceEnd             DateTime?
+  isRecurring               Boolean                    @default(false)
+  daysOfWeek                Int[]                      @default([]) // Array de días de la semana (0=Domingo, 1=Lunes, etc.)
+  parentEventId             String?
+  parentEvent               Event?                     @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
+  childEvents               Event[]                    @relation("EventRecurrence")
   // Versionado temporal de la definición: permite editar una serie a futuro sin
   // reescribir las ocurrencias pasadas (que conservan su asistencia histórica).
-  effectiveFrom       DateTime?            // Inicio de vigencia de esta versión (null = desde siempre)
-  effectiveUntil      DateTime?            // Fin de vigencia inclusivo de esta versión (null = sin fin)
-  supersededById      String?              // Versión que reemplaza a esta (corte de edición)
-  supersededBy        Event?               @relation("EventSupersession", fields: [supersededById], references: [id], onDelete: SetNull)
-  supersedes          Event[]              @relation("EventSupersession")
-  revisionOf          String?              // Id de la definición raíz de la serie (agrupa versiones)
-  attendances         Attendance[]
-  attendanceIncidents AttendanceIncident[]
-  substitutions       Substitution[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  effectiveFrom             DateTime? // Inicio de vigencia de esta versión (null = desde siempre)
+  effectiveUntil            DateTime? // Fin de vigencia inclusivo de esta versión (null = sin fin)
+  supersededById            String? // Versión que reemplaza a esta (corte de edición)
+  supersededBy              Event?                     @relation("EventSupersession", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersedes                Event[]                    @relation("EventSupersession")
+  revisionOf                String? // Id de la definición raíz de la serie (agrupa versiones)
+  attendances               Attendance[]
+  studentAttendanceSessions StudentAttendanceSession[] @relation("StudentAttendanceSessionEvent")
+  attendanceIncidents       AttendanceIncident[]
+  substitutions             Substitution[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
   @@index([userId])
   @@index([assignedUserId])
@@ -1065,4 +1091,164 @@ model MedicalLeave {
   @@index([userId])
   @@index([startDate])
   @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Pase de lista estudiantil
+//
+// Concepto DISTINTO de `Attendance`, que registra asistencia del PERSONAL
+// (`Attendance.userId -> User`). Los estudiantes no tienen cuenta en EduTrack:
+// la lista la toma el docente sobre una ocurrencia de clase. Enum y modelos
+// separados a propósito, para que ninguna consulta existente sobre
+// `Attendance.status` empiece a contar filas de alumnos.
+// ---------------------------------------------------------------------------
+
+enum StudentAttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  /// Solo se alcanza vía justificación de secretaría; el docente nunca lo escribe.
+  ABSENT_JUSTIFIED
+}
+
+enum StudentAttendanceSessionStatus {
+  /// Planilla abierta pero nunca confirmada.
+  PENDING
+  TAKEN
+}
+
+enum StudentAttendanceSource {
+  MANUAL
+  COPIED_FROM_PREVIOUS
+}
+
+enum StudentAttendanceJustificationType {
+  ABSENCE
+  LATE_ARRIVAL
+  OTHER
+}
+
+/// Cabecera del pase de lista de UNA ocurrencia de clase (Event type=CLASE + día civil).
+/// Se crea perezosamente al primer guardado: la recurrencia nunca se materializa a futuro.
+model StudentAttendanceSession {
+  id String @id @default(uuid())
+
+  // --- clave de ocurrencia ---
+  /// Versión concreta del Event que produjo la ocurrencia. Siempre la serie padre,
+  /// nunca un childEvent (excepción puntual).
+  eventId        String
+  event          Event    @relation("StudentAttendanceSessionEvent", fields: [eventId], references: [id], onDelete: Cascade)
+  /// `event.revisionOf ?? event.id`. Agrupa las versiones que deja splitEventDefinitionForEdit:
+  /// es la ÚNICA clave por la que pueden agrupar los reportes.
+  eventFamilyId  String
+  /// Día civil YYYY-MM-DD. Es la clave de unicidad porque `institutionTimezone` es mutable:
+  /// un unique sobre `occurrenceDate` permitiría duplicar el mismo día tras cambiar la zona.
+  occurrenceYmd  String   @db.VarChar(10)
+  /// uruguayWallToUtc(occurrenceYmd, 0, 0). Rangos + join con Substitution.date (mismo instante).
+  occurrenceDate DateTime
+  /// Instantes resueltos de la ocurrencia (snapshot): evita reexpandir recurrencia
+  /// para la ventana de edición y para ordenar "la hora anterior".
+  startAt        DateTime
+  endAt          DateTime
+
+  // --- snapshot de cohorte ---
+  schoolYearId        String
+  schoolYear          SchoolYear         @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  courseOfferingId    String?
+  courseOffering      CourseOffering?    @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  orientationId       String?
+  orientation         Orientation?       @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  courseOrientationId String?
+  courseOrientation   CourseOrientation? @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
+  subjectId           String?
+  subject             Subject?           @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  // --- estado ---
+  status              StudentAttendanceSessionStatus @default(PENDING)
+  source              StudentAttendanceSource        @default(MANUAL)
+  copiedFromSessionId String?
+  copiedFrom          StudentAttendanceSession?      @relation("StudentAttendanceSessionCopy", fields: [copiedFromSessionId], references: [id], onDelete: SetNull)
+  copies              StudentAttendanceSession[]     @relation("StudentAttendanceSessionCopy")
+  takenByUserId       String?
+  takenBy             User?                          @relation("StudentAttendanceSessionTakenBy", fields: [takenByUserId], references: [id], onDelete: SetNull)
+  takenAt             DateTime?
+  /// Cierre explícito por admin. Si es null la ventana se calcula desde endAt/takenAt.
+  lockedAt            DateTime?
+  lockedByUserId      String?
+  lockedBy            User?                          @relation("StudentAttendanceSessionLockedBy", fields: [lockedByUserId], references: [id], onDelete: SetNull)
+  /// Cantidad de estudiantes resueltos al tomar la lista: permite detectar altas posteriores.
+  rosterSize          Int                            @default(0)
+  notes               String?                        @db.Text
+
+  entries   StudentAttendanceEntry[]
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@unique([eventId, occurrenceYmd])
+  @@index([eventFamilyId, occurrenceDate])
+  @@index([schoolYearId, occurrenceDate])
+  @@index([status, occurrenceDate])
+  @@index([courseOfferingId, occurrenceDate])
+  @@index([subjectId, occurrenceDate])
+  @@index([courseOrientationId, occurrenceDate])
+  @@index([takenByUserId])
+  @@index([copiedFromSessionId])
+  @@index([lockedByUserId])
+}
+
+/// Marca de UN estudiante en UNA ocurrencia de clase.
+model StudentAttendanceEntry {
+  id                  String                   @id @default(uuid())
+  sessionId           String
+  session             StudentAttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId           String
+  student             Student                  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  /// Matrícula que justificó la inclusión en el roster (traza; SetNull si se borra).
+  studentEnrollmentId String?
+  studentEnrollment   StudentEnrollment?       @relation(fields: [studentEnrollmentId], references: [id], onDelete: SetNull)
+
+  status StudentAttendanceStatus @default(ABSENT)
+  /// Nota corta del docente ("llegó 8:15", "se retiró con el padre").
+  note   String?                 @db.VarChar(280)
+
+  /// Snapshot de identidad: un cambio de nombre o una baja no reescriben el historial.
+  studentLastName   String
+  studentFirstName  String
+  studentDocumentId String?
+
+  markedByUserId String?
+  markedBy       User?    @relation("StudentAttendanceEntryMarkedBy", fields: [markedByUserId], references: [id], onDelete: SetNull)
+  markedAt       DateTime @default(now())
+
+  justifications StudentAttendanceJustification[]
+  createdAt      DateTime                         @default(now())
+  updatedAt      DateTime                         @updatedAt
+
+  @@unique([sessionId, studentId])
+  @@index([studentId, status])
+  @@index([sessionId])
+  @@index([studentEnrollmentId])
+  @@index([markedByUserId])
+}
+
+/// Transición append-only ABSENT -> ABSENT_JUSTIFIED (acto de secretaría).
+/// Espeja AttendanceJustification: el estado vive en la entrada, esta fila registra el cambio.
+model StudentAttendanceJustification {
+  id              String                             @id @default(uuid())
+  entryId         String
+  entry           StudentAttendanceEntry             @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  type            StudentAttendanceJustificationType @default(ABSENCE)
+  reason          String
+  notes           String?                            @db.Text
+  /// Referencia textual al comprobante (el repo no almacena archivos).
+  attachment      String?                            @db.Text
+  previousStatus  StudentAttendanceStatus
+  newStatus       StudentAttendanceStatus
+  createdByUserId String?
+  createdBy       User?                              @relation("StudentAttendanceJustificationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                           @default(now())
+
+  @@index([entryId])
+  @@index([createdByUserId])
+  @@index([createdAt])
 }

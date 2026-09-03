@@ -22,6 +22,7 @@ import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import AdminIncidentsPanel from '@/components/admin/AdminIncidentsPanel'
 import AttendanceJustifyModal from '@/components/admin/AttendanceJustifyModal'
 import PersonAttendanceDrawer from '@/components/admin/PersonAttendanceDrawer'
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   BarChart3,
   Calendar,
@@ -41,11 +42,6 @@ const NOVEDADES_EXPORT_FORMATS: { value: NovedadesFormat; label: string; hint: s
   { value: 'XLSX', label: 'Excel (.xlsx)', hint: 'Para revisar y ajustar antes de importar' },
   { value: 'CSV', label: 'CSV (.csv)', hint: 'Formato universal de importación' },
 ]
-
-function withSchoolYear(path: string, schoolYearQuery: string): string {
-  if (!schoolYearQuery) return path
-  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
-}
 
 function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
   if (attendance.type === 'CHECK_OUT' && attendance.status === 'PRESENT') {
