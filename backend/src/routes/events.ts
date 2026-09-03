@@ -33,6 +33,7 @@ import { ensureMoodleUserById } from '../services/moodle.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { conflictKindBetween, findEventOverlapConflict, type EventSchedule } from '../services/events/event-overlap.js';
 import { hasUpcomingWeeklyOccurrence, isEventStartInPast, isMovingEventStartToPast, splitEventDefinitionForEdit, todayUruguayYmd, ymdInUruguay } from '../services/events/event-versioning.js';
+import { resolveOccurrenceInstant } from '../services/events/occurrence-instant.js';
 
 const r = Router();
 
@@ -1872,31 +1873,6 @@ const occurrenceSelect = {
   effectiveFrom: true,
   effectiveUntil: true,
 } as const;
-
-function shiftYmd(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-/** Resuelve el instante UTC de la ocurrencia de un evento recurrente en el día civil `ymd`. */
-function resolveOccurrenceInstant(parent: any, ymd: string): { startAt: Date; endAt: Date } | null {
-  if (!parent.isRecurring) return null;
-  // Ventana ±1 día: un YYYY-MM-DD interpretado como UTC cae en el día civil anterior en UY,
-  // así que expandimos un margen y emparejamos por la fecha civil real de la ocurrencia.
-  const instances = expandRecurringEvent({ ...parent, childEvents: [] }, shiftYmd(ymd, -1), shiftYmd(ymd, 1)) as any[];
-  const match = instances.find((occ) => {
-    const occYmd = DateTime.fromJSDate(new Date(occ.startDate), { zone: 'utc' })
-      .setZone(getAppTimezone())
-      .toFormat('yyyy-MM-dd');
-    return occYmd === ymd;
-  });
-  if (!match) return null;
-  return {
-    startAt: new Date(match.startTime ?? match.startDate),
-    endAt: new Date(match.endTime ?? match.startDate),
-  };
-}
 
 /** Carga el evento padre + valida que sea recurrente, el permiso de scope y la ocurrencia. */
 async function loadOccurrenceContext(

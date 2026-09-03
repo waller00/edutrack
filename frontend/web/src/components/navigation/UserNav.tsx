@@ -61,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Usuarios', href: '/admin/users', permission: 'users.read', permissionScope: 'all' },
       { label: 'Licencias', href: '/admin/licenses', permission: 'licenses.read', permissionScope: 'all' },
       { label: 'Mis eventos', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
+      { label: 'Pase de lista', href: '/me/roll-call', permission: 'student-attendance.take', permissionScope: 'own' },
       { label: 'Mis asistencias', href: '/me/attendance', permission: 'attendance.read', permissionScope: 'own' },
       { label: 'Mis licencias', href: '/me/licenses', permission: 'licenses.read', permissionScope: 'own' },
     ],
@@ -73,6 +74,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Cursos', href: '/admin/courses', permission: 'courses.manage' },
       { label: 'Notas (Moodle)', href: '/admin/grades', permission: 'courses.manage' },
       { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage' },
+      { label: 'Pase de lista (control)', href: '/admin/student-attendance', permission: 'student-attendance.manage' },
     ],
   },
   {
@@ -106,6 +108,7 @@ function isPublicPath(pathname: string) {
 }
 
 function itemIcon(label: string) {
+  if (/pase de lista/i.test(label)) return ClipboardList
   if (/curso/i.test(label)) return BookOpen
   if (/estudiante/i.test(label)) return GraduationCap
   if (/evento|clase|turno/i.test(label)) return CalendarDays

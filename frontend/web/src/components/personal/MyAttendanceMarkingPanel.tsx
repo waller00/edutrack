@@ -6,9 +6,12 @@ import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import DateField from '@/components/forms/DateField'
 import { formatDateInUruguay, formatTimeInUruguay, getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
+import { resolveRealEventId } from '@/lib/events/event-instance-id'
 
 type DayEvent = {
   id: string
+  /** uuid de la serie cuando `id` es una instancia expandida `<uuid>_<ymd>`. */
+  originalEventId?: string | null
   title: string
   type: string
   status: string
@@ -87,8 +90,10 @@ export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
     void load()
   }, [load])
 
-  function hasType(eventId: string, type: 'CHECK_IN' | 'CHECK_OUT') {
-    return attendances.some((a) => a.eventId === eventId && a.type === type)
+  function hasType(event: DayEvent, type: 'CHECK_IN' | 'CHECK_OUT') {
+    // `Attendance.eventId` guarda el uuid de la serie, nunca el id compuesto de la ocurrencia.
+    const realId = resolveRealEventId(event)
+    return attendances.some((a) => a.eventId === realId && a.type === type)
   }
 
   async function mark(event: DayEvent, type: 'CHECK_IN' | 'CHECK_OUT') {
@@ -103,7 +108,7 @@ export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
           type,
           date: instant,
           time: instant,
-          eventId: event.id,
+          eventId: resolveRealEventId(event),
         }),
       })
       setMessage(type === 'CHECK_IN' ? 'Entrada registrada' : 'Salida registrada')
@@ -159,19 +164,19 @@ export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
               <div className="flex shrink-0 gap-2">
                 <button
                   type="button"
-                  disabled={hasType(ev.id, 'CHECK_IN') || marking !== null}
+                  disabled={hasType(ev, 'CHECK_IN') || marking !== null}
                   onClick={() => void mark(ev, 'CHECK_IN')}
                   className="btn-primary text-xs disabled:opacity-50"
                 >
-                  {marking === `${ev.id}:CHECK_IN` ? '…' : hasType(ev.id, 'CHECK_IN') ? 'Entrada ✓' : 'Entrada'}
+                  {marking === `${ev.id}:CHECK_IN` ? '…' : hasType(ev, 'CHECK_IN') ? 'Entrada ✓' : 'Entrada'}
                 </button>
                 <button
                   type="button"
-                  disabled={hasType(ev.id, 'CHECK_OUT') || marking !== null}
+                  disabled={hasType(ev, 'CHECK_OUT') || marking !== null}
                   onClick={() => void mark(ev, 'CHECK_OUT')}
                   className="btn-secondary text-xs disabled:opacity-50"
                 >
-                  {marking === `${ev.id}:CHECK_OUT` ? '…' : hasType(ev.id, 'CHECK_OUT') ? 'Salida ✓' : 'Salida'}
+                  {marking === `${ev.id}:CHECK_OUT` ? '…' : hasType(ev, 'CHECK_OUT') ? 'Salida ✓' : 'Salida'}
                 </button>
               </div>
             </li>

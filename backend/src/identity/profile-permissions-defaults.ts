@@ -58,6 +58,9 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('courses.manage', 'Cursos', 'manage', 'Gestionar cursos y materias', true, 'all'),
     perm('students.manage', 'Estudiantes', 'manage', 'Gestionar estudiantes', true, 'all'),
+    perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de clases', true, 'all'),
+    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver pase de lista', true, 'all'),
+    perm('student-attendance.manage', 'Pase de lista', 'manage', 'Controlar y justificar el pase de lista', true, 'all'),
     perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
     perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
     perm('query-assistant.use', 'Consultas', 'use', 'Usar asistente de consultas', true, 'all'),
@@ -69,6 +72,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
+    perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de mis clases', true, 'own'),
+    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
   ],
   STAFF: [
     perm('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
@@ -76,6 +81,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
+    perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de mis clases', true, 'own'),
+    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
   ],
 } as const
 

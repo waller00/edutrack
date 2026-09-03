@@ -38,6 +38,7 @@ import {
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
 import EventsCalendar, { type CalendarEvent } from '@/components/admin/EventsCalendar'
 import type { SubstitutionListResponse } from '@/lib/substitutions/types'
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   resolveAdminSchoolYearForEvents,
   schoolYearRangeLabel,
@@ -52,11 +53,6 @@ type CourseOrientationOpt = {
   orientation: { id: string; name: string; code: string | null }
 }
 type SubjectOpt = { id: string; name: string; code: string | null }
-
-function withSchoolYear(path: string, schoolYearQuery: string): string {
-  if (!schoolYearQuery) return path
-  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
-}
 
 type Event = {
   id: string

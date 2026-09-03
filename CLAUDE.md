@@ -100,6 +100,8 @@ docker compose up -d --build auth  # rebuild solo el backend
 - Esquema: `backend/prisma/schema.prisma`
 - Modelos principales: `User`, `SchoolYear`, `Course`, `CourseOffering`, `CourseOrientation`, `Subject`, `SubjectCourseAssignment`, `Student`, `StudentEnrollment`, `Event`, `Substitution`, `Attendance`, `MedicalLeave`, `MoodleObjectMap`, `MoodleEnrolmentMap`, `MoodleSyncTask`, `BiometricDevice`, `BiometricPunch`, `SystemSettings`
 
+> **Dos sistemas de asistencia distintos.** `Attendance` es del **personal** (`userId → User`, marcas biométricas). El pase de lista estudiantil vive en `StudentAttendanceSession` / `StudentAttendanceEntry` / `StudentAttendanceJustification`, con su propio enum `StudentAttendanceStatus`. No mezclarlos: una consulta sobre `Attendance.status` nunca debe contar alumnos.
+
 ---
 
 ## Integración Moodle
@@ -116,6 +118,33 @@ Módulo: `backend/src/integrations/moodle/`
 - `client.ts` — HTTP + variables de entorno Moodle
 
 Detalle completo: [docs/MOODLE_INTEGRACION.md](docs/MOODLE_INTEGRACION.md)
+
+---
+
+## Pase de lista estudiantil
+
+El docente marca la asistencia de sus estudiantes por **ocurrencia de clase**, identificada por
+`(eventId, día civil YYYY-MM-DD)` — nunca por el id compuesto `uuid_ymd` que produce la expansión
+de recurrencia.
+
+Módulo: `backend/src/services/student-attendance/`
+
+- `roster.ts` — cohorte del evento; misma precedencia que `moodle/scope.ts` (`courseOrientationId` > `orientationId` > tronco común)
+- `occurrence.ts` — valida que el día sea clase real; distingue *suspendida* de *inexistente*
+- `edit-window.ts` — ventana de edición del docente (`SystemSettings.studentRollCallEditWindowHours`, default 48 h)
+- `copy-previous.ts` — sugerencia de copiar la hora anterior del mismo grupo
+- `pending.ts` — listas sin pasar (se calculan; no hay filas PENDING pre-creadas)
+- `consolidation.ts` — faltas por día/asignatura, derivadas al leer
+- `roll-call.ts` / `justify.ts` — escritura y transición ABSENT → ABSENT_JUSTIFIED
+
+Rutas: `backend/src/routes/student-attendance.ts` (docente) y `admin-student-attendance.ts` (control).
+Frontend: `/me/roll-call` y `/admin/student-attendance`.
+
+> `occurrenceDate` **debe** calcularse con `uruguayWallToUtc(ymd, 0, 0)`, idéntico a lo que escribe
+> `resolveSubstitutionOccurrence` en `Substitution.date`. Si difieren, el suplente recibe un 403
+> silencioso. Nunca `new Date(ymd)`.
+
+Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 bis
 
 ---
 

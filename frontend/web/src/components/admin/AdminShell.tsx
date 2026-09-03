@@ -10,6 +10,7 @@ const SCHOOL_YEAR_SCOPED_ADMIN_ROUTES = [
   '/admin/events',
   '/admin/courses',
   '/admin/students',
+  '/admin/student-attendance',
   '/admin/analytics',
   '/admin/licenses',
 ]

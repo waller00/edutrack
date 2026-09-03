@@ -15,11 +15,7 @@ import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import DateField from '@/components/forms/DateField'
 import { Calendar, FileText, Loader2, Plus, Search, Trash2 } from 'lucide-react'
-
-function withSchoolYear(path: string, schoolYearQuery: string): string {
-  if (!schoolYearQuery) return path
-  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
-}
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 
 type License = {
   id: string

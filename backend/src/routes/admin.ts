@@ -47,6 +47,7 @@ import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
 import adminStudentsRoutes from './admin-students.js'
+import adminStudentAttendanceRoutes from './admin-student-attendance.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
 
 const r = Router()
@@ -920,6 +921,9 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     moodleReconcileIntervalMs?: number | null
     moodleSyncStudents?: boolean | null
     institutionTimezone?: string | null
+    studentRollCallEditWindowHours?: number | null
+    studentRollCallCopyPreviousEnabled?: boolean | null
+    studentDailyAbsenceThresholdPercent?: number | null
   }
   return res.json({
     diditConfigured: isDiditConfigured(),
@@ -940,6 +944,9 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     moodleSyncEnabledFromEnv: isMoodleSyncEnabledFromEnv(),
     moodleReconcileIntervalMs: settings.moodleReconcileIntervalMs ?? 900000,
     moodleSyncStudents: settings.moodleSyncStudents === true,
+    studentRollCallEditWindowHours: settings.studentRollCallEditWindowHours ?? 48,
+    studentRollCallCopyPreviousEnabled: settings.studentRollCallCopyPreviousEnabled !== false,
+    studentDailyAbsenceThresholdPercent: settings.studentDailyAbsenceThresholdPercent ?? 50,
   })
 })
 
@@ -958,6 +965,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       moodleReconcileIntervalMs: z.number().int().min(60000).max(86400000).optional(),
       moodleSyncStudents: z.boolean().optional(),
       institutionTimezone: z.string().trim().min(1).max(64).optional(),
+      studentRollCallEditWindowHours: z.number().int().min(1).max(720).optional(),
+      studentRollCallCopyPreviousEnabled: z.boolean().optional(),
+      studentDailyAbsenceThresholdPercent: z.number().int().min(1).max(100).optional(),
     })
     .safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
@@ -986,6 +996,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       moodleReconcileIntervalMs: data.moodleReconcileIntervalMs ?? 900000,
       moodleSyncStudents: data.moodleSyncStudents ?? false,
       institutionTimezone: normalizeInstitutionTimezone(data.institutionTimezone),
+      studentRollCallEditWindowHours: data.studentRollCallEditWindowHours ?? 48,
+      studentRollCallCopyPreviousEnabled: data.studentRollCallCopyPreviousEnabled ?? true,
+      studentDailyAbsenceThresholdPercent: data.studentDailyAbsenceThresholdPercent ?? 50,
     } as any,
     update: data as any,
   })
@@ -997,6 +1010,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     moodleReconcileIntervalMs?: number | null
     moodleSyncStudents?: boolean | null
     institutionTimezone?: string | null
+    studentRollCallEditWindowHours?: number | null
+    studentRollCallCopyPreviousEnabled?: boolean | null
+    studentDailyAbsenceThresholdPercent?: number | null
   }
 
   recordAuditEvent({
@@ -1027,6 +1043,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     moodleSyncEnabledFromEnv: isMoodleSyncEnabledFromEnv(),
     moodleReconcileIntervalMs: updatedSettings.moodleReconcileIntervalMs ?? 900000,
     moodleSyncStudents: updatedSettings.moodleSyncStudents === true,
+    studentRollCallEditWindowHours: updatedSettings.studentRollCallEditWindowHours ?? 48,
+    studentRollCallCopyPreviousEnabled: updatedSettings.studentRollCallCopyPreviousEnabled !== false,
+    studentDailyAbsenceThresholdPercent: updatedSettings.studentDailyAbsenceThresholdPercent ?? 50,
   })
 })
 
@@ -1135,6 +1154,7 @@ r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) =>
 })
 
 r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRoutes)
+r.use('/student-attendance', requirePermission('student-attendance.manage', 'all'), adminStudentAttendanceRoutes)
 r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSchoolYearsRoutes)
 
 /** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
