@@ -28,6 +28,7 @@ import {
 } from '../identity/profile-permissions-repository.js'
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
 import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../identity/org-role-service.js'
+import { BUILTIN_ORG_ROLE_CODES } from '../identity/org-role-seed.js'
 import {
   AUDIT_ACTION_LABELS,
   getAuditActionCatalog,
@@ -49,6 +50,9 @@ import { firstZodIssueMessage } from '../auth/password-policy.js'
 import adminStudentsRoutes from './admin-students.js'
 import adminStudentAttendanceRoutes from './admin-student-attendance.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
+import adminAcademicConfigRoutes from './admin-academic-config.js'
+import adminGradeBookRoutes from './admin-gradebook.js'
+import adminAcademicAnalyticsRoutes from './admin-academic-analytics.js'
 
 const r = Router()
 r.use(authGuard)
@@ -473,7 +477,7 @@ r.post('/profiles', requirePermission('profiles.manage', 'all'), async (req, res
     return res.status(400).json({ message: 'Código de perfil inválido (usa A-Z, números y _, empieza con letra).' })
   }
 
-  if (['ADMIN', 'TEACHER', 'STAFF'].includes(code)) {
+  if (BUILTIN_ORG_ROLE_CODES.includes(code)) {
     return res.status(409).json({ message: 'Ese perfil ya existe' })
   }
 
@@ -1156,6 +1160,9 @@ r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) =>
 r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRoutes)
 r.use('/student-attendance', requirePermission('student-attendance.manage', 'all'), adminStudentAttendanceRoutes)
 r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSchoolYearsRoutes)
+r.use('/academic-config', requirePermission('academic-config.manage', 'all'), adminAcademicConfigRoutes)
+r.use('/gradebook', requirePermission('gradebook.read', 'all'), adminGradeBookRoutes)
+r.use('/academic-analytics', requirePermission('academic-analytics.read', 'all'), adminAcademicAnalyticsRoutes)
 
 /** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
 // Cada consulta puede disparar varias llamadas al LLM; sin techo, un solo usuario con

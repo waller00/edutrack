@@ -4,7 +4,7 @@ const { moodleRestMock } = vi.hoisted(() => ({ moodleRestMock: vi.fn() }));
 
 vi.mock("./client.js", () => ({ moodleRest: moodleRestMock }));
 
-import { listCourseAssignments, getAssignmentGrades, saveAssignmentGrade } from "./grades.js";
+import { listCourseAssignments, getAssignmentGrades } from "./grades.js";
 
 beforeEach(() => {
   moodleRestMock.mockReset();
@@ -90,21 +90,5 @@ describe("getAssignmentGrades", () => {
   it("devuelve mapa vacío si la respuesta no trae assignments", async () => {
     moodleRestMock.mockResolvedValue({ warnings: [] });
     expect((await getAssignmentGrades(5)).size).toBe(0);
-  });
-});
-
-describe("saveAssignmentGrade", () => {
-  it("invoca mod_assign_save_grade con los parámetros de escritura", async () => {
-    moodleRestMock.mockResolvedValue(null);
-    await saveAssignmentGrade(5, 42, 90);
-    expect(moodleRestMock).toHaveBeenCalledWith("mod_assign_save_grade", {
-      assignmentid: "5",
-      userid: "42",
-      grade: "90",
-      attemptnumber: "-1",
-      addattempt: "0",
-      workflowstate: "",
-      applytoall: "0",
-    });
   });
 });

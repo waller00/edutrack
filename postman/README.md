@@ -55,7 +55,6 @@ La sesión caduca: si empezás a ver 401, repetí el paso.
 13-14 · Asistencia               registro, conciliación, justificaciones, incidencias
 15-16 · Licencias y feriados
 17-19 · Analítica, reportes y exportaciones
-20 · Calificaciones              puente con Moodle
 21-22 · Biometría                lectores, vinculación, ingesta ADMS y protocolo ZKTeco
 23 · Notificaciones              web push + in-app
 24 · ⚠️ Destructivo              purgas y reset (NO contra producción)

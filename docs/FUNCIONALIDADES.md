@@ -42,10 +42,19 @@ EduTrack es una **plataforma de gestión administrativa integral** orientada a i
 | `ADMIN` | Administrador | Gestión completa del sistema |
 | `TEACHER` | Docente | Consulta de propias asistencias, eventos y licencias |
 | `STAFF` | Staff | Igual que docente en módulos “propios” |
+| `ADSCRIPTO` | Adscripto | Control de libretas y observaciones; **no visa** |
+| `DIRECCION` | Dirección | Único rol que **visa** libretas; indicadores académicos |
+| `INSPECCION` | Inspección | Consulta libretas y registra observaciones; **no puede visar ni modificar visados** |
 | `STUDENT` | Estudiante | Rol reconocido en modelo; **sin panel operativo** en home (lista vacía) |
 | Perfiles personalizados | Configurables | Matriz de permisos editable por administrador |
 
-> **Nota:** Los roles built-in de permisos son **ADMIN, TEACHER y STAFF**. `STUDENT` existe en el modelo pero sin panel operativo. No hay rol `PADRE` ni `DOCENTE` (ese era nomenclatura antigua).
+> **Nota:** Los roles built-in de permisos son **ADMIN, TEACHER, STAFF, ADSCRIPTO, DIRECCION e INSPECCION**. `STUDENT` existe en el modelo pero sin panel operativo. No hay rol `PADRE` ni `DOCENTE` (ese era nomenclatura antigua).
+
+> **Por qué built-in y no perfiles personalizados:** que el visado quede sólo en Dirección y que
+> Inspección no pueda tocarlo es una regla del reglamento, no una preferencia de configuración.
+> Vive en el catálogo de permisos (`gradebook.endorse` sólo lo tiene `DIRECCION`), no en un `if`
+> de una ruta ni en cómo un administrador arme una matriz a mano. La lista canónica está en
+> `backend/src/identity/org-role-seed.ts` y su matriz en `profile-permissions-defaults.ts`.
 
 ### 3.2 Sistema de permisos granulares
 
@@ -270,6 +279,183 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
 
 ---
 
+## 11 ter. Libreta digital de calificaciones
+
+Libreta por asignatura y grupo, con EduTrack como **fuente de verdad** de las notas. Reemplaza al
+puente Excel hacia Moodle, que no persistía nada y era sólo para administración.
+
+**Pantallas:** `/me/gradebook` (mis libretas) y `/me/gradebook/[id]` (encabezado, evaluaciones y
+lista del grupo). Parametrización: `/admin/academic-config`.
+
+- **Unidad:** una libreta es `(ciclo, oferta de curso, orientación opcional, asignatura)`. En
+  EduTrack el "grupo" es el curso más su orientación —no hay grupos paralelos—, así que esa clave
+  coincide exactamente con la que la integración Moodle deriva de un evento: la libreta y su curso
+  Moodle `SUBJECT_COURSE` son la misma cosa vista desde dos lados (`GradeBook.scopeKey`).
+- **Generación automática:** las libretas se derivan de los eventos de clase del ciclo
+  (`POST /admin/academic-config/gradebooks/provision`). No hay tabla de asignación docente: quién
+  dicta qué sólo existe en el horario. Es idempotente y respeta la oferta del ciclo (un curso no
+  ofertado no genera libretas).
+- **Acceso:** el titular y el suplente que cubrió alguna de sus clases. Adscripción, Dirección e
+  Inspección leen todas las del centro pero **no** califican: leer y escribir son permisos
+  distintos (`gradebook.read` vs `gradebook.grade`).
+- **Parametrización (RF-044, RF-050, RF-041):** escalas con sus tramos y descriptores, períodos por
+  ciclo **y nivel** —EBI y EMS tienen calendarios distintos— y tipos de actividad. Todo se edita
+  desde administración, sin tocar código.
+- **Calificaciones:** los valores se guardan en **centésimos** (`8` → `800`), como `amountCents`,
+  para que la comparación contra umbrales sea exacta. El tramo de la escala se deriva del valor;
+  el descriptor no se persiste.
+- **Historial (§6.2):** toda escritura que cambie una nota ya cargada deja una fila en
+  `GradeRevision` con valor anterior, nuevo, autor, origen y motivo. Reenviar el mismo valor no
+  escribe ni audita. La primera carga no genera revisión.
+- **Ventana de edición:** el docente edita durante `gradebookEditWindowDays` (30 por defecto) desde
+  la fecha de la evaluación. Después sólo `gradebook.manage`, y esa escritura se audita esperando
+  el write y se marca con origen `ADMIN_CORRECTION`.
+- **Snapshot de identidad:** cada calificación copia apellido, nombre y documento, igual que el
+  pase de lista: una baja o un cambio de nombre no reescriben una nota ya puesta.
+- **Ciclo cerrado:** las libretas pasan a `ARCHIVED` y son de sólo lectura para todos, incluida
+  administración.
+- **Cierre de período (RF-051, RF-052):** el docente registra la calificación general y el juicio
+  conceptual de cada estudiante y cierra el período. El cierre **valida contra la configuración
+  del período**: si exige calificación o juicio, no cierra hasta completarlos, y devuelve la lista
+  entera de lo que falta para que la UI la marque de una vez. Se registra si el cierre quedó fuera
+  del plazo del período (§5.9).
+- **Promedio orientativo (RF-061):** al cerrar se sugiere el promedio de las evaluaciones del
+  período, rotulado como *indicador automático*. **No se persiste**: guardarlo lo convertiría de a
+  poco en la calificación oficial, que es justo lo que el pliego prohíbe. Las ausencias no
+  promedian como cero.
+- **Descriptor (RF-053):** se deriva al leer del tramo de la escala, nunca se guarda. Un cambio en
+  la redacción reglamentaria no reescribe libretas viejas.
+- **Un período cerrado congela sus evaluaciones**, no sólo la calificación general: si no, se
+  podría cambiar una nota parcial después del cierre y el cierre dejaría de significar algo.
+- **Reapertura:** sólo `gradebook.manage`, con motivo obligatorio y auditoría garantizada. **No
+  borra el cierre previo** (`closedAt` y `closedByUserId` se conservan): es lo que permitirá que un
+  visado hecho sobre el cierre anterior siga existiendo (RF-083).
+- **Importación desde Moodle (§11 ter · Moodle):** previsualizar y confirmar. Idempotente por
+  `(libreta, ítem de Moodle)`, convierte proporcionalmente a la escala elegida y **nunca toca un
+  período cerrado**. Detalle en `docs/MOODLE_INTEGRACION.md`.
+
+### Vistas institucionales (RF-031, RF-060, RF-061, RF-070)
+
+**Pantallas:** `/admin/gradebook` (matriz de grupo), `/admin/gradebook/students/[id]` (ficha
+académica) y `/admin/gradebook/meeting` (modo reunión). Permiso `gradebook.read` de alcance ALL:
+adscripción, dirección, inspección y administración.
+
+- **Matriz Estudiante × Asignatura** del período, con calificación, juicio, descriptor, pendientes
+  y alertas. Un grupo ve **las asignaturas de su orientación más las de tronco común** — la
+  contracara exacta del roster; quedarse sólo con las de la orientación dejaría media matriz vacía.
+- **Promedio transversal (RF-061):** indicador automático, derivado al leer y nunca persistido. Una
+  asignatura pendiente no lo arrastra: "todavía no tiene nota" no es "sacó poco".
+- **Ficha académica (RF-031):** trayectoria por ciclo, histórico por materia y período, y evolución
+  por asignatura. Un período sin datos se conserva como hueco; borrarlo haría que dos períodos
+  separados parecieran consecutivos.
+- **Riesgo (§5.7):** se marca al estudiante con N o más asignaturas en tramo de alerta (umbral
+  configurable, 3 por defecto) y el descenso sostenido exige **tres** bajas consecutivas: dos
+  puntos son ruido, no tendencia. Las alertas son informativas y no generan por sí solas
+  decisiones administrativas, promociones ni sanciones.
+- **Reunión de profesores (RF-070):** la misma matriz en tamaño de proyección, más
+  `TeacherMeetingRecord` para registrar decisiones sobre un estudiante o sobre el grupo.
+
+### Visado (RF-080 a RF-083)
+
+**Pantalla:** `/admin/gradebook/endorsements`.
+
+- **Append-only.** El estado vigente de cada sección es su última fila; nada se actualiza ni se
+  borra. Una observación posterior a un visado no lo elimina, lo **sucede**, y el visado anterior
+  sigue consultable con su autor y su fecha. Eso es RF-083 por construcción, no por convención.
+- **Secciones independientes (RF-081):** Calificaciones, Cierre del período y Juicios conceptuales,
+  más `ALL` para el visado del período.
+- **Sólo se visa lo cerrado.** Un período abierto no llega a la grilla: no hay nada firme que visar
+  mientras el docente todavía puede cambiar una nota.
+- **Visado final (RF-082):** se habilita cuando ninguna sección obligatoria queda observada. Una
+  sección sin revisar no bloquea (puede que no hubiera nada que objetar); una observación viva sí,
+  hasta que se marque corregida.
+- **Quién hace qué:** observar es de adscripción, dirección e inspección (`gradebook.review` o
+  `gradebook.inspect`); **visar es sólo de Dirección** (`gradebook.endorse`).
+- **Protección del visado de Dirección.** Sobre una sección ya visada **sólo puede escribir quien
+  tiene `gradebook.endorse`**. Sin esa regla, como el estado vigente es la última fila, una
+  observación de Inspección —o de Adscripción— revertiría de hecho el visado sin tener la
+  atribución para hacerlo. Es lo que cumple la nota funcional del pliego.
+- **Antigüedad del pendiente** en la grilla, para priorizar (§5.9), junto con la marca de cierre
+  fuera de plazo.
+- El rol del actor se **congela** en cada evento: si mañana cambia de rol, el historial sigue
+  diciendo con qué atribución se visó.
+
+### Observaciones, mensajería y accesos (RF-090, RF-091, RF-100)
+
+- **Espacio de intercambio** por libreta, con hilos: docente ↔ adscripción ↔ dirección ↔
+  inspección. Cualquiera que pueda leer la libreta lee el intercambio; separarlo por rol lo
+  volvería inútil. Un hilo no puede cruzar libretas.
+- Va **separado de la cadena de visado** a propósito: acá viven las consultas y aclaraciones; en
+  `Endorsement` sólo lo que cambia un estado formal.
+- **Avisos (RF-091):** observación, visado y mensaje nuevo llegan por la campana que ya existe
+  (`InAppNotification`), con tipos propios para poder filtrarlos. Nunca se avisa a quien originó
+  la acción, y **un fallo del aviso jamás interrumpe lo que lo originó**: observar o visar queda
+  firme aunque la notificación no salga.
+- **Registro de acceso (RF-100):** cada apertura de una libreta deja usuario, rol, fecha e IP en
+  `GradeBookAccessLog`. Es tabla aparte de `AuditLog` a propósito —alto volumen y retención
+  distinta—; mezclarlas sepultaría la auditoría real bajo las consultas. Se escribe
+  *fire-and-forget*: si falla, la lectura responde igual.
+
+### Exportaciones (RF-120)
+
+Desde `/me/gradebook/[id]`, con permiso `exports.create`.
+
+- **Excel**: una hoja de calificaciones —una columna por evaluación— más una hoja de cierre por
+  período, con calificación, descriptor y juicio conceptual. Sirve de archivo del año entero.
+- **PDF de la libreta** y **informe individual** por estudiante, con sus períodos cerrados, el
+  descriptor y el estado de visado.
+- Los valores van al Excel como **número**, no como texto: una planilla de notas se ordena y se
+  promedia, y una columna de strings lo impide. El formato de celda respeta los decimales de la
+  escala. El *ausente* se distingue del *sin calificar*: uno dice "Ausente", el otro queda vacío.
+- Todo documento lleva impreso de qué libreta, ciclo y docente salió, más la fecha de emisión: una
+  hoja suelta sin eso no dice a qué grupo pertenece.
+- La descarga va por `fetch` + blob y no por un enlace directo, porque la API vive en otro origen
+  y la sesión viaja en cookie: un `<a href>` plano daría 401.
+
+### Backoffice de inteligencia académica (§5, RF-200)
+
+**Pantalla:** `/admin/academic-analytics`, permiso `academic-analytics.read` de alcance ALL.
+
+- **Tres bloques** como pide el pliego: *Estudiantes* (total, evaluados, sin evaluaciones, en
+  alerta, con mejora, con descenso), *Rendimiento* (promedio, mediana, distribución por tramo) y
+  *Gestión de libretas* (completas, incompletas, cierres y visados pendientes, % visadas, cierres
+  fuera de plazo).
+- **Promedio y mediana van juntos, no uno en lugar del otro:** una distribución con pocos
+  resultados muy bajos mueve el promedio y no la mediana, y esa diferencia es la señal.
+- **Comparativas** por asignatura, curso y ciclo lectivo, con el porcentaje de resultados en tramo
+  de alerta (§5.3 a §5.5).
+- **Umbrales configurables (§5.7)** en `AcademicAlertRule`, con **vigencia por ciclo (RF-200)**: la
+  regla del año pisa a la general, así una comparativa histórica se evalúa con el umbral que regía
+  entonces y no cambia sola cuando alguien mueve el actual.
+- **Sin repositorio analítico aparte.** A escala de un liceo la separación que sugiere §5.10 no
+  compensa, y un agregado persistido se desactualiza sin que nadie se entere: todo se deriva al
+  leer del mismo esquema transaccional.
+- **La distribución se muestra como gráfico y como tabla.** El gráfico no puede ser la única
+  lectura: sin la tabla, el dato depende del color.
+- El dashboard devuelve y muestra la aclaración del pliego: las alertas son informativas, no
+  generan automáticamente decisiones administrativas, promociones ni sanciones, y los indicadores
+  de gestión no constituyen por sí solos un mecanismo de evaluación del desempeño docente.
+
+### Históricos y cierre de año (RF-110, RF-111)
+
+- **Al cerrar el ciclo** (`POST /admin/school-years/:id/close`) sus libretas pasan a `ARCHIVED`.
+  No se copia ni se mueve nada: el estado es lo que bloquea la escritura, y la consulta queda
+  abierta para quien tenga permiso.
+- **Todo lo que escribe queda bloqueado**: calificar, cerrar o reabrir períodos, importar de
+  Moodle, visar y publicar mensajes responden `SCHOOL_YEAR_CLOSED`. Ni administración con
+  `gradebook.manage` puede escribir.
+- **Lo que sigue disponible**: leer la libreta, el hilo de mensajes, la matriz de grupo, la ficha
+  del estudiante, el backoffice y **las exportaciones** — consultar un histórico incluye poder
+  imprimirlo.
+- **Cerrar el año no exige que todo esté cerrado y visado.** Un año lectivo termina en una fecha,
+  no cuando el último docente completó su libreta; bloquearlo dejaría a la institución sin poder
+  pasar de año. La respuesta informa cuántos períodos quedaron abiertos.
+- **Reabrir el ciclo** devuelve las libretas a `ACTIVE`. Existe porque cerrar un año por error es
+  plausible y sin eso la única salida sería tocar la base a mano. **No reabre los períodos**: cada
+  uno conserva su estado y su historial de visado.
+
+---
+
 ## 12. Notificaciones
 
 **Pantalla:** `/notifications`
@@ -360,7 +546,9 @@ Cuando `MOODLE_BASE_URL` y `MOODLE_WS_TOKEN` están configurados:
 - Despliegue separado: `docker-compose.moodle.yml` (no forma parte del pipeline cloud principal por defecto).
 - Servicio externo Edutrack en Moodle debe estar **habilitado** con token REST válido.
 
-EduTrack **no** sincroniza calificaciones ni contenidos de cursos Moodle en esta versión; el alcance es **provisión de cuentas de usuario**.
+Además de la provisión de cuentas y la matriculación, EduTrack **importa** las calificaciones del
+libro de Moodle hacia su libreta digital (ver §11 ter y `docs/MOODLE_INTEGRACION.md`). La
+importación es unidireccional: EduTrack es la fuente de verdad y **no** escribe notas en Moodle.
 
 ---
 
@@ -372,13 +560,13 @@ EduTrack **no** sincroniza calificaciones ni contenidos de cursos Moodle en esta
 `/forgot` y `/reset` redirigen al login de Keycloak (recupero gestionado en el IdP).
 
 ### Administración
-`/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/student-attendance`, `/admin/analytics`, `/admin/query-assistant`, `/admin/settings`, `/admin/profiles`, `/admin/audit`, `/admin/train-dni`, `/admin/test-preprocessing`
+`/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/student-attendance`, `/admin/analytics`, `/admin/query-assistant`, `/admin/settings`, `/admin/profiles`, `/admin/audit`, `/admin/train-dni`, `/admin/test-preprocessing`, `/admin/academic-config`, `/admin/gradebook`, `/admin/gradebook/students/[id]`, `/admin/gradebook/meeting`, `/admin/gradebook/endorsements`, `/admin/academic-analytics`
 
 ### Personal (rutas legacy por rol)
 `/teacher/*`, `/staff/*` — equivalentes a módulos “mis …”
 
 ### Unificadas “mis datos”
-`/me/attendance`, `/me/events`, `/me/licenses`, `/me/roll-call`, `/me/roll-call/[eventId]/[ymd]`
+`/me/attendance`, `/me/events`, `/me/licenses`, `/me/roll-call`, `/me/roll-call/[eventId]/[ymd]`, `/me/gradebook`, `/me/gradebook/[id]`
 
 ### General
 `/`, `/profile`, `/notifications` (`/student/attendance` es legacy y redirige a `/me/roll-call`)
@@ -436,7 +624,8 @@ Funcionalidades **no** implementadas:
 | Predicción ML de inasistencias | **No implementado** en el código actual |
 | Portal padres/tutores (rol PADRE) | **No implementado** como rol operativo |
 | App móvil nativa | **No**; web responsive |
-| Sincronización bidireccional Moodle (notas, tareas) | **No**; solo usuarios |
+| Sincronización **bidireccional** Moodle (escribir notas en Moodle) | **No**; la importación es sólo Moodle → EduTrack |
+| Portal de consulta para estudiantes y familias | **No**; la libreta es para el personal del liceo (docente, adscripción, dirección, inspección) |
 | Pagos en línea de cuotas estudiantiles | **No**; solo registro administrativo de cuotas |
 | Control de asistencia estudiantil **por biométrico** | **No**; el biométrico es solo para personal. La asistencia de alumnos la carga el docente (ver §11 bis) |
 | Autogestión del alumno (ver su propia asistencia) | **No**; `Student` no tiene cuenta ni rol. Se consulta desde administración |

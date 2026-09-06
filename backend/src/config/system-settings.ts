@@ -101,3 +101,16 @@ export async function getStudentRollCallSettings() {
     ),
   }
 }
+
+/**
+ * Configuración de la libreta.
+ *
+ * Mismo criterio que el pase de lista: la ventana se calcula al leer y no se congela al calificar,
+ * de modo que acortarla aplica retroactivamente.
+ */
+export async function getGradeBookSettings() {
+  const row = (await getOrCreateSystemSettings()) as Record<string, unknown>
+  return {
+    editWindowDays: Math.min(Math.max(Number(row.gradebookEditWindowDays ?? 30), 1), 365),
+  }
+}
