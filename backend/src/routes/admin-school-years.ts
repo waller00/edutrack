@@ -9,6 +9,11 @@ import {
   copyCoursesBetweenSchoolYears,
   buildSubjectAssignmentsToCopy,
 } from '../services/school-year-service.js'
+import {
+  archiveSchoolYearGradeBooks,
+  historicalSummary,
+  unarchiveSchoolYearGradeBooks,
+} from '../services/gradebook/archive.js'
 
 const r = Router()
 
@@ -805,6 +810,8 @@ r.post('/:id/activate', async (req, res) => {
     const row = await prisma.schoolYear.findUnique({ where: { id } })
     if (!row) return res.status(404).json({ message: 'Ciclo no encontrado' })
     const updated = await activateSchoolYearById(prisma, id)
+    // Reabrir un ciclo cerrado por error no puede dejar las libretas en sólo lectura.
+    await unarchiveSchoolYearGradeBooks(id)
     const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: updated.id } })
     return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))
   } catch (e: unknown) {
@@ -829,10 +836,36 @@ r.post('/:id/close', async (req, res) => {
       where: { id },
       data: { status: 'CLOSED' },
     })
+
+    // RF-110: las libretas del ciclo pasan a histórico. No se copia ni se mueve nada: el estado
+    // `ARCHIVED` es lo que bloquea toda la cadena de escritura y deja la consulta abierta.
+    const archive = await archiveSchoolYearGradeBooks(id)
+
     const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: updated.id } })
-    return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))
+    return res.json({
+      ...serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }),
+      gradeBooks: archive,
+    })
   } catch (e) {
     console.error('[admin/school-years close]', e)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/** Resumen de la actividad académica de un ciclo, para la consulta histórica (RF-111). */
+r.get('/:id/gradebook-summary', async (req, res) => {
+  try {
+    const row = await prisma.schoolYear.findUnique({ where: { id: req.params.id } })
+    if (!row) return res.status(404).json({ message: 'Ciclo no encontrado' })
+
+    return res.json({
+      schoolYearId: row.id,
+      status: row.status,
+      readOnly: row.status === 'CLOSED',
+      summary: await historicalSummary(row.id),
+    })
+  } catch (e) {
+    console.error('[admin/school-years gradebook-summary]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

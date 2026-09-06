@@ -1,11 +1,12 @@
 import { moodleRest } from "./client.js";
 
 /**
- * Capa de calificaciones Moodle (tareas / `mod_assign`).
+ * Capa de calificaciones Moodle (tareas / `mod_assign`), **de sólo lectura**.
  *
- * EduTrack no almacena notas: sólo lee las tareas de un curso, sus notas actuales y escribe
- * las notas de vuelta. Es la base del "puente de notas" (planilla offline). Sólo conoce el
- * protocolo WS; la resolución del curso/estudiante Moodle vive en las capas superiores.
+ * EduTrack es la fuente de verdad de las notas: viven en su libreta. Esta capa alimenta la
+ * importación Moodle→libreta y nunca escribe de vuelta. Sólo conoce el protocolo WS; la
+ * resolución del curso y del estudiante Moodle vive en las capas superiores
+ * (`subject-course.ts`, `object-map.ts`).
  */
 
 /** Tipo de calificación derivado del campo `grade` de la tarea Moodle. */
@@ -124,28 +125,4 @@ export async function getAssignmentGrades(assignmentId: number): Promise<Map<num
   const result = new Map<number, number>();
   for (const [userId, v] of best) result.set(userId, v.grade);
   return result;
-}
-
-/**
- * Escribe la nota de un alumno en una tarea (`mod_assign_save_grade`). Idempotente: sobrescribe
- * la nota existente. `attemptnumber=-1` apunta al último intento.
- *
- * `applytoall=0` (calificación INDIVIDUAL): la planilla es por-alumno, así que en tareas de
- * entrega grupal NO se debe propagar la nota al resto del grupo (con `=1` cada grupo quedaría con
- * la nota del último integrante procesado). Devuelve `void`; ante error, `moodleRest` lanza `MOODLE_EXCEPTION`.
- */
-export async function saveAssignmentGrade(
-  assignmentId: number,
-  moodleUserId: number,
-  grade: number,
-): Promise<void> {
-  await moodleRest("mod_assign_save_grade", {
-    assignmentid: String(assignmentId),
-    userid: String(moodleUserId),
-    grade: String(grade),
-    attemptnumber: "-1",
-    addattempt: "0",
-    workflowstate: "",
-    applytoall: "0",
-  });
 }

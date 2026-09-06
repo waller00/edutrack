@@ -37,6 +37,19 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   STUDENT_ROLL_CALL_DELETED: "Pase de lista eliminado",
   STUDENT_ROLL_CALL_REOPENED: "Pase de lista reabierto",
   STUDENT_ATTENDANCE_JUSTIFIED: "Falta de estudiante justificada",
+  ACADEMIC_CONFIG_CREATED: "Configuración académica creada",
+  ACADEMIC_CONFIG_UPDATED: "Configuración académica actualizada",
+  ACADEMIC_CONFIG_DEACTIVATED: "Configuración académica desactivada",
+  ASSESSMENT_CREATED: "Evaluación creada",
+  ASSESSMENT_UPDATED: "Evaluación actualizada",
+  ASSESSMENT_DELETED: "Evaluación dada de baja",
+  GRADE_ENTERED: "Calificación registrada",
+  GRADE_UPDATED: "Calificación modificada",
+  GRADE_PERIOD_CLOSED: "Período de libreta cerrado",
+  GRADE_PERIOD_REOPENED: "Período de libreta reabierto",
+  MOODLE_GRADES_IMPORTED: "Notas importadas desde Moodle",
+  GRADEBOOK_OBSERVED: "Libreta observada",
+  GRADEBOOK_ENDORSED: "Libreta visada",
 };
 
 export function parseAuditActionFilter(raw: string | undefined): AuditAction | undefined {

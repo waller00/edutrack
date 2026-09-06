@@ -31,7 +31,7 @@ import biometricLinkRoutes from "./routes/biometric-link.js";
 import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 import substitutionsRoutes from "./routes/substitutions.js";
-import gradesRoutes from "./routes/grades.js";
+import gradebookRoutes from "./routes/gradebook.js";
 import { httpMetricsMiddleware } from "./observability/metrics.js";
 import { checkReadiness } from "./observability/readiness.js";
 
@@ -177,7 +177,7 @@ app.use("/biometric", biometricLinkRoutes);
 app.use("/biometric", biometricAdmsRoutes);
 app.use("/attendance-incidents", attendanceIncidentsRoutes);
 app.use("/substitutions", substitutionsRoutes);
-app.use("/grades", gradesRoutes);
+app.use("/gradebook", gradebookRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/ready", async (_req, res) => {

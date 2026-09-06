@@ -45,9 +45,10 @@ export function canResolveRoster(event: {
 /**
  * Estudiantes activos de la cohorte, ordenados como se leen en clase (apellido, nombre).
  *
- * No reutiliza `loadRosterStudents` de routes/grades.ts: aquella filtra solo por
- * `courseOfferingId` sin ciclo ni orientación, y devolvería la cohorte equivocada en una
- * clase de orientación.
+ * Es la única forma correcta de resolver una cohorte: filtrar solo por `courseOfferingId`, sin
+ * ciclo ni orientación, devuelve el conjunto equivocado en cualquier clase de orientación (el
+ * bug que tenía el puente de notas que se dio de baja). Cualquier módulo que necesite el listado
+ * de un grupo —pase de lista, libreta— debe pasar por acá.
  */
 export async function loadRosterForScope(scope: RosterScope, db = prisma): Promise<RosterStudent[]> {
   const rows = await db.studentEnrollment.findMany({

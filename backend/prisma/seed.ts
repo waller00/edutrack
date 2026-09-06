@@ -7,6 +7,7 @@
 import 'dotenv/config'
 import { prisma } from '../src/db/prisma.js'
 import { seedAcademicCatalog } from './seed-academic-catalog.js'
+import { seedAcademicConfig } from './seed-academic-config.js'
 import { runBootstrap } from './seed-bootstrap.js'
 import { seedTeachers } from './seed-teachers.js'
 
@@ -18,6 +19,9 @@ async function main() {
 
   console.log('[seed] Catálogo académico DGES…')
   await seedAcademicCatalog()
+
+  console.log('[seed] Parametrización académica (escalas, períodos, tipos de actividad)…')
+  await seedAcademicConfig()
 
   console.log('[seed] Docentes (usuarios TEACHER + perfil)…')
   await seedTeachers()
