@@ -68,7 +68,7 @@ Los permisos se expresan como `módulo.acción` con alcance **`own`** (solo lo p
 - Licencias: CRUD completo.
 - Analytics, reportes, exportaciones.
 - Ciclos lectivos, cursos, estudiantes (matrícula).
-- Configuración del sistema, auditoría, asistente de consultas, gestión de perfiles.
+- Configuración del sistema, auditoría, gestión de perfiles.
 
 **Docente y staff (por defecto):** lectura de propias asistencias, eventos, licencias y notificaciones.
 
@@ -236,7 +236,6 @@ Registro **sin login obligatorio** del alumnado:
 - Registro de licencias con fechas, tipo, usuario, documentación.
 - Estados activo/inactivo; impacto en reconciliación de asistencia e incidencias.
 - Filtros por usuario, fechas y estado.
-- El asistente de consultas puede listar licencias vigentes o históricas.
 
 ---
 
@@ -245,7 +244,6 @@ Registro **sin login obligatorio** del alumnado:
 - Tipos: llegada tarde, no-show docente, salida anticipada, etc.
 - Generación automática desde biométrico/monitor o gestión asociada a eventos.
 - API dedicada (`attendance-incidents`).
-- Consultables vía **asistente de consultas** (abiertas/todas, por tipo, listado o conteo por persona).
 
 ---
 
@@ -284,8 +282,20 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
 Libreta por asignatura y grupo, con EduTrack como **fuente de verdad** de las notas. Reemplaza al
 puente Excel hacia Moodle, que no persistía nada y era sólo para administración.
 
-**Pantallas:** `/me/gradebook` (mis libretas) y `/me/gradebook/[id]` (encabezado, evaluaciones y
-lista del grupo). Parametrización: `/admin/academic-config`.
+**Módulo propio, fuera de Académico:** todo vive bajo `/libreta`. La metáfora es el Libro del
+Profesor de papel — una libreta es un libro con capítulos siempre visibles a la izquierda, no una
+pantalla con paneles apilados.
+
+**Pantallas del docente:** `/libreta` (mis libretas, con filtros Libreta / Asignatura / Docente) y
+`/libreta/[id]`, que abre el Libro del Profesor con sus siete secciones:
+`planificacion`, `desarrollo`, `evaluaciones`, `inasistencias`, `cierre`, `visados` y `mensajes`.
+Cada sección lleva en el menú una línea que explica para qué sirve: "Precierre" o "Visados" no se
+entienden solos.
+
+**Pantallas de supervisión:** `/libreta/grupo` (matriz), `/libreta/visado`, `/libreta/reunion`,
+`/libreta/indicadores`, `/libreta/estudiante/[id]` (ficha) y `/libreta/configuracion`
+(parametrización académica). Entradas globales de trabajo: `/libreta/inasistencias`,
+`/libreta/evaluaciones`, `/libreta/cierre-alumno` y `/libreta/cierre-libreta`.
 
 - **Unidad:** una libreta es `(ciclo, oferta de curso, orientación opcional, asignatura)`. En
   EduTrack el "grupo" es el curso más su orientación —no hay grupos paralelos—, así que esa clave
@@ -336,8 +346,8 @@ lista del grupo). Parametrización: `/admin/academic-config`.
 
 ### Vistas institucionales (RF-031, RF-060, RF-061, RF-070)
 
-**Pantallas:** `/admin/gradebook` (matriz de grupo), `/admin/gradebook/students/[id]` (ficha
-académica) y `/admin/gradebook/meeting` (modo reunión). Permiso `gradebook.read` de alcance ALL:
+**Pantallas:** `/libreta/grupo` (matriz de grupo), `/libreta/estudiante/[id]` (ficha
+académica) y `/libreta/reunion` (modo reunión). Permiso `gradebook.read` de alcance ALL:
 adscripción, dirección, inspección y administración.
 
 - **Matriz Estudiante × Asignatura** del período, con calificación, juicio, descriptor, pendientes
@@ -357,7 +367,7 @@ adscripción, dirección, inspección y administración.
 
 ### Visado (RF-080 a RF-083)
 
-**Pantalla:** `/admin/gradebook/endorsements`.
+**Pantalla:** `/libreta/visado`.
 
 - **Append-only.** El estado vigente de cada sección es su última fila; nada se actualiza ni se
   borra. Una observación posterior a un visado no lo elimina, lo **sucede**, y el visado anterior
@@ -398,7 +408,7 @@ adscripción, dirección, inspección y administración.
 
 ### Exportaciones (RF-120)
 
-Desde `/me/gradebook/[id]`, con permiso `exports.create`.
+Desde `/libreta/[id]`, con permiso `exports.create`.
 
 - **Excel**: una hoja de calificaciones —una columna por evaluación— más una hoja de cierre por
   período, con calificación, descriptor y juicio conceptual. Sirve de archivo del año entero.
@@ -414,7 +424,7 @@ Desde `/me/gradebook/[id]`, con permiso `exports.create`.
 
 ### Backoffice de inteligencia académica (§5, RF-200)
 
-**Pantalla:** `/admin/academic-analytics`, permiso `academic-analytics.read` de alcance ALL.
+**Pantalla:** `/libreta/indicadores`, permiso `academic-analytics.read` de alcance ALL.
 
 - **Tres bloques** como pide el pliego: *Estudiantes* (total, evaluados, sin evaluaciones, en
   alerta, con mejora, con descenso), *Rendimiento* (promedio, mediana, distribución por tramo) y
@@ -488,42 +498,18 @@ Documentado en detalle en `docs/REPORTES.md`.
 
 ---
 
-## 15. Asistente de consultas (lenguaje natural)
-
-**Pantalla:** `/admin/query-assistant`  
-**Permiso:** `query-assistant.use`
-
-El usuario escribe preguntas en español; un LLM clasifica la intención y el backend ejecuta consultas **solo lectura** sobre datos reales.
-
-**Intenciones soportadas:**
-
-| Intención | Ejemplo de consulta |
-|-----------|---------------------|
-| `HOURS_WORKED_SUMMARY` | Horas trabajadas por persona/período |
-| `ATTENDANCE_INCIDENTS_SUMMARY` | Incidencias, quién faltó más, tardanzas abiertas |
-| `MEDICAL_LEAVES_SUMMARY` | Licencias activas o históricas |
-| `ASSIGNED_EVENTS_SUMMARY` | Eventos asignados en un rango |
-| `BIOMETRIC_ISSUES_SUMMARY` | Problemas de fichadas biométricas (fallidas/pendientes) |
-| `ATTENDANCE_LATE_SUMMARY` | Resumen de llegadas tarde |
-| `USERS_ADMIN_SNAPSHOT` | Pendientes de aprobación, bloqueados, documento por vencer |
-| `AUDIT_LOG_SUMMARY` | Registros de auditoría filtrados |
-
-Parámetros extraíbles: año, mes, rango de fechas, búsqueda por nombre de usuario, alcance de estado, etc. Respuesta en tabla estructurada.
-
----
-
-## 16. Auditoría
+## 15. Auditoría
 
 **Pantalla:** `/admin/audit`  
 **Permiso:** `audit.read`
 
 - Registro de acciones relevantes (quién, qué, cuándo, metadatos).
-- Consulta desde UI y desde asistente de consultas.
+- Consulta desde la interfaz de auditoría.
 - Trazabilidad para cumplimiento y soporte.
 
 ---
 
-## 17. Configuración del sistema
+## 16. Configuración del sistema
 
 **Pantalla:** `/admin/settings`
 
@@ -537,7 +523,7 @@ Valores persistidos en tabla `SystemSettings`.
 
 ---
 
-## 18. Integración Moodle (opcional)
+## 17. Integración Moodle (opcional)
 
 Cuando `MOODLE_BASE_URL` y `MOODLE_WS_TOKEN` están configurados:
 
@@ -552,7 +538,7 @@ importación es unidireccional: EduTrack es la fuente de verdad y **no** escribe
 
 ---
 
-## 19. Pantallas y rutas web (mapa)
+## 18. Pantallas y rutas web (mapa)
 
 ### Públicas / auth
 `/login`, `/register`, `/register-step-by-step`, `/verify`, `/onboarding`, `/register/didit-return`
@@ -560,13 +546,23 @@ importación es unidireccional: EduTrack es la fuente de verdad y **no** escribe
 `/forgot` y `/reset` redirigen al login de Keycloak (recupero gestionado en el IdP).
 
 ### Administración
-`/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/student-attendance`, `/admin/analytics`, `/admin/query-assistant`, `/admin/settings`, `/admin/profiles`, `/admin/audit`, `/admin/train-dni`, `/admin/test-preprocessing`, `/admin/academic-config`, `/admin/gradebook`, `/admin/gradebook/students/[id]`, `/admin/gradebook/meeting`, `/admin/gradebook/endorsements`, `/admin/academic-analytics`
+`/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/student-attendance`, `/admin/analytics`, `/admin/settings`, `/admin/profiles`, `/admin/audit`, `/admin/train-dni`, `/admin/test-preprocessing`
 
 ### Personal (rutas legacy por rol)
 `/teacher/*`, `/staff/*` — equivalentes a módulos “mis …”
 
 ### Unificadas “mis datos”
-`/me/attendance`, `/me/events`, `/me/licenses`, `/me/roll-call`, `/me/roll-call/[eventId]/[ymd]`, `/me/gradebook`, `/me/gradebook/[id]`
+`/me/attendance`, `/me/events`, `/me/licenses`, `/me/roll-call`, `/me/roll-call/[eventId]/[ymd]`
+
+### Libreta digital (módulo propio, §11 ter)
+Docente — `/libreta`, `/libreta/[id]` y sus secciones
+`/libreta/[id]/{planificacion,desarrollo,evaluaciones,inasistencias,cierre,visados,mensajes}`.
+
+Trabajo transversal — `/libreta/inasistencias`, `/libreta/evaluaciones`, `/libreta/cierre-alumno`,
+`/libreta/cierre-libreta`.
+
+Supervisión y parametrización — `/libreta/grupo`, `/libreta/visado`, `/libreta/reunion`,
+`/libreta/indicadores`, `/libreta/estudiante/[id]`, `/libreta/configuracion`.
 
 ### General
 `/`, `/profile`, `/notifications` (`/student/attendance` es legacy y redirige a `/me/roll-call`)
@@ -575,7 +571,7 @@ El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por ro
 
 ---
 
-## 20. API REST (módulos principales)
+## 19. API REST (módulos principales)
 
 | Prefijo / módulo | Responsabilidad |
 |------------------|-----------------|
@@ -598,13 +594,12 @@ El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por ro
 | `didit-liveness`, `didit-webhook` | Verificación identidad |
 | `dni-processor` | Procesamiento documento |
 | `non-working-days` | Calendario |
-| Query assistant | Endpoint interno vía servicio (admin) |
 
 Todas las rutas protegidas validan sesión BFF (`authGuard` + cookie `sid`) y, donde aplica, permisos granulares.
 
 ---
 
-## 21. Operación, despliegue y datos
+## 20. Operación, despliegue y datos
 
 - **Local:** `docker compose up` → Postgres + Redis + Keycloak + API (`:4000`) + Web (`:3000`).
 - **Cloud/testing:** `docker-compose.cloud.yml`; Moodle manual con `docker-compose.moodle.yml`.
@@ -615,7 +610,7 @@ Todas las rutas protegidas validan sesión BFF (`authGuard` + cookie `sid`) y, d
 
 ---
 
-## 22. Funcionalidades no implementadas o fuera de alcance actual
+## 21. Funcionalidades no implementadas o fuera de alcance actual
 
 Funcionalidades **no** implementadas:
 
@@ -632,7 +627,7 @@ Funcionalidades **no** implementadas:
 
 ---
 
-## 23. Resumen por actor
+## 22. Resumen por actor
 
 | Actor | Puede hacer |
 |-------|-------------|

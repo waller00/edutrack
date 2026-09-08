@@ -238,11 +238,39 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
       })
       .catch((error) => console.error('[gradebook] access log:', error))
 
+    // Inasistencias acumuladas del grupo en esta asignatura. Se traen acá porque la grilla del
+    // Libro del Profesor las muestra junto a cada alumno, y pedirlas de a una sería N consultas.
+    const attendance = await prisma.studentAttendanceEntry.groupBy({
+      by: ['studentId', 'status'],
+      where: {
+        studentId: { in: students.map((s) => s.studentId) },
+        session: {
+          schoolYearId: row.schoolYearId,
+          courseOfferingId: row.courseOfferingId,
+          subjectId: row.subjectId,
+          ...(row.courseOrientationId ? { courseOrientationId: row.courseOrientationId } : {}),
+        },
+      },
+      _count: { _all: true },
+    })
+
+    const absencesByStudent = new Map<string, { absences: number; lates: number }>()
+    for (const row2 of attendance) {
+      const entry = absencesByStudent.get(row2.studentId) ?? { absences: 0, lates: 0 }
+      if (row2.status === 'ABSENT' || row2.status === 'ABSENT_JUSTIFIED') entry.absences += row2._count._all
+      if (row2.status === 'LATE') entry.lates += row2._count._all
+      absencesByStudent.set(row2.studentId, entry)
+    }
+
     return res.json({
       ...serializeHeader(row),
       access: { level: access.level, canGrade: access.canGrade },
       studentCount: students.length,
-      students,
+      students: students.map((student) => ({
+        ...student,
+        absences: absencesByStudent.get(student.studentId)?.absences ?? 0,
+        lates: absencesByStudent.get(student.studentId)?.lates ?? 0,
+      })),
     })
   } catch (error) {
     console.error('[gradebook] detail:', error)
@@ -1569,6 +1597,168 @@ r.get('/:id/exports/students/:studentId/pdf', requirePermission('exports.create'
     )
   } catch (error) {
     console.error('[gradebook] export student pdf:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+// ─── Libro del Profesor: planificación y desarrollo del curso ───────────────
+
+const planningSchema = z.object({
+  formative: z.string().max(20000).nullish(),
+  replanning: z.string().max(20000).nullish(),
+  attachments: z.string().trim().max(2000).nullish(),
+})
+
+const developmentSchema = z.object({
+  date: ymdSchema,
+  hoursTaught: z.number().int().min(0).max(24).default(0),
+  hoursNotTaught: z.number().int().min(0).max(24).default(0),
+  description: z.string().trim().min(1).max(4000),
+  attachments: z.string().trim().max(2000).nullish(),
+})
+
+/** La planificación se crea al vuelo la primera vez que alguien la abre. */
+r.get('/:id/planning', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+
+    const planning = await prisma.gradeBookPlanning.findUnique({ where: { gradeBookId: ctx.row.id } })
+    return res.json({
+      data: planning ?? { gradeBookId: ctx.row.id, formative: null, replanning: null, attachments: null },
+      canEdit: ctx.access.canGrade,
+    })
+  } catch (error) {
+    console.error('[gradebook] planning:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.put('/:id/planning', requirePermission('gradebook.grade'), async (req: any, res) => {
+  const parsed = planningSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (!ctx.access.canGrade) {
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    }
+    if (ctx.row.status === 'ARCHIVED') {
+      return res.status(409).json({ message: GRADE_BLOCK_MESSAGES.ARCHIVED, code: 'SCHOOL_YEAR_CLOSED' })
+    }
+
+    const d = parsed.data
+    const data = {
+      formative: d.formative ?? null,
+      replanning: d.replanning ?? null,
+      attachments: d.attachments ?? null,
+      updatedByUserId: req.user?.id ?? req.user?.sub,
+    }
+    const saved = await prisma.gradeBookPlanning.upsert({
+      where: { gradeBookId: ctx.row.id },
+      update: data,
+      create: { gradeBookId: ctx.row.id, ...data },
+    })
+    return res.json({ data: saved })
+  } catch (error) {
+    console.error('[gradebook] planning save:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/** Desarrollo del curso: el registro clase a clase, con el total de horas dictadas. */
+r.get('/:id/development', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+
+    const from = typeof req.query.from === 'string' && isYmd(req.query.from) ? parseYmd(req.query.from) : undefined
+    const to = typeof req.query.to === 'string' && isYmd(req.query.to) ? parseYmd(req.query.to) : undefined
+    const search = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+
+    const entries = await prisma.courseDevelopmentEntry.findMany({
+      where: {
+        gradeBookId: ctx.row.id,
+        ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+        ...(search ? { description: { contains: search, mode: 'insensitive' as const } } : {}),
+      },
+      orderBy: { date: 'desc' },
+      take: 500,
+    })
+
+    // Los totales salen del conjunto completo, no del filtro: son del curso, no de la búsqueda.
+    const totals = await prisma.courseDevelopmentEntry.aggregate({
+      where: { gradeBookId: ctx.row.id },
+      _sum: { hoursTaught: true, hoursNotTaught: true },
+    })
+
+    return res.json({
+      data: entries.map((e) => ({ ...e, date: e.date.toISOString().slice(0, 10) })),
+      totals: {
+        hoursTaught: totals._sum.hoursTaught ?? 0,
+        hoursNotTaught: totals._sum.hoursNotTaught ?? 0,
+      },
+      canEdit: ctx.access.canGrade && ctx.row.status === 'ACTIVE',
+    })
+  } catch (error) {
+    console.error('[gradebook] development:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+function isYmd(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
+r.post('/:id/development', requirePermission('gradebook.grade'), async (req: any, res) => {
+  const parsed = developmentSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (!ctx.access.canGrade) {
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    }
+    if (ctx.row.status === 'ARCHIVED') {
+      return res.status(409).json({ message: GRADE_BLOCK_MESSAGES.ARCHIVED, code: 'SCHOOL_YEAR_CLOSED' })
+    }
+
+    const d = parsed.data
+    const created = await prisma.courseDevelopmentEntry.create({
+      data: {
+        gradeBookId: ctx.row.id,
+        date: parseYmd(d.date),
+        hoursTaught: d.hoursTaught ?? 0,
+        hoursNotTaught: d.hoursNotTaught ?? 0,
+        description: d.description,
+        attachments: d.attachments ?? null,
+        createdByUserId: req.user?.id ?? req.user?.sub,
+      },
+    })
+    return res.status(201).json({ data: { ...created, date: created.date.toISOString().slice(0, 10) } })
+  } catch (error) {
+    console.error('[gradebook] development create:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.delete('/:id/development/:entryId', requirePermission('gradebook.grade'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (!ctx.access.canGrade) {
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    }
+
+    const deleted = await prisma.courseDevelopmentEntry.deleteMany({
+      where: { id: req.params.entryId, gradeBookId: ctx.row.id },
+    })
+    if (deleted.count === 0) return res.status(404).json({ message: 'Registro no encontrado' })
+    return res.json({ ok: true })
+  } catch (error) {
+    console.error('[gradebook] development delete:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

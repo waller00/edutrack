@@ -14,6 +14,7 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     gradeBookMessage: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     gradeBookAccessLog: { create: vi.fn() },
     assessmentGrade: { findMany: vi.fn() },
+    studentAttendanceEntry: { groupBy: vi.fn() },
     inAppNotification: { createMany: vi.fn() },
     $transaction: vi.fn(),
     academicPeriod: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
@@ -100,6 +101,7 @@ beforeEach(() => {
   // El registro de acceso (RF-100) y los avisos son fire-and-forget: el mock igual tiene que
   // devolver una promesa, porque el código encadena `.catch()` para no tumbar la lectura.
   prismaMock.gradeBookAccessLog.create.mockResolvedValue({ id: 'log-1' })
+  prismaMock.studentAttendanceEntry.groupBy.mockResolvedValue([])
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
 })
 
@@ -213,6 +215,50 @@ describe('GET /gradebook/:id', () => {
     expect(res.status).toBe(200)
     expect(res.body.studentCount).toBe(2)
     expect(res.body.access).toEqual({ level: 'OWNER', canGrade: true })
+  })
+
+  it('cuenta faltas y llegadas tarde por estudiante', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+      { studentId: 's2', studentEnrollmentId: 'e2', firstName: 'Beto', lastName: 'C', documentId: null },
+    ])
+    // La falta justificada sigue siendo inasistencia: se suma junto con ABSENT.
+    prismaMock.studentAttendanceEntry.groupBy.mockResolvedValue([
+      { studentId: 's1', status: 'ABSENT', _count: { _all: 3 } },
+      { studentId: 's1', status: 'ABSENT_JUSTIFIED', _count: { _all: 2 } },
+      { studentId: 's1', status: 'LATE', _count: { _all: 1 } },
+      { studentId: 's2', status: 'PRESENT', _count: { _all: 9 } },
+    ])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.students[0]).toMatchObject({ studentId: 's1', absences: 5, lates: 1 })
+    // Sin filas de falta el estudiante va en cero, nunca undefined.
+    expect(res.body.students[1]).toMatchObject({ studentId: 's2', absences: 0, lates: 0 })
+  })
+
+  it('acota las faltas a la asignatura y la orientación de la libreta', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue({
+      ...ROW,
+      courseOrientationId: 'co-a',
+      courseOrientation: { id: 'co-a', orientation: { id: 'o-a', name: 'Ciencias de la Vida' } },
+    })
+    rosterMock.mockResolvedValue([
+      { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+
+    await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok()}`)
+
+    const where = prismaMock.studentAttendanceEntry.groupBy.mock.calls[0][0].where
+    expect(where.studentId).toEqual({ in: ['s1'] })
+    expect(where.session).toEqual({
+      schoolYearId: 'sy-1',
+      courseOfferingId: 'off-1',
+      subjectId: ROW.subjectId,
+      courseOrientationId: 'co-a',
+    })
   })
 
   it('resuelve la cohorte con la precedencia de orientación de la libreta', async () => {

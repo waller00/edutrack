@@ -449,7 +449,6 @@
       <a href="#biometria">Biometría</a>
       <a href="#licencias">Licencias y ausencias</a>
       <a href="#moodle">Moodle</a>
-      <a href="#asistente">Asistente NL→SQL</a>
       <a href="#tiempo">Tiempo y zona horaria</a>
       <a href="#calidad">Calidad y CI/CD</a>
       <a href="#seguridad">Seguridad</a>
@@ -704,7 +703,7 @@
         <article class="term">
           <div class="head"><span class="name">Zod</span><span class="chip">Datos</span></div>
           <div class="def">
-            <p>Validación de esquemas en el borde de la API y de las respuestas del LLM. Prisma garantiza que lo que sale de la base tiene la forma correcta; Zod garantiza que lo que <em>entra</em> desde el cliente o desde un modelo de lenguaje también.</p>
+            <p>Validación de esquemas en el borde de la API. Prisma garantiza que lo que sale de la base tiene la forma correcta; Zod garantiza que lo que <em>entra</em> desde el cliente también.</p>
           </div>
         </article>
       </section>
@@ -1103,66 +1102,6 @@
         </article>
       </section>
 
-      <!-- ============ ASISTENTE ============ -->
-      <section id="asistente">
-        <header>
-          <h2>Asistente de consultas (NL→SQL)</h2>
-          <p>Preguntas en lenguaje natural sobre los datos del liceo. Es la parte más vistosa y la que más preguntas de seguridad se lleva.</p>
-        </header>
-
-        <article class="term">
-          <div class="head"><span class="name">NL→SQL</span><span class="chip">Asistente</span></div>
-          <div class="def">
-            <p>Un LLM traduce la pregunta del usuario a una consulta <code>SELECT</code> de PostgreSQL, usando exclusivamente las tablas y columnas de un contexto de esquema curado. Devuelve JSON con <code>title</code>, <code>summary</code> y <code>sql</code>, validado con Zod.</p>
-            <p class="where"><code>backend/src/services/query-assistant/llm-sql.ts</code></p>
-          </div>
-        </article>
-
-        <article class="term">
-          <div class="head"><span class="name">Defensa en profundidad del SQL</span><span class="chip">Asistente</span><span class="chip pen">Seguridad</span></div>
-          <div class="def">
-            <p>Tres capas: (1) el <em>prompt</em> prohíbe explícitamente <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code>, DDL, comentarios y punto y coma; (2) un validador rechaza la consulta antes de ejecutarla; (3) se ejecuta en modo lectura sobre un contexto de esquema acotado.</p>
-            <p class="ask"><b>Si preguntan "¿y si el modelo alucina un DROP TABLE?"</b> El prompt es la capa débil y no se confía en él: la validación previa a la ejecución es determinística y bloquea todo lo que no sea un <code>SELECT</code>. Un prompt no es un control de seguridad.</p>
-          </div>
-        </article>
-
-        <article class="term">
-          <div class="head"><span class="name">Intent</span><span class="chip">Asistente</span></div>
-          <div class="def">
-            <p>Clasificación de la pregunta: <code>ABSENCES_SUMMARY</code>, <code>HOURS_WORKED_SUMMARY</code>, <code>MEDICAL_LEAVES</code>, <code>ATTENDANCE_INCIDENTS</code>, <code>AUDIT</code>, <code>USERS_ADMIN_SNAPSHOT</code>… Cada uno tiene un ejecutor con lógica curada en el servidor.</p>
-          </div>
-        </article>
-
-        <article class="term">
-          <div class="head"><span class="name">Fast-path</span><span class="chip">Asistente</span></div>
-          <div class="def">
-            <p>Tres intents se resuelven con heurística local sin llamar al LLM. <code>ABSENCES_SUMMARY</code> está ahí <strong>por necesidad, no por ahorro</strong>: las faltas se derivan expandiendo recurrencia en TypeScript y pueden no existir como filas, así que el traductor NL→SQL no puede calcularlas bien. El resto de las preguntas va directo a NL→SQL, que entiende sinónimos y fraseo libre mucho mejor que unas reglas por regex.</p>
-            <p class="where"><code>backend/src/services/query-assistant/run.ts</code></p>
-          </div>
-        </article>
-
-        <article class="term">
-          <div class="head"><span class="name">Scope del asistente</span><span class="chip">Asistente</span></div>
-          <div class="def">
-            <p>El alcance de datos del usuario que pregunta se inyecta en la ejecución, no se delega al modelo: un docente no puede obtener datos de otro por más que lo pida bien.</p>
-            <p class="where"><code>backend/src/services/query-assistant/scope.ts</code></p>
-          </div>
-        </article>
-
-        <article class="term">
-          <div class="head"><span class="name">Zona horaria en el prompt</span><span class="chip">Asistente</span></div>
-          <div class="def">
-            <p>El prompt obliga a proyectar a <code>America/Montevideo</code> con <code>AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo'</code> y a filtrar días civiles por <code>"Attendance"."date"</code>. Sin eso, "las faltas del 8 de mayo" devuelve resultados corridos.</p>
-          </div>
-        </article>
-
-        <article class="term">
-          <div class="head"><span class="name">Proveedor de LLM</span><span class="chip">Asistente</span></div>
-          <div class="def">
-            <p>Cliente intercambiable (SDK de OpenAI y Google Generative AI en dependencias) con parámetros por modelo en <code>model-params.ts</code> y tolerancia a JSON mal formado en <code>llm-json-loosen.ts</code> — porque los modelos a veces devuelven JSON con detalles inválidos.</p>
-          </div>
-        </article>
-      </section>
 
       <!-- ============ TIEMPO ============ -->
       <section id="tiempo">
@@ -1432,13 +1371,6 @@
             </div>
           </details>
 
-          <details>
-            <summary>El asistente genera SQL con un LLM. ¿No es peligroso?</summary>
-            <div class="answer">
-              <p>Sí, si se confiara sólo en el prompt. Por eso hay tres capas: el prompt restringe, un <strong>validador determinístico rechaza todo lo que no sea un <code>SELECT</code></strong> antes de ejecutar, y el contexto de esquema que ve el modelo está acotado.</p>
-              <p>Además el alcance de datos del usuario se aplica en el servidor, no se le pide al modelo que lo respete. La posición del proyecto es que un prompt nunca es un control de seguridad.</p>
-            </div>
-          </details>
 
           <details>
             <summary>¿Qué pasa si Moodle se cae en medio de una sincronización?</summary>

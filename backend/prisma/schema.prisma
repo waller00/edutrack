@@ -52,6 +52,7 @@ enum AuditAction {
   ATTENDANCE_INCIDENT_RESOLVED
   SUBSTITUTION_CREATED
   MOODLE_GRADES_PUSHED
+  // Se conserva para poder leer auditorías históricas del módulo retirado.
   QUERY_ASSISTANT_QUERY_EXECUTED
   STUDENT_ROLL_CALL_TAKEN
   STUDENT_ROLL_CALL_UPDATED
@@ -142,6 +143,8 @@ model User {
   endorsements                           Endorsement[]                    @relation("EndorsementActor")
   gradeBookMessages                      GradeBookMessage[]               @relation("GradeBookMessageAuthor")
   gradeBookAccessLogs                    GradeBookAccessLog[]             @relation("GradeBookAccessLogUser")
+  gradeBookPlannings                     GradeBookPlanning[]              @relation("GradeBookPlanningUpdatedBy")
+  courseDevelopmentEntries               CourseDevelopmentEntry[]         @relation("CourseDevelopmentCreatedBy")
   // security
   emailVerifiedAt                        DateTime?
   failedLoginAttempts                    Int                              @default(0)
@@ -1457,29 +1460,31 @@ enum GradeBookStatus {
 /// El docente es un campo y no parte de la clave: si cambia el titular de la asignatura, la
 /// libreta y su historial siguen siendo los mismos. Los suplentes acceden por `Substitution`.
 model GradeBook {
-  id                  String               @id @default(uuid())
+  id                  String                   @id @default(uuid())
   /// Clave lógica del scope académico; `et-subject-offering-<oferta>-<asignatura>[-corientation-<id>]`.
-  scopeKey            String               @unique
+  scopeKey            String                   @unique
   schoolYearId        String
-  schoolYear          SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  schoolYear          SchoolYear               @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
   courseOfferingId    String
-  courseOffering      CourseOffering       @relation(fields: [courseOfferingId], references: [id], onDelete: Cascade)
+  courseOffering      CourseOffering           @relation(fields: [courseOfferingId], references: [id], onDelete: Cascade)
   subjectId           String
-  subject             Subject              @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  subject             Subject                  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   orientationId       String?
-  orientation         Orientation?         @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  orientation         Orientation?             @relation(fields: [orientationId], references: [id], onDelete: SetNull)
   courseOrientationId String?
-  courseOrientation   CourseOrientation?   @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
+  courseOrientation   CourseOrientation?       @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
   /// Titular vigente, derivado de los eventos de clase. Null si la asignatura quedó sin docente.
   teacherUserId       String?
-  teacher             User?                @relation("GradeBookTeacher", fields: [teacherUserId], references: [id], onDelete: SetNull)
-  status              GradeBookStatus      @default(ACTIVE)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  teacher             User?                    @relation("GradeBookTeacher", fields: [teacherUserId], references: [id], onDelete: SetNull)
+  status              GradeBookStatus          @default(ACTIVE)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
   assessments         Assessment[]
   periods             GradeBookPeriod[]
   messages            GradeBookMessage[]
   accessLogs          GradeBookAccessLog[]
+  planning            GradeBookPlanning?
+  development         CourseDevelopmentEntry[]
 
   @@index([schoolYearId, status])
   @@index([teacherUserId, status])
@@ -1852,4 +1857,54 @@ model AcademicAlertRule {
 
   @@unique([type, schoolYearId])
   @@index([schoolYearId, isActive])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Libro del Profesor: planificación y desarrollo del curso
+//
+// Piezas del libro docente que no son calificación: lo que el docente planificó y lo que
+// efectivamente dictó clase a clase. En la libreta de papel ocupan las primeras hojas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Planificación de la libreta: la formativa y sus replanificaciones.
+model GradeBookPlanning {
+  id          String    @id @default(uuid())
+  gradeBookId String    @unique
+  gradeBook   GradeBook @relation(fields: [gradeBookId], references: [id], onDelete: Cascade)
+  /// Planificación formativa (bloque A).
+  formative   String?   @db.Text
+  /// Replanificación (bloque B): qué se ajustó sobre la marcha y por qué.
+  replanning  String?   @db.Text
+  /// Referencia textual al material adjunto; el repo no almacena archivos.
+  attachments String?   @db.Text
+
+  updatedByUserId String?
+  updatedBy       User?    @relation("GradeBookPlanningUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// Una clase dictada (o no dictada) con su desarrollo temático.
+///
+/// Es el registro que después sostiene "horas dictadas" y permite a dirección e inspección ver
+/// qué se dio y cuándo, sin depender de la memoria del docente.
+model CourseDevelopmentEntry {
+  id             String    @id @default(uuid())
+  gradeBookId    String
+  gradeBook      GradeBook @relation(fields: [gradeBookId], references: [id], onDelete: Cascade)
+  /// Día civil de la clase, a mediodía UTC.
+  date           DateTime
+  /// Horas efectivamente dictadas y horas perdidas de esa jornada.
+  hoursTaught    Int       @default(0)
+  hoursNotTaught Int       @default(0)
+  /// Qué se trabajó en clase.
+  description    String    @db.Text
+  attachments    String?   @db.Text
+
+  createdByUserId String?
+  createdBy       User?    @relation("CourseDevelopmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([gradeBookId, date])
 }

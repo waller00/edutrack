@@ -156,7 +156,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
         </label>
         {!projection && matrix && (
           <Link
-            href="/admin/gradebook/meeting"
+            href="/libreta/reunion"
             className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
           >
             <Presentation className="h-4 w-4" aria-hidden />
@@ -195,7 +195,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                 {matrix.students.map((row) => (
                   <tr key={row.studentId} className={row.atRisk ? 'bg-red-50/40' : undefined}>
                     <td className="sticky left-0 bg-inherit px-3 py-1.5">
-                      <Link href={`/admin/gradebook/students/${row.studentId}`} className="text-emerald-700 hover:underline">
+                      <Link href={`/libreta/estudiante/${row.studentId}`} className="text-emerald-700 hover:underline">
                         {row.lastName}, {row.firstName}
                       </Link>
                     </td>

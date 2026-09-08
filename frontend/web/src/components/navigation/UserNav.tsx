@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   BarChart3,
   Bell,
+  BookMarked,
   BookOpen,
   CalendarDays,
   ChevronDown,
@@ -62,7 +63,6 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Licencias', href: '/admin/licenses', permission: 'licenses.read', permissionScope: 'all' },
       { label: 'Mis eventos', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
       { label: 'Pase de lista', href: '/me/roll-call', permission: 'student-attendance.take', permissionScope: 'own' },
-      { label: 'Mis libretas', href: '/me/gradebook', permission: 'gradebook.read', permissionScope: 'own' },
       { label: 'Mis asistencias', href: '/me/attendance', permission: 'attendance.read', permissionScope: 'own' },
       { label: 'Mis licencias', href: '/me/licenses', permission: 'licenses.read', permissionScope: 'own' },
     ],
@@ -75,9 +75,24 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Cursos', href: '/admin/courses', permission: 'courses.manage' },
       { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage' },
       { label: 'Pase de lista (control)', href: '/admin/student-attendance', permission: 'student-attendance.manage' },
-      { label: 'Vista de grupo', href: '/admin/gradebook', permission: 'gradebook.read', permissionScope: 'all' },
-      { label: 'Visado de libretas', href: '/admin/gradebook/endorsements', permission: 'gradebook.read', permissionScope: 'all' },
-      { label: 'Configuración académica', href: '/admin/academic-config', permission: 'academic-config.manage' },
+    ],
+  },
+  {
+    title: 'Libreta @',
+    icon: BookMarked,
+    items: [
+      // El orden espeja cómo se usa: primero las libretas propias, después lo transversal.
+      { label: 'Mis Libretas', href: '/libreta', permission: 'gradebook.read', permissionScope: 'own' },
+      { label: 'Inasistencias de Libreta', href: '/libreta/inasistencias', permission: 'gradebook.read', permissionScope: 'own' },
+      { label: 'Evaluaciones', href: '/libreta/evaluaciones', permission: 'gradebook.read', permissionScope: 'own' },
+      { label: 'Cerrar Prom. por Alumno', href: '/libreta/cierre-alumno', permission: 'gradebook.close', permissionScope: 'own' },
+      { label: 'Cerrar Prom. por Libreta', href: '/libreta/cierre-libreta', permission: 'gradebook.close', permissionScope: 'own' },
+      // Supervisión: adscripción, dirección e inspección.
+      { label: 'Vista de grupo', href: '/libreta/grupo', permission: 'gradebook.read', permissionScope: 'all' },
+      { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
+      { label: 'Reunión de profesores', href: '/libreta/reunion', permission: 'gradebook.read', permissionScope: 'all' },
+      { label: 'Inteligencia académica', href: '/libreta/indicadores', permission: 'academic-analytics.read', permissionScope: 'all' },
+      { label: 'Configuración de libreta', href: '/libreta/configuracion', permission: 'academic-config.manage' },
     ],
   },
   {
@@ -85,8 +100,6 @@ const NAV_GROUPS: NavGroup[] = [
     icon: BarChart3,
     items: [
       { label: 'Indicadores', href: '/admin/analytics', permission: 'analytics.read' },
-      { label: 'Inteligencia académica', href: '/admin/academic-analytics', permission: 'academic-analytics.read', permissionScope: 'all' },
-      { label: 'Consultas', href: '/admin/query-assistant', permission: 'query-assistant.use' },
     ],
   },
   {
@@ -113,7 +126,7 @@ function isPublicPath(pathname: string) {
 
 function itemIcon(label: string) {
   if (/pase de lista/i.test(label)) return ClipboardList
-  if (/libreta/i.test(label)) return BookOpen
+  if (/libreta|evaluacion|cerrar prom|visado|reunión|reunion/i.test(label)) return BookOpen
   if (/curso/i.test(label)) return BookOpen
   if (/estudiante/i.test(label)) return GraduationCap
   if (/evento|clase|turno/i.test(label)) return CalendarDays
@@ -164,9 +177,21 @@ function visibleGroups(me: MeUser) {
     .filter((group) => group.items.length > 0)
 }
 
+const ALL_HREFS = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href))
+
+/**
+ * ¿Este ítem es el activo?
+ *
+ * No alcanza con que la URL empiece con el href: `/libreta` es prefijo de `/libreta/visado`, así
+ * que "Mis Libretas" se marcaría como activo en todo el módulo. Gana el href **más específico**
+ * que coincida.
+ */
 function pathIsActive(pathname: string, href: string) {
   if (href === '/') return pathname === '/'
-  return pathname === href || pathname.startsWith(`${href}/`)
+  const matches = (candidate: string) =>
+    pathname === candidate || pathname.startsWith(`${candidate}/`)
+  if (!matches(href)) return false
+  return !ALL_HREFS.some((other) => other !== href && other.length > href.length && matches(other))
 }
 
 export default function UserNav({ children = null }: { children?: React.ReactNode }) {

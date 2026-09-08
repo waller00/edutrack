@@ -87,7 +87,8 @@ describe('armado de los avisos', () => {
     })
     expect(n.title).toBe('Observación en Matemática · Mayo')
     expect(n.body).toBe('Calificaciones: Falta un alumno.')
-    expect(n.actionUrl).toBe('/me/gradebook/gb-1')
+    // El aviso lleva a la sección donde está la observación, no a la portada de la libreta.
+    expect(n.actionUrl).toBe('/libreta/gb-1/visados')
   })
 
   it('sin período nombra sólo la asignatura', () => {
@@ -101,6 +102,15 @@ describe('armado de los avisos', () => {
   it('el visado y el mensaje usan tipos distintos para poder filtrarlos', () => {
     expect(endorsedNotification({ subjectName: 'M', periodName: 'Mayo', gradeBookId: 'gb-1' }).type).toBe('GRADEBOOK_ENDORSED')
     expect(messageNotification({ subjectName: 'M', authorName: 'Ana', body: 'Hola', gradeBookId: 'gb-1' }).type).toBe('GRADEBOOK_MESSAGE')
+  })
+
+  it('cada aviso lleva a la sección donde está lo que se avisa', () => {
+    // Estas rutas son del front: si el módulo se reorganiza, este test avisa antes que el usuario
+    // se coma un 404 desde la campana de notificaciones.
+    expect(endorsedNotification({ subjectName: 'M', periodName: 'Mayo', gradeBookId: 'gb-1' }).actionUrl)
+      .toBe('/libreta/gb-1/visados')
+    expect(messageNotification({ subjectName: 'M', authorName: 'Ana', body: 'Hola', gradeBookId: 'gb-1' }).actionUrl)
+      .toBe('/libreta/gb-1/mensajes')
   })
 
   it('un mensaje sin autor conocido no rompe el texto', () => {

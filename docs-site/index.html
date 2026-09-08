@@ -57,7 +57,6 @@
         <a href="#flujo-biometrico">Flujo: biometría</a>
         <a href="#flujo-eventos">Flujo: eventos</a>
         <a href="#flujo-licencias">Flujo: licencias</a>
-        <a href="#flujo-assistant">Asistente NL→SQL</a>
         <a href="#flujo-notas">Flujo: notas (Moodle)</a>
         <a href="#flujo-reportes">Flujo: reportes &amp; sueldos</a>
       </div>
@@ -77,7 +76,6 @@
         <a href="#ref-auth">Auth &amp; sesiones</a>
         <a href="#ref-identity">Identidad &amp; permisos</a>
         <a href="#ref-config">Config &amp; timezone</a>
-        <a href="#ref-assistant">Asistente (módulos)</a>
         <a href="#ref-moodle">Moodle (módulos)</a>
         <a href="#ref-utils">Utilidades</a>
       </div>
@@ -164,11 +162,6 @@
           <p>Métricas de asistencia, rankings, exportaciones (XLSX/CSV/PDF), novedades de liquidación de sueldos y comparación entre ciclos.</p>
         </div>
         <div class="card feature">
-          <div class="ico">🤖</div>
-          <h4>Asistente NL→SQL</h4>
-          <p>Preguntas en lenguaje natural que se resuelven con heurísticas curadas o traducción a SQL con LLM.</p>
-        </div>
-        <div class="card feature">
           <div class="ico">🔔</div>
           <h4>Notificaciones</h4>
           <p>Avisos in-app persistentes y Web Push (VAPID) para licencias, asignaciones e incidencias.</p>
@@ -200,7 +193,6 @@
             <tr><td>Calidad</td><td>SonarCloud</td><td>Cognitive complexity ≤ 15; cobertura nueva ≥ 80%</td></tr>
             <tr><td>CI/CD</td><td>GitHub Actions</td><td><code>ci.yml</code>, <code>sonar.yml</code>, <code>deploy.yml</code>, <code>e2e.yml</code></td></tr>
             <tr><td>Observabilidad</td><td>Sentry, Grafana + Loki, Prometheus, LogRocket</td><td>Stack de monitoreo separado</td></tr>
-            <tr><td>IA</td><td>OpenAI / Google Generative AI</td><td>Asistente de consultas NL→SQL</td></tr>
             <tr><td>Infra</td><td>Docker Compose · Terraform · Cloudflare · Nginx</td><td>Local y cloud</td></tr>
           </tbody>
         </table>
@@ -223,7 +215,7 @@
           <div class="tags">backend/src/app.ts · routes/</div>
         </div>
         <div class="layer l3">
-          <div><h4>3 · Lógica de negocio</h4><p>Servicios puros y con DB: asistencia, analítica, eventos, Moodle, asistente</p></div>
+          <div><h4>3 · Lógica de negocio</h4><p>Servicios puros y con DB: asistencia, analítica, eventos, Moodle</p></div>
           <div class="tags">backend/src/services · attendance · events</div>
         </div>
         <div class="layer l4">
@@ -322,7 +314,6 @@
           <tr><td><code>services/events/</code></td><td>Reglas de series recurrentes: versionado temporal y detección de solapes.</td><td><code>event-versioning.ts</code>, <code>event-overlap.ts</code></td></tr>
           <tr><td><code>services/exports/</code></td><td>Store en memoria de exportaciones generadas (pending → done → download).</td><td><code>exportStore.ts</code></td></tr>
           <tr><td><code>services/grades/</code></td><td>Planillas del puente de notas: generar el workbook multi-hoja y parsearlo de vuelta.</td><td><code>gradeSheet.ts</code></td></tr>
-          <tr><td><code>services/query-assistant/</code></td><td>Asistente NL→SQL: orquestador, heurísticas, parseo LLM, ejecutores curados, validación de SQL de solo lectura.</td><td><code>run.ts</code>, <code>llm-sql.ts</code>, <code>schemas.ts</code></td></tr>
           <tr><td><code>integrations/moodle/</code></td><td>Cliente WS de Moodle + sincronización idempotente (outbox, reconcile, object-map) y capa mod_assign de notas.</td><td><code>reconcile.ts</code>, <code>outbox.ts</code>, <code>scope.ts</code>, <code>grades.ts</code></td></tr>
           <tr><td><code>integrations/didit/</code></td><td>Prueba de vida: firma HMAC del webhook y aplicación de la decisión al registro.</td><td><code>signature.ts</code></td></tr>
           <tr><td><code>integrations/zkteco/</code></td><td>Parser del protocolo iclock/ADMS de los terminales biométricos (texto plano).</td><td><code>iclock-parser.ts</code></td></tr>
@@ -344,10 +335,10 @@
         <thead><tr><th>Carpeta</th><th>Responsabilidad</th></tr></thead>
         <tbody>
           <tr><td><code>src/app/</code></td><td>Páginas del App Router: cada carpeta con <code>page.tsx</code> es una URL. Público (<code>login</code>, <code>register</code>, <code>register-step-by-step</code>, <code>forgot</code>/<code>reset</code>/<code>verify</code>, <code>onboarding</code>), personal (<code>me/</code> con attendance/events/licenses, <code>profile</code>, <code>notifications</code>) y paneles por rol.</td></tr>
-          <tr><td><code>src/app/admin/</code></td><td>El panel administrativo completo, una carpeta por módulo: <code>users</code>, <code>students</code>, <code>profiles</code> (roles/permisos), <code>courses</code>, <code>school-years</code>, <code>attendance</code>, <code>events</code>, <code>licenses</code>, <code>grades</code> (puente de notas), <code>analytics</code> (+ exportaciones y novedades de sueldos), <code>audit</code>, <code>settings</code>, <code>query-assistant</code>. El <code>layout.tsx</code> monta <code>AdminShell</code> (sidebar + selector de ciclo lectivo).</td></tr>
+          <tr><td><code>src/app/admin/</code></td><td>El panel administrativo completo, una carpeta por módulo: <code>users</code>, <code>students</code>, <code>profiles</code> (roles/permisos), <code>courses</code>, <code>school-years</code>, <code>attendance</code>, <code>events</code>, <code>licenses</code>, <code>grades</code> (puente de notas), <code>analytics</code> (+ exportaciones y novedades de sueldos), <code>audit</code>, <code>settings</code>. El <code>layout.tsx</code> monta <code>AdminShell</code> (sidebar + selector de ciclo lectivo).</td></tr>
           <tr><td><code>src/app/teacher/ · staff/ · student/</code></td><td>Vistas por rol que reutilizan los componentes de <code>components/personal/</code> (mi asistencia, mis eventos, mis licencias); student solo asistencia.</td></tr>
           <tr><td><code>src/components/</code></td><td>UI reutilizable por dominio: <code>admin/</code> (AdminShell, calendario de eventos, heatmap, modales de suplencia/justificación, paneles Moodle/biometría/incidencias), <code>charts/</code> (barras, donut, líneas), <code>auth/</code> (RoleGuard), <code>forms/</code> (campos de fecha/teléfono con máscara UY), <code>common/</code> (paginación, botones pendientes), <code>personal/</code> (páginas "mi…" compartidas entre roles), <code>home/</code>, <code>navigation/</code>, <code>notifications/</code>, <code>observability/</code>, <code>profile/</code>.</td></tr>
-          <tr><td><code>src/lib/</code></td><td>Lógica de cliente <strong>sin React</strong> (testeable como funciones puras): <code>api/</code> (cliente HTTP central), <code>admin/</code> (display-helpers: formatear estados, recurrencia en cliente, export del asistente), <code>attendance/</code>, <code>auth/</code> (validación de registro, fuerza de contraseña, drafts), <code>events/</code>, <code>forms/</code> (fechas/máscaras UY), <code>home/</code>, <code>media/</code> (upload a data-URL), <code>notifications/</code>, <code>observability/</code> (LogRocket), <code>profile/</code>, <code>roles/</code>, <code>substitutions/</code>.</td></tr>
+          <tr><td><code>src/lib/</code></td><td>Lógica de cliente <strong>sin React</strong> (testeable como funciones puras): <code>api/</code> (cliente HTTP central), <code>admin/</code> (display-helpers: formatear estados, recurrencia en cliente), <code>attendance/</code>, <code>auth/</code> (validación de registro, fuerza de contraseña, drafts), <code>events/</code>, <code>forms/</code> (fechas/máscaras UY), <code>home/</code>, <code>media/</code> (upload a data-URL), <code>notifications/</code>, <code>observability/</code> (LogRocket), <code>profile/</code>, <code>roles/</code>, <code>substitutions/</code>.</td></tr>
           <tr><td><code>src/contexts/</code></td><td><code>AuthContext</code> (usuario/rol/sesión BFF) y <code>AdminSchoolYearContext</code> (ciclo lectivo seleccionado que segmenta todo el panel admin).</td></tr>
           <tr><td><code>src/test/</code></td><td><code>setup.ts</code> de Vitest (jsdom + Testing Library).</td></tr>
           <tr><td><code>e2e/</code></td><td>Specs de Playwright (<code>smoke.spec.ts</code>).</td></tr>
@@ -413,12 +404,6 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
             <tr><td><code>/health</code> · <code>/ready</code></td><td>app.ts</td><td>Liveness simple y readiness real (DB/Redis)</td></tr>
           </tbody>
         </table>
-      </div>
-
-      <div class="callout note">
-        <span class="ci">🧠</span>
-        <p>El asistente NL→SQL (<code>/admin/query-assistant</code> en el frontend) se sirve desde
-        <code>admin.ts</code> apoyándose en <code>services/query-assistant/</code>. Ver el <a href="#flujo-assistant">flujo dedicado</a>.</p>
       </div>
 
       <h3>Endpoints principales</h3>
@@ -512,10 +497,6 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
         <div class="card">
           <h4>school-year-service.ts</h4>
           <p class="muted">Resuelve el ciclo lectivo activo e impone invariantes (un solo ACTIVE).</p>
-        </div>
-        <div class="card">
-          <h4>query-assistant/</h4>
-          <p class="muted">Asistente de consultas: heurísticas + parseo LLM + traducción NL→SQL validada. Ver <a href="#flujo-assistant">flujo</a>.</p>
         </div>
         <div class="card">
           <h4>moodle.ts + integrations/moodle/</h4>
@@ -792,8 +773,7 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
 │   ├── users/ · students/ · profiles/
 │   ├── courses/ · school-years/ (+ compare/)
 │   ├── attendance/ · events/ · licenses/
-│   ├── analytics/ · audit/ · settings/
-│   └── query-assistant/         <span class="cmt"># asistente NL→SQL</span>
+│   └── analytics/ · audit/ · settings/
 ├── <span class="dir">teacher/</span>{attendance,events,licenses}
 ├── <span class="dir">staff/</span>{attendance,events,licenses}
 ├── <span class="dir">student/</span>attendance
@@ -1037,7 +1017,7 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
         <em>plan − evidencia</em>, recalculada con las mismas funciones puras testeadas.</p>
 
       <ol class="steps">
-        <li><h4>Dónde se deriva</h4><p>En el listado admin de faltas (<code>routes/attendance.ts</code> computa las ausencias del rango al vuelo), en la analítica (<code>services/analytics/resolveInstances.ts</code> y <code>resolveSubstituteInstances.ts</code> convierten plan + realidad en KPIs y en los reportes de sueldos) y en el asistente NL→SQL (las preguntas de faltas van al camino <code>ABSENCES_SUMMARY</code>, nunca a SQL directo — la falta no está en ninguna tabla que se pueda consultar).</p></li>
+        <li><h4>Dónde se deriva</h4><p>En el listado admin de faltas (<code>routes/attendance.ts</code> computa las ausencias del rango al vuelo), en la analítica (<code>services/analytics/resolveInstances.ts</code> y <code>resolveSubstituteInstances.ts</code> convierten plan + realidad en KPIs y en los reportes de sueldos).</p></li>
         <li><h4>Cuándo se materializa</h4><p>Recién cuando un admin actúa sobre una falta concreta (justificarla, dejarla asentada) se crea la fila <code>Attendance</code> con <code>ABSENT_NOT_JUSTIFIED</code>, que puede transicionar a <code>ABSENT_JUSTIFIED</code> vía <code>justifyAttendance()</code> — siempre con <code>recordAuditEvent()</code> del cambio <code>previousStatus → newStatus</code>.</p></li>
         <li><h4>Por qué así</h4><p>(1) Editar una serie de eventos hacia atrás re-deriva las faltas automáticamente, sin migrar filas obsoletas. (2) No hay job nocturno que pueda atrasarse, duplicar o quedar a medias. (3) Las licencias médicas aprobadas convierten faltas del rango en justificadas por <em>reconciliación</em> (<code>medicalLeaveReconciliation.ts</code>), sin tocar lo ya materializado a mano.</p></li>
       </ol>
@@ -1047,7 +1027,7 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
         <p><strong>Falta derivada ≠ incidencia no-show.</strong> La incidencia (<code>AttendanceIncident</code>) es el
         aviso <em>en caliente</em>: a los <code>attendanceNoShowGraceMinutes</code> de empezar la clase sin marca se crea
         y se notifica, y se cierra sola si el docente marca después. La falta derivada es el <em>histórico</em> que
-        alimenta analítica, sueldos y el asistente. Son dos vistas del mismo hecho con ciclos de vida distintos.</p>
+        alimenta analítica y sueldos. Son dos vistas del mismo hecho con ciclos de vida distintos.</p>
       </div>
     </section>
 
@@ -1125,36 +1105,6 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
       </div>
     </section>
 
-    <!-- ==================== ASISTENTE NL→SQL ==================== -->
-    <section id="flujo-assistant">
-      <div class="anchor-h"><span class="section-tag">17</span><h2>Asistente de consultas NL→SQL</h2></div>
-      <p>Permite preguntar en lenguaje natural (“¿quién llegó tarde esta semana?”). Vive en
-        <code>services/query-assistant/</code>. Filosofía: <strong>calidad sobre tokens</strong> — nunca degradar la respuesta por ahorrar.</p>
-
-      <div class="flowbar">
-        <span class="flownode">Pregunta</span><span class="flowarrow">→</span>
-        <span class="flownode">Heurística de intención</span><span class="flowarrow">→</span>
-        <span class="flownode alt">Fast-path curado</span>
-        <span class="flowarrow">/</span>
-        <span class="flownode alt">Parseo LLM</span><span class="flowarrow">→</span>
-        <span class="flownode">NL→SQL validado</span><span class="flowarrow">→</span>
-        <span class="flownode">Tabla de resultados</span>
-      </div>
-
-      <p class="muted">Orquestador: <code>runAdminQueryAssistant()</code> (<code>run.ts</code>).</p>
-      <ol class="steps">
-        <li><h4>Enriquecimiento</h4><p><code>enrichPayloadFromQuestion()</code> (<code>enrich-payload.ts</code>) resuelve rangos de fecha relativos con <code>resolveEffectiveYmdRange()</code>/<code>ymdBoundsUtc()</code> (<code>date-range.ts</code>) y el alcance (<code>QueryAssistantScope</code> en <code>scope.ts</code>).</p></li>
-        <li><h4>Heurística de intención</h4><p><code>heuristicIntentFromQuestion()</code> (<code>question-heuristics.ts</code>) clasifica sin LLM, incluso extrayendo mes/año (<code>spanishMonthFromQuestion</code>, <code>yearFromQuestion</code>).</p></li>
-        <li><h4>Fast-path curado</h4><p>Intents con lógica servidor exacta se resuelven sin LLM: <code>executeHoursWorkedSummary()</code>, <code>executeUsersAdminSnapshot()</code> y <code>executeAbsencesSummary()</code> (las faltas son derivadas, el SQL no las calcula bien).</p></li>
-        <li><h4>Parseo LLM → intent</h4><p><code>parseQuestionWithLlm()</code> (<code>llm-parse.ts</code>) mapea a un intent del catálogo <code>QUERY_ASSISTANT_INTENTS</code> (validado con <code>llmIntentSchema</code> Zod; <code>loosenLlmIntentJson()</code> tolera JSON imperfecto). Ejecutores: <code>executeAttendanceIncidentsSummary</code>, <code>executeMedicalLeavesSummary</code>, <code>executeAssignedEventsSummary</code>, <code>executeBiometricIssuesSummary</code>, <code>executeAttendanceLateSummary</code>, <code>executeAuditLogSummary</code>.</p></li>
-        <li><h4>Traducción NL→SQL</h4><p>Si no hay intent, <code>runNaturalLanguageSqlQuery()</code> (<code>llm-sql.ts</code>) traduce a SQL usando <code>DATABASE_CONTEXT</code>/<code>SEMANTIC_SYNONYMS</code> (<code>schema-context.ts</code>); <code>validateReadOnlySql()</code> valida (solo lectura, tablas permitidas) antes de ejecutar. Temperatura vía <code>temperatureParams()</code>.</p></li>
-      </ol>
-
-      <div class="callout tip">
-        <span class="ci">🧠</span>
-        <p>Modelos vía <code>@google/generative-ai</code> / OpenAI. Parámetros en <code>model-params.ts</code>. Se activa con la clave configurada en el entorno.</p>
-      </div>
-    </section>
 
     <!-- ==================== FLUJO NOTAS (MOODLE) ==================== -->
     <section id="flujo-notas">
@@ -1277,8 +1227,6 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
             <td>Corte de la serie con <code>effectiveFrom/effectiveUntil</code>, <code>supersededById</code> y <code>revisionOf</code>. <code>splitEventDefinitionForEdit()</code> en <code>event-versioning.ts</code></td></tr>
           <tr><td><strong>Autorización en dos niveles</strong></td><td>Roles gruesos no alcanzan (¿ver lo propio o lo de todos?)</td>
             <td>Middleware chain: <code>authGuard</code> → <code>requirePermission('modulo.accion', 'own'|'all')</code>; matriz <code>RolePermission</code> en Postgres editable por admin</td></tr>
-          <tr><td><strong>Guardrails para el LLM</strong></td><td>Un LLM no puede tener acceso libre a la base</td>
-            <td>Fast-paths curados sin LLM para intents conocidos; si genera SQL, <code>validateReadOnlySql()</code> exige un solo SELECT, sin comentarios, solo tablas de la allowlist. <code>query-assistant/llm-sql.ts</code></td></tr>
           <tr><td><strong>Validación en el borde (Zod)</strong></td><td>Inputs malformados no deben llegar a la lógica</td>
             <td>Cada ruta parsea body/query con esquemas Zod y responde 400 con detalle; los tipos TS se derivan con <code>z.infer</code></td></tr>
           <tr><td><strong>Errores de dominio tipados</strong></td><td>Distinguir errores esperables de bugs</td>
@@ -1577,42 +1525,6 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
 }</code></pre>
     </section>
 
-    <!-- ==================== REFERENCIA: ASISTENTE ==================== -->
-    <section id="ref-assistant">
-      <div class="anchor-h"><span class="section-tag">R7</span><h2>Referencia · Asistente NL→SQL (módulos)</h2></div>
-      <p>Carpeta <code>services/query-assistant/</code>. Ver el <a href="#flujo-assistant">flujo</a> para el orden de ejecución.</p>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Archivo · símbolo</th><th>Qué hace</th></tr></thead>
-        <tbody>
-          <tr><td><code>run.ts · runAdminQueryAssistant()</code></td><td>Orquestador: heurística → fast-path → LLM → SQL</td></tr>
-          <tr><td><code>question-heuristics.ts · heuristicIntentFromQuestion()</code></td><td>Clasifica la intención sin LLM (+ mes/año)</td></tr>
-          <tr><td><code>enrich-payload.ts · enrichPayloadFromQuestion()</code></td><td>Enriquece el payload (fechas relativas, scope)</td></tr>
-          <tr><td><code>llm-parse.ts · parseQuestionWithLlm()</code></td><td>Pregunta → intent estructurado (Zod)</td></tr>
-          <tr><td><code>llm-sql.ts · runNaturalLanguageSqlQuery / validateReadOnlySql</code></td><td>Traducción NL→SQL + validación de solo lectura</td></tr>
-          <tr><td><code>schema-context.ts · DATABASE_CONTEXT / SEMANTIC_SYNONYMS</code></td><td>Contexto de esquema y sinónimos para el LLM</td></tr>
-          <tr><td><code>schemas.ts · QUERY_ASSISTANT_INTENTS / llmIntentSchema</code></td><td>Catálogo de intents y validación</td></tr>
-          <tr><td><code>execute*Summary()</code> (absences, incidents, medical-leaves, assigned-events, biometric-issues, attendance-late, audit, hours-worked, users-admin)</td><td>Un ejecutor curado por intent</td></tr>
-          <tr><td><code>date-range.ts · resolveEffectiveYmdRange()</code> · <code>scope.ts · QueryAssistantScope</code></td><td>Rangos de fecha y alcance de la consulta</td></tr>
-        </tbody>
-      </table></div>
-
-      <h4>Ejemplo real — <code>validateReadOnlySql()</code> (guardrail)</h4>
-      <p class="muted">Antes de ejecutar el SQL generado por el LLM: solo <code>SELECT</code>, un único statement, sin comentarios ni palabras prohibidas, y únicamente tablas de la allowlist.</p>
-      <pre><code><span class="tok-k">export function</span> <span class="tok-f">validateReadOnlySql</span>(sql: <span class="tok-k">string</span>): <span class="tok-k">string</span> {
-  <span class="tok-k">const</span> cleaned = <span class="tok-f">stripTrailingSemicolon</span>(sql)
-  <span class="tok-k">if</span> (!<span class="tok-s">/^select\b/i</span>.<span class="tok-f">test</span>(cleaned)) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">'…_NOT_SELECT'</span>)
-
-  <span class="tok-c">// se analiza el "esqueleto" sin literales, para no rechazar datos legítimos con ';' o '--'</span>
-  <span class="tok-k">const</span> skeleton = <span class="tok-f">blankStringLiterals</span>(cleaned)
-  <span class="tok-k">if</span> (skeleton.<span class="tok-f">includes</span>(<span class="tok-s">';'</span>)) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">'…_MULTIPLE_STATEMENTS'</span>)
-  <span class="tok-k">if</span> (skeleton.<span class="tok-f">includes</span>(<span class="tok-s">'--'</span>) || skeleton.<span class="tok-f">includes</span>(<span class="tok-s">'/*'</span>)) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">'…_COMMENTS_FORBIDDEN'</span>)
-  <span class="tok-k">if</span> (FORBIDDEN_SQL.<span class="tok-f">test</span>(skeleton)) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">'…_FORBIDDEN_KEYWORD'</span>)
-
-  <span class="tok-k">const</span> unknown = <span class="tok-f">referencedTables</span>(cleaned).<span class="tok-f">filter</span>((t) =&gt; !ALLOWED_TABLES.<span class="tok-f">has</span>(t))
-  <span class="tok-k">if</span> (unknown.length &gt; <span class="tok-n">0</span>) <span class="tok-k">throw new</span> <span class="tok-f">Error</span>(<span class="tok-s">`…_UNKNOWN_TABLE:${unknown}`</span>)
-  <span class="tok-k">return</span> cleaned
-}</code></pre>
-    </section>
 
     <!-- ==================== REFERENCIA: MOODLE ==================== -->
     <section id="ref-moodle">
@@ -1833,7 +1745,7 @@ app.<span class="tok-f">get</span>(<span class="tok-s">"/health"</span>, ...)   
         <tbody>
           <tr><td><code>perip</code></td><td>100 r/s · burst 200</td><td>Tráfico general de web, API y Keycloak</td></tr>
           <tr><td><code>authz</code></td><td>60 r/m · burst 20</td><td><code>/auth/login·register·verify·forgot-password·check-username</code> (la app además limita login por su cuenta)</td></tr>
-          <tr><td><code>costoso</code></td><td>30 r/m · burst 10</td><td>Endpoints pesados: <code>/exports</code>, <code>/reports</code>, <code>/analytics</code>, <code>/admin/query-assistant</code>, <code>/grades/sheet</code></td></tr>
+          <tr><td><code>costoso</code></td><td>30 r/m · burst 10</td><td>Endpoints pesados: <code>/exports</code>, <code>/reports</code>, <code>/analytics</code>, <code>/grades/sheet</code></td></tr>
           <tr><td><code>connperip</code></td><td>100 conexiones/IP</td><td>Todos los vhosts. Moodle solo tiene este límite (sus páginas cargan decenas de assets; un <code>limit_req</code> las rompería)</td></tr>
         </tbody>
       </table></div>
@@ -2068,7 +1980,7 @@ npm run test:e2e         <span class="tok-c"># Playwright</span></code></pre>
         <li><code>FRONTEND_URL</code>, <code>NEXT_PUBLIC_API_URL</code>.</li>
         <li>Tras HTTPS: <code>COOKIE_SECURE=true</code> y URLs alineadas frontend/backend/Keycloak.</li>
       </ul>
-      <p class="muted">Plantilla completa: <code>.env.compose.example</code>. Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle, OpenAI/Gemini.</p>
+      <p class="muted">Plantilla completa: <code>.env.compose.example</code>. Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle.</p>
     </section>
 
     <!-- ==================== TESTING ==================== -->
@@ -2159,7 +2071,7 @@ npm run test:e2e         <span class="tok-c"># Playwright</span></code></pre>
         </tbody>
       </table></div>
 
-      <h3>Auth, identidad &amp; asistente</h3>
+      <h3>Auth e identidad</h3>
       <div class="table-wrap"><table>
         <thead><tr><th>Test</th><th>Qué verifica</th></tr></thead>
         <tbody>
@@ -2167,13 +2079,12 @@ npm run test:e2e         <span class="tok-c"># Playwright</span></code></pre>
           <tr><td><code>auth/keycloak-provisioning.test.ts</code> · <code>password-policy.test.ts</code> · <code>auth-profile-pure.test.ts</code></td><td>Provisión desde claims OIDC, política de contraseñas, validaciones puras de perfil</td></tr>
           <tr><td><code>routes/auth.routes.test.ts</code> · <code>auth-keycloak.routes.test.ts</code></td><td>Registro, verificación de email, cuenta</td></tr>
           <tr><td><code>identity/uruguay-ci.test.ts</code> · <code>org-role-service.test.ts</code> · <code>profile-permissions-*.test.ts</code></td><td>Dígito verificador de la cédula, roles built-in, matriz de permisos</td></tr>
-          <tr><td><code>query-assistant/run.test.ts</code> + 8 archivos</td><td>Orquestación SQL-first, heurísticas de intención, parseo LLM, <code>validateReadOnlySql</code> (guardrail), ejecutores curados</td></tr>
         </tbody>
       </table></div>
 
       <h3>Frontend, E2E &amp; carga</h3>
       <ul>
-        <li><strong>Páginas:</strong> <code>app/**/page.test.tsx</code> (attendance, events, licenses, school-years, users, students, query-assistant, login/register…) — render, interacción y llamadas API mockeadas con Testing Library.</li>
+        <li><strong>Páginas:</strong> <code>app/**/page.test.tsx</code> (attendance, events, licenses, school-years, users, students, login/register…) — render, interacción y llamadas API mockeadas con Testing Library.</li>
         <li><strong>Componentes:</strong> <code>components/**/*.test.tsx</code> (RoleGuard, AdminShell, AttendanceHeatmap, PersonAttendanceDrawer, formularios…).</li>
         <li><strong>Libs puras:</strong> <code>lib/**/*.test.ts</code> — display helpers, recurrencia en cliente, validaciones de formularios, cliente API (timeouts/errores), fechas UY.</li>
         <li><strong>E2E:</strong> <code>frontend/web/e2e/smoke.spec.ts</code> (Playwright, workflow <code>e2e.yml</code>) — humo del flujo real navegando la app.</li>
@@ -2219,11 +2130,6 @@ npm run test:e2e                     <span class="tok-c"># Playwright</span></co
         nueva versión (<code>supersededById</code>, <code>revisionOf</code>); el pasado conserva su definición y su asistencia.
         <em>Código:</em> <code>splitEventDefinitionForEdit()</code> en <code>event-versioning.ts</code>.</p>
 
-      <h4>6 · ¿Cómo garantizan que el asistente con LLM no dañe la base?</h4>
-      <p>Tres barreras: (1) las preguntas frecuentes se resuelven con ejecutores curados <em>sin</em> LLM; (2) el SQL generado pasa por
-        <code>validateReadOnlySql()</code> — un solo SELECT, sin comentarios ni keywords prohibidas, solo tablas de una allowlist —;
-        (3) se ejecuta con el cliente de solo lectura. Además las faltas nunca van por SQL (son derivadas, el SQL las calcularía mal).
-        <em>Código:</em> <code>query-assistant/llm-sql.ts</code>, <code>run.ts</code>.</p>
 
       <h4>7 · ¿Cómo sabe el sistema qué clase cubre una marca biométrica?</h4>
       <p>Con <em>coverage spans</em>: se traen las clases del docente del día civil, se arman los tramos de presencia

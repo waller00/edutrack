@@ -1662,7 +1662,7 @@
     },
     {
       "name": "07 · Admin · Ajustes, Moodle y auditoría",
-      "description": "Parámetros operativos del sistema (tolerancias de asistencia, ventana antiduplicado biométrica, sincronización Moodle), auditoría y asistente de consultas.",
+      "description": "Parámetros operativos del sistema (tolerancias de asistencia, ventana antiduplicado biométrica, sincronización Moodle) y auditoría.",
       "item": [
         {
           "name": "Leer ajustes",
@@ -1803,39 +1803,6 @@
               ]
             },
             "description": ""
-          },
-          "response": []
-        },
-        {
-          "name": "Asistente de consultas (NL→SQL)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/query-assistant",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "admin",
-                "query-assistant"
-              ]
-            },
-            "description": "Traduce lenguaje natural a consultas sobre el modelo. Las preguntas de faltas se responden desde el resumen de ausencias, no con SQL crudo (las faltas son estado derivado).",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"question\": \"¿Qué docentes tuvieron más faltas injustificadas este mes?\",\n  \"dateFrom\": \"{{dateFrom}}\",\n  \"dateTo\": \"{{dateTo}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
           },
           "response": []
         }

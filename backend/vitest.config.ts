@@ -61,8 +61,6 @@ export default defineConfig({
         "src/services/analytics/**",
         "!src/services/analytics/timeline-sort.ts",
         "src/services/exports/**",
-        // RF-10: handlers Prisma + OpenAI; cobertura vía tests puntuales (heuristics, date-range) y ruta admin mockeada
-        "src/services/query-assistant/**",
         // Panel admin de pruebas (wipe/reset/simular ADMS): cubierto por admin-testing.routes.test.ts con mocks
         "src/services/admin-testing-tools.ts",
         "src/routes/admin-testing.ts",

@@ -83,7 +83,6 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('student-attendance.manage', 'Pase de lista', 'manage', 'Controlar y justificar el pase de lista', true, 'all'),
     perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
     perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
-    perm('query-assistant.use', 'Consultas', 'use', 'Usar asistente de consultas', true, 'all'),
     perm('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
   ],
   TEACHER: [

@@ -20,6 +20,10 @@ export type RosterStudent = {
   firstName: string
   lastName: string
   documentId: string | null
+  /** Faltas acumuladas en esta asignatura (incluye las justificadas). */
+  absences?: number
+  /** Llegadas tarde acumuladas. */
+  lates?: number
 }
 
 export type GradeBookDetail = GradeBookHeader & {
