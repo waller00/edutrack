@@ -11,9 +11,7 @@ const SCHOOL_YEAR_SCOPED_ADMIN_ROUTES = [
   '/admin/courses',
   '/admin/students',
   '/admin/student-attendance',
-  '/admin/academic-config',
-  '/admin/gradebook',
-  '/admin/academic-analytics',
+  '/libreta',
   '/admin/analytics',
   '/admin/licenses',
 ]

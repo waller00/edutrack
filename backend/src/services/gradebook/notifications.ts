@@ -84,7 +84,7 @@ export function observationNotification(params: {
     type: 'GRADEBOOK_OBSERVATION',
     title: `Observación en ${scope}`,
     body: `${params.sectionLabel}: ${excerpt(params.observations)}`,
-    actionUrl: `/me/gradebook/${params.gradeBookId}`,
+    actionUrl: `/libreta/${params.gradeBookId}/visados`,
   }
 }
 
@@ -97,7 +97,7 @@ export function endorsedNotification(params: {
     type: 'GRADEBOOK_ENDORSED',
     title: `Libreta visada: ${params.subjectName}`,
     body: `Dirección visó el período ${params.periodName}.`,
-    actionUrl: `/me/gradebook/${params.gradeBookId}`,
+    actionUrl: `/libreta/${params.gradeBookId}/visados`,
   }
 }
 
@@ -111,6 +111,6 @@ export function messageNotification(params: {
     type: 'GRADEBOOK_MESSAGE',
     title: `Mensaje en ${params.subjectName}`,
     body: `${params.authorName ?? 'Alguien'}: ${excerpt(params.body)}`,
-    actionUrl: `/me/gradebook/${params.gradeBookId}`,
+    actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
   }
 }

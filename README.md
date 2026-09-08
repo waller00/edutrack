@@ -65,7 +65,7 @@ Críticas para auth:
 - `KEYCLOAK_ISSUER_URL`, `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_REDIRECT_URI`
 - `FRONTEND_URL`, `NEXT_PUBLIC_API_URL`
 
-Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle, OpenAI (asistente de consultas). Ver `.env.compose.example`.
+Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle. Ver `.env.compose.example`.
 
 ## Producción / cloud
 
@@ -74,6 +74,11 @@ Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle, OpenAI (asistente
 ```
 
 Detalle operativo: [docs/MANUAL_DESPLIEGUE_CONTINUO.md](docs/MANUAL_DESPLIEGUE_CONTINUO.md)
+
+Al arrancar en Docker, el backend ejecuta `db:optimize`. La migración
+`20260907120000_retire_query_assistant` elimina los permisos del módulo retirado
+y su rol de base de datos, conservando la auditoría histórica. Si el rol tiene
+dependencias ajenas al módulo, queda deshabilitado para evitar borrar esos objetos.
 
 El wrapper cloud levanta el reverse proxy publico en `80/443` y mantiene privados
 `web`, `auth` y `keycloak`; evita exponer directo `3000`, `4000` y `8089`.

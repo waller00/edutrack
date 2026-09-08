@@ -101,7 +101,6 @@ services:
       COOKIE_AUTO_DOMAIN: ${COOKIE_AUTO_DOMAIN:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@pg:5432/${POSTGRES_DB:-asistencias}?schema=public}
       # Solo lectura para el asistente NL->SQL; si falta, ese modo no ejecuta nada.
-      DATABASE_URL_READONLY: ${DATABASE_URL_READONLY:-}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---
@@ -135,15 +134,6 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:4000/auth/google/callback}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      OPENAI_SQL_MODEL: ${OPENAI_SQL_MODEL:-}
-      QUERY_ASSISTANT_LLM_PROVIDER: ${QUERY_ASSISTANT_LLM_PROVIDER:-openai}
-      QUERY_ASSISTANT_MODEL: ${QUERY_ASSISTANT_MODEL:-}
-      QUERY_ASSISTANT_SQL_MODEL: ${QUERY_ASSISTANT_SQL_MODEL:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
-      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
-      QUERY_ASSISTANT_MODE: ${QUERY_ASSISTANT_MODE:-}
       # Panel admin de pruebas (simular ADMS / limpiar datos). En testing: ALLOW_ADMIN_TESTING_TOOLS=1
       ALLOW_ADMIN_TESTING_TOOLS: ${ALLOW_ADMIN_TESTING_TOOLS:-}
       # Moodle (misma red Docker que docker-compose.moodle.yml; ver MOODLE_HOST en ese archivo)

@@ -31,7 +31,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   ATTENDANCE_INCIDENT_RESOLVED: "Incidente de asistencia resuelto",
   SUBSTITUTION_CREATED: "Suplencia registrada",
   MOODLE_GRADES_PUSHED: "Notas empujadas a Moodle",
-  QUERY_ASSISTANT_QUERY_EXECUTED: "Consulta del asistente ejecutada",
+  // Compatibilidad con registros históricos del módulo retirado.
+  QUERY_ASSISTANT_QUERY_EXECUTED: "Consulta del asistente ejecutada (histórico)",
   STUDENT_ROLL_CALL_TAKEN: "Pase de lista tomado",
   STUDENT_ROLL_CALL_UPDATED: "Pase de lista modificado",
   STUDENT_ROLL_CALL_DELETED: "Pase de lista eliminado",

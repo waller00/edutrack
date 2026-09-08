@@ -102,6 +102,8 @@ docker compose up -d --build auth  # rebuild solo el backend
 
 > **Dos sistemas de asistencia distintos.** `Attendance` es del **personal** (`userId → User`, marcas biométricas). El pase de lista estudiantil vive en `StudentAttendanceSession` / `StudentAttendanceEntry` / `StudentAttendanceJustification`, con su propio enum `StudentAttendanceStatus`. No mezclarlos: una consulta sobre `Attendance.status` nunca debe contar alumnos.
 
+> **Las notas viven en `GradeBook*`, no en Moodle.** EduTrack es la fuente de verdad de las calificaciones; Moodle se **importa** y nunca se pisa. Los valores se guardan en centésimos como `Int` (un 8 es `800`), igual que `amountCents` — nunca `Float` ni `Decimal`.
+
 ---
 
 ## Integración Moodle
@@ -145,6 +147,28 @@ Frontend: `/me/roll-call` y `/admin/student-attendance`.
 > silencioso. Nunca `new Date(ymd)`.
 
 Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 bis
+
+---
+
+## Libreta digital
+
+Módulo propio bajo `/libreta` (no cuelga de Académico). Una libreta es
+`(ciclo, oferta de curso, orientación opcional, asignatura)` — la misma clave que la integración
+Moodle deriva de un evento, así que `GradeBook.scopeKey` y el curso Moodle `SUBJECT_COURSE` son la
+misma cosa vista desde dos lados. Se generan solas a partir de los eventos de clase del horario: no
+hay tabla de asignación docente.
+
+Backend: `backend/src/services/gradebook/` (provisión, acceso, ventana de edición, calificación,
+cierre de período, importación Moodle, visado, notificaciones, analítica, exportaciones) y las rutas
+`gradebook.ts`, `admin-gradebook.ts`, `admin-academic-config.ts`, `admin-academic-analytics.ts`.
+
+Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) y
+`src/lib/libreta/` (menú de secciones y catálogo de distintivos).
+
+> El semáforo académico **nunca** puede ser sólo color (RNF 7.2): siempre lleva texto o icono
+> además. Los distintivos del alumno y el contador de faltas ya siguen esa regla.
+
+Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 
 ---
 

@@ -39,7 +39,6 @@ flowchart TD
     CONS --> ESTADO
 
     ESTADO --> IND["Indicadores y tableros"]:::out
-    ESTADO --> NLSQL["Consultas en lenguaje<br/>natural (NL -> SQL)"]:::out
     ESTADO --> REP["Reportes / export<br/>Excel - PDF"]:::out
 
     DB --> SYNC["Sincronizacion idempotente"]:::proc --> MOODLE[("Moodle<br/>campus virtual")]:::store

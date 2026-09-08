@@ -2,7 +2,6 @@ import { Router } from 'express'
 import { Prisma, AuditAction } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
-import { rateLimit } from '../middlewares/rate-limit.js'
 import { z } from 'zod'
 import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
 import { isDiditConfigured, isMoodleSyncEnabledFromEnv, getMoodleOperationalSettings } from '../config/system-settings.js'
@@ -35,8 +34,6 @@ import {
   parseAuditActionFilter,
   recordAuditEvent,
 } from '../services/audit-log.js'
-import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
-import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { ensureMoodleUserById } from '../services/moodle.js'
 import {
   getMoodleHealthStatus,
@@ -1163,101 +1160,5 @@ r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSch
 r.use('/academic-config', requirePermission('academic-config.manage', 'all'), adminAcademicConfigRoutes)
 r.use('/gradebook', requirePermission('gradebook.read', 'all'), adminGradeBookRoutes)
 r.use('/academic-analytics', requirePermission('academic-analytics.read', 'all'), adminAcademicAnalyticsRoutes)
-
-/** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
-// Cada consulta puede disparar varias llamadas al LLM; sin techo, un solo usuario con
-// el permiso satura el modelo para todos los demás.
-const queryAssistantRateLimit = rateLimit({ bucket: 'query-assistant', max: 20, windowSeconds: 60 })
-
-r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), queryAssistantRateLimit, async (req, res) => {
-  const parsed = z
-    .object({
-      question: z.string().min(1).max(2000),
-      schoolYearId: z.string().uuid().optional(),
-      allYears: z.union([z.boolean(), z.literal('1'), z.literal('0')]).optional(),
-      dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-      dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    })
-    .safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Pregunta inválida', errors: parsed.error.errors })
-  }
-  try {
-    const allYears = parsed.data.allYears === true || parsed.data.allYears === '1'
-    const schoolYearId = allYears
-      ? undefined
-      : await resolveSchoolYearIdForList(prisma, {
-          requestedSchoolYearId: parsed.data.schoolYearId,
-          role: req.user?.role ?? 'ADMIN',
-        })
-    const schoolYear = schoolYearId
-      ? await prisma.schoolYear.findUnique({
-          where: { id: schoolYearId },
-          select: { id: true, code: true, startsOn: true, endsOn: true },
-        })
-      : null
-    // Solo aplicamos el filtro de fechas de la UI si vienen ambas y están bien ordenadas.
-    const uiFrom = parsed.data.dateFrom
-    const uiTo = parsed.data.dateTo
-    const hasUiRange = Boolean(uiFrom && uiTo && uiFrom <= uiTo)
-    const result = await runAdminQueryAssistant(parsed.data.question, {
-      allYears,
-      schoolYearId: schoolYear?.id ?? schoolYearId,
-      schoolYearCode: schoolYear?.code,
-      schoolYearStartsOn: schoolYear?.startsOn ? schoolYear.startsOn.toISOString().slice(0, 10) : undefined,
-      schoolYearEndsOn: schoolYear?.endsOn ? schoolYear.endsOn.toISOString().slice(0, 10) : undefined,
-      ...(hasUiRange ? { dateFrom: uiFrom, dateTo: uiTo } : {}),
-    })
-
-    // Trazabilidad: qué se preguntó, con qué alcance y qué resolvió el asistente.
-    // Fire-and-forget para no sumar latencia a una respuesta que ya esperó al modelo.
-    recordAuditEvent({
-      action: AuditAction.QUERY_ASSISTANT_QUERY_EXECUTED,
-      actorUserId: req.user?.id ?? null,
-      req,
-      entityType: 'QueryAssistant',
-      metadata: {
-        question: parsed.data.question.slice(0, 500),
-        mode: process.env.QUERY_ASSISTANT_MODE?.trim() || 'intent',
-        intent: result.intent,
-        rowCount: result.rows.length,
-        schoolYearId: schoolYear?.id ?? schoolYearId ?? null,
-        allYears,
-      },
-    })
-
-    return res.json(result)
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (msg === 'QUERY_ASSISTANT_READONLY_DB_NOT_CONFIGURED') {
-      return res.status(503).json({
-        message:
-          'El asistente no puede ejecutar consultas SQL: falta DATABASE_URL_READONLY (base de solo lectura) en el servidor.',
-      })
-    }
-    if (msg === 'OPENAI_API_KEY_NOT_CONFIGURED') {
-      return res.status(503).json({
-        message: 'El asistente no está configurado. Definí OPENAI_API_KEY o configurá QUERY_ASSISTANT_LLM_PROVIDER=ollama con OLLAMA_BASE_URL.',
-      })
-    }
-    if (msg.startsWith('OPENAI_API_KEY_INVALID_FORMAT:')) {
-      return res.status(503).json({
-        message: msg.replace(/^OPENAI_API_KEY_INVALID_FORMAT:\s*/, ''),
-      })
-    }
-    if (msg === 'OLLAMA_BASE_URL_NOT_CONFIGURED') {
-      return res.status(503).json({
-        message: 'El asistente no está configurado para Ollama. Definí OLLAMA_BASE_URL en el servidor.',
-      })
-    }
-    if (msg.startsWith('QUERY_ASSISTANT_LLM_PROVIDER_INVALID:')) {
-      return res.status(503).json({
-        message: msg.replace(/^QUERY_ASSISTANT_LLM_PROVIDER_INVALID:\s*/, ''),
-      })
-    }
-    console.error('[query-assistant]', e)
-    return res.status(500).json({ message: 'No se pudo procesar la consulta.', detail: msg })
-  }
-})
 
 export default r

@@ -85,7 +85,6 @@ services:
       PORT: 4000
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@pg:5432/${POSTGRES_DB:-asistencias}?schema=public}
       # Solo lectura para el asistente NL->SQL; si falta, ese modo no ejecuta nada.
-      DATABASE_URL_READONLY: ${DATABASE_URL_READONLY:-}
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---
@@ -129,16 +128,6 @@ services:
       DIDIT_WEBHOOK_SECRET: ${DIDIT_WEBHOOK_SECRET:-}
       # Opcional: callback HTTPS para crear sesión (Didit); ej. https://TU-NGROK.ngrok-free.app/register?liveness=1
       DIDIT_CALLBACK_URL: ${DIDIT_CALLBACK_URL:-}
-      # RF-10 asistente (OpenAI): definir en .env del host; sin esto el endpoint responde 503
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      OPENAI_SQL_MODEL: ${OPENAI_SQL_MODEL:-}
-      QUERY_ASSISTANT_LLM_PROVIDER: ${QUERY_ASSISTANT_LLM_PROVIDER:-openai}
-      QUERY_ASSISTANT_MODEL: ${QUERY_ASSISTANT_MODEL:-}
-      QUERY_ASSISTANT_SQL_MODEL: ${QUERY_ASSISTANT_SQL_MODEL:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
-      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
-      QUERY_ASSISTANT_MODE: ${QUERY_ASSISTANT_MODE:-}
       ALLOW_ADMIN_TESTING_TOOLS: ${ALLOW_ADMIN_TESTING_TOOLS:-1}
       # Moodle: en local con Docker, MOODLE_BASE_URL=http://moodle:8080 (red moodle-net) y patch de wwwroot; ver scripts/patch-moodle-wwwroot-dynamic.php
       MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}

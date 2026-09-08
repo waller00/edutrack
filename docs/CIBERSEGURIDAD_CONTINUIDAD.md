@@ -234,7 +234,6 @@ Si una integracion externa falla, EduTrack deberia mantener el mayor nivel de op
 - Si Didit no esta disponible: permitir registro solo si la politica institucional lo autoriza, o dejar altas pendientes de aprobacion manual.
 - Si SMTP/SendGrid falla: mantener notificaciones in-app y registrar error de envio.
 - Si Web Push falla: no bloquear operaciones principales.
-- Si IA externa falla: desactivar temporalmente el asistente de consultas y conservar reportes tradicionales.
 - Si la terminal biometrica falla: permitir carga administrativa de asistencia con auditoria.
 
 ## Gestion de incidentes

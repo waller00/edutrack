@@ -389,7 +389,7 @@ folders.push(
 folders.push(
   F(
     '07 · Admin · Ajustes, Moodle y auditoría',
-    'Parámetros operativos del sistema (tolerancias de asistencia, ventana antiduplicado biométrica, sincronización Moodle), auditoría y asistente de consultas.',
+    'Parámetros operativos del sistema (tolerancias de asistencia, ventana antiduplicado biométrica, sincronización Moodle) y auditoría.',
     [
       R('Leer ajustes', 'GET', '/admin/system-settings'),
       R('Guardar ajustes', 'PUT', '/admin/system-settings', {
@@ -422,14 +422,6 @@ folders.push(
           ['from', '{{dateFrom}}', { optional: true }],
           ['to', '{{dateTo}}', { optional: true }],
         ],
-      }),
-      R('Asistente de consultas (NL→SQL)', 'POST', '/admin/query-assistant', {
-        body: {
-          question: '¿Qué docentes tuvieron más faltas injustificadas este mes?',
-          dateFrom: '{{dateFrom}}',
-          dateTo: '{{dateTo}}',
-        },
-        desc: 'Traduce lenguaje natural a consultas sobre el modelo. Las preguntas de faltas se responden desde el resumen de ausencias, no con SQL crudo (las faltas son estado derivado).',
       }),
     ],
   ),
