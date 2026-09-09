@@ -182,3 +182,55 @@ export function buildConsolidatedSheet(
 export function displayValue(valueHundredths: number | null, decimals: number): string {
   return formatGradeValue(valueHundredths, decimals) ?? '—'
 }
+
+export type StudentEvaluationExportRow = {
+  periodName: string
+  date: string | null
+  concept: string
+  valueHundredths: number | null
+  isAbsent: boolean
+  comment: string | null
+  decimals: number
+}
+
+/**
+ * Excel de evaluaciones de un solo alumno (vista tipo libreta de orales/escritos).
+ * Una fila por calificación, ordenada por período y fecha.
+ */
+export function buildStudentEvaluationsSheet(
+  workbook: ExcelJS.Workbook,
+  meta: GradeBookMeta,
+  student: ExportStudent,
+  rows: readonly StudentEvaluationExportRow[],
+) {
+  const sheet = workbook.addWorksheet('Evaluaciones')
+  writeMetaHeader(sheet, meta, `Evaluaciones: ${meta.subjectName}`)
+  sheet.addRow([`${student.lastName}, ${student.firstName}${student.documentId ? ` · CI ${student.documentId}` : ''}`])
+  sheet.addRow([])
+
+  const headerRowNumber = 6
+  sheet.addRow(['Apellidos', 'Nombres', 'Documento', 'Entrega', 'Fecha', 'Concepto', 'Nota/Inas', 'Juicio/Comentario'])
+
+  if (rows.length === 0) {
+    addNoDataRow(sheet, 8, 'El estudiante no tiene calificaciones en esta libreta.')
+  }
+
+  for (const row of rows) {
+    const added = sheet.addRow([
+      student.lastName,
+      student.firstName,
+      student.documentId ?? '',
+      row.periodName,
+      row.date ?? '',
+      row.concept,
+      row.isAbsent ? 'Ausente' : row.valueHundredths == null ? null : row.valueHundredths / 100,
+      row.comment ?? '',
+    ])
+    if (!row.isAbsent && row.valueHundredths != null) {
+      added.getCell(7).numFmt = numberFormatFor(row.decimals)
+    }
+  }
+
+  formatWorksheetForExport(sheet, { headerRow: headerRowNumber })
+  return sheet
+}

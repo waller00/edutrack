@@ -24,6 +24,8 @@ export type RosterStudent = {
   absences?: number
   /** Llegadas tarde acumuladas. */
   lates?: number
+  /** Hay foto cargada desde administración (los bytes se piden aparte). */
+  hasPhoto?: boolean
 }
 
 export type GradeBookDetail = GradeBookHeader & {

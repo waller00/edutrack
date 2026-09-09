@@ -856,6 +856,8 @@ r.get('/:id', async (req, res) => {
           include: { courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } } },
         },
         tuitionYears: true,
+        // Solo metadatos: los bytes van por GET /:id/photo.
+        photo: { select: { mimeType: true, byteSize: true, updatedAt: true } },
       },
     })
     if (!row) return res.status(404).json({ message: 'Estudiante no encontrado' })
@@ -1014,6 +1016,7 @@ r.post('/', async (req, res) => {
             include: { courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } } },
           },
           tuitionYears: true,
+          photo: { select: { mimeType: true, byteSize: true, updatedAt: true } },
         } as any,
       })
     })
@@ -1414,6 +1417,7 @@ r.put('/:id', async (req, res) => {
             include: { courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } } },
           },
           tuitionYears: true,
+          photo: { select: { mimeType: true, byteSize: true, updatedAt: true } },
         } as any,
       })
     })
