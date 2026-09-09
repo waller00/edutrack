@@ -3,17 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   ChevronUp,
+  FileSpreadsheet,
   Loader2,
   Pencil,
   Plus,
-  Search,
+  Printer,
   Trash2,
   X,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api/client'
+import { apiBlob } from '@/lib/api/binary'
 import { formatHundredths, parseToHundredths } from '@/lib/academic-config/grade-value'
 import {
   ACTIVITY_CATEGORY_LABEL,
@@ -22,7 +24,13 @@ import {
   type ActivityCategory,
 } from '@/lib/gradebook/activity-category'
 import { gradeBookTitle, studentFullName } from '@/lib/gradebook/labels'
-import type { GradeBookDetail, RosterStudent } from '@/lib/gradebook/types'
+import {
+  downloadStudentEvaluationsXlsx,
+  gradeTooltipLine,
+  printStudentEvaluations,
+} from '@/lib/gradebook/student-evaluation-export'
+import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
+import { libretaCode } from '@/components/libreta/MisLibretas'
 import MoodleImportPanel from './MoodleImportPanel'
 import AssessmentsPanel from './AssessmentsPanel'
 
@@ -58,18 +66,30 @@ type StudentGradeRow = BoardGrade & {
   category: ActivityCategory
 }
 
+type GradeHint = { date: string; title: string; comment: string | null; valueHundredths: number | null }
+
 function periodSummary(
   rows: readonly StudentGradeRow[],
   periodId: string,
-): Record<ActivityCategory | 'result', number | null> {
+): Record<ActivityCategory | 'result', { average: number | null; hints: GradeHint[] }> {
   const inPeriod = rows.filter((r) => r.assessment.periodId === periodId && !r.isAbsent)
-  const byCat = (cat: ActivityCategory) =>
-    averageHundredths(inPeriod.filter((r) => r.category === cat).map((r) => r.valueHundredths))
+  const pack = (cat: ActivityCategory | 'all') => {
+    const subset = cat === 'all' ? inPeriod : inPeriod.filter((r) => r.category === cat)
+    return {
+      average: averageHundredths(subset.map((r) => r.valueHundredths)),
+      hints: subset.map((r) => ({
+        date: r.assessment.date,
+        title: r.assessment.title,
+        comment: r.comment,
+        valueHundredths: r.valueHundredths,
+      })),
+    }
+  }
   return {
-    oral: byCat('oral'),
-    written: byCat('written'),
-    other: byCat('other'),
-    result: averageHundredths(inPeriod.map((r) => r.valueHundredths)),
+    oral: pack('oral'),
+    written: pack('written'),
+    other: pack('other'),
+    result: pack('all'),
   }
 }
 
@@ -79,33 +99,53 @@ function PeriodBlock({
   decimals,
 }: {
   period: Period
-  summary: Record<ActivityCategory | 'result', number | null>
+  summary: Record<ActivityCategory | 'result', { average: number | null; hints: GradeHint[] }>
   decimals: number
 }) {
-  const cells: Array<{ key: string; label: string; value: number | null; highlight?: boolean }> = [
-    { key: 'oral', label: ACTIVITY_CATEGORY_LABEL.oral, value: summary.oral },
-    { key: 'written', label: ACTIVITY_CATEGORY_LABEL.written, value: summary.written },
-    { key: 'other', label: ACTIVITY_CATEGORY_LABEL.other, value: summary.other },
-    { key: 'result', label: 'R', value: summary.result, highlight: true },
+  const cells: Array<{
+    key: string
+    label: string
+    data: { average: number | null; hints: GradeHint[] }
+    highlight?: boolean
+  }> = [
+    { key: 'oral', label: ACTIVITY_CATEGORY_LABEL.oral, data: summary.oral },
+    { key: 'written', label: ACTIVITY_CATEGORY_LABEL.written, data: summary.written },
+    { key: 'other', label: ACTIVITY_CATEGORY_LABEL.other, data: summary.other },
+    { key: 'result', label: 'R', data: summary.result, highlight: true },
   ]
   return (
     <div className="min-w-[9.5rem] overflow-hidden rounded border border-amber-200 bg-white text-xs">
       <p className="bg-amber-100 px-2 py-1 text-center font-semibold text-amber-950">{period.name}</p>
       <div className="grid grid-cols-4 divide-x divide-amber-100 border-t border-amber-200">
-        {cells.map((cell) => (
-          <div
-            key={cell.key}
-            className={`px-1 py-1 text-center ${cell.highlight ? 'bg-amber-50' : ''}`}
-            title={cell.highlight ? 'Resultado del período (promedio de las notas del período)' : undefined}
-          >
-            <p className={`font-medium ${cell.highlight ? 'font-bold text-amber-900' : 'text-slate-600'}`}>
-              {cell.label}
-            </p>
-            <p className={`tabular-nums ${cell.highlight ? 'bg-amber-100 font-semibold text-amber-950' : 'text-slate-900'}`}>
-              {formatHundredths(cell.value, decimals)}
-            </p>
-          </div>
-        ))}
+        {cells.map((cell) => {
+          const tooltip = cell.highlight
+            ? cell.data.hints.length
+              ? `Resultado del período\n${cell.data.hints.map((h) => gradeTooltipLine(h)).join('\n')}`
+              : 'Resultado del período (promedio)'
+            : cell.data.hints.map((h) => gradeTooltipLine(h)).join('\n') || undefined
+          const display =
+            !cell.highlight && cell.data.hints.length === 1
+              ? formatHundredths(cell.data.hints[0]?.valueHundredths ?? null, decimals)
+              : formatHundredths(cell.data.average, decimals)
+          return (
+            <div
+              key={cell.key}
+              className={`px-1 py-1 text-center ${cell.highlight ? 'bg-amber-50' : ''}`}
+              title={tooltip}
+            >
+              <p className={`font-medium ${cell.highlight ? 'font-bold text-amber-900' : 'text-slate-600'}`}>
+                {cell.label}
+              </p>
+              <p
+                className={`cursor-default tabular-nums ${
+                  cell.highlight ? 'bg-amber-100 font-semibold text-amber-950' : 'text-slate-900'
+                }`}
+              >
+                {display}
+              </p>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -608,10 +648,63 @@ function StudentDetailPanel({
   )
 }
 
+function StudentPhoto({
+  gradeBookId,
+  studentId,
+  hasPhoto,
+}: {
+  gradeBookId: string
+  studentId: string
+  hasPhoto?: boolean
+}) {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!hasPhoto) {
+      setUrl(null)
+      return
+    }
+    let revoked: string | null = null
+    let cancelled = false
+    void apiBlob(`/gradebook/${gradeBookId}/students/${studentId}/photo`)
+      .then((blob) => {
+        if (cancelled || !blob) return
+        revoked = URL.createObjectURL(blob)
+        setUrl(revoked)
+      })
+      .catch(() => {
+        if (!cancelled) setUrl(null)
+      })
+    return () => {
+      cancelled = true
+      if (revoked) URL.revokeObjectURL(revoked)
+    }
+  }, [gradeBookId, studentId, hasPhoto])
+
+  if (!url) {
+    return (
+      <div
+        aria-hidden
+        className="h-20 w-16 shrink-0 rounded border border-dashed border-slate-300 bg-slate-50"
+      />
+    )
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt=""
+      className="h-20 w-16 shrink-0 rounded border border-slate-200 object-cover"
+    />
+  )
+}
+
 function StudentCard({
   index,
   student,
   courseLabel,
+  libretaLabel,
+  detail,
   periods,
   rows,
   decimals,
@@ -627,6 +720,8 @@ function StudentCard({
   index: number
   student: RosterStudent
   courseLabel: string
+  libretaLabel: string
+  detail: GradeBookDetail
   periods: Period[]
   rows: StudentGradeRow[]
   decimals: number
@@ -639,13 +734,77 @@ function StudentCard({
   onToggleDetail: () => void
   onSaved: () => Promise<void>
 }) {
+  const [exportBusy, setExportBusy] = useState<'print' | 'xlsx' | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!student.hasPhoto) {
+      setPhotoUrl(null)
+      return
+    }
+    let revoked: string | null = null
+    let cancelled = false
+    void apiBlob(`/gradebook/${gradeBookId}/students/${student.studentId}/photo`)
+      .then((blob) => {
+        if (cancelled || !blob) return
+        revoked = URL.createObjectURL(blob)
+        setPhotoUrl(revoked)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+      if (revoked) URL.revokeObjectURL(revoked)
+    }
+  }, [gradeBookId, student.studentId, student.hasPhoto])
+
+  async function handlePrint() {
+    setExportBusy('print')
+    setExportError(null)
+    try {
+      printStudentEvaluations({
+        detail,
+        student,
+        index,
+        libretaLabel,
+        photoUrl,
+        rows: rows.map((r) => ({
+          date: r.assessment.date,
+          typeName: r.assessment.activityType?.name || r.assessment.title,
+          valueHundredths: r.valueHundredths,
+          isAbsent: r.isAbsent,
+          comment: r.comment,
+          periodName: r.assessment.period?.name || 'Sin período',
+          decimals: r.assessment.gradingScale?.decimals ?? decimals,
+          category: r.category,
+        })),
+      })
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'No se pudo imprimir')
+    } finally {
+      setExportBusy(null)
+    }
+  }
+
+  async function handleExcel() {
+    setExportBusy('xlsx')
+    setExportError(null)
+    try {
+      await downloadStudentEvaluationsXlsx(gradeBookId, student.studentId)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'No se pudo exportar')
+    } finally {
+      setExportBusy(null)
+    }
+  }
+
   return (
     <li className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-wrap items-start gap-3">
-        {/* Espacio reservado para foto; todavía no hay imagen en libreta. */}
-        <div
-          aria-hidden
-          className="h-20 w-16 shrink-0 rounded border border-dashed border-slate-300 bg-slate-50"
+        <StudentPhoto
+          gradeBookId={gradeBookId}
+          studentId={student.studentId}
+          hasPhoto={student.hasPhoto}
         />
 
         <div className="min-w-0 flex-1">
@@ -675,15 +834,43 @@ function StudentCard({
             <button
               type="button"
               onClick={onToggleAdd}
-              className="inline-flex h-8 w-8 items-center justify-center rounded border border-teal-600 text-teal-700 hover:bg-teal-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-teal-600 text-teal-700 hover:bg-teal-50"
               aria-label={`Agregar calificación a ${studentFullName(student)}`}
               title="Agregar calificación"
             >
               <Plus className="h-4 w-4" />
             </button>
           )}
+          <button
+            type="button"
+            disabled={exportBusy !== null}
+            onClick={() => void handlePrint()}
+            className="inline-flex h-8 w-8 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+            aria-label="Imprimir evaluaciones del alumno"
+            title="Imprimir"
+          >
+            {exportBusy === 'print' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
+            disabled={exportBusy !== null}
+            onClick={() => void handleExcel()}
+            className="inline-flex h-8 w-8 items-center justify-center rounded text-teal-700 hover:bg-teal-50 disabled:opacity-40"
+            aria-label="Exportar Excel del alumno"
+            title="Exportar a Excel"
+          >
+            {exportBusy === 'xlsx' ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="h-4 w-4" />
+            )}
+          </button>
         </div>
       </div>
+
+      {exportError && (
+        <p role="alert" className="mt-2 text-sm text-red-700">{exportError}</p>
+      )}
 
       {periods.length > 0 && (
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -742,11 +929,12 @@ export default function EvaluationsBoard({
   gradeBookId: string
   detail: GradeBookDetail
 }) {
+  const router = useRouter()
   const [board, setBoard] = useState<BoardResponse | null>(null)
   const [options, setOptions] = useState<Options | null>(null)
+  const [mine, setMine] = useState<GradeBookHeader[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState('')
   const [focusIndex, setFocusIndex] = useState(0)
   const [showAll, setShowAll] = useState(true)
   const [addingStudentId, setAddingStudentId] = useState<string | null>(null)
@@ -758,16 +946,19 @@ export default function EvaluationsBoard({
     [detail.course.name, detail.subject.name],
   )
   const title = useMemo(() => gradeBookTitle(detail), [detail])
+  const libretaLabel = useMemo(() => libretaCode(detail), [detail])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [boardRes, opts] = await Promise.all([
+      const [boardRes, opts, mineRes] = await Promise.all([
         api<BoardResponse>(`/gradebook/${gradeBookId}/grades-board`),
         api<Options>(`/gradebook/${gradeBookId}/options`),
+        api<{ data: GradeBookHeader[] }>('/gradebook/mine'),
       ])
       setBoard(boardRes)
       setOptions(opts)
+      setMine(mineRes.data)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudieron cargar las evaluaciones')
@@ -808,23 +999,17 @@ export default function EvaluationsBoard({
 
   const periods = options?.periods ?? []
   const decimals = options?.scales[0]?.decimals ?? 0
-
-  const filteredStudents = useMemo(() => {
-    const q = filter.trim().toLowerCase()
-    if (!q) return detail.students
-    return detail.students.filter((s) => {
-      const hay = `${s.lastName} ${s.firstName} ${s.documentId ?? ''}`.toLowerCase()
-      return hay.includes(q)
-    })
-  }, [detail.students, filter])
+  const students = detail.students
 
   const visibleStudents = showAll
-    ? filteredStudents
-    : filteredStudents.slice(focusIndex, focusIndex + 1)
+    ? students
+    : students.slice(focusIndex, focusIndex + 1)
+
+  const selectedStudentId = students[focusIndex]?.studentId ?? ''
 
   useEffect(() => {
-    if (focusIndex >= filteredStudents.length) setFocusIndex(Math.max(0, filteredStudents.length - 1))
-  }, [filteredStudents.length, focusIndex])
+    if (focusIndex >= students.length) setFocusIndex(Math.max(0, students.length - 1))
+  }, [students.length, focusIndex])
 
   function toggleDetail(studentId: string) {
     setDetailStudentIds((prev) => {
@@ -836,11 +1021,11 @@ export default function EvaluationsBoard({
   }
 
   function toggleDetailAll() {
-    if (detailStudentIds.size === filteredStudents.length) {
+    if (detailStudentIds.size === students.length && students.length > 0) {
       setDetailStudentIds(new Set())
       return
     }
-    setDetailStudentIds(new Set(filteredStudents.map((s) => s.studentId)))
+    setDetailStudentIds(new Set(students.map((s) => s.studentId)))
   }
 
   if (loading && !board) {
@@ -867,66 +1052,89 @@ export default function EvaluationsBoard({
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-2">
-        <label className="flex min-w-[12rem] flex-1 items-center gap-2 text-sm">
-          <Search className="h-4 w-4 text-slate-400" aria-hidden />
-          <input
-            value={filter}
-            onChange={(e) => {
-              setFilter(e.target.value)
-              setFocusIndex(0)
-              setShowAll(true)
-            }}
-            placeholder="Filtrar por alumno"
-            className="w-full rounded border border-slate-300 bg-white px-2 py-1.5"
-          />
-        </label>
+      <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-100/80 px-3 py-2 text-sm">
+        <span className="font-medium text-slate-700">Libreta</span>
+        <select
+          value={gradeBookId}
+          onChange={(e) => {
+            const next = e.target.value
+            if (next && next !== gradeBookId) router.push(`/libreta/${next}/evaluaciones`)
+          }}
+          className="min-w-[12rem] rounded border border-slate-300 bg-white px-2 py-1.5"
+          aria-label="Seleccionar libreta"
+        >
+          {(mine.length ? mine : [detail]).map((book) => (
+            <option key={book.id} value={book.id}>{libretaCode(book)}</option>
+          ))}
+        </select>
+
+        <select
+          value={showAll ? 'all' : 'one'}
+          onChange={(e) => {
+            const all = e.target.value === 'all'
+            setShowAll(all)
+            if (!all && students.length) setFocusIndex(0)
+          }}
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          aria-label="Modo de alumnos"
+        >
+          <option value="all">Todos los alumnos</option>
+          <option value="one">Un alumno</option>
+        </select>
+
+        <select
+          value={selectedStudentId}
+          disabled={students.length === 0}
+          onChange={(e) => {
+            const idx = students.findIndex((s) => s.studentId === e.target.value)
+            if (idx >= 0) {
+              setFocusIndex(idx)
+              setShowAll(false)
+            }
+          }}
+          className="min-w-[16rem] flex-1 rounded border border-slate-300 bg-white px-2 py-1.5"
+          aria-label="Seleccionar alumno"
+        >
+          {students.map((s) => (
+            <option key={s.studentId} value={s.studentId}>
+              {s.lastName.toUpperCase()} {s.firstName.toUpperCase()}
+            </option>
+          ))}
+        </select>
+
+        <button
+          type="button"
+          disabled={students.length === 0}
+          onClick={() => {
+            setShowAll(false)
+            setFocusIndex((i) => Math.min(students.length - 1, i + 1))
+          }}
+          className="rounded border border-slate-300 bg-white px-2 py-1.5 text-slate-700 hover:bg-white disabled:opacity-40"
+          aria-label="Alumno siguiente"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
         <button
           type="button"
           onClick={() => {
             setShowAll(true)
             setFocusIndex(0)
           }}
-          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase text-slate-700 hover:bg-slate-50"
+          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase text-sky-800 hover:bg-white"
         >
           Todos
         </button>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            disabled={filteredStudents.length === 0}
-            onClick={() => {
-              setShowAll(false)
-              setFocusIndex((i) => Math.max(0, i - 1))
-            }}
-            className="rounded border border-slate-300 bg-white p-1.5 text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            aria-label="Alumno anterior"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            disabled={filteredStudents.length === 0}
-            onClick={() => {
-              setShowAll(false)
-              setFocusIndex((i) => Math.min(filteredStudents.length - 1, i + 1))
-            }}
-            className="rounded border border-slate-300 bg-white p-1.5 text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            aria-label="Alumno siguiente"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={toggleDetailAll}
-          className="text-xs font-medium text-sky-800 hover:underline"
-        >
-          Mostrar / ocultar detalle (todos)
-        </button>
       </div>
 
-      {filteredStudents.length === 0 ? (
+      <button
+        type="button"
+        onClick={toggleDetailAll}
+        className="text-xs font-medium text-sky-800 hover:underline"
+      >
+        Mostrar / ocultar detalle (todos)
+      </button>
+
+      {students.length === 0 ? (
         <p className="rounded-lg border border-gray-200 bg-white px-4 py-8 text-center text-sm text-gray-500">
           No hay estudiantes para mostrar.
         </p>
@@ -940,6 +1148,8 @@ export default function EvaluationsBoard({
                 index={index >= 0 ? index : 0}
                 student={student}
                 courseLabel={courseLabel}
+                libretaLabel={libretaLabel}
+                detail={detail}
                 periods={periods}
                 rows={rowsByStudent.get(student.studentId) ?? []}
                 decimals={decimals}
