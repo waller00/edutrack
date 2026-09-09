@@ -15,9 +15,11 @@ import ExcelJS from 'exceljs'
 import {
   buildClosureSheet,
   buildGradesSheet,
+  buildStudentEvaluationsSheet,
   type GradeBookMeta,
 } from '../services/gradebook/exports/gradeBookWorkbook.js'
 import { generateGradeBookPdf, generateStudentReportPdf } from '../services/gradebook/exports/gradeBookPdf.js'
+import { photoETag } from '../services/student-photo.js'
 import {
   messageNotification,
   notifyGradeBook,
@@ -262,6 +264,14 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
       absencesByStudent.set(row2.studentId, entry)
     }
 
+    const photoRows = students.length
+      ? await prisma.studentPhoto.findMany({
+          where: { studentId: { in: students.map((s) => s.studentId) } },
+          select: { studentId: true },
+        })
+      : []
+    const photoIds = new Set(photoRows.map((p) => p.studentId))
+
     return res.json({
       ...serializeHeader(row),
       access: { level: access.level, canGrade: access.canGrade },
@@ -270,6 +280,7 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
         ...student,
         absences: absencesByStudent.get(student.studentId)?.absences ?? 0,
         lates: absencesByStudent.get(student.studentId)?.lates ?? 0,
+        hasPhoto: photoIds.has(student.studentId),
       })),
     })
   } catch (error) {
@@ -1717,6 +1728,114 @@ r.get('/:id/exports/students/:studentId/pdf', requirePermission('exports.create'
     )
   } catch (error) {
     console.error('[gradebook] export student pdf:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/** Excel de orales/escritos/otras actividades de un solo alumno. */
+r.get('/:id/exports/students/:studentId/xlsx', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+
+    const studentId = String(req.params.studentId || '')
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+    const student = roster.find((s) => s.studentId === studentId)
+    if (!student) return res.status(404).json({ message: 'El estudiante no está en esta libreta.' })
+
+    const grades = await prisma.assessmentGrade.findMany({
+      where: {
+        studentId,
+        assessment: { gradeBookId: ctx.row.id, deletedAt: null },
+      },
+      select: {
+        valueHundredths: true,
+        isAbsent: true,
+        comment: true,
+        assessment: {
+          select: {
+            date: true,
+            title: true,
+            activityType: { select: { name: true } },
+            period: { select: { name: true, sortOrder: true } },
+            gradingScale: { select: { decimals: true } },
+          },
+        },
+      },
+      orderBy: [{ assessment: { period: { sortOrder: 'asc' } } }, { assessment: { date: 'asc' } }],
+    })
+
+    const meta = metaOf(ctx.row)
+    const workbook = new ExcelJS.Workbook()
+    buildStudentEvaluationsSheet(
+      workbook,
+      meta,
+      {
+        studentId: student.studentId,
+        lastName: student.lastName,
+        firstName: student.firstName,
+        documentId: student.documentId,
+      },
+      grades.map((g) => ({
+        periodName: g.assessment.period.name,
+        date: g.assessment.date.toISOString().slice(0, 10),
+        concept: g.assessment.activityType?.name || g.assessment.title,
+        valueHundredths: g.valueHundredths,
+        isAbsent: g.isAbsent,
+        comment: g.comment || g.assessment.title,
+        decimals: g.assessment.gradingScale.decimals,
+      })),
+    )
+
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer())
+    return sendBuffer(
+      res,
+      buffer,
+      exportFilename([student.lastName, student.firstName, meta.subjectName, 'evaluaciones'], 'xlsx'),
+      XLSX_TYPE,
+    )
+  } catch (error) {
+    console.error('[gradebook] export student xlsx:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Foto del alumno para docentes de la libreta (misma imagen que carga administración).
+ * No usa `/admin/students/:id/photo` porque exige `students.manage`.
+ */
+r.get('/:id/students/:studentId/photo', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+
+    const studentId = String(req.params.studentId || '')
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+    if (!roster.some((s) => s.studentId === studentId)) {
+      return res.status(404).json({ message: 'El estudiante no está en esta libreta.' })
+    }
+
+    const photo = await prisma.studentPhoto.findUnique({ where: { studentId } })
+    if (!photo) return res.status(404).json({ message: 'El estudiante no tiene foto' })
+
+    const etag = photoETag(photo.updatedAt, photo.byteSize)
+    if (req.headers['if-none-match'] === etag) return res.status(304).end()
+    res.setHeader('ETag', etag)
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    res.setHeader('Content-Type', photo.mimeType)
+    return res.send(photo.bytes)
+  } catch (error) {
+    console.error('[gradebook] student photo:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
