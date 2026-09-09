@@ -321,7 +321,9 @@ function serializeAssessment(row: any) {
     date: row.date.toISOString().slice(0, 10),
     title: row.title,
     description: row.description,
-    activityType: row.activityType ? { id: row.activityType.id, name: row.activityType.name } : null,
+    activityType: row.activityType
+      ? { id: row.activityType.id, code: row.activityType.code, name: row.activityType.name }
+      : null,
     gradingScale: row.gradingScale
       ? {
           id: row.gradingScale.id,
@@ -341,7 +343,7 @@ function serializeAssessment(row: any) {
 
 const ASSESSMENT_INCLUDE = {
   period: { select: { id: true, name: true, code: true } },
-  activityType: { select: { id: true, name: true } },
+  activityType: { select: { id: true, code: true, name: true } },
   gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' as const } } } },
   _count: { select: { grades: true } },
 }
@@ -361,6 +363,72 @@ r.get('/:id/assessments', requirePermission('gradebook.read'), async (req: any, 
     return res.json({ data: rows.map(serializeAssessment) })
   } catch (error) {
     console.error('[gradebook] assessments list:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Tablero alumno-first de Evaluaciones: todas las calificaciones de la libreta con tipo
+ * de actividad, para armar las cartas por estudiante sin N+1 al cliente.
+ */
+r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+
+    const [assessments, grades] = await Promise.all([
+      prisma.assessment.findMany({
+        where: { gradeBookId: ctx.row.id, deletedAt: null },
+        select: {
+          id: true,
+          periodId: true,
+          date: true,
+          title: true,
+          activityType: { select: { id: true, code: true, name: true } },
+          gradingScale: { select: { id: true, name: true, kind: true, decimals: true } },
+          period: { select: { id: true, name: true, code: true, sortOrder: true } },
+        },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+      }),
+      prisma.assessmentGrade.findMany({
+        where: { assessment: { gradeBookId: ctx.row.id, deletedAt: null } },
+        select: {
+          assessmentId: true,
+          studentId: true,
+          valueHundredths: true,
+          isAbsent: true,
+          comment: true,
+          gradedAt: true,
+          gradedBy: { select: { name: true, firstName: true, lastName: true } },
+        },
+      }),
+    ])
+
+    return res.json({
+      assessments: assessments.map((row) => ({
+        id: row.id,
+        periodId: row.periodId,
+        period: row.period,
+        date: row.date.toISOString().slice(0, 10),
+        title: row.title,
+        activityType: row.activityType,
+        gradingScale: row.gradingScale,
+      })),
+      grades: grades.map((row) => ({
+        assessmentId: row.assessmentId,
+        studentId: row.studentId,
+        valueHundredths: row.valueHundredths,
+        isAbsent: row.isAbsent,
+        comment: row.comment,
+        gradedAt: row.gradedAt.toISOString(),
+        gradedByName:
+          row.gradedBy?.name ||
+          [row.gradedBy?.firstName, row.gradedBy?.lastName].filter(Boolean).join(' ') ||
+          null,
+      })),
+    })
+  } catch (error) {
+    console.error('[gradebook] grades-board:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -543,6 +611,58 @@ r.delete('/:id/assessments/:assessmentId', requirePermission('gradebook.grade'),
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
+
+/**
+ * Quita la calificación de un alumno en una evaluación (vista carta / detalle).
+ * Si no quedan notas, da de baja lógica la evaluación.
+ */
+r.delete(
+  '/:id/assessments/:assessmentId/grades/:studentId',
+  requirePermission('gradebook.grade'),
+  async (req: any, res) => {
+    try {
+      const ctx = await loadAssessmentContext(req, res)
+      if (!ctx) return
+      if (!ctx.permissions.canEdit) {
+        const reason = ctx.permissions.blockedReason!
+        return res.status(403).json({ message: GRADE_BLOCK_MESSAGES[reason], code: reason })
+      }
+
+      const studentId = String(req.params.studentId || '')
+      const existing = await prisma.assessmentGrade.findUnique({
+        where: { assessmentId_studentId: { assessmentId: ctx.assessment.id, studentId } },
+        select: { id: true },
+      })
+      if (!existing) return res.status(404).json({ message: 'Calificación no encontrada' })
+
+      await prisma.assessmentGrade.delete({ where: { id: existing.id } })
+      const remaining = await prisma.assessmentGrade.count({ where: { assessmentId: ctx.assessment.id } })
+      let assessmentDeleted = false
+      if (remaining === 0) {
+        await prisma.assessment.update({
+          where: { id: ctx.assessment.id },
+          data: { deletedAt: new Date() },
+        })
+        assessmentDeleted = true
+      }
+
+      await auditGradeWrite(req, true, {
+        action: assessmentDeleted ? AuditAction.ASSESSMENT_DELETED : AuditAction.ASSESSMENT_UPDATED,
+        entityId: ctx.assessment.id,
+        metadata: {
+          gradeBookId: ctx.row.id,
+          studentId,
+          gradeRemoved: true,
+          assessmentDeleted,
+        },
+      })
+      return res.json({ ok: true, assessmentDeleted })
+    } catch (error) {
+      console.error('[gradebook] grade delete:', error)
+      return res.status(500).json({ message: 'Error interno del servidor' })
+    }
+  },
+)
 
 /**
  * Auditoría de una escritura de la libreta.
