@@ -13,7 +13,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api/client'
 import { apiBlob } from '@/lib/api/binary'
 import { formatHundredths, parseToHundredths } from '@/lib/academic-config/grade-value'
@@ -114,8 +114,8 @@ function PeriodBlock({
     { key: 'result', label: 'R', data: summary.result, highlight: true },
   ]
   return (
-    <div className="min-w-[9.5rem] overflow-hidden rounded border border-amber-200 bg-white text-xs">
-      <p className="bg-amber-100 px-2 py-1 text-center font-semibold text-amber-950">{period.name}</p>
+    <div className="w-[16.5rem] shrink-0 overflow-hidden rounded border border-amber-200 bg-white text-xs">
+      <p className="bg-amber-100 px-2 py-1.5 text-center font-semibold leading-snug text-amber-950">{period.name}</p>
       <div className="grid grid-cols-4 divide-x divide-amber-100 border-t border-amber-200">
         {cells.map((cell) => {
           const tooltip = cell.highlight
@@ -130,10 +130,14 @@ function PeriodBlock({
           return (
             <div
               key={cell.key}
-              className={`px-1 py-1 text-center ${cell.highlight ? 'bg-amber-50' : ''}`}
+              className={`px-1.5 py-1.5 text-center ${cell.highlight ? 'bg-amber-50' : ''}`}
               title={tooltip}
             >
-              <p className={`font-medium ${cell.highlight ? 'font-bold text-amber-900' : 'text-slate-600'}`}>
+              <p
+                className={`whitespace-nowrap font-medium ${
+                  cell.highlight ? 'font-bold text-amber-900' : 'text-slate-600'
+                }`}
+              >
                 {cell.label}
               </p>
               <p
@@ -873,15 +877,17 @@ function StudentCard({
       )}
 
       {periods.length > 0 && (
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          {periods.map((period) => (
-            <PeriodBlock
-              key={period.id}
-              period={period}
-              summary={periodSummary(rows, period.id)}
-              decimals={decimals}
-            />
-          ))}
+        <div className="mt-3 overflow-x-auto pb-2">
+          <div className="flex w-max gap-2">
+            {periods.map((period) => (
+              <PeriodBlock
+                key={period.id}
+                period={period}
+                summary={periodSummary(rows, period.id)}
+                decimals={decimals}
+              />
+            ))}
+          </div>
         </div>
       )}
 
@@ -930,13 +936,15 @@ export default function EvaluationsBoard({
   detail: GradeBookDetail
 }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const alumnoParam = searchParams.get('alumno')
   const [board, setBoard] = useState<BoardResponse | null>(null)
   const [options, setOptions] = useState<Options | null>(null)
   const [mine, setMine] = useState<GradeBookHeader[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [focusIndex, setFocusIndex] = useState(0)
-  const [showAll, setShowAll] = useState(true)
+  const [showAll, setShowAll] = useState(() => !alumnoParam)
   const [addingStudentId, setAddingStudentId] = useState<string | null>(null)
   const [detailStudentIds, setDetailStudentIds] = useState<Set<string>>(() => new Set())
   const [showLegacy, setShowLegacy] = useState(false)
@@ -1006,6 +1014,14 @@ export default function EvaluationsBoard({
     : students.slice(focusIndex, focusIndex + 1)
 
   const selectedStudentId = students[focusIndex]?.studentId ?? ''
+
+  useEffect(() => {
+    if (!alumnoParam || students.length === 0) return
+    const idx = students.findIndex((s) => s.studentId === alumnoParam)
+    if (idx < 0) return
+    setFocusIndex(idx)
+    setShowAll(false)
+  }, [alumnoParam, students])
 
   useEffect(() => {
     if (focusIndex >= students.length) setFocusIndex(Math.max(0, students.length - 1))
