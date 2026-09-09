@@ -32,6 +32,8 @@ export type GradingScale = {
   sortOrder: number
   levels: ScaleLevel[]
   gaps: ScaleGap[]
+  /** Cuántas evaluaciones vivas la usan. Reescribir sus tramos re-clasifica esas notas. */
+  usage: { assessments: number }
 }
 
 export type AcademicPeriod = {
@@ -48,6 +50,7 @@ export type AcademicPeriod = {
   requiresConceptualJudgement: boolean
   requiresGeneralGrade: boolean
   isActive: boolean
+  usage: { assessments: number; closedGradeBooks: number }
 }
 
 export type ActivityType = {
@@ -58,6 +61,7 @@ export type ActivityType = {
   scope: 'GLOBAL' | 'TEACHER'
   isActive: boolean
   sortOrder: number
+  usage: { assessments: number }
 }
 
 export const LEVEL_LABELS: Record<AcademicLevel, string> = {

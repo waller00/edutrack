@@ -90,8 +90,8 @@ export default function StudentsCardList({
                 <StudentMoodleBadge
                   moodle={row.moodle}
                   studentName={`${row.firstName} ${row.lastName}`}
-                  resending={resendingId === row.studentId}
-                  onResend={() => onResendMoodle(row)}
+                  pending={resendingId === row.studentId}
+                  onAction={() => onResendMoodle(row)}
                 />
               </dd>
             </div>

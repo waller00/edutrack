@@ -28,6 +28,8 @@ const student = {
   healthCardExpiresAt: null,
   moodle: {
     state: 'PENDING' as const,
+    linked: true,
+    canProvision: true,
     verified: false,
     accountExists: true,
     moodleUserId: 72,
@@ -68,7 +70,7 @@ describe('AdminStudentsPage', () => {
     expect(within(table).getByText('García, Ana')).toBeInTheDocument()
     expect(within(table).getByText('Activo')).toBeInTheDocument()
     expect(within(table).getByText('Pendiente')).toBeInTheDocument()
-    expect(within(table).getByRole('button', { name: 'Reenviar correo Moodle a Ana García' })).toBeInTheDocument()
+    expect(within(table).getByRole('button', { name: 'Reenviar acceso de Ana García' })).toBeInTheDocument()
   })
 
   it('renderiza las tarjetas mobile además de la tabla', async () => {
@@ -97,7 +99,7 @@ describe('AdminStudentsPage', () => {
     render(<AdminStudentsPage />)
     const table = await screen.findByRole('table')
 
-    fireEvent.click(within(table).getByRole('button', { name: 'Reenviar correo Moodle a Ana García' }))
+    fireEvent.click(within(table).getByRole('button', { name: 'Reenviar acceso de Ana García' }))
 
     // Ya no hay confirm() nativo: la confirmación es un diálogo accesible.
     const dialog = await screen.findByRole('dialog')
@@ -121,14 +123,18 @@ describe('AdminStudentsPage', () => {
     expect(mockedApi).not.toHaveBeenCalledWith('/admin/students/s1', { method: 'DELETE' })
   })
 
-  it('marca email y usuario Moodle como obligatorios en el alta', async () => {
+  it('el alta ya no exige email ni usuario del aula virtual', async () => {
+    // Se sacaron a propósito: la cuenta de Moodle se crea después, desde la ficha. Exigirlos
+    // trababa el alta cuando no se tenían a mano.
     render(<AdminStudentsPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Nuevo estudiante' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Nuevo estudiante' }))
 
-    const email = document.querySelector('input[type="email"]')
-    const username = document.querySelector('input[placeholder="nombre.apellido"]')
-    expect(email).toBeRequired()
-    expect(username).toBeRequired()
-    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    // El alta sólo muestra lo esencial: el contacto queda plegado.
+    expect(document.querySelector('input[type="email"]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Contacto y aula virtual/ }))
+    expect(document.querySelector('input[type="email"]')).not.toBeRequired()
+
+    // Y el botón Guardar se puede tocar: dice qué falta en vez de quedarse muerto.
+    expect(screen.getByRole('button', { name: 'Guardar' })).not.toBeDisabled()
   })
 })

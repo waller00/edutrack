@@ -11,7 +11,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "db:optimize": "prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260612120000_student_moodle_account/migration.sql && prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260603120000_database_query_indexes/migration.sql && prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260907120000_retire_query_assistant/migration.sql && prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260904120000_academic_config/migration.sql",
+    "db:optimize": "prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260612120000_student_moodle_account/migration.sql && prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260603120000_database_query_indexes/migration.sql && prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260907120000_retire_query_assistant/migration.sql && prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260904120000_academic_config/migration.sql && prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260909120000_student_photo_storage/migration.sql",
     "start": "node --import ./dist/instrument.js dist/server.js",
     "prisma:studio": "prisma studio",
     "seed": "node prisma/seed-all.mjs",

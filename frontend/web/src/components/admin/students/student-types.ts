@@ -17,11 +17,26 @@ export type OrientationOpt = {
 
 export type MoodleAccountStatus = {
   state: MoodleStudentState
+  /**
+   * ¿Hay mapeo en EduTrack? Sale de `MoodleObjectMap`, no de Moodle, y es lo que distingue al
+   * alumno al que nunca se le creó la cuenta de aquel cuya cuenta Moodle ya no encuentra —los dos
+   * llegan como `NOT_FOUND`—.
+   */
+  linked: boolean
+  /** Tiene email y usuario: sin eso el botón de crear la cuenta no puede hacer nada. */
+  canProvision: boolean
   verified: boolean | null
   accountExists: boolean
   moodleUserId: number | null
   firstAccessAt: string | null
   welcomeSentAt: string | null
+}
+
+/** Metadatos de la foto. Los bytes se piden aparte a `GET /admin/students/:id/photo`. */
+export type StudentPhotoMeta = {
+  mimeType: string
+  byteSize: number
+  updatedAt: string
 }
 
 export type StudentListRow = {
@@ -41,6 +56,7 @@ export type StudentListRow = {
   withdrawalAcademicYear: number | null
   healthCardExpiresAt: string | null
   moodle?: MoodleAccountStatus
+  photo?: StudentPhotoMeta | null
   createdAt: string
   tuitionMonthsPreview: { year: number; month: number; paid: boolean }[]
 }
@@ -75,6 +91,7 @@ export type StudentDetail = {
   withdrawalAcademicYear: number | null
   internalNotes: string | null
   moodle: MoodleAccountStatus
+  photo: StudentPhotoMeta | null
   createdAt: string
   updatedAt: string
   tuitionMonths: StudentTuitionMonth[]
@@ -132,12 +149,15 @@ export function emptyStudentDraft(): Omit<StudentFormState, 'id'> {
     internalNotes: null,
     moodle: {
       state: 'NOT_FOUND',
+      linked: false,
+      canProvision: false,
       verified: false,
       accountExists: false,
       moodleUserId: null,
       firstAccessAt: null,
       welcomeSentAt: null,
     },
+    photo: null,
     tuitionMonths: [],
   }
 }

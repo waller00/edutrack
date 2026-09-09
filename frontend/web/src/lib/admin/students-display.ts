@@ -70,21 +70,82 @@ export function countActiveStudentFilters(f: StudentListFilters): number {
 
 export type MoodleStudentState = 'VERIFIED' | 'PENDING' | 'NOT_FOUND' | 'UNAVAILABLE'
 
-/** Vista del estado de la cuenta Moodle del estudiante (etiqueta + color). */
-export function getMoodleStatusView(state: MoodleStudentState | undefined): { label: string; className: string } {
+export type MoodleAccountAction = 'provision' | 'resend' | 'none'
+
+export type MoodleStatusView = {
+  label: string
+  className: string
+  /** Qué se puede hacer desde acá, y qué dice el botón. */
+  action: MoodleAccountAction
+  actionLabel: string
+  /** Una línea explicando el estado; la sigla sola no dice nada. */
+  hint: string
+}
+
+/**
+ * Vista del estado de la cuenta Moodle.
+ *
+ * `linked` es lo que separa dos situaciones que antes se veían iguales, ambas como
+ * "Sin sincronizar": el alumno al que **nunca** se le creó la cuenta —lo normal recién dado de
+ * alta— y aquel cuya cuenta EduTrack registra pero Moodle ya no encuentra, que es una falla real.
+ */
+export function getMoodleStatusView(
+  state: MoodleStudentState | undefined,
+  options: { linked?: boolean; canProvision?: boolean } = {},
+): MoodleStatusView {
+  const { linked = false, canProvision = false } = options
+
+  if (state === 'UNAVAILABLE' || state === undefined) {
+    return {
+      label: 'No disponible',
+      className: 'bg-gray-100 text-gray-600',
+      action: 'none',
+      actionLabel: '',
+      hint: 'La integración con Moodle no está configurada.',
+    }
+  }
+
+  if (!linked) {
+    return {
+      label: 'Sin cuenta',
+      className: 'bg-gray-100 text-gray-700',
+      action: canProvision ? 'provision' : 'none',
+      actionLabel: 'Crear cuenta en Moodle',
+      hint: canProvision
+        ? 'Todavía no tiene cuenta en el aula virtual.'
+        : 'Para crear la cuenta hace falta cargarle el email y el usuario.',
+    }
+  }
+
   switch (state) {
     case 'VERIFIED':
-      return { label: 'Verificado', className: 'bg-emerald-100 text-emerald-800' }
+      return {
+        label: 'Verificado',
+        className: 'bg-emerald-100 text-emerald-800',
+        action: 'none',
+        actionLabel: '',
+        hint: 'Ya entró al aula virtual por lo menos una vez.',
+      }
     case 'PENDING':
-      return { label: 'Pendiente', className: 'bg-amber-100 text-amber-800' }
-    case 'NOT_FOUND':
-      return { label: 'Sin sincronizar', className: 'bg-red-100 text-red-700' }
+      return {
+        label: 'Pendiente',
+        className: 'bg-amber-100 text-amber-800',
+        action: 'resend',
+        actionLabel: 'Reenviar acceso',
+        hint: 'La cuenta existe pero todavía no entró.',
+      }
     default:
-      return { label: 'No disponible', className: 'bg-gray-100 text-gray-600' }
+      return {
+        label: 'Error de sincronización',
+        className: 'bg-red-100 text-red-700',
+        action: 'provision',
+        actionLabel: 'Recrear cuenta',
+        hint: 'EduTrack registra la cuenta pero Moodle no la encuentra.',
+      }
   }
 }
 
-/** Solo tiene sentido reenviar el acceso si la cuenta no está verificada todavía. */
+/** Solo tiene sentido reenviar el acceso si la cuenta existe y no está verificada todavía. */
 export function canResendMoodleWelcome(state: MoodleStudentState | undefined): boolean {
   return state === 'PENDING' || state === 'NOT_FOUND'
 }

@@ -52,6 +52,8 @@ export type ReconcileSummary = {
   substituteEnrolments: number;
   substituteRevocations: number;
   studentEnrolments: number;
+  /** Alumnos salteados por no tener email + usuario: sin eso sólo se les podría crear un espejo `nologin`. */
+  studentsWithoutAccount: number;
   errors: number;
 };
 
@@ -533,8 +535,19 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
   // Alumnos cuyo procesamiento lanzó: no deben revocarse sus accesos por un fallo transitorio
   // (un hipo de Moodle no debe borrar inscripciones válidas, que arrastra notas/entregas).
   const failedStudentIds = new Set<string>();
+  // Alumnos sin email o usuario. Con la misma lógica que los fallidos: se saltean SIN tocar sus
+  // matrículas. `desiredKeys` se llena dentro del try, así que saltear sin registrarlo acá haría
+  // que el bucle de revocación de más abajo los desmatriculara de todos sus cursos.
+  const skippedStudentIds = new Set<string>();
   for (const en of enrolments) {
     if (!en.courseOffering) continue;
+    // Sin email + usuario sólo se podría crear un espejo `nologin` con email sintético: cuentas
+    // basura que nadie puede usar. La cuenta se crea desde el botón de la ficha del alumno.
+    if (!en.student.email?.trim() || !en.student.username?.trim()) {
+      skippedStudentIds.add(en.student.id);
+      ctx.summary.studentsWithoutAccount += 1;
+      continue;
+    }
     try {
       const moodleUserId = await ensureStudentMoodleUser({
         id: en.student.id,
@@ -561,9 +574,10 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
   const activeStudentMaps = await listActiveEnrolments("STUDENT_ENROLLMENT");
   for (const m of activeStudentMaps) {
     if (desiredKeys.has(`${m.userId}::${m.moodleCourseId}`)) continue;
-    // El alumno falló este run: conservar su acceso hasta que se pueda recalcular bien.
-    // Los egresados/transferidos ni aparecen en `enrolments`, así que sí se revocan.
-    if (failedStudentIds.has(m.userId)) continue;
+    // El alumno falló este run, o se salteó por no tener cuenta: conservar su acceso hasta que se
+    // pueda recalcular bien. Los egresados/transferidos ni aparecen en `enrolments`, así que sí se
+    // revocan.
+    if (failedStudentIds.has(m.userId) || skippedStudentIds.has(m.userId)) continue;
     try {
       await unenrolUser(m.moodleUserId, m.moodleCourseId);
       await markEnrolmentRevoked(m.id);
@@ -584,6 +598,7 @@ async function runReconcileMoodle(
     substituteEnrolments: 0,
     substituteRevocations: 0,
     studentEnrolments: 0,
+    studentsWithoutAccount: 0,
     errors: 0,
   };
   if (!isMoodleIntegrationEnabled()) return summary;

@@ -928,8 +928,25 @@ model Student {
   assessmentGrades AssessmentGrade[]
   periodGrades     PeriodGrade[]
   meetingRecords   TeacherMeetingRecord[]
+  photo            StudentPhoto?
 
   @@index([lastName, firstName])
+}
+
+/// Foto del alumno para identificarlo en pantalla (opcional).
+///
+/// Tabla aparte a propósito: los listados hacen `student.findMany` sin `select`, así que una
+/// columna `Bytes` en `Student` viajaría en cada fila de cada listado sin que nadie la pida.
+/// La imagen llega ya recortada y comprimida por el navegador; el servidor sólo verifica que sea
+/// un raster de un tipo permitido y que no supere `STUDENT_PHOTO_MAX_BYTES`.
+model StudentPhoto {
+  studentId String   @id
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  bytes     Bytes
+  mimeType  String
+  byteSize  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Historial de matrícula por ciclo. Es la fuente nueva para progreso académico:

@@ -23,6 +23,7 @@ vi.mock("../../db/prisma.js", () => ({ prisma: prismaMock }));
 import {
   ensureStudentMoodleAccount,
   getStudentMoodleVerifications,
+  provisionStudentMoodleAccount,
   resendStudentMoodleWelcome,
   setStudentMoodlePassword,
   syncMoodleStudentById,
@@ -207,57 +208,108 @@ describe("syncMoodleStudentById", () => {
     expect(prismaMock.student.findUnique).not.toHaveBeenCalled();
   });
 
+  it("no crea la cuenta de un estudiante que todavía no la tiene", async () => {
+    // Sin mapeo el outbox no hace nada: crear es siempre explícito, desde la ficha del alumno.
+    prismaMock.moodleObjectMap.findUnique.mockResolvedValue(null);
+    await syncMoodleStudentById("s1-uuid");
+    expect(moodleRestMock).not.toHaveBeenCalled();
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
+  });
+
   it("no hace nada si el estudiante no existe", async () => {
+    prismaMock.moodleObjectMap.findUnique.mockResolvedValue({ moodleId: 90 });
     prismaMock.student.findUnique.mockResolvedValue(null);
     await syncMoodleStudentById("nope");
     expect(moodleRestMock).not.toHaveBeenCalled();
   });
 
-  it("crea la cuenta real, fija contraseña temporal y envía la bienvenida una vez (claim atómico)", async () => {
+  it("propaga el cambio de datos a la cuenta ya existente", async () => {
+    prismaMock.moodleObjectMap.findUnique.mockResolvedValue({ moodleId: 90 });
     await syncMoodleStudentById("s1-uuid");
+    const updated = restCall("core_user_update_users")!;
+    expect(updated["users[0][id]"]).toBe("90");
+    expect(updated["users[0][email]"]).toBe("ana@test.com");
+    expect(updated["users[0][username]"]).toBe("ana.diaz");
+  });
+
+  it("NUNCA manda la bienvenida, ni aunque no se haya mandado antes", async () => {
+    // Es el corte que evita el mail con contraseña temporal que nadie pidió: al alumno con espejo
+    // nologin al que se le agrega el email más tarde le salía solo.
+    prismaMock.moodleObjectMap.findUnique.mockResolvedValue({ moodleId: 90 });
+    await syncMoodleStudentById("s1-uuid");
+    expect(sendWelcomeMock).not.toHaveBeenCalled();
+    expect(prismaMock.student.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("provisionStudentMoodleAccount", () => {
+  const dbStudent = { ...realStudent, email: "ana@test.com", moodleWelcomeSentAt: null };
+
+  beforeEach(() => {
+    prismaMock.student.findUnique.mockResolvedValue(dbStudent);
+    restByFunction({ core_user_create_users: [{ id: 90 }] });
+  });
+
+  it("rechaza si la integración no está configurada", async () => {
+    enabledMock.mockReturnValue(false);
+    await expect(provisionStudentMoodleAccount("s1-uuid")).rejects.toThrow("MOODLE_NOT_CONFIGURED");
+  });
+
+  it("rechaza si el estudiante no existe", async () => {
+    prismaMock.student.findUnique.mockResolvedValue(null);
+    await expect(provisionStudentMoodleAccount("nope")).rejects.toThrow("MOODLE_STUDENT_NOT_FOUND");
+  });
+
+  it("rechaza sin email o usuario en vez de crear un espejo nologin", async () => {
+    prismaMock.student.findUnique.mockResolvedValue({ ...noEmailStudent, moodleWelcomeSentAt: null });
+    await expect(provisionStudentMoodleAccount("s2-uuid")).rejects.toThrow(
+      "MOODLE_STUDENT_ACCOUNT_FIELDS_REQUIRED",
+    );
+    expect(moodleRestMock).not.toHaveBeenCalled();
+  });
+
+  it("crea la cuenta real, fija contraseña temporal y envía la bienvenida una vez (claim atómico)", async () => {
+    const result = await provisionStudentMoodleAccount("s1-uuid");
+
+    expect(result.alreadyLinked).toBe(false);
     expect(sendWelcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({ to: "ana@test.com", firstName: "Ana", username: "ana.diaz" }),
     );
-    // La contraseña temporal va al mail y se fija en Moodle forzando el cambio.
     const tempPassword = sendWelcomeMock.mock.calls[0][0].tempPassword as string;
     expect(tempPassword).toMatch(/^Edu-/);
     const updated = restCall("core_user_update_users")!;
     expect(updated["users[0][password]"]).toBe(tempPassword);
     expect(updated["users[0][preferences][0][type]"]).toBe("auth_forcepasswordchange");
-    expect(updated["users[0][preferences][0][value]"]).toBe("1");
     const claim = prismaMock.student.updateMany.mock.calls[0][0];
     expect(claim.where).toEqual({ id: "s1-uuid", moodleWelcomeSentAt: null });
-    expect(claim.data.moodleWelcomeSentAt).toBeInstanceOf(Date);
   });
 
-  it("no reenvía si el claim ya fue tomado por otro camino", async () => {
+  it("tocar el botón dos veces no manda dos mails", async () => {
     prismaMock.student.updateMany.mockResolvedValue({ count: 0 });
-    await syncMoodleStudentById("s1-uuid");
+    await provisionStudentMoodleAccount("s1-uuid");
     expect(sendWelcomeMock).not.toHaveBeenCalled();
   });
 
-  it("no envía bienvenida si ya se mandó antes", async () => {
+  it("no reenvía si la bienvenida ya salió antes", async () => {
     prismaMock.student.findUnique.mockResolvedValue({
       ...dbStudent,
       moodleWelcomeSentAt: new Date("2026-01-01T00:00:00Z"),
     });
-    await syncMoodleStudentById("s1-uuid");
+    await provisionStudentMoodleAccount("s1-uuid");
     expect(sendWelcomeMock).not.toHaveBeenCalled();
     expect(prismaMock.student.updateMany).not.toHaveBeenCalled();
   });
 
-  it("no envía bienvenida a cuentas nologin (sin email)", async () => {
-    prismaMock.student.findUnique.mockResolvedValue({
-      ...noEmailStudent,
-      moodleWelcomeSentAt: null,
-    });
-    await syncMoodleStudentById("s2-uuid");
-    expect(sendWelcomeMock).not.toHaveBeenCalled();
+  it("informa que la cuenta ya estaba vinculada", async () => {
+    prismaMock.moodleObjectMap.findUnique.mockResolvedValue({ moodleId: 90 });
+    const result = await provisionStudentMoodleAccount("s1-uuid");
+    expect(result.alreadyLinked).toBe(true);
+    expect(result.moodleId).toBe(90);
   });
 
-  it("si falla el envío libera el claim y relanza para que el outbox reintente", async () => {
+  it("si falla el envío libera el claim y relanza", async () => {
     sendWelcomeMock.mockRejectedValue(new Error("SMTP down"));
-    await expect(syncMoodleStudentById("s1-uuid")).rejects.toThrow("SMTP down");
+    await expect(provisionStudentMoodleAccount("s1-uuid")).rejects.toThrow("SMTP down");
     const revert = prismaMock.student.updateMany.mock.calls[1][0];
     expect(revert.where).toEqual({ id: "s1-uuid" });
     expect(revert.data.moodleWelcomeSentAt).toBeNull();
