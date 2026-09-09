@@ -18,7 +18,7 @@ export default function LibretaHomePage() {
         <p className="mb-2 text-xs text-gray-500">
           Matrículas activas del ciclo. Las altas y bajas se reflejan solas; lo ya cargado no se toca.
         </p>
-        <StudentGrid students={detail.students} />
+        <StudentGrid gradeBookId={gradeBookId} students={detail.students} />
       </section>
 
       <section>
