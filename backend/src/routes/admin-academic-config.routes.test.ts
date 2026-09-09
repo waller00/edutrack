@@ -10,6 +10,8 @@ const { prismaMock } = vi.hoisted(() => ({
     gradingScaleLevel: { deleteMany: vi.fn(), createMany: vi.fn() },
     academicPeriod: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     activityType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    assessment: { groupBy: vi.fn() },
+    gradeBookPeriod: { groupBy: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -62,6 +64,9 @@ const NEW_SCALE = {
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.$transaction.mockImplementation((fn: any) => fn(prismaMock));
+  // Los GET agregan contadores de uso; sin datos, todo va en cero.
+  prismaMock.assessment.groupBy.mockResolvedValue([]);
+  prismaMock.gradeBookPeriod.groupBy.mockResolvedValue([]);
 });
 
 describe("permisos", () => {
@@ -432,5 +437,64 @@ describe("tipos de actividad", () => {
     expect(prismaMock.activityType.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { isActive: false } }),
     );
+  });
+});
+
+
+describe("contadores de uso en los GET", () => {
+  it("cuenta las evaluaciones vivas que usan cada escala", async () => {
+    prismaMock.gradingScale.findMany.mockResolvedValue([
+      { id: SCALE_ID, code: "NUM", minValueHundredths: 100, maxValueHundredths: 1000, levels: [] },
+      { id: "otra", code: "ORD", minValueHundredths: null, maxValueHundredths: null, levels: [] },
+    ]);
+    prismaMock.assessment.groupBy.mockResolvedValue([
+      { gradingScaleId: SCALE_ID, _count: { _all: 4 } },
+    ]);
+
+    const res = await request(app())
+      .get("/admin/academic-config/scales")
+      .set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].usage).toEqual({ assessments: 4 });
+    // Una escala sin evaluaciones informa cero, nunca undefined.
+    expect(res.body.data[1].usage).toEqual({ assessments: 0 });
+    // Las borradas no cuentan: una evaluación eliminada no ata la escala.
+    expect(prismaMock.assessment.groupBy.mock.calls[0][0].where).toEqual({ deletedAt: null });
+  });
+
+  it("un período informa evaluaciones y libretas ya cerradas por separado", async () => {
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: PERIOD_ID, code: "MAYO", level: "EBI", startsOn: null, endsOn: null, closesOn: null },
+    ]);
+    prismaMock.assessment.groupBy.mockResolvedValue([{ periodId: PERIOD_ID, _count: { _all: 3 } }]);
+    prismaMock.gradeBookPeriod.groupBy.mockResolvedValue([{ periodId: PERIOD_ID, _count: { _all: 2 } }]);
+
+    const res = await request(app())
+      .get("/admin/academic-config/periods")
+      .set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].usage).toEqual({ assessments: 3, closedGradeBooks: 2 });
+    // Una libreta con el período todavía abierto no cuenta como cerrada.
+    expect(prismaMock.gradeBookPeriod.groupBy.mock.calls[0][0].where).toEqual({
+      status: { not: "OPEN" },
+    });
+  });
+
+  it("cuenta las evaluaciones de cada tipo de actividad", async () => {
+    prismaMock.activityType.findMany.mockResolvedValue([{ id: TYPE_ID, code: "ESCRITO" }]);
+    prismaMock.assessment.groupBy.mockResolvedValue([
+      { activityTypeId: TYPE_ID, _count: { _all: 7 } },
+      // Las evaluaciones sin tipo vienen con null y no deben sumarse a nadie.
+      { activityTypeId: null, _count: { _all: 5 } },
+    ]);
+
+    const res = await request(app())
+      .get("/admin/academic-config/activity-types")
+      .set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].usage).toEqual({ assessments: 7 });
   });
 });

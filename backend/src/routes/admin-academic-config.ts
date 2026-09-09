@@ -168,15 +168,44 @@ function withScaleGaps(scale: { minValueHundredths: number | null; maxValueHundr
   return { ...scale, gaps: findScaleGaps(scale.levels, scale) }
 }
 
+/**
+ * Cuántas veces se usa cada fila de la parametrización.
+ *
+ * La UI lo necesita para poder **explicar** por qué una acción no está disponible en vez de dejar
+ * que el usuario la intente y coma un error: desactivar un período con libretas cerradas, o
+ * reescribir los tramos de una escala que ya tiene notas puestas (eso las re-clasifica).
+ */
+function countBy<K extends string>(
+  rows: Array<Record<K, string | null> & { _count: { _all: number } }>,
+  key: K,
+): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const row of rows) {
+    const id = row[key]
+    if (id) map.set(id, (map.get(id) ?? 0) + row._count._all)
+  }
+  return map
+}
+
 r.get('/scales', async (req, res) => {
   try {
     const includeInactive = req.query.includeInactive === 'true'
-    const scales = await prisma.gradingScale.findMany({
-      where: includeInactive ? {} : { isActive: true },
-      include: SCALE_INCLUDE,
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    const [scales, byScale] = await Promise.all([
+      prisma.gradingScale.findMany({
+        where: includeInactive ? {} : { isActive: true },
+        include: SCALE_INCLUDE,
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      }),
+      prisma.assessment
+        .groupBy({ by: ['gradingScaleId'], where: { deletedAt: null }, _count: { _all: true } })
+        .then((rows) => countBy(rows, 'gradingScaleId')),
+    ])
+    res.json({
+      data: scales.map((scale) => ({
+        ...withScaleGaps(scale),
+        usage: { assessments: byScale.get(scale.id) ?? 0 },
+      })),
     })
-    res.json({ data: scales.map(withScaleGaps) })
   } catch (error) {
     handleError(res, 'GET /scales', error)
   }
@@ -309,7 +338,25 @@ r.get('/periods', async (req: any, res) => {
       },
       orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }],
     })
-    res.json({ schoolYearId, data: periods.map(serializePeriod) })
+    const [byAssessment, byGradeBookPeriod] = await Promise.all([
+      prisma.assessment
+        .groupBy({ by: ['periodId'], where: { deletedAt: null }, _count: { _all: true } })
+        .then((rows) => countBy(rows, 'periodId')),
+      // Un período con libretas cerradas no se desactiva: RF-111 exige poder consultarlas.
+      prisma.gradeBookPeriod
+        .groupBy({ by: ['periodId'], where: { status: { not: 'OPEN' } }, _count: { _all: true } })
+        .then((rows) => countBy(rows, 'periodId')),
+    ])
+    res.json({
+      schoolYearId,
+      data: periods.map((period) => ({
+        ...serializePeriod(period),
+        usage: {
+          assessments: byAssessment.get(period.id) ?? 0,
+          closedGradeBooks: byGradeBookPeriod.get(period.id) ?? 0,
+        },
+      })),
+    })
   } catch (error) {
     handleError(res, 'GET /periods', error)
   }
@@ -417,14 +464,21 @@ r.delete('/periods/:id', async (req: any, res) => {
 
 r.get('/activity-types', async (req, res) => {
   try {
-    const types = await prisma.activityType.findMany({
-      where: {
-        scope: 'GLOBAL',
-        ...(req.query.includeInactive === 'true' ? {} : { isActive: true }),
-      },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    const [types, byType] = await Promise.all([
+      prisma.activityType.findMany({
+        where: {
+          scope: 'GLOBAL',
+          ...(req.query.includeInactive === 'true' ? {} : { isActive: true }),
+        },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      }),
+      prisma.assessment
+        .groupBy({ by: ['activityTypeId'], where: { deletedAt: null }, _count: { _all: true } })
+        .then((rows) => countBy(rows, 'activityTypeId')),
+    ])
+    res.json({
+      data: types.map((type) => ({ ...type, usage: { assessments: byType.get(type.id) ?? 0 } })),
     })
-    res.json({ data: types })
   } catch (error) {
     handleError(res, 'GET /activity-types', error)
   }

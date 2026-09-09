@@ -270,12 +270,46 @@ export async function ensureStudentMoodleAccount(
 }
 
 /**
- * Camino del outbox (`STUDENT_USER_UPSERT`): sincroniza la cuenta y dispara el mail de
- * bienvenida exactamente una vez (claim atómico sobre `moodleWelcomeSentAt`).
+ * Camino del outbox (`STUDENT_USER_UPSERT`): **sólo propaga** cambios de datos a una cuenta que
+ * ya existe.
+ *
+ * No crea cuentas ni manda bienvenidas. Crear es siempre una acción explícita de administración
+ * (`provisionStudentMoodleAccount`, detrás de `POST /admin/students/:id/moodle-account`). Sin este
+ * corte, cualquier `enqueueStudentUserUpsert` volvería a crear cuentas —y a mandar mails con
+ * contraseña temporal— en silencio: es justo lo que pasaba cuando a un alumno con espejo `nologin`
+ * se le agregaba el email más tarde.
  */
 export async function syncMoodleStudentById(studentId: string): Promise<void> {
   if (!isMoodleIntegrationEnabled()) return;
+  if ((await getMappedId("STUDENT", studentId)) == null) return;
+
   const s = await prisma.student.findUnique({
+    where: { id: studentId },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      username: true,
+    },
+  });
+  if (!s) return;
+
+  await ensureStudentMoodleAccount(s, { forceUpdate: true });
+}
+
+/**
+ * Alta explícita de la cuenta Moodle del alumno (`POST /admin/students/:id/moodle-account`).
+ *
+ * Es síncrona a propósito: para una acción manual, fallar a la vista de quien la disparó es mejor
+ * que reintentar de forma invisible. `sendWelcomeOnce` toma un claim atómico sobre
+ * `moodleWelcomeSentAt`, así que tocar el botón dos veces no manda dos mails.
+ */
+export async function provisionStudentMoodleAccount(
+  studentId: string,
+): Promise<{ moodleId: number; welcomeSentAt: Date | null; alreadyLinked: boolean }> {
+  if (!isMoodleIntegrationEnabled()) throw new Error("MOODLE_NOT_CONFIGURED");
+  const student = await prisma.student.findUnique({
     where: { id: studentId },
     select: {
       id: true,
@@ -286,11 +320,21 @@ export async function syncMoodleStudentById(studentId: string): Promise<void> {
       moodleWelcomeSentAt: true,
     },
   });
-  if (!s) return;
+  if (!student) throw new Error("MOODLE_STUDENT_NOT_FOUND");
+  if (!realAccountData(student)) throw new Error("MOODLE_STUDENT_ACCOUNT_FIELDS_REQUIRED");
 
-  const { moodleId, realAccount } = await ensureStudentMoodleAccount(s, { forceUpdate: true });
-  if (!realAccount || s.moodleWelcomeSentAt) return;
-  await sendWelcomeOnce(s.id, moodleId, s.email!, s.firstName, s.username!);
+  const alreadyLinked = (await getMappedId("STUDENT", studentId)) != null;
+  const { moodleId } = await ensureStudentMoodleAccount(student, { forceUpdate: true });
+
+  if (student.moodleWelcomeSentAt) {
+    return { moodleId, welcomeSentAt: student.moodleWelcomeSentAt, alreadyLinked };
+  }
+  await sendWelcomeOnce(studentId, moodleId, student.email!, student.firstName, student.username!);
+  const after = await prisma.student.findUnique({
+    where: { id: studentId },
+    select: { moodleWelcomeSentAt: true },
+  });
+  return { moodleId, welcomeSentAt: after?.moodleWelcomeSentAt ?? null, alreadyLinked };
 }
 
 async function sendWelcomeOnce(

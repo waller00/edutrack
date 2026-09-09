@@ -84,7 +84,8 @@ function startManualMoodleReconcile(syncStudents: boolean): boolean {
       console.log(
         `[moodle] manual reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} ` +
           `suplentes=${summary.substituteEnrolments} revocados=${summary.substituteRevocations} ` +
-          `estudiantes=${summary.studentEnrolments} errores=${summary.errors}`,
+          `estudiantes=${summary.studentEnrolments} sin-cuenta=${summary.studentsWithoutAccount} ` +
+          `errores=${summary.errors}`,
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

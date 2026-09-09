@@ -45,7 +45,7 @@ const EMPTY_FILTERS: StudentFilters = {
 
 type PendingAction =
   | { kind: 'delete'; row: StudentListRow }
-  | { kind: 'resendMoodle'; studentId: string; name: string }
+  | { kind: 'moodle'; op: 'provision' | 'resend'; studentId: string; name: string }
 
 export default function AdminStudentsPage() {
   const syCtx = useOptionalAdminSchoolYear()
@@ -279,11 +279,14 @@ export default function AdminStudentsPage() {
         return
       }
       setResendingId(action.studentId)
-      const response = await api<{ message: string; moodle: MoodleAccountStatus }>(
-        `/admin/students/${action.studentId}/moodle-welcome/resend`,
-        { method: 'POST' },
-      )
-      setMsg(`✅ ${response.message || 'Correo de acceso a Moodle reenviado'}`)
+      // Crear y reenviar son endpoints distintos a propósito: crear es idempotente y no pisa la
+      // contraseña; reenviar la regenera y se niega si el alumno ya entró.
+      const path =
+        action.op === 'provision'
+          ? `/admin/students/${action.studentId}/moodle-account`
+          : `/admin/students/${action.studentId}/moodle-welcome/resend`
+      const response = await api<{ message: string; moodle: MoodleAccountStatus }>(path, { method: 'POST' })
+      setMsg(`✅ ${response.message || 'Listo'}`)
       setForm((current) => (current.id === action.studentId ? { ...current, moodle: response.moodle } : current))
       await loadList()
     } catch (e) {
@@ -317,7 +320,8 @@ export default function AdminStudentsPage() {
     onDelete: (row: StudentListRow) => setPendingAction({ kind: 'delete', row }),
     onResendMoodle: (row: StudentListRow) =>
       setPendingAction({
-        kind: 'resendMoodle',
+        kind: 'moodle',
+        op: row.moodle?.linked ? 'resend' : 'provision',
         studentId: row.studentId,
         name: `${row.firstName} ${row.lastName}`,
       }),
@@ -387,7 +391,7 @@ export default function AdminStudentsPage() {
             orientations={modalOrientations}
             tuitionYear={modalTuitionYear}
             saving={saving}
-            resending={resendingId === form.id}
+            moodlePending={resendingId === form.id}
             message={msg}
             onTuitionYearChange={setModalTuitionYear}
             onPatch={patchForm}
@@ -395,9 +399,10 @@ export default function AdminStudentsPage() {
               setUsernameTouched(true)
               patchForm('username', value)
             }}
-            onResendMoodle={() =>
+            onMoodleAction={(op) =>
               setPendingAction({
-                kind: 'resendMoodle',
+                kind: 'moodle',
+                op,
                 studentId: form.id,
                 name: `${form.firstName} ${form.lastName}`,
               })
@@ -409,13 +414,27 @@ export default function AdminStudentsPage() {
 
         {pendingAction ? (
           <ConfirmDialog
-            title={pendingAction.kind === 'delete' ? 'Eliminar estudiante' : 'Reenviar acceso a Moodle'}
+            title={
+              pendingAction.kind === 'delete'
+                ? 'Eliminar estudiante'
+                : pendingAction.op === 'provision'
+                  ? 'Crear cuenta en el aula virtual'
+                  : 'Reenviar acceso al aula virtual'
+            }
             message={
               pendingAction.kind === 'delete'
                 ? `Se eliminará el registro de ${pendingAction.row.lastName}, ${pendingAction.row.firstName} junto con sus matrículas y cuotas. Esta acción no se puede deshacer.`
-                : `Se generará una nueva contraseña temporal y se le enviará por correo a ${pendingAction.name}.`
+                : pendingAction.op === 'provision'
+                  ? `Se creará la cuenta de ${pendingAction.name} en Moodle y se le enviará el acceso por correo.`
+                  : `Se generará una nueva contraseña temporal y se le enviará por correo a ${pendingAction.name}.`
             }
-            confirmLabel={pendingAction.kind === 'delete' ? 'Eliminar' : 'Reenviar'}
+            confirmLabel={
+              pendingAction.kind === 'delete'
+                ? 'Eliminar'
+                : pendingAction.op === 'provision'
+                  ? 'Crear cuenta'
+                  : 'Reenviar'
+            }
             tone={pendingAction.kind === 'delete' ? 'danger' : 'default'}
             onConfirm={() => void runPendingAction()}
             onCancel={() => setPendingAction(null)}

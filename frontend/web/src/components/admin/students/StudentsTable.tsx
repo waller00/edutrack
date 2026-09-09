@@ -107,8 +107,8 @@ export default function StudentsTable({
                   <StudentMoodleBadge
                     moodle={row.moodle}
                     studentName={`${row.firstName} ${row.lastName}`}
-                    resending={resendingId === row.studentId}
-                    onResend={() => onResendMoodle(row)}
+                    pending={resendingId === row.studentId}
+                    onAction={() => onResendMoodle(row)}
                   />
                 </td>
                 <td className="px-4 py-2.5">
