@@ -15,6 +15,7 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     gradeBookAccessLog: { create: vi.fn() },
     assessmentGrade: { findMany: vi.fn() },
     studentAttendanceEntry: { groupBy: vi.fn() },
+    studentPhoto: { findMany: vi.fn(), findUnique: vi.fn() },
     inAppNotification: { createMany: vi.fn() },
     $transaction: vi.fn(),
     academicPeriod: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
@@ -102,6 +103,8 @@ beforeEach(() => {
   // devolver una promesa, porque el código encadena `.catch()` para no tumbar la lectura.
   prismaMock.gradeBookAccessLog.create.mockResolvedValue({ id: 'log-1' })
   prismaMock.studentAttendanceEntry.groupBy.mockResolvedValue([])
+  prismaMock.studentPhoto.findMany.mockResolvedValue([])
+  prismaMock.studentPhoto.findUnique.mockResolvedValue(null)
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
 })
 
@@ -215,6 +218,7 @@ describe('GET /gradebook/:id', () => {
     expect(res.status).toBe(200)
     expect(res.body.studentCount).toBe(2)
     expect(res.body.access).toEqual({ level: 'OWNER', canGrade: true })
+    expect(res.body.students[0].hasPhoto).toBe(false)
   })
 
   it('cuenta faltas y llegadas tarde por estudiante', async () => {
