@@ -19,6 +19,13 @@ Roles organizacionales en Postgres (`orgRole`): **ADMIN**, **TEACHER**, **STAFF*
 
 Los estudiantes del liceo se gestionan en matrícula administrativa; no requieren cuenta de login.
 
+Las cuotas se gestionan en **Académico → Mensualidades** (`/admin/tuition`), con el
+permiso `students.manage` de alcance `all`. El módulo tiene su propio selector de año
+y mes, resumen de cobros, filtros por curso/estudiante/estado y una cuenta anual por
+estudiante. Cada cuota se guarda por separado, conservando el historial existente;
+editar la ficha de Estudiantes ya no modifica mensualidades. Los importes se muestran
+en UYU y los meses sin registrar se distinguen de las cuotas pendientes.
+
 ## Autenticación (Keycloak + BFF)
 
 1. El frontend redirige a `GET /auth/login` (backend).

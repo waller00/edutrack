@@ -25,6 +25,8 @@ const {
     user: { findFirst: vi.fn(), findUnique: vi.fn() },
     course: { findUnique: vi.fn() },
     studentPhoto: { findUnique: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
+    studentAccommodation: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
+    studentPendingSubject: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     schoolYear: { findMany: vi.fn() },
     studentEnrollment: {
       findMany: vi.fn(),
@@ -513,3 +515,164 @@ describe("foto del alumno", () => {
     expect(JSON.stringify(res.body)).not.toContain("bytes");
   });
 });
+
+describe('trayectoria del estudiante', () => {
+  const SY_ID = '77777777-7777-4777-8777-777777777777'
+  const SUBJECT_ID = '88888888-8888-4888-8888-888888888888'
+
+  it('guarda nacimiento y de dónde vino el pase', async () => {
+    const res = await request(app())
+      .post('/admin/students')
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ ...VALID_CREATE, birthDate: '2010-03-12', admittedFrom: 'Escuela 42' })
+
+    expect(res.status).toBe(201)
+    const data = prismaMock.student.create.mock.calls[0][0].data
+    expect(data.birthDate).toBeInstanceOf(Date)
+    expect(data.admittedFrom).toBe('Escuela 42')
+  })
+
+  it('guarda cómo cerró el año y si va a APE en la matrícula, no en el estudiante', async () => {
+    // Son datos del año: el mismo alumno puede repetir un año y promover el siguiente.
+    // Con matrícula previa alcanza: no hace falta volver a mandar el curso.
+    prismaMock.studentEnrollment.findUnique.mockResolvedValue({
+      id: 'en-1',
+      courseOfferingId: 'off-1',
+      schoolYearId: 'sy-1',
+    })
+
+    await request(app())
+      .put(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ academicResult: 'PROMOTED_WITH_PENDING', apeReferred: true })
+
+    const upsert = prismaMock.studentEnrollment.upsert.mock.calls[0]?.[0]
+    expect(upsert.update).toMatchObject({ academicResult: 'PROMOTED_WITH_PENDING', apeReferred: true })
+    expect(prismaMock.student.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ academicResult: expect.anything() }) }),
+    )
+  })
+
+  it('rechaza un resultado de año que no existe', async () => {
+    const res = await request(app())
+      .put(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ academicResult: 'SE_FUE_DE_VIAJE' })
+
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('adecuaciones', () => {
+  it('guarda el tipo, el resumen y el enlace', async () => {
+    prismaMock.studentAccommodation.create.mockResolvedValue({ id: 'ad-1' })
+
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/accommodations`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({
+        kind: 'EVALUATION',
+        summary: 'Más tiempo en las pruebas escritas.',
+        externalUrl: 'https://drive.example/informe',
+      })
+
+    expect(res.status).toBe(201)
+    expect(prismaMock.studentAccommodation.create.mock.calls[0][0].data).toMatchObject({
+      studentId: STUDENT_ID,
+      kind: 'EVALUATION',
+      externalUrl: 'https://drive.example/informe',
+    })
+  })
+
+  it('el enlace tiene que ser una URL, no texto suelto', async () => {
+    // El informe vive afuera: si esto acepta cualquier cosa, termina siendo el lugar donde
+    // alguien pega el diagnóstico.
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/accommodations`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ summary: 'Algo', externalUrl: 'el informe está en secretaría' })
+
+    expect(res.status).toBe(400)
+    expect(res.body.detail).toMatch(/URL/)
+    expect(prismaMock.studentAccommodation.create).not.toHaveBeenCalled()
+  })
+
+  it('exige decir qué tener en cuenta', async () => {
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/accommodations`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ summary: '   ' })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('se puede guardar sin enlace: no todas tienen informe', async () => {
+    prismaMock.studentAccommodation.create.mockResolvedValue({ id: 'ad-2' })
+
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/accommodations`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ summary: 'Se sienta adelante.' })
+
+    expect(res.status).toBe(201)
+    expect(prismaMock.studentAccommodation.create.mock.calls[0][0].data.externalUrl).toBeNull()
+  })
+
+  it('404 si el estudiante no existe', async () => {
+    prismaMock.student.findUnique.mockResolvedValue(null)
+
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/accommodations`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ summary: 'Algo que tener en cuenta.' })
+
+    expect(res.status).toBe(404)
+  })
+})
+
+describe('materias bajas', () => {
+  const SY_ID = '77777777-7777-4777-8777-777777777777'
+  const SUBJECT_ID = '88888888-8888-4888-8888-888888888888'
+
+  it('registrar el resultado de APE actualiza la misma fila, no crea otra', async () => {
+    prismaMock.studentPendingSubject.upsert.mockResolvedValue({ id: 'p-1' })
+
+    const res = await request(app())
+      .put(`/admin/students/${STUDENT_ID}/pending-subjects`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ schoolYearId: SY_ID, subjectId: SUBJECT_ID, apeDecember: 'FAILED' })
+
+    expect(res.status).toBe(200)
+    const call = prismaMock.studentPendingSubject.upsert.mock.calls[0][0]
+    expect(call.where.studentId_schoolYearId_subjectId).toEqual({
+      studentId: STUDENT_ID,
+      schoolYearId: SY_ID,
+      subjectId: SUBJECT_ID,
+    })
+    expect(call.update.apeDecember).toBe('FAILED')
+    expect(call.update.resolvedAt).toBeNull()
+  })
+
+  it('salvar en febrero la marca como resuelta, sin borrar la fila', async () => {
+    prismaMock.studentPendingSubject.upsert.mockResolvedValue({ id: 'p-1' })
+
+    await request(app())
+      .put(`/admin/students/${STUDENT_ID}/pending-subjects`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ schoolYearId: SY_ID, subjectId: SUBJECT_ID, apeDecember: 'FAILED', apeFebruary: 'PASSED' })
+
+    const call = prismaMock.studentPendingSubject.upsert.mock.calls[0][0]
+    expect(call.update.resolvedAt).toBeInstanceOf(Date)
+  })
+
+  it('un ciclo o materia inexistente da 400, no 500', async () => {
+    prismaMock.studentPendingSubject.upsert.mockRejectedValue({ code: 'P2003' })
+
+    const res = await request(app())
+      .put(`/admin/students/${STUDENT_ID}/pending-subjects`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ schoolYearId: SY_ID, subjectId: SUBJECT_ID })
+
+    expect(res.status).toBe(400)
+  })
+})

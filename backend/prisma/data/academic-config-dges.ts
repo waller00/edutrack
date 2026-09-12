@@ -376,6 +376,70 @@ export const GRADING_SCALES: readonly ScaleSeed[] = [
       },
     ],
   },
+  {
+    // Conducta. Va en su propia escala porque no se mide como el rendimiento: el liceo la lleva a
+    // la reunión junto con el promedio académico, pero son dos cosas distintas.
+    code: "CONDUCTA",
+    name: "Conducta",
+    kind: "ORDINAL",
+    minValueHundredths: 100,
+    maxValueHundredths: 400,
+    decimals: 0,
+    description:
+      "Escala de conducta de cuatro niveles. La usan el docente en su asignatura y adscripción " +
+      "para la nota institucional que se lleva a la reunión.",
+    sortOrder: 40,
+    levels: [
+      {
+        code: "MALA",
+        label: "Mala",
+        descriptor: "Requiere intervención de adscripción.",
+        minValueHundredths: 100,
+        maxValueHundredths: 100,
+        colorToken: "red",
+        iconToken: "alert",
+        isPassing: false,
+        isAlert: true,
+        sortOrder: 10,
+      },
+      {
+        code: "REGULAR",
+        label: "Regular",
+        descriptor: "Presenta dificultades de convivencia puntuales.",
+        minValueHundredths: 200,
+        maxValueHundredths: 200,
+        colorToken: "amber",
+        iconToken: "warning",
+        isPassing: true,
+        isAlert: false,
+        sortOrder: 20,
+      },
+      {
+        code: "BUENA",
+        label: "Buena",
+        descriptor: "Convivencia adecuada.",
+        minValueHundredths: 300,
+        maxValueHundredths: 300,
+        colorToken: "green",
+        iconToken: "check",
+        isPassing: true,
+        isAlert: false,
+        sortOrder: 30,
+      },
+      {
+        code: "MUY_BUENA",
+        label: "Muy buena",
+        descriptor: "Colabora y sostiene un buen clima de trabajo.",
+        minValueHundredths: 400,
+        maxValueHundredths: 400,
+        colorToken: "emerald",
+        iconToken: "star",
+        isPassing: true,
+        isAlert: false,
+        sortOrder: 40,
+      },
+    ],
+  },
 ];
 
 /** Tipos de actividad predefinidos del catálogo institucional (RF-041). */

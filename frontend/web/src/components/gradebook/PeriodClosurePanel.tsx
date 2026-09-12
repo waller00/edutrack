@@ -22,7 +22,6 @@ type Row = {
   lastName: string
   firstName: string
   assessmentCount: number
-  suggestedAverageHundredths: number | null
   valueHundredths: number | null
   conceptualJudgement: string | null
   descriptor: Descriptor
@@ -209,8 +208,8 @@ export default function PeriodClosurePanel({
           <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
             <tr>
               <th scope="col" className="px-3 py-2 text-left font-medium">Estudiante</th>
-              <th scope="col" className="px-3 py-2 text-left font-medium">
-                Promedio orientativo
+              <th scope="col" className="px-3 py-2 text-left font-medium" title="Cuántas notas cargaste en el período">
+                Notas cargadas
               </th>
               <th scope="col" className="px-3 py-2 text-left font-medium">Calificación</th>
               <th scope="col" className="px-3 py-2 text-left font-medium">Descriptor</th>
@@ -222,11 +221,9 @@ export default function PeriodClosurePanel({
               <tr key={row.studentId}>
                 <td className="px-3 py-1.5 text-sm text-gray-900">{studentFullName(row)}</td>
                 <td className="px-3 py-1.5 text-sm text-gray-600">
-                  {/* Indicador automático (RF-061): sugerencia, no reemplaza la decisión del docente. */}
-                  <span title="Indicador automático / promedio orientativo">
-                    {formatHundredths(row.suggestedAverageHundredths, decimals)}
-                  </span>
-                  <span className="ml-1 text-xs text-gray-400">({row.assessmentCount})</span>
+                  {/* La libreta NO promedia: la calificación general la decide el docente. Esto es
+                      sólo cuántas notas cargó, para ver de un vistazo a quién le falta. */}
+                  {row.assessmentCount}
                 </td>
                 <td className="px-3 py-1.5">
                   <input

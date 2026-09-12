@@ -2,9 +2,7 @@
 
 import { Loader2, Trash2 } from 'lucide-react'
 import { getStudentStatusBadgeClass, getStudentStatusLabel } from '@/lib/admin/students-display'
-import { tuitionYearForRow } from '@/lib/admin/students-filters'
 import StudentMoodleBadge from './StudentMoodleBadge'
-import TuitionChips from './TuitionChips'
 import type { StudentListRow } from './student-types'
 
 type Column = { key: string; label: string; width: string; onlyAllYears?: boolean }
@@ -14,12 +12,11 @@ type Column = { key: string; label: string; width: string; onlyAllYears?: boolea
  * porcentajes a mano y dos `colSpan` calculados que había que mantener en sincronía.
  */
 const COLUMNS: Column[] = [
-  { key: 'student', label: 'Estudiante', width: 'w-[22%]' },
+  { key: 'student', label: 'Estudiante', width: 'w-[30%]' },
   { key: 'schoolYear', label: 'Ciclo', width: 'w-[9%]', onlyAllYears: true },
   { key: 'course', label: 'Curso', width: 'w-[14%]' },
   { key: 'status', label: 'Estado', width: 'w-[11%]' },
-  { key: 'moodle', label: 'Moodle', width: 'w-[18%]' },
-  { key: 'tuition', label: 'Mensualidades', width: 'w-[22%]' },
+  { key: 'moodle', label: 'Moodle', width: 'w-[25%]' },
   { key: 'actions', label: '', width: 'w-[4%]' },
 ]
 
@@ -27,8 +24,6 @@ type Props = {
   rows: StudentListRow[]
   loading: boolean
   allYears: boolean
-  tuitionYear: string
-  fallbackYear: number
   resendingId: string | null
   onOpen: (row: StudentListRow) => void
   onDelete: (row: StudentListRow) => void
@@ -39,8 +34,6 @@ export default function StudentsTable({
   rows,
   loading,
   allYears,
-  tuitionYear,
-  fallbackYear,
   resendingId,
   onOpen,
   onDelete,
@@ -50,7 +43,7 @@ export default function StudentsTable({
 
   return (
     <div className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 sm:block">
-      <table className="w-full min-w-[1080px] table-fixed text-sm">
+      <table className="w-full min-w-[760px] table-fixed text-sm">
         <colgroup>
           {columns.map((c) => (
             <col key={c.key} className={c.width} />
@@ -60,7 +53,7 @@ export default function StudentsTable({
           <tr className="border-b border-gray-200 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
             {columns.map((c) => (
               <th key={c.key} scope="col" className="px-4 py-2.5 font-medium">
-                {c.key === 'tuition' ? `${c.label} ${allYears ? 'del ciclo' : tuitionYear || fallbackYear}` : c.label}
+                {c.label}
               </th>
             ))}
           </tr>
@@ -109,12 +102,6 @@ export default function StudentsTable({
                     studentName={`${row.firstName} ${row.lastName}`}
                     pending={resendingId === row.studentId}
                     onAction={() => onResendMoodle(row)}
-                  />
-                </td>
-                <td className="px-4 py-2.5">
-                  <TuitionChips
-                    rows={row.tuitionMonthsPreview}
-                    year={tuitionYearForRow(row, tuitionYear, fallbackYear)}
                   />
                 </td>
                 <td className="px-4 py-2.5 text-right">

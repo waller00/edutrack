@@ -42,20 +42,27 @@ describe('<StudentGrid />', () => {
 
   it('escribe siempre el número de faltas, no sólo el color', () => {
     // RNF 7.2: el color es refuerzo; el conteo tiene que poder leerse.
-    render(<StudentGrid students={[student({ absences: 12, lates: 3 })]} />)
+    render(<StudentGrid students={[student({ absences: '12', absenceHundredths: 1200, lates: 3 })]} />)
 
     expect(screen.getByText(/12 faltas/)).toBeInTheDocument()
     expect(screen.getByText(/3 tardes/)).toBeInTheDocument()
   })
 
-  it('trata las faltas ausentes como cero y singulariza en uno', () => {
+  it('trata las faltas ausentes como cero y singulariza en una falta entera', () => {
     render(<StudentGrid students={[student()]} />)
     expect(screen.getByText(/0 faltas/)).toBeInTheDocument()
     expect(screen.getByText(/0 tardes/)).toBeInTheDocument()
 
-    render(<StudentGrid students={[student({ studentId: 's9', absences: 1, lates: 1 })]} />)
+    render(
+      <StudentGrid students={[student({ studentId: 's9', absences: '1', absenceHundredths: 100, lates: 1 })]} />,
+    )
     expect(screen.getByText(/1 falta$/)).toBeInTheDocument()
     expect(screen.getByText(/1 tarde$/)).toBeInTheDocument()
+  })
+
+  it('media falta se escribe con coma y en plural', () => {
+    render(<StudentGrid students={[student({ absences: '0,5', absenceHundredths: 50 })]} />)
+    expect(screen.getByText(/0,5 faltas/)).toBeInTheDocument()
   })
 
   it('omite la cédula cuando el estudiante no la tiene cargada', () => {

@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { requirePermission } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
 import { applyEventStartDateFilter, expandRecurringEvent } from '../events/events-query.js'
@@ -6,6 +7,7 @@ import { isYmdDateString } from '../config/app-timezone.js'
 import { todayUruguayYmd } from '../services/events/event-versioning.js'
 import { occurrenceYmdOf } from '../services/events/occurrence-instant.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
+import { FULL_ABSENCE, HALF_ABSENCE } from '../services/student-attendance/absence-weight.js'
 import { AuditAction } from '@prisma/client'
 import { recordAuditEventNow } from '../services/audit-log.js'
 import {
@@ -41,6 +43,15 @@ const justifySchema = z.object({
   reason: z.string().trim().min(3).max(500),
   notes: z.string().trim().max(1000).nullish(),
   attachment: z.string().trim().max(2000).nullish(),
+  /**
+   * Cuánto pesa la falta: 100 (entera) o 50 (media). Lo decide adscripción caso por caso — el
+   * liceo no tiene una regla automática— y por eso viaja acá y no se deriva del estado.
+   */
+  absenceWeightHundredths: z
+    .union([z.literal(FULL_ABSENCE), z.literal(HALF_ABSENCE)], {
+      errorMap: () => ({ message: 'La falta vale 100 (entera) o 50 (media)' }),
+    })
+    .nullish(),
 })
 
 /**
@@ -149,7 +160,7 @@ r.get('/pending', async (req: any, res) => {
   }
 })
 
-r.post('/entries/:entryId/justify', async (req: any, res) => {
+r.post('/entries/:entryId/justify', requirePermission('student-attendance.justify', 'all'), async (req: any, res) => {
   try {
     const parsed = justifySchema.safeParse(req.body)
     if (!parsed.success) {
@@ -161,6 +172,7 @@ r.post('/entries/:entryId/justify', async (req: any, res) => {
       reason: parsed.data.reason,
       notes: parsed.data.notes ?? null,
       attachment: parsed.data.attachment ?? null,
+      absenceWeightHundredths: parsed.data.absenceWeightHundredths ?? null,
       actorUserId: req.user?.id ?? req.user?.sub ?? null,
       req,
     })
@@ -175,7 +187,7 @@ r.post('/entries/:entryId/justify', async (req: any, res) => {
 })
 
 /** Reabre una planilla cerrada para que el docente pueda corregirla. */
-r.post('/sessions/:sessionId/reopen', async (req: any, res) => {
+r.post('/sessions/:sessionId/reopen', requirePermission('student-attendance.manage', 'all'), async (req: any, res) => {
   try {
     const reason = String(req.body?.reason ?? '').trim()
     if (reason.length < 3) return res.status(400).json({ message: 'Indicá el motivo de la reapertura' })
