@@ -9,11 +9,41 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 REALM_FILE="${REALM_FILE:-keycloak/realm-edutrack.json}"
-KC_URL="${KC_URL:-http://localhost:8089}"
 
 command -v curl >/dev/null || { echo "Falta 'curl'." >&2; exit 1; }
 command -v jq   >/dev/null || { echo "Falta 'jq'." >&2; exit 1; }
 [ -f "$REALM_FILE" ] || { echo "No existe $REALM_FILE" >&2; exit 1; }
+
+# En desarrollo Keycloak suele estar publicado en localhost:8089. En
+# produccion ese puerto se cierra y el host debe hablar con la IP privada del
+# contenedor en edutrack_net. KC_URL explicita siempre tiene precedencia.
+discover_keycloak_url() {
+  command -v docker >/dev/null 2>&1 || return 1
+
+  local container_id container_ip network_name
+  network_name="${KEYCLOAK_DOCKER_NETWORK:-edutrack_net}"
+  container_id="$(docker ps \
+    --filter 'label=com.docker.compose.service=keycloak' \
+    --filter 'status=running' \
+    --format '{{.ID}}' 2>/dev/null | head -n1)"
+  [ -n "$container_id" ] || return 1
+
+  container_ip="$(docker inspect "$container_id" 2>/dev/null \
+    | jq -r --arg network "$network_name" \
+      '.[0].NetworkSettings.Networks[$network].IPAddress // empty')"
+  [ -n "$container_ip" ] || return 1
+
+  printf 'http://%s:8080' "$container_ip"
+}
+
+if [ -z "${KC_URL:-}" ]; then
+  KC_URL="$(discover_keycloak_url || true)"
+  if [ -n "$KC_URL" ]; then
+    echo ">> Keycloak accesible por la red Docker privada (puerto 8089 no publicado)."
+  else
+    KC_URL="http://localhost:8089"
+  fi
+fi
 
 env_get() {
   local key="$1"
@@ -31,15 +61,26 @@ REALM_NAME="$(jq -r '.realm' "$REALM_FILE")"
 echo ">> Pidiendo token admin a $KC_URL (con reintentos) ..."
 TOKEN=""
 for attempt in $(seq 1 30); do
-  TOKEN="$(curl -fsS -X POST "$KC_URL/realms/master/protocol/openid-connect/token" \
+  TOKEN_RESPONSE="$(curl -sS --connect-timeout 3 --max-time 10 \
+    -w $'\n%{http_code}' \
+    -X POST "$KC_URL/realms/master/protocol/openid-connect/token" \
     -d grant_type=password -d client_id=admin-cli \
-    -d "username=$ADMIN_USER" --data-urlencode "password=$ADMIN_PASS" 2>/dev/null \
-    | jq -r '.access_token // empty' 2>/dev/null || true)"
+    -d "username=$ADMIN_USER" --data-urlencode "password=$ADMIN_PASS" 2>/dev/null || true)"
+  TOKEN_HTTP_CODE="${TOKEN_RESPONSE##*$'\n'}"
+  TOKEN_BODY="${TOKEN_RESPONSE%$'\n'*}"
+  TOKEN="$(printf '%s' "$TOKEN_BODY" | jq -r '.access_token // empty' 2>/dev/null || true)"
   [ -n "$TOKEN" ] && break
+
+  TOKEN_ERROR="$(printf '%s' "$TOKEN_BODY" | jq -r '.error // empty' 2>/dev/null || true)"
+  if { [ "$TOKEN_HTTP_CODE" = "400" ] || [ "$TOKEN_HTTP_CODE" = "401" ]; } && [ -n "$TOKEN_ERROR" ]; then
+    echo "Keycloak respondio, pero rechazo las credenciales del admin (HTTP $TOKEN_HTTP_CODE)." >&2
+    echo "KEYCLOAK_ADMIN_PASSWORD debe coincidir con el password actual del admin del realm master." >&2
+    exit 1
+  fi
   echo "   intento $attempt/30: Keycloak aun no responde, reintento en 5s..."
   sleep 5
 done
-[ -n "$TOKEN" ] || { echo "No se pudo obtener token admin (revisa user/pass/URL)." >&2; exit 1; }
+[ -n "$TOKEN" ] || { echo "No se pudo conectar o autenticar contra Keycloak en $KC_URL." >&2; exit 1; }
 
 PATCH="$(jq '{
   loginTheme,

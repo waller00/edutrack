@@ -1,6 +1,7 @@
 'use client'
 
 import { api } from '@/lib/api/client'
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 import { Check, Eye, Fingerprint, Loader2, Pencil, Plus, Power, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -65,10 +66,7 @@ function ipsFromText(value: string) {
 function formatDate(value?: string | null) {
   if (!value) return 'Sin conexión'
   try {
-    return new Intl.DateTimeFormat('es-UY', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    }).format(new Date(value))
+    return formatDateTimeInUruguay(value)
   } catch {
     return 'Sin conexión'
   }
@@ -235,7 +233,7 @@ export default function AdminBiometricDevicesPanel() {
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="min-w-0 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <div className="grid min-w-[780px] grid-cols-[minmax(210px,1.4fr)_120px_155px_150px_110px] gap-3 border-b border-gray-100 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 max-lg:hidden">
+            <div className="grid w-max min-w-full grid-cols-[minmax(210px,1.4fr)_120px_155px_150px_110px] gap-3 border-b border-gray-100 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 max-lg:hidden">
               <span>Lector</span>
               <span>Estado</span>
               <span>Última conexión</span>
@@ -268,7 +266,7 @@ export default function AdminBiometricDevicesPanel() {
                         openView(device)
                       }
                     }}
-                    className={`grid min-w-[780px] cursor-pointer gap-3 border-l-4 px-4 py-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 lg:grid-cols-[minmax(210px,1.4fr)_120px_155px_150px_110px] lg:items-center max-lg:min-w-0 ${
+                    className={`grid cursor-pointer gap-3 border-l-4 px-4 py-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 lg:w-max lg:min-w-full lg:grid-cols-[minmax(210px,1.4fr)_120px_155px_150px_110px] lg:items-center ${
                       selectedId === device.id
                         ? 'border-l-emerald-500 bg-emerald-50 shadow-inner'
                         : 'border-l-transparent hover:bg-slate-50'

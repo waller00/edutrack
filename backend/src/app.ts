@@ -16,6 +16,7 @@ import { rateLimit } from "./middlewares/rate-limit.js";
 import adminRoutes from "./routes/admin.js";
 import adminTestingRoutes from "./routes/admin-testing.js";
 import attendanceRoutes from "./routes/attendance.js";
+import studentAttendanceRoutes from "./routes/student-attendance.js";
 import eventsRoutes from "./routes/events.js";
 import coursesRoutes from "./routes/courses.js";
 import medicalLeavesRoutes from "./routes/medical-leaves.js";
@@ -30,6 +31,7 @@ import biometricLinkRoutes from "./routes/biometric-link.js";
 import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 import substitutionsRoutes from "./routes/substitutions.js";
+import gradebookRoutes from "./routes/gradebook.js";
 import { httpMetricsMiddleware } from "./observability/metrics.js";
 import { checkReadiness } from "./observability/readiness.js";
 
@@ -161,6 +163,7 @@ app.use("/auth", diditLivenessRoutes);
 app.use("/admin", adminRoutes);
 app.use("/admin/testing", adminTestingRoutes);
 app.use("/attendance", attendanceRoutes);
+app.use("/student-attendance", studentAttendanceRoutes);
 app.use("/events", eventsRoutes);
 app.use("/courses", coursesRoutes);
 app.use("/medical-leaves", medicalLeavesRoutes);
@@ -174,6 +177,7 @@ app.use("/biometric", biometricLinkRoutes);
 app.use("/biometric", biometricAdmsRoutes);
 app.use("/attendance-incidents", attendanceIncidentsRoutes);
 app.use("/substitutions", substitutionsRoutes);
+app.use("/gradebook", gradebookRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/ready", async (_req, res) => {

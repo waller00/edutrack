@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { getPlannedInstances } from '../services/analytics/planInstances.js'
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js'
+import { resolveSubstituteInstances } from '../services/analytics/resolveSubstituteInstances.js'
 import {
   buildDashboardBreakdowns,
   computeDashboardKpis,
@@ -19,11 +20,13 @@ import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { getAppTimezone, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../config/app-timezone.js'
 import { timelineSortInstantOnDay } from '../services/analytics/timeline-sort.js'
+import { getAttendanceOperationalSettings } from '../config/system-settings.js'
 
 const r = Router()
 
 const timelineStatusValues = [
   'REGISTERED',
+  'SCHEDULED',
   'PRESENT',
   'LATE',
   'PENDING',
@@ -52,6 +55,7 @@ const timelineTypeValues = [
 ] as const
 
 const timelineStatusFilterValues = [
+  'SCHEDULED',
   'PRESENT',
   'LATE',
   'PENDING',
@@ -157,6 +161,7 @@ function formatTimeLabel(at?: Date | string | null) {
 function timelineStatusLabel(status: string) {
   const labels: Record<string, string> = {
     REGISTERED: 'Registrado',
+    SCHEDULED: 'Programada',
     PRESENT: 'Presente',
     LATE: 'Tarde',
     PENDING: 'Pendiente',
@@ -171,8 +176,27 @@ function timelineStatusLabel(status: string) {
   return labels[status] ?? status
 }
 
+function isPastNoShowGrace(params: {
+  date: string
+  plannedStartTime?: Date | string | null
+  now: DateTime
+  noShowGraceMinutes: number
+}) {
+  const today = params.now.setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
+  if (params.date < today) return true
+  if (params.date > today) return false
+
+  const start = params.plannedStartTime
+    ? DateTime.fromJSDate(new Date(params.plannedStartTime), { zone: 'utc' })
+    : DateTime.fromJSDate(uruguayWallToUtc(params.date, 0, 0), { zone: 'utc' })
+
+  return params.now.toUTC() >= start.plus({ minutes: params.noShowGraceMinutes })
+}
+
 async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimelineQuerySchema>) {
   const date = data.date || todayYmdUruguay()
+  const runtime = await getAttendanceOperationalSettings()
+  const now = DateTime.now()
   const dayStart = uruguayWallToUtc(date, 0, 0)
   const dayEnd = uruguayYmdEndOfDayToUtc(date)
   const schoolYearId = data.allYears
@@ -247,12 +271,24 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
 
     let status: TimelineStatus = 'PRESENT'
     let type: TimelineType = 'CLASS_ATTENDANCE'
+    const pendingAbsenceMatured =
+      row.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED' &&
+      isPastNoShowGrace({
+        date,
+        plannedStartTime: start,
+        now,
+        noShowGraceMinutes: runtime.noShowGraceMinutes,
+      })
+
     if (row.checkInStatusResolved === 'LATE') {
       status = 'LATE'
       type = 'LATE_ARRIVAL'
-    } else if (row.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED') {
+    } else if (pendingAbsenceMatured) {
       status = 'PENDING'
       type = 'PENDING_ABSENCE'
+    } else if (row.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED') {
+      status = 'SCHEDULED'
+      type = 'CLASS_ATTENDANCE'
     } else if (row.checkInStatusResolved === 'ABSENT_JUSTIFIED' || row.checkInStatusResolved === 'JUSTIFIED') {
       status = 'JUSTIFIED'
       type = 'JUSTIFICATION'
@@ -277,6 +313,8 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
       detail:
         status === 'PENDING'
           ? 'No registró asistencia'
+          : status === 'SCHEDULED'
+            ? 'Clase programada'
           : status === 'LATE'
             ? 'Llegada tarde vinculada al bloque horario'
             : status === 'SUBSTITUTED'
@@ -578,7 +616,16 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
         .filter(Boolean),
     ).size,
     lateArrivals: resolved.filter((r) => r.checkInStatusResolved === 'LATE').length,
-    pendingAbsences: resolved.filter((r) => r.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED').length,
+    pendingAbsences: resolved.filter(
+      (r) =>
+        r.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED' &&
+        isPastNoShowGrace({
+          date,
+          plannedStartTime: r.planned.plannedStartTime,
+          now,
+          noShowGraceMinutes: runtime.noShowGraceMinutes,
+        }),
+    ).length,
     expectedAbsences: resolved.filter((r) => r.checkInStatusResolved === 'SUBSTITUTED').length,
     substitutions: substitutionRows.length,
     suspendedClasses: suspendedEvents.length,
@@ -632,7 +679,18 @@ async function resolveInstancesForRange(
     eventType: scope.eventType,
     schoolYearId: scope.schoolYearId,
   })
-  return resolveAttendanceAndJustification({ plannedInstances })
+  const [titularInstances, substituteInstances] = await Promise.all([
+    resolveAttendanceAndJustification({ plannedInstances }),
+    resolveSubstituteInstances({
+      from,
+      to,
+      userId: scope.userId,
+      userIds: scope.userIds,
+      eventType: scope.eventType,
+      schoolYearId: scope.schoolYearId,
+    }),
+  ])
+  return [...titularInstances, ...substituteInstances]
 }
 
 /** Rango previo de igual longitud, inmediatamente anterior a [from, to]. */

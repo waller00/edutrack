@@ -1,7 +1,8 @@
 'use client'
 import RoleGuard from '@/components/auth/RoleGuard'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api/client'
+import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import {
   buildMedicalLeavesQueryString,
   formatLicenseAdminUserDisplayName,
@@ -11,7 +12,10 @@ import {
 } from '@/lib/admin/licenses-display'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
+import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
+import DateField from '@/components/forms/DateField'
 import { Calendar, FileText, Loader2, Plus, Search, Trash2 } from 'lucide-react'
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 
 type License = {
   id: string
@@ -64,6 +68,14 @@ function formatDateOnlyForDisplay(date: string): string {
   return `${match[3]}/${match[2]}/${match[1]}`
 }
 
+function yearRange(year: number) {
+  return { from: `${year}-01-01`, to: `${year}-12-31` }
+}
+
+function ymdFromApiDate(value: string | null | undefined) {
+  return value ? value.slice(0, 10) : null
+}
+
 export default function LicensesPage() {
   const [activeSection, setActiveSection] = useState<'licenses' | 'non-working'>('licenses')
   const [licenses, setLicenses] = useState<License[]>([])
@@ -107,11 +119,32 @@ export default function LicensesPage() {
     notes: '',
   })
 
+  const syCtx = useOptionalAdminSchoolYear()
+  const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
+  const selectedSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
+  const selectedSchoolYear = useMemo(
+    () => (selectedSchoolYearId ? syCtx?.years.find((year) => year.id === selectedSchoolYearId) ?? null : null),
+    [syCtx?.years, selectedSchoolYearId],
+  )
+  const schoolYearDateRange = useMemo(() => {
+    if (syCtx?.allYears) return yearRange(currentYear)
+    const from = ymdFromApiDate(selectedSchoolYear?.startsOn)
+    const to = ymdFromApiDate(selectedSchoolYear?.endsOn)
+    return from && to ? { from, to } : yearRange(currentYear)
+  }, [currentYear, selectedSchoolYear?.endsOn, selectedSchoolYear?.startsOn, syCtx?.allYears])
+
   useEffect(() => {
-    loadLicenses()
-    loadNonWorkingDays()
     loadUsers()
   }, [])
+
+  // Recarga al cambiar el ciclo lectivo (selector global). Licencias se filtran por solapamiento
+  // de fechas con el ciclo; días no laborables por su schoolYearId.
+  useEffect(() => {
+    setNonWorkingFilters(schoolYearDateRange)
+    loadLicenses()
+    loadNonWorkingDays(schoolYearDateRange)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolYearQuery, schoolYearDateRange.from, schoolYearDateRange.to])
 
   useEffect(() => {
     setSelectedLicenseIds([])
@@ -123,7 +156,7 @@ export default function LicensesPage() {
       const qs = buildMedicalLeavesQueryString(override ?? filters)
       const data = await api<{
         data: License[]
-      }>(`/medical-leaves/all?${qs}`)
+      }>(withSchoolYear(`/medical-leaves/all?${qs}`, schoolYearQuery))
 
       setLicenses(data.data)
     } catch (error) {
@@ -149,11 +182,11 @@ export default function LicensesPage() {
     }
   }
 
-  async function loadNonWorkingDays() {
+  async function loadNonWorkingDays(override?: typeof nonWorkingFilters) {
     setLoadingNonWorkingDays(true)
     try {
-      const qs = new URLSearchParams(nonWorkingFilters).toString()
-      const data = await api<{ data: NonWorkingDay[] }>(`/non-working-days?${qs}`)
+      const qs = new URLSearchParams(override ?? nonWorkingFilters).toString()
+      const data = await api<{ data: NonWorkingDay[] }>(withSchoolYear(`/non-working-days?${qs}`, schoolYearQuery))
       setNonWorkingDays(data.data)
     } catch (error) {
       console.error('Error cargando días no laborables:', error)
@@ -176,6 +209,8 @@ export default function LicensesPage() {
           type: newNonWorkingDay.type,
           reason: newNonWorkingDay.reason.trim(),
           notes: newNonWorkingDay.notes.trim() || undefined,
+          // Lo asociamos al ciclo seleccionado para que aparezca bajo ese filtro.
+          schoolYearId: syCtx?.selectedId ?? syCtx?.activeId ?? undefined,
         }),
       })
       setMessage('✅ Día no laborable guardado correctamente')
@@ -348,7 +383,7 @@ export default function LicensesPage() {
           {getLicenseTypeLabel(license.type)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-          {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
+          {formatDateInUruguay(license.startDate)} - {formatDateInUruguay(license.endDate)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLicenseStatusBadgeClass(license.status)}`}>
@@ -401,7 +436,7 @@ export default function LicensesPage() {
           <div className="flex gap-2">
             <dt className="shrink-0 text-gray-500">Período:</dt>
             <dd className="text-gray-900">
-              {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
+              {formatDateInUruguay(license.startDate)} - {formatDateInUruguay(license.endDate)}
             </dd>
           </div>
           {license.reason ? (
@@ -526,10 +561,9 @@ export default function LicensesPage() {
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-gray-700">Fecha</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={newNonWorkingDay.date}
-                    onChange={(e) => setNewNonWorkingDay({ ...newNonWorkingDay, date: e.target.value })}
+                    onChange={(v) => setNewNonWorkingDay({ ...newNonWorkingDay, date: v })}
                     className="input-field"
                   />
                 </div>
@@ -577,19 +611,17 @@ export default function LicensesPage() {
                   <div className="flex flex-wrap items-end gap-3">
                     <div>
                       <label className="mb-1 block text-xs font-medium text-gray-600">Desde</label>
-                      <input
-                        type="date"
+                      <DateField
                         value={nonWorkingFilters.from}
-                        onChange={(e) => setNonWorkingFilters({ ...nonWorkingFilters, from: e.target.value })}
+                        onChange={(v) => setNonWorkingFilters({ ...nonWorkingFilters, from: v })}
                         className="input-field h-10 text-sm"
                       />
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-medium text-gray-600">Hasta</label>
-                      <input
-                        type="date"
+                      <DateField
                         value={nonWorkingFilters.to}
-                        onChange={(e) => setNonWorkingFilters({ ...nonWorkingFilters, to: e.target.value })}
+                        onChange={(v) => setNonWorkingFilters({ ...nonWorkingFilters, to: v })}
                         className="input-field h-10 text-sm"
                       />
                     </div>
@@ -699,11 +731,10 @@ export default function LicensesPage() {
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Desde (período)
               </label>
-              <input
+              <DateField
                 id="license-filter-from"
-                type="date"
                 value={filters.startDate}
-                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                onChange={(v) => setFilters({ ...filters, startDate: v })}
                 className="input-field"
               />
             </div>
@@ -715,11 +746,10 @@ export default function LicensesPage() {
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Hasta (período)
               </label>
-              <input
+              <DateField
                 id="license-filter-to"
-                type="date"
                 value={filters.endDate}
-                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                onChange={(v) => setFilters({ ...filters, endDate: v })}
                 className="input-field"
               />
             </div>
@@ -915,22 +945,20 @@ export default function LicensesPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-                    <input
+                    <DateField
                       aria-label="Fecha inicio"
-                      type="date"
                       value={newLicense.startDate}
-                      onChange={(e) => setNewLicense({ ...newLicense, startDate: e.target.value })}
+                      onChange={(v) => setNewLicense({ ...newLicense, startDate: v })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-                    <input
+                    <DateField
                       aria-label="Fecha fin"
-                      type="date"
                       value={newLicense.endDate}
-                      onChange={(e) => setNewLicense({ ...newLicense, endDate: e.target.value })}
+                      onChange={(v) => setNewLicense({ ...newLicense, endDate: v })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
@@ -1035,20 +1063,18 @@ export default function LicensesPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={editing.startDate.split('T')[0]}
-                      onChange={(e) => setEditing({ ...editing, startDate: e.target.value })}
+                      onChange={(v) => setEditing({ ...editing, startDate: v })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={editing.endDate.split('T')[0]}
-                      onChange={(e) => setEditing({ ...editing, endDate: e.target.value })}
+                      onChange={(v) => setEditing({ ...editing, endDate: v })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
@@ -1098,7 +1124,7 @@ export default function LicensesPage() {
                 {editing.approvedAt && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de aprobación</label>
-                    <p className="text-sm text-gray-900">{new Date(editing.approvedAt).toLocaleDateString('es-ES')}</p>
+                    <p className="text-sm text-gray-900">{formatDateInUruguay(editing.approvedAt)}</p>
                   </div>
                 )}
               </div>

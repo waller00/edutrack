@@ -18,6 +18,9 @@ Código: [`backend/src/integrations/moodle/`](../backend/src/integrations/moodle
 | Tracking | `enrolment-map.ts` | Registra qué acceso otorgó la integración (`MoodleEnrolmentMap`) para revocar con seguridad. |
 | Outbox | `outbox.ts` | Cola persistente con reintentos + backoff (reemplaza el *fire-and-forget*). |
 | Reconciliación | `reconcile.ts` | Estado deseado EduTrack→Moodle: cursos + titulares + suplencias + revocación + *drift*. |
+| Curso por asignatura | `subject-course.ts` | Resuelve el curso Moodle de una asignatura probando la orientación de más específica a más general. |
+| Notas (tareas) | `grades.ts` | Capa WS de tareas (`mod_assign`): lista tareas y lee sus notas. |
+| Libro de calificaciones | `gradebook.ts` | `gradereport_user_get_grade_items`: **todos** los ítems del curso y las notas de todos los alumnos, en una llamada. |
 
 ### Modelos de datos (Prisma)
 
@@ -224,6 +227,52 @@ Los usuarios espejo creados por la integración con `MOODLE_USER_AUTH=oauth2` se
 
 > Nota: el SSO es configuración de Moodle/Keycloak; EduTrack sólo provisiona el usuario y fija
 > el método de auth. No hay forma de automatizarlo enteramente desde el backend.
+
+## Notas: importación Moodle → libreta
+
+EduTrack es la **fuente de verdad** de las calificaciones: viven en su libreta digital, con
+períodos, cierres, juicios conceptuales, visado y auditoría. Moodle **aporta** las notas de sus
+actividades; nunca al revés. No hay push de vuelta.
+
+El puente offline por planilla `.xlsx` que existía antes (`/admin/grades`) fue dado de baja: no
+persistía nada, era sólo admin y sólo veía tareas `mod_assign` de tipo punto.
+
+### Circuito
+
+1. `GET /gradebook/:id/moodle/preview` — resuelve el curso Moodle de la libreta con
+   `subject-course.ts`, lee el libro de calificaciones y muestra qué traería: los ítems, cuántas
+   notas mapean a la cohorte, cuántas no y cuáles ya se importaron antes. **No escribe nada.**
+2. `POST /gradebook/:id/moodle/import` — el docente elige ítems, período y escala destino, y
+   confirma.
+
+### Reglas
+
+- **Idempotente.** La clave `(gradeBookId, moodleGradeItemId)` garantiza que un ítem de Moodle
+  produzca una sola evaluación. Reimportar actualiza y deja `GradeRevision` con origen
+  `MOODLE_IMPORT`, así que se puede rastrear qué nota vino de dónde.
+- **Nunca toca un período cerrado.** Responde `PERIOD_CLOSED` y no fuerza.
+- **Conversión de escala.** Moodle suele puntuar sobre 100 y la libreta sobre 12 o 10: la nota se
+  proyecta linealmente a la escala elegida y el docente la ve en la previsualización antes de
+  confirmar. Copiar el crudo daría un "80" en una escala que llega a 12.
+- **Un alumno sin calificar en Moodle no se importa**, ni como cero ni como ausente. `graderaw`
+  nulo significa "todavía no rindió".
+- **Se descartan los totales** de curso y categoría: son agregados que Moodle calcula y duplicarían
+  lo que la libreta ya promedia. También los ítems ocultos y los que no puntúan.
+- **Mapeo de alumnos:** por el `idnumber` `et-student-<uuid>`, que viaja en la misma respuesta;
+  el mapeo persistente (`MoodleObjectMap`) queda de respaldo.
+- **Sin Moodle configurado** la libreta funciona igual: el panel se oculta y el endpoint responde
+  409.
+
+### Funciones WS requeridas
+
+El token WS debe tener habilitadas en su *external service*, además de las de sincronización:
+
+- `gradereport_user_get_grade_items` — libro de calificaciones completo del curso. **Es la que usa
+  la importación**; con `userid=0` devuelve todos los ítems y todos los alumnos en una llamada.
+- `mod_assign_get_assignments` — listar tareas del curso.
+- `mod_assign_get_grades` — notas de una tarea.
+
+Si faltan, las llamadas fallan con `webservice_access_exception` (visible como `MOODLE_EXCEPTION`).
 
 ## Tema visual EduTrack
 

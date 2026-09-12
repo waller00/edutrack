@@ -1,0 +1,46 @@
+# fail2ban — EduTrack
+#
+# Protege el acceso SSH del servidor. El droplet tiene PasswordAuthentication=yes,
+# así que sshd es un objetivo real de fuerza bruta; este jail lo cubre (conexiones
+# directas, IP real → el baneo a nivel de red SÍ funciona).
+#
+# El tráfico WEB (jail nginx-waf-cf) se banea en CLOUDFLARE vía su API (acción
+# cloudflare-zone), NO con iptables: detrás de Cloudflare el host solo ve IPs de CF,
+# así que el ban efectivo va en el borde, con la IP real del atacante.
+
+[DEFAULT]
+# Whitelist: loopback, redes docker internas, y la IP de administración.
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 167.56.23.240
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+backend  = auto
+
+[sshd]
+enabled  = true
+port     = ssh
+logpath  = %(sshd_log)s
+backend  = %(sshd_backend)s
+maxretry = 5
+bantime  = 2h
+
+# --- WAF web → baneo en Cloudflare ---
+# Lee los bloqueos del WAF (444/403/405/429) del json-log del reverse-proxy y banea al
+# reincidente en Cloudflare. logpath se completa en el deploy (ruta del json-log de Docker).
+# ignoreip incluye TODOS los rangos de Cloudflare: aunque nginx restaura la IP real, es una
+# red de seguridad para nunca banear un edge de CF (banear un rango de CF = outage).
+[nginx-waf-cf]
+enabled  = true
+filter   = nginx-waf-cf
+backend  = auto
+logpath  = __DOCKER_JSONLOG__
+action   = cloudflare-zone
+maxretry = 8
+findtime = 10m
+bantime  = 1h
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 167.56.23.240
+           173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18
+           108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17
+           162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
+           2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32
+           2a06:98c0::/29 2c0f:f248::/32

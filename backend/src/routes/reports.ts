@@ -4,10 +4,35 @@ import { prisma } from '../db/prisma.js'
 import { selectOrgRoleCode } from '../identity/user-role-prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { addNoDataRow, formatWorksheetForExport } from '../services/analytics/exports/excel-format.js'
+import { getInstitutionTimezone } from '../config/institution-timezone.js'
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
 
 const r = Router()
+
+/** Fecha dd/mm/yyyy (zona institución) para celdas de reportes. */
+function formatReportDate(value: string | number | Date): string {
+  return new Intl.DateTimeFormat('es-UY', {
+    timeZone: getInstitutionTimezone(),
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(value))
+}
+
+/** Fecha + hora dd/mm/yyyy HH:MM (zona institución) para encabezados de reportes. */
+function formatReportDateTime(value: string | number | Date): string {
+  return new Intl.DateTimeFormat('es-UY', {
+    timeZone: getInstitutionTimezone(),
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
+  }).format(new Date(value))
+}
 
 export function applyReportFilters(where: any, query: any) {
   const { startDate, endDate, userId, eventId, eventType, type, status, role } = query
@@ -235,14 +260,8 @@ export async function generateExcelReport(data: any, res: any, filters: any) { /
   mainSheet.addRow([''])
   
   // Información del reporte
-  const reportDate = new Date().toLocaleDateString('es-ES', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-  
+  const reportDate = formatReportDateTime(new Date())
+
   mainSheet.addRow(['Fecha de generacion:', reportDate])
   mainSheet.addRow([''])
   
@@ -307,7 +326,7 @@ export async function generateExcelReport(data: any, res: any, filters: any) { /
   // Datos de la tabla principal (registros filtrados)
   data.detailedRecords.forEach((record: any, index: number) => {
     const row = mainSheet.addRow([
-      new Date(record.date).toLocaleDateString('es-ES'),
+      formatReportDate(record.date),
       record.time || 'N/A',
       record.userName,
       record.userEmail,
@@ -386,14 +405,8 @@ export async function generatePDFReport(data: any, res: any, filters: any) { // 
     doc.fontSize(16).fillColor('#1F4E79').text('REPORTE DE ASISTENCIAS', { align: 'center' })
     doc.moveDown(0.5)
     
-    const reportDate = new Date().toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-    
+    const reportDate = formatReportDateTime(new Date())
+
     doc.fontSize(10).fillColor('#666666').text(`Generado el: ${reportDate}`, { align: 'center' })
     doc.moveDown(1)
   }

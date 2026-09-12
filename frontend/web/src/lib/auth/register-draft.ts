@@ -41,6 +41,41 @@ export function saveRegisterDraft(snapshot: RegisterDraftSnapshot): void {
   }
 }
 
+function str(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+/**
+ * Normaliza un borrador leído de sessionStorage.
+ *
+ * El `v: 1` no garantiza la forma: un borrador truncado o de una versión anterior
+ * puede traer campos ausentes, y el formulario los vuelca directo en estados que
+ * asume `string`. Sin esto, un borrador incompleto rompe toda la página de registro
+ * (pantalla en blanco) y el usuario no puede ni empezar de nuevo.
+ */
+function normalizeDraft(raw: RegisterDraftSnapshot): RegisterDraftSnapshot {
+  const role = raw.role === 'STAFF' || raw.role === 'TEACHER' ? raw.role : ''
+  return {
+    ...raw,
+    v: 1,
+    email: str(raw.email),
+    username: str(raw.username),
+    nationalId: str(raw.nationalId),
+    firstName: str(raw.firstName),
+    lastName: str(raw.lastName),
+    phoneLocal: str(raw.phoneLocal),
+    birthdate: str(raw.birthdate),
+    role,
+    password: typeof raw.password === 'string' ? raw.password : undefined,
+    confirm: typeof raw.confirm === 'string' ? raw.confirm : undefined,
+    verificationStep: typeof raw.verificationStep === 'number' ? raw.verificationStep : 0,
+    verificationResults: raw.verificationResults ?? null,
+    dniValidation: raw.dniValidation ?? null,
+    dniFileName: str(raw.dniFileName),
+    dniImageDataUrl: typeof raw.dniImageDataUrl === 'string' ? raw.dniImageDataUrl : null,
+  }
+}
+
 export function loadRegisterDraft(): RegisterDraftSnapshot | null {
   if (typeof window === 'undefined') return null
   try {
@@ -48,7 +83,7 @@ export function loadRegisterDraft(): RegisterDraftSnapshot | null {
     if (!raw) return null
     const p = JSON.parse(raw) as RegisterDraftSnapshot
     if (p?.v !== 1) return null
-    return p
+    return normalizeDraft(p)
   } catch {
     return null
   }
@@ -79,7 +114,7 @@ export function loadOnboardingDraft(): RegisterDraftSnapshot | null {
     if (!raw) return null
     const p = JSON.parse(raw) as RegisterDraftSnapshot
     if (p?.v !== 1) return null
-    return p
+    return normalizeDraft(p)
   } catch {
     return null
   }

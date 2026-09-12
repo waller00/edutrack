@@ -1,13 +1,26 @@
-import { Router } from 'express'
-import type { Request } from 'express'
+import { Router, raw as expressRaw } from 'express'
+import type { Request, Response } from 'express'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { Prisma, StudentEnrollmentStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { assertCourseOfferedInSchoolYear, getActiveSchoolYearId, resolveSchoolYearIdForList } from '../services/school-year-service.js'
-import { generateUniqueUsername } from '../services/usernames.js'
 import { enqueueStudentUserUpsert } from '../integrations/moodle/outbox.js'
+import {
+  getStudentMoodleVerifications,
+  provisionStudentMoodleAccount,
+  resendStudentMoodleWelcome,
+  type MoodleStudentVerification,
+} from '../integrations/moodle/student-users.js'
+import { getMappedId, getMappedIds } from '../integrations/moodle/object-map.js'
 import { isValidUruguayanCI, onlyDigits } from '../identity/uruguay-ci.js'
+import {
+  STUDENT_PHOTO_MIMES,
+  STUDENT_PHOTO_PARSER_LIMIT,
+  photoETag,
+  photoRejectionResponse,
+  validateStudentPhoto,
+} from '../services/student-photo.js'
 
 const r = Router()
 
@@ -107,12 +120,32 @@ function clearableEmpty(v: unknown): unknown {
 function clearableTrimmed(max: number) {
   return z.preprocess(clearableEmpty, z.string().max(max).nullable().optional())
 }
-const clearableEmail = z.preprocess(
+/**
+ * Email y usuario son **opcionales**: hacen falta para la cuenta de Moodle, que ahora se crea
+ * aparte y a mano, así que exigirlos para dar de alta a un estudiante trababa el alta cuando no
+ * se tenían a mano. El formato se sigue validando cuando vienen, y `''` los limpia.
+ */
+const optionalStudentEmail = z.preprocess(
   (v) => {
-    const r = clearableEmpty(v)
-    return typeof r === 'string' ? r.toLowerCase() : r
+    if (typeof v !== 'string') return v
+    const t = v.trim().toLowerCase()
+    return t === '' ? null : t
   },
   z.string().email('Email inválido').max(200).nullable().optional(),
+)
+const optionalStudentUsername = z.preprocess(
+  (v) => {
+    if (typeof v !== 'string') return v
+    const t = v.trim().toLowerCase()
+    return t === '' ? null : t
+  },
+  z
+    .string()
+    .min(3, 'El usuario Moodle debe tener al menos 3 caracteres')
+    .max(30)
+    .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, 'Usuario inválido (use letras, números, puntos o guiones)')
+    .nullable()
+    .optional(),
 )
 const clearableUruguayanCI = z.preprocess(
   clearableEmpty,
@@ -144,24 +177,25 @@ const studentWriteBaseSchema = z.object({
     z.string().uuid().optional(),
   ),
   schoolYearId: z.preprocess((v) => (v === null || v === '' ? undefined : v), z.string().uuid().optional()),
+  /// Orientación de la matrícula. `null` la limpia (tronco común); omitirla no la toca.
+  orientationId: z.preprocess((v) => (v === '' ? null : v), z.string().uuid().nullable().optional()),
   contactPhone: clearableTrimmed(40),
   tutorPhone: clearableTrimmed(40),
-  username: z.preprocess(
-    emptyToUndefined,
-    z
-      .string()
-      .trim()
-      .toLowerCase()
-      .min(3)
-      .max(30)
-      .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, 'Usuario inválido (use letras, números, puntos o guiones)')
-      .optional(),
-  ),
-  email: clearableEmail,
+  username: optionalStudentUsername,
+  email: optionalStudentEmail,
   address: clearableTrimmed(500),
+  birthDate: clearableDateString,
+  /// De dónde vino el pase al ingresar (7.º). Es el nombre de un centro, no un código.
+  admittedFrom: clearableTrimmed(200),
   healthCardExpiresAt: clearableDateString,
   liceoAccessNotes: clearableTrimmed(8000),
   enrollmentStatus: enrollmentStatusZ.optional(),
+  /// Cómo cerró el año. Se completa al cerrar el ciclo, no al dar de alta.
+  academicResult: z.preprocess(
+    (v) => (v === null || v === '' ? undefined : v),
+    z.enum(['PROMOTED', 'PROMOTED_WITH_PENDING', 'REPEATED', 'PENDING_APE']).nullable().optional(),
+  ),
+  apeReferred: z.boolean().optional(),
   withdrawnAt: optionalDateString,
   withdrawalAcademicYear: z.preprocess(
     (v) => (v === null || v === '' ? undefined : v),
@@ -171,6 +205,15 @@ const studentWriteBaseSchema = z.object({
 })
 
 const studentCreateSchema = studentWriteBaseSchema.extend({
+  // La cédula es obligatoria al crear un estudiante.
+  documentId: z.preprocess(
+    clearableEmpty,
+    z
+      .string({ required_error: 'La cédula es obligatoria', invalid_type_error: 'La cédula es obligatoria' })
+      .max(40)
+      .transform((v) => onlyDigits(v))
+      .refine((v) => isValidUruguayanCI(v), 'Cédula inválida: verificá el número y el dígito verificador'),
+  ),
   tuitionYears: z.array(tuitionYearRowSchema).max(80).optional(),
   tuitionMonths: z.array(tuitionMonthRowSchema).max(240).optional(),
 })
@@ -191,6 +234,59 @@ type TuitionMonthDbRow = {
   notes: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+function unavailableMoodleVerification(): MoodleStudentVerification {
+  return {
+    state: 'UNAVAILABLE',
+    verified: null,
+    accountExists: false,
+    moodleUserId: null,
+    firstAccessAt: null,
+  }
+}
+
+async function safeStudentMoodleVerifications(studentIds: string[]) {
+  try {
+    return await getStudentMoodleVerifications(studentIds)
+  } catch (error) {
+    console.warn('[admin/students] no se pudo consultar el estado Moodle:', error)
+    return new Map(studentIds.map((id) => [id, unavailableMoodleVerification()]))
+  }
+}
+
+/**
+ * Verificación Moodle para LISTADOS: `getStudentMoodleVerifications` llama al web service de
+ * Moodle de forma sincrónica, así que en el listado es opcional (`?includeMoodle=1`) y por
+ * defecto se devuelve el estado desconocido. En el detalle de un estudiante sigue siendo
+ * incondicional, que es donde el dato realmente importa.
+ */
+async function listMoodleVerifications(studentIds: string[], include: boolean) {
+  if (!include) return new Map(studentIds.map((id) => [id, unavailableMoodleVerification()]))
+  return safeStudentMoodleVerifications(studentIds)
+}
+
+/**
+ * Estado Moodle del alumno tal como lo consume la UI.
+ *
+ * `linked` sale de `MoodleObjectMap` (consulta local, sin web service) y es lo que permite
+ * distinguir dos situaciones que hasta ahora se veían igual —ambas `NOT_FOUND`—: el alumno al que
+ * nunca se le creó la cuenta, y aquel cuya cuenta existe para EduTrack pero Moodle ya no encuentra.
+ * La primera se resuelve con el botón de alta; la segunda es una desincronización que hay que ver.
+ */
+function serializeMoodleStatus(
+  verification: MoodleStudentVerification | undefined,
+  welcomeSentAt: Date | null | undefined,
+  options: { linked: boolean; email: string | null; username: string | null },
+) {
+  const value = verification ?? unavailableMoodleVerification()
+  return {
+    ...value,
+    linked: options.linked,
+    // La cuenta necesita email + usuario reales: sin eso sólo se podría crear un espejo `nologin`.
+    canProvision: Boolean(options.email?.trim() && options.username?.trim()),
+    welcomeSentAt: welcomeSentAt?.toISOString() ?? null,
+  }
 }
 
 async function schoolYearIdsByCode(years: number[]): Promise<Map<number, string>> {
@@ -307,6 +403,10 @@ function serializeTuitionMonthRow(row: {
 }
 
 function serializeStudentDetail(row: {
+  /** ¿Hay fila en `MoodleObjectMap`? Distingue "nunca se creó" de "Moodle no la encuentra". */
+  moodleLinked?: boolean
+  /** Metadatos de la foto. Los bytes NUNCA viajan acá: se piden a `GET /:id/photo`. */
+  photo?: { mimeType: string; byteSize: number; updatedAt: Date } | null
   id: string
   firstName: string
   lastName: string
@@ -320,12 +420,18 @@ function serializeStudentDetail(row: {
   username: string | null
   email: string | null
   address: string | null
+  birthDate: Date | null
+  admittedFrom: string | null
   healthCardExpiresAt: Date | null
   liceoAccessNotes: string | null
   enrollmentStatus: StudentEnrollmentStatus
+  academicResult: string | null
+  apeReferred: boolean
   withdrawnAt: Date | null
   withdrawalAcademicYear: number | null
   internalNotes: string | null
+  moodleWelcomeSentAt: Date | null
+  moodleVerification?: MoodleStudentVerification
   createdAt: Date
   updatedAt: Date
   tuitionYears: Array<{
@@ -366,12 +472,28 @@ function serializeStudentDetail(row: {
     username: row.username,
     email: row.email,
     address: row.address,
+    birthDate: row.birthDate?.toISOString() ?? null,
+    admittedFrom: row.admittedFrom ?? null,
     healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
     liceoAccessNotes: row.liceoAccessNotes,
+    academicResult: row.academicResult ?? null,
+    apeReferred: row.apeReferred ?? false,
     enrollmentStatus: row.enrollmentStatus,
     withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
     withdrawalAcademicYear: row.withdrawalAcademicYear,
     internalNotes: row.internalNotes,
+    photo: row.photo
+      ? {
+          mimeType: row.photo.mimeType,
+          byteSize: row.photo.byteSize,
+          updatedAt: row.photo.updatedAt.toISOString(),
+        }
+      : null,
+    moodle: serializeMoodleStatus(row.moodleVerification, row.moodleWelcomeSentAt, {
+      linked: row.moodleLinked ?? false,
+      email: row.email,
+      username: row.username,
+    }),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     tuitionYears: [...row.tuitionYears].sort((a, b) => b.year - a.year).map(serializeTuitionRow),
@@ -429,6 +551,8 @@ r.get('/', async (req, res) => {
     const tuitionPaid = (req.query.tuitionPaid as string) || ''
 
     const allYears = req.query.allYears === '1'
+    // Opt-in: evita una llamada sincrónica al web service de Moodle en cada listado.
+    const includeMoodle = req.query.includeMoodle === '1'
     const schoolYearId = await scopedSchoolYearId(req)
     const and: any[] = []
     const enrollmentWhere: any = {}
@@ -551,6 +675,13 @@ r.get('/', async (req, res) => {
         [...enrollmentRows.map((row) => row.studentId), ...orphanRows.map((row) => row.id)],
         previewYear,
       )
+      const listedStudentIds = [
+        ...enrollmentRows.map((row) => row.studentId),
+        ...orphanRows.map((row) => row.id),
+      ]
+      const moodleVerifications = await listMoodleVerifications(listedStudentIds, includeMoodle)
+      // Consulta local y en lote: `linked` va siempre, sin el opt-in `includeMoodle`.
+      const moodleLinks = await getMappedIds('STUDENT', listedStudentIds)
       const enrollmentData = enrollmentRows.map((enrollment) => {
         const row = enrollment.student
         const courseOffering = enrollment.courseOffering ?? null
@@ -570,6 +701,11 @@ r.get('/', async (req, res) => {
           withdrawnAt: enrollment.withdrawnAt?.toISOString() ?? null,
           withdrawalAcademicYear: enrollment.withdrawalAcademicYear ?? null,
           healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+          moodle: serializeMoodleStatus(moodleVerifications.get(row.id), row.moodleWelcomeSentAt, {
+            linked: moodleLinks.has(row.id),
+            email: row.email,
+            username: row.username,
+          }),
           createdAt: row.createdAt.toISOString(),
           tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
             year: t.year,
@@ -594,6 +730,11 @@ r.get('/', async (req, res) => {
         withdrawnAt: null,
         withdrawalAcademicYear: null,
         healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+        moodle: serializeMoodleStatus(moodleVerifications.get(row.id), row.moodleWelcomeSentAt, {
+          linked: moodleLinks.has(row.id),
+          email: row.email,
+          username: row.username,
+        }),
         createdAt: row.createdAt.toISOString(),
         tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
           year: t.year,
@@ -627,12 +768,18 @@ r.get('/', async (req, res) => {
       rowsAny.map((row) => row.id),
       previewYear,
     )
+    const moodleVerifications = await listMoodleVerifications(rowsAny.map((row) => row.id), includeMoodle)
+    const moodleLinks = await getMappedIds('STUDENT', rowsAny.map((row: { id: string }) => row.id))
 
     const data = rowsAny.map((row) => {
       const enrollment = row.enrollments?.[0] ?? null
       const courseOffering = enrollment?.courseOffering ?? null
       return {
           id: row.id,
+          // `studentId` se emite en AMBAS ramas (con y sin allYears): el cliente nunca
+          // tiene que deducirlo del id compuesto `studentId:enrollmentId`.
+          studentId: row.id,
+          enrollmentId: enrollment?.id ?? null,
           firstName: row.firstName,
           lastName: row.lastName,
           documentId: row.documentId,
@@ -644,6 +791,11 @@ r.get('/', async (req, res) => {
           withdrawnAt: enrollment?.withdrawnAt?.toISOString() ?? null,
           withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? null,
           healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
+          moodle: serializeMoodleStatus(moodleVerifications.get(row.id), row.moodleWelcomeSentAt, {
+            linked: moodleLinks.has(row.id),
+            email: row.email,
+            username: row.username,
+          }),
           createdAt: row.createdAt.toISOString(),
           tuitionMonthsPreview: (tuitionMonthsByStudent[row.id] ?? []).map((t) => ({
             year: t.year,
@@ -656,6 +808,53 @@ r.get('/', async (req, res) => {
     return res.json({ total, page, pageSize, data })
   } catch (e) {
     console.error('[admin/students]', e)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Historial completo de matrículas del estudiante, un registro por ciclo.
+ * El detalle (`GET /:id`) devuelve solo la matrícula del ciclo seleccionado (`take: 1`),
+ * así que sin este endpoint no hay forma de ver el recorrido académico.
+ */
+r.get('/:id/enrollments', async (req, res) => {
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    })
+    if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    const rows = await (prisma as any).studentEnrollment.findMany({
+      where: { studentId: student.id },
+      include: {
+        schoolYear: { select: { id: true, code: true, name: true } },
+        courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } },
+        orientation: { select: { id: true, name: true, code: true } },
+      },
+      orderBy: { schoolYear: { code: 'desc' } },
+    })
+
+    return res.json(
+      rows.map((row: any) => ({
+        id: row.id,
+        schoolYearId: row.schoolYearId,
+        schoolYearCode: row.schoolYear?.code ?? null,
+        schoolYearName: row.schoolYear?.name ?? null,
+        courseId: row.courseOffering?.courseId ?? null,
+        courseName: row.courseOffering?.course?.name ?? null,
+        courseCode: row.courseOffering?.course?.code ?? null,
+        orientationId: row.orientationId ?? null,
+        orientationName: row.orientation?.name ?? null,
+        enrollmentStatus: row.enrollmentStatus,
+        withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
+        withdrawalAcademicYear: row.withdrawalAcademicYear ?? null,
+        notes: row.notes ?? null,
+        createdAt: row.createdAt.toISOString(),
+      })),
+    )
+  } catch (error) {
+    console.error('[admin/students] enrollments:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -677,6 +876,7 @@ r.get('/:id', async (req, res) => {
       },
     })
     if (!row) return res.status(404).json({ message: 'Estudiante no encontrado' })
+    const moodleVerifications = await safeStudentMoodleVerifications([row.id])
     const rowAny = row as any
     const enrollment = rowAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
@@ -688,8 +888,11 @@ r.get('/:id', async (req, res) => {
       courseOfferingId: courseOffering?.id ?? null,
       course: courseOffering?.course ?? null,
       enrollmentStatus: enrollment?.enrollmentStatus ?? 'ACTIVE',
+      academicResult: enrollment?.academicResult ?? null,
+      apeReferred: enrollment?.apeReferred ?? false,
       withdrawnAt: enrollment?.withdrawnAt ?? null,
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? null,
+      moodleVerification: moodleVerifications.get(row.id),
       tuitionMonths,
     }))
   } catch (e) {
@@ -760,22 +963,18 @@ r.post('/', async (req, res) => {
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      const username =
-        body.username ??
-        (await generateUniqueUsername(body.firstName, body.lastName, async (candidate) => {
-          const exist = await (tx.student as any).findUnique({ where: { username: candidate }, select: { id: true } })
-          return Boolean(exist)
-        }))
       const s = await tx.student.create({
         data: {
           firstName: body.firstName,
           lastName: body.lastName,
           documentId: body.documentId ?? null,
-          username,
+          username: body.username ?? null,
           contactPhone: body.contactPhone ?? null,
           tutorPhone: body.tutorPhone ?? null,
           email: body.email ?? null,
           address: body.address ?? null,
+          birthDate: body.birthDate ? parseOptionalEndOfDayDate(body.birthDate) ?? null : null,
+          admittedFrom: body.admittedFrom ?? null,
           healthCardExpiresAt: health ?? null,
           liceoAccessNotes: body.liceoAccessNotes ?? null,
           internalNotes: body.internalNotes ?? null,
@@ -788,6 +987,8 @@ r.post('/', async (req, res) => {
           schoolYearId: resolvedSchoolYearId,
           courseOfferingId: resolvedCourseOfferingId,
           enrollmentStatus: (body.enrollmentStatus ?? 'ACTIVE') as StudentEnrollmentStatus,
+          academicResult: body.academicResult ?? null,
+          apeReferred: body.apeReferred ?? false,
           withdrawnAt: withdrawn ?? null,
           withdrawalAcademicYear: body.withdrawalAcademicYear ?? null,
           notes: body.internalNotes ?? null,
@@ -841,7 +1042,9 @@ r.post('/', async (req, res) => {
     })
 
     const createdAny = created as any
-    if (createdAny.email) void enqueueStudentUserUpsert(created.id)
+    // Crear el estudiante NO crea su cuenta de Moodle: eso se hace desde la ficha, a mano
+    // (`POST /admin/students/:id/moodle-account`). Antes se encolaba acá y la cuenta —y el mail
+    // con la contraseña— salían solos, que es justo lo que no se quiere.
     const enrollment = createdAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const createdTuitionMonths = (await findTuitionMonths([created.id]))[created.id] ?? []
@@ -852,8 +1055,11 @@ r.post('/', async (req, res) => {
       courseOfferingId: courseOffering?.id ?? null,
       course: courseOffering?.course ?? null,
       enrollmentStatus: enrollment?.enrollmentStatus ?? (body.enrollmentStatus ?? 'ACTIVE'),
+      academicResult: enrollment?.academicResult ?? body.academicResult ?? null,
+      apeReferred: enrollment?.apeReferred ?? body.apeReferred ?? false,
       withdrawnAt: enrollment?.withdrawnAt ?? withdrawn ?? null,
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
+      moodleVerification: (await safeStudentMoodleVerifications([created.id])).get(created.id),
       tuitionMonths: createdTuitionMonths,
     }))
   } catch (e: unknown) {
@@ -866,6 +1072,326 @@ r.post('/', async (req, res) => {
     }
     console.error('[admin/students POST]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+// ─── Adecuaciones y materias bajas ──────────────────────────────────────────
+
+/**
+ * **El informe nunca entra al sistema.** Se guarda el tipo, un resumen de lo que el docente
+ * necesita tener en cuenta al calificar, y el enlace a donde el documento vive de verdad. Es el
+ * mismo criterio que las licencias médicas: la política de privacidad prohíbe almacenar
+ * diagnósticos y documentos clínicos, y un informe psicológico de un menor es exactamente eso.
+ */
+const accommodationSchema = z.object({
+  kind: z.enum(['CURRICULAR', 'EVALUATION', 'ACCESSIBILITY', 'OTHER']).default('CURRICULAR'),
+  summary: z.string().trim().min(1, 'Escribí qué tener en cuenta al calificar').max(4000),
+  externalUrl: z.preprocess(
+    clearableEmpty,
+    z.string().url('El enlace tiene que ser una URL').max(2000).nullable().optional(),
+  ),
+  validFrom: clearableDateString,
+  validUntil: clearableDateString,
+})
+
+r.get('/:id/accommodations', async (req, res) => {
+  try {
+    const rows = await (prisma as any).studentAccommodation.findMany({
+      where: { studentId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+    })
+    return res.json({ data: rows })
+  } catch (error) {
+    console.error('[admin/students/:id/accommodations GET]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.post('/:id/accommodations', async (req: any, res) => {
+  const parsed = accommodationSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: 'Datos inválidos',
+      detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
+    })
+  }
+  try {
+    const student = await prisma.student.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    const d = parsed.data
+    const created = await (prisma as any).studentAccommodation.create({
+      data: {
+        studentId: req.params.id,
+        kind: d.kind,
+        summary: d.summary,
+        externalUrl: d.externalUrl ?? null,
+        validFrom: d.validFrom ? parseOptionalEndOfDayDate(d.validFrom) ?? null : null,
+        validUntil: d.validUntil ? parseOptionalEndOfDayDate(d.validUntil) ?? null : null,
+        createdByUserId: req.user?.id ?? req.user?.sub ?? null,
+      },
+    })
+    return res.status(201).json({ data: created })
+  } catch (error) {
+    console.error('[admin/students/:id/accommodations POST]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.delete('/:id/accommodations/:accommodationId', async (req, res) => {
+  try {
+    const deleted = await (prisma as any).studentAccommodation.deleteMany({
+      where: { id: req.params.accommodationId, studentId: req.params.id },
+    })
+    if (deleted.count === 0) return res.status(404).json({ message: 'Adecuación no encontrada' })
+    return res.status(204).end()
+  } catch (error) {
+    console.error('[admin/students/:id/accommodations DELETE]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+const pendingSubjectSchema = z.object({
+  schoolYearId: z.string().uuid(),
+  subjectId: z.string().uuid(),
+  origin: z.enum(['FAILED_THIS_YEAR', 'CARRIED_OVER']).default('FAILED_THIS_YEAR'),
+  apeDecember: z.preprocess(clearableEmpty, z.enum(['PASSED', 'FAILED', 'NOT_TAKEN']).nullable().optional()),
+  apeFebruary: z.preprocess(clearableEmpty, z.enum(['PASSED', 'FAILED', 'NOT_TAKEN']).nullable().optional()),
+  notes: clearableTrimmed(2000),
+})
+
+r.get('/:id/pending-subjects', async (req, res) => {
+  try {
+    const rows = await (prisma as any).studentPendingSubject.findMany({
+      where: { studentId: req.params.id },
+      include: { subject: { select: { id: true, name: true } }, schoolYear: { select: { id: true, code: true } } },
+      orderBy: { createdAt: 'desc' },
+    })
+    return res.json({ data: rows })
+  } catch (error) {
+    console.error('[admin/students/:id/pending-subjects GET]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Alta o actualización de una materia baja.
+ *
+ * Es un upsert por `(estudiante, ciclo, materia)`: registrar el resultado de APE diciembre y luego
+ * el de febrero son dos pasos sobre la misma fila, no dos filas. Cuando salva, se marca
+ * `resolvedAt` y deja de mostrársele al docente — pero la fila queda, porque el historial de qué
+ * se llevó es justamente lo que necesita el año siguiente.
+ */
+r.put('/:id/pending-subjects', async (req: any, res) => {
+  const parsed = pendingSubjectSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: 'Datos inválidos',
+      detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
+    })
+  }
+  try {
+    const d = parsed.data
+    const passed = d.apeDecember === 'PASSED' || d.apeFebruary === 'PASSED'
+    const data = {
+      origin: d.origin,
+      apeDecember: d.apeDecember ?? null,
+      apeFebruary: d.apeFebruary ?? null,
+      notes: d.notes ?? null,
+      resolvedAt: passed ? new Date() : null,
+    }
+    const saved = await (prisma as any).studentPendingSubject.upsert({
+      where: {
+        studentId_schoolYearId_subjectId: {
+          studentId: req.params.id,
+          schoolYearId: d.schoolYearId,
+          subjectId: d.subjectId,
+        },
+      },
+      create: {
+        studentId: req.params.id,
+        schoolYearId: d.schoolYearId,
+        subjectId: d.subjectId,
+        createdByUserId: req.user?.id ?? req.user?.sub ?? null,
+        ...data,
+      },
+      update: data,
+      include: { subject: { select: { id: true, name: true } }, schoolYear: { select: { id: true, code: true } } },
+    })
+    return res.json({ data: saved })
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2003') {
+      return res.status(400).json({ message: 'Ciclo o materia inexistente' })
+    }
+    console.error('[admin/students/:id/pending-subjects PUT]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.delete('/:id/pending-subjects/:pendingId', async (req, res) => {
+  try {
+    const deleted = await (prisma as any).studentPendingSubject.deleteMany({
+      where: { id: req.params.pendingId, studentId: req.params.id },
+    })
+    if (deleted.count === 0) return res.status(404).json({ message: 'Materia no encontrada' })
+    return res.status(204).end()
+  } catch (error) {
+    console.error('[admin/students/:id/pending-subjects DELETE]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+// ─── Foto del alumno ────────────────────────────────────────────────────────
+
+/**
+ * El cuerpo llega **binario**, no en base64: evita el +33% y las copias en memoria, y hace que el
+ * `Content-Type` de la request sea el tipo declarado que después se contrasta con los magic bytes.
+ * El límite del parser es mayor que el de negocio para poder responder un 413 propio en JSON.
+ */
+const photoParser = expressRaw({ type: [...STUDENT_PHOTO_MIMES], limit: STUDENT_PHOTO_PARSER_LIMIT })
+
+r.get('/:id/photo', async (req, res) => {
+  try {
+    const photo = await (prisma as any).studentPhoto.findUnique({ where: { studentId: req.params.id } })
+    if (!photo) return res.status(404).json({ message: 'El estudiante no tiene foto' })
+
+    const etag = photoETag(photo.updatedAt, photo.byteSize)
+    res.setHeader('ETag', etag)
+    // Nunca `public`: es dato personal de un menor y Cloudflare está delante del backend.
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate')
+    res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', 'inline')
+    if (req.headers['if-none-match'] === etag) return res.status(304).end()
+
+    res.setHeader('Content-Type', photo.mimeType)
+    return res.send(photo.bytes)
+  } catch (error) {
+    console.error('[admin/students/:id/photo GET]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.put('/:id/photo', photoParser, async (req, res) => {
+  try {
+    // Si el Content-Type no matchea el parser, `req.body` no es un Buffer: es un tipo no admitido.
+    if (!Buffer.isBuffer(req.body)) {
+      return res.status(415).json({ message: 'Formato no admitido: sólo JPEG, PNG o WebP' })
+    }
+    const check = validateStudentPhoto(req.body, String(req.headers['content-type'] ?? ''))
+    if (check.code) {
+      const { status, message } = photoRejectionResponse(check.code)
+      return res.status(status).json({ message })
+    }
+
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    })
+    if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    const data = { bytes: req.body, mimeType: check.mimeType, byteSize: req.body.length }
+    const saved = await (prisma as any).studentPhoto.upsert({
+      where: { studentId: req.params.id },
+      create: { studentId: req.params.id, ...data },
+      update: data,
+    })
+    return res.json({
+      ok: true,
+      photo: { mimeType: saved.mimeType, byteSize: saved.byteSize, updatedAt: saved.updatedAt.toISOString() },
+    })
+  } catch (error) {
+    console.error('[admin/students/:id/photo PUT]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.delete('/:id/photo', async (req, res) => {
+  try {
+    // `deleteMany` y no `delete`: borrar una foto que no está no es un error.
+    await (prisma as any).studentPhoto.deleteMany({ where: { studentId: req.params.id } })
+    return res.status(204).end()
+  } catch (error) {
+    console.error('[admin/students/:id/photo DELETE]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Sin esto, el `PayloadTooLargeError` del parser cae en el handler por defecto de Express y
+ * responde HTML, que el cliente (`api()`) no sabe parsear y muestra como "API 413" pelado.
+ */
+r.use('/:id/photo', (err: any, _req: any, res: any, next: any) => {
+  if (err?.type === 'entity.too.large' || err?.status === 413) {
+    return res.status(413).json({ message: 'La foto supera 1 MB. Probá con una imagen más chica.' })
+  }
+  return next(err)
+})
+
+/** Estado Moodle recién actualizado de un alumno, para responder después de una acción. */
+async function freshMoodleStatus(id: string, welcomeSentAt: Date | null) {
+  const [verification, mapped, student] = await Promise.all([
+    safeStudentMoodleVerifications([id]).then((m) => m.get(id)),
+    getMappedId('STUDENT', id),
+    prisma.student.findUnique({ where: { id }, select: { email: true, username: true } }),
+  ])
+  return serializeMoodleStatus(verification, welcomeSentAt, {
+    linked: mapped != null,
+    email: student?.email ?? null,
+    username: student?.username ?? null,
+  })
+}
+
+/** Traduce los códigos de dominio de `student-users.ts` a HTTP. Compartido por las dos acciones. */
+function moodleActionErrorResponse(error: unknown, res: Response, logLabel: string) {
+  const code = error instanceof Error ? error.message : String(error)
+  if (code === 'MOODLE_STUDENT_NOT_FOUND') {
+    return res.status(404).json({ message: 'Estudiante no encontrado' })
+  }
+  if (code === 'MOODLE_STUDENT_ACCOUNT_FIELDS_REQUIRED') {
+    return res.status(400).json({ message: 'El email y el usuario Moodle son obligatorios' })
+  }
+  if (code === 'MOODLE_STUDENT_ALREADY_VERIFIED') {
+    return res.status(409).json({ message: 'La cuenta ya fue verificada en Moodle' })
+  }
+  if (code === 'MOODLE_NOT_CONFIGURED') {
+    return res.status(503).json({ message: 'La integración con Moodle no está disponible' })
+  }
+  console.error(logLabel, error)
+  return res.status(502).json({ message: 'No se pudo completar la operación en Moodle' })
+}
+
+/**
+ * Alta explícita de la cuenta Moodle. Es la única vía por la que nace una cuenta desde la app:
+ * el alta de estudiante ya no la crea sola, y el outbox sólo propaga cambios a cuentas existentes.
+ */
+r.post('/:id/moodle-account', async (req, res) => {
+  const id = req.params.id
+  try {
+    const result = await provisionStudentMoodleAccount(id)
+    return res.json({
+      ok: true,
+      message: result.alreadyLinked
+        ? 'La cuenta de Moodle ya existía; se actualizaron sus datos'
+        : 'Cuenta de Moodle creada y correo de acceso enviado',
+      moodle: await freshMoodleStatus(id, result.welcomeSentAt),
+    })
+  } catch (error) {
+    return moodleActionErrorResponse(error, res, '[admin/students/:id/moodle-account]')
+  }
+})
+
+r.post('/:id/moodle-welcome/resend', async (req, res) => {
+  const id = req.params.id
+  try {
+    const sentAt = await resendStudentMoodleWelcome(id)
+    return res.json({
+      ok: true,
+      message: 'Correo de acceso a Moodle reenviado',
+      moodle: await freshMoodleStatus(id, sentAt),
+    })
+  } catch (error) {
+    return moodleActionErrorResponse(error, res, '[admin/students/:id/moodle-welcome/resend]')
   }
 })
 
@@ -888,6 +1414,19 @@ r.put('/:id', async (req, res) => {
       select: { id: true, firstName: true, lastName: true, username: true, email: true },
     })
     if (!existing) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    // Quitarle el email o el usuario a un alumno que YA tiene cuenta de Moodle la dejaría
+    // desincronizada en silencio: `upgradeStudentToManual` corta si falta alguno de los dos, así
+    // que Moodle se quedaría con la dirección vieja para siempre.
+    const clearsEmail = body.email === null && existing.email
+    const clearsUsername = body.username === null && existing.username
+    if (clearsEmail || clearsUsername) {
+      if ((await getMappedId('STUDENT', id)) != null) {
+        return res.status(409).json({
+          message: 'No se puede quitar el email ni el usuario de un alumno con cuenta de Moodle',
+        })
+      }
+    }
 
     if (body.email) {
       const conflict = await findEmailConflict(body.email, id)
@@ -948,22 +1487,13 @@ r.put('/:id', async (req, res) => {
     }
     if (body.contactPhone !== undefined) data.contactPhone = body.contactPhone ?? null
     if (body.tutorPhone !== undefined) data.tutorPhone = body.tutorPhone ?? null
-    if (body.username !== undefined) data.username = body.username ?? null
-    if (body.email !== undefined) data.email = body.email ?? null
-    // Alta tardía: si el alumno gana email y aún no tiene username, generarlo para
-    // habilitar su cuenta Moodle sin que el admin tenga que inventarlo.
-    const finalEmail = body.email !== undefined ? body.email ?? null : existing.email
-    if (finalEmail && !existing.username && body.username === undefined) {
-      data.username = await generateUniqueUsername(
-        body.firstName ?? existing.firstName,
-        body.lastName ?? existing.lastName,
-        async (candidate) => {
-          const exist = await (prisma.student as any).findUnique({ where: { username: candidate }, select: { id: true } })
-          return Boolean(exist)
-        },
-      )
-    }
+    if (body.username !== undefined) data.username = body.username
+    if (body.email !== undefined) data.email = body.email
     if (body.address !== undefined) data.address = body.address ?? null
+    if (body.birthDate !== undefined) {
+      data.birthDate = body.birthDate ? parseOptionalEndOfDayDate(body.birthDate) : null
+    }
+    if (body.admittedFrom !== undefined) data.admittedFrom = body.admittedFrom ?? null
     if (body.healthCardExpiresAt !== undefined) {
       data.healthCardExpiresAt = body.healthCardExpiresAt
         ? parseOptionalEndOfDayDate(body.healthCardExpiresAt)
@@ -983,21 +1513,54 @@ r.put('/:id', async (req, res) => {
         : null
       const finalCourseOfferingId =
         nextCourseOfferingId !== undefined ? nextCourseOfferingId : currentEnrollment?.courseOfferingId
-      if (targetSchoolYearId && finalCourseOfferingId) {
+      // `courseOrientationId` se deriva de (curso, orientación, ciclo): es el vínculo que ya
+      // usan los eventos y la resolución de cohorte del pase de lista.
+      let orientationPatch: Record<string, unknown> = {}
+      if (body.orientationId !== undefined && targetSchoolYearId && finalCourseOfferingId) {
+        if (body.orientationId === null) {
+          orientationPatch = { orientationId: null, courseOrientationId: null }
+        } else {
+          const offering = await (tx as any).courseOffering.findUnique({
+            where: { id: finalCourseOfferingId },
+            select: { courseId: true },
+          })
+          const link = offering
+            ? await (tx as any).courseOrientation.findFirst({
+                where: {
+                  courseId: offering.courseId,
+                  orientationId: body.orientationId,
+                  OR: [{ schoolYearId: targetSchoolYearId }, { schoolYearId: null }],
+                },
+                select: { id: true },
+              })
+            : null
+          orientationPatch = { orientationId: body.orientationId, courseOrientationId: link?.id ?? null }
+        }
+      }
+      // También se actualiza cuando no hay oferta pero SÍ matrícula previa: sin esto, editar el
+      // resultado del año o la derivación a APE de un alumno sin curso asignado se perdía en
+      // silencio. Crear sigue exigiendo oferta, porque la matrícula no existe sin curso.
+      if (targetSchoolYearId && (finalCourseOfferingId || currentEnrollment)) {
         await (tx as any).studentEnrollment.upsert({
           where: { studentId_schoolYearId: { studentId: id, schoolYearId: targetSchoolYearId } },
           update: {
-            courseOfferingId: finalCourseOfferingId,
+            ...(finalCourseOfferingId ? { courseOfferingId: finalCourseOfferingId } : {}),
             ...(body.enrollmentStatus !== undefined ? { enrollmentStatus: body.enrollmentStatus } : {}),
+            ...(body.academicResult !== undefined ? { academicResult: body.academicResult ?? null } : {}),
+            ...(body.apeReferred !== undefined ? { apeReferred: body.apeReferred } : {}),
             ...(body.withdrawnAt !== undefined ? { withdrawnAt: body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null } : {}),
             ...(body.withdrawalAcademicYear !== undefined ? { withdrawalAcademicYear: body.withdrawalAcademicYear ?? null } : {}),
             ...(body.internalNotes !== undefined ? { notes: body.internalNotes ?? null } : {}),
+            ...orientationPatch,
           },
           create: {
             studentId: id,
             schoolYearId: targetSchoolYearId,
             courseOfferingId: finalCourseOfferingId,
+            ...orientationPatch,
             enrollmentStatus: (body.enrollmentStatus ?? 'ACTIVE') as StudentEnrollmentStatus,
+            academicResult: body.academicResult ?? null,
+            apeReferred: body.apeReferred ?? false,
             withdrawnAt: body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null,
             withdrawalAcademicYear: body.withdrawalAcademicYear ?? null,
             notes: body.internalNotes ?? null,
@@ -1063,7 +1626,11 @@ r.put('/:id', async (req, res) => {
       updatedAny.username !== existing.username ||
       updatedAny.firstName !== existing.firstName ||
       updatedAny.lastName !== existing.lastName
-    if (updatedAny.email && accountChanged) void enqueueStudentUserUpsert(updated.id)
+    // Sólo se propaga a quien YA tiene cuenta. El handler del outbox también corta por su cuenta;
+    // esto evita encolar una tarea que no va a hacer nada.
+    if (accountChanged && (await getMappedId('STUDENT', updated.id)) != null) {
+      void enqueueStudentUserUpsert(updated.id)
+    }
     const enrollment = updatedAny.enrollments?.[0] ?? null
     const courseOffering = enrollment?.courseOffering ?? null
     const updatedTuitionMonths = (await findTuitionMonths([updated.id]))[updated.id] ?? []
@@ -1074,8 +1641,11 @@ r.put('/:id', async (req, res) => {
       courseOfferingId: courseOffering?.id ?? null,
       course: courseOffering?.course ?? null,
       enrollmentStatus: enrollment?.enrollmentStatus ?? body.enrollmentStatus ?? 'ACTIVE',
+      academicResult: enrollment?.academicResult ?? body.academicResult ?? null,
+      apeReferred: enrollment?.apeReferred ?? body.apeReferred ?? false,
       withdrawnAt: enrollment?.withdrawnAt ?? (body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null),
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
+      moodleVerification: (await safeStudentMoodleVerifications([updated.id])).get(updated.id),
       tuitionMonths: updatedTuitionMonths,
     }))
   } catch (e: unknown) {

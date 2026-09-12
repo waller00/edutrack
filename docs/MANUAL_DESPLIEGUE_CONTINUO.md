@@ -140,6 +140,19 @@ COOKIE_SAMESITE=lax
 # SMTP, Didit, Sentry, etc. según entorno
 ```
 
+En produccion, usar los dominios HTTPS detras del reverse proxy, sin puertos
+directos:
+
+```env
+FRONTEND_URL=https://edutrack-uy.com
+NEXT_PUBLIC_API_URL=https://api.edutrack-uy.com
+KEYCLOAK_ISSUER_URL=https://auth.edutrack-uy.com/realms/edutrack
+KEYCLOAK_INTERNAL_URL=http://keycloak:8080
+KEYCLOAK_REDIRECT_URI=https://api.edutrack-uy.com/auth/callback
+COOKIE_SECURE=true
+COOKIE_SAMESITE=lax
+```
+
 **Importante:** solo las variables listadas en `environment:` de `docker-compose.cloud.yml` entran al contenedor. Tras editar `.env`, recrear servicios:
 
 `FRONTEND_URL`, `NEXT_PUBLIC_API_URL`, `KEYCLOAK_ISSUER_URL` y `KEYCLOAK_REDIRECT_URI` deben apuntar a URLs publicas completas. `KEYCLOAK_INTERNAL_URL` debe quedar en `http://keycloak:8080` para llamadas internas entre contenedores. No usar interpolaciones compuestas tipo `${PUBLIC_SCHEME}://${PUBLIC_HOST}` en Compose: en algunas versiones dejan llaves renderizadas (`%7D`) dentro del bundle del frontend.
@@ -148,13 +161,13 @@ Antes de bajar/reconstruir produccion, validar rutas:
 
 ```bash
 bash scripts/validate-production-routes.sh --env .env --production
-docker compose -f docker-compose.cloud.yml config | grep -E 'FRONTEND_URL|NEXT_PUBLIC_API_URL|KEYCLOAK_ISSUER_URL|KEYCLOAK_REDIRECT_URI'
+docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml config | grep -E 'FRONTEND_URL|NEXT_PUBLIC_API_URL|KEYCLOAK_ISSUER_URL|KEYCLOAK_REDIRECT_URI'
 ```
 
 La validacion falla si detecta `localhost`, `keycloak:8080`, `{`, `}`, `%7D`, HTTP en produccion, o un callback que no use el origen publico de la API. El workflow de produccion la ejecuta antes de `compose down`.
 
 ```bash
-docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d --force-recreate auth web
+./scripts/dc-cloud.sh up -d --force-recreate auth web reverse-proxy
 ```
 
 ---
@@ -320,21 +333,21 @@ Configuración típica del F22 (testing HTTP):
 
 | # | Comprobación | Comando / acción |
 |---|--------------|------------------|
-| 1 | Contenedores Up | `docker compose -f docker-compose.cloud.yml ps` (+ `-f docker-compose.override.yml` en testing) |
-| 2 | API viva | `curl -s http://127.0.0.1:4000/health` → `{"ok":true}` |
+| 1 | Contenedores Up | `./scripts/dc-cloud.sh ps` en produccion; testing puede sumar su override |
+| 2 | API viva | `./scripts/dc-cloud.sh exec -T auth node -e "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"` |
 | 3 | UI carga | Abrir URL del front; pantalla de login sin 500 |
 | 4 | API desde navegador | F12 → Red: peticiones al API no fallan por CORS/red |
 | 5 | Login | Redirige a Keycloak; tras login `/auth/me` → no 401 |
-| 6 | (Opcional) ADMS | `curl "http://<API>:4000/iclock/getrequest?SN=<serial>"` → `OK` |
+| 6 | (Opcional) ADMS | `curl "https://api.edutrack-uy.com/iclock/getrequest?SN=<serial>"` → `OK` |
 | 7 | (Opcional) Biométrico | Fichada en F22 → visible en Asistencias |
 
 ### 9.3 Aplicar cambios solo en `.env` (sin nuevo deploy)
 
 ```bash
 cd /root/edutrack
-docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d --force-recreate auth
+./scripts/dc-cloud.sh up -d --force-recreate auth
 # Si cambió NEXT_PUBLIC_*:
-docker compose -f docker-compose.cloud.yml -f docker-compose.override.yml up -d --build web
+./scripts/dc-cloud.sh up -d --build web reverse-proxy
 ```
 
 ---

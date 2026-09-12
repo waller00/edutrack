@@ -1,9 +1,5 @@
 # Reverse proxy publico para el despliegue cloud.
-# Uso esperado:
-#   docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml up -d reverse-proxy
-#
-# Primera etapa: este archivo agrega el proxy sin cerrar aun los puertos directos
-# publicados por web/auth/keycloak/moodle. El cierre se hace despues de validar.
+
 
 x-logging: &default-logging
   driver: json-file

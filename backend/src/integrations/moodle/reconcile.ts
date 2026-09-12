@@ -16,7 +16,7 @@ import {
   markEnrolmentRevoked,
   upsertEnrolmentMap,
 } from "./enrolment-map.js";
-import { enrolUser, unenrolUser } from "./enrolments.js";
+import { enrolUser, enrolUsersBatch, unenrolUser } from "./enrolments.js";
 import {
   buildSubjectCourseFullname,
   type MoodleSubjectScope,
@@ -52,8 +52,12 @@ export type ReconcileSummary = {
   substituteEnrolments: number;
   substituteRevocations: number;
   studentEnrolments: number;
+  /** Alumnos salteados por no tener email + usuario: sin eso sólo se les podría crear un espejo `nologin`. */
+  studentsWithoutAccount: number;
   errors: number;
 };
+
+let reconcileInFlight: Promise<ReconcileSummary> | null = null;
 
 type SchoolYearLite = { id: string; label: string | null; code: number };
 type OfferingLite = {
@@ -469,6 +473,43 @@ async function revokeStaleSubstitutes(
   }
 }
 
+/**
+ * Inscribe al alumno en todas sus asignaturas. Intenta una sola llamada en lote; si falla, cae al
+ * modo uno-por-uno (comportamiento previo, que además rescata el caso "Message was not sent").
+ * Tras inscribir (por cualquiera de los dos caminos) registra el mapeo y suma al resumen.
+ */
+async function enrolStudentInCourses(
+  ctx: ReconcileContext,
+  en: { id: string; studentId: string },
+  moodleUserId: number,
+  courseIds: number[],
+): Promise<void> {
+  let batched = false;
+  if (courseIds.length > 1) {
+    try {
+      await enrolUsersBatch(
+        courseIds.map((moodleCourseId) => ({ moodleUserId, moodleCourseId, roleId: ctx.roles.student })),
+      );
+      batched = true;
+    } catch (e) {
+      logError("inscripción estudiante (lote → reintenta uno-por-uno)", en.studentId, e);
+    }
+  }
+
+  for (const courseId of courseIds) {
+    if (!batched) await enrolUser(moodleUserId, courseId, ctx.roles.student);
+    await upsertEnrolmentMap({
+      userId: en.studentId,
+      moodleUserId,
+      moodleCourseId: courseId,
+      roleId: ctx.roles.student,
+      sourceType: "STUDENT_ENROLLMENT",
+      sourceId: en.id,
+    });
+    ctx.summary.studentEnrolments += 1;
+  }
+}
+
 /** Fase 4 — estudiantes: asignaturas comunes + asignaturas de su orientación, con revocación. */
 async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> {
   const enrolments = await prisma.studentEnrollment.findMany({
@@ -494,8 +535,19 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
   // Alumnos cuyo procesamiento lanzó: no deben revocarse sus accesos por un fallo transitorio
   // (un hipo de Moodle no debe borrar inscripciones válidas, que arrastra notas/entregas).
   const failedStudentIds = new Set<string>();
+  // Alumnos sin email o usuario. Con la misma lógica que los fallidos: se saltean SIN tocar sus
+  // matrículas. `desiredKeys` se llena dentro del try, así que saltear sin registrarlo acá haría
+  // que el bucle de revocación de más abajo los desmatriculara de todos sus cursos.
+  const skippedStudentIds = new Set<string>();
   for (const en of enrolments) {
     if (!en.courseOffering) continue;
+    // Sin email + usuario sólo se podría crear un espejo `nologin` con email sintético: cuentas
+    // basura que nadie puede usar. La cuenta se crea desde el botón de la ficha del alumno.
+    if (!en.student.email?.trim() || !en.student.username?.trim()) {
+      skippedStudentIds.add(en.student.id);
+      ctx.summary.studentsWithoutAccount += 1;
+      continue;
+    }
     try {
       const moodleUserId = await ensureStudentMoodleUser({
         id: en.student.id,
@@ -505,20 +557,13 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
         username: en.student.username,
       });
       const targets = await listStudentSubjectTargets(en);
+      const courseIds: number[] = [];
       for (const target of targets) {
         const courseId = await ensureStudentSubjectCourseFor(ctx, target, en.courseOffering);
         desiredKeys.add(`${en.student.id}::${courseId}`);
-        await enrolUser(moodleUserId, courseId, ctx.roles.student);
-        await upsertEnrolmentMap({
-          userId: en.student.id,
-          moodleUserId,
-          moodleCourseId: courseId,
-          roleId: ctx.roles.student,
-          sourceType: "STUDENT_ENROLLMENT",
-          sourceId: en.id,
-        });
-        ctx.summary.studentEnrolments += 1;
+        courseIds.push(courseId);
       }
+      await enrolStudentInCourses(ctx, { id: en.id, studentId: en.student.id }, moodleUserId, courseIds);
     } catch (e) {
       failedStudentIds.add(en.student.id);
       ctx.summary.errors += 1;
@@ -529,9 +574,10 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
   const activeStudentMaps = await listActiveEnrolments("STUDENT_ENROLLMENT");
   for (const m of activeStudentMaps) {
     if (desiredKeys.has(`${m.userId}::${m.moodleCourseId}`)) continue;
-    // El alumno falló este run: conservar su acceso hasta que se pueda recalcular bien.
-    // Los egresados/transferidos ni aparecen en `enrolments`, así que sí se revocan.
-    if (failedStudentIds.has(m.userId)) continue;
+    // El alumno falló este run, o se salteó por no tener cuenta: conservar su acceso hasta que se
+    // pueda recalcular bien. Los egresados/transferidos ni aparecen en `enrolments`, así que sí se
+    // revocan.
+    if (failedStudentIds.has(m.userId) || skippedStudentIds.has(m.userId)) continue;
     try {
       await unenrolUser(m.moodleUserId, m.moodleCourseId);
       await markEnrolmentRevoked(m.id);
@@ -542,7 +588,7 @@ async function reconcileStudentEnrolments(ctx: ReconcileContext): Promise<void> 
   }
 }
 
-export async function reconcileMoodle(
+async function runReconcileMoodle(
   opts: { syncStudents?: boolean; now?: Date } = {},
 ): Promise<ReconcileSummary> {
   const summary: ReconcileSummary = {
@@ -552,6 +598,7 @@ export async function reconcileMoodle(
     substituteEnrolments: 0,
     substituteRevocations: 0,
     studentEnrolments: 0,
+    studentsWithoutAccount: 0,
     errors: 0,
   };
   if (!isMoodleIntegrationEnabled()) return summary;
@@ -579,4 +626,17 @@ export async function reconcileMoodle(
   }
 
   return summary;
+}
+
+export async function reconcileMoodle(
+  opts: { syncStudents?: boolean; now?: Date } = {},
+): Promise<ReconcileSummary> {
+  if (reconcileInFlight) return reconcileInFlight;
+  const run = runReconcileMoodle(opts);
+  reconcileInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (reconcileInFlight === run) reconcileInFlight = null;
+  }
 }

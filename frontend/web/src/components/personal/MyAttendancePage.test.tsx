@@ -96,7 +96,7 @@ describe('MyAttendancePage', () => {
     renderPage(<MyAttendancePage role="TEACHER" />)
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     const endDateInput = await screen.findByLabelText('Fecha fin')
-    fireEvent.change(endDateInput, { target: { value: '2026-03-20' } })
+    fireEvent.change(endDateInput, { target: { value: '20/03/2026' } })
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(

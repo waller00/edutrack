@@ -1,0 +1,39 @@
+sequenceDiagram
+    autonumber
+    actor C as Cliente
+    participant EDGE as Cloudflare + proxy
+    participant W as web (Next.js + BFF)
+    participant R as Redis
+    participant KC as Keycloak
+    participant API as auth (API + Prisma)
+    participant DB as PostgreSQL
+
+    rect rgb(235, 244, 255)
+    Note over C,KC: 1) Login OIDC (patron BFF)
+    C->>EDGE: GET /login
+    EDGE->>W: reenvia
+    W-->>C: redirect a Keycloak (PKCE)
+    C->>KC: credenciales (+ MFA)
+    KC-->>W: tokens (back-channel)
+    W->>R: guarda sesion -> sid
+    W-->>C: Set-Cookie sid (HttpOnly)
+    end
+
+    rect rgb(236, 248, 240)
+    Note over C,DB: 2) Request autenticado
+    C->>W: fetch /api/... (cookie sid)
+    W->>R: valida sid
+    W->>API: proxy (usuario + token)
+    API->>DB: consulta (Prisma, SQL parametrizado)
+    DB-->>API: filas
+    API->>API: deriva estado de asistencia
+    API-->>C: JSON
+    end
+
+    rect rgb(245, 240, 250)
+    Note over C,DB: 3) Ingesta biometrica (asincrona)
+    C->>API: POST /iclock (marca + huella)
+    API->>DB: persiste marca
+    API->>API: alimenta motor de asistencia
+    API-->>C: 200 OK
+    end

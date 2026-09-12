@@ -18,6 +18,12 @@ enum InAppNotificationType {
   LICENSE_UPDATED
   EVENT_ASSIGNED
   ATTENDANCE_INCIDENT
+  /// Observación registrada sobre una libreta (RF-091).
+  GRADEBOOK_OBSERVATION
+  GRADEBOOK_ENDORSED
+  GRADEBOOK_MESSAGE
+  /// El período está por cerrar y la libreta todavía tiene pendientes.
+  GRADEBOOK_PERIOD_CLOSING
 }
 
 /// Registro append-only de acciones relevantes (RF-11). Sin updates ni deletes desde la app.
@@ -28,6 +34,7 @@ enum AuditAction {
   AUTH_GOOGLE_LOGIN_SUCCESS
   USER_CREATED_BY_ADMIN
   USER_UPDATED_BY_ADMIN
+  USER_DELETED_BY_ADMIN
   USER_ACCOUNT_LOCK_TOGGLED
   ADMIN_PASSWORD_RESET_ISSUED
   MEDICAL_LEAVE_CREATED
@@ -44,6 +51,27 @@ enum AuditAction {
   ATTENDANCE_JUSTIFIED
   ATTENDANCE_INCIDENT_RESOLVED
   SUBSTITUTION_CREATED
+  MOODLE_GRADES_PUSHED
+  // Se conserva para poder leer auditorías históricas del módulo retirado.
+  QUERY_ASSISTANT_QUERY_EXECUTED
+  STUDENT_ROLL_CALL_TAKEN
+  STUDENT_ROLL_CALL_UPDATED
+  STUDENT_ROLL_CALL_DELETED
+  STUDENT_ROLL_CALL_REOPENED
+  STUDENT_ATTENDANCE_JUSTIFIED
+  ACADEMIC_CONFIG_CREATED
+  ACADEMIC_CONFIG_UPDATED
+  ACADEMIC_CONFIG_DEACTIVATED
+  ASSESSMENT_CREATED
+  ASSESSMENT_UPDATED
+  ASSESSMENT_DELETED
+  GRADE_ENTERED
+  GRADE_UPDATED
+  GRADE_PERIOD_CLOSED
+  GRADE_PERIOD_REOPENED
+  MOODLE_GRADES_IMPORTED
+  GRADEBOOK_OBSERVED
+  GRADEBOOK_ENDORSED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
@@ -63,53 +91,74 @@ model OrgRole {
 }
 
 model User {
-  id                          String                 @id @default(uuid())
-  email                       String                 @unique
-  username                    String?                @unique
-  nationalId                  String?                @unique
+  id                                     String                           @id @default(uuid())
+  email                                  String                           @unique
+  username                               String?                          @unique
+  nationalId                             String?                          @unique
   /// Vencimiento de la cédula de identidad (según DNI / OCR).
-  nationalIdDocumentExpiresAt DateTime?
-  firstName                   String?
-  lastName                    String?
-  name                        String?
-  phone                       String?
-  birthdate                   DateTime?
-  googleId                    String?                @unique
+  nationalIdDocumentExpiresAt            DateTime?
+  firstName                              String?
+  lastName                               String?
+  name                                   String?
+  phone                                  String?
+  birthdate                              DateTime?
+  googleId                               String?                          @unique
   /// Id del usuario espejo en Moodle (integración). Fuente de verdad sigue siendo EduTrack.
-  moodleUserId                Int?                   @unique
-  roleId                      String
-  orgRole                     OrgRole                @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  createdAt                   DateTime               @default(now())
-  updatedAt                   DateTime               @updatedAt
+  moodleUserId                           Int?                             @unique
+  roleId                                 String
+  orgRole                                OrgRole                          @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  createdAt                              DateTime                         @default(now())
+  updatedAt                              DateTime                         @updatedAt
   // relations
-  emailVerifications          EmailVerification[]
-  attendances                 Attendance[]
-  events                      Event[]
-  assignedEvents              Event[]                @relation("EventAssignment")
-  medicalLeaves               MedicalLeave[]
-  webPushSubscriptions        WebPushSubscription[]
-  inAppNotifications          InAppNotification[]
-  biometricMappings           BiometricUserMapping[]
-  biometricLinkRequests       BiometricLinkRequest[]
-  biometricPunches            BiometricPunch[]
-  attendanceIncidents         AttendanceIncident[]
-  attendanceJustificationsCreated AttendanceJustification[] @relation("AttendanceJustificationCreatedBy")
-  substitutionsCreated        Substitution[]          @relation("SubstitutionCreatedBy")
-  substitutionsAsOriginal     Substitution[]          @relation("SubstitutionOriginalTeacher")
-  substitutionsAsSubstitute   Substitution[]          @relation("SubstitutionSubstituteTeacher")
-  auditEvents                 AuditLog[]
-  teacherProfile              TeacherProfile?
+  emailVerifications                     EmailVerification[]
+  attendances                            Attendance[]
+  events                                 Event[]
+  assignedEvents                         Event[]                          @relation("EventAssignment")
+  medicalLeaves                          MedicalLeave[]
+  webPushSubscriptions                   WebPushSubscription[]
+  inAppNotifications                     InAppNotification[]
+  biometricMappings                      BiometricUserMapping[]
+  biometricLinkRequests                  BiometricLinkRequest[]
+  biometricPunches                       BiometricPunch[]
+  attendanceIncidents                    AttendanceIncident[]
+  attendanceJustificationsCreated        AttendanceJustification[]        @relation("AttendanceJustificationCreatedBy")
+  studentRollCallsTaken                  StudentAttendanceSession[]       @relation("StudentAttendanceSessionTakenBy")
+  studentRollCallsLocked                 StudentAttendanceSession[]       @relation("StudentAttendanceSessionLockedBy")
+  studentAttendanceEntries               StudentAttendanceEntry[]         @relation("StudentAttendanceEntryMarkedBy")
+  studentAttendanceJustificationsCreated StudentAttendanceJustification[] @relation("StudentAttendanceJustificationCreatedBy")
+  substitutionsCreated                   Substitution[]                   @relation("SubstitutionCreatedBy")
+  substitutionsAsOriginal                Substitution[]                   @relation("SubstitutionOriginalTeacher")
+  substitutionsAsSubstitute              Substitution[]                   @relation("SubstitutionSubstituteTeacher")
+  auditEvents                            AuditLog[]
+  teacherProfile                         TeacherProfile?
+  activityTypes                          ActivityType[]                   @relation("ActivityTypeOwner")
+  gradeBooks                             GradeBook[]                      @relation("GradeBookTeacher")
+  assessmentsCreated                     Assessment[]                     @relation("AssessmentCreatedBy")
+  assessmentGradesGiven                  AssessmentGrade[]                @relation("AssessmentGradeGradedBy")
+  gradeRevisions                         GradeRevision[]                  @relation("GradeRevisionChangedBy")
+  gradeBookPeriodsClosed                 GradeBookPeriod[]                @relation("GradeBookPeriodClosedBy")
+  gradeBookPeriodsReopened               GradeBookPeriod[]                @relation("GradeBookPeriodReopenedBy")
+  periodGradesUpdated                    PeriodGrade[]                    @relation("PeriodGradeUpdatedBy")
+  teacherMeetingRecords                  TeacherMeetingRecord[]           @relation("TeacherMeetingRecordCreatedBy")
+  endorsements                           Endorsement[]                    @relation("EndorsementActor")
+  gradeBookMessages                      GradeBookMessage[]               @relation("GradeBookMessageAuthor")
+  gradeBookAccessLogs                    GradeBookAccessLog[]             @relation("GradeBookAccessLogUser")
+  gradeBookPlannings                     GradeBookPlanning[]              @relation("GradeBookPlanningUpdatedBy")
+  courseDevelopmentEntries               CourseDevelopmentEntry[]         @relation("CourseDevelopmentCreatedBy")
   // security
-  emailVerifiedAt             DateTime?
-  failedLoginAttempts         Int                    @default(0)
-  lockUntil                   DateTime?
-  isApproved                  Boolean                @default(true)
-  approvedAt                  DateTime?
-  isActive                    Boolean                @default(true)
+  emailVerifiedAt                        DateTime?
+  failedLoginAttempts                    Int                              @default(0)
+  lockUntil                              DateTime?
+  isApproved                             Boolean                          @default(true)
+  approvedAt                             DateTime?
+  isActive                               Boolean                          @default(true)
   /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
-  livenessVerifiedAt          DateTime?
+  livenessVerifiedAt                     DateTime?
 
   @@index([roleId])
+  pendingSubjectsCreated  StudentPendingSubject[] @relation("PendingSubjectCreatedBy")
+  accommodationsCreated   StudentAccommodation[]  @relation("AccommodationCreatedBy")
+  conductRecordsUpdated StudentConductRecord[] @relation("ConductUpdatedBy")
 }
 
 /// Perfil docente operativo (cuenta en `User` con rol TEACHER).
@@ -174,8 +223,8 @@ model AuditLog {
 
 /// Configuración global (fila única `default`).
 model SystemSettings {
-  id                              String   @id @default("default")
-  livenessCheckEnabled            Boolean  @default(false)
+  id                                  String   @id @default("default")
+  livenessCheckEnabled                Boolean  @default(false)
   attendanceNoShowGraceMinutes        Int      @default(15)
   attendanceLateToleranceMinutes      Int      @default(5)
   attendanceEarlyExitToleranceMinutes Int      @default(5)
@@ -192,27 +241,38 @@ model SystemSettings {
   moodleSyncStudents                  Boolean  @default(false)
   /// Zona horaria IANA institucional (fechas civiles, horarios, asistencias).
   institutionTimezone                 String   @default("America/Montevideo")
+  /// Horas tras el fin de la clase (o el pase de lista, lo que sea posterior) en que el
+  /// docente todavía puede editar su planilla. Después solo admin, con auditoría.
+  studentRollCallEditWindowHours      Int      @default(48)
+  /// Habilita la sugerencia "copiar la lista de la hora anterior" del mismo grupo.
+  studentRollCallCopyPreviousEnabled  Boolean  @default(true)
+  /// % de clases del día con ausencia a partir del cual el día consolida como falta entera
+  /// (por debajo, y con al menos una ausencia, consolida como media falta).
+  studentDailyAbsenceThresholdPercent Int      @default(50)
+  /// Días tras la fecha de la evaluación en que el docente todavía puede editar sus notas.
+  /// Después sólo `gradebook.manage`, y esa escritura se audita siempre.
+  gradebookEditWindowDays             Int      @default(30)
   updatedAt                           DateTime @updatedAt
 }
 
 /// Cola persistente (patrón outbox) para sincronizar entidades con Moodle con reintentos.
 /// Garantiza que un fallo transitorio no desincronice de forma permanente y silenciosa.
 model MoodleSyncTask {
-  id          String           @id @default(uuid())
+  id          String             @id @default(uuid())
   type        MoodleSyncTaskType
   /// Clave de deduplicación (p. ej. "user:<uuid>"): evita encolar duplicados pendientes.
-  dedupeKey   String           @unique
+  dedupeKey   String             @unique
   payload     Json
-  status      MoodleSyncStatus @default(PENDING)
-  attempts    Int              @default(0)
-  maxAttempts Int              @default(8)
-  lastError   String?          @db.Text
+  status      MoodleSyncStatus   @default(PENDING)
+  attempts    Int                @default(0)
+  maxAttempts Int                @default(8)
+  lastError   String?            @db.Text
   /// No procesar antes de este instante (backoff exponencial).
-  runAfter    DateTime         @default(now())
+  runAfter    DateTime           @default(now())
   /// Marca de claim para evitar doble procesamiento entre ticks.
   lockedAt    DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 
   @@index([status, runAfter])
 }
@@ -384,26 +444,26 @@ enum AttendanceStatus {
 }
 
 model Attendance {
-  id             String               @id @default(uuid())
+  id             String                    @id @default(uuid())
   userId         String
-  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   type           AttendanceType
-  status         AttendanceStatus     @default(PRESENT)
+  status         AttendanceStatus          @default(PRESENT)
   date           DateTime
   time           DateTime
   notes          String?
   eventId        String?
-  event          Event?               @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  event          Event?                    @relation(fields: [eventId], references: [id], onDelete: SetNull)
   /// Ciclo lectivo de la marca. Se deriva del evento cuando hay uno; para marcas sin
   /// evento (manual / biométrica fuera de horario) se fija el ciclo activo al crearla.
   /// Permite segmentar el listado admin por ciclo sin depender de la relación con Event.
   schoolYearId   String?
-  schoolYear     SchoolYear?          @relation(fields: [schoolYearId], references: [id], onDelete: SetNull)
+  schoolYear     SchoolYear?               @relation(fields: [schoolYearId], references: [id], onDelete: SetNull)
   biometricPunch BiometricPunch?
   incidents      AttendanceIncident[]
   justifications AttendanceJustification[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
 
   @@index([userId])
   @@index([date])
@@ -478,21 +538,21 @@ model AttendanceIncident {
 }
 
 model BiometricDevice {
-  id         String                 @id @default(uuid())
-  code       String                 @unique
+  id           String                 @id @default(uuid())
+  code         String                 @unique
   /// Número de serie ADMS del terminal (query `SN`); si no se define, se usa `code`.
-  admsSerial String?                @unique
-  name       String
-  secretHash String
-  timezone   String                 @default("America/Montevideo")
-  isActive   Boolean                @default(true)
-  allowedIps String[]               @default([])
-  lastSeenAt DateTime?
-  createdAt  DateTime               @default(now())
-  updatedAt  DateTime               @updatedAt
-  punches       BiometricPunch[]
-  mappings      BiometricUserMapping[]
-  linkRequests  BiometricLinkRequest[]
+  admsSerial   String?                @unique
+  name         String
+  secretHash   String
+  timezone     String                 @default("America/Montevideo")
+  isActive     Boolean                @default(true)
+  allowedIps   String[]               @default([])
+  lastSeenAt   DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  punches      BiometricPunch[]
+  mappings     BiometricUserMapping[]
+  linkRequests BiometricLinkRequest[]
 
   @@index([isActive])
 }
@@ -641,42 +701,49 @@ enum SubjectAssociationType {
 }
 
 model SchoolYear {
-  id                 String                @id @default(uuid())
+  id                        String                     @id @default(uuid())
   /// Año calendario del ciclo (ej. 2026); único en la institución.
-  code               Int                   @unique
-  label              String
-  startsOn           DateTime?
-  endsOn             DateTime?
-  status             SchoolYearStatus      @default(PLANNED)
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-  courseOfferings    CourseOffering[]
-  events             Event[]
-  attendances        Attendance[]
-  studentEnrollments StudentEnrollment[]
-  tuitionYears       StudentTuitionYear[]
-  tuitionMonths      StudentTuitionMonth[]
-  nonWorkingDays     NonWorkingDay[]
-  courseOrientations CourseOrientation[]
-  subjectAssignments SubjectCourseAssignment[]
+  code                      Int                        @unique
+  label                     String
+  startsOn                  DateTime?
+  endsOn                    DateTime?
+  status                    SchoolYearStatus           @default(PLANNED)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  courseOfferings           CourseOffering[]
+  events                    Event[]
+  attendances               Attendance[]
+  studentEnrollments        StudentEnrollment[]
+  studentAttendanceSessions StudentAttendanceSession[]
+  tuitionYears              StudentTuitionYear[]
+  tuitionMonths             StudentTuitionMonth[]
+  nonWorkingDays            NonWorkingDay[]
+  courseOrientations        CourseOrientation[]
+  subjectAssignments        SubjectCourseAssignment[]
+  academicPeriods           AcademicPeriod[]
+  gradeBooks                GradeBook[]
+  teacherMeetingRecords     TeacherMeetingRecord[]
+  academicAlertRules        AcademicAlertRule[]
 
   @@index([status])
+  studentPendingSubjects StudentPendingSubject[]
+  studentConductRecords StudentConductRecord[]
 }
 
 /// Cursos para asociar eventos (clases / grupos).
 model Course {
-  id          String           @id @default(uuid())
-  name        String
-  code        String?          @unique
-  level       AcademicLevel?
-  sortOrder   Int              @default(0)
-  description String?
-  isActive    Boolean          @default(true)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  legacySubjects Subject[]
-  offerings   CourseOffering[]
-  orientations CourseOrientation[]
+  id                 String                    @id @default(uuid())
+  name               String
+  code               String?                   @unique
+  level              AcademicLevel?
+  sortOrder          Int                       @default(0)
+  description        String?
+  isActive           Boolean                   @default(true)
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  legacySubjects     Subject[]
+  offerings          CourseOffering[]
+  orientations       CourseOrientation[]
   subjectAssignments SubjectCourseAssignment[]
 
   @@index([isActive])
@@ -685,18 +752,20 @@ model Course {
 
 /// Catálogo configurable de orientaciones/subdivisiones académicas.
 model Orientation {
-  id          String              @id @default(uuid())
-  name        String
-  code        String?             @unique
-  description String?             @db.Text
-  isActive    Boolean             @default(true)
-  sortOrder   Int                 @default(0)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  courses     CourseOrientation[]
-  subjectAssignments SubjectCourseAssignment[]
-  events      Event[]
-  studentEnrollments StudentEnrollment[]
+  id                        String                     @id @default(uuid())
+  name                      String
+  code                      String?                    @unique
+  description               String?                    @db.Text
+  isActive                  Boolean                    @default(true)
+  sortOrder                 Int                        @default(0)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  courses                   CourseOrientation[]
+  subjectAssignments        SubjectCourseAssignment[]
+  events                    Event[]
+  studentEnrollments        StudentEnrollment[]
+  studentAttendanceSessions StudentAttendanceSession[]
+  gradeBooks                GradeBook[]
 
   @@index([isActive])
   @@index([sortOrder, name])
@@ -705,20 +774,23 @@ model Orientation {
 /// Oferta anual de un curso del catálogo dentro de un ciclo lectivo.
 /// Permite cerrar/abrir años sin duplicar Course ni sus Subject.
 model CourseOffering {
-  id                 String              @id @default(uuid())
-  courseId           String
-  course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  schoolYearId       String
-  schoolYear         SchoolYear          @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
-  isActive           Boolean             @default(true)
-  isOffered          Boolean             @default(true)
-  visibleInFilters   Boolean             @default(true)
-  notes              String?             @db.Text
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  events             Event[]
-  studentEnrollments StudentEnrollment[]
-  legacySubjects     Subject[]
+  id                        String                     @id @default(uuid())
+  courseId                  String
+  course                    Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  schoolYearId              String
+  schoolYear                SchoolYear                 @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  isActive                  Boolean                    @default(true)
+  isOffered                 Boolean                    @default(true)
+  visibleInFilters          Boolean                    @default(true)
+  notes                     String?                    @db.Text
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  events                    Event[]
+  studentEnrollments        StudentEnrollment[]
+  legacySubjects            Subject[]
+  studentAttendanceSessions StudentAttendanceSession[]
+  gradeBooks                GradeBook[]
+  teacherMeetingRecords     TeacherMeetingRecord[]
 
   @@unique([courseId, schoolYearId])
   @@index([schoolYearId, isActive])
@@ -728,21 +800,24 @@ model CourseOffering {
 
 /// Relación opcional de orientación disponible para un curso y, si corresponde, ciclo lectivo.
 model CourseOrientation {
-  id            String       @id @default(uuid())
-  courseId      String
-  course        Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  orientationId String
-  orientation   Orientation  @relation(fields: [orientationId], references: [id], onDelete: Cascade)
-  schoolYearId  String?
-  schoolYear    SchoolYear?  @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
-  isActive      Boolean      @default(true)
-  isOffered     Boolean      @default(true)
-  visibleInFilters Boolean   @default(true)
-  notes         String?      @db.Text
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  events        Event[]
-  studentEnrollments StudentEnrollment[]
+  id                        String                     @id @default(uuid())
+  courseId                  String
+  course                    Course                     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  orientationId             String
+  orientation               Orientation                @relation(fields: [orientationId], references: [id], onDelete: Cascade)
+  schoolYearId              String?
+  schoolYear                SchoolYear?                @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  isActive                  Boolean                    @default(true)
+  isOffered                 Boolean                    @default(true)
+  visibleInFilters          Boolean                    @default(true)
+  notes                     String?                    @db.Text
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  events                    Event[]
+  studentEnrollments        StudentEnrollment[]
+  studentAttendanceSessions StudentAttendanceSession[]
+  gradeBooks                GradeBook[]
+  teacherMeetingRecords     TeacherMeetingRecord[]
 
   @@unique([courseId, orientationId, schoolYearId])
   @@index([courseId, isActive])
@@ -754,51 +829,54 @@ model CourseOrientation {
 /// Catálogo global de asignaturas. La disponibilidad por nivel/curso/orientación
 /// se define en SubjectCourseAssignment.
 model Subject {
-  id               String          @id @default(uuid())
-  name             String
-  code             String?
-  description      String?         @db.Text
-  sortOrder        Int             @default(0)
-  isActive         Boolean         @default(true)
+  id                        String                     @id @default(uuid())
+  name                      String
+  code                      String?
+  description               String?                    @db.Text
+  sortOrder                 Int                        @default(0)
+  isActive                  Boolean                    @default(true)
   /// Compatibilidad histórica: asignaturas creadas antes del catálogo flexible.
-  courseId         String?
-  course           Course?         @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  courseId                  String?
+  course                    Course?                    @relation(fields: [courseId], references: [id], onDelete: SetNull)
   /// Compatibilidad histórica por ciclo.
-  courseOfferingId String?
-  courseOffering   CourseOffering? @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
-  courseAssignments SubjectCourseAssignment[]
-  events           Event[]
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  courseOfferingId          String?
+  courseOffering            CourseOffering?            @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  courseAssignments         SubjectCourseAssignment[]
+  events                    Event[]
+  studentAttendanceSessions StudentAttendanceSession[]
+  gradeBooks                GradeBook[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
   @@index([courseId])
   @@index([courseOfferingId])
   @@index([isActive])
   @@index([sortOrder, name])
   @@map("asignaturas")
+  studentPendingSubjects StudentPendingSubject[]
 }
 
 /// Asociación flexible de asignaturas: nivel completo, curso completo, tronco común
 /// de curso, orientación o configuración personalizada por ciclo.
 model SubjectCourseAssignment {
-  id              String                 @id @default(uuid())
-  subjectId       String
-  subject         Subject                @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  level           AcademicLevel?
-  courseId        String?
-  course          Course?                @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  orientationId   String?
-  orientation     Orientation?           @relation(fields: [orientationId], references: [id], onDelete: Cascade)
-  schoolYearId    String?
-  schoolYear      SchoolYear?            @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
-  associationType SubjectAssociationType
-  isActive        Boolean                @default(true)
-  isOffered       Boolean                @default(true)
-  visibleInFilters Boolean               @default(true)
-  sortOrder       Int                    @default(0)
-  notes           String?                @db.Text
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  id               String                 @id @default(uuid())
+  subjectId        String
+  subject          Subject                @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  level            AcademicLevel?
+  courseId         String?
+  course           Course?                @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  orientationId    String?
+  orientation      Orientation?           @relation(fields: [orientationId], references: [id], onDelete: Cascade)
+  schoolYearId     String?
+  schoolYear       SchoolYear?            @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  associationType  SubjectAssociationType
+  isActive         Boolean                @default(true)
+  isOffered        Boolean                @default(true)
+  visibleInFilters Boolean                @default(true)
+  sortOrder        Int                    @default(0)
+  notes            String?                @db.Text
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
 
   @@index([subjectId, isActive])
   @@index([level, isActive])
@@ -817,6 +895,48 @@ enum StudentEnrollmentStatus {
   TRANSFERRED
 }
 
+/// Cómo cerró el estudiante el año. Es distinto de `StudentEnrollmentStatus`, que dice si la
+/// matrícula sigue viva: un alumno puede estar ACTIVE y haber repetido.
+///
+/// Hasta ahora esto sólo existía como prosa castellana agregada a `StudentEnrollment.notes` por el
+/// pase de año, así que no había forma de consultarlo ni de mostrárselo al docente del año
+/// siguiente — que es justamente quien necesita saber cómo promovió.
+enum StudentAcademicResult {
+  PROMOTED
+  /// Promovido debiendo materias (en 7.º a 8.º se pasa con todas las bajas).
+  PROMOTED_WITH_PENDING
+  REPEATED
+  /// Todavía se define: quedó pendiente de APE diciembre o febrero.
+  PENDING_APE
+}
+
+/// De dónde sale una materia baja.
+enum PendingSubjectOrigin {
+  /// Quedó debiendo esta materia del ciclo que se está cursando.
+  FAILED_THIS_YEAR
+  /// La arrastra de un año anterior.
+  CARRIED_OVER
+}
+
+/// Resultado del estudiante en una instancia de APE.
+enum ApeResult {
+  PASSED
+  FAILED
+  /// No se presentó.
+  NOT_TAKEN
+}
+
+/// Tipo de adecuación, para que el docente sepa de qué se trata sin leer el informe.
+enum AccommodationKind {
+  /// Adecuación curricular: qué se le adapta de los contenidos.
+  CURRICULAR
+  /// Adecuación de evaluación: más tiempo, otro formato de prueba.
+  EVALUATION
+  /// Accesibilidad: ubicación en el aula, materiales, apoyos.
+  ACCESSIBILITY
+  OTHER
+}
+
 /// Registro de estudiante solo para gestión (sin cuenta ni login en el sistema).
 /// `username`/`email` habilitan su cuenta real en Moodle (auth manual).
 model Student {
@@ -826,15 +946,20 @@ model Student {
   /// Documento identificatorio (opcional; no implica usuario del sistema).
   documentId String?
 
-  /// Usuario para Moodle, formato nombre.apellido (no es login de EduTrack).
+  /// Usuario para Moodle, formato nombre.apellido (obligatorio en API/UI; nullable por registros históricos).
   username String? @unique
 
   contactPhone String?
   tutorPhone   String?
-  /// Email del alumno. @map preserva la columna histórica `contactEmail`
+  /// Email del alumno (obligatorio en API/UI; nullable por registros históricos). @map preserva la columna histórica `contactEmail`
   /// (renombrarla con `db push` implicaría drop+add y pérdida de datos).
-  email   String? @map("contactEmail")
-  address String?
+  email        String? @map("contactEmail")
+  address      String?
+
+  /// Día civil a mediodía UTC, como el resto de las fechas del repo.
+  birthDate DateTime?
+  /// De dónde vino al ingresar al liceo (el "pase" de 7.º). Texto libre: es el nombre de un centro.
+  admittedFrom String?
 
   /// Momento en que se envió el mail de bienvenida a Moodle (exactamente una vez).
   moodleWelcomeSentAt DateTime?
@@ -846,14 +971,38 @@ model Student {
 
   internalNotes String? @db.Text
 
-  tuitionYears  StudentTuitionYear[]
-  tuitionMonths StudentTuitionMonth[]
-  enrollments   StudentEnrollment[]
+  tuitionYears      StudentTuitionYear[]
+  tuitionMonths     StudentTuitionMonth[]
+  enrollments       StudentEnrollment[]
+  attendanceEntries StudentAttendanceEntry[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  assessmentGrades AssessmentGrade[]
+  periodGrades     PeriodGrade[]
+  meetingRecords   TeacherMeetingRecord[]
+  photo            StudentPhoto?
+  pendingSubjects  StudentPendingSubject[]
+  accommodations   StudentAccommodation[]
 
   @@index([lastName, firstName])
+  conductRecords   StudentConductRecord[]
+}
+
+/// Foto del alumno para identificarlo en pantalla (opcional).
+///
+/// Tabla aparte a propósito: los listados hacen `student.findMany` sin `select`, así que una
+/// columna `Bytes` en `Student` viajaría en cada fila de cada listado sin que nadie la pida.
+/// La imagen llega ya recortada y comprimida por el navegador; el servidor sólo verifica que sea
+/// un raster de un tipo permitido y que no supere `STUDENT_PHOTO_MAX_BYTES`.
+model StudentPhoto {
+  studentId String   @id
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  bytes     Bytes
+  mimeType  String
+  byteSize  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Historial de matrícula por ciclo. Es la fuente nueva para progreso académico:
@@ -871,17 +1020,111 @@ model StudentEnrollment {
   courseOrientationId    String?
   courseOrientation      CourseOrientation?      @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
   enrollmentStatus       StudentEnrollmentStatus @default(ACTIVE)
+  /// Cómo cerró el año. El "cómo promovió" que ve el docente es el de la matrícula del año
+  /// ANTERIOR, no el de la corriente, que recién se completa al cerrar el ciclo.
+  academicResult         StudentAcademicResult?
+  /// Derivado a APE (los 15 días extra de diciembre y, si no salva, los de febrero).
+  apeReferred            Boolean                 @default(false)
   withdrawnAt            DateTime?
   withdrawalAcademicYear Int?
   notes                  String?                 @db.Text
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
 
+  attendanceEntries StudentAttendanceEntry[]
+  assessmentGrades  AssessmentGrade[]
+
   @@unique([studentId, schoolYearId])
   @@index([schoolYearId, enrollmentStatus])
   @@index([courseOfferingId])
   @@index([orientationId])
   @@index([courseOrientationId])
+}
+
+/// Conducta institucional del estudiante en un período: una sola nota, puesta por adscripción.
+///
+/// Convive con la conducta por asignatura de `PeriodGrade`: el liceo usa las dos. La del docente
+/// mira cómo se comporta en su clase; ésta mira al estudiante en el liceo, y es la que adscripción
+/// lleva a la reunión. Por eso vive acá y no en la libreta, que es por materia.
+model StudentConductRecord {
+  id           String     @id @default(uuid())
+  studentId    String
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId String
+  schoolYear   SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  periodId     String
+  period       AcademicPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+
+  valueHundredths Int?
+  notes           String? @db.Text
+
+  updatedByUserId String?
+  updatedBy       User?    @relation("ConductUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([studentId, periodId])
+  @@index([schoolYearId, periodId])
+}
+
+/// Materia que el estudiante quedó debiendo, con su resultado en cada instancia de APE.
+///
+/// Es lo que permite el seguimiento del año siguiente: de 7.º a 8.º se pasa con todas las bajas, y
+/// el docente del año que viene necesita saber qué arrastra. De 8.º a 9.º se puede repetir, así que
+/// quien se llevó una materia sigue 15 días más en diciembre y, si no salva, otros 15 en febrero.
+model StudentPendingSubject {
+  id           String     @id @default(uuid())
+  studentId    String
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  /// Ciclo en el que quedó debiendo la materia (no en el que la arrastra).
+  schoolYearId String
+  schoolYear   SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  subjectId    String
+  subject      Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  origin      PendingSubjectOrigin @default(FAILED_THIS_YEAR)
+  apeDecember ApeResult?
+  apeFebruary ApeResult?
+  /// Cuándo dejó de deberla. Se conserva la fila: el historial de qué se llevó no se borra.
+  resolvedAt  DateTime?
+  notes       String?              @db.Text
+
+  createdByUserId String?
+  createdBy       User?    @relation("PendingSubjectCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([studentId, schoolYearId, subjectId])
+  @@index([studentId, resolvedAt])
+  @@index([schoolYearId, subjectId])
+}
+
+/// Adecuación curricular vigente de un estudiante.
+///
+/// **Nunca guarda el informe.** Sólo el tipo, un resumen de lo que el docente necesita saber para
+/// calificar, y el enlace a donde el documento vive de verdad (Drive, expediente). Es el mismo
+/// criterio que las licencias médicas, de las que el sistema sólo registra la constancia
+/// administrativa: la política de privacidad prohíbe almacenar diagnósticos y documentos clínicos,
+/// y un informe psicológico de un menor es exactamente eso.
+model StudentAccommodation {
+  id        String            @id @default(uuid())
+  studentId String
+  student   Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  kind      AccommodationKind @default(CURRICULAR)
+  /// Qué tener en cuenta al calificar. No es el diagnóstico.
+  summary     String   @db.Text
+  /// Dónde está el informe. El archivo no entra al sistema.
+  externalUrl String?
+  validFrom   DateTime?
+  /// Vencida deja de mostrarse al docente, pero la fila se conserva.
+  validUntil  DateTime?
+
+  createdByUserId String?
+  createdBy       User?    @relation("AccommodationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([studentId, validUntil])
 }
 
 /// Cuota por año calendario del ciclo (ej. 2025); permite consultar años anteriores.
@@ -928,50 +1171,51 @@ model StudentTuitionMonth {
 }
 
 model Event {
-  id                  String               @id @default(uuid())
-  title               String
-  description         String?
-  type                EventType
-  status              EventStatus          @default(SCHEDULED)
-  startDate           DateTime
-  endDate             DateTime?
-  startTime           DateTime?
-  endTime             DateTime?
-  location            String?
-  userId              String
-  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedUserId      String?
-  assignedUser        User?                @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  schoolYearId        String
-  schoolYear          SchoolYear           @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
-  courseOfferingId    String?
-  courseOffering      CourseOffering?      @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
-  orientationId        String?
-  orientation          Orientation?         @relation(fields: [orientationId], references: [id], onDelete: SetNull)
-  courseOrientationId  String?
-  courseOrientation    CourseOrientation?   @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
-  subjectId           String?
-  subject             Subject?             @relation(fields: [subjectId], references: [id], onDelete: SetNull)
-  recurrenceType      RecurrenceType       @default(NONE)
-  recurrenceEnd       DateTime?
-  isRecurring         Boolean              @default(false)
-  daysOfWeek          Int[]                @default([]) // Array de días de la semana (0=Domingo, 1=Lunes, etc.)
-  parentEventId       String?
-  parentEvent         Event?               @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
-  childEvents         Event[]              @relation("EventRecurrence")
+  id                        String                     @id @default(uuid())
+  title                     String
+  description               String?
+  type                      EventType
+  status                    EventStatus                @default(SCHEDULED)
+  startDate                 DateTime
+  endDate                   DateTime?
+  startTime                 DateTime?
+  endTime                   DateTime?
+  location                  String?
+  userId                    String
+  user                      User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedUserId            String?
+  assignedUser              User?                      @relation("EventAssignment", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  schoolYearId              String
+  schoolYear                SchoolYear                 @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  courseOfferingId          String?
+  courseOffering            CourseOffering?            @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  orientationId             String?
+  orientation               Orientation?               @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  courseOrientationId       String?
+  courseOrientation         CourseOrientation?         @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
+  subjectId                 String?
+  subject                   Subject?                   @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  recurrenceType            RecurrenceType             @default(NONE)
+  recurrenceEnd             DateTime?
+  isRecurring               Boolean                    @default(false)
+  daysOfWeek                Int[]                      @default([]) // Array de días de la semana (0=Domingo, 1=Lunes, etc.)
+  parentEventId             String?
+  parentEvent               Event?                     @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
+  childEvents               Event[]                    @relation("EventRecurrence")
   // Versionado temporal de la definición: permite editar una serie a futuro sin
   // reescribir las ocurrencias pasadas (que conservan su asistencia histórica).
-  effectiveFrom       DateTime?            // Inicio de vigencia de esta versión (null = desde siempre)
-  effectiveUntil      DateTime?            // Fin de vigencia inclusivo de esta versión (null = sin fin)
-  supersededById      String?              // Versión que reemplaza a esta (corte de edición)
-  supersededBy        Event?               @relation("EventSupersession", fields: [supersededById], references: [id], onDelete: SetNull)
-  supersedes          Event[]              @relation("EventSupersession")
-  revisionOf          String?              // Id de la definición raíz de la serie (agrupa versiones)
-  attendances         Attendance[]
-  attendanceIncidents AttendanceIncident[]
-  substitutions       Substitution[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  effectiveFrom             DateTime? // Inicio de vigencia de esta versión (null = desde siempre)
+  effectiveUntil            DateTime? // Fin de vigencia inclusivo de esta versión (null = sin fin)
+  supersededById            String? // Versión que reemplaza a esta (corte de edición)
+  supersededBy              Event?                     @relation("EventSupersession", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersedes                Event[]                    @relation("EventSupersession")
+  revisionOf                String? // Id de la definición raíz de la serie (agrupa versiones)
+  attendances               Attendance[]
+  studentAttendanceSessions StudentAttendanceSession[] @relation("StudentAttendanceSessionEvent")
+  attendanceIncidents       AttendanceIncident[]
+  substitutions             Substitution[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
   @@index([userId])
   @@index([assignedUserId])
@@ -1062,4 +1306,780 @@ model MedicalLeave {
   @@index([userId])
   @@index([startDate])
   @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Pase de lista estudiantil
+//
+// Concepto DISTINTO de `Attendance`, que registra asistencia del PERSONAL
+// (`Attendance.userId -> User`). Los estudiantes no tienen cuenta en EduTrack:
+// la lista la toma el docente sobre una ocurrencia de clase. Enum y modelos
+// separados a propósito, para que ninguna consulta existente sobre
+// `Attendance.status` empiece a contar filas de alumnos.
+// ---------------------------------------------------------------------------
+
+enum StudentAttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  /// Solo se alcanza vía justificación de secretaría; el docente nunca lo escribe.
+  ABSENT_JUSTIFIED
+}
+
+enum StudentAttendanceSessionStatus {
+  /// Planilla abierta pero nunca confirmada.
+  PENDING
+  TAKEN
+}
+
+enum StudentAttendanceSource {
+  MANUAL
+  COPIED_FROM_PREVIOUS
+}
+
+enum StudentAttendanceJustificationType {
+  ABSENCE
+  LATE_ARRIVAL
+  OTHER
+}
+
+/// Cabecera del pase de lista de UNA ocurrencia de clase (Event type=CLASE + día civil).
+/// Se crea perezosamente al primer guardado: la recurrencia nunca se materializa a futuro.
+model StudentAttendanceSession {
+  id String @id @default(uuid())
+
+  // --- clave de ocurrencia ---
+  /// Versión concreta del Event que produjo la ocurrencia. Siempre la serie padre,
+  /// nunca un childEvent (excepción puntual).
+  eventId        String
+  event          Event    @relation("StudentAttendanceSessionEvent", fields: [eventId], references: [id], onDelete: Cascade)
+  /// `event.revisionOf ?? event.id`. Agrupa las versiones que deja splitEventDefinitionForEdit:
+  /// es la ÚNICA clave por la que pueden agrupar los reportes.
+  eventFamilyId  String
+  /// Día civil YYYY-MM-DD. Es la clave de unicidad porque `institutionTimezone` es mutable:
+  /// un unique sobre `occurrenceDate` permitiría duplicar el mismo día tras cambiar la zona.
+  occurrenceYmd  String   @db.VarChar(10)
+  /// uruguayWallToUtc(occurrenceYmd, 0, 0). Rangos + join con Substitution.date (mismo instante).
+  occurrenceDate DateTime
+  /// Instantes resueltos de la ocurrencia (snapshot): evita reexpandir recurrencia
+  /// para la ventana de edición y para ordenar "la hora anterior".
+  startAt        DateTime
+  endAt          DateTime
+
+  // --- snapshot de cohorte ---
+  schoolYearId        String
+  schoolYear          SchoolYear         @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+  courseOfferingId    String?
+  courseOffering      CourseOffering?    @relation(fields: [courseOfferingId], references: [id], onDelete: SetNull)
+  orientationId       String?
+  orientation         Orientation?       @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  courseOrientationId String?
+  courseOrientation   CourseOrientation? @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
+  subjectId           String?
+  subject             Subject?           @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  // --- estado ---
+  status              StudentAttendanceSessionStatus @default(PENDING)
+  source              StudentAttendanceSource        @default(MANUAL)
+  copiedFromSessionId String?
+  copiedFrom          StudentAttendanceSession?      @relation("StudentAttendanceSessionCopy", fields: [copiedFromSessionId], references: [id], onDelete: SetNull)
+  copies              StudentAttendanceSession[]     @relation("StudentAttendanceSessionCopy")
+  takenByUserId       String?
+  takenBy             User?                          @relation("StudentAttendanceSessionTakenBy", fields: [takenByUserId], references: [id], onDelete: SetNull)
+  takenAt             DateTime?
+  /// Cierre explícito por admin. Si es null la ventana se calcula desde endAt/takenAt.
+  lockedAt            DateTime?
+  lockedByUserId      String?
+  lockedBy            User?                          @relation("StudentAttendanceSessionLockedBy", fields: [lockedByUserId], references: [id], onDelete: SetNull)
+  /// Cantidad de estudiantes resueltos al tomar la lista: permite detectar altas posteriores.
+  rosterSize          Int                            @default(0)
+  notes               String?                        @db.Text
+
+  entries   StudentAttendanceEntry[]
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@unique([eventId, occurrenceYmd])
+  @@index([eventFamilyId, occurrenceDate])
+  @@index([schoolYearId, occurrenceDate])
+  @@index([status, occurrenceDate])
+  @@index([courseOfferingId, occurrenceDate])
+  @@index([subjectId, occurrenceDate])
+  @@index([courseOrientationId, occurrenceDate])
+  @@index([takenByUserId])
+  @@index([copiedFromSessionId])
+  @@index([lockedByUserId])
+}
+
+/// Marca de UN estudiante en UNA ocurrencia de clase.
+model StudentAttendanceEntry {
+  id                  String                   @id @default(uuid())
+  sessionId           String
+  session             StudentAttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId           String
+  student             Student                  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  /// Matrícula que justificó la inclusión en el roster (traza; SetNull si se borra).
+  studentEnrollmentId String?
+  studentEnrollment   StudentEnrollment?       @relation(fields: [studentEnrollmentId], references: [id], onDelete: SetNull)
+
+  status StudentAttendanceStatus @default(ABSENT)
+  /// Nota corta del docente ("llegó 8:15", "se retiró con el padre").
+  note   String?                 @db.VarChar(280)
+
+  /// Cuánto pesa esta inasistencia, en centésimos: 100 = falta entera, 50 = media falta.
+  ///
+  /// `null` significa "el valor por defecto del estado" (una ausencia pesa 1, lo demás 0). Lo fija
+  /// adscripción caso por caso —el liceo no tiene una regla automática—, y por eso el docente al
+  /// pasar lista no lo toca: él marca presente/tarde/ausente y nada más.
+  absenceWeightHundredths Int?
+
+  /// Snapshot de identidad: un cambio de nombre o una baja no reescriben el historial.
+  studentLastName   String
+  studentFirstName  String
+  studentDocumentId String?
+
+  markedByUserId String?
+  markedBy       User?    @relation("StudentAttendanceEntryMarkedBy", fields: [markedByUserId], references: [id], onDelete: SetNull)
+  markedAt       DateTime @default(now())
+
+  justifications StudentAttendanceJustification[]
+  createdAt      DateTime                         @default(now())
+  updatedAt      DateTime                         @updatedAt
+
+  @@unique([sessionId, studentId])
+  @@index([studentId, status])
+  @@index([sessionId])
+  @@index([studentEnrollmentId])
+  @@index([markedByUserId])
+}
+
+/// Transición append-only ABSENT -> ABSENT_JUSTIFIED (acto de secretaría).
+/// Espeja AttendanceJustification: el estado vive en la entrada, esta fila registra el cambio.
+model StudentAttendanceJustification {
+  id              String                             @id @default(uuid())
+  entryId         String
+  entry           StudentAttendanceEntry             @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  type            StudentAttendanceJustificationType @default(ABSENCE)
+  reason          String
+  notes           String?                            @db.Text
+  /// Referencia textual al comprobante (el repo no almacena archivos).
+  attachment      String?                            @db.Text
+  previousStatus  StudentAttendanceStatus
+  newStatus       StudentAttendanceStatus
+  createdByUserId String?
+  createdBy       User?                              @relation("StudentAttendanceJustificationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                           @default(now())
+
+  @@index([entryId])
+  @@index([createdByUserId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parametrización académica de la libreta (RF-041, RF-044, RF-050, RF-053, §8.3)
+//
+// Condición central del proyecto: las reglas académicas son DATO, no código.
+// Cambiar una escala, un período o un umbral cuando ANEP modifica el reglamento
+// no puede exigir tocar el código fuente ni desplegar.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum GradingScaleKind {
+  /// Valor numérico dentro de un rango (ej. 1 a 10).
+  NUMERIC
+  /// Conjunto cerrado y ordenado de niveles (ej. semáforo rojo / amarillo / verde).
+  ORDINAL
+}
+
+/// Escala de evaluación parametrizable (RF-044).
+model GradingScale {
+  id                 String              @id @default(uuid())
+  code               String              @unique
+  name               String
+  kind               GradingScaleKind    @default(NUMERIC)
+  /// Rango admitido, en centésimos (8 → 800; 7,5 → 750).
+  ///
+  /// Entero y no coma flotante por la misma razón que `StudentTuitionYear.amountCents`: la
+  /// comparación contra umbrales de alerta tiene que ser exacta, y en float 7,3 se almacena
+  /// como 7,2999… con lo que un `>= 7,3` devuelve false. Además, olvidar la conversión da un
+  /// número absurdo (800 en vez de 8) que un test detecta al instante.
+  minValueHundredths Int?
+  maxValueHundredths Int?
+  /// Decimales que la UI muestra y acepta al calificar (0 = sólo enteros).
+  decimals           Int                 @default(0)
+  description        String?             @db.Text
+  isActive           Boolean             @default(true)
+  sortOrder          Int                 @default(0)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  levels             GradingScaleLevel[]
+  assessments        Assessment[]
+
+  @@index([isActive, sortOrder])
+}
+
+/// Tramo de una escala. Es lo que produce el descriptor automático (RF-053) y el semáforo.
+model GradingScaleLevel {
+  id                 String            @id @default(uuid())
+  scaleId            String
+  scale              GradingScale      @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+  code               String
+  label              String
+  /// Descriptor reglamentario del nivel de avance, mostrado junto a la calificación (RF-053).
+  descriptor         String?           @db.Text
+  /// Tramo cubierto, en centésimos e inclusivo en ambos extremos.
+  minValueHundredths Int
+  maxValueHundredths Int
+  /// Token de color de la UI ("red" | "amber" | "green" | …); el mapeo a clases vive en el front.
+  colorToken         String?
+  /// Icono o texto corto que acompaña al color. NO es decorativo: RNF 7.2 prohíbe que el
+  /// semáforo académico dependa exclusivamente del color.
+  iconToken          String?
+  isPassing          Boolean           @default(false)
+  /// Marca el tramo como situación de alerta para el backoffice (§5.5).
+  isAlert            Boolean           @default(false)
+  sortOrder          Int               @default(0)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  assessmentGrades   AssessmentGrade[]
+  periodGrades       PeriodGrade[]     @relation("PeriodGradeScaleLevel")
+
+  @@unique([scaleId, code])
+  @@index([scaleId, sortOrder])
+}
+
+/// Período académico del ciclo (RF-050), administrable por año lectivo y nivel.
+///
+/// `level` es obligatorio a propósito: los períodos reglamentarios de EBI y EMS no coinciden,
+/// y un `null` en una columna de clave única no protege nada en Postgres (los NULL se
+/// consideran distintos entre sí, así que admitiría duplicados).
+model AcademicPeriod {
+  id                          String                 @id @default(uuid())
+  schoolYearId                String
+  schoolYear                  SchoolYear             @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  level                       AcademicLevel
+  code                        String
+  name                        String
+  sortOrder                   Int                    @default(0)
+  startsOn                    DateTime?
+  endsOn                      DateTime?
+  /// Fecha límite de cierre; pasada, un cierre queda registrado como fuera de plazo (§5.9).
+  closesOn                    DateTime?
+  /// Obligatoriedad configurable por período y plan (RF-052).
+  requiresConceptualJudgement Boolean                @default(false)
+  requiresGeneralGrade        Boolean                @default(true)
+  isActive                    Boolean                @default(true)
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+  assessments                 Assessment[]
+  gradeBookPeriods            GradeBookPeriod[]
+  meetingRecords              TeacherMeetingRecord[]
+  messages                    GradeBookMessage[]
+
+  @@unique([schoolYearId, level, code])
+  @@index([schoolYearId, isActive, sortOrder])
+  conductRecords StudentConductRecord[]
+}
+
+enum ActivityTypeScope {
+  /// Del catálogo institucional: disponible para todos los docentes.
+  GLOBAL
+  /// Creado por un docente para sus propias libretas (RF-041).
+  TEACHER
+}
+
+/// Tipo de actividad de una evaluación (RF-041): predefinidos más los propios del docente.
+model ActivityType {
+  id          String            @id @default(uuid())
+  code        String
+  name        String
+  description String?           @db.Text
+  scope       ActivityTypeScope @default(GLOBAL)
+  /// Dueño cuando `scope = TEACHER`; null en los globales.
+  ownerUserId String?
+  owner       User?             @relation("ActivityTypeOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  isActive    Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  /// Cubre los tipos del docente. Los globales tienen `ownerUserId = null` y Postgres considera
+  /// los NULL distintos entre sí, así que esta clave NO los protege: la unicidad de los códigos
+  assessments Assessment[]
+
+  /// globales la da un índice único parcial (ver `prisma/migrations/*_academic_config/`).
+  @@unique([ownerUserId, code])
+  @@index([isActive, sortOrder])
+  @@index([ownerUserId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Libreta digital (RF-020, RF-021, RF-030)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum GradeBookStatus {
+  ACTIVE
+  /// Ciclo cerrado: sólo lectura (RF-110).
+  ARCHIVED
+}
+
+/// Libreta de una asignatura para un grupo en un ciclo lectivo.
+///
+/// El "grupo" en EduTrack es la oferta de curso más, si corresponde, la orientación — no hay
+/// grupos paralelos. Por eso la identidad de la libreta coincide **exactamente** con la clave que
+/// `resolveMoodleAcademicScope` deriva de un evento, y `scopeKey` es esa clave: una libreta se
+/// corresponde uno a uno con su curso Moodle `SUBJECT_COURSE`, sin tabla de traducción en el medio.
+///
+/// El docente es un campo y no parte de la clave: si cambia el titular de la asignatura, la
+/// libreta y su historial siguen siendo los mismos. Los suplentes acceden por `Substitution`.
+model GradeBook {
+  id                  String                   @id @default(uuid())
+  /// Clave lógica del scope académico; `et-subject-offering-<oferta>-<asignatura>[-corientation-<id>]`.
+  scopeKey            String                   @unique
+  schoolYearId        String
+  schoolYear          SchoolYear               @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  courseOfferingId    String
+  courseOffering      CourseOffering           @relation(fields: [courseOfferingId], references: [id], onDelete: Cascade)
+  subjectId           String
+  subject             Subject                  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  orientationId       String?
+  orientation         Orientation?             @relation(fields: [orientationId], references: [id], onDelete: SetNull)
+  courseOrientationId String?
+  courseOrientation   CourseOrientation?       @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
+  /// Titular vigente, derivado de los eventos de clase. Null si la asignatura quedó sin docente.
+  teacherUserId       String?
+  teacher             User?                    @relation("GradeBookTeacher", fields: [teacherUserId], references: [id], onDelete: SetNull)
+  status              GradeBookStatus          @default(ACTIVE)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  assessments         Assessment[]
+  periods             GradeBookPeriod[]
+  messages            GradeBookMessage[]
+  accessLogs          GradeBookAccessLog[]
+  planning            GradeBookPlanning?
+  development         CourseDevelopmentEntry[]
+
+  @@index([schoolYearId, status])
+  @@index([teacherUserId, status])
+  @@index([courseOfferingId])
+  @@index([subjectId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Evaluaciones y calificaciones (RF-040 a RF-044, §6.2, §6.3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum AssessmentSource {
+  MANUAL
+  /// Traída del gradebook de Moodle; EduTrack sigue siendo la fuente de verdad.
+  MOODLE_IMPORT
+}
+
+/// Evaluación de una libreta dentro de un período (RF-040).
+model Assessment {
+  id                String            @id @default(uuid())
+  gradeBookId       String
+  gradeBook         GradeBook         @relation(fields: [gradeBookId], references: [id], onDelete: Cascade)
+  periodId          String
+  period            AcademicPeriod    @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  /// Día civil de la actividad, a mediodía UTC (en UTC-3 un T00:00Z se lee como el día anterior).
+  date              DateTime
+  title             String
+  description       String?           @db.Text
+  activityTypeId    String?
+  activityType      ActivityType?     @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)
+  /// Escala con la que se califica. No cambia sola: si la institución cambia de escala, las
+  /// evaluaciones viejas conservan la suya y siguen leyéndose igual.
+  gradingScaleId    String
+  gradingScale      GradingScale      @relation(fields: [gradingScaleId], references: [id], onDelete: Restrict)
+  notes             String?           @db.Text
+  source            AssessmentSource  @default(MANUAL)
+  /// Ítem de calificación de Moodle del que salió, cuando `source = MOODLE_IMPORT`.
+  moodleGradeItemId Int?
+  createdByUserId   String?
+  createdBy         User?             @relation("AssessmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  /// Baja lógica: una evaluación con notas cargadas no se destruye (§6.2).
+  deletedAt         DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  grades            AssessmentGrade[]
+
+  /// Idempotencia de la importación: un ítem de Moodle produce una sola evaluación por libreta.
+  /// Los `MANUAL` llevan `moodleGradeItemId` nulo y Postgres no los hace colisionar entre sí.
+  @@unique([gradeBookId, moodleGradeItemId])
+  @@index([gradeBookId, periodId])
+  @@index([gradeBookId, date])
+  @@index([periodId])
+}
+
+/// Calificación de un estudiante en una evaluación (RF-042, RF-043).
+model AssessmentGrade {
+  id                  String             @id @default(uuid())
+  assessmentId        String
+  assessment          Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  studentId           String
+  student             Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  /// Matrícula que justificó la inclusión en el roster (traza; SetNull si se borra).
+  studentEnrollmentId String?
+  studentEnrollment   StudentEnrollment? @relation(fields: [studentEnrollmentId], references: [id], onDelete: SetNull)
+
+  /// Snapshot de identidad, igual que en el pase de lista: una baja o un cambio de nombre no
+  /// reescriben una calificación ya puesta.
+  studentLastName   String
+  studentFirstName  String
+  studentDocumentId String?
+
+  /// Valor en centésimos (8 → 800). Ver `services/academic-config/grade-value.ts`.
+  valueHundredths Int?
+  /// Tramo elegido cuando la escala es ordinal (semáforo); en las numéricas se deriva al leer.
+  scaleLevelId    String?
+  scaleLevel      GradingScaleLevel? @relation(fields: [scaleLevelId], references: [id], onDelete: SetNull)
+  /// El estudiante no rindió. Se distingue de "sin calificar" (fila ausente o valor nulo).
+  isAbsent        Boolean            @default(false)
+  comment         String?            @db.Text
+
+  gradedByUserId String?
+  gradedBy       User?    @relation("AssessmentGradeGradedBy", fields: [gradedByUserId], references: [id], onDelete: SetNull)
+  gradedAt       DateTime @default(now())
+
+  revisions GradeRevision[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([assessmentId, studentId])
+  @@index([assessmentId])
+  @@index([studentId])
+  @@index([studentEnrollmentId])
+  @@index([gradedByUserId])
+}
+
+enum GradeRevisionOrigin {
+  TEACHER
+  /// Corrección de administración o dirección, fuera de la ventana del docente.
+  ADMIN_CORRECTION
+  MOODLE_IMPORT
+}
+
+/// Historial append-only de cambios de calificación (§6.2, §6.3).
+///
+/// Espeja `StudentAttendanceJustification`: el estado vigente vive en `AssessmentGrade` y cada
+/// fila de acá registra una transición con su autor y su motivo. Es lo que impide "sobrescribir
+/// silenciosamente información académica".
+model GradeRevision {
+  id                String          @id @default(uuid())
+  assessmentGradeId String
+  assessmentGrade   AssessmentGrade @relation(fields: [assessmentGradeId], references: [id], onDelete: Cascade)
+
+  previousValueHundredths Int?
+  newValueHundredths      Int?
+  previousScaleLevelId    String?
+  newScaleLevelId         String?
+  previousIsAbsent        Boolean?
+  newIsAbsent             Boolean?
+
+  reason          String?             @db.Text
+  origin          GradeRevisionOrigin
+  changedByUserId String?
+  changedBy       User?               @relation("GradeRevisionChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  changedAt       DateTime            @default(now())
+
+  @@index([assessmentGradeId, changedAt])
+  @@index([changedByUserId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cierre de período y juicio conceptual (RF-051, RF-052, RF-053)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum GradeBookPeriodStatus {
+  OPEN
+  CLOSED
+  /// Reabierto por administración tras un cierre. No borra el cierre previo: lo sucede.
+  REOPENED
+}
+
+/// Estado de un período dentro de una libreta.
+///
+/// Cerrar es un acto del docente sobre (libreta, período): a partir de ahí las calificaciones de
+/// ese período quedan congeladas y sólo `gradebook.manage` puede reabrirlo, con motivo y auditoría.
+model GradeBookPeriod {
+  id          String                @id @default(uuid())
+  gradeBookId String
+  gradeBook   GradeBook             @relation(fields: [gradeBookId], references: [id], onDelete: Cascade)
+  periodId    String
+  period      AcademicPeriod        @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  status      GradeBookPeriodStatus @default(OPEN)
+
+  closedByUserId String?
+  closedBy       User?     @relation("GradeBookPeriodClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
+  closedAt       DateTime?
+  /// `true` si el cierre ocurrió después de `AcademicPeriod.closesOn` (§5.9, cierres fuera de plazo).
+  closedLate     Boolean   @default(false)
+
+  reopenedByUserId String?
+  reopenedBy       User?     @relation("GradeBookPeriodReopenedBy", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
+  reopenedAt       DateTime?
+  reopenReason     String?   @db.Text
+
+  grades       PeriodGrade[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  endorsements Endorsement[]
+
+  @@unique([gradeBookId, periodId])
+  @@index([gradeBookId, status])
+  @@index([periodId, status])
+}
+
+/// Calificación general del período y su juicio conceptual, por estudiante (RF-051, RF-052).
+///
+/// El **descriptor** (RF-053) no se guarda: se deriva al leer del tramo de la escala. Si mañana
+/// cambia la redacción reglamentaria de los descriptores, las libretas viejas no se reescriben.
+model PeriodGrade {
+  id                String          @id @default(uuid())
+  gradeBookPeriodId String
+  gradeBookPeriod   GradeBookPeriod @relation(fields: [gradeBookPeriodId], references: [id], onDelete: Cascade)
+  studentId         String
+  student           Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  /// Snapshot de identidad, igual que en las calificaciones y el pase de lista.
+  studentLastName   String
+  studentFirstName  String
+  studentDocumentId String?
+
+  /// Valor en centésimos (8 → 800).
+  valueHundredths     Int?
+  scaleLevelId        String?
+  scaleLevel          GradingScaleLevel? @relation("PeriodGradeScaleLevel", fields: [scaleLevelId], references: [id], onDelete: SetNull)
+  /// Juicio conceptual del docente. Su obligatoriedad la define el período (RF-052).
+  conceptualJudgement String?            @db.Text
+  /// Conducta del estudiante **en esta asignatura**, en centésimos y sobre su propia escala.
+  /// Va junto a la calificación porque el docente la pone en el mismo momento, al cerrar.
+  conductValueHundredths Int?
+
+  updatedByUserId String?
+  updatedBy       User?    @relation("PeriodGradeUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([gradeBookPeriodId, studentId])
+  @@index([studentId])
+  @@index([gradeBookPeriodId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gestión institucional: reunión de profesores (RF-070)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Decisión registrada en una reunión de profesores.
+///
+/// Es deliberadamente libre: el pliego pide "registrar decisiones cuando corresponda", sin
+/// tipificarlas. Puede referirse a un estudiante concreto o al grupo entero (`studentId` nulo).
+model TeacherMeetingRecord {
+  id                  String             @id @default(uuid())
+  schoolYearId        String
+  schoolYear          SchoolYear         @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  courseOfferingId    String
+  courseOffering      CourseOffering     @relation(fields: [courseOfferingId], references: [id], onDelete: Cascade)
+  courseOrientationId String?
+  courseOrientation   CourseOrientation? @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
+  periodId            String
+  period              AcademicPeriod     @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  /// Estudiante al que refiere; nulo si la decisión es sobre el grupo.
+  studentId           String?
+  student             Student?           @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  decision            String             @db.Text
+  createdByUserId     String?
+  createdBy           User?              @relation("TeacherMeetingRecordCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@index([courseOfferingId, periodId])
+  @@index([studentId])
+  @@index([schoolYearId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Visado (RF-080 a RF-083)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum EndorsementSection {
+  /// Las calificaciones parciales del período.
+  GRADES
+  /// El cierre: calificación general de cada estudiante.
+  CLOSURE
+  /// Los juicios conceptuales.
+  JUDGEMENTS
+  /// Visado final del período, una vez conformes las secciones obligatorias (RF-082).
+  ALL
+}
+
+enum EndorsementStatus {
+  PENDING
+  OBSERVED
+  CORRECTED
+  ENDORSED
+}
+
+/// Evento de visado sobre una sección de un período de libreta.
+///
+/// **Append-only.** El estado vigente de cada sección es su última fila; nada se actualiza ni se
+/// borra. Eso es RF-083 por construcción: una observación posterior a un visado no lo elimina, lo
+/// sucede, y el visado anterior sigue siendo consultable con su autor y su fecha.
+model Endorsement {
+  id                String             @id @default(uuid())
+  gradeBookPeriodId String
+  gradeBookPeriod   GradeBookPeriod    @relation(fields: [gradeBookPeriodId], references: [id], onDelete: Cascade)
+  section           EndorsementSection
+  status            EndorsementStatus
+  actorUserId       String?
+  actor             User?              @relation("EndorsementActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  /// Rol con el que actuó, congelado: si mañana cambia de rol, el evento sigue diciendo quién
+  /// visó y con qué atribución.
+  actorRoleCode     String             @db.VarChar(32)
+  observations      String?            @db.Text
+  occurredAt        DateTime           @default(now())
+
+  @@index([gradeBookPeriodId, section, occurredAt])
+  @@index([status, occurredAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Observaciones, mensajería y trazabilidad de acceso (RF-090, RF-091, RF-100)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Espacio de intercambio de una libreta entre docente, adscripción, dirección e inspección.
+///
+/// Es donde viven las observaciones que **no** son transiciones de visado: una consulta del
+/// docente, una aclaración de inspección, el ida y vuelta sobre una corrección. El visado tiene
+/// su propia cadena append-only (`Endorsement`) porque ahí el orden cambia un estado formal.
+model GradeBookMessage {
+  id          String          @id @default(uuid())
+  gradeBookId String
+  gradeBook   GradeBook       @relation(fields: [gradeBookId], references: [id], onDelete: Cascade)
+  /// Período al que refiere el mensaje; nulo si es sobre la libreta en general.
+  periodId    String?
+  period      AcademicPeriod? @relation(fields: [periodId], references: [id], onDelete: SetNull)
+
+  authorUserId   String?
+  author         User?   @relation("GradeBookMessageAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  /// Rol con el que escribió, congelado: el hilo sigue siendo legible si después cambia de rol.
+  authorRoleCode String  @db.VarChar(32)
+
+  body     String             @db.Text
+  /// Respuesta dentro de un hilo; nulo si abre uno.
+  parentId String?
+  parent   GradeBookMessage?  @relation("GradeBookMessageThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  GradeBookMessage[] @relation("GradeBookMessageThread")
+
+  createdAt DateTime @default(now())
+
+  @@index([gradeBookId, createdAt])
+  @@index([parentId])
+  @@index([authorUserId])
+}
+
+/// Registro de acceso a una libreta (RF-100).
+///
+/// Tabla aparte de `AuditLog` a propósito: es de alto volumen —una fila por apertura— y su
+/// retención es distinta de la de las acciones críticas. Mezclarlas haría que la auditoría real
+/// quedara sepultada bajo las consultas.
+model GradeBookAccessLog {
+  id          String    @id @default(uuid())
+  gradeBookId String
+  gradeBook   GradeBook @relation(fields: [gradeBookId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?     @relation("GradeBookAccessLogUser", fields: [userId], references: [id], onDelete: SetNull)
+  roleCode    String    @db.VarChar(32)
+  /// Período consultado, si el acceso fue a una vista de período.
+  periodId    String?
+  ip          String?   @db.VarChar(45)
+  occurredAt  DateTime  @default(now())
+
+  @@index([gradeBookId, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Backoffice de inteligencia académica (§5, RF-200)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum AcademicAlertRuleType {
+  /// Resultados en tramo de alerta en N o más asignaturas.
+  ALERT_SUBJECTS
+  /// Descenso de N o más puntos entre períodos consecutivos.
+  SCORE_DROP
+  /// Estudiante sin ninguna evaluación en el período.
+  NO_ASSESSMENTS
+}
+
+/// Regla configurable de detección de riesgo (§5.7).
+///
+/// **Tiene vigencia por ciclo** (RF-200): al comparar 2025 con 2026 cada año se evalúa con el
+/// umbral que regía entonces. Recalcular años cerrados con las reglas de hoy haría que una
+/// comparativa histórica cambiara sola cuando alguien mueve un umbral.
+model AcademicAlertRule {
+  id           String                @id @default(uuid())
+  type         AcademicAlertRuleType
+  /// Ciclo al que aplica; `null` = regla por defecto para los ciclos sin una propia.
+  schoolYearId String?
+  schoolYear   SchoolYear?           @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  /// Umbral en la unidad del tipo: cantidad de asignaturas, o centésimos para las caídas.
+  threshold    Int
+  params       Json?
+  isActive     Boolean               @default(true)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@unique([type, schoolYearId])
+  @@index([schoolYearId, isActive])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Libro del Profesor: planificación y desarrollo del curso
+//
+// Piezas del libro docente que no son calificación: lo que el docente planificó y lo que
+// efectivamente dictó clase a clase. En la libreta de papel ocupan las primeras hojas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Planificación de la libreta: la formativa y sus replanificaciones.
+model GradeBookPlanning {
+  id          String    @id @default(uuid())
+  gradeBookId String    @unique
+  gradeBook   GradeBook @relation(fields: [gradeBookId], references: [id], onDelete: Cascade)
+  /// Planificación formativa (bloque A).
+  formative   String?   @db.Text
+  /// Replanificación (bloque B): qué se ajustó sobre la marcha y por qué.
+  replanning  String?   @db.Text
+  /// Referencia textual al material adjunto; el repo no almacena archivos.
+  attachments String?   @db.Text
+
+  updatedByUserId String?
+  updatedBy       User?    @relation("GradeBookPlanningUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// Una clase dictada (o no dictada) con su desarrollo temático.
+///
+/// Es el registro que después sostiene "horas dictadas" y permite a dirección e inspección ver
+/// qué se dio y cuándo, sin depender de la memoria del docente.
+model CourseDevelopmentEntry {
+  id             String    @id @default(uuid())
+  gradeBookId    String
+  gradeBook      GradeBook @relation(fields: [gradeBookId], references: [id], onDelete: Cascade)
+  /// Día civil de la clase, a mediodía UTC.
+  date           DateTime
+  /// Horas efectivamente dictadas y horas perdidas de esa jornada.
+  hoursTaught    Int       @default(0)
+  hoursNotTaught Int       @default(0)
+  /// Qué se trabajó en clase.
+  description    String    @db.Text
+  attachments    String?   @db.Text
+
+  createdByUserId String?
+  createdBy       User?    @relation("CourseDevelopmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([gradeBookId, date])
 }

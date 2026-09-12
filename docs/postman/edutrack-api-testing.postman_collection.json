@@ -174,8 +174,7 @@
         { "name": "DEV-T7063 - API-PERM-003 [Postman] Actualizar permisos de perfil", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/admin/profiles/POSTMAN_ROLE/permissions", "body": { "mode": "raw", "raw": "{\n  \"permissions\": []\n}" } } },
         { "name": "DEV-T7064 - API-SET-001 [Postman] Consultar configuración", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/system-settings" } },
         { "name": "DEV-T7065 - API-SET-002 [Postman] Actualizar configuración", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/system-settings", "body": { "mode": "raw", "raw": "{\n  \"attendanceLateToleranceMinutes\": 5,\n  \"attendanceNoShowGraceMinutes\": 15,\n  \"attendanceMonitorEnabled\": true\n}" } } },
-        { "name": "DEV-T7066 - API-AUD-001 [Postman] Listar auditoría", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/audit-logs?page=1&pageSize=20" } },
-        { "name": "DEV-T7067 - API-QA-001 [Postman] Enviar pregunta al asistente", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/query-assistant", "body": { "mode": "raw", "raw": "{\n  \"question\": \"¿Cuántas asistencias tardías hubo este mes?\"\n}" } } }
+        { "name": "DEV-T7066 - API-AUD-001 [Postman] Listar auditoría", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/audit-logs?page=1&pageSize=20" } }
       ]
     },
     {

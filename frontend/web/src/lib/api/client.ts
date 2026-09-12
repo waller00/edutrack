@@ -2,19 +2,24 @@ import { apiBaseUrl } from '@/lib/api/base-url'
 
 export { apiBaseUrl }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+type ApiRequestInit = RequestInit & {
+  timeoutMs?: number
+}
+
+export async function api<T>(path: string, init?: ApiRequestInit): Promise<T> {
   const apiUrl = apiBaseUrl()
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 12000)
+  const { timeoutMs = 12000, signal, headers, ...restInit } = init ?? {}
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
   let res: Response
   try {
     res = await fetch(`${apiUrl}${path}`, {
       credentials: "include",
-      ...init,
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+      ...restInit,
+      headers: { "Content-Type": "application/json", ...(headers || {}) },
       cache: "no-store",
-      signal: init?.signal || controller.signal,
+      signal: signal || controller.signal,
     })
   } catch (err) {
     const message = err instanceof DOMException && err.name === 'AbortError'

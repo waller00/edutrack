@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   BarChart3,
   Bell,
+  BookMarked,
   BookOpen,
   CalendarDays,
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Receipt,
   MessageCircle,
   School,
   Settings,
@@ -61,6 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Usuarios', href: '/admin/users', permission: 'users.read', permissionScope: 'all' },
       { label: 'Licencias', href: '/admin/licenses', permission: 'licenses.read', permissionScope: 'all' },
       { label: 'Mis eventos', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
+      { label: 'Pase de lista', href: '/me/roll-call', permission: 'student-attendance.take', permissionScope: 'own' },
       { label: 'Mis asistencias', href: '/me/attendance', permission: 'attendance.read', permissionScope: 'own' },
       { label: 'Mis licencias', href: '/me/licenses', permission: 'licenses.read', permissionScope: 'own' },
     ],
@@ -72,6 +75,27 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage' },
       { label: 'Cursos', href: '/admin/courses', permission: 'courses.manage' },
       { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage' },
+      { label: 'Mensualidades', href: '/admin/tuition', permission: 'students.manage', permissionScope: 'all' },
+      { label: 'Pase de lista (control)', href: '/admin/student-attendance', permission: 'student-attendance.manage' },
+    ],
+  },
+  {
+    title: 'Libreta @',
+    icon: BookMarked,
+    items: [
+      // El orden espeja cómo se usa: primero las libretas propias, después lo transversal.
+      { label: 'Mis Libretas', href: '/libreta', permission: 'gradebook.read', permissionScope: 'own' },
+      { label: 'Inasistencias de Libreta', href: '/libreta/inasistencias', permission: 'gradebook.read', permissionScope: 'own' },
+      { label: 'Evaluaciones', href: '/libreta/evaluaciones', permission: 'gradebook.read', permissionScope: 'own' },
+      { label: 'Cerrar Prom. por Alumno', href: '/libreta/cierre-alumno', permission: 'gradebook.close', permissionScope: 'own' },
+      { label: 'Cerrar Prom. por Libreta', href: '/libreta/cierre-libreta', permission: 'gradebook.close', permissionScope: 'own' },
+      // Supervisión: adscripción, dirección e inspección.
+      { label: 'Vista de grupo', href: '/libreta/grupo', permission: 'gradebook.read', permissionScope: 'all' },
+      { label: 'Control de libretas', href: '/libreta/control', permission: 'gradebook.review', permissionScope: 'all' },
+      { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
+      { label: 'Reunión de profesores', href: '/libreta/reunion', permission: 'gradebook.read', permissionScope: 'all' },
+      { label: 'Inteligencia académica', href: '/libreta/indicadores', permission: 'academic-analytics.read', permissionScope: 'all' },
+      { label: 'Configuración de libreta', href: '/libreta/configuracion', permission: 'academic-config.manage' },
     ],
   },
   {
@@ -79,7 +103,6 @@ const NAV_GROUPS: NavGroup[] = [
     icon: BarChart3,
     items: [
       { label: 'Indicadores', href: '/admin/analytics', permission: 'analytics.read' },
-      { label: 'Consultas', href: '/admin/query-assistant', permission: 'query-assistant.use' },
     ],
   },
   {
@@ -105,8 +128,11 @@ function isPublicPath(pathname: string) {
 }
 
 function itemIcon(label: string) {
+  if (/pase de lista/i.test(label)) return ClipboardList
+  if (/libreta|evaluacion|cerrar prom|visado|reunión|reunion/i.test(label)) return BookOpen
   if (/curso/i.test(label)) return BookOpen
   if (/estudiante/i.test(label)) return GraduationCap
+  if (/mensualidad/i.test(label)) return Receipt
   if (/evento|clase|turno/i.test(label)) return CalendarDays
   if (/asistencia/i.test(label)) return ClipboardList
   if (/perfil|rol/i.test(label)) return ShieldCheck
@@ -155,13 +181,25 @@ function visibleGroups(me: MeUser) {
     .filter((group) => group.items.length > 0)
 }
 
+const ALL_HREFS = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href))
+
+/**
+ * ¿Este ítem es el activo?
+ *
+ * No alcanza con que la URL empiece con el href: `/libreta` es prefijo de `/libreta/visado`, así
+ * que "Mis Libretas" se marcaría como activo en todo el módulo. Gana el href **más específico**
+ * que coincida.
+ */
 function pathIsActive(pathname: string, href: string) {
   if (href === '/') return pathname === '/'
-  return pathname === href || pathname.startsWith(`${href}/`)
+  const matches = (candidate: string) =>
+    pathname === candidate || pathname.startsWith(`${candidate}/`)
+  if (!matches(href)) return false
+  return !ALL_HREFS.some((other) => other !== href && other.length > href.length && matches(other))
 }
 
 export default function UserNav({ children = null }: { children?: React.ReactNode }) {
-  const { me } = useAuth()
+  const { me, loading } = useAuth()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
@@ -262,6 +300,34 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     </div>
   ) : null
 
+  // Fuera de las rutas públicas, un usuario sin sesión siempre está en camino al
+  // login (lo mandan `AuthGuard`, `RoleGuard` o la home). Pintar el header público
+  // en esa ventana hace parpadear "Iniciar Sesión" justo antes del salto, así que
+  // dejamos que se vea únicamente el placeholder del guard.
+  if (!isPublicPath(pathname) && !me) {
+    return <>{children}</>
+  }
+
+  // En rutas públicas sí corresponde el header, pero mientras `/auth/me` no resuelve
+  // no sabemos si mostrar la cuenta o los botones de sesión: reservamos el espacio.
+  let authActions: React.ReactNode
+  if (loading) {
+    authActions = <div className="h-10 w-32 animate-pulse rounded-lg bg-gray-100" aria-hidden />
+  } else if (me) {
+    authActions = accountButton
+  } else {
+    authActions = (
+      <>
+        <a href="/login" className="btn-secondary px-3 text-sm">
+          Iniciar Sesión
+        </a>
+        <a href="/register" className="btn-primary px-3 text-sm">
+          Registrarse
+        </a>
+      </>
+    )
+  }
+
   const sidebar = hasDashboardShell ? (
     <aside className="sidebar-modern fixed inset-y-0 left-0 z-40 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-white lg:w-72">
       <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-5">
@@ -288,8 +354,8 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         <div className="space-y-1.5">
           {groups.map((group) => {
             const Icon = group.icon
-            const expanded = openGroups[group.title] ?? false
             const groupActive = group.items.some((item) => pathIsActive(pathname, item.href))
+            const expanded = openGroups[group.title] ?? (groupActive || group.title === 'Inicio')
             return (
               <div key={group.title}>
                 <button
@@ -344,18 +410,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
               <span className="truncate">EduTrack</span>
             </a>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-              {me ? (
-                accountButton
-              ) : (
-                <>
-                  <a href="/login" className="btn-secondary px-3 text-sm">
-                    Iniciar Sesión
-                  </a>
-                  <a href="/register" className="btn-primary px-3 text-sm">
-                    Registrarse
-                  </a>
-                </>
-              )}
+              {authActions}
             </div>
           </div>
         </header>

@@ -23,6 +23,7 @@ const { prismaMock } = vi.hoisted(() => ({
       findMany: vi.fn(),
       count: vi.fn(),
     },
+    substitution: { findMany: vi.fn() },
     auditLog: { create: vi.fn() },
     medicalLeave: { findFirst: vi.fn(), findMany: vi.fn() },
     systemSettings: { upsert: vi.fn() },
@@ -69,6 +70,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.attendance.findMany.mockResolvedValue([]);
     prismaMock.user.findMany.mockResolvedValue([]);
     prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    prismaMock.substitution.findMany.mockResolvedValue([]);
     prismaMock.systemSettings.upsert.mockResolvedValue({
       id: "default",
       attendanceNoShowGraceMinutes: 15,
@@ -431,6 +433,72 @@ describe("attendance /register (prisma mock)", () => {
     expect(prismaMock.attendanceIncident.findMany).toHaveBeenCalled();
   });
 
+  it("GET /attendance/all marca ausencia del suplente que no asistió a la suplencia vencida", async () => {
+    prismaMock.attendance.count.mockResolvedValue(0);
+    prismaMock.attendanceIncident.count.mockResolvedValue(0);
+    prismaMock.attendanceIncident.findMany.mockResolvedValue([]);
+    prismaMock.event.findMany.mockResolvedValue([]); // sin instancias planificadas (titular)
+    prismaMock.substitution.findMany.mockResolvedValueOnce([
+      {
+        id: "sub-1",
+        eventId: "ev-sup",
+        substituteUserId: "subst-1",
+        date: new Date("2026-05-20T03:00:00.000Z"),
+        startTime: new Date("2026-05-20T18:00:00.000Z"),
+        endTime: new Date("2026-05-20T19:00:00.000Z"),
+        substitute: { id: "subst-1", name: "Joaquin Waller", email: "jw@example.com", orgRole: { code: "TEACHER" } },
+        event: { id: "ev-sup", title: "CLASE MATEMATICA 7 EBI", type: "CLASE" },
+      },
+    ]);
+    // El suplente no registró ningún CHECK_IN → ausencia.
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+
+    const res = await request(app())
+      .get("/attendance/all?includeIncidents=true&startDate=2026-05-20&endDate=2026-05-20")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.data[0]).toMatchObject({
+      id: "subabsence:sub-1",
+      kind: "VIRTUAL_ABSENCE",
+      type: "CHECK_IN",
+      status: "ABSENT_NOT_JUSTIFIED",
+      user: { id: "subst-1", name: "Joaquin Waller", role: "TEACHER" },
+      event: { id: "ev-sup", title: "CLASE MATEMATICA 7 EBI", type: "CLASE" },
+    });
+  });
+
+  it("GET /attendance/all NO marca ausencia del suplente si registró asistencia", async () => {
+    prismaMock.attendance.count.mockResolvedValue(0);
+    prismaMock.attendanceIncident.count.mockResolvedValue(0);
+    prismaMock.attendanceIncident.findMany.mockResolvedValue([]);
+    prismaMock.event.findMany.mockResolvedValue([]);
+    prismaMock.substitution.findMany.mockResolvedValueOnce([
+      {
+        id: "sub-2",
+        eventId: "ev-sup",
+        substituteUserId: "subst-1",
+        date: new Date("2026-05-20T03:00:00.000Z"),
+        startTime: new Date("2026-05-20T18:00:00.000Z"),
+        endTime: new Date("2026-05-20T19:00:00.000Z"),
+        substitute: { id: "subst-1", name: "Joaquin Waller", email: "jw@example.com", orgRole: { code: "TEACHER" } },
+        event: { id: "ev-sup", title: "CLASE MATEMATICA 7 EBI", type: "CLASE" },
+      },
+    ]);
+    // El suplente SÍ tiene un CHECK_IN ese día para ese evento → no es ausencia.
+    prismaMock.attendance.findMany.mockResolvedValue([
+      { userId: "subst-1", eventId: "ev-sup", date: new Date("2026-05-20T03:00:00.000Z") },
+    ]);
+
+    const res = await request(app())
+      .get("/attendance/all?includeIncidents=true&startDate=2026-05-20&endDate=2026-05-20")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.some((row: { kind?: string }) => row.kind === "VIRTUAL_ABSENCE")).toBe(false);
+  });
+
   it("GET /attendance/all filtra por ciclo lectivo en la columna directa schoolYearId", async () => {
     const sy = "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee";
     prismaMock.schoolYear.findUnique.mockResolvedValueOnce({ id: sy });
@@ -582,6 +650,26 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.status).toBe(200);
     expect(res.body.attendanceRate).toBe(80);
     expect(prismaMock.attendance.count.mock.calls[0][0].where.userId).toBe("user-1");
+  });
+
+  it("GET /attendance/stats con filtro userId no serializa tasas nulas", async () => {
+    prismaMock.attendance.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    const res = await request(app())
+      .get("/attendance/stats?userId=user-2")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.attendanceRate).toBe(0);
+    expect(res.body.lateRate).toBe(0);
+    expect(res.body.absenceRate).toBe(0);
+    expect(res.body.exitRate).toBe(0);
+    expect(res.body.earlyExitRate).toBe(0);
+    expect(res.body.attendanceRate).not.toBeNull();
+    expect(prismaMock.attendance.count.mock.calls[0][0].where.userId).toBe("user-2");
   });
 
   it("POST /attendance/:id/note 400 con nota vacía", async () => {

@@ -100,6 +100,7 @@ services:
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       COOKIE_AUTO_DOMAIN: ${COOKIE_AUTO_DOMAIN:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@pg:5432/${POSTGRES_DB:-asistencias}?schema=public}
+      # Solo lectura para el asistente NL->SQL; si falta, ese modo no ejecuta nada.
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:-}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---
@@ -133,10 +134,6 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:4000/auth/google/callback}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      OPENAI_SQL_MODEL: ${OPENAI_SQL_MODEL:-}
-      QUERY_ASSISTANT_MODE: ${QUERY_ASSISTANT_MODE:-}
       # Panel admin de pruebas (simular ADMS / limpiar datos). En testing: ALLOW_ADMIN_TESTING_TOOLS=1
       ALLOW_ADMIN_TESTING_TOOLS: ${ALLOW_ADMIN_TESTING_TOOLS:-}
       # Moodle (misma red Docker que docker-compose.moodle.yml; ver MOODLE_HOST en ese archivo)
@@ -154,6 +151,12 @@ services:
       MOODLE_PUBLIC_URL: ${MOODLE_PUBLIC_URL:-}
       # ADMS ZKTeco: 0 = mismo puerto que PORT (4000). El reloj usa la URL pública HTTPS del API.
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-0}
+      # Dispositivo biométrico F22: el seed usa estos valores para enlazar el equipo físico por su SN.
+      BIOMETRIC_DEVICE_CODE: ${BIOMETRIC_DEVICE_CODE:-}
+      BIOMETRIC_ADMS_SERIAL: ${BIOMETRIC_ADMS_SERIAL:-}
+      BIOMETRIC_DEVICE_NAME: ${BIOMETRIC_DEVICE_NAME:-}
+      BIOMETRIC_DEVICE_SECRET: ${BIOMETRIC_DEVICE_SECRET:-}
+      BIOMETRIC_DEVICE_TZ: ${BIOMETRIC_DEVICE_TZ:-}
       # Baseline k6 autenticada: apagada por defecto y protegida por secreto.
       EDUTRACK_PERFORMANCE_AUTH_ENABLED: ${EDUTRACK_PERFORMANCE_AUTH_ENABLED:-false}
       EDUTRACK_PERFORMANCE_AUTH_SECRET: ${EDUTRACK_PERFORMANCE_AUTH_SECRET:-}

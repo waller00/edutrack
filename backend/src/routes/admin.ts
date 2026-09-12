@@ -27,29 +27,79 @@ import {
 } from '../identity/profile-permissions-repository.js'
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
 import { normalizeOrgRoleCode, resolveRoleIdByCode, validateOrgRoleCode } from '../identity/org-role-service.js'
+import { BUILTIN_ORG_ROLE_CODES } from '../identity/org-role-seed.js'
 import {
   AUDIT_ACTION_LABELS,
   getAuditActionCatalog,
   parseAuditActionFilter,
   recordAuditEvent,
 } from '../services/audit-log.js'
-import { runAdminQueryAssistant } from '../services/query-assistant/run.js'
-import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { ensureMoodleUserById } from '../services/moodle.js'
 import {
   getMoodleHealthStatus,
   isMoodleIntegrationEnabled,
   reconcileMoodle,
 } from '../integrations/moodle/index.js'
-import { createKeycloakUser, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
+import { createKeycloakUser, deleteKeycloakUserByEmail, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
 import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
 import adminStudentsRoutes from './admin-students.js'
+import adminTuitionRoutes from './admin-tuition.js'
+import adminStudentAttendanceRoutes from './admin-student-attendance.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
+import adminAcademicConfigRoutes from './admin-academic-config.js'
+import adminGradeBookRoutes from './admin-gradebook.js'
+import adminAcademicAnalyticsRoutes from './admin-academic-analytics.js'
 
 const r = Router()
 r.use(authGuard)
+
+type ManualMoodleReconcileState = {
+  running: boolean
+  startedAt: string | null
+  finishedAt: string | null
+  lastSummary: Record<string, number> | null
+  lastError: string | null
+}
+
+const manualMoodleReconcileState: ManualMoodleReconcileState = {
+  running: false,
+  startedAt: null,
+  finishedAt: null,
+  lastSummary: null,
+  lastError: null,
+}
+
+function startManualMoodleReconcile(syncStudents: boolean): boolean {
+  if (manualMoodleReconcileState.running) return false
+  manualMoodleReconcileState.running = true
+  manualMoodleReconcileState.startedAt = new Date().toISOString()
+  manualMoodleReconcileState.finishedAt = null
+  manualMoodleReconcileState.lastError = null
+
+  void (async () => {
+    try {
+      const summary = await reconcileMoodle({ syncStudents })
+      manualMoodleReconcileState.lastSummary = summary as unknown as Record<string, number>
+      console.log(
+        `[moodle] manual reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} ` +
+          `suplentes=${summary.substituteEnrolments} revocados=${summary.substituteRevocations} ` +
+          `estudiantes=${summary.studentEnrolments} sin-cuenta=${summary.studentsWithoutAccount} ` +
+          `errores=${summary.errors}`,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      manualMoodleReconcileState.lastError = message.slice(0, 1000)
+      console.error('[admin] moodle/reconcile async:', error)
+    } finally {
+      manualMoodleReconcileState.running = false
+      manualMoodleReconcileState.finishedAt = new Date().toISOString()
+    }
+  })()
+
+  return true
+}
 
 async function resolveActiveOrgRole(roleCodeRaw: string) {
   const code = roleCodeRaw.trim().toUpperCase()
@@ -64,6 +114,7 @@ async function buildAdminUserUpdateData(id: string, payload: {
   lastName?: string
   isApproved?: boolean
   isActive?: boolean
+  emailVerified?: boolean
 }) {
   const data: Record<string, unknown> = {}
   if (payload.role) {
@@ -103,6 +154,15 @@ async function buildAdminUserUpdateData(id: string, payload: {
   if (typeof payload.isActive === 'boolean') {
     data.isActive = payload.isActive
   }
+  if (typeof payload.emailVerified === 'boolean') {
+    if (payload.emailVerified) {
+      // Si ya estaba verificado, conservar la fecha original; si no, marcar ahora.
+      const cur = await prisma.user.findUnique({ where: { id }, select: { emailVerifiedAt: true } })
+      data.emailVerifiedAt = cur?.emailVerifiedAt ?? new Date()
+    } else {
+      data.emailVerifiedAt = null
+    }
+  }
   return data
 }
 
@@ -139,6 +199,7 @@ function computeAuditUserFieldsChanged(
     name?: string | null
     nationalId?: string | null
     nationalIdDocumentExpiresAt?: Date | string | null
+    emailVerifiedAt?: Date | string | null
     isApproved?: boolean | null
     approvedAt?: Date | string | null
     isActive?: boolean | null
@@ -155,6 +216,7 @@ function computeAuditUserFieldsChanged(
         changed = nationalIdComparable(oldVal) !== nationalIdComparable(newVal)
         break
       case 'nationalIdDocumentExpiresAt':
+      case 'emailVerifiedAt':
       case 'approvedAt':
         changed = dateComparableMs(oldVal) !== dateComparableMs(newVal)
         break
@@ -414,7 +476,7 @@ r.post('/profiles', requirePermission('profiles.manage', 'all'), async (req, res
     return res.status(400).json({ message: 'Código de perfil inválido (usa A-Z, números y _, empieza con letra).' })
   }
 
-  if (['ADMIN', 'TEACHER', 'STAFF'].includes(code)) {
+  if (BUILTIN_ORG_ROLE_CODES.includes(code)) {
     return res.status(409).json({ message: 'Ese perfil ya existe' })
   }
 
@@ -536,6 +598,10 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
   const { email, username } = parsed.data
   const exist = await prisma.user.findUnique({ where: { email } })
   if (exist) return res.status(409).json({ message: 'Correo ya registrado' })
+  if (username) {
+    const usernameTaken = await prisma.user.findFirst({ where: { username }, select: { id: true } })
+    if (usernameTaken) return res.status(409).json({ message: 'Ese nombre de usuario ya está en uso' })
+  }
   const user = await prisma.user.create({
     data: {
       email,
@@ -547,6 +613,14 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
     },
   })
   try {
+    // Si el username está ocupado en Keycloak por una cuenta huérfana (sin usuario en la app),
+    // la liberamos para usar el nombre limpio. Si pertenece a un usuario real, createKeycloakUser
+    // dará 409 (KEYCLOAK_USERNAME_TAKEN) y se maneja abajo.
+    if (username) {
+      await freeKeycloakUsernameIfOrphan(username, async (mail) =>
+        Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
+      )
+    }
     await createKeycloakUser({
       email,
       username,
@@ -554,8 +628,18 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
       emailVerified: false,
     })
   } catch (e) {
+    // Atomicidad: si Keycloak falla, deshacemos el alta local para no dejar usuarios
+    // huérfanos (existen en la app pero no pueden acceder).
+    await prisma.user
+      .delete({ where: { id: user.id } })
+      .catch((delErr) => console.error('[admin] rollback usuario tras fallo Keycloak:', delErr))
+    const usernameTakenInKc = e instanceof Error && (e as { code?: string }).code === 'KEYCLOAK_USERNAME_TAKEN'
     console.error('[admin] keycloak create user:', e)
-    return res.status(502).json({ message: 'Usuario local creado, pero no se pudo activar el acceso.' })
+    return res.status(usernameTakenInKc ? 409 : 502).json({
+      message: usernameTakenInKc
+        ? 'Ese nombre de usuario ya está en uso en el sistema de acceso. Probá con otro.'
+        : 'No se pudo crear el acceso del usuario. No se creó nada; intentá de nuevo.',
+    })
   }
   recordAuditEvent({
     action: AuditAction.USER_CREATED_BY_ADMIN,
@@ -581,6 +665,7 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
       lastName: z.string().min(1).max(80).optional(),
       isApproved: z.boolean().optional(),
       isActive: z.boolean().optional(),
+      emailVerified: z.boolean().optional(),
     })
     .safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
@@ -661,6 +746,7 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
       name: true,
       nationalId: true,
       nationalIdDocumentExpiresAt: true,
+      emailVerifiedAt: true,
       isApproved: true,
       approvedAt: true,
       isActive: true,
@@ -675,11 +761,13 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
 
   try {
     await prisma.user.update({ where: { id }, data: data as Prisma.UserUpdateInput })
-    if (data.username || data.firstName || data.lastName) {
+    const emailVerifiedProvided = Object.prototype.hasOwnProperty.call(data, 'emailVerifiedAt')
+    if (data.username || data.firstName || data.lastName || emailVerifiedProvided) {
       await syncKeycloakUserIdentityByEmail(beforeSnapshot.email, {
         username: typeof data.username === 'string' ? data.username : beforeSnapshot.username,
         firstName: typeof data.firstName === 'string' ? data.firstName : beforeSnapshot.firstName,
         lastName: typeof data.lastName === 'string' ? data.lastName : beforeSnapshot.lastName,
+        ...(emailVerifiedProvided ? { emailVerified: data.emailVerifiedAt !== null } : {}),
       }).catch((error) => console.warn('[admin] keycloak sync user identity skipped:', error))
     }
   } catch (error) {
@@ -710,6 +798,60 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
   ) {
     void ensureMoodleUserById(id)
   }
+  res.json({ ok: true })
+})
+
+// Eliminar definitivamente un usuario. Solo admin (users.update/all) y solo si ya está
+// dado de baja, para evitar borrados accidentales. Borra también la cuenta de Keycloak.
+r.delete('/users/:id', requirePermission('users.update', 'all'), async (req, res) => {
+  const id = req.params.id
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, name: true, isActive: true, ...selectOrgRoleCode },
+  })
+  if (!target) return res.status(404).json({ message: 'Usuario no encontrado' })
+  if ((target.orgRole?.code ?? '') === 'ADMIN') {
+    return res.status(403).json({ message: 'No se puede eliminar al usuario administrador.' })
+  }
+  if (target.isActive) {
+    return res.status(409).json({
+      message: 'Solo se puede eliminar un usuario que esté dado de baja. Dalo de baja primero.',
+    })
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Relaciones con FK Restrict hacia User (suplencias): hay que quitarlas antes de borrar.
+      // El resto de relaciones se resuelven por Cascade / SetNull en el esquema.
+      await tx.substitution.deleteMany({
+        where: { OR: [{ originalTeacherUserId: id }, { substituteUserId: id }] },
+      })
+      await tx.user.delete({ where: { id } })
+    })
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return res.status(409).json({
+        message: 'No se puede eliminar: el usuario tiene registros asociados que lo impiden.',
+      })
+    }
+    throw error
+  }
+
+  // Invalida sesiones BFF y borra la cuenta de Keycloak (best-effort) para no dejar huérfanos.
+  void deleteSessionsForUser(id)
+  void deleteKeycloakUserByEmail(target.email).catch((error) =>
+    console.warn('[admin] keycloak delete user skipped:', error),
+  )
+
+  recordAuditEvent({
+    action: AuditAction.USER_DELETED_BY_ADMIN,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { email: target.email },
+  })
+
   res.json({ ok: true })
 })
 
@@ -782,6 +924,9 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     moodleReconcileIntervalMs?: number | null
     moodleSyncStudents?: boolean | null
     institutionTimezone?: string | null
+    studentRollCallEditWindowHours?: number | null
+    studentRollCallCopyPreviousEnabled?: boolean | null
+    studentDailyAbsenceThresholdPercent?: number | null
   }
   return res.json({
     diditConfigured: isDiditConfigured(),
@@ -802,6 +947,9 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     moodleSyncEnabledFromEnv: isMoodleSyncEnabledFromEnv(),
     moodleReconcileIntervalMs: settings.moodleReconcileIntervalMs ?? 900000,
     moodleSyncStudents: settings.moodleSyncStudents === true,
+    studentRollCallEditWindowHours: settings.studentRollCallEditWindowHours ?? 48,
+    studentRollCallCopyPreviousEnabled: settings.studentRollCallCopyPreviousEnabled !== false,
+    studentDailyAbsenceThresholdPercent: settings.studentDailyAbsenceThresholdPercent ?? 50,
   })
 })
 
@@ -820,6 +968,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       moodleReconcileIntervalMs: z.number().int().min(60000).max(86400000).optional(),
       moodleSyncStudents: z.boolean().optional(),
       institutionTimezone: z.string().trim().min(1).max(64).optional(),
+      studentRollCallEditWindowHours: z.number().int().min(1).max(720).optional(),
+      studentRollCallCopyPreviousEnabled: z.boolean().optional(),
+      studentDailyAbsenceThresholdPercent: z.number().int().min(1).max(100).optional(),
     })
     .safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
@@ -848,6 +999,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
       moodleReconcileIntervalMs: data.moodleReconcileIntervalMs ?? 900000,
       moodleSyncStudents: data.moodleSyncStudents ?? false,
       institutionTimezone: normalizeInstitutionTimezone(data.institutionTimezone),
+      studentRollCallEditWindowHours: data.studentRollCallEditWindowHours ?? 48,
+      studentRollCallCopyPreviousEnabled: data.studentRollCallCopyPreviousEnabled ?? true,
+      studentDailyAbsenceThresholdPercent: data.studentDailyAbsenceThresholdPercent ?? 50,
     } as any,
     update: data as any,
   })
@@ -859,6 +1013,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     moodleReconcileIntervalMs?: number | null
     moodleSyncStudents?: boolean | null
     institutionTimezone?: string | null
+    studentRollCallEditWindowHours?: number | null
+    studentRollCallCopyPreviousEnabled?: boolean | null
+    studentDailyAbsenceThresholdPercent?: number | null
   }
 
   recordAuditEvent({
@@ -889,13 +1046,16 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     moodleSyncEnabledFromEnv: isMoodleSyncEnabledFromEnv(),
     moodleReconcileIntervalMs: updatedSettings.moodleReconcileIntervalMs ?? 900000,
     moodleSyncStudents: updatedSettings.moodleSyncStudents === true,
+    studentRollCallEditWindowHours: updatedSettings.studentRollCallEditWindowHours ?? 48,
+    studentRollCallCopyPreviousEnabled: updatedSettings.studentRollCallCopyPreviousEnabled !== false,
+    studentDailyAbsenceThresholdPercent: updatedSettings.studentDailyAbsenceThresholdPercent ?? 50,
   })
 })
 
 r.get('/moodle/status', requirePermission('settings.manage', 'all'), async (_req, res) => {
   try {
     const status = await getMoodleHealthStatus()
-    return res.json(status)
+    return res.json({ ...status, reconcile: manualMoodleReconcileState })
   } catch (error) {
     console.error('[admin] moodle/status:', error)
     return res.status(500).json({ message: 'Error obteniendo estado de Moodle' })
@@ -908,8 +1068,13 @@ r.post('/moodle/reconcile', requirePermission('settings.manage', 'all'), async (
   }
   try {
     const moodleSettings = await getMoodleOperationalSettings()
-    const summary = await reconcileMoodle({ syncStudents: moodleSettings.syncStudents })
-    return res.json({ message: 'Reconciliación completada', summary })
+    const started = startManualMoodleReconcile(moodleSettings.syncStudents)
+    return res.status(started ? 202 : 200).json({
+      message: started
+        ? 'Sincronización iniciada en segundo plano'
+        : 'Ya hay una sincronización en curso',
+      reconcile: manualMoodleReconcileState,
+    })
   } catch (error) {
     console.error('[admin] moodle/reconcile:', error)
     return res.status(500).json({
@@ -992,52 +1157,13 @@ r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) =>
 })
 
 r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRoutes)
+r.use('/tuition', requirePermission('students.manage', 'all'), adminTuitionRoutes)
+// El router se monta con lectura y cada ruta pide lo suyo: adscripción justifica sin poder
+// reabrir planillas cerradas, que sigue siendo de administración.
+r.use('/student-attendance', requirePermission('student-attendance.read', 'all'), adminStudentAttendanceRoutes)
 r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSchoolYearsRoutes)
-
-/** RF-10: consulta en lenguaje natural → SQL SELECT validado o informe prearmado de fallback. */
-r.post('/query-assistant', requirePermission('query-assistant.use', 'all'), async (req, res) => {
-  const parsed = z
-    .object({
-      question: z.string().min(1).max(2000),
-      schoolYearId: z.string().uuid().optional(),
-      allYears: z.union([z.boolean(), z.literal('1'), z.literal('0')]).optional(),
-    })
-    .safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Pregunta inválida', errors: parsed.error.errors })
-  }
-  try {
-    const allYears = parsed.data.allYears === true || parsed.data.allYears === '1'
-    const schoolYearId = allYears
-      ? undefined
-      : await resolveSchoolYearIdForList(prisma, {
-          requestedSchoolYearId: parsed.data.schoolYearId,
-          role: req.user?.role ?? 'ADMIN',
-        })
-    const schoolYear = schoolYearId
-      ? await prisma.schoolYear.findUnique({ where: { id: schoolYearId }, select: { id: true, code: true } })
-      : null
-    const result = await runAdminQueryAssistant(parsed.data.question, {
-      allYears,
-      schoolYearId: schoolYear?.id ?? schoolYearId,
-      schoolYearCode: schoolYear?.code,
-    })
-    return res.json(result)
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (msg === 'OPENAI_API_KEY_NOT_CONFIGURED') {
-      return res.status(503).json({
-        message: 'El asistente no está configurado. Definí OPENAI_API_KEY en el servidor.',
-      })
-    }
-    if (msg.startsWith('OPENAI_API_KEY_INVALID_FORMAT:')) {
-      return res.status(503).json({
-        message: msg.replace(/^OPENAI_API_KEY_INVALID_FORMAT:\s*/, ''),
-      })
-    }
-    console.error('[query-assistant]', e)
-    return res.status(500).json({ message: 'No se pudo procesar la consulta.', detail: msg })
-  }
-})
+r.use('/academic-config', requirePermission('academic-config.manage', 'all'), adminAcademicConfigRoutes)
+r.use('/gradebook', requirePermission('gradebook.read', 'all'), adminGradeBookRoutes)
+r.use('/academic-analytics', requirePermission('academic-analytics.read', 'all'), adminAcademicAnalyticsRoutes)
 
 export default r

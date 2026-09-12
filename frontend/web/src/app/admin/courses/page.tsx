@@ -14,11 +14,7 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { BookOpen, ChevronDown, ChevronRight, Layers, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-
-function withSchoolYear(path: string, schoolYearQuery: string): string {
-  if (!schoolYearQuery) return path
-  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
-}
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 
 type CourseDraft = {
   name: string

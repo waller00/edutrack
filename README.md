@@ -19,6 +19,13 @@ Roles organizacionales en Postgres (`orgRole`): **ADMIN**, **TEACHER**, **STAFF*
 
 Los estudiantes del liceo se gestionan en matrícula administrativa; no requieren cuenta de login.
 
+Las cuotas se gestionan en **Académico → Mensualidades** (`/admin/tuition`), con el
+permiso `students.manage` de alcance `all`. El módulo tiene su propio selector de año
+y mes, resumen de cobros, filtros por curso/estudiante/estado y una cuenta anual por
+estudiante. Cada cuota se guarda por separado, conservando el historial existente;
+editar la ficha de Estudiantes ya no modifica mensualidades. Los importes se muestran
+en UYU y los meses sin registrar se distinguen de las cuotas pendientes.
+
 ## Autenticación (Keycloak + BFF)
 
 1. El frontend redirige a `GET /auth/login` (backend).
@@ -65,16 +72,23 @@ Críticas para auth:
 - `KEYCLOAK_ISSUER_URL`, `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_REDIRECT_URI`
 - `FRONTEND_URL`, `NEXT_PUBLIC_API_URL`
 
-Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle, OpenAI (asistente de consultas). Ver `.env.compose.example`.
+Opcionales: SMTP, Turnstile, Didit, Sentry, LogRocket, Moodle. Ver `.env.compose.example`.
 
 ## Producción / cloud
 
 ```bash
-docker compose -f docker-compose.cloud.yml up -d --build
+./scripts/dc-cloud.sh up -d --build
 ```
 
 Detalle operativo: [docs/MANUAL_DESPLIEGUE_CONTINUO.md](docs/MANUAL_DESPLIEGUE_CONTINUO.md)
 
+Al arrancar en Docker, el backend ejecuta `db:optimize`. La migración
+`20260907120000_retire_query_assistant` elimina los permisos del módulo retirado
+y su rol de base de datos, conservando la auditoría histórica. Si el rol tiene
+dependencias ajenas al módulo, queda deshabilitado para evitar borrar esos objetos.
+
+El wrapper cloud levanta el reverse proxy publico en `80/443` y mantiene privados
+`web`, `auth` y `keycloak`; evita exponer directo `3000`, `4000` y `8089`.
 Tras HTTPS: `COOKIE_SECURE=true` y URLs alineadas entre frontend, backend y Keycloak.
 
 ## Datos entre entornos

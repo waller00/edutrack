@@ -10,7 +10,10 @@ const SCHOOL_YEAR_SCOPED_ADMIN_ROUTES = [
   '/admin/events',
   '/admin/courses',
   '/admin/students',
+  '/admin/student-attendance',
+  '/libreta',
   '/admin/analytics',
+  '/admin/licenses',
 ]
 
 export function adminRouteUsesSchoolYear(pathname: string | null): boolean {

@@ -56,6 +56,10 @@ USER nextjs
 
 EXPOSE 3000
 ENV PORT=3000
+# El servidor standalone debe escuchar en todas las interfaces del contenedor.
+# Docker define HOSTNAME con el id del contenedor; sin este override puede no
+# aceptar el healthcheck interno dirigido a 127.0.0.1.
+ENV HOSTNAME=0.0.0.0
 
 # El servidor de Next.js standalone se arranca con node server.js
 CMD ["node", "server.js"]
