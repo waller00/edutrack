@@ -2,17 +2,13 @@
 
 import { Loader2, Trash2 } from 'lucide-react'
 import { getStudentStatusBadgeClass, getStudentStatusLabel } from '@/lib/admin/students-display'
-import { tuitionYearForRow } from '@/lib/admin/students-filters'
 import StudentMoodleBadge from './StudentMoodleBadge'
-import TuitionChips from './TuitionChips'
 import type { StudentListRow } from './student-types'
 
 type Props = {
   rows: StudentListRow[]
   loading: boolean
   allYears: boolean
-  tuitionYear: string
-  fallbackYear: number
   resendingId: string | null
   onOpen: (row: StudentListRow) => void
   onDelete: (row: StudentListRow) => void
@@ -24,8 +20,6 @@ export default function StudentsCardList({
   rows,
   loading,
   allYears,
-  tuitionYear,
-  fallbackYear,
   resendingId,
   onOpen,
   onDelete,
@@ -97,12 +91,6 @@ export default function StudentsCardList({
             </div>
           </dl>
 
-          <div className="mt-2">
-            <p className="mb-1 text-[11px] font-medium uppercase text-gray-500">
-              Mensualidades {tuitionYearForRow(row, tuitionYear, fallbackYear)}
-            </p>
-            <TuitionChips rows={row.tuitionMonthsPreview} year={tuitionYearForRow(row, tuitionYear, fallbackYear)} />
-          </div>
         </li>
       ))}
     </ul>

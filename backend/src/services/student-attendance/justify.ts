@@ -10,6 +10,8 @@ export type JustifyInput = {
   reason: string
   notes?: string | null
   attachment?: string | null
+  /** 100 (falta entera) o 50 (media falta). `null` deja el peso como está. */
+  absenceWeightHundredths?: number | null
   actorUserId?: string | null
   req?: any
 }
@@ -56,7 +58,15 @@ export async function justifyStudentAbsence(input: JustifyInput) {
     })
     const row = await tx.studentAttendanceEntry.update({
       where: { id: entry.id },
-      data: { status: 'ABSENT_JUSTIFIED', note: appendJustificationNote(entry.note, reason) },
+      data: {
+        status: 'ABSENT_JUSTIFIED',
+        note: appendJustificationNote(entry.note, reason),
+        // Justificar y graduar la falta son el mismo trámite para adscripción: se hace de una.
+        // Sin valor, el peso queda como estaba (y una ausencia sin peso vale una falta entera).
+        ...(input.absenceWeightHundredths != null
+          ? { absenceWeightHundredths: input.absenceWeightHundredths }
+          : {}),
+      },
     })
     return { row, justificationId: justification.id }
   })
@@ -72,6 +82,7 @@ export async function justifyStudentAbsence(input: JustifyInput) {
       previousStatus,
       newStatus: 'ABSENT_JUSTIFIED',
       justificationId: updated.justificationId,
+      absenceWeightHundredths: input.absenceWeightHundredths ?? null,
       sessionId: entry.session?.id ?? null,
       studentId: entry.studentId,
     },

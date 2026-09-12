@@ -27,6 +27,8 @@ export default function JustifyEntryModal({ entryId, studentName, onClose, onDon
   const [type, setType] = useState<(typeof TYPES)[number]['value']>('ABSENCE')
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')
+  // El liceo no tiene regla automática para la media falta: la decide adscripción caso por caso.
+  const [weight, setWeight] = useState<100 | 50>(100)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const reasonRef = useRef<HTMLInputElement>(null)
@@ -46,7 +48,12 @@ export default function JustifyEntryModal({ entryId, studentName, onClose, onDon
     try {
       await api(`/admin/student-attendance/entries/${entryId}/justify`, {
         method: 'POST',
-        body: JSON.stringify({ type, reason, notes: notes.trim() || null }),
+        body: JSON.stringify({
+          type,
+          reason,
+          notes: notes.trim() || null,
+          absenceWeightHundredths: weight,
+        }),
       })
       onDone()
     } catch (e) {
@@ -88,6 +95,27 @@ export default function JustifyEntryModal({ entryId, studentName, onClose, onDon
             placeholder="Certificado médico, trámite, duelo…"
           />
         </label>
+
+        <fieldset className="space-y-1">
+          <legend className="text-xs font-medium uppercase tracking-wide text-gray-500">
+            Cuánto vale la falta
+          </legend>
+          <div className="flex gap-4">
+            {([100, 50] as const).map((value) => (
+              <label key={value} className="flex items-center gap-1.5 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="absence-weight"
+                  value={value}
+                  checked={weight === value}
+                  onChange={() => setWeight(value)}
+                  className="h-4 w-4"
+                />
+                {value === 100 ? 'Falta entera' : 'Media falta'}
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <label className="block space-y-1">
           <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Notas</span>

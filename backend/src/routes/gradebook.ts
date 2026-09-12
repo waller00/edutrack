@@ -1,10 +1,18 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
+import { attachmentDisposition } from '../services/exports/content-disposition.js'
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { canResolveRoster, loadRosterForScope } from '../services/student-attendance/roster.js'
 import { resolveGradeBookAccess, type GradeBookAccess } from '../services/gradebook/access.js'
+import { photoETag } from '../services/student-photo.js'
+import { effectiveWeight, formatAbsenceUnits } from '../services/student-attendance/absence-weight.js'
+import {
+  admissionSummary,
+  currentAccommodations,
+  unresolvedPendingSubjects,
+} from '../services/gradebook/student-sheet.js'
 import { resolveMoodleAcademicScope } from '../integrations/moodle/scope.js'
 import { AuditAction } from '@prisma/client'
 import { clientIpFromRequest, recordAuditEvent, recordAuditEventNow } from '../services/audit-log.js'
@@ -35,7 +43,6 @@ import {
   describeValue,
   isLateClosure,
   periodWriteBlock,
-  suggestedAverage,
 } from '../services/gradebook/period-closure.js'
 
 /**
@@ -90,11 +97,12 @@ function serializeHeader(row: any) {
 /** Alcances de quien pide, para combinarlos con su vínculo con la libreta. */
 async function scopesOf(req: any) {
   const userId = req.user?.id ?? req.user?.sub
-  const [readScope, gradeScope] = await Promise.all([
+  const [readScope, gradeScope, planScope] = await Promise.all([
     userPermissionScope(userId, 'gradebook.read', req.user?.role),
     userPermissionScope(userId, 'gradebook.grade', req.user?.role),
+    userPermissionScope(userId, 'gradebook.plan', req.user?.role),
   ])
-  return { userId, readScope, gradeScope }
+  return { userId, readScope, gradeScope, planScope }
 }
 
 /**
@@ -183,11 +191,12 @@ async function loadContext(req: any, res: any): Promise<{ row: NonNullable<Grade
     return null
   }
 
-  const { userId, readScope, gradeScope } = await scopesOf(req)
+  const { userId, readScope, gradeScope, planScope } = await scopesOf(req)
   const access = await resolveGradeBookAccess({
     userId,
     readScope,
     gradeScope,
+    planScope,
     gradeBook: {
       teacherUserId: row.teacherUserId,
       schoolYearId: row.schoolYearId,
@@ -238,42 +247,224 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
       })
       .catch((error) => console.error('[gradebook] access log:', error))
 
-    // Inasistencias acumuladas del grupo en esta asignatura. Se traen acá porque la grilla del
-    // Libro del Profesor las muestra junto a cada alumno, y pedirlas de a una sería N consultas.
-    const attendance = await prisma.studentAttendanceEntry.groupBy({
-      by: ['studentId', 'status'],
+    // Inasistencias del ciclo, **globales**: el liceo cuenta las faltas del estudiante en el
+    // liceo, no las de cada materia por separado. Antes esto filtraba por `subjectId` y cada
+    // docente veía sólo las suyas, que es lo contrario de lo que se necesita para detectar a
+    // quien está faltando. Se traen acá porque la grilla las muestra junto a cada alumno y
+    // pedirlas de a una sería N consultas.
+    const attendance = await prisma.studentAttendanceEntry.findMany({
       where: {
         studentId: { in: students.map((s) => s.studentId) },
-        session: {
-          schoolYearId: row.schoolYearId,
-          courseOfferingId: row.courseOfferingId,
-          subjectId: row.subjectId,
-          ...(row.courseOrientationId ? { courseOrientationId: row.courseOrientationId } : {}),
-        },
+        session: { schoolYearId: row.schoolYearId },
       },
-      _count: { _all: true },
+      select: { studentId: true, status: true, absenceWeightHundredths: true },
     })
 
-    const absencesByStudent = new Map<string, { absences: number; lates: number }>()
-    for (const row2 of attendance) {
-      const entry = absencesByStudent.get(row2.studentId) ?? { absences: 0, lates: 0 }
-      if (row2.status === 'ABSENT' || row2.status === 'ABSENT_JUSTIFIED') entry.absences += row2._count._all
-      if (row2.status === 'LATE') entry.lates += row2._count._all
-      absencesByStudent.set(row2.studentId, entry)
+    const absencesByStudent = new Map<
+      string,
+      { absenceHundredths: number; justified: number; lates: number }
+    >()
+    for (const mark of attendance) {
+      const entry = absencesByStudent.get(mark.studentId) ?? {
+        absenceHundredths: 0,
+        justified: 0,
+        lates: 0,
+      }
+      entry.absenceHundredths += effectiveWeight(mark)
+      if (mark.status === 'ABSENT_JUSTIFIED') entry.justified += 1
+      if (mark.status === 'LATE') entry.lates += 1
+      absencesByStudent.set(mark.studentId, entry)
     }
 
     return res.json({
       ...serializeHeader(row),
       access: { level: access.level, canGrade: access.canGrade },
       studentCount: students.length,
-      students: students.map((student) => ({
-        ...student,
-        absences: absencesByStudent.get(student.studentId)?.absences ?? 0,
-        lates: absencesByStudent.get(student.studentId)?.lates ?? 0,
-      })),
+      students: students.map((student) => {
+        const totals = absencesByStudent.get(student.studentId)
+        const hundredths = totals?.absenceHundredths ?? 0
+        return {
+          ...student,
+          /** Total en centésimos: 150 = una falta y media. */
+          absenceHundredths: hundredths,
+          /** Ya formateado, para que la UI no tenga que saber de centésimos. */
+          absences: formatAbsenceUnits(hundredths),
+          justifiedCount: totals?.justified ?? 0,
+          lates: totals?.lates ?? 0,
+        }
+      }),
     })
   } catch (error) {
     console.error('[gradebook] detail:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+
+/**
+ * Hoja del estudiante dentro de la libreta (la "hoja de calificaciones" del liceo).
+ *
+ * El docente la necesita **al calificar**: adecuaciones, materias que arrastra y cómo llegó al
+ * curso son datos que tiene en cuenta para poner la nota. Por eso va acá y no en la ficha
+ * académica, que exige alcance ALL y el docente no tiene.
+ *
+ * Sólo devuelve estudiantes del roster de ESTA libreta: con `gradebook.read` propio, un docente no
+ * puede consultar por id a cualquier alumno del liceo.
+ */
+r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+    const inRoster = roster.find((s) => s.studentId === req.params.studentId)
+    if (!inRoster) {
+      return res.status(403).json({
+        message: 'Ese estudiante no pertenece al grupo de esta libreta.',
+        code: 'STUDENT_NOT_IN_ROSTER',
+      })
+    }
+
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.studentId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        documentId: true,
+        birthDate: true,
+        admittedFrom: true,
+        photo: { select: { mimeType: true, byteSize: true, updatedAt: true } },
+        accommodations: {
+          select: {
+            id: true,
+            kind: true,
+            summary: true,
+            externalUrl: true,
+            validFrom: true,
+            validUntil: true,
+          },
+        },
+        pendingSubjects: {
+          select: {
+            id: true,
+            origin: true,
+            apeDecember: true,
+            apeFebruary: true,
+            resolvedAt: true,
+            subject: { select: { id: true, name: true } },
+            schoolYear: { select: { id: true, code: true } },
+          },
+        },
+        enrollments: {
+          select: {
+            schoolYearId: true,
+            academicResult: true,
+            apeReferred: true,
+            schoolYear: { select: { code: true } },
+          },
+        },
+      },
+    })
+    if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    const current = student.enrollments.find((e) => e.schoolYearId === ctx.row.schoolYearId) ?? null
+    // "Cómo promovió" es el resultado del ciclo ANTERIOR: el del corriente recién se completa al
+    // cerrar el año, así que mirarlo acá mostraría siempre un hueco.
+    const currentCode = current?.schoolYear?.code ?? null
+    const previous = student.enrollments
+      .filter((e) => (currentCode == null ? false : (e.schoolYear?.code ?? 0) < currentCode))
+      .sort((a, b) => (b.schoolYear?.code ?? 0) - (a.schoolYear?.code ?? 0))[0] ?? null
+
+    return res.json({
+      student: {
+        id: student.id,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        documentId: student.documentId,
+        birthDate: student.birthDate ? student.birthDate.toISOString() : null,
+        photo: student.photo
+          ? {
+              mimeType: student.photo.mimeType,
+              byteSize: student.photo.byteSize,
+              updatedAt: student.photo.updatedAt.toISOString(),
+            }
+          : null,
+      },
+      admission: admissionSummary({
+        admittedFrom: student.admittedFrom,
+        previousResult: previous?.academicResult ?? null,
+        previousYearCode: previous?.schoolYear?.code ?? null,
+      }),
+      apeReferred: current?.apeReferred ?? false,
+      pendingSubjects: unresolvedPendingSubjects(student.pendingSubjects).map((row) => ({
+        id: row.id,
+        subjectName: row.subject?.name ?? '—',
+        schoolYearCode: row.schoolYear?.code ?? null,
+        origin: row.origin,
+        apeDecember: row.apeDecember,
+        apeFebruary: row.apeFebruary,
+      })),
+      accommodations: currentAccommodations(student.accommodations).map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        summary: row.summary,
+        externalUrl: row.externalUrl,
+      })),
+      // Las inasistencias no van acá todavía: hoy el conteo de la libreta es por materia y el
+      // liceo las quiere globales. Se resuelve junto con la media falta.
+    })
+  } catch (error) {
+    console.error('[gradebook] student sheet:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+
+/**
+ * Foto del estudiante, servida desde la libreta.
+ *
+ * Existe aparte de `GET /admin/students/:id/photo` porque aquélla exige `students.manage`, que es
+ * de administración: el docente no la tiene y se quedaría con el recuadro vacío. Acá el control es
+ * el mismo que en la hoja — el estudiante tiene que pertenecer al grupo de ESTA libreta.
+ */
+r.get('/:id/students/:studentId/photo', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+    if (!roster.some((s) => s.studentId === req.params.studentId)) {
+      return res.status(403).json({ code: 'STUDENT_NOT_IN_ROSTER', message: 'Ese estudiante no es de este grupo.' })
+    }
+
+    const photo = await (prisma as any).studentPhoto.findUnique({
+      where: { studentId: req.params.studentId },
+    })
+    if (!photo) return res.status(404).json({ message: 'El estudiante no tiene foto' })
+
+    const etag = photoETag(photo.updatedAt, photo.byteSize)
+    res.setHeader('ETag', etag)
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate')
+    res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', 'inline')
+    if (req.headers['if-none-match'] === etag) return res.status(304).end()
+
+    res.setHeader('Content-Type', photo.mimeType)
+    return res.send(photo.bytes)
+  } catch (error) {
+    console.error('[gradebook] student photo:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -730,6 +921,8 @@ const periodGradeEntrySchema = z.object({
   studentId: z.string().uuid(),
   valueHundredths: z.number().int().nullish(),
   conceptualJudgement: z.string().trim().max(2000).nullish(),
+  /** Conducta en esta asignatura. El docente la pone junto con la nota, al cerrar. */
+  conductValueHundredths: z.number().int().nullish(),
 })
 
 const savePeriodGradesSchema = z.object({
@@ -844,10 +1037,20 @@ async function loadClosureContext(req: any, res: any) {
   return { ...ctx, period, state, students, saved, assessments }
 }
 
-/** Arma la fila de cada estudiante: sus notas del período, el promedio sugerido y lo ya cerrado. */
+/**
+ * Arma la fila de cada estudiante: sus notas del período y lo ya cerrado.
+ *
+ * **No promedia.** El liceo es explícito: ninguna libreta del docente hace promedio automático —la
+ * calificación general del período la decide el docente—. El promedio sigue existiendo en la matriz
+ * institucional y en la planilla de reunión, que es donde el pliego lo pide (RF-061) y donde de
+ * verdad se usa para escolaridad y abanderados.
+ *
+ * Sí se informa `assessmentCount`, que no es un promedio: es cuántas notas cargó, y sirve para ver
+ * de un vistazo a quién le falta.
+ */
 function buildClosureRows(ctx: any) {
   const savedByStudent = new Map(ctx.saved.map((row: any) => [row.studentId, row]))
-  // Las ausencias no entran al promedio: no son un cero, son "no rindió".
+  // Las ausencias no cuentan como nota: no son un cero, son "no rindió".
   const valuesByStudent = new Map<string, number[]>()
   for (const assessment of ctx.assessments) {
     for (const grade of assessment.grades) {
@@ -868,10 +1071,9 @@ function buildClosureRows(ctx: any) {
       lastName: student.lastName,
       firstName: student.firstName,
       assessmentCount: values.length,
-      /** Indicador automático (RF-061): sugerencia, nunca la calificación. */
-      suggestedAverageHundredths: suggestedAverage(values),
       valueHundredths: value,
       conceptualJudgement: saved?.conceptualJudgement ?? null,
+      conductValueHundredths: saved?.conductValueHundredths ?? null,
       descriptor: describeValue(value, levels),
     }
   })
@@ -936,6 +1138,7 @@ r.put('/:id/periods/:periodId/grades', requirePermission('gradebook.grade'), asy
       studentId: e.studentId,
       valueHundredths: e.valueHundredths ?? null,
       conceptualJudgement: e.conceptualJudgement ?? null,
+      conductValueHundredths: e.conductValueHundredths ?? null,
     }))
     const strangers = entries.filter((e) => !rosterById.has(e.studentId)).map((e) => e.studentId)
     if (strangers.length > 0) {
@@ -953,6 +1156,7 @@ r.put('/:id/periods/:periodId/grades', requirePermission('gradebook.grade'), asy
         const data = {
           valueHundredths: entry.valueHundredths,
           conceptualJudgement: entry.conceptualJudgement,
+          conductValueHundredths: entry.conductValueHundredths ?? null,
           updatedByUserId: userId,
         }
         return prisma.periodGrade.upsert({
@@ -1429,7 +1633,7 @@ async function scaleForGradeBook(gradeBookId: string) {
 
 function sendBuffer(res: any, buffer: Buffer, filename: string, contentType: string) {
   res.setHeader('Content-Type', contentType)
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  res.setHeader('Content-Disposition', attachmentDisposition(filename))
   return res.send(buffer)
 }
 
@@ -1634,14 +1838,14 @@ r.get('/:id/planning', requirePermission('gradebook.read'), async (req: any, res
   }
 })
 
-r.put('/:id/planning', requirePermission('gradebook.grade'), async (req: any, res) => {
+r.put('/:id/planning', requirePermission('gradebook.plan'), async (req: any, res) => {
   const parsed = planningSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
 
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canGrade) {
+    if (!ctx.access.canPlan) {
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
     }
     if (ctx.row.status === 'ARCHIVED') {
@@ -1711,14 +1915,14 @@ function isYmd(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
-r.post('/:id/development', requirePermission('gradebook.grade'), async (req: any, res) => {
+r.post('/:id/development', requirePermission('gradebook.plan'), async (req: any, res) => {
   const parsed = developmentSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
 
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canGrade) {
+    if (!ctx.access.canPlan) {
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
     }
     if (ctx.row.status === 'ARCHIVED') {
@@ -1744,11 +1948,11 @@ r.post('/:id/development', requirePermission('gradebook.grade'), async (req: any
   }
 })
 
-r.delete('/:id/development/:entryId', requirePermission('gradebook.grade'), async (req: any, res) => {
+r.delete('/:id/development/:entryId', requirePermission('gradebook.plan'), async (req: any, res) => {
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canGrade) {
+    if (!ctx.access.canPlan) {
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
     }
 

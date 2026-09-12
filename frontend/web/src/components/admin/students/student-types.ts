@@ -84,9 +84,15 @@ export type StudentDetail = {
   username: string | null
   email: string | null
   address: string | null
+  birthDate: string | null
+  /// De dónde vino el pase al ingresar (7.º).
+  admittedFrom: string | null
   healthCardExpiresAt: string | null
   liceoAccessNotes: string | null
   enrollmentStatus: string
+  /// Cómo cerró el año. Es de la matrícula, no del estudiante: puede repetir un año y promover otro.
+  academicResult: string | null
+  apeReferred: boolean
   withdrawnAt: string | null
   withdrawalAcademicYear: number | null
   internalNotes: string | null
@@ -141,9 +147,13 @@ export function emptyStudentDraft(): Omit<StudentFormState, 'id'> {
     username: null,
     email: null,
     address: null,
+    birthDate: null,
+    admittedFrom: null,
     healthCardExpiresAt: null,
     liceoAccessNotes: null,
     enrollmentStatus: 'ACTIVE',
+    academicResult: null,
+    apeReferred: false,
     withdrawnAt: null,
     withdrawalAcademicYear: null,
     internalNotes: null,
@@ -189,3 +199,27 @@ export const STUDENT_STATUS_OPTIONS = [
   { value: 'GRADUATED', label: 'Egresó' },
   { value: 'TRANSFERRED', label: 'Transferido' },
 ] as const
+
+export const ACADEMIC_RESULT_OPTIONS = [
+  { value: '', label: 'Sin definir' },
+  { value: 'PROMOTED', label: 'Promovido' },
+  { value: 'PROMOTED_WITH_PENDING', label: 'Promovido con materias pendientes' },
+  { value: 'REPEATED', label: 'Repitió' },
+  { value: 'PENDING_APE', label: 'Pendiente de APE' },
+] as const
+
+export const ACCOMMODATION_KIND_OPTIONS = [
+  { value: 'CURRICULAR', label: 'Adecuación curricular' },
+  { value: 'EVALUATION', label: 'Adecuación de evaluación' },
+  { value: 'ACCESSIBILITY', label: 'Accesibilidad' },
+  { value: 'OTHER', label: 'Otra' },
+] as const
+
+export type StudentAccommodation = {
+  id: string
+  kind: string
+  summary: string
+  externalUrl: string | null
+  validFrom: string | null
+  validUntil: string | null
+}

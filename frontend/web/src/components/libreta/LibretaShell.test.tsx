@@ -6,6 +6,8 @@ import { LIBRETA_SECTIONS } from '@/lib/libreta/menu'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
+// Tiene su propia consulta y sus propios tests: acá sólo interesa que el marco lo monte.
+vi.mock('./GroupSwitcher', () => ({ default: () => <div>selector de grupo</div> }))
 const mockedApi = vi.mocked(api)
 
 const pathname = vi.fn(() => '/libreta/gb-1/planificacion')

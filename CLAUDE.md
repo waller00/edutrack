@@ -168,6 +168,23 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > El semáforo académico **nunca** puede ser sólo color (RNF 7.2): siempre lleva texto o icono
 > además. Los distintivos del alumno y el contador de faltas ya siguen esa regla.
 
+> **`gradebook.grade` y `gradebook.plan` son permisos distintos a propósito.** El primero cubre
+> evaluaciones, notas y juicios conceptuales; el segundo, planificación y desarrollo del curso.
+> Dirección tiene `plan` con alcance `all` y **no** tiene `grade`: así puede corregir la libreta de
+> un docente sin poder tocar una calificación. Con una sola llave esa mitad no se puede expresar.
+
+> **La libreta del docente no promedia.** Es una decisión del liceo, no una omisión: la
+> calificación general del período la decide el docente. El promedio vive en la matriz
+> institucional (`transversalAverage`) y en la planilla de reunión, que es donde se usa para
+> escolaridad y abanderados.
+
+> **Las faltas se cuentan en centésimos y son globales.** `100` es una falta entera, `50` media.
+> El peso lo fija adscripción al justificar, no se deriva del estado. Y el conteo es del ciclo en
+> todo el liceo, no de la asignatura: filtrar por `subjectId` ahí es un bug, no una optimización.
+
+> **Las adecuaciones guardan un enlace, nunca el informe.** Un informe psicológico de un menor es un
+> documento clínico, y la política de privacidad lo prohíbe (§4 bis).
+
 Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 
 ---

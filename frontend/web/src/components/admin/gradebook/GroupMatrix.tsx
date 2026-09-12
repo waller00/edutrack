@@ -8,6 +8,21 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import { levelStyle } from '@/lib/academic-config/level-tokens'
+import { formatAbsenceUnits } from '@/lib/libreta/absences'
+import MeetingDecisions from './MeetingDecisions'
+
+/** Etiquetas de la escala de conducta sembrada. Texto además del valor, nunca sólo un número. */
+const CONDUCT_LABELS: Record<number, string> = {
+  100: 'Mala',
+  200: 'Regular',
+  300: 'Buena',
+  400: 'Muy buena',
+}
+
+function conductLabel(value: number | null | undefined): string {
+  if (value == null) return '—'
+  return CONDUCT_LABELS[value] ?? String(value / 100)
+}
 
 type Group = {
   courseOfferingId: string
@@ -35,6 +50,10 @@ type Row = {
   firstName: string
   cells: Cell[]
   averageHundredths: number | null
+  /** Conducta institucional del período, la que pone adscripción. */
+  conductValueHundredths?: number | null
+  /** Faltas del ciclo en todo el liceo, en centésimos. */
+  absenceHundredths?: number
   pendingCount: number
   alertCount: number
   atRisk: boolean
@@ -45,6 +64,8 @@ type Matrix = {
   subjects: Array<{ gradeBookId: string; name: string; teacher: string | null; periodStatus: string | null }>
   students: Row[]
   averageLabel: string
+  /** Decimales del promedio. El liceo lo pide con al menos uno: escolaridad y abanderados. */
+  averageDecimals?: number
 }
 
 function groupKey(g: Group) {
@@ -188,6 +209,12 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                   <th scope="col" className="px-2 py-2 text-left font-medium" title={matrix.averageLabel}>
                     Promedio
                   </th>
+                  <th scope="col" className="px-2 py-2 text-left font-medium" title="La pone adscripción, para todo el liceo">
+                    Conducta
+                  </th>
+                  <th scope="col" className="px-2 py-2 text-left font-medium" title="Faltas del ciclo en todo el liceo">
+                    Faltas
+                  </th>
                   <th scope="col" className="px-2 py-2 text-left font-medium">Alertas</th>
                 </tr>
               </thead>
@@ -204,7 +231,15 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                         <MatrixCell cell={cell} decimals={0} />
                       </td>
                     ))}
-                    <td className="px-2 py-1.5 text-gray-700">{formatHundredths(row.averageHundredths, 1)}</td>
+                    <td className="px-2 py-1.5 text-gray-700">
+                      {formatHundredths(row.averageHundredths, matrix.averageDecimals ?? 1)}
+                    </td>
+                    <td className="px-2 py-1.5 text-gray-700">
+                      {conductLabel(row.conductValueHundredths)}
+                    </td>
+                    <td className="px-2 py-1.5 text-gray-700">
+                      {formatAbsenceUnits(row.absenceHundredths ?? 0)}
+                    </td>
                     <td className="px-2 py-1.5 text-xs">
                       {row.atRisk ? (
                         <span className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-800">
@@ -229,6 +264,16 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
             de profesores. Las alertas son informativas y no generan por sí solas decisiones
             administrativas.
           </p>
+
+          {/* En modo reunión se registran las decisiones acá mismo: es el momento en que se toman. */}
+          {projection && group && (
+            <MeetingDecisions
+              courseOfferingId={group.courseOfferingId}
+              courseOrientationId={group.courseOrientationId}
+              periodId={periodId}
+              students={matrix.students}
+            />
+          )}
         </>
       )}
     </div>

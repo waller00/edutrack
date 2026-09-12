@@ -11,10 +11,14 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     assessment: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     gradeBookPeriod: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     periodGrade: { findMany: vi.fn(), upsert: vi.fn() },
+    gradeBookPlanning: { findUnique: vi.fn(), upsert: vi.fn() },
+    student: { findUnique: vi.fn() },
+    studentPhoto: { findUnique: vi.fn() },
+    courseDevelopmentEntry: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn(), aggregate: vi.fn() },
     gradeBookMessage: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     gradeBookAccessLog: { create: vi.fn() },
     assessmentGrade: { findMany: vi.fn() },
-    studentAttendanceEntry: { groupBy: vi.fn() },
+    studentAttendanceEntry: { groupBy: vi.fn(), findMany: vi.fn() },
     inAppNotification: { createMany: vi.fn() },
     $transaction: vi.fn(),
     academicPeriod: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
@@ -102,6 +106,7 @@ beforeEach(() => {
   // devolver una promesa, porque el código encadena `.catch()` para no tumbar la lectura.
   prismaMock.gradeBookAccessLog.create.mockResolvedValue({ id: 'log-1' })
   prismaMock.studentAttendanceEntry.groupBy.mockResolvedValue([])
+  prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([])
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
 })
 
@@ -217,29 +222,38 @@ describe('GET /gradebook/:id', () => {
     expect(res.body.access).toEqual({ level: 'OWNER', canGrade: true })
   })
 
-  it('cuenta faltas y llegadas tarde por estudiante', async () => {
+  it('cuenta las faltas en unidades, con la media falta', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
     rosterMock.mockResolvedValue([
       { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
       { studentId: 's2', studentEnrollmentId: 'e2', firstName: 'Beto', lastName: 'C', documentId: null },
     ])
-    // La falta justificada sigue siendo inasistencia: se suma junto con ABSENT.
-    prismaMock.studentAttendanceEntry.groupBy.mockResolvedValue([
-      { studentId: 's1', status: 'ABSENT', _count: { _all: 3 } },
-      { studentId: 's1', status: 'ABSENT_JUSTIFIED', _count: { _all: 2 } },
-      { studentId: 's1', status: 'LATE', _count: { _all: 1 } },
-      { studentId: 's2', status: 'PRESENT', _count: { _all: 9 } },
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
+      { studentId: 's1', status: 'ABSENT', absenceWeightHundredths: null },
+      { studentId: 's1', status: 'ABSENT', absenceWeightHundredths: 50 },
+      { studentId: 's1', status: 'ABSENT_JUSTIFIED', absenceWeightHundredths: null },
+      { studentId: 's1', status: 'LATE', absenceWeightHundredths: null },
+      { studentId: 's2', status: 'PRESENT', absenceWeightHundredths: null },
     ])
 
     const res = await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok()}`)
 
     expect(res.status).toBe(200)
-    expect(res.body.students[0]).toMatchObject({ studentId: 's1', absences: 5, lates: 1 })
-    // Sin filas de falta el estudiante va en cero, nunca undefined.
-    expect(res.body.students[1]).toMatchObject({ studentId: 's2', absences: 0, lates: 0 })
+    // 1 + 0,5 + 1 (la justificada cuenta) = 2,5
+    expect(res.body.students[0]).toMatchObject({
+      studentId: 's1',
+      absences: '2,5',
+      absenceHundredths: 250,
+      justifiedCount: 1,
+      lates: 1,
+    })
+    expect(res.body.students[1]).toMatchObject({ studentId: 's2', absences: '0', absenceHundredths: 0 })
   })
 
-  it('acota las faltas a la asignatura y la orientación de la libreta', async () => {
+  it('las faltas son GLOBALES del ciclo, no de la asignatura', async () => {
+    // El liceo cuenta las faltas del estudiante en el liceo. Antes esto filtraba por `subjectId`
+    // y cada docente veía sólo las suyas, que es justo lo contrario de lo que sirve para detectar
+    // a quien está faltando.
     prismaMock.gradeBook.findUnique.mockResolvedValue({
       ...ROW,
       courseOrientationId: 'co-a',
@@ -251,14 +265,11 @@ describe('GET /gradebook/:id', () => {
 
     await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok()}`)
 
-    const where = prismaMock.studentAttendanceEntry.groupBy.mock.calls[0][0].where
+    const where = prismaMock.studentAttendanceEntry.findMany.mock.calls[0][0].where
     expect(where.studentId).toEqual({ in: ['s1'] })
-    expect(where.session).toEqual({
-      schoolYearId: 'sy-1',
-      courseOfferingId: 'off-1',
-      subjectId: ROW.subjectId,
-      courseOrientationId: 'co-a',
-    })
+    expect(where.session).toEqual({ schoolYearId: 'sy-1' })
+    expect(where.session).not.toHaveProperty('subjectId')
+    expect(where.session).not.toHaveProperty('courseOfferingId')
   })
 
   it('resuelve la cohorte con la precedencia de orientación de la libreta', async () => {
@@ -620,7 +631,9 @@ describe('GET /:id/periods/:periodId', () => {
       .get(`/gradebook/${GB_ID}/periods/${PERIOD_ID}`)
       .set('Authorization', `Bearer ${tok()}`)
 
-    expect(res.body.students[0].suggestedAverageHundredths).toBe(700)
+    // La libreta del docente NO promedia: el liceo lo pidió explícitamente. Se informa cuántas
+    // notas cargó, que sirve para ver a quién le falta, pero ningún promedio.
+    expect(res.body.students[0]).not.toHaveProperty('suggestedAverageHundredths')
     expect(res.body.students[0].assessmentCount).toBe(2)
   })
 
@@ -1225,5 +1238,263 @@ describe('ciclo archivado (RF-110, RF-111)', () => {
       .get(`/gradebook/${GB_ID}/exports/pdf`)
       .set('Authorization', `Bearer ${tok()}`)
     expect(res.status).toBe(200)
+  })
+})
+
+describe('dirección: edita la libreta salvo calificaciones y juicios', () => {
+  const STUDENT_ID = '99999999-9999-4999-8999-999999999999'
+
+  /**
+   * Acceso de dirección sobre una libreta ajena: lee y planifica, no califica.
+   * Lo que se prueba acá es el **cableado de cada ruta** —cuál mira `canPlan` y cuál `canGrade`—;
+   * que dirección resuelva así está probado aparte en `access.test.ts`.
+   */
+  function asDireccion() {
+    // Libreta viva de otro docente: el director nunca es el titular.
+    prismaMock.gradeBook.findUnique.mockResolvedValue({ ...ROW, teacherUserId: 'otro-docente' })
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({ id: 'gbp-1', status: 'OPEN' })
+    accessMock.mockResolvedValue({
+      level: 'SUPERVISION',
+      canRead: true,
+      canGrade: false,
+      canPlan: true,
+    })
+  }
+
+  it('puede editar la planificación de una libreta ajena', async () => {
+    asDireccion()
+    prismaMock.gradeBookPlanning.upsert.mockResolvedValue({
+      gradeBookId: GB_ID,
+      formative: 'Ajuste de dirección',
+      replanning: null,
+      attachments: null,
+    })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/planning`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ formative: 'Ajuste de dirección' })
+
+    expect(res.status).toBe(200)
+    expect(prismaMock.gradeBookPlanning.upsert).toHaveBeenCalled()
+  })
+
+  it('puede registrar el desarrollo del curso', async () => {
+    asDireccion()
+    prismaMock.courseDevelopmentEntry.create.mockResolvedValue({
+      id: 'dev-1',
+      date: new Date('2026-05-12T12:00:00Z'),
+      hoursTaught: 2,
+      hoursNotTaught: 0,
+      description: 'Revisión',
+      attachments: null,
+    })
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/development`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ date: '2026-05-12', hoursTaught: 2, hoursNotTaught: 0, description: 'Revisión' })
+
+    expect(res.status).toBe(201)
+  })
+
+  it('NO puede cargar la calificación ni el juicio de un período', async () => {
+    // Es la mitad que el liceo quiere protegida: la nota y el juicio son del docente.
+    asDireccion()
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ entries: [{ studentId: STUDENT_ID, valueHundredths: 800, conceptualJudgement: 'Muy bien' }] })
+
+    expect(res.status).toBe(403)
+    expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
+  })
+
+  it('NO puede crear evaluaciones', async () => {
+    asDireccion()
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ periodId: PERIOD_ID, date: '2026-05-10', title: 'Escrito', gradingScaleId: SCALE_ID })
+
+    expect(res.status).toBe(403)
+    expect(prismaMock.assessment.create).not.toHaveBeenCalled()
+  })
+
+  it('el docente sigue pudiendo las dos cosas', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    accessMock.mockResolvedValue({ level: 'OWNER', canRead: true, canGrade: true, canPlan: true })
+    prismaMock.gradeBookPlanning.upsert.mockResolvedValue({ gradeBookId: GB_ID })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/planning`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ formative: 'Unidad 1' })
+
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('hoja del estudiante dentro de la libreta', () => {
+  const STUDENT_ID = '99999999-9999-4999-8999-999999999999'
+
+  const STUDENT = {
+    id: STUDENT_ID,
+    firstName: 'Ana',
+    lastName: 'Díaz',
+    documentId: '51234561',
+    birthDate: new Date('2010-03-12T12:00:00Z'),
+    admittedFrom: 'Escuela 42',
+    photo: { mimeType: 'image/jpeg', byteSize: 1000, updatedAt: new Date('2026-03-01T12:00:00Z') },
+    accommodations: [
+      {
+        id: 'ad-1',
+        kind: 'CURRICULAR',
+        summary: 'Consignas por escrito.',
+        externalUrl: 'https://drive.example/informe',
+        validFrom: null,
+        validUntil: null,
+      },
+      // Vencida: no le llega al docente.
+      {
+        id: 'ad-vieja',
+        kind: 'EVALUATION',
+        summary: 'Del año pasado.',
+        externalUrl: null,
+        validFrom: null,
+        validUntil: new Date('2025-12-01T12:00:00Z'),
+      },
+    ],
+    pendingSubjects: [
+      {
+        id: 'p-1',
+        origin: 'FAILED_THIS_YEAR',
+        apeDecember: 'FAILED',
+        apeFebruary: null,
+        resolvedAt: null,
+        subject: { id: 'sub-9', name: 'Historia' },
+        schoolYear: { id: 'sy-0', code: 2025 },
+      },
+    ],
+    enrollments: [
+      { schoolYearId: 'sy-1', academicResult: null, apeReferred: true, schoolYear: { code: 2026 } },
+      { schoolYearId: 'sy-0', academicResult: 'PROMOTED_WITH_PENDING', apeReferred: false, schoolYear: { code: 2025 } },
+    ],
+  }
+
+  function setup() {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    accessMock.mockResolvedValue({ level: 'OWNER', canRead: true, canGrade: true, canPlan: true })
+    rosterMock.mockResolvedValue([
+      { studentId: STUDENT_ID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'Díaz', documentId: null },
+    ])
+    prismaMock.student.findUnique.mockResolvedValue(STUDENT)
+  }
+
+  it('entrega los datos que administración cargó, con la foto', async () => {
+    setup()
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.student).toMatchObject({ firstName: 'Ana', documentId: '51234561' })
+    expect(res.body.student.birthDate).toBe('2010-03-12T12:00:00.000Z')
+    expect(res.body.student.photo.mimeType).toBe('image/jpeg')
+    expect(res.body.apeReferred).toBe(true)
+  })
+
+  it('muestra cómo promovió el año anterior, no el resultado del corriente', async () => {
+    setup()
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.admission).toEqual({
+      kind: 'PROMOTION',
+      label: 'Promovido con materias pendientes en 2025',
+    })
+  })
+
+  it('lista las materias que arrastra con su resultado de APE', async () => {
+    setup()
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.pendingSubjects).toEqual([
+      {
+        id: 'p-1',
+        subjectName: 'Historia',
+        schoolYearCode: 2025,
+        origin: 'FAILED_THIS_YEAR',
+        apeDecember: 'FAILED',
+        apeFebruary: null,
+      },
+    ])
+  })
+
+  it('sólo entrega las adecuaciones vigentes', async () => {
+    setup()
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.accommodations).toHaveLength(1)
+    expect(res.body.accommodations[0]).toMatchObject({
+      id: 'ad-1',
+      externalUrl: 'https://drive.example/informe',
+    })
+  })
+
+  it('sirve la foto al docente, que no tiene permiso sobre la ruta de administración', async () => {
+    setup()
+    const bytes = Buffer.from([0xff, 0xd8, 0xff])
+    prismaMock.studentPhoto.findUnique.mockResolvedValue({
+      bytes,
+      mimeType: 'image/jpeg',
+      byteSize: bytes.length,
+      updatedAt: new Date('2026-03-01T12:00:00Z'),
+    })
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}/photo`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toContain('image/jpeg')
+    expect(res.headers['cache-control']).toContain('private')
+  })
+
+  it('la foto también respeta el roster', async () => {
+    setup()
+    rosterMock.mockResolvedValue([])
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}/photo`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(403)
+    expect(prismaMock.studentPhoto.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('nunca devuelve un estudiante fuera del grupo de esta libreta', async () => {
+    // Con `gradebook.read` propio, un docente no puede consultar por id a cualquier alumno.
+    setup()
+    rosterMock.mockResolvedValue([])
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('STUDENT_NOT_IN_ROSTER')
+    expect(prismaMock.student.findUnique).not.toHaveBeenCalled()
   })
 })

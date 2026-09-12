@@ -5,6 +5,7 @@ import { CalendarX2, Clock, ExternalLink } from 'lucide-react'
 import { useLibreta } from '@/contexts/LibretaContext'
 import { studentFullName } from '@/lib/gradebook/labels'
 import { absenceTone } from '@/lib/libreta/badges'
+import { formatAbsenceUnits } from '@/lib/libreta/absences'
 
 /**
  * Inasistencias acumuladas del grupo en esta asignatura.
@@ -18,19 +19,26 @@ export default function InasistenciasSection() {
   if (!detail) return null
 
   const rows = [...detail.students].sort(
-    (a, b) => (b.absences ?? 0) - (a.absences ?? 0) || a.lastName.localeCompare(b.lastName, 'es'),
+    (a, b) =>
+      (b.absenceHundredths ?? 0) - (a.absenceHundredths ?? 0) ||
+      a.lastName.localeCompare(b.lastName, 'es'),
   )
-  const totalAbsences = rows.reduce((acc, s) => acc + (s.absences ?? 0), 0)
+  // Se suma en centésimos y se formatea al final: sumar "0,5" como número arrastra error.
+  const totalHundredths = rows.reduce((acc, s) => acc + (s.absenceHundredths ?? 0), 0)
+  const totalJustified = rows.reduce((acc, s) => acc + (s.justifiedCount ?? 0), 0)
   const totalLates = rows.reduce((acc, s) => acc + (s.lates ?? 0), 0)
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
         <p className="text-gray-600">
-          Acumulado de esta asignatura. Se ordena por quien más faltó.
+          Faltas del ciclo en todo el liceo, no sólo de esta asignatura. Se ordena por quien más faltó.
         </p>
         <p className="font-medium text-slate-700">
-          {totalAbsences} falta{totalAbsences === 1 ? '' : 's'} · {totalLates} llegada{totalLates === 1 ? '' : 's'} tarde
+          {formatAbsenceUnits(totalHundredths)} falta{totalHundredths === 100 ? '' : 's'}
+          {totalJustified > 0 && ` (${totalJustified} justificada${totalJustified === 1 ? '' : 's'})`}
+          {' · '}
+          {totalLates} llegada{totalLates === 1 ? '' : 's'} tarde
         </p>
       </div>
 
@@ -62,10 +70,10 @@ export default function InasistenciasSection() {
                 <tr key={student.studentId}>
                   <td className="px-3 py-1.5 text-xs text-gray-400">{index + 1}</td>
                   <td className="px-3 py-1.5 text-gray-900">{studentFullName(student)}</td>
-                  <td className={`px-3 py-1.5 ${absenceTone(student.absences ?? 0)}`}>
+                  <td className={`px-3 py-1.5 ${absenceTone(student.absenceHundredths ?? 0)}`}>
                     <span className="inline-flex items-center gap-1">
                       <CalendarX2 className="h-3.5 w-3.5" aria-hidden />
-                      {student.absences ?? 0}
+                      {student.absences ?? '0'}
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-gray-700">

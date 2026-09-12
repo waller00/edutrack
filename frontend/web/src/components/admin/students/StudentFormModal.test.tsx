@@ -7,8 +7,8 @@ vi.mock('./StudentPhotoField', () => ({
   default: () => <div>foto</div>,
   initialsOf: () => 'DA',
 }))
-vi.mock('./StudentTuitionSection', () => ({ default: () => <div>panel de mensualidades</div> }))
 vi.mock('./StudentEnrollmentHistoryPanel', () => ({ default: () => <div>panel de historial</div> }))
+vi.mock('./StudentAccommodationsPanel', () => ({ default: () => <div>panel de adecuaciones</div> }))
 
 const onSave = vi.fn()
 const onPatch = vi.fn()
@@ -26,11 +26,9 @@ function setup(over: Record<string, unknown> = {}, formOver: Partial<StudentForm
       form={form(formOver)}
       courses={[{ id: 'c1', name: 'Primero', code: '1' }]}
       orientations={[]}
-      tuitionYear={2026}
       saving={false}
       moodlePending={false}
       message=""
-      onTuitionYearChange={vi.fn()}
       onPatch={onPatch}
       onUsernameEdit={vi.fn()}
       onMoodleAction={onMoodleAction}
@@ -107,10 +105,10 @@ describe('alta', () => {
 describe('edición', () => {
   const editProps = { mode: 'edit' as const }
 
-  it('muestra las cinco pestañas', () => {
+  it('muestra las cuatro pestañas de la ficha', () => {
     setup(editProps, VALID)
     const tabs = screen.getByRole('tablist')
-    for (const label of ['Datos', 'Contacto', 'Aula virtual', 'Mensualidades', 'Historial']) {
+    for (const label of ['Datos', 'Contacto', 'Aula virtual', 'Historial']) {
       expect(within(tabs).getByRole('tab', { name: label })).toBeInTheDocument()
     }
   })
@@ -127,8 +125,8 @@ describe('edición', () => {
   it('salta a la pestaña que tiene el error y lo muestra', () => {
     // Es lo que evita que las pestañas escondan un campo obligatorio.
     setup(editProps, { ...VALID, email: 'roto' })
-    fireEvent.click(screen.getByRole('tab', { name: 'Mensualidades' }))
-    expect(screen.getByText('panel de mensualidades')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Historial' }))
+    expect(screen.getByText('panel de historial')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
@@ -181,5 +179,46 @@ describe('accesibilidad', () => {
     setup()
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true')
     expect(screen.getByRole('heading', { name: 'Nuevo estudiante' })).toBeInTheDocument()
+  })
+})
+
+describe('trayectoria y adecuaciones', () => {
+  const editProps = { mode: 'edit' as const }
+
+  it('la fecha de nacimiento va junto a la cédula, en Datos', () => {
+    setup(editProps, VALID)
+    expect(screen.getByLabelText(/Fecha de nacimiento/)).toBeInTheDocument()
+  })
+
+  it('Trayectoria explica que eso es lo que ve el docente', () => {
+    setup(editProps, VALID)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trayectoria' }))
+
+    expect(screen.getByText(/lo que el docente ve al abrir la hoja/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Pase de/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Cómo cerró este año/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Derivado a APE/)).toBeInTheDocument()
+  })
+
+  it('marcar APE avisa al formulario', () => {
+    setup(editProps, VALID)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trayectoria' }))
+    fireEvent.click(screen.getByLabelText(/Derivado a APE/))
+
+    expect(onPatch).toHaveBeenCalledWith('apeReferred', true)
+  })
+
+  it('las adecuaciones se cargan recién al abrir su pestaña', () => {
+    // Tiene su propia consulta: montarlo siempre pediría datos que casi nunca se miran.
+    setup(editProps, VALID)
+    expect(screen.queryByText('panel de adecuaciones')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Adecuaciones' }))
+    expect(screen.getByText('panel de adecuaciones')).toBeInTheDocument()
+  })
+
+  it('al crear no hay pestañas: la trayectoria se carga después', () => {
+    setup({}, VALID)
+    expect(screen.queryByRole('tab', { name: 'Trayectoria' })).not.toBeInTheDocument()
   })
 })

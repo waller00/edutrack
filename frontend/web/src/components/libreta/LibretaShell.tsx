@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react'
 import { useLibreta } from '@/contexts/LibretaContext'
 import { LIBRETA_SECTIONS, sectionHref } from '@/lib/libreta/menu'
 import { libretaCode } from './MisLibretas'
+import GroupSwitcher from './GroupSwitcher'
 
 /**
  * Marco del Libro del Profesor: identidad de la libreta arriba, secciones a la izquierda.
@@ -17,6 +18,8 @@ import { libretaCode } from './MisLibretas'
 export default function LibretaShell({ children }: { children: React.ReactNode }) {
   const { gradeBookId, detail, loading, error } = useLibreta()
   const pathname = usePathname()
+  // `/libreta/<id>/<sección>` → la sección, o null en la portada. Se conserva al cambiar de grupo.
+  const openSection = pathname.split('/')[3] ?? null
 
   if (loading && !detail) {
     return (
@@ -50,9 +53,12 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
           <Link href="/libreta" className="text-emerald-700 hover:underline">Mis Libretas</Link>
           {' / '}Libro del Profesor
         </p>
-        <h1 className="text-lg font-bold uppercase tracking-wide text-slate-700">
-          Libreta: {libretaCode(detail)}
-        </h1>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-lg font-bold uppercase tracking-wide text-slate-700">
+            Libreta: {libretaCode(detail)}
+          </h1>
+          <GroupSwitcher gradeBookId={gradeBookId} section={openSection} />
+        </div>
         <p className="text-sm text-gray-600">
           {detail.course.name}
           {detail.orientation ? ` — ${detail.orientation}` : ' — tronco común'}

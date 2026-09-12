@@ -308,6 +308,10 @@ entienden solos.
 - **Acceso:** el titular y el suplente que cubrió alguna de sus clases. Adscripción, Dirección e
   Inspección leen todas las del centro pero **no** califican: leer y escribir son permisos
   distintos (`gradebook.read` vs `gradebook.grade`).
+- **Calificar y planificar también son permisos distintos.** `gradebook.grade` cubre evaluaciones,
+  notas y juicios conceptuales; `gradebook.plan`, la planificación y el desarrollo del curso.
+  Dirección tiene `plan` con alcance ALL y no tiene `grade`, así que corrige la libreta de un
+  docente sin poder tocar una calificación ni un juicio — que es exactamente lo que pide el liceo.
 - **Parametrización (RF-044, RF-050, RF-041):** escalas con sus tramos y descriptores, períodos por
   ciclo **y nivel** —EBI y EMS tienen calendarios distintos— y tipos de actividad. Todo se edita
   desde administración, sin tocar código.
@@ -329,10 +333,35 @@ entienden solos.
   del período**: si exige calificación o juicio, no cierra hasta completarlos, y devuelve la lista
   entera de lo que falta para que la UI la marque de una vez. Se registra si el cierre quedó fuera
   del plazo del período (§5.9).
-- **Promedio orientativo (RF-061):** al cerrar se sugiere el promedio de las evaluaciones del
-  período, rotulado como *indicador automático*. **No se persiste**: guardarlo lo convertiría de a
-  poco en la calificación oficial, que es justo lo que el pliego prohíbe. Las ausencias no
-  promedian como cero.
+- **La libreta del docente no promedia.** El liceo fue explícito: la calificación general del
+  período la decide el docente. Al cerrar se muestra cuántas notas cargó —para ver a quién le
+  falta—, no un promedio. El indicador automático de RF-061 vive donde se usa de verdad: la matriz
+  institucional y la planilla de reunión, con un decimal, para escolaridad y abanderados. Ahí
+  tampoco se persiste: guardarlo lo convertiría de a poco en la calificación oficial.
+- **Inasistencias globales y media falta.** El liceo cuenta las faltas del estudiante **en el
+  liceo**, no por materia: `GET /gradebook/:id` las devuelve del ciclo entero. Cada marca lleva un
+  peso en centésimos (`100` = falta entera, `50` = media) que fija **adscripción caso por caso** al
+  justificar — no hay regla automática. Justificar es de adscripción (`student-attendance.justify`),
+  no del docente, que sólo marca presente/tarde/ausente.
+- **Conducta, dos veces.** Cada docente pone la de su asignatura junto a la nota del período
+  (`PeriodGrade.conductValueHundredths`), y adscripción pone una institucional por estudiante y
+  período (`StudentConductRecord`). La reunión las ve juntas. Usa su propia escala (`CONDUCTA`),
+  porque no se mide como el rendimiento.
+- **Reunión (`/libreta/reunion`):** la matriz del grupo con rendimiento, conducta e inasistencias en
+  la misma fila, el promedio con **un decimal** —hace falta para escolaridad y abanderados— y el
+  registro de decisiones sobre `TeacherMeetingRecord`.
+- **Boletín (`GET /admin/gradebook/report-card/:studentId?periodId=`):** PDF por estudiante y
+  período con nota y juicio de **todas** sus asignaturas, conducta, promedio e inasistencias. Es la
+  única salida transversal: el resto de las exportaciones son por libreta, o sea de una materia.
+- **Control de adscripción (`/libreta/control`):** qué libretas están incompletas en un período,
+  con cuántos estudiantes faltan en cada una, y aviso al docente por notificación interna diciendo
+  exactamente qué falta.
+- **Hoja del estudiante (`GET /gradebook/:id/students/:studentId`):** dentro de la libreta, el
+  docente abre a cualquier estudiante de **su** grupo y ve foto, nacimiento, de dónde vino el pase o
+  cómo promovió el año anterior, si está derivado a APE, las materias que arrastra y las
+  adecuaciones vigentes. Está ahí y no en una ficha aparte porque es lo que se tiene en cuenta al
+  calificar. Las adecuaciones guardan el tipo, un resumen y un **enlace**: el informe nunca entra al
+  sistema (ver `docs/POLITICA_PRIVACIDAD.md` §4 bis).
 - **Descriptor (RF-053):** se deriva al leer del tramo de la escala, nunca se guarda. Un cambio en
   la redacción reglamentaria no reescribe libretas viejas.
 - **Un período cerrado congela sus evaluaciones**, no sólo la calificación general: si no, se
@@ -555,13 +584,14 @@ importación es unidireccional: EduTrack es la fuente de verdad y **no** escribe
 `/me/attendance`, `/me/events`, `/me/licenses`, `/me/roll-call`, `/me/roll-call/[eventId]/[ymd]`
 
 ### Libreta digital (módulo propio, §11 ter)
-Docente — `/libreta`, `/libreta/[id]` y sus secciones
+Docente — `/libreta`, `/libreta/[id]` y sus secciones. Dentro de la libreta hay un **selector de
+grupo** que conserva la sección abierta: el docente entra una vez y cambia de grupo sin salir.
 `/libreta/[id]/{planificacion,desarrollo,evaluaciones,inasistencias,cierre,visados,mensajes}`.
 
 Trabajo transversal — `/libreta/inasistencias`, `/libreta/evaluaciones`, `/libreta/cierre-alumno`,
 `/libreta/cierre-libreta`.
 
-Supervisión y parametrización — `/libreta/grupo`, `/libreta/visado`, `/libreta/reunion`,
+Supervisión y parametrización — `/libreta/grupo`, `/libreta/control`, `/libreta/visado`, `/libreta/reunion`,
 `/libreta/indicadores`, `/libreta/estudiante/[id]`, `/libreta/configuracion`.
 
 ### General

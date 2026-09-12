@@ -13,6 +13,8 @@ function student(over: Partial<RosterStudent> = {}): RosterStudent {
     firstName: 'Ana',
     lastName: 'Benítez',
     documentId: null,
+    absences: '0',
+    absenceHundredths: 0,
     ...over,
   }
 }
@@ -32,9 +34,9 @@ describe('<InasistenciasSection />', () => {
   it('ordena por quien más faltó y desempata por apellido', () => {
     detail.mockReturnValue({
       students: [
-        student({ studentId: 's1', lastName: 'Zeballos', firstName: 'Ana', absences: 2 }),
-        student({ studentId: 's2', lastName: 'Álvarez', firstName: 'Beto', absences: 9 }),
-        student({ studentId: 's3', lastName: 'Benítez', firstName: 'Caro', absences: 2 }),
+        student({ studentId: 's1', lastName: 'Zeballos', firstName: 'Ana', absences: '2', absenceHundredths: 200 }),
+        student({ studentId: 's2', lastName: 'Álvarez', firstName: 'Beto', absences: '9', absenceHundredths: 900 }),
+        student({ studentId: 's3', lastName: 'Benítez', firstName: 'Caro', absences: '2', absenceHundredths: 200 }),
       ],
     })
 
@@ -43,25 +45,37 @@ describe('<InasistenciasSection />', () => {
     expect(rowNames()).toEqual(['Álvarez, Beto', 'Benítez, Caro', 'Zeballos, Ana'])
   })
 
-  it('totaliza faltas y llegadas tarde del grupo', () => {
+  it('la media falta suma medio y el total se escribe con coma', () => {
     detail.mockReturnValue({
       students: [
-        student({ studentId: 's1', absences: 3, lates: 1 }),
-        student({ studentId: 's2', absences: 4, lates: 2 }),
+        student({ studentId: 's1', absences: '1,5', absenceHundredths: 150, lates: 1 }),
+        student({ studentId: 's2', absences: '0,5', absenceHundredths: 50, lates: 2 }),
       ],
     })
 
     render(<InasistenciasSection />)
 
-    expect(screen.getByText('7 faltas · 3 llegadas tarde')).toBeInTheDocument()
+    expect(screen.getByText(/^2 faltas/)).toBeInTheDocument()
+    expect(screen.getByText(/3 llegadas tarde/)).toBeInTheDocument()
   })
 
-  it('singulariza el total cuando hay una sola falta', () => {
-    detail.mockReturnValue({ students: [student({ absences: 1, lates: 1 })] })
+  it('distingue cuántas están justificadas', () => {
+    // Una falta justificada sigue contando como inasistencia; lo que cambia es el motivo.
+    detail.mockReturnValue({
+      students: [student({ absences: '3', absenceHundredths: 300, justifiedCount: 2 })],
+    })
 
     render(<InasistenciasSection />)
 
-    expect(screen.getByText('1 falta · 1 llegada tarde')).toBeInTheDocument()
+    expect(screen.getByText(/2 justificadas/)).toBeInTheDocument()
+  })
+
+  it('aclara que las faltas son de todo el liceo, no de la asignatura', () => {
+    detail.mockReturnValue({ students: [student()] })
+
+    render(<InasistenciasSection />)
+
+    expect(screen.getByText(/todo el liceo, no sólo de esta asignatura/)).toBeInTheDocument()
   })
 
   it('cuenta como cero al estudiante sin datos de asistencia', () => {
@@ -69,7 +83,7 @@ describe('<InasistenciasSection />', () => {
 
     render(<InasistenciasSection />)
 
-    expect(screen.getByText('0 faltas · 0 llegadas tarde')).toBeInTheDocument()
+    expect(screen.getByText(/^0 faltas/)).toBeInTheDocument()
   })
 
   it('deriva la carga al pase de lista en vez de duplicarla', () => {

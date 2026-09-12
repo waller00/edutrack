@@ -21,9 +21,12 @@ export function badgeFor(code: string): StudentBadge {
   return BADGE_CATALOG[code.toUpperCase()] ?? { code, label: code, className: 'bg-gray-200 text-gray-800' }
 }
 
-/** Color del contador de inasistencias. El número siempre se muestra: el color es refuerzo. */
-export function absenceTone(count: number): string {
-  if (count >= 20) return 'text-red-700'
-  if (count >= 10) return 'text-amber-700'
+/**
+ * Color del contador de inasistencias, a partir del total en **centésimos** (250 = 2,5 faltas).
+ * El número siempre se muestra escrito: el color es refuerzo, nunca la única señal (RNF 7.2).
+ */
+export function absenceTone(hundredths: number): string {
+  if (hundredths >= 2000) return 'text-red-700'
+  if (hundredths >= 1000) return 'text-amber-700'
   return 'text-gray-500'
 }

@@ -80,6 +80,31 @@ describe('AdminStudentsPage', () => {
     expect(matches.length).toBeGreaterThanOrEqual(2)
   })
 
+  it('lleva las mensualidades a su módulo y no las reemplaza al guardar la ficha', async () => {
+    mockedApi.mockImplementation(async (url, init) => {
+      if (url === '/admin/students/s1') {
+        if (init?.method === 'PUT') return {} as never
+        return { ...student, id: 's1', documentId: '51234561', tuitionMonths: [{ year: 2026, month: 3, paid: true, amountCents: 350000 }] } as never
+      }
+      if (url.includes('/summary')) return { total: 1, byStatus: { ACTIVE: 1 } } as never
+      if (url.startsWith('/admin/students')) return { total: 1, page: 1, pageSize: 20, data: [student] } as never
+      return [] as never
+    })
+    render(<AdminStudentsPage />)
+    const table = await screen.findByRole('table')
+    expect(within(table).queryByRole('columnheader', { name: /Mensualidades/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Mensualidades' })).toHaveAttribute('href', '/admin/tuition')
+    fireEvent.click(within(table).getByRole('button', { name: 'García, Ana' }))
+    await screen.findByDisplayValue('Ana')
+    expect(screen.queryByRole('tab', { name: 'Mensualidades' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => {
+      const call = mockedApi.mock.calls.find(([, init]) => init?.method === 'PUT')
+      expect(call).toBeDefined()
+      expect(JSON.parse(call![1]!.body as string)).not.toHaveProperty('tuitionMonths')
+    })
+  })
+
   it('muestra "Limpiar" con el contador al activar un filtro y lo resetea', async () => {
     render(<AdminStudentsPage />)
     await screen.findByRole('table')

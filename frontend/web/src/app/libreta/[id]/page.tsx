@@ -1,14 +1,17 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useLibreta } from '@/contexts/LibretaContext'
 import StudentGrid from '@/components/libreta/StudentGrid'
+import StudentSheet from '@/components/libreta/StudentSheet'
 import ExportButtons from '@/components/gradebook/ExportButtons'
 import { LIBRETA_SECTIONS, sectionHref } from '@/lib/libreta/menu'
 
 /** Portada de la libreta: el grupo y los accesos rápidos a cada sección. */
 export default function LibretaHomePage() {
   const { gradeBookId, detail } = useLibreta()
+  const [openStudentId, setOpenStudentId] = useState<string | null>(null)
   if (!detail) return null
 
   return (
@@ -16,9 +19,10 @@ export default function LibretaHomePage() {
       <section>
         <h2 className="mb-1 text-sm font-semibold text-gray-900">Lista del grupo</h2>
         <p className="mb-2 text-xs text-gray-500">
-          Matrículas activas del ciclo. Las altas y bajas se reflejan solas; lo ya cargado no se toca.
+          Tocá un estudiante para ver su hoja: datos, materias que arrastra y adecuaciones a tener en
+          cuenta al calificar.
         </p>
-        <StudentGrid students={detail.students} />
+        <StudentGrid students={detail.students} onOpenStudent={setOpenStudentId} />
       </section>
 
       <section>
@@ -39,6 +43,14 @@ export default function LibretaHomePage() {
       </section>
 
       <ExportButtons gradeBookId={gradeBookId} />
+
+      {openStudentId && (
+        <StudentSheet
+          gradeBookId={gradeBookId}
+          studentId={openStudentId}
+          onClose={() => setOpenStudentId(null)}
+        />
+      )}
     </div>
   )
 }

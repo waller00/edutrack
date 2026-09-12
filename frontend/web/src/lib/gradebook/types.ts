@@ -20,8 +20,15 @@ export type RosterStudent = {
   firstName: string
   lastName: string
   documentId: string | null
-  /** Faltas acumuladas en esta asignatura (incluye las justificadas). */
-  absences?: number
+  /**
+   * Faltas del ciclo en **todo el liceo**, ya formateadas: `"2,5"`. No son de la asignatura: el
+   * liceo cuenta las inasistencias del estudiante, no las de cada materia por separado.
+   */
+  absences?: string
+  /** El mismo total en centésimos, para ordenar y comparar sin parsear el texto. */
+  absenceHundredths?: number
+  /** Cuántas de esas faltas están justificadas. */
+  justifiedCount?: number
   /** Llegadas tarde acumuladas. */
   lates?: number
 }

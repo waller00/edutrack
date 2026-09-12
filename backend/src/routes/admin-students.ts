@@ -184,9 +184,18 @@ const studentWriteBaseSchema = z.object({
   username: optionalStudentUsername,
   email: optionalStudentEmail,
   address: clearableTrimmed(500),
+  birthDate: clearableDateString,
+  /// De dónde vino el pase al ingresar (7.º). Es el nombre de un centro, no un código.
+  admittedFrom: clearableTrimmed(200),
   healthCardExpiresAt: clearableDateString,
   liceoAccessNotes: clearableTrimmed(8000),
   enrollmentStatus: enrollmentStatusZ.optional(),
+  /// Cómo cerró el año. Se completa al cerrar el ciclo, no al dar de alta.
+  academicResult: z.preprocess(
+    (v) => (v === null || v === '' ? undefined : v),
+    z.enum(['PROMOTED', 'PROMOTED_WITH_PENDING', 'REPEATED', 'PENDING_APE']).nullable().optional(),
+  ),
+  apeReferred: z.boolean().optional(),
   withdrawnAt: optionalDateString,
   withdrawalAcademicYear: z.preprocess(
     (v) => (v === null || v === '' ? undefined : v),
@@ -411,9 +420,13 @@ function serializeStudentDetail(row: {
   username: string | null
   email: string | null
   address: string | null
+  birthDate: Date | null
+  admittedFrom: string | null
   healthCardExpiresAt: Date | null
   liceoAccessNotes: string | null
   enrollmentStatus: StudentEnrollmentStatus
+  academicResult: string | null
+  apeReferred: boolean
   withdrawnAt: Date | null
   withdrawalAcademicYear: number | null
   internalNotes: string | null
@@ -459,8 +472,12 @@ function serializeStudentDetail(row: {
     username: row.username,
     email: row.email,
     address: row.address,
+    birthDate: row.birthDate?.toISOString() ?? null,
+    admittedFrom: row.admittedFrom ?? null,
     healthCardExpiresAt: row.healthCardExpiresAt?.toISOString() ?? null,
     liceoAccessNotes: row.liceoAccessNotes,
+    academicResult: row.academicResult ?? null,
+    apeReferred: row.apeReferred ?? false,
     enrollmentStatus: row.enrollmentStatus,
     withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
     withdrawalAcademicYear: row.withdrawalAcademicYear,
@@ -871,6 +888,8 @@ r.get('/:id', async (req, res) => {
       courseOfferingId: courseOffering?.id ?? null,
       course: courseOffering?.course ?? null,
       enrollmentStatus: enrollment?.enrollmentStatus ?? 'ACTIVE',
+      academicResult: enrollment?.academicResult ?? null,
+      apeReferred: enrollment?.apeReferred ?? false,
       withdrawnAt: enrollment?.withdrawnAt ?? null,
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? null,
       moodleVerification: moodleVerifications.get(row.id),
@@ -954,6 +973,8 @@ r.post('/', async (req, res) => {
           tutorPhone: body.tutorPhone ?? null,
           email: body.email ?? null,
           address: body.address ?? null,
+          birthDate: body.birthDate ? parseOptionalEndOfDayDate(body.birthDate) ?? null : null,
+          admittedFrom: body.admittedFrom ?? null,
           healthCardExpiresAt: health ?? null,
           liceoAccessNotes: body.liceoAccessNotes ?? null,
           internalNotes: body.internalNotes ?? null,
@@ -966,6 +987,8 @@ r.post('/', async (req, res) => {
           schoolYearId: resolvedSchoolYearId,
           courseOfferingId: resolvedCourseOfferingId,
           enrollmentStatus: (body.enrollmentStatus ?? 'ACTIVE') as StudentEnrollmentStatus,
+          academicResult: body.academicResult ?? null,
+          apeReferred: body.apeReferred ?? false,
           withdrawnAt: withdrawn ?? null,
           withdrawalAcademicYear: body.withdrawalAcademicYear ?? null,
           notes: body.internalNotes ?? null,
@@ -1032,6 +1055,8 @@ r.post('/', async (req, res) => {
       courseOfferingId: courseOffering?.id ?? null,
       course: courseOffering?.course ?? null,
       enrollmentStatus: enrollment?.enrollmentStatus ?? (body.enrollmentStatus ?? 'ACTIVE'),
+      academicResult: enrollment?.academicResult ?? body.academicResult ?? null,
+      apeReferred: enrollment?.apeReferred ?? body.apeReferred ?? false,
       withdrawnAt: enrollment?.withdrawnAt ?? withdrawn ?? null,
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
       moodleVerification: (await safeStudentMoodleVerifications([created.id])).get(created.id),
@@ -1046,6 +1071,172 @@ r.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Referencia inválida (curso u otro vínculo)' })
     }
     console.error('[admin/students POST]', e)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+// ─── Adecuaciones y materias bajas ──────────────────────────────────────────
+
+/**
+ * **El informe nunca entra al sistema.** Se guarda el tipo, un resumen de lo que el docente
+ * necesita tener en cuenta al calificar, y el enlace a donde el documento vive de verdad. Es el
+ * mismo criterio que las licencias médicas: la política de privacidad prohíbe almacenar
+ * diagnósticos y documentos clínicos, y un informe psicológico de un menor es exactamente eso.
+ */
+const accommodationSchema = z.object({
+  kind: z.enum(['CURRICULAR', 'EVALUATION', 'ACCESSIBILITY', 'OTHER']).default('CURRICULAR'),
+  summary: z.string().trim().min(1, 'Escribí qué tener en cuenta al calificar').max(4000),
+  externalUrl: z.preprocess(
+    clearableEmpty,
+    z.string().url('El enlace tiene que ser una URL').max(2000).nullable().optional(),
+  ),
+  validFrom: clearableDateString,
+  validUntil: clearableDateString,
+})
+
+r.get('/:id/accommodations', async (req, res) => {
+  try {
+    const rows = await (prisma as any).studentAccommodation.findMany({
+      where: { studentId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+    })
+    return res.json({ data: rows })
+  } catch (error) {
+    console.error('[admin/students/:id/accommodations GET]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.post('/:id/accommodations', async (req: any, res) => {
+  const parsed = accommodationSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: 'Datos inválidos',
+      detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
+    })
+  }
+  try {
+    const student = await prisma.student.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    const d = parsed.data
+    const created = await (prisma as any).studentAccommodation.create({
+      data: {
+        studentId: req.params.id,
+        kind: d.kind,
+        summary: d.summary,
+        externalUrl: d.externalUrl ?? null,
+        validFrom: d.validFrom ? parseOptionalEndOfDayDate(d.validFrom) ?? null : null,
+        validUntil: d.validUntil ? parseOptionalEndOfDayDate(d.validUntil) ?? null : null,
+        createdByUserId: req.user?.id ?? req.user?.sub ?? null,
+      },
+    })
+    return res.status(201).json({ data: created })
+  } catch (error) {
+    console.error('[admin/students/:id/accommodations POST]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.delete('/:id/accommodations/:accommodationId', async (req, res) => {
+  try {
+    const deleted = await (prisma as any).studentAccommodation.deleteMany({
+      where: { id: req.params.accommodationId, studentId: req.params.id },
+    })
+    if (deleted.count === 0) return res.status(404).json({ message: 'Adecuación no encontrada' })
+    return res.status(204).end()
+  } catch (error) {
+    console.error('[admin/students/:id/accommodations DELETE]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+const pendingSubjectSchema = z.object({
+  schoolYearId: z.string().uuid(),
+  subjectId: z.string().uuid(),
+  origin: z.enum(['FAILED_THIS_YEAR', 'CARRIED_OVER']).default('FAILED_THIS_YEAR'),
+  apeDecember: z.preprocess(clearableEmpty, z.enum(['PASSED', 'FAILED', 'NOT_TAKEN']).nullable().optional()),
+  apeFebruary: z.preprocess(clearableEmpty, z.enum(['PASSED', 'FAILED', 'NOT_TAKEN']).nullable().optional()),
+  notes: clearableTrimmed(2000),
+})
+
+r.get('/:id/pending-subjects', async (req, res) => {
+  try {
+    const rows = await (prisma as any).studentPendingSubject.findMany({
+      where: { studentId: req.params.id },
+      include: { subject: { select: { id: true, name: true } }, schoolYear: { select: { id: true, code: true } } },
+      orderBy: { createdAt: 'desc' },
+    })
+    return res.json({ data: rows })
+  } catch (error) {
+    console.error('[admin/students/:id/pending-subjects GET]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Alta o actualización de una materia baja.
+ *
+ * Es un upsert por `(estudiante, ciclo, materia)`: registrar el resultado de APE diciembre y luego
+ * el de febrero son dos pasos sobre la misma fila, no dos filas. Cuando salva, se marca
+ * `resolvedAt` y deja de mostrársele al docente — pero la fila queda, porque el historial de qué
+ * se llevó es justamente lo que necesita el año siguiente.
+ */
+r.put('/:id/pending-subjects', async (req: any, res) => {
+  const parsed = pendingSubjectSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: 'Datos inválidos',
+      detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
+    })
+  }
+  try {
+    const d = parsed.data
+    const passed = d.apeDecember === 'PASSED' || d.apeFebruary === 'PASSED'
+    const data = {
+      origin: d.origin,
+      apeDecember: d.apeDecember ?? null,
+      apeFebruary: d.apeFebruary ?? null,
+      notes: d.notes ?? null,
+      resolvedAt: passed ? new Date() : null,
+    }
+    const saved = await (prisma as any).studentPendingSubject.upsert({
+      where: {
+        studentId_schoolYearId_subjectId: {
+          studentId: req.params.id,
+          schoolYearId: d.schoolYearId,
+          subjectId: d.subjectId,
+        },
+      },
+      create: {
+        studentId: req.params.id,
+        schoolYearId: d.schoolYearId,
+        subjectId: d.subjectId,
+        createdByUserId: req.user?.id ?? req.user?.sub ?? null,
+        ...data,
+      },
+      update: data,
+      include: { subject: { select: { id: true, name: true } }, schoolYear: { select: { id: true, code: true } } },
+    })
+    return res.json({ data: saved })
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2003') {
+      return res.status(400).json({ message: 'Ciclo o materia inexistente' })
+    }
+    console.error('[admin/students/:id/pending-subjects PUT]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.delete('/:id/pending-subjects/:pendingId', async (req, res) => {
+  try {
+    const deleted = await (prisma as any).studentPendingSubject.deleteMany({
+      where: { id: req.params.pendingId, studentId: req.params.id },
+    })
+    if (deleted.count === 0) return res.status(404).json({ message: 'Materia no encontrada' })
+    return res.status(204).end()
+  } catch (error) {
+    console.error('[admin/students/:id/pending-subjects DELETE]', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -1299,6 +1490,10 @@ r.put('/:id', async (req, res) => {
     if (body.username !== undefined) data.username = body.username
     if (body.email !== undefined) data.email = body.email
     if (body.address !== undefined) data.address = body.address ?? null
+    if (body.birthDate !== undefined) {
+      data.birthDate = body.birthDate ? parseOptionalEndOfDayDate(body.birthDate) : null
+    }
+    if (body.admittedFrom !== undefined) data.admittedFrom = body.admittedFrom ?? null
     if (body.healthCardExpiresAt !== undefined) {
       data.healthCardExpiresAt = body.healthCardExpiresAt
         ? parseOptionalEndOfDayDate(body.healthCardExpiresAt)
@@ -1342,12 +1537,17 @@ r.put('/:id', async (req, res) => {
           orientationPatch = { orientationId: body.orientationId, courseOrientationId: link?.id ?? null }
         }
       }
-      if (targetSchoolYearId && finalCourseOfferingId) {
+      // También se actualiza cuando no hay oferta pero SÍ matrícula previa: sin esto, editar el
+      // resultado del año o la derivación a APE de un alumno sin curso asignado se perdía en
+      // silencio. Crear sigue exigiendo oferta, porque la matrícula no existe sin curso.
+      if (targetSchoolYearId && (finalCourseOfferingId || currentEnrollment)) {
         await (tx as any).studentEnrollment.upsert({
           where: { studentId_schoolYearId: { studentId: id, schoolYearId: targetSchoolYearId } },
           update: {
-            courseOfferingId: finalCourseOfferingId,
+            ...(finalCourseOfferingId ? { courseOfferingId: finalCourseOfferingId } : {}),
             ...(body.enrollmentStatus !== undefined ? { enrollmentStatus: body.enrollmentStatus } : {}),
+            ...(body.academicResult !== undefined ? { academicResult: body.academicResult ?? null } : {}),
+            ...(body.apeReferred !== undefined ? { apeReferred: body.apeReferred } : {}),
             ...(body.withdrawnAt !== undefined ? { withdrawnAt: body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null } : {}),
             ...(body.withdrawalAcademicYear !== undefined ? { withdrawalAcademicYear: body.withdrawalAcademicYear ?? null } : {}),
             ...(body.internalNotes !== undefined ? { notes: body.internalNotes ?? null } : {}),
@@ -1359,6 +1559,8 @@ r.put('/:id', async (req, res) => {
             courseOfferingId: finalCourseOfferingId,
             ...orientationPatch,
             enrollmentStatus: (body.enrollmentStatus ?? 'ACTIVE') as StudentEnrollmentStatus,
+            academicResult: body.academicResult ?? null,
+            apeReferred: body.apeReferred ?? false,
             withdrawnAt: body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null,
             withdrawalAcademicYear: body.withdrawalAcademicYear ?? null,
             notes: body.internalNotes ?? null,
@@ -1439,6 +1641,8 @@ r.put('/:id', async (req, res) => {
       courseOfferingId: courseOffering?.id ?? null,
       course: courseOffering?.course ?? null,
       enrollmentStatus: enrollment?.enrollmentStatus ?? body.enrollmentStatus ?? 'ACTIVE',
+      academicResult: enrollment?.academicResult ?? body.academicResult ?? null,
+      apeReferred: enrollment?.apeReferred ?? body.apeReferred ?? false,
       withdrawnAt: enrollment?.withdrawnAt ?? (body.withdrawnAt ? parseOptionalEndOfDayDate(body.withdrawnAt) : null),
       withdrawalAcademicYear: enrollment?.withdrawalAcademicYear ?? body.withdrawalAcademicYear ?? null,
       moodleVerification: (await safeStudentMoodleVerifications([updated.id])).get(updated.id),
