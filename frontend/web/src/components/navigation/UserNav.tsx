@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Receipt,
   MessageCircle,
   School,
   Settings,
@@ -74,6 +75,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage' },
       { label: 'Cursos', href: '/admin/courses', permission: 'courses.manage' },
       { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage' },
+      { label: 'Mensualidades', href: '/admin/tuition', permission: 'students.manage', permissionScope: 'all' },
       { label: 'Pase de lista (control)', href: '/admin/student-attendance', permission: 'student-attendance.manage' },
     ],
   },
@@ -89,6 +91,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Cerrar Prom. por Libreta', href: '/libreta/cierre-libreta', permission: 'gradebook.close', permissionScope: 'own' },
       // Supervisión: adscripción, dirección e inspección.
       { label: 'Vista de grupo', href: '/libreta/grupo', permission: 'gradebook.read', permissionScope: 'all' },
+      { label: 'Control de libretas', href: '/libreta/control', permission: 'gradebook.review', permissionScope: 'all' },
       { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
       { label: 'Reunión de profesores', href: '/libreta/reunion', permission: 'gradebook.read', permissionScope: 'all' },
       { label: 'Inteligencia académica', href: '/libreta/indicadores', permission: 'academic-analytics.read', permissionScope: 'all' },
@@ -129,6 +132,7 @@ function itemIcon(label: string) {
   if (/libreta|evaluacion|cerrar prom|visado|reunión|reunion/i.test(label)) return BookOpen
   if (/curso/i.test(label)) return BookOpen
   if (/estudiante/i.test(label)) return GraduationCap
+  if (/mensualidad/i.test(label)) return Receipt
   if (/evento|clase|turno/i.test(label)) return CalendarDays
   if (/asistencia/i.test(label)) return ClipboardList
   if (/perfil|rol/i.test(label)) return ShieldCheck

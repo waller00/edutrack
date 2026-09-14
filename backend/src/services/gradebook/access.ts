@@ -13,10 +13,18 @@ export type GradeBookAccessLevel = 'OWNER' | 'SUBSTITUTE' | 'SUPERVISION' | 'NON
 export type GradeBookAccess = {
   level: GradeBookAccessLevel
   canRead: boolean
+  /** Evaluaciones, notas parciales, notas de período y juicios conceptuales. */
   canGrade: boolean
+  /**
+   * Planificación y desarrollo del curso.
+   *
+   * Va separado de `canGrade` porque el liceo pide que Dirección corrija la libreta de un docente
+   * **salvo** las calificaciones y los juicios. Con un solo booleano no se puede expresar esa mitad.
+   */
+  canPlan: boolean
 }
 
-const NO_ACCESS: GradeBookAccess = { level: 'NONE', canRead: false, canGrade: false }
+const NO_ACCESS: GradeBookAccess = { level: 'NONE', canRead: false, canGrade: false, canPlan: false }
 
 /**
  * ¿Quien pide fue suplente en alguna clase de esta libreta?
@@ -56,6 +64,10 @@ async function hasSubstitution(
  * `scope === 'all'` (administración, adscripción, dirección, inspección) siempre lee, pero **no**
  * califica por eso: escribir notas exige `gradebook.grade`, que esos roles no tienen. Separar las
  * dos preguntas evita que un rol de supervisión termine escribiendo por tener alcance amplio.
+ *
+ * Planificar se resuelve igual pero con su propio permiso: Dirección tiene `gradebook.plan` con
+ * alcance `all` y no tiene `gradebook.grade`, así que entra a una libreta ajena, edita la
+ * planificación y el desarrollo, y no puede tocar una nota.
  */
 export async function resolveGradeBookAccess(
   params: {
@@ -64,6 +76,8 @@ export async function resolveGradeBookAccess(
     readScope: 'own' | 'all' | null
     /** Alcance de `gradebook.grade`; null si no lo tiene. */
     gradeScope: 'own' | 'all' | null
+    /** Alcance de `gradebook.plan`; null si no lo tiene. */
+    planScope: 'own' | 'all' | null
     gradeBook: {
       teacherUserId: string | null
       schoolYearId: string
@@ -81,23 +95,35 @@ export async function resolveGradeBookAccess(
   // Un ciclo cerrado es de sólo lectura para todos, incluida administración (RF-110/111).
   const writable = gradeBook.status === 'ACTIVE'
 
+  // Titular y suplente escriben por vínculo: les alcanza con tener el permiso en cualquier alcance.
+  const ownWrite = {
+    canRead: params.readScope !== null,
+    canGrade: writable && params.gradeScope !== null,
+    canPlan: writable && params.planScope !== null,
+  }
+
   if (isOwner) {
-    return { level: 'OWNER', canRead: params.readScope !== null, canGrade: writable && params.gradeScope !== null }
+    return { level: 'OWNER', ...ownWrite }
   }
 
-  if (params.gradeScope !== null || params.readScope === 'own') {
-    const substitute = await hasSubstitution(db, gradeBook, params.userId)
-    if (substitute) {
-      return {
-        level: 'SUBSTITUTE',
-        canRead: params.readScope !== null,
-        canGrade: writable && params.gradeScope !== null,
-      }
-    }
+  // Sólo se busca suplencia cuando podría cambiar la respuesta: con todos los alcances en `all`,
+  // la rama de supervisión de abajo ya concede lo mismo y la consulta sería al pedo. Con un
+  // permiso en `own`, en cambio, ser suplente es la única forma de escribir esta libreta.
+  const substitutionCouldHelp =
+    params.readScope === 'own' || params.gradeScope === 'own' || params.planScope === 'own'
+
+  if (substitutionCouldHelp && (await hasSubstitution(db, gradeBook, params.userId))) {
+    return { level: 'SUBSTITUTE', ...ownWrite }
   }
 
+  // Supervisión escribe sólo con alcance `all`: el permiso `own` no alcanza sobre libreta ajena.
   if (params.readScope === 'all') {
-    return { level: 'SUPERVISION', canRead: true, canGrade: writable && params.gradeScope === 'all' }
+    return {
+      level: 'SUPERVISION',
+      canRead: true,
+      canGrade: writable && params.gradeScope === 'all',
+      canPlan: writable && params.planScope === 'all',
+    }
   }
 
   return NO_ACCESS

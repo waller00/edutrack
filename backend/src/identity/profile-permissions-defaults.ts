@@ -72,6 +72,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('academic-config.manage', 'Configuración académica', 'manage', 'Gestionar escalas, períodos y tipos de actividad', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas', true, 'all'),
     perm('gradebook.grade', 'Libreta', 'grade', 'Registrar evaluaciones y calificaciones', true, 'all'),
+    perm('gradebook.plan', 'Libreta', 'plan', 'Editar planificación y desarrollo del curso', true, 'all'),
     perm('gradebook.close', 'Libreta', 'close', 'Cerrar períodos y emitir juicios conceptuales', true, 'all'),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
@@ -80,6 +81,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),
     perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de clases', true, 'all'),
     perm('student-attendance.read', 'Pase de lista', 'read', 'Ver pase de lista', true, 'all'),
+    perm('student-attendance.justify', 'Pase de lista', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
     perm('student-attendance.manage', 'Pase de lista', 'manage', 'Controlar y justificar el pase de lista', true, 'all'),
     perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
     perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
@@ -95,6 +97,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver mis libretas', true, 'own'),
     perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en mis libretas', true, 'own'),
+    perm('gradebook.plan', 'Libreta', 'plan', 'Planificar mis libretas', true, 'own'),
     perm('gradebook.close', 'Libreta', 'close', 'Cerrar los períodos de mis libretas', true, 'own'),
   ],
   STAFF: [
@@ -107,6 +110,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver mis libretas', true, 'own'),
     perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en mis libretas', true, 'own'),
+    perm('gradebook.plan', 'Libreta', 'plan', 'Planificar mis libretas', true, 'own'),
     perm('gradebook.close', 'Libreta', 'close', 'Cerrar los períodos de mis libretas', true, 'own'),
   ],
   // Adscripto: controla el avance de las libretas y observa, pero NO visa. Es personal del
@@ -119,10 +123,18 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas del centro', true, 'all'),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
+    // Justificar es trabajo de adscripción, no del docente. Se le da el permiso acotado y no
+    // `student-attendance.manage`, que además habilita reabrir listas ya cerradas.
+    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista del centro', true, 'all'),
+    perm('student-attendance.justify', 'Pase de lista', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
   ],
   // Dirección: además de observar, es el único rol con `gradebook.endorse`. Ese permiso, y no un
   // `if` en una ruta, es lo que cumple la nota funcional del pliego ("el visado formal corresponde
   // al rol Director").
+  //
+  // Lleva `gradebook.plan` y NO `gradebook.grade`: el liceo pide que el director pueda corregir la
+  // libreta de un docente salvo las calificaciones y los juicios. Por eso el permiso de calificar
+  // está partido en dos — con una sola llave no habría forma de expresar esa mitad.
   DIRECCION: [
     perm('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
     perm('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
@@ -130,6 +142,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas del centro', true, 'all'),
+    perm('gradebook.plan', 'Libreta', 'plan', 'Editar planificación y desarrollo del curso', true, 'all'),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
     perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),

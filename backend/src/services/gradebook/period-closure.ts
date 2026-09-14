@@ -45,20 +45,9 @@ export type StudentPeriodRow = {
   conceptualJudgement: string | null
 }
 
-/**
- * Promedio de las evaluaciones del período, en centésimos.
- *
- * **Es un indicador automático, no una calificación** (RF-061): se ofrece como sugerencia y el
- * docente decide. Por eso no se persiste en ningún lado — persistirlo lo convertiría de a poco en
- * la nota oficial, que es justo lo que el pliego prohíbe.
- *
- * Un estudiante sin evaluaciones no promedia 0: devuelve `null`, que significa "sin datos".
- */
-export function suggestedAverage(values: readonly number[]): number | null {
-  if (values.length === 0) return null
-  const sum = values.reduce((acc, value) => acc + value, 0)
-  return Math.round(sum / values.length)
-}
+// La libreta del docente NO promedia: el liceo es explícito y por eso acá no hay una función que
+// lo haga. El promedio del grupo vive en `institutional.ts` (`transversalAverage`), que es donde el
+// pliego lo pide y donde se usa para escolaridad y abanderados.
 
 /** Descriptor y semáforo del valor, derivados de la escala al leer (RF-053). */
 export function describeValue(valueHundredths: number | null, levels: readonly ScaleLevelRow[]) {

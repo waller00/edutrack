@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import StudentGrid, { initialsOf } from './StudentGrid'
 import type { RosterStudent } from '@/lib/gradebook/types'
@@ -38,44 +39,73 @@ describe('<StudentGrid />', () => {
     expect(screen.getByText(/no tiene estudiantes matriculados/i)).toBeInTheDocument()
   })
 
-  it('numera y nombra a cada estudiante con enlace a evaluaciones', () => {
+  it('numera, nombra y abre la hoja del estudiante', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
     render(
       <StudentGrid
         gradeBookId="gb-1"
         students={[student(), student({ studentId: 's2', firstName: 'Carlos', lastName: 'Díaz' })]}
+        onOpenStudent={onOpen}
       />,
     )
 
-    const ana = screen.getByRole('link', { name: 'Benítez, Ana' })
-    expect(ana).toHaveAttribute('href', '/libreta/gb-1/evaluaciones?alumno=s1')
-    expect(screen.getByRole('link', { name: 'Díaz, Carlos' })).toHaveAttribute(
-      'href',
-      '/libreta/gb-1/evaluaciones?alumno=s2',
-    )
     expect(screen.getByText('1')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Benítez, Ana' }))
+    expect(onOpen).toHaveBeenCalledWith('s1')
+  })
+
+  it('ofrece enlace a evaluaciones por alumno', () => {
+    render(<StudentGrid gradeBookId="gb-1" students={[student()]} />)
+    expect(screen.getByRole('link', { name: 'Evaluaciones' })).toHaveAttribute(
+      'href',
+      '/libreta/gb-1/evaluaciones?alumno=s1',
+    )
   })
 
   it('escribe siempre el número de faltas, no sólo el color', () => {
     // RNF 7.2: el color es refuerzo; el conteo tiene que poder leerse.
-    render(<StudentGrid gradeBookId="gb-1" students={[student({ absences: 12, lates: 3 })]} />)
+    render(
+      <StudentGrid
+        gradeBookId="gb-1"
+        students={[student({ absences: '12', absenceHundredths: 1200, lates: 3 })]}
+      />,
+    )
 
     expect(screen.getByText(/12 faltas/)).toBeInTheDocument()
     expect(screen.getByText(/3 tardes/)).toBeInTheDocument()
   })
 
-  it('trata las faltas ausentes como cero y singulariza en uno', () => {
+  it('trata las faltas ausentes como cero y singulariza en una falta entera', () => {
     render(<StudentGrid gradeBookId="gb-1" students={[student()]} />)
     expect(screen.getByText(/0 faltas/)).toBeInTheDocument()
     expect(screen.getByText(/0 tardes/)).toBeInTheDocument()
 
-    render(<StudentGrid gradeBookId="gb-1" students={[student({ studentId: 's9', absences: 1, lates: 1 })]} />)
+    render(
+      <StudentGrid
+        gradeBookId="gb-1"
+        students={[student({ studentId: 's9', absences: '1', absenceHundredths: 100, lates: 1 })]}
+      />,
+    )
     expect(screen.getByText(/1 falta$/)).toBeInTheDocument()
     expect(screen.getByText(/1 tarde$/)).toBeInTheDocument()
   })
 
+  it('media falta se escribe con coma y en plural', () => {
+    render(
+      <StudentGrid
+        gradeBookId="gb-1"
+        students={[student({ absences: '0,5', absenceHundredths: 50 })]}
+      />,
+    )
+    expect(screen.getByText(/0,5 faltas/)).toBeInTheDocument()
+  })
+
   it('omite la cédula cuando el estudiante no la tiene cargada', () => {
-    const { container } = render(<StudentGrid gradeBookId="gb-1" students={[student({ documentId: null })]} />)
+    const { container } = render(
+      <StudentGrid gradeBookId="gb-1" students={[student({ documentId: null })]} />,
+    )
     expect(container.querySelector('.font-mono')).toBeNull()
   })
 })

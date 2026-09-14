@@ -11,7 +11,6 @@ const ROW = {
   lastName: 'Benítez',
   firstName: 'Ana',
   assessmentCount: 3,
-  suggestedAverageHundredths: 733,
   valueHundredths: 700,
   conceptualJudgement: 'Progresa bien.',
   descriptor: {
@@ -54,9 +53,19 @@ describe('PeriodClosurePanel', () => {
     )
   })
 
-  it('el promedio es orientativo y se rotula como indicador automático', async () => {
+  it('la libreta del docente NO promedia', async () => {
+    // El liceo fue explícito: ninguna libreta del docente hace promedio automático. La
+    // calificación general del período la decide él. El promedio vive en la planilla de reunión.
     render(<PeriodClosurePanel gradeBookId="gb-1" periodId="p-1" decimals={0} />)
-    expect(await screen.findByTitle('Indicador automático / promedio orientativo')).toHaveTextContent('7')
+    await screen.findByText('Benítez, Ana')
+
+    expect(screen.queryByText(/promedio/i)).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Indicador automático / promedio orientativo')).not.toBeInTheDocument()
+  })
+
+  it('sí muestra cuántas notas cargó, que no es un promedio', async () => {
+    render(<PeriodClosurePanel gradeBookId="gb-1" periodId="p-1" decimals={0} />)
+    expect(await screen.findByText('Notas cargadas')).toBeInTheDocument()
   })
 
   it('el descriptor se muestra con texto además del color (RNF 7.2)', async () => {

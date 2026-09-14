@@ -156,6 +156,9 @@ model User {
   livenessVerifiedAt                     DateTime?
 
   @@index([roleId])
+  pendingSubjectsCreated  StudentPendingSubject[] @relation("PendingSubjectCreatedBy")
+  accommodationsCreated   StudentAccommodation[]  @relation("AccommodationCreatedBy")
+  conductRecordsUpdated StudentConductRecord[] @relation("ConductUpdatedBy")
 }
 
 /// Perfil docente operativo (cuenta en `User` con rol TEACHER).
@@ -723,6 +726,8 @@ model SchoolYear {
   academicAlertRules        AcademicAlertRule[]
 
   @@index([status])
+  studentPendingSubjects StudentPendingSubject[]
+  studentConductRecords StudentConductRecord[]
 }
 
 /// Cursos para asociar eventos (clases / grupos).
@@ -848,6 +853,7 @@ model Subject {
   @@index([isActive])
   @@index([sortOrder, name])
   @@map("asignaturas")
+  studentPendingSubjects StudentPendingSubject[]
 }
 
 /// Asociación flexible de asignaturas: nivel completo, curso completo, tronco común
@@ -889,6 +895,48 @@ enum StudentEnrollmentStatus {
   TRANSFERRED
 }
 
+/// Cómo cerró el estudiante el año. Es distinto de `StudentEnrollmentStatus`, que dice si la
+/// matrícula sigue viva: un alumno puede estar ACTIVE y haber repetido.
+///
+/// Hasta ahora esto sólo existía como prosa castellana agregada a `StudentEnrollment.notes` por el
+/// pase de año, así que no había forma de consultarlo ni de mostrárselo al docente del año
+/// siguiente — que es justamente quien necesita saber cómo promovió.
+enum StudentAcademicResult {
+  PROMOTED
+  /// Promovido debiendo materias (en 7.º a 8.º se pasa con todas las bajas).
+  PROMOTED_WITH_PENDING
+  REPEATED
+  /// Todavía se define: quedó pendiente de APE diciembre o febrero.
+  PENDING_APE
+}
+
+/// De dónde sale una materia baja.
+enum PendingSubjectOrigin {
+  /// Quedó debiendo esta materia del ciclo que se está cursando.
+  FAILED_THIS_YEAR
+  /// La arrastra de un año anterior.
+  CARRIED_OVER
+}
+
+/// Resultado del estudiante en una instancia de APE.
+enum ApeResult {
+  PASSED
+  FAILED
+  /// No se presentó.
+  NOT_TAKEN
+}
+
+/// Tipo de adecuación, para que el docente sepa de qué se trata sin leer el informe.
+enum AccommodationKind {
+  /// Adecuación curricular: qué se le adapta de los contenidos.
+  CURRICULAR
+  /// Adecuación de evaluación: más tiempo, otro formato de prueba.
+  EVALUATION
+  /// Accesibilidad: ubicación en el aula, materiales, apoyos.
+  ACCESSIBILITY
+  OTHER
+}
+
 /// Registro de estudiante solo para gestión (sin cuenta ni login en el sistema).
 /// `username`/`email` habilitan su cuenta real en Moodle (auth manual).
 model Student {
@@ -907,6 +955,11 @@ model Student {
   /// (renombrarla con `db push` implicaría drop+add y pérdida de datos).
   email        String? @map("contactEmail")
   address      String?
+
+  /// Día civil a mediodía UTC, como el resto de las fechas del repo.
+  birthDate DateTime?
+  /// De dónde vino al ingresar al liceo (el "pase" de 7.º). Texto libre: es el nombre de un centro.
+  admittedFrom String?
 
   /// Momento en que se envió el mail de bienvenida a Moodle (exactamente una vez).
   moodleWelcomeSentAt DateTime?
@@ -929,8 +982,11 @@ model Student {
   periodGrades     PeriodGrade[]
   meetingRecords   TeacherMeetingRecord[]
   photo            StudentPhoto?
+  pendingSubjects  StudentPendingSubject[]
+  accommodations   StudentAccommodation[]
 
   @@index([lastName, firstName])
+  conductRecords   StudentConductRecord[]
 }
 
 /// Foto del alumno para identificarlo en pantalla (opcional).
@@ -964,6 +1020,11 @@ model StudentEnrollment {
   courseOrientationId    String?
   courseOrientation      CourseOrientation?      @relation(fields: [courseOrientationId], references: [id], onDelete: SetNull)
   enrollmentStatus       StudentEnrollmentStatus @default(ACTIVE)
+  /// Cómo cerró el año. El "cómo promovió" que ve el docente es el de la matrícula del año
+  /// ANTERIOR, no el de la corriente, que recién se completa al cerrar el ciclo.
+  academicResult         StudentAcademicResult?
+  /// Derivado a APE (los 15 días extra de diciembre y, si no salva, los de febrero).
+  apeReferred            Boolean                 @default(false)
   withdrawnAt            DateTime?
   withdrawalAcademicYear Int?
   notes                  String?                 @db.Text
@@ -978,6 +1039,92 @@ model StudentEnrollment {
   @@index([courseOfferingId])
   @@index([orientationId])
   @@index([courseOrientationId])
+}
+
+/// Conducta institucional del estudiante en un período: una sola nota, puesta por adscripción.
+///
+/// Convive con la conducta por asignatura de `PeriodGrade`: el liceo usa las dos. La del docente
+/// mira cómo se comporta en su clase; ésta mira al estudiante en el liceo, y es la que adscripción
+/// lleva a la reunión. Por eso vive acá y no en la libreta, que es por materia.
+model StudentConductRecord {
+  id           String     @id @default(uuid())
+  studentId    String
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId String
+  schoolYear   SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  periodId     String
+  period       AcademicPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+
+  valueHundredths Int?
+  notes           String? @db.Text
+
+  updatedByUserId String?
+  updatedBy       User?    @relation("ConductUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([studentId, periodId])
+  @@index([schoolYearId, periodId])
+}
+
+/// Materia que el estudiante quedó debiendo, con su resultado en cada instancia de APE.
+///
+/// Es lo que permite el seguimiento del año siguiente: de 7.º a 8.º se pasa con todas las bajas, y
+/// el docente del año que viene necesita saber qué arrastra. De 8.º a 9.º se puede repetir, así que
+/// quien se llevó una materia sigue 15 días más en diciembre y, si no salva, otros 15 en febrero.
+model StudentPendingSubject {
+  id           String     @id @default(uuid())
+  studentId    String
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  /// Ciclo en el que quedó debiendo la materia (no en el que la arrastra).
+  schoolYearId String
+  schoolYear   SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  subjectId    String
+  subject      Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  origin      PendingSubjectOrigin @default(FAILED_THIS_YEAR)
+  apeDecember ApeResult?
+  apeFebruary ApeResult?
+  /// Cuándo dejó de deberla. Se conserva la fila: el historial de qué se llevó no se borra.
+  resolvedAt  DateTime?
+  notes       String?              @db.Text
+
+  createdByUserId String?
+  createdBy       User?    @relation("PendingSubjectCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([studentId, schoolYearId, subjectId])
+  @@index([studentId, resolvedAt])
+  @@index([schoolYearId, subjectId])
+}
+
+/// Adecuación curricular vigente de un estudiante.
+///
+/// **Nunca guarda el informe.** Sólo el tipo, un resumen de lo que el docente necesita saber para
+/// calificar, y el enlace a donde el documento vive de verdad (Drive, expediente). Es el mismo
+/// criterio que las licencias médicas, de las que el sistema sólo registra la constancia
+/// administrativa: la política de privacidad prohíbe almacenar diagnósticos y documentos clínicos,
+/// y un informe psicológico de un menor es exactamente eso.
+model StudentAccommodation {
+  id        String            @id @default(uuid())
+  studentId String
+  student   Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  kind      AccommodationKind @default(CURRICULAR)
+  /// Qué tener en cuenta al calificar. No es el diagnóstico.
+  summary     String   @db.Text
+  /// Dónde está el informe. El archivo no entra al sistema.
+  externalUrl String?
+  validFrom   DateTime?
+  /// Vencida deja de mostrarse al docente, pero la fila se conserva.
+  validUntil  DateTime?
+
+  createdByUserId String?
+  createdBy       User?    @relation("AccommodationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([studentId, validUntil])
 }
 
 /// Cuota por año calendario del ciclo (ej. 2025); permite consultar años anteriores.
@@ -1279,6 +1426,13 @@ model StudentAttendanceEntry {
   /// Nota corta del docente ("llegó 8:15", "se retiró con el padre").
   note   String?                 @db.VarChar(280)
 
+  /// Cuánto pesa esta inasistencia, en centésimos: 100 = falta entera, 50 = media falta.
+  ///
+  /// `null` significa "el valor por defecto del estado" (una ausencia pesa 1, lo demás 0). Lo fija
+  /// adscripción caso por caso —el liceo no tiene una regla automática—, y por eso el docente al
+  /// pasar lista no lo toca: él marca presente/tarde/ausente y nada más.
+  absenceWeightHundredths Int?
+
   /// Snapshot de identidad: un cambio de nombre o una baja no reescriben el historial.
   studentLastName   String
   studentFirstName  String
@@ -1423,6 +1577,7 @@ model AcademicPeriod {
 
   @@unique([schoolYearId, level, code])
   @@index([schoolYearId, isActive, sortOrder])
+  conductRecords StudentConductRecord[]
 }
 
 enum ActivityTypeScope {
@@ -1697,6 +1852,9 @@ model PeriodGrade {
   scaleLevel          GradingScaleLevel? @relation("PeriodGradeScaleLevel", fields: [scaleLevelId], references: [id], onDelete: SetNull)
   /// Juicio conceptual del docente. Su obligatoriedad la define el período (RF-052).
   conceptualJudgement String?            @db.Text
+  /// Conducta del estudiante **en esta asignatura**, en centésimos y sobre su propia escala.
+  /// Va junto a la calificación porque el docente la pone en el mismo momento, al cerrar.
+  conductValueHundredths Int?
 
   updatedByUserId String?
   updatedBy       User?    @relation("PeriodGradeUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)

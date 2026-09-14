@@ -32,7 +32,9 @@ Segun el rol de cada persona, EduTrack puede tratar:
 - Identificacion y contacto: nombre, apellido, correo, telefono, usuario, cedula u otros identificadores necesarios.
 - Datos de acceso: rol, permisos, estado de cuenta, registros de inicio de sesion y auditoria.
 - Datos de actividad institucional: eventos, horarios, asistencia, llegadas tarde, salidas, ausencias, suplencias e incidencias.
-- Datos de estudiantes: datos administrativos de matricula, contacto, curso, pagos/cuotas cuando aplique y notas administrativas necesarias.
+- Datos de estudiantes: datos administrativos de matricula, contacto, curso, pagos/cuotas cuando aplique, fecha de nacimiento, centro de procedencia, resultado academico del ciclo y notas administrativas necesarias.
+- Fotografia del estudiante: imagen de rostro con finalidad exclusiva de identificacion en pantalla para el personal del centro. No se publica, no se comparte con terceros y no se utiliza para ningun tratamiento biometrico ni de reconocimiento facial.
+- Adecuaciones curriculares: tipo de adecuacion, un resumen de los apoyos que el docente debe contemplar al evaluar, y un enlace externo al expediente. Ver seccion 4 bis.
 - Licencias y permisos: tipo, periodo, estado y constancia administrativa.
 - Biometria operativa: identificadores tecnicos de dispositivo y marcas de asistencia asociadas, cuando la institucion use relojes biometricos.
 - Notificaciones: suscripciones web push, avisos en la app y comunicaciones por correo.
@@ -42,6 +44,27 @@ Segun el rol de cada persona, EduTrack puede tratar:
 EduTrack no debe almacenar certificados medicos, diagnosticos, imagenes, documentos clinicos, nombre del profesional de salud ni telefono del profesional.
 
 Para licencias medicas, la plataforma solo registra la constancia administrativa de que la licencia fue presentada, el periodo cubierto, el estado y los datos necesarios para justificar asistencias.
+
+## 4 bis. Adecuaciones curriculares e informes
+
+Las adecuaciones curriculares de un estudiante involucran datos sensibles de una persona menor de
+edad y, con frecuencia, datos relativos a su salud. Por eso rige la misma regla que para las
+licencias medicas:
+
+EduTrack no debe almacenar informes psicologicos, psicopedagogicos ni medicos, diagnosticos,
+documentos clinicos ni imagenes de los mismos.
+
+La plataforma registra unicamente:
+
+- El tipo de adecuacion (curricular, de evaluacion, de accesibilidad u otra).
+- Un resumen redactado por administracion con los apoyos que el docente debe contemplar al
+  evaluar. Ese resumen no debe contener diagnosticos.
+- Un enlace externo al lugar donde el expediente se conserva, bajo el control de la institucion.
+- Su periodo de vigencia.
+
+El acceso queda limitado al personal con atribucion sobre el estudiante: administracion, y los
+docentes de los grupos en los que el estudiante esta matriculado, para quienes el dato es necesario
+a efectos de evaluar.
 
 ## 5. Biometria
 
