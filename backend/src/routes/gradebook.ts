@@ -27,7 +27,6 @@ import {
   type GradeBookMeta,
 } from '../services/gradebook/exports/gradeBookWorkbook.js'
 import { generateGradeBookPdf, generateStudentReportPdf } from '../services/gradebook/exports/gradeBookPdf.js'
-import { photoETag } from '../services/student-photo.js'
 import {
   messageNotification,
   notifyGradeBook,
