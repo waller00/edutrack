@@ -11,7 +11,7 @@
 
 import { isValidUruguayanCI } from '@/lib/forms/uruguay-forms'
 
-export type StudentTabId = 'datos' | 'contacto' | 'moodle' | 'mensualidades' | 'historial'
+export type StudentTabId = 'datos' | 'contacto' | 'trayectoria' | 'adecuaciones' | 'moodle' | 'historial'
 
 export type StudentFormError = {
   field: string

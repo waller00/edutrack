@@ -1,6 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
+import { attachmentDisposition } from '../services/exports/content-disposition.js'
+import { requirePermission } from '../middlewares/auth.js'
+import { effectiveWeight } from '../services/student-attendance/absence-weight.js'
+import { buildReportCard } from '../services/gradebook/report-card.js'
+import { sortByUrgency, summarize } from '../services/gradebook/completeness.js'
+import { completionRequestNotification } from '../services/gradebook/notifications.js'
+import { generateReportCardPdf } from '../services/gradebook/exports/reportCardPdf.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
 import { AuditAction } from '@prisma/client'
@@ -172,6 +179,30 @@ r.get('/group-matrix', async (req: any, res) => {
     const levels = scale?.levels ?? []
     const stateByBook = new Map(states.map((s) => [s.gradeBookId, s]))
 
+    // La reunión mira tres cosas juntas: rendimiento, conducta e inasistencias. Las dos últimas no
+    // viven en la libreta —son del estudiante, no de la materia— así que se traen acá.
+    const studentIds = students.map((s) => s.studentId)
+    const [conductRows, attendanceRows] = await Promise.all([
+      (prisma as any).studentConductRecord.findMany({
+        where: { periodId: parsed.data.periodId, studentId: { in: studentIds } },
+        select: { studentId: true, valueHundredths: true },
+      }),
+      prisma.studentAttendanceEntry.findMany({
+        where: {
+          studentId: { in: studentIds },
+          session: { schoolYearId: offering.schoolYear.id },
+        },
+        select: { studentId: true, status: true, absenceWeightHundredths: true },
+      }),
+    ])
+    const conductByStudent = new Map<string, number | null>(
+      conductRows.map((row: any) => [row.studentId, row.valueHundredths ?? null]),
+    )
+    const absenceByStudent = new Map<string, number>()
+    for (const mark of attendanceRows) {
+      absenceByStudent.set(mark.studentId, (absenceByStudent.get(mark.studentId) ?? 0) + effectiveWeight(mark))
+    }
+
     const rows = students.map((student) => {
       const cells: MatrixCell[] = books.map((book) => {
         const state = stateByBook.get(book.id)
@@ -182,6 +213,7 @@ r.get('/group-matrix', async (req: any, res) => {
           subjectId: book.subjectId,
           valueHundredths: value,
           conceptualJudgement: grade?.conceptualJudgement ?? null,
+          conductValueHundredths: grade?.conductValueHundredths ?? null,
           descriptor: describeCell(value, levels),
           periodStatus: (state?.status as any) ?? null,
           pending: value == null,
@@ -191,7 +223,14 @@ r.get('/group-matrix', async (req: any, res) => {
         student: { studentId: student.studentId, lastName: student.lastName, firstName: student.firstName },
         cells,
       })
-      return { ...row, atRisk: isAtRisk(row) }
+      return {
+        ...row,
+        atRisk: isAtRisk(row),
+        /** Conducta institucional del período: la pone adscripción, no el docente. */
+        conductValueHundredths: conductByStudent.get(student.studentId) ?? null,
+        /** Faltas del ciclo en todo el liceo, en centésimos (150 = una falta y media). */
+        absenceHundredths: absenceByStudent.get(student.studentId) ?? 0,
+      }
     })
 
     return res.json({
@@ -210,6 +249,11 @@ r.get('/group-matrix', async (req: any, res) => {
       students: rows,
       /** Rótulo obligatorio del promedio (RF-061). */
       averageLabel: 'Indicador automático / promedio orientativo',
+      /**
+       * Decimales del promedio. El liceo lo pide con **al menos uno**: se usa para escolaridad y
+       * para elegir abanderados, donde un entero no alcanza para desempatar.
+       */
+      averageDecimals: 1,
     })
   } catch (error) {
     console.error('[admin-gradebook] group-matrix:', error)
@@ -451,6 +495,284 @@ function serializeEndorsementRow(row: any, now: Date) {
 }
 
 /** Grilla de visado (RF-080): qué libretas y períodos esperan revisión. */
+// ─── Control de adscripción ─────────────────────────────────────────────────
+
+/**
+ * Qué le falta a cada libreta del ciclo en un período.
+ *
+ * Lo pide adscripción, que hasta ahora no tenía forma de verlo: `closureBlockers` respondía la
+ * misma pregunta pero de a una libreta y sólo por la ruta del docente. Va con `gradebook.review`
+ * —controlar es justamente su atribución— y no con `academic-analytics.read`, que adscripción no
+ * tiene.
+ */
+r.get('/completeness', requirePermission('gradebook.review', 'all'), async (req: any, res) => {
+  const periodId = typeof req.query.periodId === 'string' ? req.query.periodId : null
+  if (!periodId) return res.status(400).json({ message: 'Falta el período' })
+
+  try {
+    const period = await prisma.academicPeriod.findUnique({
+      where: { id: periodId },
+      select: { id: true, name: true, schoolYearId: true, requiresConceptualJudgement: true },
+    })
+    if (!period) return res.status(404).json({ message: 'Período no encontrado' })
+
+    const books = await prisma.gradeBook.findMany({
+      where: { schoolYearId: period.schoolYearId, status: 'ACTIVE' },
+      include: {
+        subject: { select: { name: true } },
+        teacher: { select: { id: true, name: true } },
+        courseOffering: { include: { course: { select: { name: true } } } },
+        periods: { where: { periodId }, include: { grades: true } },
+      },
+    })
+
+    const rows = await Promise.all(
+      books.map(async (book) => {
+        const roster = await loadRosterForScope({
+          schoolYearId: book.schoolYearId,
+          courseOfferingId: book.courseOfferingId,
+          orientationId: book.orientationId,
+          courseOrientationId: book.courseOrientationId,
+        })
+        const state = book.periods[0] ?? null
+        const grades = state?.grades ?? []
+        return summarize({
+          gradeBookId: book.id,
+          subjectName: book.subject?.name ?? '—',
+          courseName: book.courseOffering?.course?.name ?? '—',
+          teacherUserId: book.teacherUserId,
+          teacherName: book.teacher?.name ?? null,
+          periodStatus: (state?.status as any) ?? null,
+          rosterSize: roster.length,
+          gradedCount: grades.filter((g: any) => g.valueHundredths != null).length,
+          judgedCount: grades.filter((g: any) => (g.conceptualJudgement ?? '').trim() !== '').length,
+          requiresJudgement: period.requiresConceptualJudgement,
+        })
+      }),
+    )
+
+    return res.json({ period: { id: period.id, name: period.name }, data: sortByUrgency(rows) })
+  } catch (error) {
+    console.error('[admin-gradebook] completeness:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/** Avisa al docente, por notificación interna, qué le falta en una libreta. */
+r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review', 'all'), async (req: any, res) => {
+  const periodId = typeof req.body?.periodId === 'string' ? req.body.periodId : null
+  const detail = typeof req.body?.detail === 'string' ? req.body.detail.trim() : ''
+  if (!periodId || detail === '') {
+    return res.status(400).json({ message: 'Falta el período o el detalle del aviso' })
+  }
+
+  try {
+    const book = await prisma.gradeBook.findUnique({
+      where: { id: req.params.gradeBookId },
+      include: { subject: { select: { name: true } } },
+    })
+    if (!book) return res.status(404).json({ message: 'Libreta no encontrada' })
+    if (!book.teacherUserId) {
+      return res.status(409).json({ message: 'La libreta no tiene docente titular', code: 'NO_TEACHER' })
+    }
+
+    const actorUserId = req.user?.id ?? req.user?.sub ?? null
+    const sent = await notifyGradeBook(
+      await resolveGradeBookRecipients(book.id, actorUserId),
+      completionRequestNotification({
+        subjectName: book.subject?.name ?? 'la libreta',
+        detail,
+        gradeBookId: book.id,
+      }),
+    )
+    return res.json({ ok: true, notified: sent })
+  } catch (error) {
+    console.error('[admin-gradebook] completeness request:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+// ─── Boletín ────────────────────────────────────────────────────────────────
+
+/**
+ * Boletín del estudiante para un período: todas sus asignaturas en un solo documento.
+ *
+ * Es la única salida transversal del sistema — el resto de las exportaciones son por libreta, o
+ * sea de una materia sola. Reúne lo que el liceo pidió que llegue a la familia: nota y juicio de
+ * cada asignatura, conducta, promedio e inasistencias, con el encabezado del estudiante.
+ */
+r.get('/report-card/:studentId', requirePermission('exports.create'), async (req: any, res) => {
+  const periodId = typeof req.query.periodId === 'string' ? req.query.periodId : null
+  if (!periodId) return res.status(400).json({ message: 'Falta el período' })
+
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.studentId },
+      select: { id: true, firstName: true, lastName: true, documentId: true, birthDate: true },
+    })
+    if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
+
+    const enrollment = await prisma.studentEnrollment.findFirst({
+      where: { studentId: student.id, enrollmentStatus: 'ACTIVE' },
+      include: {
+        schoolYear: { select: { id: true, label: true } },
+        courseOffering: { include: { course: { select: { name: true } } } },
+        courseOrientation: { include: { orientation: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!enrollment?.courseOffering) {
+      return res.status(409).json({ message: 'El estudiante no tiene matrícula activa', code: 'NO_ENROLLMENT' })
+    }
+
+    const books = await prisma.gradeBook.findMany({
+      where: { courseOfferingId: enrollment.courseOfferingId },
+      include: { subject: { select: { name: true, sortOrder: true } }, teacher: { select: { name: true } } },
+    })
+    const relevant = gradeBooksForGroup(books as any, {
+      courseOfferingId: enrollment.courseOfferingId,
+      courseOrientationId: enrollment.courseOrientationId,
+      orientationId: enrollment.orientationId,
+    })
+    relevant.sort((a: any, b: any) => (a.subject?.sortOrder ?? 0) - (b.subject?.sortOrder ?? 0))
+
+    const [states, scale, conduct, attendance] = await Promise.all([
+      prisma.gradeBookPeriod.findMany({
+        where: { periodId, gradeBookId: { in: relevant.map((b: any) => b.id) } },
+        include: { grades: { where: { studentId: student.id } } },
+      }),
+      prisma.gradingScale.findFirst({ where: { isActive: true }, include: SCALE_INCLUDE, orderBy: { sortOrder: 'asc' } }),
+      (prisma as any).studentConductRecord.findUnique({
+        where: { studentId_periodId: { studentId: student.id, periodId } },
+        select: { valueHundredths: true },
+      }),
+      prisma.studentAttendanceEntry.findMany({
+        where: { studentId: student.id, session: { schoolYearId: enrollment.schoolYearId } },
+        select: { status: true, absenceWeightHundredths: true },
+      }),
+    ])
+
+    const levels = scale?.levels ?? []
+    const stateByBook = new Map(states.map((st) => [st.gradeBookId, st]))
+    const period = await prisma.academicPeriod.findUnique({ where: { id: periodId }, select: { name: true } })
+
+    const card = buildReportCard({
+      student: {
+        firstName: student.firstName,
+        lastName: student.lastName,
+        documentId: student.documentId,
+        birthDate: student.birthDate,
+      },
+      group: {
+        courseName: enrollment.courseOffering.course.name,
+        orientationName: enrollment.courseOrientation?.orientation.name ?? null,
+        schoolYearLabel: enrollment.schoolYear?.label ?? '',
+      },
+      period: { name: period?.name ?? '' },
+      subjects: relevant.map((book: any) => {
+        const grade = stateByBook.get(book.id)?.grades?.[0]
+        const value = grade?.valueHundredths ?? null
+        return {
+          subjectName: book.subject?.name ?? '—',
+          teacherName: book.teacher?.name ?? null,
+          valueHundredths: value,
+          descriptor: describeCell(value, levels)?.label ?? null,
+          conceptualJudgement: grade?.conceptualJudgement ?? null,
+          conductValueHundredths: grade?.conductValueHundredths ?? null,
+        }
+      }),
+      conductValueHundredths: conduct?.valueHundredths ?? null,
+      attendance: {
+        absenceHundredths: attendance.reduce((acc, mark) => acc + effectiveWeight(mark), 0),
+        justifiedCount: attendance.filter((mark) => mark.status === 'ABSENT_JUSTIFIED').length,
+      },
+    })
+
+    const pdf = await generateReportCardPdf(card, scale?.decimals ?? 1)
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader(
+      'Content-Disposition',
+      attachmentDisposition(`boletin-${student.lastName}-${student.firstName}.pdf`),
+    )
+    return res.send(pdf)
+  } catch (error) {
+    console.error('[admin-gradebook] report-card:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+// ─── Conducta institucional ─────────────────────────────────────────────────
+
+/**
+ * La conducta que lleva adscripción a la reunión: una sola nota por estudiante y período, sobre
+ * todo el liceo. Es distinta de la que cada docente pone en su asignatura (`PeriodGrade`): el
+ * liceo usa las dos, y en la reunión se ven juntas.
+ */
+const conductSchema = z.object({
+  schoolYearId: z.string().uuid(),
+  periodId: z.string().uuid(),
+  entries: z
+    .array(
+      z.object({
+        studentId: z.string().uuid(),
+        valueHundredths: z.number().int().nullish(),
+        notes: z.string().trim().max(2000).nullish(),
+      }),
+    )
+    .min(1)
+    .max(200),
+})
+
+r.get('/conduct', async (req: any, res) => {
+  const periodId = typeof req.query.periodId === 'string' ? req.query.periodId : null
+  if (!periodId) return res.status(400).json({ message: 'Falta el período' })
+  try {
+    const rows = await (prisma as any).studentConductRecord.findMany({
+      where: { periodId },
+      include: { student: { select: { id: true, firstName: true, lastName: true } } },
+    })
+    return res.json({ data: rows })
+  } catch (error) {
+    console.error('[admin-gradebook] conduct GET:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.put('/conduct', requirePermission('gradebook.review', 'all'), async (req: any, res) => {
+  const parsed = conductSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+  }
+  try {
+    const d = parsed.data
+    const userId = req.user?.id ?? req.user?.sub ?? null
+    await prisma.$transaction(
+      d.entries.map((entry) =>
+        (prisma as any).studentConductRecord.upsert({
+          where: { studentId_periodId: { studentId: entry.studentId, periodId: d.periodId } },
+          update: {
+            valueHundredths: entry.valueHundredths ?? null,
+            notes: entry.notes ?? null,
+            updatedByUserId: userId,
+          },
+          create: {
+            studentId: entry.studentId,
+            schoolYearId: d.schoolYearId,
+            periodId: d.periodId,
+            valueHundredths: entry.valueHundredths ?? null,
+            notes: entry.notes ?? null,
+            updatedByUserId: userId,
+          },
+        }),
+      ),
+    )
+    return res.json({ ok: true, saved: d.entries.length })
+  } catch (error) {
+    console.error('[admin-gradebook] conduct PUT:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
 r.get('/endorsements', async (req: any, res) => {
   try {
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {

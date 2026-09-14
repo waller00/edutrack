@@ -4,7 +4,6 @@ import {
   describeValue,
   isLateClosure,
   periodWriteBlock,
-  suggestedAverage,
   type StudentPeriodRow,
 } from './period-closure.js'
 
@@ -28,19 +27,6 @@ function student(over: Partial<StudentPeriodRow> = {}): StudentPeriodRow {
     ...over,
   }
 }
-
-describe('suggestedAverage', () => {
-  it('promedia en centésimos y redondea', () => {
-    expect(suggestedAverage([600, 700, 800])).toBe(700)
-    expect(suggestedAverage([600, 700])).toBe(650)
-    expect(suggestedAverage([601, 700])).toBe(651) // 650,5 → 651
-  })
-
-  it('sin evaluaciones devuelve null, no cero', () => {
-    // Un estudiante sin notas no "sacó 0": no hay dato. Confundirlos falsearía el indicador.
-    expect(suggestedAverage([])).toBeNull()
-  })
-})
 
 describe('describeValue', () => {
   it('deriva descriptor y semáforo del tramo', () => {

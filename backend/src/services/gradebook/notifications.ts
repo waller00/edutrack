@@ -114,3 +114,22 @@ export function messageNotification(params: {
     actionUrl: `/libreta/${params.gradeBookId}/mensajes`,
   }
 }
+
+/**
+ * Aviso de adscripción al docente: "a esta libreta le falta esto".
+ *
+ * Usa `GRADEBOOK_PERIOD_CLOSING`, que estaba **declarado en el enum y sin producir nunca**. El
+ * cuerpo dice qué falta y cuánto: un "revisá tu libreta" no le ahorra el trabajo de buscar.
+ */
+export function completionRequestNotification(params: {
+  subjectName: string
+  detail: string
+  gradeBookId: string
+}): GradeBookNotification {
+  return {
+    type: 'GRADEBOOK_PERIOD_CLOSING',
+    title: `Falta completar ${params.subjectName}`,
+    body: params.detail,
+    actionUrl: `/libreta/${params.gradeBookId}/cierre`,
+  }
+}

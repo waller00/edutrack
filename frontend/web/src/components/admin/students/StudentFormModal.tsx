@@ -9,27 +9,24 @@ import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { validateStudent, type StudentFormError, type StudentTabId } from '@/lib/admin/student-form'
 import StudentMoodleBadge from './StudentMoodleBadge'
 import StudentPhotoField from './StudentPhotoField'
-import StudentTuitionSection from './StudentTuitionSection'
 import StudentEnrollmentHistoryPanel from './StudentEnrollmentHistoryPanel'
+import StudentAccommodationsPanel from './StudentAccommodationsPanel'
 import type {
   CourseOpt,
   OrientationOpt,
   StudentFormState,
   StudentPhotoMeta,
-  StudentTuitionMonth,
 } from './student-types'
-import { STUDENT_STATUS_OPTIONS, ymd } from './student-types'
+import { ACADEMIC_RESULT_OPTIONS, STUDENT_STATUS_OPTIONS, ymd } from './student-types'
 
 type Props = {
   mode: 'create' | 'edit'
   form: StudentFormState
   courses: CourseOpt[]
   orientations: OrientationOpt[]
-  tuitionYear: number
   saving: boolean
   moodlePending: boolean
   message: string
-  onTuitionYearChange: (year: number) => void
   onPatch: <K extends keyof StudentFormState>(key: K, value: StudentFormState[K]) => void
   onUsernameEdit: (value: string | null) => void
   onMoodleAction: (action: 'provision' | 'resend') => void
@@ -40,8 +37,9 @@ type Props = {
 const TABS: { id: StudentTabId; label: string }[] = [
   { id: 'datos', label: 'Datos' },
   { id: 'contacto', label: 'Contacto' },
+  { id: 'trayectoria', label: 'Trayectoria' },
+  { id: 'adecuaciones', label: 'Adecuaciones' },
   { id: 'moodle', label: 'Aula virtual' },
-  { id: 'mensualidades', label: 'Mensualidades' },
   { id: 'historial', label: 'Historial' },
 ]
 
@@ -50,11 +48,9 @@ export default function StudentFormModal({
   form,
   courses,
   orientations,
-  tuitionYear,
   saving,
   moodlePending,
   message,
-  onTuitionYearChange,
   onPatch,
   onUsernameEdit,
   onMoodleAction,
@@ -150,21 +146,30 @@ export default function StudentFormModal({
           </FormField>
         </div>
 
-        <FormField
-          label="Cédula"
-          id="st-documentId"
-          required
-          error={errorFor('documentId')}
-          hint="Con puntos y guion o sin nada: 1.234.567-8"
-        >
-          <input
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField
+            label="Cédula"
             id="st-documentId"
-            inputMode="numeric"
-            className={fieldInputClass('input-field', errorFor('documentId'))}
-            value={form.documentId ?? ''}
-            onChange={(e) => onPatch('documentId', e.target.value || null)}
-          />
-        </FormField>
+            required
+            error={errorFor('documentId')}
+            hint="Con puntos y guion o sin nada: 1.234.567-8"
+          >
+            <input
+              id="st-documentId"
+              inputMode="numeric"
+              className={fieldInputClass('input-field', errorFor('documentId'))}
+              value={form.documentId ?? ''}
+              onChange={(e) => onPatch('documentId', e.target.value || null)}
+            />
+          </FormField>
+          <FormField label="Fecha de nacimiento" id="st-birthDate">
+            <DateField
+              id="st-birthDate"
+              value={ymd(form.birthDate)}
+              onChange={(v) => onPatch('birthDate', v || null)}
+            />
+          </FormField>
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <FormField label="Curso" id="st-courseId">
@@ -353,13 +358,62 @@ export default function StudentFormModal({
     </div>
   )
 
-  const tuition = (
-    <StudentTuitionSection
-      year={tuitionYear}
-      months={form.tuitionMonths}
-      onYearChange={onTuitionYearChange}
-      onChange={(months: StudentTuitionMonth[]) => onPatch('tuitionMonths', months)}
-    />
+  const trayectoria = (
+    <div className="space-y-3">
+      <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">
+        Esto es lo que el docente ve al abrir la hoja del estudiante en su libreta: de dónde vino,
+        cómo cerró el año anterior y si está derivado a APE.
+      </p>
+
+      <FormField
+        label="Pase de"
+        id="st-admittedFrom"
+        hint="De dónde vino al ingresar al liceo. Se usa sobre todo en 7.º."
+      >
+        <input
+          id="st-admittedFrom"
+          placeholder="Escuela 42"
+          className={fieldInputClass('input-field')}
+          value={form.admittedFrom ?? ''}
+          onChange={(e) => onPatch('admittedFrom', e.target.value || null)}
+        />
+      </FormField>
+
+      <FormField
+        label="Cómo cerró este año"
+        id="st-academicResult"
+        hint="Se completa al cerrar el ciclo. Es lo que el docente del año que viene lee como cómo promovió."
+      >
+        <select
+          id="st-academicResult"
+          className="select-field w-full"
+          value={form.academicResult ?? ''}
+          onChange={(e) => onPatch('academicResult', e.target.value || null)}
+        >
+          {ACADEMIC_RESULT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </FormField>
+
+      <div className="flex items-start gap-2">
+        <input
+          id="st-apeReferred"
+          type="checkbox"
+          checked={form.apeReferred ?? false}
+          onChange={(e) => onPatch('apeReferred', e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-gray-300"
+        />
+        <label htmlFor="st-apeReferred" className="text-sm text-gray-700">
+          Derivado a APE
+          <span className="block text-[11px] text-gray-500">
+            Los 15 días extra de diciembre y, si no salva, los de febrero.
+          </span>
+        </label>
+      </div>
+    </div>
   )
 
   return (
@@ -450,7 +504,9 @@ export default function StudentFormModal({
                   />
                 </div>
               )}
-              {tab === 'mensualidades' && tuition}
+              {tab === 'trayectoria' && trayectoria}
+              {/* Se monta al abrir: tiene su propia consulta. */}
+              {tab === 'adecuaciones' && form.id && <StudentAccommodationsPanel studentId={form.id} />}
               {/* Sólo se monta al abrir la pestaña: se auto-consulta, y así no se pide de gusto. */}
               {tab === 'historial' && form.id && <StudentEnrollmentHistoryPanel studentId={form.id} />}
             </div>

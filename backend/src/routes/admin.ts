@@ -45,6 +45,7 @@ import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
 import adminStudentsRoutes from './admin-students.js'
+import adminTuitionRoutes from './admin-tuition.js'
 import adminStudentAttendanceRoutes from './admin-student-attendance.js'
 import adminSchoolYearsRoutes from './admin-school-years.js'
 import adminAcademicConfigRoutes from './admin-academic-config.js'
@@ -1156,7 +1157,10 @@ r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) =>
 })
 
 r.use('/students', requirePermission('students.manage', 'all'), adminStudentsRoutes)
-r.use('/student-attendance', requirePermission('student-attendance.manage', 'all'), adminStudentAttendanceRoutes)
+r.use('/tuition', requirePermission('students.manage', 'all'), adminTuitionRoutes)
+// El router se monta con lectura y cada ruta pide lo suyo: adscripción justifica sin poder
+// reabrir planillas cerradas, que sigue siendo de administración.
+r.use('/student-attendance', requirePermission('student-attendance.read', 'all'), adminStudentAttendanceRoutes)
 r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSchoolYearsRoutes)
 r.use('/academic-config', requirePermission('academic-config.manage', 'all'), adminAcademicConfigRoutes)
 r.use('/gradebook', requirePermission('gradebook.read', 'all'), adminGradeBookRoutes)

@@ -22,12 +22,13 @@ describe('distintivos del alumno', () => {
     expect(badge.className).toContain('gray')
   })
 
-  it('absenceTone escala con la cantidad de faltas', () => {
+  it('absenceTone escala con la cantidad de faltas, en centésimos', () => {
+    // 1000 centésimos = 10 faltas. Se cuenta así para que la media falta sume exacto.
     expect(absenceTone(0)).toContain('gray')
-    expect(absenceTone(9)).toContain('gray')
-    expect(absenceTone(10)).toContain('amber')
-    expect(absenceTone(19)).toContain('amber')
-    expect(absenceTone(20)).toContain('red')
-    expect(absenceTone(45)).toContain('red')
+    expect(absenceTone(950)).toContain('gray')
+    expect(absenceTone(1000)).toContain('amber')
+    expect(absenceTone(1950)).toContain('amber')
+    expect(absenceTone(2000)).toContain('red')
+    expect(absenceTone(4500)).toContain('red')
   })
 })

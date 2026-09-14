@@ -70,14 +70,18 @@ function StudentAvatar({
  *
  * Muestra faltas y llegadas tarde junto a cada alumno porque es el dato que el docente mira
  * primero al abrir la libreta. El número va siempre escrito: el color sólo lo refuerza.
- * El nombre abre la ficha de evaluaciones de ese alumno; la foto viene de administración.
+ * El nombre abre la hoja del estudiante (adecuaciones, etc.); la foto viene de administración.
+ * También hay acceso directo a la ficha de evaluaciones.
  */
 export default function StudentGrid({
   gradeBookId,
   students,
+  onOpenStudent,
 }: {
   gradeBookId: string
   students: readonly RosterStudent[]
+  /** Abre la hoja del estudiante. Si no viene, la grilla es sólo de lectura. */
+  onOpenStudent?: (studentId: string) => void
 }) {
   if (students.length === 0) {
     return (
@@ -90,7 +94,8 @@ export default function StudentGrid({
   return (
     <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {students.map((student, index) => {
-        const absences = student.absences ?? 0
+        const absences = student.absences ?? '0'
+        const absenceHundredths = student.absenceHundredths ?? 0
         const lates = student.lates ?? 0
         const evaluacionesHref = `/libreta/${gradeBookId}/evaluaciones?alumno=${encodeURIComponent(student.studentId)}`
         return (
@@ -102,25 +107,39 @@ export default function StudentGrid({
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium leading-tight text-gray-900">
                 <span className="mr-1 text-xs text-gray-400">{index + 1}</span>
-                <Link
-                  href={evaluacionesHref}
-                  className="text-sky-800 hover:underline"
-                >
-                  {studentFullName(student)}
-                </Link>
+                {onOpenStudent ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenStudent(student.studentId)}
+                    className="text-left text-emerald-700 hover:underline"
+                  >
+                    {studentFullName(student)}
+                  </button>
+                ) : (
+                  studentFullName(student)
+                )}
               </p>
               {student.documentId && (
                 <p className="font-mono text-xs text-gray-500">{student.documentId}</p>
               )}
               <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                <span className={`inline-flex items-center gap-1 ${absenceTone(absences)}`} title="Faltas acumuladas en esta asignatura">
+                <span
+                  className={`inline-flex items-center gap-1 ${absenceTone(absenceHundredths)}`}
+                  title="Faltas del ciclo en todo el liceo, contando las medias faltas"
+                >
                   <CalendarX2 className="h-3.5 w-3.5" aria-hidden />
-                  {absences} falta{absences === 1 ? '' : 's'}
+                  {absences} falta{absenceHundredths === 100 ? '' : 's'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-gray-500" title="Llegadas tarde acumuladas">
                   <Clock className="h-3.5 w-3.5" aria-hidden />
                   {lates} tarde{lates === 1 ? '' : 's'}
                 </span>
+                <Link
+                  href={evaluacionesHref}
+                  className="text-sky-800 hover:underline"
+                >
+                  Evaluaciones
+                </Link>
               </p>
             </div>
           </li>

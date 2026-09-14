@@ -1,7 +1,6 @@
 'use client'
 
 import { Search, X } from 'lucide-react'
-import { TUITION_MONTHS } from '@/lib/admin/students-filters'
 import type { CourseOpt, OrientationOpt } from './student-types'
 import { STUDENT_STATUS_OPTIONS } from './student-types'
 
@@ -10,9 +9,6 @@ export type StudentFilters = {
   courseId: string
   orientationId: string
   status: string
-  tuitionYear: string
-  tuitionMonth: string
-  tuitionPaid: string
 }
 
 type Props = {
@@ -118,55 +114,6 @@ export default function StudentsFilterBar({
               {o.label}
             </option>
           ))}
-        </select>
-      </div>
-
-      <div className="w-full lg:w-24">
-        <label htmlFor="student-year" className="mb-1 block text-xs font-medium text-gray-600">
-          Año cuotas
-        </label>
-        <input
-          id="student-year"
-          className="input-field w-full text-sm"
-          inputMode="numeric"
-          value={filters.tuitionYear}
-          onChange={(e) => onChange({ tuitionYear: e.target.value })}
-          placeholder="2026"
-        />
-      </div>
-
-      <div className="w-full lg:w-24">
-        <label htmlFor="student-month" className="mb-1 block text-xs font-medium text-gray-600">
-          Mes
-        </label>
-        <select
-          id="student-month"
-          className="select-field w-full text-sm"
-          value={filters.tuitionMonth}
-          onChange={(e) => onChange({ tuitionMonth: e.target.value })}
-        >
-          <option value="">Todos</option>
-          {TUITION_MONTHS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="min-w-0 lg:min-w-[120px]">
-        <label htmlFor="student-paid" className="mb-1 block text-xs font-medium text-gray-600">
-          Pago
-        </label>
-        <select
-          id="student-paid"
-          className="select-field w-full text-sm"
-          value={filters.tuitionPaid}
-          onChange={(e) => onChange({ tuitionPaid: e.target.value })}
-        >
-          <option value="">—</option>
-          <option value="true">Sí</option>
-          <option value="false">No</option>
         </select>
       </div>
 

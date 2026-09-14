@@ -85,6 +85,32 @@ describe('calificar: sólo el docente sobre lo propio', () => {
   })
 })
 
+describe('planificar: Dirección edita la libreta salvo notas y juicios', () => {
+  it('el docente planifica lo propio', () => {
+    for (const role of ['TEACHER', 'STAFF'] as const) {
+      expect(scopeOf(role, 'gradebook.plan')).toBe('own')
+    }
+  })
+
+  it('DIRECCION planifica cualquier libreta', () => {
+    expect(scopeOf('DIRECCION', 'gradebook.plan')).toBe('all')
+  })
+
+  it('planificar y calificar son permisos distintos', () => {
+    // Es lo que hace posible la regla del liceo: el director entra a una libreta ajena y corrige
+    // la planificación o el desarrollo, pero no puede tocar una calificación ni un juicio.
+    expect(scopeOf('DIRECCION', 'gradebook.plan')).toBe('all')
+    expect(scopeOf('DIRECCION', 'gradebook.grade')).toBeNull()
+    expect(scopeOf('DIRECCION', 'gradebook.close')).toBeNull()
+  })
+
+  it('adscripción e inspección no editan la libreta: sólo controlan', () => {
+    for (const role of ['ADSCRIPTO', 'INSPECCION'] as const) {
+      expect(scopeOf(role, 'gradebook.plan'), `${role} no debe planificar`).toBeNull()
+    }
+  })
+})
+
 describe('lectura y análisis', () => {
   it('los tres roles de supervisión leen libretas de todo el centro', () => {
     for (const role of ['ADSCRIPTO', 'DIRECCION', 'INSPECCION'] as const) {
@@ -119,5 +145,27 @@ describe('lectura y análisis', () => {
     for (const id of ['attendance.read', 'events.read', 'licenses.read']) {
       expect(scopeOf('INSPECCION', id), `INSPECCION no debería tener ${id}`).toBeNull()
     }
+  })
+})
+
+describe('inasistencias: adscripción justifica, el docente no', () => {
+  it('ADSCRIPTO justifica faltas de todo el centro', () => {
+    // En cursos superiores la justificación es administrativa, no del docente.
+    expect(scopeOf('ADSCRIPTO', 'student-attendance.justify')).toBe('all')
+    expect(scopeOf('ADSCRIPTO', 'student-attendance.read')).toBe('all')
+  })
+
+  it('el docente pasa lista pero no justifica', () => {
+    for (const role of ['TEACHER', 'STAFF'] as const) {
+      expect(scopeOf(role, 'student-attendance.take')).toBe('own')
+      expect(scopeOf(role, 'student-attendance.justify'), `${role} no debe justificar`).toBeNull()
+    }
+  })
+
+  it('justificar y controlar son permisos distintos', () => {
+    // `manage` además reabre listas cerradas: adscripción no necesita eso para justificar.
+    expect(scopeOf('ADSCRIPTO', 'student-attendance.manage')).toBeNull()
+    const withManage = ALL_ROLES.filter((role) => scopeOf(role, 'student-attendance.manage') !== null)
+    expect(withManage).toEqual(['ADMIN'])
   })
 })

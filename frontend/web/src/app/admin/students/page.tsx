@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { GraduationCap, Plus } from 'lucide-react'
+import { GraduationCap, Plus, Receipt } from 'lucide-react'
+import Link from 'next/link'
 import RoleGuard from '@/components/auth/RoleGuard'
 import PaginationControls from '@/components/common/PaginationControls'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
@@ -31,16 +32,11 @@ import {
   type StudentSummary,
 } from '@/components/admin/students/student-types'
 
-const CURRENT_YEAR = new Date().getFullYear()
-
 const EMPTY_FILTERS: StudentFilters = {
   draftQ: '',
   courseId: '',
   orientationId: '',
   status: '',
-  tuitionYear: String(CURRENT_YEAR),
-  tuitionMonth: '',
-  tuitionPaid: '',
 }
 
 type PendingAction =
@@ -52,7 +48,6 @@ export default function AdminStudentsPage() {
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
   const coursePickerQuery = syCtx?.schoolYearScopedQuery ?? schoolYearQuery
   const selectedSchoolYearId = syCtx ? syCtx.selectedId ?? syCtx.activeId : null
-  const selectedSchoolYearCode = syCtx?.years.find((y) => y.id === selectedSchoolYearId)?.code ?? CURRENT_YEAR
   const allYears = Boolean(syCtx?.allYears)
 
   const [summary, setSummary] = useState<StudentSummary | null>(null)
@@ -71,8 +66,6 @@ export default function AdminStudentsPage() {
 
   const [modal, setModal] = useState<'create' | 'edit' | null>(null)
   const [form, setForm] = useState<StudentFormState>(() => ({ id: '', ...emptyStudentDraft() }))
-  /** Año que se edita en el modal: NO es el del filtro de la tabla, que antes compartían. */
-  const [modalTuitionYear, setModalTuitionYear] = useState(CURRENT_YEAR)
   const [saving, setSaving] = useState(false)
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [usernameTouched, setUsernameTouched] = useState(false)
@@ -81,11 +74,6 @@ export default function AdminStudentsPage() {
 
   // La búsqueda se aplica sola tras una pausa; el resto de los filtros, al instante.
   const debouncedQ = useDebouncedValue(filters.draftQ, 350)
-
-  useEffect(() => {
-    // El año de cuotas del filtro sigue al ciclo elegido en la barra de administración.
-    setFilters((f) => ({ ...f, tuitionYear: String(allYears ? CURRENT_YEAR : selectedSchoolYearCode) }))
-  }, [selectedSchoolYearCode, allYears])
 
   const loadSummary = useCallback(async () => {
     try {
@@ -130,9 +118,9 @@ export default function AdminStudentsPage() {
         courseId: filters.courseId,
         orientationId: filters.orientationId,
         status: filters.status,
-        tuitionYear: filters.tuitionYear,
-        tuitionMonth: filters.tuitionMonth,
-        tuitionPaid: filters.tuitionPaid,
+        tuitionYear: '',
+        tuitionMonth: '',
+        tuitionPaid: '',
         includeMoodle: true,
       })
       const r = await api<StudentListResponse>(withSchoolYear(`/admin/students?${query}`, schoolYearQuery))
@@ -154,9 +142,6 @@ export default function AdminStudentsPage() {
     filters.courseId,
     filters.orientationId,
     filters.status,
-    filters.tuitionYear,
-    filters.tuitionMonth,
-    filters.tuitionPaid,
     schoolYearQuery,
   ])
 
@@ -192,7 +177,6 @@ export default function AdminStudentsPage() {
   function openCreate() {
     setMsg('')
     setUsernameTouched(false)
-    setModalTuitionYear(allYears ? CURRENT_YEAR : selectedSchoolYearCode)
     setForm({ id: '', ...emptyStudentDraft() })
     setModal('create')
   }
@@ -200,7 +184,6 @@ export default function AdminStudentsPage() {
   async function openEdit(row: StudentListRow) {
     setMsg('')
     setUsernameTouched(true)
-    setModalTuitionYear(allYears ? row.schoolYearCode ?? CURRENT_YEAR : selectedSchoolYearCode)
     setModal('edit')
     try {
       const detail = await api<StudentDetail>(
@@ -235,20 +218,16 @@ export default function AdminStudentsPage() {
         username: form.username?.trim(),
         email: form.email?.trim(),
         address: form.address?.trim() || null,
+        birthDate: form.birthDate ? `${ymd(form.birthDate)}T12:00:00.000Z` : null,
+        admittedFrom: form.admittedFrom?.trim() || null,
         healthCardExpiresAt: form.healthCardExpiresAt ? `${ymd(form.healthCardExpiresAt)}T12:00:00.000Z` : null,
         liceoAccessNotes: form.liceoAccessNotes?.trim() || null,
         enrollmentStatus: form.enrollmentStatus,
+        academicResult: form.academicResult || null,
+        apeReferred: form.apeReferred ?? false,
         withdrawnAt: form.withdrawnAt ? `${ymd(form.withdrawnAt)}T12:00:00.000Z` : null,
         withdrawalAcademicYear: form.withdrawalAcademicYear ?? null,
         internalNotes: form.internalNotes?.trim() || null,
-        tuitionMonths: form.tuitionMonths.map((t) => ({
-          year: t.year,
-          month: t.month,
-          paid: t.paid,
-          paidAt: t.paidAt || null,
-          amountCents: t.amountCents ?? null,
-          notes: t.notes ?? null,
-        })),
       }
       if (syCtx && !syCtx.allYears && selectedSchoolYearId) body.schoolYearId = selectedSchoolYearId
 
@@ -303,8 +282,8 @@ export default function AdminStudentsPage() {
         courseId: filters.courseId,
         orientationId: filters.orientationId,
         status: filters.status,
-        tuitionMonth: filters.tuitionMonth,
-        tuitionPaid: filters.tuitionPaid,
+        tuitionMonth: '',
+        tuitionPaid: '',
       }),
     [filters],
   )
@@ -313,8 +292,6 @@ export default function AdminStudentsPage() {
     rows: list.data,
     loading,
     allYears,
-    tuitionYear: filters.tuitionYear,
-    fallbackYear: CURRENT_YEAR,
     resendingId,
     onOpen: (row: StudentListRow) => void openEdit(row),
     onDelete: (row: StudentListRow) => setPendingAction({ kind: 'delete', row }),
@@ -339,14 +316,20 @@ export default function AdminStudentsPage() {
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Solo administradores</p>
               <h1 className="text-2xl font-bold text-gray-950">Estudiantes</h1>
               <p className="max-w-3xl text-sm text-gray-600">
-                Matrícula, contacto, cuotas y acceso al aula virtual.
+                Matrícula, contacto y acceso al aula virtual.
               </p>
             </div>
           </div>
-          <button type="button" onClick={openCreate} className="btn-primary shrink-0">
-            <Plus className="h-4 w-4" aria-hidden />
-            Nuevo estudiante
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/admin/tuition" className="btn-secondary">
+              <Receipt className="h-4 w-4" aria-hidden />
+              Mensualidades
+            </Link>
+            <button type="button" onClick={openCreate} className="btn-primary shrink-0">
+              <Plus className="h-4 w-4" aria-hidden />
+              Nuevo estudiante
+            </button>
+          </div>
         </header>
 
         <StudentsSummaryCards summary={summary} loading={loading} />
@@ -366,7 +349,7 @@ export default function AdminStudentsPage() {
               activeFilterCount={activeFilterCount}
               onChange={patchFilters}
               onClear={() => {
-                setFilters({ ...EMPTY_FILTERS, tuitionYear: filters.tuitionYear })
+                setFilters(EMPTY_FILTERS)
                 setPage(1)
               }}
             />
@@ -389,11 +372,9 @@ export default function AdminStudentsPage() {
             form={form}
             courses={courses}
             orientations={modalOrientations}
-            tuitionYear={modalTuitionYear}
             saving={saving}
             moodlePending={resendingId === form.id}
             message={msg}
-            onTuitionYearChange={setModalTuitionYear}
             onPatch={patchForm}
             onUsernameEdit={(value) => {
               setUsernameTouched(true)
