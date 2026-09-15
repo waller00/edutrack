@@ -35,6 +35,11 @@ export type IncomingEntry = {
   studentId: string
   status: TeacherWritableStatus
   note?: string | null
+  /**
+   * Peso de la falta en centésimos (`100` = 1, `50` = 0,5). Sólo aplica a ausencias.
+   * Si viene `undefined`, no se pisa el valor ya guardado; si es `null` o status no-ausencia, se limpia.
+   */
+  absenceWeightHundredths?: number | null
 }
 
 export class RollCallError extends Error {
@@ -151,6 +156,13 @@ export async function saveRollCall(params: SaveParams) {
     for (const entry of resolved) {
       const student = rosterByStudent.get(entry.studentId)
       if (!student) continue
+      const isAbsent = entry.status === 'ABSENT' || entry.status === 'ABSENT_JUSTIFIED'
+      const weightUpdate =
+        entry.absenceWeightHundredths === undefined
+          ? {}
+          : {
+              absenceWeightHundredths: isAbsent ? entry.absenceWeightHundredths : null,
+            }
       await tx.studentAttendanceEntry.upsert({
         where: { sessionId_studentId: { sessionId: header.id, studentId: entry.studentId } },
         create: {
@@ -159,6 +171,8 @@ export async function saveRollCall(params: SaveParams) {
           studentEnrollmentId: student.studentEnrollmentId,
           status: entry.status,
           note: entry.note?.trim() || null,
+          absenceWeightHundredths:
+            isAbsent && entry.absenceWeightHundredths != null ? entry.absenceWeightHundredths : null,
           studentLastName: student.lastName,
           studentFirstName: student.firstName,
           studentDocumentId: student.documentId,
@@ -170,6 +184,8 @@ export async function saveRollCall(params: SaveParams) {
           note: entry.note?.trim() || null,
           markedByUserId: params.actorUserId,
           markedAt: now,
+          ...weightUpdate,
+          ...(isAbsent ? {} : { absenceWeightHundredths: null }),
         },
       })
     }

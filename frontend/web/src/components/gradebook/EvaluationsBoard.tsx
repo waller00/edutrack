@@ -16,7 +16,7 @@ import {
 import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api/client'
 import { apiBlob } from '@/lib/api/binary'
-import { formatHundredths, parseToHundredths } from '@/lib/academic-config/grade-value'
+import { formatHundredths, isInsufficientHundredths } from '@/lib/academic-config/grade-value'
 import {
   ACTIVITY_CATEGORY_LABEL,
   activityCategory,
@@ -38,6 +38,60 @@ type Period = { id: string; code: string; name: string }
 type Scale = { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number }
 type ActivityType = { id: string; code: string; name: string; scope: 'GLOBAL' | 'TEACHER' }
 type Options = { periods: Period[]; scales: Scale[]; activityTypes: ActivityType[] }
+
+/** Escala fija de la libreta docente: siempre 1–10 (más N/A). */
+const GRADE_1_TO_10 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const
+
+function pickNumeric1to10ScaleId(scales: Scale[]): string {
+  const named = scales.find((s) => /1\s*a\s*10/i.test(s.name))
+  if (named) return named.id
+  const numeric = scales.find((s) => s.kind === 'NUMERIC')
+  return numeric?.id ?? scales[0]?.id ?? ''
+}
+
+function gradeSelectFromHundredths(hundredths: number | null | undefined): string {
+  if (hundredths == null) return 'NA'
+  const n = Math.round(hundredths / 100)
+  if (n >= 1 && n <= 10) return String(n)
+  return 'NA'
+}
+
+function gradeSelectToHundredths(value: string): number | null {
+  if (!value || value === 'NA') return null
+  const n = Number(value)
+  if (!Number.isInteger(n) || n < 1 || n > 10) return null
+  return n * 100
+}
+
+function Grade1to10Select({
+  value,
+  onChange,
+  disabled,
+  className = 'max-w-[8rem] rounded border border-gray-300 bg-amber-50 px-2 py-1.5',
+}: {
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+  className?: string
+}) {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className={className}
+      aria-label="Calificación"
+    >
+      <option value="">—</option>
+      {GRADE_1_TO_10.map((n) => (
+        <option key={n} value={String(n)}>
+          {n}
+        </option>
+      ))}
+      <option value="NA">N/A</option>
+    </select>
+  )
+}
 
 type BoardAssessment = {
   id: string
@@ -123,10 +177,12 @@ function PeriodBlock({
               ? `Resultado del período\n${cell.data.hints.map((h) => gradeTooltipLine(h)).join('\n')}`
               : 'Resultado del período (promedio)'
             : cell.data.hints.map((h) => gradeTooltipLine(h)).join('\n') || undefined
-          const display =
+          const valueHundredths =
             !cell.highlight && cell.data.hints.length === 1
-              ? formatHundredths(cell.data.hints[0]?.valueHundredths ?? null, decimals)
-              : formatHundredths(cell.data.average, decimals)
+              ? cell.data.hints[0]?.valueHundredths ?? null
+              : cell.data.average
+          const display = formatHundredths(valueHundredths, decimals)
+          const insufficient = isInsufficientHundredths(valueHundredths)
           return (
             <div
               key={cell.key}
@@ -140,12 +196,23 @@ function PeriodBlock({
               >
                 {cell.label}
               </p>
-              <p
-                className={`cursor-default tabular-nums ${
-                  cell.highlight ? 'bg-amber-100 font-semibold text-amber-950' : 'text-slate-900'
-                }`}
-              >
-                {display}
+              <p className="cursor-default tabular-nums">
+                {insufficient ? (
+                  <span
+                    className="inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-orange-100 px-1 py-0.5 font-medium text-orange-700 ring-1 ring-inset ring-orange-200/80"
+                    aria-label={`${display}, insuficiente`}
+                  >
+                    {display}
+                  </span>
+                ) : (
+                  <span
+                    className={
+                      cell.highlight ? 'bg-amber-100 font-semibold text-amber-950' : 'text-slate-900'
+                    }
+                  >
+                    {display}
+                  </span>
+                )}
               </p>
             </div>
           )
@@ -170,27 +237,22 @@ function AddGradeForm({
   onCancel: () => void
   onSaved: () => Promise<void>
 }) {
+  const gradingScaleId = pickNumeric1to10ScaleId(options.scales)
   const [activityTypeId, setActivityTypeId] = useState(options.activityTypes[0]?.id ?? '')
   const [periodId, setPeriodId] = useState(options.periods[0]?.id ?? '')
-  const [gradingScaleId, setGradingScaleId] = useState(options.scales[0]?.id ?? '')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [gradeInput, setGradeInput] = useState('')
+  const [gradeSelect, setGradeSelect] = useState('')
   const [comment, setComment] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const scale = options.scales.find((s) => s.id === gradingScaleId)
   const activity = options.activityTypes.find((t) => t.id === activityTypeId)
   const canSubmit = Boolean(activityTypeId && periodId && gradingScaleId && date) && !saving
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!canSubmit) return
-    const valueHundredths = parseToHundredths(gradeInput)
-    if (gradeInput.trim() && valueHundredths == null) {
-      setError('La calificación no es un número válido.')
-      return
-    }
+    const valueHundredths = gradeSelectToHundredths(gradeSelect)
     setSaving(true)
     setError(null)
     try {
@@ -288,26 +350,8 @@ function AddGradeForm({
       </label>
 
       <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
-        <span className="text-gray-600">Escala</span>
-        <select
-          value={gradingScaleId}
-          onChange={(e) => setGradingScaleId(e.target.value)}
-          className="rounded border border-gray-300 px-2 py-1.5"
-        >
-          {options.scales.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
-      </label>
-
-      <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
         <span className="text-gray-600">Calificación</span>
-        <input
-          value={gradeInput}
-          onChange={(e) => setGradeInput(e.target.value)}
-          placeholder={scale?.kind === 'NUMERIC' ? 'Ej. 8 o 7,5' : 'Valor numérico'}
-          className="max-w-[8rem] rounded border border-gray-300 px-2 py-1.5"
-        />
+        <Grade1to10Select value={gradeSelect} onChange={setGradeSelect} disabled={saving} />
       </label>
 
       <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr]">
@@ -354,13 +398,12 @@ function EditGradeForm({
   onCancel: () => void
   onSaved: () => Promise<void>
 }) {
+  const gradingScaleId =
+    row.assessment.gradingScale?.id ?? pickNumeric1to10ScaleId(options.scales)
   const [activityTypeId, setActivityTypeId] = useState(row.assessment.activityType?.id ?? options.activityTypes[0]?.id ?? '')
   const [periodId, setPeriodId] = useState(row.assessment.periodId)
-  const [gradingScaleId, setGradingScaleId] = useState(row.assessment.gradingScale?.id ?? options.scales[0]?.id ?? '')
   const [date, setDate] = useState(row.assessment.date)
-  const [gradeInput, setGradeInput] = useState(
-    row.valueHundredths == null ? '' : String(row.valueHundredths / 100),
-  )
+  const [gradeSelect, setGradeSelect] = useState(gradeSelectFromHundredths(row.valueHundredths))
   const [comment, setComment] = useState(row.comment || row.assessment.title)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -370,11 +413,7 @@ function EditGradeForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!canSubmit) return
-    const valueHundredths = parseToHundredths(gradeInput)
-    if (gradeInput.trim() && valueHundredths == null) {
-      setError('La calificación no es un número válido.')
-      return
-    }
+    const valueHundredths = gradeSelectToHundredths(gradeSelect)
     setSaving(true)
     setError(null)
     try {
@@ -435,7 +474,12 @@ function EditGradeForm({
         </label>
         <label className="text-sm">
           <span className="mb-1 block text-xs text-gray-600">Calificación</span>
-          <input value={gradeInput} onChange={(e) => setGradeInput(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5" />
+          <Grade1to10Select
+            value={gradeSelect}
+            onChange={setGradeSelect}
+            disabled={saving}
+            className="w-full rounded border border-gray-300 bg-amber-50 px-2 py-1.5"
+          />
         </label>
         <label className="text-sm sm:col-span-2">
           <span className="mb-1 block text-xs text-gray-600">Comentario</span>
@@ -877,17 +921,15 @@ function StudentCard({
       )}
 
       {periods.length > 0 && (
-        <div className="mt-3 overflow-x-auto pb-2">
-          <div className="flex w-max gap-2">
-            {periods.map((period) => (
-              <PeriodBlock
-                key={period.id}
-                period={period}
-                summary={periodSummary(rows, period.id)}
-                decimals={decimals}
-              />
-            ))}
-          </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {periods.map((period) => (
+            <PeriodBlock
+              key={period.id}
+              period={period}
+              summary={periodSummary(rows, period.id)}
+              decimals={decimals}
+            />
+          ))}
         </div>
       )}
 

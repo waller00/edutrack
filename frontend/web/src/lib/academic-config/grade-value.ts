@@ -23,6 +23,16 @@ export function parseToHundredths(input: string): number | null {
   return Math.round(parsed * HUNDREDTHS)
 }
 
+/**
+ * Umbral de aprobación numérica en la carta de evaluaciones: a partir de 5.
+ * Por debajo → insuficiente (marca naranja discreta).
+ */
+export const PASSING_MIN_HUNDREDTHS = 500
+
+export function isInsufficientHundredths(value: number | null | undefined): boolean {
+  return value != null && Number.isFinite(value) && value < PASSING_MIN_HUNDREDTHS
+}
+
 /** Rango legible de un tramo: `"1 a 5,9"`. */
 export function formatRange(
   minHundredths: number,
