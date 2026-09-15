@@ -41,6 +41,67 @@ export type GradeBookDetail = GradeBookHeader & {
   students: RosterStudent[]
 }
 
+/** Marca del día en la planilla de inasistencias de la libreta. */
+export type AbsenceDayMark = {
+  status: 'PRESENT' | 'LATE' | 'ABSENT' | 'ABSENT_JUSTIFIED' | string
+  absenceWeightHundredths: number | null
+  note: string | null
+}
+
+export type AbsenceDayStudent = RosterStudent & {
+  dayMark: AbsenceDayMark | null
+}
+
+export type AbsenceDayBoard = {
+  date: string
+  hasClass: boolean
+  /** Permite marcar aunque el día sea S/H (hay evento ancla del scope). */
+  canMark: boolean
+  noClassReason: string | null
+  eventId: string | null
+  canGrade: boolean
+  students: AbsenceDayStudent[]
+}
+
+export type StudentAbsenceEntry = {
+  entryId: string
+  status: string
+  absenceWeightHundredths: number | null
+  weightHundredths: number
+  label: string
+  note: string | null
+  ymd: string
+  startAt: string
+  endAt: string
+  subjectId: string | null
+  subject: string | null
+  title: string | null
+}
+
+export type StudentAbsencesHistory = {
+  student: {
+    studentId: string
+    firstName: string
+    lastName: string
+    documentId: string | null
+    hasPhoto: boolean
+  }
+  overall: {
+    absenceHundredths: number
+    absences: string
+    lates: number
+    justifiedCount: number
+  }
+  bySubject: Array<{
+    subjectId: string | null
+    subjectName: string
+    absenceHundredths: number
+    absences: string
+    entries: StudentAbsenceEntry[]
+  }>
+  entries: StudentAbsenceEntry[]
+}
+
 export const ACCESS_LABELS: Record<GradeBookAccessLevel, string> = {
   OWNER: 'Titular',
   SUBSTITUTE: 'Suplente',

@@ -4,7 +4,7 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import { signAccessToken } from '../test-utils/bearer-token.js'
 
-const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMock, loadReportMock } = vi.hoisted(() => ({
+const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMock, loadReportMock, dayOccurrenceMock, findSessionMock, saveRollCallMock } = vi.hoisted(() => ({
   prismaMock: {
     gradeBook: { findMany: vi.fn(), findUnique: vi.fn() },
     substitution: { findMany: vi.fn() },
@@ -33,6 +33,9 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
   rosterMock: vi.fn(),
   accessMock: vi.fn(),
   scopeMock: vi.fn(),
+  dayOccurrenceMock: vi.fn(),
+  findSessionMock: vi.fn(),
+  saveRollCallMock: vi.fn(),
 }))
 
 vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
@@ -44,6 +47,21 @@ vi.mock('../services/student-attendance/roster.js', () => ({
   canResolveRoster: (e: any) => Boolean(e.schoolYearId && e.courseOfferingId),
 }))
 vi.mock('../services/gradebook/access.js', () => ({ resolveGradeBookAccess: accessMock }))
+vi.mock('../services/gradebook/absences-day.js', async () => {
+  const actual = await vi.importActual<any>('../services/gradebook/absences-day.js')
+  return {
+    ...actual,
+    resolveGradeBookDayOccurrence: dayOccurrenceMock,
+  }
+})
+vi.mock('../services/student-attendance/roll-call.js', async () => {
+  const actual = await vi.importActual<any>('../services/student-attendance/roll-call.js')
+  return {
+    ...actual,
+    findSession: findSessionMock,
+    saveRollCall: saveRollCallMock,
+  }
+})
 vi.mock('../config/system-settings.js', () => ({
   getGradeBookSettings: vi.fn().mockResolvedValue({ editWindowDays: 30 }),
 }))
@@ -110,6 +128,9 @@ beforeEach(() => {
   prismaMock.studentPhoto.findMany.mockResolvedValue([])
   prismaMock.studentPhoto.findUnique.mockResolvedValue(null)
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
+  dayOccurrenceMock.mockResolvedValue({ kind: 'no_class' })
+  findSessionMock.mockResolvedValue(null)
+  saveRollCallMock.mockResolvedValue({ id: 'sess-1' })
 })
 
 describe('permisos', () => {
@@ -1499,5 +1520,101 @@ describe('hoja del estudiante dentro de la libreta', () => {
     expect(res.status).toBe(403)
     expect(res.body.code).toBe('STUDENT_NOT_IN_ROSTER')
     expect(prismaMock.student.findUnique).not.toHaveBeenCalled()
+  })
+})
+
+describe('inasistencias diarias de la libreta', () => {
+  const SID = '22222222-2222-4222-8222-222222222222'
+
+  it('GET /absences/day sin clase marca hasClass false y canMark si hay ancla', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    dayOccurrenceMock.mockResolvedValue({
+      kind: 'no_class',
+      anchorEvent: { id: 'ev-anchor' },
+    })
+    findSessionMock.mockResolvedValue(null)
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/absences/day?date=2026-09-14`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.hasClass).toBe(false)
+    expect(res.body.canMark).toBe(true)
+    expect(res.body.noClassReason).toBe('Sin horario')
+    expect(res.body.eventId).toBe('ev-anchor')
+    expect(res.body.students[0]).toMatchObject({ studentId: SID, dayMark: null })
+  })
+
+  it('PUT /absences/day guarda falta con peso 50', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    dayOccurrenceMock.mockResolvedValue({
+      kind: 'class',
+      event: { id: 'ev-1' },
+      startAt: new Date('2026-09-14T12:00:00Z'),
+      endAt: new Date('2026-09-14T13:00:00Z'),
+      occurrenceCount: 1,
+    })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/absences/day`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({
+        date: '2026-09-14',
+        entries: [{ studentId: SID, status: 'ABSENT', absenceWeightHundredths: 50 }],
+      })
+
+    expect(res.status).toBe(200)
+    expect(saveRollCallMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        occurrenceYmd: '2026-09-14',
+        entries: [expect.objectContaining({ studentId: SID, status: 'ABSENT', absenceWeightHundredths: 50 })],
+      }),
+    )
+  })
+
+  it('PUT /absences/day en S/H usa el evento ancla', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    dayOccurrenceMock.mockResolvedValue({
+      kind: 'no_class',
+      anchorEvent: { id: 'ev-anchor' },
+    })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/absences/day`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({
+        date: '2026-09-14',
+        entries: [{ studentId: SID, status: 'ABSENT', absenceWeightHundredths: 100 }],
+      })
+
+    expect(res.status).toBe(200)
+    expect(saveRollCallMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({ id: 'ev-anchor' }),
+        occurrenceYmd: '2026-09-14',
+      }),
+    )
+  })
+
+  it('GET historial del alumno exige roster', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([])
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${SID}/absences`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('STUDENT_NOT_IN_ROSTER')
   })
 })

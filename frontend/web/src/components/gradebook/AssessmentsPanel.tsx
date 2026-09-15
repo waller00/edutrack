@@ -23,6 +23,13 @@ type Assessment = {
 
 type Options = { periods: Period[]; scales: Scale[]; activityTypes: ActivityType[] }
 
+function pickNumeric1to10ScaleId(scales: Scale[]): string {
+  const named = scales.find((s) => /1\s*a\s*10/i.test(s.name))
+  if (named) return named.id
+  const numeric = scales.find((s) => s.kind === 'NUMERIC')
+  return numeric?.id ?? scales[0]?.id ?? ''
+}
+
 function NewAssessmentForm({
   options,
   onCreate,
@@ -35,8 +42,8 @@ function NewAssessmentForm({
   const [title, setTitle] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [periodId, setPeriodId] = useState('')
-  const [gradingScaleId, setGradingScaleId] = useState('')
   const [activityTypeId, setActivityTypeId] = useState('')
+  const gradingScaleId = pickNumeric1to10ScaleId(options.scales)
 
   const canSubmit = title.trim() !== '' && periodId !== '' && gradingScaleId !== '' && !busy
 
@@ -83,19 +90,6 @@ function NewAssessmentForm({
           <option value="">Elegí…</option>
           {options.periods.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span className="mb-1 block text-xs text-gray-600">Escala</span>
-        <select
-          value={gradingScaleId}
-          onChange={(e) => setGradingScaleId(e.target.value)}
-          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-        >
-          <option value="">Elegí…</option>
-          {options.scales.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
       </label>

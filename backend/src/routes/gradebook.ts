@@ -7,7 +7,17 @@ import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { canResolveRoster, loadRosterForScope } from '../services/student-attendance/roster.js'
 import { resolveGradeBookAccess, type GradeBookAccess } from '../services/gradebook/access.js'
 import { photoETag } from '../services/student-photo.js'
-import { effectiveWeight, formatAbsenceUnits } from '../services/student-attendance/absence-weight.js'
+import { effectiveWeight, formatAbsenceUnits, isValidAbsenceWeight } from '../services/student-attendance/absence-weight.js'
+import {
+  resolveGradeBookDayOccurrence,
+  resolveMarkTarget,
+} from '../services/gradebook/absences-day.js'
+import {
+  findSession,
+  RollCallError,
+  saveRollCall,
+} from '../services/student-attendance/roll-call.js'
+import { isYmdDateString } from '../config/app-timezone.js'
 import {
   admissionSummary,
   currentAccommodations,
@@ -310,6 +320,232 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
   }
 })
 
+const dayQuerySchema = z.object({
+  date: z.string().refine(isYmdDateString, 'Fecha inválida'),
+})
+
+const dayMarkSchema = z.object({
+  date: z.string().refine(isYmdDateString, 'Fecha inválida'),
+  entries: z
+    .array(
+      z.object({
+        studentId: z.string().uuid(),
+        status: z.enum(['PRESENT', 'LATE', 'ABSENT']),
+        /** `100` = falta, `50` = media falta. Obligatorio si status es ABSENT. */
+        absenceWeightHundredths: z.number().int().nullable().optional(),
+      }),
+    )
+    .min(1)
+    .max(200),
+})
+
+function scopeOfRow(row: NonNullable<GradeBookRow>) {
+  return {
+    schoolYearId: row.schoolYearId,
+    courseOfferingId: row.courseOfferingId,
+    subjectId: row.subjectId,
+    orientationId: row.orientationId,
+    courseOrientationId: row.courseOrientationId,
+  }
+}
+
+/**
+ * Planilla diaria de inasistencias de la libreta (estilo Libro del Profesor).
+ * Sin ocurrencia de clase → `hasClass: false` (UI: “Lunes S/H”) pero `canMark` si hay evento ancla.
+ */
+r.get('/:id/absences/day', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    const parsed = dayQuerySchema.safeParse(req.query)
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+    }
+    const ymd = parsed.data.date
+    if (!canResolveRoster(ctx.row)) {
+      return res.status(409).json({ message: 'La libreta no tiene grupo resoluble.', code: 'NO_COHORT' })
+    }
+
+    const day = await resolveGradeBookDayOccurrence(scopeOfRow(ctx.row), ymd)
+    const markTarget = resolveMarkTarget(day, ymd)
+    const students = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+
+    const attendance = students.length
+      ? await prisma.studentAttendanceEntry.findMany({
+          where: {
+            studentId: { in: students.map((s) => s.studentId) },
+            session: { schoolYearId: ctx.row.schoolYearId },
+          },
+          select: { studentId: true, status: true, absenceWeightHundredths: true },
+        })
+      : []
+
+    const absencesByStudent = new Map<
+      string,
+      { absenceHundredths: number; justified: number; lates: number }
+    >()
+    for (const mark of attendance) {
+      const entry = absencesByStudent.get(mark.studentId) ?? {
+        absenceHundredths: 0,
+        justified: 0,
+        lates: 0,
+      }
+      entry.absenceHundredths += effectiveWeight(mark)
+      if (mark.status === 'ABSENT_JUSTIFIED') entry.justified += 1
+      if (mark.status === 'LATE') entry.lates += 1
+      absencesByStudent.set(mark.studentId, entry)
+    }
+
+    const photoRows = students.length
+      ? await prisma.studentPhoto.findMany({
+          where: { studentId: { in: students.map((s) => s.studentId) } },
+          select: { studentId: true },
+        })
+      : []
+    const photoIds = new Set(photoRows.map((p) => p.studentId))
+
+    let dayByStudent = new Map<
+      string,
+      { status: string; absenceWeightHundredths: number | null; note: string | null }
+    >()
+    const eventId = markTarget?.event.id ?? null
+    const hasClass = day.kind === 'class'
+    const canMark = Boolean(markTarget)
+    let noClassReason: string | null = null
+
+    if (day.kind === 'non_working') {
+      noClassReason = day.label
+    } else if (day.kind === 'no_class') {
+      noClassReason = 'Sin horario'
+    }
+
+    if (markTarget) {
+      const session = await findSession(markTarget.event.id, ymd)
+      for (const entry of session?.entries ?? []) {
+        dayByStudent.set(entry.studentId, {
+          status: entry.status,
+          absenceWeightHundredths: entry.absenceWeightHundredths,
+          note: entry.note,
+        })
+      }
+    }
+
+    return res.json({
+      date: ymd,
+      hasClass,
+      canMark,
+      noClassReason,
+      eventId,
+      canGrade: ctx.access.canGrade,
+      students: students.map((student) => {
+        const totals = absencesByStudent.get(student.studentId)
+        const hundredths = totals?.absenceHundredths ?? 0
+        const dayMark = dayByStudent.get(student.studentId) ?? null
+        return {
+          ...student,
+          absenceHundredths: hundredths,
+          absences: formatAbsenceUnits(hundredths),
+          justifiedCount: totals?.justified ?? 0,
+          lates: totals?.lates ?? 0,
+          hasPhoto: photoIds.has(student.studentId),
+          dayMark,
+        }
+      }),
+    })
+  } catch (error) {
+    console.error('[gradebook] absences day:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/** Marca inasistencias del día (también en S/H si hay evento ancla del scope). */
+r.put('/:id/absences/day', requirePermission('gradebook.grade'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (!ctx.access.canGrade) {
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    }
+    const parsed = dayMarkSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+    }
+
+    for (const entry of parsed.data.entries) {
+      if (entry.status === 'ABSENT') {
+        const weight = entry.absenceWeightHundredths ?? 100
+        if (!isValidAbsenceWeight(weight)) {
+          return res.status(400).json({
+            message: 'La falta sólo admite peso 1 (100) o 0,5 (50).',
+            code: 'INVALID_ABSENCE_WEIGHT',
+          })
+        }
+      }
+    }
+
+    const ymd = parsed.data.date
+    const day = await resolveGradeBookDayOccurrence(scopeOfRow(ctx.row), ymd)
+    if (day.kind === 'non_working') {
+      return res.status(409).json({
+        message: day.label,
+        code: 'NON_WORKING_DAY',
+      })
+    }
+    const markTarget = resolveMarkTarget(day, ymd)
+    if (!markTarget) {
+      return res.status(409).json({
+        message: 'No hay clase ni horario de esta libreta para marcar ese día.',
+        code: 'NO_OCCURRENCE',
+      })
+    }
+
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+
+    await saveRollCall({
+      event: markTarget.event,
+      occurrenceYmd: ymd,
+      startAt: markTarget.startAt,
+      endAt: markTarget.endAt,
+      cohort: {
+        schoolYearId: ctx.row.schoolYearId,
+        courseOfferingId: ctx.row.courseOfferingId,
+        orientationId: ctx.row.orientationId,
+        courseOrientationId: ctx.row.courseOrientationId,
+        subjectId: ctx.row.subjectId,
+      },
+      roster,
+      entries: parsed.data.entries.map((e) => ({
+        studentId: e.studentId,
+        status: e.status,
+        absenceWeightHundredths:
+          e.status === 'ABSENT' ? (e.absenceWeightHundredths ?? 100) : null,
+      })),
+      source: 'MANUAL',
+      actorUserId: req.user?.id ?? req.user?.sub,
+      actedAsAdmin: false,
+      outsideWindow: false,
+      req,
+    })
+
+    return res.json({ ok: true })
+  } catch (error) {
+    if (error instanceof RollCallError) {
+      return res.status(error.statusCode).json({ message: error.message, code: error.code, details: error.details })
+    }
+    console.error('[gradebook] absences day put:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
 
 /**
  * Hoja del estudiante dentro de la libreta (la "hoja de calificaciones" del liceo).
@@ -426,11 +662,164 @@ r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (re
         summary: row.summary,
         externalUrl: row.externalUrl,
       })),
-      // Las inasistencias no van acá todavía: hoy el conteo de la libreta es por materia y el
-      // liceo las quiere globales. Se resuelve junto con la media falta.
     })
   } catch (error) {
     console.error('[gradebook] student sheet:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+const studentAbsencesQuerySchema = z.object({
+  from: z.string().refine(isYmdDateString, 'Fecha desde inválida').optional(),
+  to: z.string().refine(isYmdDateString, 'Fecha hasta inválida').optional(),
+})
+
+/**
+ * Historial de inasistencias del alumno para el docente (detalle de la sección Inasistencias).
+ * Totales del ciclo en todo el liceo; las entradas incluyen peso (1 / 0,5).
+ */
+r.get('/:id/students/:studentId/absences', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    const parsed = studentAbsencesQuerySchema.safeParse(req.query)
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+    }
+
+    const studentId = String(req.params.studentId || '')
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+    const inRoster = roster.find((s) => s.studentId === studentId)
+    if (!inRoster) {
+      return res.status(403).json({
+        message: 'Ese estudiante no pertenece al grupo de esta libreta.',
+        code: 'STUDENT_NOT_IN_ROSTER',
+      })
+    }
+
+    const entries = await prisma.studentAttendanceEntry.findMany({
+      where: {
+        studentId,
+        session: {
+          schoolYearId: ctx.row.schoolYearId,
+          ...(parsed.data.from || parsed.data.to
+            ? {
+                occurrenceYmd: {
+                  ...(parsed.data.from ? { gte: parsed.data.from } : {}),
+                  ...(parsed.data.to ? { lte: parsed.data.to } : {}),
+                },
+              }
+            : {}),
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        note: true,
+        absenceWeightHundredths: true,
+        session: {
+          select: {
+            occurrenceYmd: true,
+            startAt: true,
+            endAt: true,
+            subjectId: true,
+            subject: { select: { name: true } },
+            event: { select: { title: true } },
+          },
+        },
+      },
+      orderBy: { session: { occurrenceYmd: 'desc' } },
+    })
+
+    let absenceHundredths = 0
+    let lates = 0
+    let justified = 0
+    const mapped = entries.map((entry) => {
+      const weight = effectiveWeight(entry)
+      absenceHundredths += weight
+      if (entry.status === 'LATE') lates += 1
+      if (entry.status === 'ABSENT_JUSTIFIED') justified += 1
+      const label =
+        entry.status === 'LATE'
+          ? 'TARDE'
+          : entry.status === 'PRESENT'
+            ? 'PRESENTE'
+            : weight === 50
+              ? 'MEDIA FALTA'
+              : entry.status === 'ABSENT_JUSTIFIED'
+                ? 'FALTA JUSTIFICADA'
+                : 'FALTA'
+      return {
+        entryId: entry.id,
+        status: entry.status,
+        absenceWeightHundredths: entry.absenceWeightHundredths,
+        weightHundredths: weight,
+        label,
+        note: entry.note,
+        ymd: entry.session.occurrenceYmd,
+        startAt: entry.session.startAt,
+        endAt: entry.session.endAt,
+        subjectId: entry.session.subjectId,
+        subject: entry.session.subject?.name ?? null,
+        title: entry.session.event?.title ?? null,
+      }
+    })
+
+    const bySubjectMap = new Map<
+      string,
+      { subjectId: string | null; subjectName: string; absenceHundredths: number; entries: typeof mapped }
+    >()
+    for (const row of mapped) {
+      if (row.status === 'PRESENT') continue
+      const key = row.subjectId ?? 'none'
+      const bucket = bySubjectMap.get(key) ?? {
+        subjectId: row.subjectId,
+        subjectName: row.subject ?? 'Sin asignatura',
+        absenceHundredths: 0,
+        entries: [],
+      }
+      if (row.status === 'ABSENT' || row.status === 'ABSENT_JUSTIFIED') {
+        bucket.absenceHundredths += row.weightHundredths
+      }
+      bucket.entries.push(row)
+      bySubjectMap.set(key, bucket)
+    }
+
+    return res.json({
+      student: {
+        studentId: inRoster.studentId,
+        firstName: inRoster.firstName,
+        lastName: inRoster.lastName,
+        documentId: inRoster.documentId,
+        hasPhoto: Boolean(
+          await prisma.studentPhoto.findUnique({
+            where: { studentId },
+            select: { studentId: true },
+          }),
+        ),
+      },
+      overall: {
+        absenceHundredths,
+        absences: formatAbsenceUnits(absenceHundredths),
+        lates,
+        justifiedCount: justified,
+      },
+      bySubject: [...bySubjectMap.values()].map((s) => ({
+        subjectId: s.subjectId,
+        subjectName: s.subjectName,
+        absenceHundredths: s.absenceHundredths,
+        absences: formatAbsenceUnits(s.absenceHundredths),
+        entries: s.entries,
+      })),
+      entries: mapped,
+    })
+  } catch (error) {
+    console.error('[gradebook] student absences:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

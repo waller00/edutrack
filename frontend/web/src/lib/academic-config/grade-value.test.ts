@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { formatHundredths, formatRange, parseToHundredths } from './grade-value'
+import {
+  formatHundredths,
+  formatRange,
+  isInsufficientHundredths,
+  parseToHundredths,
+} from './grade-value'
 
 describe('formatHundredths', () => {
   it('usa coma decimal', () => {
@@ -35,6 +40,18 @@ describe('parseToHundredths', () => {
 
   it('hace ida y vuelta con formatHundredths', () => {
     expect(formatHundredths(parseToHundredths('7,5'), 1)).toBe('7,5')
+  })
+})
+
+describe('isInsufficientHundredths', () => {
+  it('marca insuficiente por debajo de 5; el 5 alcanza', () => {
+    expect(isInsufficientHundredths(300)).toBe(true)
+    expect(isInsufficientHundredths(400)).toBe(true)
+    expect(isInsufficientHundredths(499)).toBe(true)
+    expect(isInsufficientHundredths(500)).toBe(false)
+    expect(isInsufficientHundredths(600)).toBe(false)
+    expect(isInsufficientHundredths(800)).toBe(false)
+    expect(isInsufficientHundredths(null)).toBe(false)
   })
 })
 
