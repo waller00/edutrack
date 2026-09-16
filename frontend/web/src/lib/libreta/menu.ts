@@ -27,7 +27,7 @@ export const LIBRETA_SECTIONS: readonly LibretaSection[] = [
   { id: 'desarrollo', label: 'Desarrollo del curso', hint: 'Registro clase a clase: qué se trabajó y cuántas horas se dictaron.' },
   { id: 'evaluaciones', label: 'Orales, escritos y otras actividades', hint: 'Cartas por alumno: cargar orales, escritos y otras actividades, y ver el detalle.' },
   { id: 'inasistencias', label: 'Inasistencias', hint: 'Faltas y llegadas tarde acumuladas del grupo.' },
-  { id: 'cierre', label: 'Cierre de períodos', hint: 'Calificación general y juicio conceptual de cada estudiante.' },
+  { id: 'cierre', label: 'Cierre de períodos', hint: 'Calificación general y juicio conceptual, alumno por alumno.' },
   { id: 'visados', label: 'Visados', hint: 'Qué observó adscripción o dirección y qué períodos están visados.' },
   { id: 'mensajes', label: 'Observaciones y mensajes', hint: 'Intercambio con adscripción, dirección e inspección.' },
 ]
