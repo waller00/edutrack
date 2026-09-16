@@ -1701,6 +1701,192 @@ r.put('/:id/periods/:periodId/grades', requirePermission('gradebook.grade'), asy
   }
 })
 
+/**
+ * Cierre por alumno (vista Libro del Profesor): todos los períodos de la libreta con la
+ * calificación general y el juicio de UN estudiante. La nota la decide el docente (no se promedia).
+ */
+r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (!canResolveRoster(ctx.row)) {
+      return res.status(409).json({ message: 'La libreta no tiene grupo resoluble.', code: 'NO_COHORT' })
+    }
+
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+    const student = roster.find((s) => s.studentId === req.params.studentId)
+    if (!student) {
+      return res.status(403).json({ message: 'El estudiante no pertenece a esta libreta.', code: 'STUDENT_NOT_IN_ROSTER' })
+    }
+
+    const level = (ctx.row as any).courseOffering?.course?.level ?? null
+    const [periods, states, photo, assessments] = await Promise.all([
+      prisma.academicPeriod.findMany({
+        where: { schoolYearId: ctx.row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      prisma.gradeBookPeriod.findMany({
+        where: { gradeBookId: ctx.row.id },
+        include: { grades: { where: { studentId: student.studentId } } },
+      }),
+      prisma.studentPhoto.findUnique({
+        where: { studentId: student.studentId },
+        select: { studentId: true },
+      }),
+      prisma.assessment.findMany({
+        where: { gradeBookId: ctx.row.id, deletedAt: null },
+        include: {
+          grades: {
+            where: { studentId: student.studentId },
+            select: { valueHundredths: true, isAbsent: true },
+          },
+          gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' } } } },
+        },
+      }),
+    ])
+
+    const stateByPeriod = new Map(states.map((row) => [row.periodId, row]))
+    const levels = assessments.find((a) => a.gradingScale?.levels?.length)?.gradingScale?.levels ?? []
+    const countByPeriod = new Map<string, number>()
+    for (const assessment of assessments) {
+      if (!assessment.periodId) continue
+      const n = assessment.grades.filter((g) => !g.isAbsent && g.valueHundredths != null).length
+      countByPeriod.set(assessment.periodId, (countByPeriod.get(assessment.periodId) ?? 0) + n)
+    }
+
+    return res.json({
+      student: {
+        ...student,
+        hasPhoto: Boolean(photo),
+      },
+      canGrade: ctx.access.canGrade,
+      periods: periods.map((period) => {
+        const state = stateByPeriod.get(period.id)
+        const saved = state?.grades[0] ?? null
+        const value = saved?.valueHundredths ?? null
+        const status = state?.status ?? 'OPEN'
+        return {
+          periodId: period.id,
+          code: period.code,
+          name: period.name,
+          closesOn: serializeYmd(period.closesOn),
+          requiresGeneralGrade: period.requiresGeneralGrade,
+          requiresConceptualJudgement: period.requiresConceptualJudgement,
+          status,
+          closedLate: state?.closedLate ?? false,
+          canEdit: ctx.access.canGrade && status !== 'CLOSED' && ctx.row.status !== 'ARCHIVED',
+          assessmentCount: countByPeriod.get(period.id) ?? 0,
+          valueHundredths: value,
+          conceptualJudgement: saved?.conceptualJudgement ?? null,
+          descriptor: describeValue(value, levels as never),
+        }
+      }),
+    })
+  } catch (error) {
+    console.error('[gradebook] student closure:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+const studentClosureSaveSchema = z.object({
+  entries: z
+    .array(
+      z.object({
+        periodId: z.string().uuid(),
+        valueHundredths: z.number().int().nullish(),
+        conceptualJudgement: z.string().trim().max(2000).nullish(),
+      }),
+    )
+    .min(1)
+    .max(40),
+})
+
+/** Guarda calificación general y juicio de un alumno en uno o más períodos. */
+r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), async (req: any, res) => {
+  const parsed = studentClosureSaveSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (!ctx.access.canGrade) {
+      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    }
+    if (ctx.row.status === 'ARCHIVED') {
+      return res.status(409).json({ message: GRADE_BLOCK_MESSAGES.ARCHIVED, code: 'ARCHIVED' })
+    }
+
+    const roster = await loadRosterForScope({
+      schoolYearId: ctx.row.schoolYearId,
+      courseOfferingId: ctx.row.courseOfferingId,
+      orientationId: ctx.row.orientationId,
+      courseOrientationId: ctx.row.courseOrientationId,
+    })
+    const student = roster.find((s) => s.studentId === req.params.studentId)
+    if (!student) {
+      return res.status(403).json({ message: 'El estudiante no pertenece a esta libreta.', code: 'STUDENT_NOT_IN_ROSTER' })
+    }
+
+    const level = (ctx.row as any).courseOffering?.course?.level ?? null
+    const periods = await prisma.academicPeriod.findMany({
+      where: {
+        schoolYearId: ctx.row.schoolYearId,
+        isActive: true,
+        ...(level ? { level } : {}),
+        id: { in: parsed.data.entries.map((e) => e.periodId) },
+      },
+    })
+    const periodById = new Map(periods.map((p) => [p.id, p]))
+    const unknown = parsed.data.entries.filter((e) => !periodById.has(e.periodId)).map((e) => e.periodId)
+    if (unknown.length > 0) {
+      return res.status(404).json({ message: 'Hay períodos que no pertenecen a este ciclo.', code: 'PERIOD_NOT_FOUND' })
+    }
+
+    const userId = req.user?.id ?? req.user?.sub
+    let saved = 0
+    for (const entry of parsed.data.entries) {
+      const state = await ensureGradeBookPeriod(ctx.row.id, entry.periodId)
+      const block = periodWriteBlock({ periodStatus: state.status, gradeBookStatus: ctx.row.status })
+      if (block) {
+        const code = block === 'CLOSED' ? 'PERIOD_CLOSED' : 'ARCHIVED'
+        return res.status(409).json({
+          message: GRADE_BLOCK_MESSAGES[code],
+          code,
+          detail: { periodId: entry.periodId },
+        })
+      }
+      const data = {
+        valueHundredths: entry.valueHundredths ?? null,
+        conceptualJudgement: entry.conceptualJudgement ?? null,
+        updatedByUserId: userId,
+      }
+      await prisma.periodGrade.upsert({
+        where: { gradeBookPeriodId_studentId: { gradeBookPeriodId: state.id, studentId: student.studentId } },
+        update: data,
+        create: {
+          gradeBookPeriodId: state.id,
+          studentId: student.studentId,
+          studentLastName: student.lastName,
+          studentFirstName: student.firstName,
+          studentDocumentId: student.documentId,
+          ...data,
+        },
+      })
+      saved += 1
+    }
+
+    return res.json({ ok: true, saved })
+  } catch (error) {
+    console.error('[gradebook] student closure put:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
 r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), async (req: any, res) => {
   try {
     const ctx = await loadClosureContext(req, res)

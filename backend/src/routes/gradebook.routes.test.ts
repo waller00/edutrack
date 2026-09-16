@@ -1618,3 +1618,74 @@ describe('inasistencias diarias de la libreta', () => {
     expect(res.body.code).toBe('STUDENT_NOT_IN_ROSTER')
   })
 })
+
+describe('cierre por alumno', () => {
+  const SID = '22222222-2222-4222-8222-222222222222'
+  const PERIOD_ID = '33333333-3333-4333-8333-333333333333'
+
+  it('GET /students/:id/closure lista períodos con nota y juicio', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      {
+        id: PERIOD_ID,
+        code: 'MAY',
+        name: 'Mayo',
+        closesOn: null,
+        requiresGeneralGrade: true,
+        requiresConceptualJudgement: true,
+      },
+    ])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      {
+        periodId: PERIOD_ID,
+        status: 'OPEN',
+        closedLate: false,
+        grades: [{ valueHundredths: 700, conceptualJudgement: 'Bien' }],
+      },
+    ])
+    prismaMock.assessment.findMany.mockResolvedValue([])
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${SID}/closure`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.student.studentId).toBe(SID)
+    expect(res.body.periods).toHaveLength(1)
+    expect(res.body.periods[0]).toMatchObject({
+      periodId: PERIOD_ID,
+      valueHundredths: 700,
+      conceptualJudgement: 'Bien',
+      canEdit: true,
+    })
+  })
+
+  it('PUT /students/:id/closure guarda rendimiento y juicio', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: '1' },
+    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: PERIOD_ID, code: 'MAY', name: 'Mayo' },
+    ])
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({
+      id: 'gbp-1',
+      status: 'OPEN',
+    })
+    prismaMock.periodGrade.upsert.mockResolvedValue({})
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/students/${SID}/closure`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({
+        entries: [{ periodId: PERIOD_ID, valueHundredths: 800, conceptualJudgement: 'Muy bien' }],
+      })
+
+    expect(res.status).toBe(200)
+    expect(res.body.saved).toBe(1)
+    expect(prismaMock.periodGrade.upsert).toHaveBeenCalled()
+  })
+})
