@@ -33,6 +33,11 @@ export type RosterStudent = {
   lates?: number
   /** Hay foto cargada desde administración (los bytes se piden aparte). */
   hasPhoto?: boolean
+  /**
+   * Distintivos del alumno (ADEC, Gen, EXEN…). Sólo los que tienen dato detrás;
+   * el color nunca es la única señal — cada código tiene label en `badges.ts`.
+   */
+  badges?: string[]
 }
 
 export type GradeBookDetail = GradeBookHeader & {

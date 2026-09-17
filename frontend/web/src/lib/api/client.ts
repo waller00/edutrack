@@ -48,7 +48,17 @@ export async function api<T>(path: string, init?: ApiRequestInit): Promise<T> {
     }
     throw error;
   }
-  return res.json() as Promise<T>
+  // 204/205 y cuerpos vacíos (DELETE) no se pueden parsear como JSON.
+  if (res.status === 204 || res.status === 205) {
+    return undefined as T
+  }
+  const text = await res.text()
+  if (!text) return undefined as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    return undefined as T
+  }
 }
 
 async function parseErrorJson(res: Response): Promise<Record<string, unknown> | null> {

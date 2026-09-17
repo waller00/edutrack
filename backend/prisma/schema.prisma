@@ -158,6 +158,9 @@ model User {
   @@index([roleId])
   pendingSubjectsCreated  StudentPendingSubject[] @relation("PendingSubjectCreatedBy")
   accommodationsCreated   StudentAccommodation[]  @relation("AccommodationCreatedBy")
+  accommodationsUpdated   StudentAccommodation[]  @relation("AccommodationUpdatedBy")
+  accommodationsTeacherSeen StudentAccommodation[] @relation("AccommodationTeacherSeenBy")
+  studentsLiceoNotesUpdated Student[] @relation("StudentLiceoNotesUpdatedBy")
   conductRecordsUpdated StudentConductRecord[] @relation("ConductUpdatedBy")
 }
 
@@ -968,6 +971,10 @@ model Student {
 
   /// Acceso al portal del liceo u otras notas sensibles (opcional).
   liceoAccessNotes String? @db.Text
+  /// Quién y cuándo tocó por última vez las observaciones generales (chip Gen).
+  liceoAccessNotesUpdatedAt       DateTime?
+  liceoAccessNotesUpdatedByUserId String?
+  liceoAccessNotesUpdatedBy       User?     @relation("StudentLiceoNotesUpdatedBy", fields: [liceoAccessNotesUpdatedByUserId], references: [id], onDelete: SetNull)
 
   internalNotes String? @db.Text
 
@@ -1121,6 +1128,12 @@ model StudentAccommodation {
 
   createdByUserId String?
   createdBy       User?    @relation("AccommodationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUserId String?
+  updatedBy       User?    @relation("AccommodationUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  /// Última vez que un docente abrió la hoja y vio esta adecuación.
+  teacherSeenAt       DateTime?
+  teacherSeenByUserId String?
+  teacherSeenBy       User?     @relation("AccommodationTeacherSeenBy", fields: [teacherSeenByUserId], references: [id], onDelete: SetNull)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

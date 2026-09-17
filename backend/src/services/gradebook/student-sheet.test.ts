@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   admissionSummary,
+  badgeCodesForStudent,
   currentAccommodations,
   unresolvedPendingSubjects,
   type AccommodationRow,
@@ -112,5 +113,35 @@ describe('admissionSummary', () => {
   it('un resultado desconocido se muestra tal cual en vez de romperse', () => {
     expect(admissionSummary({ admittedFrom: null, previousResult: 'ALGO_NUEVO', previousYearCode: 2025 }).label)
       .toBe('ALGO_NUEVO en 2025')
+  })
+})
+
+describe('badgeCodesForStudent', () => {
+  it('arma ADEC y Gen sólo cuando hay dato detrás', () => {
+    expect(
+      badgeCodesForStudent({
+        hasAccommodations: true,
+        hasGeneralNotes: true,
+      }),
+    ).toEqual(['ADEC', 'GEN'])
+  })
+
+  it('EXEN sólo aparece si el flag está prendido', () => {
+    expect(
+      badgeCodesForStudent({
+        hasAccommodations: false,
+        hasGeneralNotes: false,
+        hasExemptions: true,
+      }),
+    ).toEqual(['EXEN'])
+  })
+
+  it('sin marcas no inventa chips', () => {
+    expect(
+      badgeCodesForStudent({
+        hasAccommodations: false,
+        hasGeneralNotes: false,
+      }),
+    ).toEqual([])
   })
 })

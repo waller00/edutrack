@@ -20,6 +20,7 @@ import {
 import { isYmdDateString } from '../config/app-timezone.js'
 import {
   admissionSummary,
+  badgeCodesForStudent,
   currentAccommodations,
   unresolvedPendingSubjects,
 } from '../services/gradebook/student-sheet.js'
@@ -287,13 +288,36 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
       absencesByStudent.set(mark.studentId, entry)
     }
 
-    const photoRows = students.length
-      ? await prisma.studentPhoto.findMany({
-          where: { studentId: { in: students.map((s) => s.studentId) } },
-          select: { studentId: true },
-        })
-      : []
+    const studentIds = students.map((s) => s.studentId)
+    const [photoRows, badgeSource] = students.length
+      ? await Promise.all([
+          prisma.studentPhoto.findMany({
+            where: { studentId: { in: studentIds } },
+            select: { studentId: true },
+          }),
+          prisma.student.findMany({
+            where: { id: { in: studentIds } },
+            select: {
+              id: true,
+              liceoAccessNotes: true,
+              accommodations: {
+                select: { validFrom: true, validUntil: true },
+              },
+            },
+          }),
+        ])
+      : [[], []]
     const photoIds = new Set(photoRows.map((p) => p.studentId))
+    const badgesByStudent = new Map<string, string[]>()
+    for (const row of badgeSource) {
+      badgesByStudent.set(
+        row.id,
+        badgeCodesForStudent({
+          hasAccommodations: currentAccommodations(row.accommodations).length > 0,
+          hasGeneralNotes: Boolean(row.liceoAccessNotes?.trim()),
+        }),
+      )
+    }
 
     return res.json({
       ...serializeHeader(row),
@@ -311,6 +335,8 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
           justifiedCount: totals?.justified ?? 0,
           lates: totals?.lates ?? 0,
           hasPhoto: photoIds.has(student.studentId),
+          /** Distintivos ADEC/Gen (y EXEN cuando exista el dato). */
+          badges: badgesByStudent.get(student.studentId) ?? [],
         }
       }),
     })
@@ -585,6 +611,11 @@ r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (re
         documentId: true,
         birthDate: true,
         admittedFrom: true,
+        liceoAccessNotes: true,
+        liceoAccessNotesUpdatedAt: true,
+        liceoAccessNotesUpdatedBy: {
+          select: { name: true, firstName: true, lastName: true, username: true },
+        },
         photo: { select: { mimeType: true, byteSize: true, updatedAt: true } },
         accommodations: {
           select: {
@@ -594,6 +625,12 @@ r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (re
             externalUrl: true,
             validFrom: true,
             validUntil: true,
+            createdAt: true,
+            updatedAt: true,
+            teacherSeenAt: true,
+            createdBy: { select: { name: true, firstName: true, lastName: true, username: true } },
+            updatedBy: { select: { name: true, firstName: true, lastName: true, username: true } },
+            teacherSeenBy: { select: { name: true, firstName: true, lastName: true, username: true } },
           },
         },
         pendingSubjects: {
@@ -627,6 +664,34 @@ r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (re
       .filter((e) => (currentCode == null ? false : (e.schoolYear?.code ?? 0) < currentCode))
       .sort((a, b) => (b.schoolYear?.code ?? 0) - (a.schoolYear?.code ?? 0))[0] ?? null
 
+    const accommodations = currentAccommodations(student.accommodations)
+    const pendingSubjects = unresolvedPendingSubjects(student.pendingSubjects)
+    const generalNotes = student.liceoAccessNotes?.trim() || null
+
+    const actorName = (user: {
+      name: string | null
+      firstName: string | null
+      lastName: string | null
+      username: string | null
+    } | null) => {
+      if (!user) return null
+      const composed = [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+      return user.name?.trim() || composed || user.username || null
+    }
+
+    // Marca lectura del docente: admin ve cuándo se abrió la hoja con la adecuación.
+    const viewerId = req.user?.id ?? req.user?.sub ?? null
+    if (viewerId && accommodations.length > 0) {
+      const now = new Date()
+      await prisma.studentAccommodation.updateMany({
+        where: { id: { in: accommodations.map((a) => a.id) } },
+        data: { teacherSeenAt: now, teacherSeenByUserId: viewerId },
+      })
+      for (const row of accommodations) {
+        ;(row as any).teacherSeenAt = now
+      }
+    }
+
     return res.json({
       student: {
         id: student.id,
@@ -648,7 +713,7 @@ r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (re
         previousYearCode: previous?.schoolYear?.code ?? null,
       }),
       apeReferred: current?.apeReferred ?? false,
-      pendingSubjects: unresolvedPendingSubjects(student.pendingSubjects).map((row) => ({
+      pendingSubjects: pendingSubjects.map((row) => ({
         id: row.id,
         subjectName: row.subject?.name ?? '—',
         schoolYearCode: row.schoolYear?.code ?? null,
@@ -656,12 +721,31 @@ r.get('/:id/students/:studentId', requirePermission('gradebook.read'), async (re
         apeDecember: row.apeDecember,
         apeFebruary: row.apeFebruary,
       })),
-      accommodations: currentAccommodations(student.accommodations).map((row) => ({
+      accommodations: accommodations.map((row) => ({
         id: row.id,
         kind: row.kind,
         summary: row.summary,
         externalUrl: row.externalUrl,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        createdByName: actorName(row.createdBy),
+        updatedByName: actorName(row.updatedBy),
+        teacherSeenAt: (row as any).teacherSeenAt
+          ? new Date((row as any).teacherSeenAt).toISOString()
+          : row.teacherSeenAt?.toISOString() ?? null,
       })),
+      /** Observaciones generales (campo admin); alimenta el chip Gen. */
+      generalNotes,
+      generalNotesMeta: generalNotes
+        ? {
+            updatedAt: student.liceoAccessNotesUpdatedAt?.toISOString() ?? null,
+            updatedByName: actorName(student.liceoAccessNotesUpdatedBy),
+          }
+        : null,
+      badges: badgeCodesForStudent({
+        hasAccommodations: accommodations.length > 0,
+        hasGeneralNotes: Boolean(generalNotes),
+      }),
     })
   } catch (error) {
     console.error('[gradebook] student sheet:', error)

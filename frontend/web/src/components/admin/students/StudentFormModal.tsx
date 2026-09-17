@@ -331,13 +331,18 @@ export default function StudentFormModal({
         </FormField>
       </div>
 
-      <FormField label="Acceso al portal del liceo" id="st-liceoAccessNotes" error={errorFor('liceoAccessNotes')}>
+      <FormField
+        label="Observaciones generales (chip Gen en libreta)"
+        id="st-liceoAccessNotes"
+        error={errorFor('liceoAccessNotes')}
+      >
         <textarea
           id="st-liceoAccessNotes"
           rows={2}
           className={fieldInputClass('input-field', errorFor('liceoAccessNotes'))}
           value={form.liceoAccessNotes ?? ''}
           onChange={(e) => onPatch('liceoAccessNotes', e.target.value || null)}
+          placeholder="Notas visibles al docente en la hoja del alumno (acceso al portal, avisos, etc.)"
         />
       </FormField>
 

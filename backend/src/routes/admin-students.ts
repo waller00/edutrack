@@ -828,7 +828,7 @@ r.get('/:id/enrollments', async (req, res) => {
     const rows = await (prisma as any).studentEnrollment.findMany({
       where: { studentId: student.id },
       include: {
-        schoolYear: { select: { id: true, code: true, name: true } },
+        schoolYear: { select: { id: true, code: true, label: true } },
         courseOffering: { include: { course: { select: { id: true, name: true, code: true } } } },
         orientation: { select: { id: true, name: true, code: true } },
       },
@@ -840,7 +840,7 @@ r.get('/:id/enrollments', async (req, res) => {
         id: row.id,
         schoolYearId: row.schoolYearId,
         schoolYearCode: row.schoolYear?.code ?? null,
-        schoolYearName: row.schoolYear?.name ?? null,
+        schoolYearName: row.schoolYear?.label ?? null,
         courseId: row.courseOffering?.courseId ?? null,
         courseName: row.courseOffering?.course?.name ?? null,
         courseCode: row.courseOffering?.course?.code ?? null,
@@ -1089,21 +1089,61 @@ r.post('/', async (req, res) => {
 const accommodationSchema = z.object({
   kind: z.enum(['CURRICULAR', 'EVALUATION', 'ACCESSIBILITY', 'OTHER']).default('CURRICULAR'),
   summary: z.string().trim().min(1, 'Escribí qué tener en cuenta al calificar').max(4000),
-  externalUrl: z.preprocess(
-    clearableEmpty,
-    z.string().url('El enlace tiene que ser una URL').max(2000).nullable().optional(),
-  ),
+  externalUrl: z.preprocess((raw) => {
+    if (raw == null || raw === '') return null
+    if (typeof raw !== 'string') return raw
+    const t = raw.trim()
+    if (!t) return null
+    // Sin esquema el navegador trata el enlace como ruta relativa y se rompe el adjunto.
+    if (/^https?:\/\//i.test(t)) return t
+    return `https://${t}`
+  }, z.string().url('El enlace tiene que ser una URL').max(2000).nullable().optional()),
   validFrom: clearableDateString,
   validUntil: clearableDateString,
 })
+
+function actorDisplayName(user: {
+  name?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  username?: string | null
+} | null | undefined): string | null {
+  if (!user) return null
+  const composed = [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+  return (user.name?.trim() || composed || user.username || null) || null
+}
+
+function serializeAccommodation(row: any) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    summary: row.summary,
+    externalUrl: row.externalUrl,
+    validFrom: row.validFrom?.toISOString?.() ?? row.validFrom ?? null,
+    validUntil: row.validUntil?.toISOString?.() ?? row.validUntil ?? null,
+    createdAt: row.createdAt?.toISOString?.() ?? row.createdAt ?? null,
+    updatedAt: row.updatedAt?.toISOString?.() ?? row.updatedAt ?? null,
+    createdByName: actorDisplayName(row.createdBy),
+    updatedByName: actorDisplayName(row.updatedBy),
+    teacherSeenAt: row.teacherSeenAt?.toISOString?.() ?? row.teacherSeenAt ?? null,
+    teacherSeenByName: actorDisplayName(row.teacherSeenBy),
+  }
+}
+
+const accommodationInclude = {
+  createdBy: { select: { name: true, firstName: true, lastName: true, username: true } },
+  updatedBy: { select: { name: true, firstName: true, lastName: true, username: true } },
+  teacherSeenBy: { select: { name: true, firstName: true, lastName: true, username: true } },
+}
 
 r.get('/:id/accommodations', async (req, res) => {
   try {
     const rows = await (prisma as any).studentAccommodation.findMany({
       where: { studentId: req.params.id },
+      include: accommodationInclude,
       orderBy: { createdAt: 'desc' },
     })
-    return res.json({ data: rows })
+    return res.json({ data: rows.map(serializeAccommodation) })
   } catch (error) {
     console.error('[admin/students/:id/accommodations GET]', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -1123,6 +1163,7 @@ r.post('/:id/accommodations', async (req: any, res) => {
     if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
 
     const d = parsed.data
+    const actorId = req.user?.id ?? req.user?.sub ?? null
     const created = await (prisma as any).studentAccommodation.create({
       data: {
         studentId: req.params.id,
@@ -1131,12 +1172,49 @@ r.post('/:id/accommodations', async (req: any, res) => {
         externalUrl: d.externalUrl ?? null,
         validFrom: d.validFrom ? parseOptionalEndOfDayDate(d.validFrom) ?? null : null,
         validUntil: d.validUntil ? parseOptionalEndOfDayDate(d.validUntil) ?? null : null,
-        createdByUserId: req.user?.id ?? req.user?.sub ?? null,
+        createdByUserId: actorId,
+        updatedByUserId: actorId,
       },
+      include: accommodationInclude,
     })
-    return res.status(201).json({ data: created })
+    return res.status(201).json({ data: serializeAccommodation(created) })
   } catch (error) {
     console.error('[admin/students/:id/accommodations POST]', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+r.put('/:id/accommodations/:accommodationId', async (req: any, res) => {
+  const parsed = accommodationSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: 'Datos inválidos',
+      detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
+    })
+  }
+  try {
+    const existing = await (prisma as any).studentAccommodation.findFirst({
+      where: { id: req.params.accommodationId, studentId: req.params.id },
+      select: { id: true },
+    })
+    if (!existing) return res.status(404).json({ message: 'Adecuación no encontrada' })
+
+    const d = parsed.data
+    const updated = await (prisma as any).studentAccommodation.update({
+      where: { id: existing.id },
+      data: {
+        kind: d.kind,
+        summary: d.summary,
+        externalUrl: d.externalUrl ?? null,
+        validFrom: d.validFrom ? parseOptionalEndOfDayDate(d.validFrom) ?? null : null,
+        validUntil: d.validUntil ? parseOptionalEndOfDayDate(d.validUntil) ?? null : null,
+        updatedByUserId: req.user?.id ?? req.user?.sub ?? null,
+      },
+      include: accommodationInclude,
+    })
+    return res.json({ data: serializeAccommodation(updated) })
+  } catch (error) {
+    console.error('[admin/students/:id/accommodations PUT]', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -1398,7 +1476,7 @@ r.post('/:id/moodle-welcome/resend', async (req, res) => {
   }
 })
 
-r.put('/:id', async (req, res) => {
+r.put('/:id', async (req: any, res) => {
   const id = req.params.id
   const parsed = studentUpdateSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -1414,7 +1492,14 @@ r.put('/:id', async (req, res) => {
   try {
     const existing = await (prisma.student as any).findUnique({
       where: { id },
-      select: { id: true, firstName: true, lastName: true, username: true, email: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        username: true,
+        email: true,
+        liceoAccessNotes: true,
+      },
     })
     if (!existing) return res.status(404).json({ message: 'Estudiante no encontrado' })
 
@@ -1502,7 +1587,14 @@ r.put('/:id', async (req, res) => {
         ? parseOptionalEndOfDayDate(body.healthCardExpiresAt)
         : null
     }
-    if (body.liceoAccessNotes !== undefined) data.liceoAccessNotes = body.liceoAccessNotes ?? null
+    if (body.liceoAccessNotes !== undefined) {
+      const nextNotes = body.liceoAccessNotes ?? null
+      data.liceoAccessNotes = nextNotes
+      if (nextNotes !== (existing.liceoAccessNotes ?? null)) {
+        data.liceoAccessNotesUpdatedAt = new Date()
+        data.liceoAccessNotesUpdatedByUserId = req.user?.id ?? req.user?.sub ?? null
+      }
+    }
     if (body.internalNotes !== undefined) data.internalNotes = body.internalNotes ?? null
 
     const updated = await prisma.$transaction(async (tx) => {

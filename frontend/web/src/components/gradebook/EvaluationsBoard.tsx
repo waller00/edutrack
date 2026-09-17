@@ -31,6 +31,8 @@ import {
 } from '@/lib/gradebook/student-evaluation-export'
 import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
 import { libretaCode } from '@/components/libreta/MisLibretas'
+import StudentBadges, { type StudentBadgeFocus } from '@/components/libreta/StudentBadges'
+import StudentSheet from '@/components/libreta/StudentSheet'
 import MoodleImportPanel from './MoodleImportPanel'
 import AssessmentsPanel from './AssessmentsPanel'
 
@@ -763,6 +765,7 @@ function StudentCard({
   detailOpen,
   onToggleAdd,
   onToggleDetail,
+  onOpenSheet,
   onSaved,
 }: {
   index: number
@@ -780,6 +783,7 @@ function StudentCard({
   detailOpen: boolean
   onToggleAdd: () => void
   onToggleDetail: () => void
+  onOpenSheet: (focus: StudentBadgeFocus) => void
   onSaved: () => Promise<void>
 }) {
   const [exportBusy, setExportBusy] = useState<'print' | 'xlsx' | null>(null)
@@ -856,7 +860,14 @@ function StudentCard({
         />
 
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">N° {index + 1}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">N° {index + 1}</p>
+            <StudentBadges
+              className="mt-0"
+              codes={student.badges}
+              onSelect={(_code, focus) => onOpenSheet(focus)}
+            />
+          </div>
           <dl className="mt-1 grid gap-x-4 gap-y-0.5 text-sm sm:grid-cols-2">
             <div>
               <dt className="inline text-xs text-slate-500">Apellidos: </dt>
@@ -990,6 +1001,10 @@ export default function EvaluationsBoard({
   const [addingStudentId, setAddingStudentId] = useState<string | null>(null)
   const [detailStudentIds, setDetailStudentIds] = useState<Set<string>>(() => new Set())
   const [showLegacy, setShowLegacy] = useState(false)
+  const [sheetStudent, setSheetStudent] = useState<{
+    studentId: string
+    focus: StudentBadgeFocus
+  } | null>(null)
 
   const courseLabel = useMemo(
     () => `${detail.course.name} · ${detail.subject.name}`,
@@ -1220,6 +1235,7 @@ export default function EvaluationsBoard({
                   setAddingStudentId((id) => (id === student.studentId ? null : student.studentId))
                 }
                 onToggleDetail={() => toggleDetail(student.studentId)}
+                onOpenSheet={(focus) => setSheetStudent({ studentId: student.studentId, focus })}
                 onSaved={async () => {
                   setAddingStudentId(null)
                   await load()
@@ -1228,6 +1244,15 @@ export default function EvaluationsBoard({
             )
           })}
         </ul>
+      )}
+
+      {sheetStudent && (
+        <StudentSheet
+          gradeBookId={gradeBookId}
+          studentId={sheetStudent.studentId}
+          focusSection={sheetStudent.focus}
+          onClose={() => setSheetStudent(null)}
+        />
       )}
 
       {detail.access.canGrade && options && (

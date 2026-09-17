@@ -91,7 +91,7 @@ describe('<StudentAccommodationsPanel />', () => {
   })
 
   it('quita una adecuación', async () => {
-    mockedApi.mockResolvedValue({ data: [ROW] })
+    mockedApi.mockResolvedValueOnce({ data: [ROW] }).mockResolvedValueOnce(undefined).mockResolvedValueOnce({ data: [] })
 
     render(<StudentAccommodationsPanel studentId="s1" />)
     fireEvent.click(await screen.findByRole('button', { name: /Quitar la adecuación/ }))
@@ -99,6 +99,23 @@ describe('<StudentAccommodationsPanel />', () => {
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     expect(mockedApi.mock.calls[1][0]).toBe('/admin/students/s1/accommodations/ad-1')
     expect(mockedApi.mock.calls[1][1]?.method).toBe('DELETE')
+  })
+
+  it('permite editar una adecuación existente', async () => {
+    mockedApi.mockResolvedValueOnce({ data: [ROW] }).mockResolvedValueOnce({ data: ROW }).mockResolvedValueOnce({ data: [ROW] })
+
+    render(<StudentAccommodationsPanel studentId="s1" />)
+    fireEvent.click(await screen.findByRole('button', { name: /Editar la adecuación/ }))
+
+    expect(screen.getByRole('heading', { name: 'Editar adecuación' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/Qué tener en cuenta al calificar/), {
+      target: { value: 'Más tiempo y consignas orales.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Guardar cambios/ }))
+
+    await waitFor(() => expect(mockedApi.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(true))
+    const putCall = mockedApi.mock.calls.find((c) => c[1]?.method === 'PUT')!
+    expect(putCall[0]).toBe('/admin/students/s1/accommodations/ad-1')
   })
 
   it('muestra el error del backend', async () => {

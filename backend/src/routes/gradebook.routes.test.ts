@@ -12,7 +12,8 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     gradeBookPeriod: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     periodGrade: { findMany: vi.fn(), upsert: vi.fn() },
     gradeBookPlanning: { findUnique: vi.fn(), upsert: vi.fn() },
-    student: { findUnique: vi.fn() },
+    student: { findUnique: vi.fn(), findMany: vi.fn() },
+    studentAccommodation: { updateMany: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     courseDevelopmentEntry: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn(), aggregate: vi.fn() },
     gradeBookMessage: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     gradeBookAccessLog: { create: vi.fn() },
@@ -127,6 +128,8 @@ beforeEach(() => {
   prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([])
   prismaMock.studentPhoto.findMany.mockResolvedValue([])
   prismaMock.studentPhoto.findUnique.mockResolvedValue(null)
+  prismaMock.student.findMany.mockResolvedValue([])
+  prismaMock.studentAccommodation.updateMany.mockResolvedValue({ count: 0 })
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
   dayOccurrenceMock.mockResolvedValue({ kind: 'no_class' })
   findSessionMock.mockResolvedValue(null)
@@ -244,6 +247,26 @@ describe('GET /gradebook/:id', () => {
     expect(res.body.studentCount).toBe(2)
     expect(res.body.access).toEqual({ level: 'OWNER', canGrade: true })
     expect(res.body.students[0].hasPhoto).toBe(false)
+    expect(res.body.students[0].badges).toEqual([])
+  })
+
+  it('arma chips ADEC/Gen en el roster cuando hay dato', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    prismaMock.student.findMany.mockResolvedValue([
+      {
+        id: 's1',
+        liceoAccessNotes: 'Nota Gen',
+        accommodations: [{ validFrom: null, validUntil: null }],
+      },
+    ])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.students[0].badges).toEqual(['ADEC', 'GEN'])
   })
 
   it('cuenta las faltas en unidades, con la media falta', async () => {
@@ -1371,6 +1394,9 @@ describe('hoja del estudiante dentro de la libreta', () => {
     documentId: '51234561',
     birthDate: new Date('2010-03-12T12:00:00Z'),
     admittedFrom: 'Escuela 42',
+    liceoAccessNotes: 'Observación de prueba para Gen.',
+    liceoAccessNotesUpdatedAt: new Date('2026-03-13T12:24:07Z'),
+    liceoAccessNotesUpdatedBy: { name: 'Admin Principal', firstName: 'Admin', lastName: 'Principal', username: 'admin' },
     photo: { mimeType: 'image/jpeg', byteSize: 1000, updatedAt: new Date('2026-03-01T12:00:00Z') },
     accommodations: [
       {
@@ -1380,6 +1406,12 @@ describe('hoja del estudiante dentro de la libreta', () => {
         externalUrl: 'https://drive.example/informe',
         validFrom: null,
         validUntil: null,
+        createdAt: new Date('2026-03-01T12:00:00Z'),
+        updatedAt: new Date('2026-03-01T12:00:00Z'),
+        teacherSeenAt: null,
+        createdBy: { name: 'Admin Principal', firstName: 'Admin', lastName: 'Principal', username: 'admin' },
+        updatedBy: null,
+        teacherSeenBy: null,
       },
       // Vencida: no le llega al docente.
       {
@@ -1389,6 +1421,12 @@ describe('hoja del estudiante dentro de la libreta', () => {
         externalUrl: null,
         validFrom: null,
         validUntil: new Date('2025-12-01T12:00:00Z'),
+        createdAt: new Date('2025-01-01T12:00:00Z'),
+        updatedAt: new Date('2025-01-01T12:00:00Z'),
+        teacherSeenAt: null,
+        createdBy: null,
+        updatedBy: null,
+        teacherSeenBy: null,
       },
     ],
     pendingSubjects: [
@@ -1475,6 +1513,17 @@ describe('hoja del estudiante dentro de la libreta', () => {
       id: 'ad-1',
       externalUrl: 'https://drive.example/informe',
     })
+  })
+
+  it('incluye observaciones generales y distintivos ADEC/Gen', async () => {
+    setup()
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.generalNotes).toBe('Observación de prueba para Gen.')
+    expect(res.body.badges).toEqual(['ADEC', 'GEN'])
   })
 
   it('sirve la foto al docente, que no tiene permiso sobre la ruta de administración', async () => {

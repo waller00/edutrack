@@ -83,4 +83,11 @@ describe('api', () => {
       status: 422,
     })
   })
+
+  it('acepta 204 sin cuerpo (DELETE)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api('/gone', { method: 'DELETE' })).resolves.toBeUndefined()
+  })
 })

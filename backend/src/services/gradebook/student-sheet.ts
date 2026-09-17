@@ -18,6 +18,12 @@ export type AccommodationRow = {
   validUntil: Date | null
 }
 
+/** Solo las fechas: alcanza para saber si una adecuación está vigente (chips del roster). */
+export type AccommodationValidity = {
+  validFrom: Date | null
+  validUntil: Date | null
+}
+
 /**
  * Adecuaciones vigentes a la fecha.
  *
@@ -25,10 +31,10 @@ export type AccommodationRow = {
  * año no la vea no significa que no haya existido. Sin fechas se considera vigente — es el caso
  * normal de una adecuación que no tiene plazo.
  */
-export function currentAccommodations(
-  rows: readonly AccommodationRow[],
+export function currentAccommodations<T extends AccommodationValidity>(
+  rows: readonly T[],
   now: Date = new Date(),
-): AccommodationRow[] {
+): T[] {
   return rows.filter((row) => {
     if (row.validFrom && row.validFrom > now) return false
     if (row.validUntil && row.validUntil < now) return false
@@ -66,6 +72,26 @@ export const ACADEMIC_RESULT_LABELS: Record<string, string> = {
   PROMOTED_WITH_PENDING: 'Promovido con materias pendientes',
   REPEATED: 'Repitió',
   PENDING_APE: 'Pendiente de APE',
+}
+
+/**
+ * Códigos de distintivo para la grilla / carta de evaluaciones (estilo SIGED).
+ *
+ * - ADEC: adecuaciones vigentes
+ * - Gen: observaciones generales (notas de acceso/observación que carga admin)
+ * - EXEN: reservado; hoy no hay modelo de exenciones en el esquema
+ * - PEND: no se emite por ahora (las materias pendientes siguen en la hoja)
+ */
+export function badgeCodesForStudent(flags: {
+  hasAccommodations: boolean
+  hasGeneralNotes: boolean
+  hasExemptions?: boolean
+}): string[] {
+  const codes: string[] = []
+  if (flags.hasAccommodations) codes.push('ADEC')
+  if (flags.hasExemptions) codes.push('EXEN')
+  if (flags.hasGeneralNotes) codes.push('GEN')
+  return codes
 }
 
 /**

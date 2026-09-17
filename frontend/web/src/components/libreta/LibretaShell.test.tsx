@@ -117,4 +117,26 @@ describe('<LibretaShell />', () => {
 
     expect(await screen.findByText('contenido de la sección')).toBeInTheDocument()
   })
+
+  it('contrae y vuelve a expandir el menú lateral', async () => {
+    mockedApi.mockResolvedValue(DETAIL)
+    const { fireEvent } = await import('@testing-library/react')
+
+    renderShell()
+    await screen.findByText('Menú Libro del Profesor')
+
+    fireEvent.click(screen.getByRole('button', { name: /Contraer menú del Libro del Profesor/ }))
+
+    expect(screen.queryByText('Menú Libro del Profesor')).not.toBeInTheDocument()
+    expect(screen.queryByText('Planificación')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Expandir menú del Libro del Profesor/ })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Expandir menú del Libro del Profesor/ }))
+
+    expect(screen.getByText('Menú Libro del Profesor')).toBeInTheDocument()
+    expect(screen.getByText('Planificación')).toBeInTheDocument()
+  })
 })

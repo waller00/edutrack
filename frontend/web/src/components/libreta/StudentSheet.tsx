@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, Loader2, X } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { apiBlob } from '@/lib/api/binary'
+import type { StudentBadgeFocus } from './StudentBadges'
 
 const KIND_LABELS: Record<string, string> = {
   CURRICULAR: 'Adecuación curricular',
@@ -37,14 +38,34 @@ type Sheet = {
     apeDecember: string | null
     apeFebruary: string | null
   }[]
-  accommodations: { id: string; kind: string; summary: string; externalUrl: string | null }[]
+  accommodations: {
+    id: string
+    kind: string
+    summary: string
+    externalUrl: string | null
+    createdAt?: string | null
+    updatedAt?: string | null
+    createdByName?: string | null
+    updatedByName?: string | null
+    teacherSeenAt?: string | null
+  }[]
+  generalNotes?: string | null
+  generalNotesMeta?: { updatedAt: string | null; updatedByName: string | null } | null
 }
 
 /** dd/mm/aaaa a partir de un ISO, sin depender del locale del navegador. */
-function formatDay(iso: string | null): string {
+function formatDay(iso: string | null | undefined): string {
   if (!iso) return '—'
   const [y, m, d] = iso.slice(0, 10).split('-')
   return `${d}/${m}/${y}`
+}
+
+function formatStamp(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 function apeText(row: Sheet['pendingSubjects'][number]): string | null {
@@ -52,6 +73,33 @@ function apeText(row: Sheet['pendingSubjects'][number]): string | null {
   if (row.apeDecember) parts.push(`APE diciembre: ${APE_LABELS[row.apeDecember] ?? row.apeDecember}`)
   if (row.apeFebruary) parts.push(`APE febrero: ${APE_LABELS[row.apeFebruary] ?? row.apeFebruary}`)
   return parts.length ? parts.join(' · ') : null
+}
+
+function AuditLine({
+  registeredBy,
+  registeredAt,
+  updatedBy,
+  updatedAt,
+}: {
+  registeredBy?: string | null
+  registeredAt?: string | null
+  updatedBy?: string | null
+  updatedAt?: string | null
+}) {
+  const reg = formatStamp(registeredAt)
+  const upd = formatStamp(updatedAt)
+  if (!reg && !upd) return null
+  return (
+    <p className="mt-2 text-[11px] italic text-gray-500">
+      {registeredBy && reg ? `Registrado por: ${registeredBy} ${reg}` : reg ? `Registrado: ${reg}` : null}
+      {updatedBy && upd && updatedAt !== registeredAt ? (
+        <>
+          <br />
+          {`Última modificación: ${updatedBy} ${upd}`}
+        </>
+      ) : null}
+    </p>
+  )
 }
 
 /**
@@ -65,14 +113,21 @@ export default function StudentSheet({
   gradeBookId,
   studentId,
   onClose,
+  focusSection,
 }: {
   gradeBookId: string
   studentId: string
   onClose: () => void
+  /** Si viene de un chip (ADEC/Gen), scrollea a esa sección. */
+  focusSection?: StudentBadgeFocus | null
 }) {
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const pendingRef = useRef<HTMLSectionElement | null>(null)
+  const accommodationsRef = useRef<HTMLSectionElement | null>(null)
+  const generalRef = useRef<HTMLSectionElement | null>(null)
+  const exemptionsRef = useRef<HTMLSectionElement | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -114,16 +169,40 @@ export default function StudentSheet({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  useEffect(() => {
+    if (!sheet || !focusSection) return
+    const map: Record<StudentBadgeFocus, HTMLSectionElement | null> = {
+      pending: pendingRef.current,
+      accommodations: accommodationsRef.current,
+      general: generalRef.current,
+      exemptions: exemptionsRef.current,
+    }
+    const el = map[focusSection]
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    el.classList.add('ring-2', 'ring-sky-400', 'ring-offset-2')
+    const t = window.setTimeout(() => {
+      el.classList.remove('ring-2', 'ring-sky-400', 'ring-offset-2')
+    }, 1800)
+    return () => window.clearTimeout(t)
+  }, [sheet, focusSection])
+
   const initials = sheet
     ? `${sheet.student.lastName[0] ?? ''}${sheet.student.firstName[0] ?? ''}`.toUpperCase()
     : ''
+
+  const focusGen = focusSection === 'general'
 
   return (
     <div className="responsive-modal" role="dialog" aria-modal="true" aria-labelledby="student-sheet-title">
       <div className="responsive-modal-panel max-w-2xl space-y-4">
         <header className="flex items-start justify-between gap-3">
           <h2 id="student-sheet-title" className="text-lg font-semibold text-gray-900">
-            {sheet ? `${sheet.student.lastName}, ${sheet.student.firstName}` : 'Hoja del estudiante'}
+            {sheet
+              ? focusGen
+                ? 'Observaciones generales'
+                : `${sheet.student.lastName}, ${sheet.student.firstName}`
+              : 'Hoja del estudiante'}
           </h2>
           <button type="button" aria-label="Cerrar" onClick={onClose} className="text-gray-400 hover:text-gray-700">
             <X className="h-5 w-5" aria-hidden />
@@ -143,7 +222,34 @@ export default function StudentSheet({
           </p>
         )}
 
-        {sheet && (
+        {sheet && focusGen && (
+          <section ref={generalRef} className="rounded-lg border border-gray-200">
+            <div className="grid grid-cols-[6.5rem_1fr] border-b border-gray-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-gray-600">
+              <div className="border-r border-gray-200 px-3 py-2">Fecha</div>
+              <div className="px-3 py-2">Observaciones generales</div>
+            </div>
+            <div className="grid grid-cols-[6.5rem_1fr] text-sm">
+              <div className="border-r border-gray-100 px-3 py-3 font-mono text-xs text-gray-700">
+                {formatDay(sheet.generalNotesMeta?.updatedAt ?? null)}
+              </div>
+              <div className="px-3 py-3">
+                {sheet.generalNotes?.trim() ? (
+                  <p className="whitespace-pre-wrap text-gray-900">{sheet.generalNotes}</p>
+                ) : (
+                  <p className="text-gray-500">Sin observaciones cargadas por administración.</p>
+                )}
+                <AuditLine
+                  registeredBy={sheet.generalNotesMeta?.updatedByName}
+                  registeredAt={sheet.generalNotesMeta?.updatedAt}
+                  updatedBy={sheet.generalNotesMeta?.updatedByName}
+                  updatedAt={sheet.generalNotesMeta?.updatedAt}
+                />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {sheet && !focusGen && (
           <>
             <div className="flex gap-4">
               <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-slate-50">
@@ -179,7 +285,7 @@ export default function StudentSheet({
               </p>
             )}
 
-            <section>
+            <section ref={pendingRef} className="rounded-lg">
               <h3 className="text-sm font-semibold text-gray-900">Materias que arrastra</h3>
               {sheet.pendingSubjects.length === 0 ? (
                 <p className="mt-1 text-sm text-gray-500">No debe ninguna materia.</p>
@@ -196,7 +302,7 @@ export default function StudentSheet({
               )}
             </section>
 
-            <section>
+            <section ref={accommodationsRef} className="rounded-lg">
               <h3 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
                 Adecuaciones
                 {sheet.accommodations.length > 0 && (
@@ -218,18 +324,50 @@ export default function StudentSheet({
                           href={row.externalUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="mt-0.5 inline-flex items-center gap-1 text-xs text-emerald-700 hover:underline"
+                          className="mt-0.5 inline-flex items-center gap-1 break-all text-xs text-emerald-700 hover:underline"
                         >
                           Ver el informe completo
-                          <ExternalLink className="h-3 w-3" aria-hidden />
+                          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
                         </a>
                       )}
+                      <AuditLine
+                        registeredBy={row.createdByName}
+                        registeredAt={row.createdAt}
+                        updatedBy={row.updatedByName}
+                        updatedAt={row.updatedAt}
+                      />
                     </li>
                   ))}
                 </ul>
               )}
             </section>
+
+            <section ref={generalRef} className="rounded-lg">
+              <h3 className="text-sm font-semibold text-gray-900">Observaciones generales</h3>
+              {sheet.generalNotes?.trim() ? (
+                <>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">{sheet.generalNotes}</p>
+                  <AuditLine
+                    registeredBy={sheet.generalNotesMeta?.updatedByName}
+                    registeredAt={sheet.generalNotesMeta?.updatedAt}
+                    updatedBy={sheet.generalNotesMeta?.updatedByName}
+                    updatedAt={sheet.generalNotesMeta?.updatedAt}
+                  />
+                </>
+              ) : (
+                <p className="mt-1 text-sm text-gray-500">Sin observaciones cargadas por administración.</p>
+              )}
+            </section>
           </>
+        )}
+
+        {focusSection === 'exemptions' && (
+          <section ref={exemptionsRef} className="rounded-lg">
+            <h3 className="text-sm font-semibold text-gray-900">Exenciones</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Todavía no hay exenciones administrativas cargadas para este alumno.
+            </p>
+          </section>
         )}
       </div>
     </div>
