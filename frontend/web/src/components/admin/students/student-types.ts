@@ -222,4 +222,10 @@ export type StudentAccommodation = {
   externalUrl: string | null
   validFrom: string | null
   validUntil: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  createdByName?: string | null
+  updatedByName?: string | null
+  teacherSeenAt?: string | null
+  teacherSeenByName?: string | null
 }

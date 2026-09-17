@@ -128,6 +128,12 @@ describe('<StudentSheet />', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('no pertenece al grupo')
   })
 
+  it('muestra observaciones generales cuando administración las cargó', async () => {
+    setup({ generalNotes: 'Requiere material ampliado en las pruebas.' })
+    expect(await screen.findByText('Observaciones generales')).toBeInTheDocument()
+    expect(screen.getByText('Requiere material ampliado en las pruebas.')).toBeInTheDocument()
+  })
+
   it('Escape cierra la hoja', async () => {
     setup()
     await screen.findByRole('heading', { name: 'Díaz, Ana' })

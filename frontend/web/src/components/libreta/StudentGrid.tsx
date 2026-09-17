@@ -7,6 +7,7 @@ import { apiBlob } from '@/lib/api/binary'
 import { absenceTone } from '@/lib/libreta/badges'
 import { studentFullName } from '@/lib/gradebook/labels'
 import type { RosterStudent } from '@/lib/gradebook/types'
+import StudentBadges, { type StudentBadgeFocus } from './StudentBadges'
 
 /** Iniciales para el avatar cuando no hay foto cargada en administración. */
 export function initialsOf(student: Pick<RosterStudent, 'firstName' | 'lastName'>): string {
@@ -81,7 +82,7 @@ export default function StudentGrid({
   gradeBookId: string
   students: readonly RosterStudent[]
   /** Abre la hoja del estudiante. Si no viene, la grilla es sólo de lectura. */
-  onOpenStudent?: (studentId: string) => void
+  onOpenStudent?: (studentId: string, focus?: StudentBadgeFocus) => void
 }) {
   if (students.length === 0) {
     return (
@@ -122,6 +123,15 @@ export default function StudentGrid({
               {student.documentId && (
                 <p className="font-mono text-xs text-gray-500">{student.documentId}</p>
               )}
+              <StudentBadges
+                className="mt-1.5"
+                codes={student.badges}
+                onSelect={
+                  onOpenStudent
+                    ? (_code, focus) => onOpenStudent(student.studentId, focus)
+                    : undefined
+                }
+              />
               <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                 <span
                   className={`inline-flex items-center gap-1 ${absenceTone(absenceHundredths)}`}
