@@ -1,5 +1,6 @@
 'use client'
 import DateRangeFields from '@/components/forms/DateRangeFields'
+import DateField from '@/components/forms/DateField'
 import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
@@ -37,6 +38,7 @@ import {
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
 import EventsCalendar, { type CalendarEvent } from '@/components/admin/EventsCalendar'
 import type { SubstitutionListResponse } from '@/lib/substitutions/types'
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   resolveAdminSchoolYearForEvents,
   schoolYearRangeLabel,
@@ -51,11 +53,6 @@ type CourseOrientationOpt = {
   orientation: { id: string; name: string; code: string | null }
 }
 type SubjectOpt = { id: string; name: string; code: string | null }
-
-function withSchoolYear(path: string, schoolYearQuery: string): string {
-  if (!schoolYearQuery) return path
-  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
-}
 
 type Event = {
   id: string
@@ -1057,7 +1054,10 @@ export default function AdminEvents() {
       return 'La hora de fin debe ser mayor que la de inicio. Muy común: elegir “12:11 AM” para el fin (eso es 00:11 de la madrugada, antes que las 11:11 de la mañana). Para terminar a las 12:11 del mediodía usá 12:11 en 24 h o “12:11 PM”.'
     }
     if (!newEvent.startDate.trim()) return 'Indicá la fecha del evento.'
-    if (isUruguayWallDateTimeInPast(newEvent.startDate, newEvent.startTime)) {
+    // En repetitivos, la primera ocurrencia (p. ej. hoy a las 9:00 cuando ya son las 18:00)
+    // puede estar en el pasado: la serie arranca sola en la próxima ocurrencia. Solo bloqueamos
+    // el pasado en eventos únicos.
+    if (!newEvent.isRecurring && isUruguayWallDateTimeInPast(newEvent.startDate, newEvent.startTime)) {
       return 'No se pueden crear eventos en el pasado. Elegí una fecha y hora de inicio actuales o futuras.'
     }
     if (newEvent.isRecurring) {
@@ -2206,11 +2206,10 @@ export default function AdminEvents() {
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio</label>
-                        <input
-                          type="date"
+                        <DateField
                           value={newEvent.startDate}
                           min={createMinStartDateYmd}
-                          onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+                          onChange={(v) => setNewEvent({ ...newEvent, startDate: v })}
                           className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                         <p className="mt-1 text-xs text-gray-500">Desde cuándo empieza a repetirse (primer día).</p>
@@ -2218,11 +2217,10 @@ export default function AdminEvents() {
                       {recurrenceRangeMode === 'custom' ? (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de fin</label>
-                          <input
-                            type="date"
+                          <DateField
                             value={newEvent.recurrenceEnd}
                             min={newEvent.startDate || createMinStartDateYmd}
-                            onChange={(e) => setNewEvent({ ...newEvent, recurrenceEnd: e.target.value })}
+                            onChange={(v) => setNewEvent({ ...newEvent, recurrenceEnd: v })}
                             className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                           />
                           <p className="mt-1 text-xs text-gray-500">Último día en que puede repetirse.</p>
@@ -2242,11 +2240,10 @@ export default function AdminEvents() {
                 ) : (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
-                    <input
-                      type="date"
+                    <DateField
                       value={newEvent.startDate}
                       min={createMinStartDateYmd}
-                      onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+                      onChange={(v) => setNewEvent({ ...newEvent, startDate: v })}
                       className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                     />
                   </div>
@@ -2385,21 +2382,19 @@ export default function AdminEvents() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={getEventDateInputValue(editingEvent.startDate)}
                     min={editMinStartDateYmd}
-                    onChange={(e) => setEditingEvent({ ...editingEvent, startDate: e.target.value })}
+                    onChange={(v) => setEditingEvent({ ...editingEvent, startDate: v })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-                  <input
-                    type="date"
+                  <DateField
                     value={getEventEndDateInputValue(editingEvent)}
-                    onChange={(e) => setEditingEvent({ ...editingEvent, endDate: e.target.value })}
+                    onChange={(v) => setEditingEvent({ ...editingEvent, endDate: v })}
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                   {!editingEvent.endDate && (

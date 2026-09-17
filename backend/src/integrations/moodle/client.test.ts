@@ -10,6 +10,8 @@ import {
   moodlePublicUrl,
   moodleToken,
   moodleUserAuthMethod,
+  moodleUserLang,
+  moodleUserLangParam,
 } from "./client.js";
 
 const MOODLE_ENV_KEYS = [
@@ -22,6 +24,7 @@ const MOODLE_ENV_KEYS = [
   "MOODLE_ROOT_CATEGORY_ID",
   "MOODLE_USER_AUTH",
   "MOODLE_PUBLIC_URL",
+  "MOODLE_USER_LANG",
 ] as const;
 
 const saved: Record<string, string | undefined> = {};
@@ -112,5 +115,19 @@ describe("moodle client config", () => {
     expect(moodleUserAuthMethod()).toBe("manual");
     process.env.MOODLE_USER_AUTH = "oauth2";
     expect(moodleUserAuthMethod()).toBe("oauth2");
+  });
+
+  it("moodleUserLang es null por defecto (no forzar lang; usa el default del sitio)", () => {
+    // Clave del fix: sin MOODLE_USER_LANG NO se manda lang, así un pack no instalado
+    // no rompe toda la creación de usuarios (invalidparameter).
+    expect(moodleUserLang()).toBeNull();
+    process.env.MOODLE_USER_LANG = "  es  ";
+    expect(moodleUserLang()).toBe("es");
+  });
+
+  it("moodleUserLangParam omite la key salvo que MOODLE_USER_LANG esté seteado", () => {
+    expect(moodleUserLangParam("users[0]")).toEqual({});
+    process.env.MOODLE_USER_LANG = "es";
+    expect(moodleUserLangParam("users[0]")).toEqual({ "users[0][lang]": "es" });
   });
 });

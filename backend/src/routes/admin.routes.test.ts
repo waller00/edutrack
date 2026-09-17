@@ -8,11 +8,11 @@ import { computeCICheckDigit } from "../identity/uruguay-ci.js";
 import type { BuiltinProfileRole } from "../identity/profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../identity/profile-permissions-defaults.js";
 
-const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock, createKeycloakUserMock, syncKeycloakUserIdentityByEmailMock } = vi.hoisted(() => ({
+const { prismaMock, triggerKeycloakPasswordResetMock, createKeycloakUserMock, syncKeycloakUserIdentityByEmailMock, deleteKeycloakUserByEmailMock } = vi.hoisted(() => ({
   triggerKeycloakPasswordResetMock: vi.fn().mockResolvedValue(undefined),
   createKeycloakUserMock: vi.fn().mockResolvedValue("kc-id-1"),
   syncKeycloakUserIdentityByEmailMock: vi.fn().mockResolvedValue(undefined),
-  runAdminQueryAssistantMock: vi.fn(),
+  deleteKeycloakUserByEmailMock: vi.fn().mockResolvedValue(true),
   prismaMock: {
     user: {
       count: vi.fn(),
@@ -21,6 +21,10 @@ const { prismaMock, runAdminQueryAssistantMock, triggerKeycloakPasswordResetMock
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
+    },
+    substitution: {
+      deleteMany: vi.fn(),
     },
     orgRole: {
       upsert: vi.fn(),
@@ -108,9 +112,8 @@ vi.mock("../auth/keycloak.js", () => ({
   triggerKeycloakPasswordReset: triggerKeycloakPasswordResetMock,
   createKeycloakUser: createKeycloakUserMock,
   syncKeycloakUserIdentityByEmail: syncKeycloakUserIdentityByEmailMock,
-}));
-vi.mock("../services/query-assistant/run.js", () => ({
-  runAdminQueryAssistant: runAdminQueryAssistantMock,
+  deleteKeycloakUserByEmail: deleteKeycloakUserByEmailMock,
+  freeKeycloakUsernameIfOrphan: vi.fn().mockResolvedValue(false),
 }));
 vi.mock("@prisma/client", () => ({
   Prisma: {
@@ -131,6 +134,7 @@ vi.mock("@prisma/client", () => ({
   AuditAction: {
     USER_CREATED_BY_ADMIN: "USER_CREATED_BY_ADMIN",
     USER_UPDATED_BY_ADMIN: "USER_UPDATED_BY_ADMIN",
+    USER_DELETED_BY_ADMIN: "USER_DELETED_BY_ADMIN",
     USER_ACCOUNT_LOCK_TOGGLED: "USER_ACCOUNT_LOCK_TOGGLED",
     ADMIN_PASSWORD_RESET_ISSUED: "ADMIN_PASSWORD_RESET_ISSUED",
     SYSTEM_SETTINGS_UPDATED: "SYSTEM_SETTINGS_UPDATED",
@@ -443,6 +447,48 @@ describe("admin routes (prisma mock)", () => {
     });
   });
 
+  it("POST /admin/users 409 si el username ya existe en la app", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue({ id: "otro" });
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
+    expect(res.status).toBe(409);
+    expect(prismaMock.user.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /admin/users 409 + rollback si el username está tomado en Keycloak", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "new-id" });
+    prismaMock.user.delete.mockResolvedValue({ id: "new-id" });
+    createKeycloakUserMock.mockRejectedValueOnce(
+      Object.assign(new Error("KEYCLOAK_USERNAME_TAKEN"), { code: "KEYCLOAK_USERNAME_TAKEN" }),
+    );
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/nombre de usuario/i);
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "new-id" } });
+  });
+
+  it("POST /admin/users 502 + rollback si Keycloak falla por otro motivo", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "new-id" });
+    prismaMock.user.delete.mockResolvedValue({ id: "new-id" });
+    createKeycloakUserMock.mockRejectedValueOnce(new Error("Keycloak down"));
+    const res = await request(app())
+      .post("/admin/users")
+      .set(adminHdr())
+      .send({ email: "new@e.com", role: "TEACHER", username: "userabc" });
+    expect(res.status).toBe(502);
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "new-id" } });
+  });
+
   it("PUT /admin/users/:id 404 si no existe", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     const res = await request(app()).put("/admin/users/missing").set(adminHdr()).send({ firstName: "X" });
@@ -549,6 +595,78 @@ describe("admin routes (prisma mock)", () => {
     );
   });
 
+  it("DELETE /admin/users/:id 404 si no existe", async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    const res = await request(app()).delete("/admin/users/missing").set(adminHdr());
+    expect(res.status).toBe(404);
+    expect(prismaMock.user.delete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /admin/users/:id 403 no eliminar administrador", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "adm",
+      email: "adm@a.com",
+      name: "Admin",
+      isActive: false,
+      orgRole: { code: "ADMIN" },
+    });
+    const res = await request(app()).delete("/admin/users/adm").set(adminHdr());
+    expect(res.status).toBe(403);
+    expect(prismaMock.user.delete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /admin/users/:id 409 si el usuario sigue activo", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u1@a.com",
+      name: "Activo",
+      isActive: true,
+      orgRole: { code: "TEACHER" },
+    });
+    const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/dado de baja/i);
+    expect(prismaMock.user.delete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /admin/users/:id ok si está de baja: borra suplencias, usuario y cuenta Keycloak", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u1@a.com",
+      name: "De baja",
+      isActive: false,
+      orgRole: { code: "TEACHER" },
+    });
+    prismaMock.substitution.deleteMany.mockResolvedValue({ count: 0 });
+    prismaMock.user.delete.mockResolvedValue({ id: "u1" });
+    const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
+    expect(res.status).toBe(200);
+    expect(prismaMock.substitution.deleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ originalTeacherUserId: "u1" }, { substituteUserId: "u1" }] },
+    });
+    expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "u1" } });
+    expect(deleteKeycloakUserByEmailMock).toHaveBeenCalledWith("u1@a.com");
+  });
+
+  it("DELETE /admin/users/:id 409 si hay FK que lo impiden (P2003)", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u1@a.com",
+      name: "De baja",
+      isActive: false,
+      orgRole: { code: "TEACHER" },
+    });
+    prismaMock.substitution.deleteMany.mockResolvedValue({ count: 0 });
+    const err = new Prisma.PrismaClientKnownRequestError("FK", {
+      code: "P2003",
+      clientVersion: "0.0.0",
+    });
+    prismaMock.user.delete.mockRejectedValueOnce(err);
+    const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/registros asociados/i);
+  });
+
   it("PUT /admin/users/:id/lock", async () => {
     prismaMock.user.update.mockResolvedValue({});
     const res = await request(app()).put("/admin/users/u1/lock?lock=true").set(adminHdr());
@@ -618,86 +736,9 @@ describe("admin routes (prisma mock)", () => {
     expect(res.body.data[0].actionLabel).toMatch(/sesión/i);
   });
 
-  it("POST /admin/query-assistant 400 si falta pregunta", async () => {
-    const res = await request(app()).post("/admin/query-assistant").set(adminHdr()).send({ question: "" });
-    expect(res.status).toBe(400);
-    expect(runAdminQueryAssistantMock).not.toHaveBeenCalled();
-  });
-
-  it("POST /admin/query-assistant devuelve resultado del servicio", async () => {
-    prismaMock.schoolYear.findFirst.mockResolvedValue({ id: "sy-active" });
-    prismaMock.schoolYear.findUnique.mockResolvedValue({ id: "sy-active", code: 2026 });
-    runAdminQueryAssistantMock.mockResolvedValue({
-      intent: "HOURS_WORKED_SUMMARY",
-      summary: "Resumen de prueba",
-      columns: [{ key: "name", label: "Nombre" }],
-      rows: [{ name: "Ana" }],
-    });
-    const res = await request(app())
-      .post("/admin/query-assistant")
-      .set(adminHdr())
-      .send({ question: "horas en octubre" });
-    expect(res.status).toBe(200);
-    expect(res.body.intent).toBe("HOURS_WORKED_SUMMARY");
-    expect(res.body.summary).toBe("Resumen de prueba");
-    expect(res.body.rows).toHaveLength(1);
-    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("horas en octubre", {
-      allYears: false,
-      schoolYearId: "sy-active",
-      schoolYearCode: 2026,
-    });
-  });
-
-  it("POST /admin/query-assistant respeta schoolYearId enviado", async () => {
-    const sy = "00000000-0000-4000-8000-0000000000aa";
-    prismaMock.schoolYear.findUnique.mockResolvedValue({ id: sy, code: 2025 });
-    runAdminQueryAssistantMock.mockResolvedValue({
-      intent: "ASSIGNED_EVENTS_SUMMARY",
-      summary: "ok",
-      columns: [],
-      rows: [],
-    });
-    const res = await request(app())
-      .post("/admin/query-assistant")
-      .set(adminHdr())
-      .send({ question: "eventos asignados", schoolYearId: sy });
-
-    expect(res.status).toBe(200);
-    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("eventos asignados", {
-      allYears: false,
-      schoolYearId: sy,
-      schoolYearCode: 2025,
-    });
-  });
-
-  it("POST /admin/query-assistant permite todos los ciclos", async () => {
-    runAdminQueryAssistantMock.mockResolvedValue({
-      intent: "ASSIGNED_EVENTS_SUMMARY",
-      summary: "ok",
-      columns: [],
-      rows: [],
-    });
-    const res = await request(app())
-      .post("/admin/query-assistant")
-      .set(adminHdr())
-      .send({ question: "eventos asignados", allYears: true });
-
-    expect(res.status).toBe(200);
-    expect(runAdminQueryAssistantMock).toHaveBeenCalledWith("eventos asignados", {
-      allYears: true,
-      schoolYearId: undefined,
-      schoolYearCode: undefined,
-    });
-  });
-
-  it("POST /admin/query-assistant 503 si falta OPENAI_API_KEY", async () => {
-    runAdminQueryAssistantMock.mockRejectedValue(new Error("OPENAI_API_KEY_NOT_CONFIGURED"));
-    const res = await request(app())
-      .post("/admin/query-assistant")
-      .set(adminHdr())
-      .send({ question: "horas en octubre" });
-    expect(res.status).toBe(503);
-    expect(res.body.message).toMatch(/OPENAI_API_KEY/i);
+  it("POST /admin/query-assistant devuelve 404 tras retirar el módulo", async () => {
+    const res = await request(app()).post("/admin/query-assistant").set(adminHdr()).send({ question: "horas" });
+    expect(res.status).toBe(404);
   });
 
   describe("CRUD /admin/org-roles", () => {
@@ -931,29 +972,6 @@ describe("admin routes (prisma mock)", () => {
       const res = await request(app()).get("/admin/audit-logs").set(adminHdr());
       expect(res.status).toBe(200);
       expect(res.body.data[0]).toMatchObject({ actorName: "Admin", actorEmail: "a@a.com" });
-    });
-  });
-
-  describe("POST /admin/query-assistant errores del servicio", () => {
-    it("503 si la clave OpenAI tiene formato inválido", async () => {
-      runAdminQueryAssistantMock.mockRejectedValueOnce(
-        new Error("OPENAI_API_KEY_INVALID_FORMAT: La clave no tiene el formato esperado"),
-      );
-      const res = await request(app())
-        .post("/admin/query-assistant")
-        .set(adminHdr())
-        .send({ question: "¿Cuántos alumnos hay?" });
-      expect(res.status).toBe(503);
-      expect(res.body.message).toMatch(/formato esperado/i);
-    });
-
-    it("500 ante error inesperado del asistente", async () => {
-      runAdminQueryAssistantMock.mockRejectedValueOnce(new Error("boom"));
-      const res = await request(app())
-        .post("/admin/query-assistant")
-        .set(adminHdr())
-        .send({ question: "¿Cuántos alumnos hay?" });
-      expect(res.status).toBe(500);
     });
   });
 
@@ -1250,7 +1268,7 @@ describe("admin routes (prisma mock)", () => {
     });
   });
 
-  describe("audit-logs y query-assistant: ramas restantes", () => {
+  describe("audit-logs: ramas restantes", () => {
     it("audit-logs devuelve actor nulo como null", async () => {
       prismaMock.auditLog.count.mockResolvedValueOnce(1);
       prismaMock.auditLog.findMany.mockResolvedValueOnce([
@@ -1272,15 +1290,6 @@ describe("admin routes (prisma mock)", () => {
       expect(res.status).toBe(200);
       expect(res.body.data[0].actorName).toBeNull();
       expect(res.body.data[0].actorEmail).toBeNull();
-    });
-
-    it("query-assistant 500 ante rechazo que no es Error", async () => {
-      runAdminQueryAssistantMock.mockRejectedValueOnce("explosión");
-      const res = await request(app())
-        .post("/admin/query-assistant")
-        .set(adminHdr())
-        .send({ question: "hola" });
-      expect(res.status).toBe(500);
     });
   });
 });

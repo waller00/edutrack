@@ -17,6 +17,7 @@ const { prismaMock, payrollMock, planMock, resolveMock } = vi.hoisted(() => ({
     },
     auditLog: { create: vi.fn() },
     user: { findMany: vi.fn() },
+    substitution: { findMany: vi.fn() },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -60,6 +61,7 @@ function person(userId: string) {
 describe("attendance /summary (mock analytics)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.substitution.findMany.mockResolvedValue([]);
     prismaMock.$transaction.mockImplementation(async (cb: any) => cb(prismaMock));
     prismaMock.$executeRaw.mockResolvedValue(1);
     prismaMock.auditLog.create.mockResolvedValue({});
@@ -129,6 +131,7 @@ describe("attendance /justify-range (mock analytics)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.substitution.findMany.mockResolvedValue([]);
     prismaMock.$transaction.mockImplementation(async (cb: any) => cb(prismaMock));
     prismaMock.$executeRaw.mockResolvedValue(1);
     prismaMock.auditLog.create.mockResolvedValue({});
@@ -211,6 +214,7 @@ describe("attendance /my-attendances includeAbsences (mock analytics)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.substitution.findMany.mockResolvedValue([]);
     planMock.getPlannedInstances.mockResolvedValue([
       { eventId: "ev1", plannedDate: "2026-05-20", plannedEndTime: pastEnd, userIdRequired: "user-1" },
     ]);

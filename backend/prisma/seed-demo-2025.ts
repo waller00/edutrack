@@ -26,6 +26,7 @@ import { seedAcademicCatalog } from './seed-academic-catalog.js'
 import { runBootstrap } from './seed-bootstrap.js'
 import { seedTeachers } from './seed-teachers.js'
 import { getAppTimezone, uruguayWallToUtc } from '../src/config/app-timezone.js'
+import { generateUniqueUsername } from '../src/services/usernames.js'
 
 const prisma = new PrismaClient()
 
@@ -42,7 +43,7 @@ const COURSE_OFFERS: Record<number, Record<string, boolean>> = {
 const ORIENTATION_OFFERS: Record<number, Record<string, string[]>> = {
   2025: {
     '2-EMS': ['CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO'],
-    '3-EMS': ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO', 'GENERAL'],
+    '3-EMS': ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO'],
   },
 }
 
@@ -62,7 +63,6 @@ const ORIENTATION_SUBJECTS: Record<string, string[]> = {
   'CIENCIA-TECNOLOGIA': ['Matemática CTQ', 'Química', 'Física', 'Matemática CT'],
   'CSOCIALES-HUMANIDADES': ['Historia', 'Sociología', 'Geografía', 'Economía y Educación Financiera'],
   'CREATIVO-ARTISTICO': ['Historia del Arte', 'Música', 'Danza', 'Teatro'],
-  'GENERAL': ['Matemática', 'Historia', 'Geografía'],
 }
 
 const CLASS_SLOTS = [
@@ -178,7 +178,7 @@ function assertTeacherSpecialties(teachers: Array<Pick<User, 'username' | 'email
   if (missing.length > 0) throw new Error(`[demo] Faltan especialidades docentes para: ${missing.join(', ')}`)
 }
 
-const VALID_ORIENTATION_CODES = ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO', 'GENERAL']
+const VALID_ORIENTATION_CODES = ['CIENCIAS-VIDA', 'CIENCIA-TECNOLOGIA', 'CSOCIALES-HUMANIDADES', 'CREATIVO-ARTISTICO']
 
 async function normalizeSchoolYear() {
   console.log('[demo] Dejando unico ciclo 2025 (CLOSED) y eliminando otros ciclos...')
@@ -272,15 +272,21 @@ async function seedNonWorkingDays() {
 }
 
 async function seedBiometricDevice(users: Array<Pick<User, 'id'>>) {
+  // Config real del dispositivo F22 (testing) como default, para que al re-sembrar el
+  // lector quede enlazado por su SN real (admsSerial) sin reconfigurar a mano. El entorno
+  // (.env del server) sigue pudiendo sobreescribir cada valor.
+  // IMPORTANTE: el secreto NO se hardcodea (repo público en GitHub). Debe venir de
+  // BIOMETRIC_DEVICE_SECRET en el .env del server; sin esa var, el fallback es solo demo
+  // y el F22 real no autenticará hasta cargar el secreto. allowedIps vacío = cualquier IP.
   const device = await prisma.biometricDevice.create({
     data: {
-      code: 'F22-LICEO-CENTRAL',
-      admsSerial: 'F22-UY-2025-001',
-      name: 'ZKTeco F22 - Acceso principal',
-      secretHash: sha256('liceo-f22-demo-secret'),
-      timezone: getAppTimezone(),
+      code: process.env.BIOMETRIC_DEVICE_CODE || 'F22-TEST-01',
+      admsSerial: process.env.BIOMETRIC_ADMS_SERIAL || 'SRN5260500102',
+      name: process.env.BIOMETRIC_DEVICE_NAME || 'ZKTeco F22 Testing',
+      secretHash: sha256(process.env.BIOMETRIC_DEVICE_SECRET || 'liceo-f22-demo-secret'),
+      timezone: process.env.BIOMETRIC_DEVICE_TZ || getAppTimezone(),
       isActive: true,
-      allowedIps: ['127.0.0.1', '10.10.0.25'],
+      allowedIps: [],
       lastSeenAt: wall('2025-12-05', 18, 22),
     },
   })
@@ -300,6 +306,23 @@ async function seedStudents() {
   const offerings = await prisma.courseOffering.findMany({ include: { course: { select: { code: true } } } })
   const offeringId = new Map(offerings.map((row) => [row.course.code, row.id]))
 
+  // Orientaciones ofertadas por curso en el ciclo: para asignar una a cada estudiante de los
+  // cursos que tienen orientación (2-EMS, 3-EMS). Sin esto, ningún alumno pertenece a ninguna
+  // orientación y el filtro por orientación no devuelve a nadie.
+  const courseCodeByCourseId = new Map(offerings.map((row) => [row.courseId, row.course.code]))
+  const courseOrientationRows = (await (prisma as any).courseOrientation.findMany({
+    where: { schoolYear: { code: YEAR } },
+    select: { id: true, courseId: true, orientationId: true },
+  })) as Array<{ id: string; courseId: string; orientationId: string }>
+  const orientationsByCourseCode = new Map<string, Array<{ courseOrientationId: string; orientationId: string }>>()
+  for (const row of courseOrientationRows) {
+    const code = courseCodeByCourseId.get(row.courseId)
+    if (!code) continue
+    const list = orientationsByCourseCode.get(code) ?? []
+    list.push({ courseOrientationId: row.id, orientationId: row.orientationId })
+    orientationsByCourseCode.set(code, list)
+  }
+
   type Status = 'ACTIVE' | 'WITHDRAWN' | 'GRADUATED' | 'TRANSFERRED'
   const plans: Array<{ count: number; courseCode: string; status: Status; note: string }> = [
     { count: 20, courseCode: '7-EBI', status: 'ACTIVE', note: 'Grupo 7mo, matricula activa' },
@@ -309,7 +332,10 @@ async function seedStudents() {
     { count: 3, courseCode: '1-EMS', status: 'WITHDRAWN', note: 'Retiro durante el ciclo' },
     { count: 15, courseCode: '2-EMS', status: 'ACTIVE', note: 'Segundo EMS con orientacion' },
     { count: 2, courseCode: '2-EMS', status: 'TRANSFERRED', note: 'Traslado a otra institucion' },
-    { count: 14, courseCode: '3-EMS', status: 'GRADUATED', note: 'Egreso al cierre del ciclo 2025' },
+    // Tercero EMS (último curso) queda ACTIVO: el egreso NO se pre-carga. Recién egresan cuando
+    // se inicia el siguiente ciclo desde el asistente (que para el último curso sugiere "Egresa"
+    // automáticamente, con la opción de marcarlos "Repite"). Antes de eso no tiene sentido el egreso.
+    { count: 14, courseCode: '3-EMS', status: 'ACTIVE', note: 'Tercero EMS (ultimo curso), matricula activa' },
   ]
 
   let index = 0
@@ -319,16 +345,24 @@ async function seedStudents() {
       const firstName = STUDENT_FIRST_NAMES[index % STUDENT_FIRST_NAMES.length]
       const lastName = `${STUDENT_LAST_NAMES[index % STUDENT_LAST_NAMES.length]} ${STUDENT_LAST_NAMES[(index * 7 + 3) % STUDENT_LAST_NAMES.length]}`
       const documentId = buildValidCi(3_100_000 + index * 37)
-      const cleanFirst = firstName.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
-      const cleanLast = lastName.split(' ')[0].toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+      // Mismo formato `nombre.apellido` que usa el alta real de estudiantes: es la cuenta con la
+      // que el alumno entra a Moodle (ver scripts/provision-demo-moodle-students.ts).
+      const username = await generateUniqueUsername(firstName, lastName, async (candidate) => {
+        const exist = await prisma.student.findUnique({ where: { username: candidate }, select: { id: true } })
+        return Boolean(exist)
+      })
       const student = await prisma.student.create({
         data: {
           firstName,
           lastName,
           documentId,
+          username,
           contactPhone: `+5989${intBetween(`phone-a-${index}`, 1000000, 9999999)}`,
           tutorPhone: `+5989${intBetween(`phone-b-${index}`, 1000000, 9999999)}`,
-          email: `${cleanFirst}.${cleanLast}${index}@familias.liceo.test`,
+          email: `${username}@estudiantes.liceo.test`,
+          // Bienvenida ya "enviada": ademas de ser el estado realista para la demo, bloquea el
+          // envio real de mails a estos dominios inexistentes si el outbox procesa al alumno.
+          moodleWelcomeSentAt: wall(`${YEAR}-02-11`, 9, index % 50),
           address: `${pick(['Rivera', 'Artigas', 'Lavalleja', 'Sarandi', 'Rincon', 'Treinta y Tres'], `street-${index}`)} ${intBetween(`door-${index}`, 1000, 4999)}`,
           healthCardExpiresAt: wall(`2026-${String(3 + (index % 7)).padStart(2, '0')}-15`, 12, 0),
           internalNotes: `${plan.note}. Dato de demo.`,
@@ -342,11 +376,16 @@ async function seedStudents() {
           : plan.status === 'TRANSFERRED'
             ? wall(`${YEAR}-04-${String(10 + (i % 6)).padStart(2, '0')}`, 12, 0)
             : null
+      // Reparte a los estudiantes entre las orientaciones del curso (si tiene).
+      const courseOrients = orientationsByCourseCode.get(plan.courseCode) ?? []
+      const chosenOrientation = courseOrients.length ? courseOrients[i % courseOrients.length] : null
       await prisma.studentEnrollment.create({
         data: {
           studentId: student.id,
           schoolYearId: schoolYear.id,
           courseOfferingId: offeringId.get(plan.courseCode)!,
+          orientationId: chosenOrientation?.orientationId ?? null,
+          courseOrientationId: chosenOrientation?.courseOrientationId ?? null,
           enrollmentStatus: plan.status,
           withdrawnAt,
           withdrawalAcademicYear: withdrawnAt ? YEAR : null,
@@ -805,6 +844,29 @@ async function ensureDemoStaffUsers() {
   return users
 }
 
+/**
+ * Cuenta técnica de performance/CI, igual que en producción: STAFF, activa, aprobada y con el
+ * email verificado, pero sin nombre/teléfono/CI y sin usuario en Keycloak (es un fixture, no una
+ * cuenta de login real). username = 'edutrack.local' tal cual está en prod.
+ */
+async function ensureCiPerformanceUser() {
+  const staffRole = await prisma.orgRole.findUnique({ where: { code: 'STAFF' } })
+  if (!staffRole) return
+  await prisma.user.upsert({
+    where: { email: 'ci.performance@edutrack.local' },
+    create: {
+      email: 'ci.performance@edutrack.local',
+      username: 'edutrack.local',
+      roleId: staffRole.id,
+      isActive: true,
+      isApproved: true,
+      emailVerifiedAt: new Date(),
+    },
+    update: { roleId: staffRole.id, isActive: true, isApproved: true, emailVerifiedAt: new Date() },
+  })
+  console.log('[demo] Usuario CI/performance listo: ci.performance@edutrack.local (STAFF)')
+}
+
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL no esta definida')
 
@@ -813,6 +875,7 @@ async function main() {
   await seedAcademicCatalog({ years: [YEAR] })
   await seedTeachers()
   const staffUsers = await ensureDemoStaffUsers()
+  await ensureCiPerformanceUser()
   const teachers = await prisma.user.findMany({
     where: { orgRole: { code: 'TEACHER' }, isActive: true, teacherProfile: { is: { isActive: true } } },
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
@@ -841,6 +904,10 @@ async function main() {
       attendanceEarlyExitToleranceMinutes: 5,
       attendanceClassBridgeGapMinutes: 60,
       attendanceMonitorEnabled: true,
+      // Sincronizacion Moodle prendida (incluyendo alumnos) para que, una vez aprovisionadas las
+      // cuentas, el tick del server mantenga las matriculas al dia. No-op si falta MOODLE_BASE_URL.
+      moodleSyncEnabled: true,
+      moodleSyncStudents: true,
     },
   })
 

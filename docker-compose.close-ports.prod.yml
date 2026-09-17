@@ -6,7 +6,9 @@
 #
 # Efecto esperado:
 # - Publicos: reverse-proxy en 80/443.
-# - Privados: web, auth, Keycloak y Moodle quedan accesibles solo por redes Docker.
+# - Privados: web, auth y Keycloak quedan accesibles solo por redes Docker.
+# - Si Moodle se levanta con docker-compose.moodle.yml, agregar tambien
+#   docker-compose.close-ports.moodle.prod.yml.
 # - Monitoreo/Tailscale no se toca en este override.
 
 services:
@@ -17,7 +19,4 @@ services:
     ports: !override []
 
   keycloak:
-    ports: !override []
-
-  moodle:
     ports: !override []

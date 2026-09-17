@@ -9,6 +9,7 @@ import {
   normalizeLocalPhoneUY,
 } from '@/lib/forms/uruguay-forms'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import DateField from '@/components/forms/DateField'
 import {
   getOnboardingUsernameStatusDisplay,
   resolveOnboardingUsernameStatus,
@@ -592,10 +593,9 @@ export default function OnboardingPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Fecha de nacimiento</label>
-                <input
+                <DateField
                   value={birthdate}
-                  onChange={(e) => setBirthdate(e.target.value)}
-                  type="date"
+                  onChange={setBirthdate}
                   max={new Date().toISOString().split('T')[0]}
                   className="input-field"
                 />

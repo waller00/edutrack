@@ -10,3 +10,15 @@ process.env.ZKTECO_ICLOCK_PORT = "0";
  */
 vi.spyOn(console, 'error').mockImplementation(() => {});
 vi.spyOn(console, 'warn').mockImplementation(() => {});
+/**
+ * Devuelve el reloj real al terminar cada archivo.
+ *
+ * `vitest.config.ts` corre con `singleFork` y `fileParallelism: false`, o sea **todos los archivos
+ * en un mismo proceso y en fila**. Un `vi.setSystemTime()` sin restaurar no se queda en su archivo:
+ * se lo come el siguiente. Pasó de verdad — los tests de asistencia de personal empezaron a fallar
+ * al cambiar el orden, porque heredaban una fecha fijada por los de la libreta y sus "eventos
+ * vencidos" dejaban de estar vencidos.
+ */
+afterAll(() => {
+  vi.useRealTimers();
+});

@@ -11,6 +11,38 @@ function safeReturnTo(value: string | null): string {
 
 const AUTO_LOGIN_ATTEMPT_KEY = 'edutrack.login.autostarted'
 
+type LoginHeading = { title: string; description: string }
+
+/** Título y explicación de por qué el usuario terminó en esta pantalla. */
+function loginHeading(state: {
+  registrationCancelled: boolean
+  loggedOut: boolean
+  externalError: string
+  autoLoginBlocked: boolean
+}): LoginHeading {
+  if (state.registrationCancelled) {
+    return {
+      title: 'Registro cancelado',
+      description: 'No creamos ninguna cuenta. Podés ingresar si ya tenés una, o empezar el registro de nuevo.',
+    }
+  }
+  if (state.loggedOut) {
+    return { title: 'Sesión cerrada', description: 'Podés volver a ingresar cuando lo necesites.' }
+  }
+  if (state.externalError === 'account') {
+    return {
+      title: 'Cuenta no habilitada',
+      description: 'Tu cuenta está pendiente de aprobación o fue inhabilitada. Contactá a un administrador.',
+    }
+  }
+  return {
+    title: 'No se pudo iniciar sesión',
+    description: state.autoLoginBlocked
+      ? 'No pudimos confirmar la sesión en este navegador.'
+      : 'El ingreso venció o fue interrumpido antes de completarse.',
+  }
+}
+
 function wasAutoLoginStarted(): boolean {
   try {
     return globalThis.sessionStorage.getItem(AUTO_LOGIN_ATTEMPT_KEY) === '1'
@@ -41,16 +73,21 @@ export default function LoginPage() {
   const [loggedOut, setLoggedOut] = useState(false)
   const [autoLoginBlocked, setAutoLoginBlocked] = useState(false)
   const [sessionPending, setSessionPending] = useState(true)
+  const [registrationCancelled, setRegistrationCancelled] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams(globalThis.location.search)
     const error = params.get('error') || ''
     const loggedOutParam = params.get('loggedOut') === '1'
+    // Quien viene de cancelar un alta pidió explícitamente salir del flujo: mandarlo
+    // de nuevo al proveedor de identidad lo deja rebotando sin entender por qué.
+    const cancelledParam = params.get('cancelled') === '1'
     const returnTo = safeReturnTo(params.get('returnTo'))
 
     let alive = true
     setExternalError(error)
     setLoggedOut(loggedOutParam)
+    setRegistrationCancelled(cancelledParam)
 
     api('/auth/me')
       .then(() => {
@@ -68,7 +105,7 @@ export default function LoginPage() {
           setSessionPending(false)
           return
         }
-        if (error || loggedOutParam) {
+        if (error || loggedOutParam || cancelledParam) {
           setSessionPending(false)
           return
         }
@@ -85,6 +122,8 @@ export default function LoginPage() {
       alive = false
     }
   }, [router])
+
+  const heading = loginHeading({ registrationCancelled, loggedOut, externalError, autoLoginBlocked })
 
   if (sessionPending) {
     return (
@@ -105,18 +144,8 @@ export default function LoginPage() {
             <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              {loggedOut ? 'Sesión cerrada' : externalError === 'account' ? 'Cuenta no habilitada' : 'No se pudo iniciar sesión'}
-            </h1>
-            <p className="text-gray-600">
-              {loggedOut
-                ? 'Podés volver a ingresar cuando lo necesites.'
-                : externalError === 'account'
-                  ? 'Tu cuenta está pendiente de aprobación o fue inhabilitada. Contactá a un administrador.'
-                  : autoLoginBlocked
-                    ? 'No pudimos confirmar la sesión en este navegador.'
-                  : 'El ingreso venció o fue interrumpido antes de completarse.'}
-            </p>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">{heading.title}</h1>
+            <p className="text-gray-600">{heading.description}</p>
           </div>
           {loggedOut && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">

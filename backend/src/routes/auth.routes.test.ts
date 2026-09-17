@@ -27,6 +27,7 @@ const {
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn().mockResolvedValue({}),
       findFirst: vi.fn(),
     },
     systemSettings: {
@@ -70,6 +71,7 @@ vi.mock("../auth/keycloak.js", () => ({
   createKeycloakUser: createKeycloakUserMock,
   syncKeycloakUserIdentity: syncKeycloakUserIdentityMock,
   syncRegisteredSsoUser: syncRegisteredSsoUserMock,
+  freeKeycloakUsernameIfOrphan: vi.fn().mockResolvedValue(false),
 }));
 vi.mock("../auth/sso-registration.js", () => ({
   getSsoRegistration: getSsoRegistrationMock,

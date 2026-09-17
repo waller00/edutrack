@@ -9,6 +9,11 @@ import {
   copyCoursesBetweenSchoolYears,
   buildSubjectAssignmentsToCopy,
 } from '../services/school-year-service.js'
+import {
+  archiveSchoolYearGradeBooks,
+  historicalSummary,
+  unarchiveSchoolYearGradeBooks,
+} from '../services/gradebook/archive.js'
 
 const r = Router()
 
@@ -104,6 +109,64 @@ function appendDecisionNote(base: string | null | undefined, action: keyof typeo
 
 function orientationKey(courseId: string, orientationId: string): string {
   return `${courseId}:${orientationId}`
+}
+
+/**
+ * Arrastra al ciclo destino las ofertas de curso y orientaciones del ciclo origen que NO se
+ * seleccionaron: quedan creadas pero DESACTIVADAS (no desaparecen del catálogo del ciclo nuevo).
+ * Si ya existen en el destino no se tocan (más arriba ya quedaron desactivadas). El admin las
+ * puede reactivar con el toggle o eliminarlas manualmente.
+ */
+async function carryOverUnselectedAsDeactivated(
+  tx: any,
+  params: {
+    sourceSchoolYearId: string
+    targetSchoolYearId: string
+    selectedCourseIds: string[]
+    selectedOrientationKeys: Set<string>
+  },
+) {
+  const { sourceSchoolYearId, targetSchoolYearId, selectedOrientationKeys } = params
+  const selectedCourses = new Set(params.selectedCourseIds)
+
+  const sourceOfferings = await tx.courseOffering.findMany({
+    where: { schoolYearId: sourceSchoolYearId },
+    select: { courseId: true },
+  })
+  for (const offering of sourceOfferings) {
+    if (selectedCourses.has(offering.courseId)) continue
+    await tx.courseOffering.upsert({
+      where: { courseId_schoolYearId: { courseId: offering.courseId, schoolYearId: targetSchoolYearId } },
+      update: {},
+      create: { courseId: offering.courseId, schoolYearId: targetSchoolYearId, isActive: false, isOffered: false, visibleInFilters: false },
+    })
+  }
+
+  const sourceOrientations = await tx.courseOrientation.findMany({
+    where: { schoolYearId: sourceSchoolYearId },
+    select: { courseId: true, orientationId: true },
+  })
+  for (const co of sourceOrientations) {
+    if (selectedOrientationKeys.has(orientationKey(co.courseId, co.orientationId))) continue
+    await tx.courseOrientation.upsert({
+      where: {
+        courseId_orientationId_schoolYearId: {
+          courseId: co.courseId,
+          orientationId: co.orientationId,
+          schoolYearId: targetSchoolYearId,
+        },
+      },
+      update: {},
+      create: {
+        courseId: co.courseId,
+        orientationId: co.orientationId,
+        schoolYearId: targetSchoolYearId,
+        isActive: false,
+        isOffered: false,
+        visibleInFilters: false,
+      },
+    })
+  }
 }
 
 r.get('/', async (_req, res) => {
@@ -576,6 +639,16 @@ r.post('/:id/start', async (req, res) => {
         })
       }
 
+      // Lo NO seleccionado del ciclo origen se conserva en el nuevo ciclo, pero desactivado.
+      if (parsed.data.sourceSchoolYearId) {
+        await carryOverUnselectedAsDeactivated(tx, {
+          sourceSchoolYearId: parsed.data.sourceSchoolYearId,
+          targetSchoolYearId: id,
+          selectedCourseIds: uniqueCourseIds,
+          selectedOrientationKeys,
+        })
+      }
+
       let subjectsCopied = 0
       if (parsed.data.sourceSchoolYearId && parsed.data.copySubjects) {
         const assignmentSelect = {
@@ -737,6 +810,8 @@ r.post('/:id/activate', async (req, res) => {
     const row = await prisma.schoolYear.findUnique({ where: { id } })
     if (!row) return res.status(404).json({ message: 'Ciclo no encontrado' })
     const updated = await activateSchoolYearById(prisma, id)
+    // Reabrir un ciclo cerrado por error no puede dejar las libretas en sólo lectura.
+    await unarchiveSchoolYearGradeBooks(id)
     const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: updated.id } })
     return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))
   } catch (e: unknown) {
@@ -761,10 +836,36 @@ r.post('/:id/close', async (req, res) => {
       where: { id },
       data: { status: 'CLOSED' },
     })
+
+    // RF-110: las libretas del ciclo pasan a histórico. No se copia ni se mueve nada: el estado
+    // `ARCHIVED` es lo que bloquea toda la cadena de escritura y deja la consulta abierta.
+    const archive = await archiveSchoolYearGradeBooks(id)
+
     const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: updated.id } })
-    return res.json(serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }))
+    return res.json({
+      ...serializeYear({ ...full, coursesCount: await countCourseOfferings(full.id) }),
+      gradeBooks: archive,
+    })
   } catch (e) {
     console.error('[admin/school-years close]', e)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/** Resumen de la actividad académica de un ciclo, para la consulta histórica (RF-111). */
+r.get('/:id/gradebook-summary', async (req, res) => {
+  try {
+    const row = await prisma.schoolYear.findUnique({ where: { id: req.params.id } })
+    if (!row) return res.status(404).json({ message: 'Ciclo no encontrado' })
+
+    return res.json({
+      schoolYearId: row.id,
+      status: row.status,
+      readOnly: row.status === 'CLOSED',
+      summary: await historicalSummary(row.id),
+    })
+  } catch (e) {
+    console.error('[admin/school-years gradebook-summary]', e)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

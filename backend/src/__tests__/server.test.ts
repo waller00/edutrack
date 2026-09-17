@@ -23,6 +23,12 @@ vi.mock("../services/school-year-service.js", () => ({
 
 vi.mock("../config/system-settings.js", () => ({
   getAttendanceOperationalSettings: vi.fn().mockResolvedValue({ monitorEnabled: false }),
+  getMoodleOperationalSettings: vi.fn().mockResolvedValue({
+    syncEnabled: false,
+    reconcileIntervalMs: 900000,
+    syncStudents: false,
+  }),
+  parseEnvBool: vi.fn(() => false),
 }));
 
 vi.mock("../services/attendance-incidents.js", () => ({

@@ -59,6 +59,46 @@ describe("resolveMoodleAcademicScope", () => {
   });
 });
 
+describe("resolveMoodleAcademicScope · idnumber ≤100 (mdl_course.idnumber varchar(100))", () => {
+  // UUIDs reales de 36 chars, como en producción.
+  const uuids = {
+    schoolYearId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    courseOfferingId: "11111111-2222-4333-8444-555555555555",
+    subjectId: "66666666-7777-4888-8999-aaaaaaaaaaaa",
+    orientationId: null,
+    courseOrientationId: null,
+  };
+
+  it("base con UUIDs (~93 chars) entra en 100 y queda intacto (no recrea cursos existentes)", () => {
+    const scope = resolveMoodleAcademicScope(uuids)!;
+    expect(scope.idnumber.length).toBeLessThanOrEqual(100);
+    // El scheme natural base no se toca → los 39 cursos ya creados siguen mapeados.
+    expect(scope.idnumber).toBe(scope.key);
+    expect(scope.idnumber).toBe(
+      "et-subject-offering-11111111-2222-4333-8444-555555555555-66666666-7777-4888-8999-aaaaaaaaaaaa",
+    );
+  });
+
+  it("con orientación (~142 chars) se compacta a ≤100 con prefijo et-sc-, conservando la key lógica", () => {
+    const scope = resolveMoodleAcademicScope({
+      ...uuids,
+      courseOrientationId: "cccccccc-dddd-4eee-8fff-000000000000",
+    })!;
+    expect(scope.key.length).toBeGreaterThan(100); // el idnumber lógico sí excede el varchar(100)
+    expect(scope.idnumber.length).toBeLessThanOrEqual(100);
+    expect(scope.idnumber.startsWith("et-sc-")).toBe(true);
+    expect(scope.key).toContain("-corientation-cccccccc-dddd-4eee-8fff-000000000000");
+  });
+
+  it("la compactación es determinística y no colisiona entre orientaciones", () => {
+    const a1 = resolveMoodleAcademicScope({ ...uuids, courseOrientationId: "co-aaaa" })!.idnumber;
+    const a2 = resolveMoodleAcademicScope({ ...uuids, courseOrientationId: "co-aaaa" })!.idnumber;
+    const b = resolveMoodleAcademicScope({ ...uuids, courseOrientationId: "co-bbbb" })!.idnumber;
+    expect(a1).toBe(a2); // idempotente
+    expect(a1).not.toBe(b); // sin colisión
+  });
+});
+
 describe("buildSubjectCourseFullname", () => {
   it("asignatura general: 'Asignatura - Curso (Año)'", () => {
     expect(

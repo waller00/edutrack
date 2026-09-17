@@ -1,5 +1,7 @@
 'use client'
 
+import DateField from './DateField'
+
 type DateRangeFieldsProps = {
   startDate: string
   endDate: string
@@ -19,22 +21,12 @@ export default function DateRangeFields({
     <>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-        <input
-          type="date"
-          value={startDate}
-          onChange={(e) => onStartDateChange(e.target.value)}
-          className={inputClassName}
-        />
+        <DateField value={startDate} onChange={onStartDateChange} className={inputClassName} />
       </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-        <input
-          type="date"
-          value={endDate}
-          onChange={(e) => onEndDateChange(e.target.value)}
-          className={inputClassName}
-        />
+        <DateField value={endDate} onChange={onEndDateChange} className={inputClassName} />
       </div>
     </>
   )

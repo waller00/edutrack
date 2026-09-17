@@ -6,6 +6,7 @@ import {
   getLicenseStatusLabel,
   getLicenseTypeLabel,
 } from '@/lib/admin/licenses-display'
+import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import { useEffect, useState } from 'react'
 
 type License = {
@@ -78,7 +79,7 @@ export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = 
                     <tr key={license.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{getLicenseTypeLabel(license.type)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(license.startDate).toLocaleDateString('es-ES')} - {new Date(license.endDate).toLocaleDateString('es-ES')}
+                        {formatDateInUruguay(license.startDate)} - {formatDateInUruguay(license.endDate)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLicenseStatusBadgeClass(license.status)}`}>

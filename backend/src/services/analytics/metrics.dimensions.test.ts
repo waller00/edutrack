@@ -4,6 +4,7 @@ import {
   buildDashboardBreakdowns,
   computeBreakdown,
   computeKpiDeltas,
+  computeRangeKpis,
   computeSeriesByGranularity,
   computeStatusDistribution,
 } from './metrics.js'
@@ -71,6 +72,49 @@ describe('computeStatusDistribution', () => {
     const dist = computeStatusDistribution([])
     expect(dist.totalPlanned).toBe(0)
     expect(dist.rows).toHaveLength(0)
+  })
+
+  it('mapea SUBSTITUTED (suplido) a ausencia justificada/no según la licencia, nunca como categoría propia', () => {
+    const rows = [
+      resolved('SUBSTITUTED', { plannedInstanceId: 's1', eventId: 'e1', plannedDate: '2026-05-05' }),
+      resolved('SUBSTITUTED', { plannedInstanceId: 's2', eventId: 'e1', plannedDate: '2026-05-06' }, { isJustifiedAbsence: true }),
+    ]
+    const dist = computeStatusDistribution(rows)
+    expect(dist.rows.some((r) => r.status === 'SUBSTITUTED')).toBe(false)
+    expect(dist.rows.find((r) => r.status === 'ABSENT_NOT_JUSTIFIED')?.count).toBe(1)
+    expect(dist.rows.find((r) => r.status === 'ABSENT_JUSTIFIED')?.count).toBe(1)
+  })
+})
+
+describe('computeRangeKpis', () => {
+  it('no cuenta una salida aislada como cobertura si la entrada está resuelta como ausencia', () => {
+    const rows = [
+      resolved(
+        'ABSENT_NOT_JUSTIFIED',
+        { plannedInstanceId: 'a', eventId: 'e1', plannedDate: '2026-05-01' },
+        { checkOutStatusResolved: 'EXIT', hasCheckIn: false, hasCheckOut: true },
+      ),
+    ]
+
+    const kpis = computeRangeKpis(rows, { plannedInstancesCount: rows.length })
+    expect(kpis.M4_AOP_pct).toBe(100)
+    expect(kpis.M6_COVERAGE_CP_pct).toBe(0)
+  })
+
+  it('cuenta la suplencia como ausencia del titular y NO como bloque cubierto', () => {
+    // SUBSTITUTED es la ausencia del titular: aporta ausentismo pero no cobertura. La cobertura
+    // real proviene de la instancia propia del suplente (presente) cuando efectivamente asiste.
+    const rows = [
+      resolved(
+        'SUBSTITUTED',
+        { plannedInstanceId: 's1', eventId: 'e1', plannedDate: '2026-05-01' },
+        { hasCheckIn: false, hasCheckOut: false },
+      ),
+    ]
+
+    const kpis = computeRangeKpis(rows, { plannedInstancesCount: rows.length })
+    expect(kpis.M4_AOP_pct).toBe(100)
+    expect(kpis.M6_COVERAGE_CP_pct).toBe(0)
   })
 })
 

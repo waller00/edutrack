@@ -16,6 +16,11 @@ import {
   generateDimensionReportXlsx,
 } from '../services/analytics/exports/dimensionReportExport.js'
 import { scopeUserIdsFor, resolveScopedSchoolYearId } from '../services/analytics/exports/exportScope.js'
+import {
+  buildPayrollNovedadesData,
+  generatePayrollNovedadesCsv,
+  generatePayrollNovedadesXlsx,
+} from '../services/analytics/exports/payrollNovedadesExport.js'
 
 const r = Router()
 
@@ -25,6 +30,7 @@ const exportBodySchema = z.object({
     'monthly_summary',
     'person_report',
     'course_report',
+    'payroll_novedades',
   ]),
   format: z.enum(['PDF', 'XLSX', 'CSV']),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -99,6 +105,8 @@ function buildFilenameBase(reportKey: ReportKey, from: string, to: string, filte
       return `EduTrack_Reporte_Por_Persona_${from}_${to}${filterSuffix}`
     case 'course_report':
       return `EduTrack_Reporte_Por_Curso_${from}_${to}${filterSuffix}`
+    case 'payroll_novedades':
+      return `EduTrack_Novedades_Liquidacion_${from.slice(0, 7)}${filterSuffix}`
     default:
       return `EduTrack_Exportacion_${from}_${to}${filterSuffix}`
   }
@@ -167,9 +175,32 @@ async function buildDimensionReport(reportKey: ReportKey, format: ExportFormat, 
   return { buffer }
 }
 
+async function buildPayrollNovedades(format: ExportFormat, from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean): Promise<ReportResult> {
+  if (format === 'PDF') return { error: 'Formato inválido para novedades de liquidación (usá XLSX o CSV)' }
+  const data = await buildPayrollNovedadesData({
+    from,
+    to,
+    filters: {
+      // Las novedades son de docentes; con un userId puntual se respeta ese filtro.
+      role: filters?.userId ? filters?.role : (filters?.role ?? 'TEACHER'),
+      userId: filters?.userId,
+      // Se reenvían el resto de filtros de la vista de Asistencias (tipo de actividad, evento y estado)
+      // para que las novedades respeten exactamente el mismo alcance que la tabla en pantalla.
+      eventType: filters?.eventType,
+      eventId: filters?.eventId,
+      status: filters?.status,
+      schoolYearId: typeof filters?.schoolYearId === 'string' ? filters.schoolYearId : undefined,
+      allYears: allYearsExport,
+    },
+  })
+  if (format === 'XLSX') return { buffer: await generatePayrollNovedadesXlsx(data) }
+  return { buffer: Buffer.from(generatePayrollNovedadesCsv(data), 'utf-8') }
+}
+
 async function buildReport(reportKey: ReportKey, format: ExportFormat, from: string, to: string, filters: ExportFilters | undefined, allYearsExport: boolean): Promise<ReportResult> {
   if (reportKey === 'attendance_detail') return buildAttendanceDetail(format, from, to, filters, allYearsExport)
   if (reportKey === 'monthly_summary') return buildMonthlySummary(format, from, to, filters, allYearsExport)
+  if (reportKey === 'payroll_novedades') return buildPayrollNovedades(format, from, to, filters, allYearsExport)
   return buildDimensionReport(reportKey, format, from, to, filters, allYearsExport)
 }
 

@@ -19,6 +19,13 @@ type MoodleHealth = {
   syncEnabled: boolean
   connection: { ok: boolean; siteName?: string; moodleVersion?: string; error?: string }
   outbox: { pending: number; processing: number; failed: number; completed: number }
+  reconcile?: {
+    running: boolean
+    startedAt: string | null
+    finishedAt: string | null
+    lastSummary: Record<string, number> | null
+    lastError: string | null
+  }
 }
 
 const shellCard = 'rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm'
@@ -53,6 +60,14 @@ export default function AdminMoodlePanel() {
   useEffect(() => {
     void loadAll()
   }, [loadAll])
+
+  useEffect(() => {
+    if (!health?.reconcile?.running) return
+    const t = setInterval(() => {
+      void loadHealth()
+    }, 5000)
+    return () => clearInterval(t)
+  }, [health?.reconcile?.running, loadHealth])
 
   async function save() {
     if (!data) return
@@ -94,17 +109,14 @@ export default function AdminMoodlePanel() {
     setBusy('reconcile')
     setMsg(null)
     try {
-      const r = await api<{ message: string; summary: Record<string, number> }>('/admin/moodle/reconcile', {
+      const r = await api<{ message: string; reconcile?: MoodleHealth['reconcile'] }>('/admin/moodle/reconcile', {
         method: 'POST',
       })
-      setMsg(
-        `${r.message}: cursos=${r.summary.courses ?? 0}, docentes=${r.summary.teacherEnrolments ?? 0}, ` +
-          `suplentes=${r.summary.substituteEnrolments ?? 0}, estudiantes=${r.summary.studentEnrolments ?? 0}, ` +
-          `errores=${r.summary.errors ?? 0}`,
-      )
+      setMsg(r.message)
       await loadHealth()
-    } catch {
-      setMsg('Reconciliación falló. Revisá logs del backend y el token REST.')
+    } catch (error: unknown) {
+      const message = error instanceof Error && error.message ? error.message : 'No se pudo iniciar la sincronización.'
+      setMsg(message)
     } finally {
       setBusy(null)
     }
@@ -196,16 +208,29 @@ export default function AdminMoodlePanel() {
             {busy === 'status' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
             Probar conexión
           </button>
-          <button type="button" className="btn-secondary text-sm inline-flex items-center gap-2" disabled={busy !== null || !data.moodleConfigured} onClick={() => void reconcileNow()}>
-            {busy === 'reconcile' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Reconciliar ahora
+          <button type="button" className="btn-secondary text-sm inline-flex items-center gap-2" disabled={busy !== null || !data.moodleConfigured || health?.reconcile?.running} onClick={() => void reconcileNow()}>
+            {busy === 'reconcile' || health?.reconcile?.running ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {health?.reconcile?.running ? 'Sincronizando…' : 'Sincronizar ahora'}
           </button>
         </div>
         {health && (
-          <p className="text-xs text-gray-500">
-            Outbox: {health.outbox.pending} pendientes, {health.outbox.failed} fallidas, {health.outbox.completed}{' '}
-            completadas
-          </p>
+          <div className="space-y-1 text-xs text-gray-500">
+            <p>
+              Outbox: {health.outbox.pending} pendientes, {health.outbox.failed} fallidas, {health.outbox.completed}{' '}
+              completadas
+            </p>
+            {health.reconcile?.running && (
+              <p className="text-emerald-700">Sincronización completa en curso. Podés salir de esta pantalla; sigue en segundo plano.</p>
+            )}
+            {!health.reconcile?.running && health.reconcile?.lastSummary && (
+              <p>
+                Última sincronización: cursos={health.reconcile.lastSummary.courses ?? 0}, inscripciones docentes=
+                {health.reconcile.lastSummary.teacherEnrolments ?? 0}, inscripciones estudiantes=
+                {health.reconcile.lastSummary.studentEnrolments ?? 0}
+                {(health.reconcile.lastSummary.errors ?? 0) > 0 ? `, avisos=${health.reconcile.lastSummary.errors}` : ''}.
+              </p>
+            )}
+          </div>
         )}
       </section>
 

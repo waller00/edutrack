@@ -24,6 +24,7 @@ import {
   upsertCanonicalProfilePermissions,
   ensureDefaultProfilePermissionsIfNeeded,
 } from './profile-permissions-repository.js'
+import { BUILTIN_PROFILE_ROLES } from './profile-permissions-defaults.js'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -208,6 +209,34 @@ describe('seed de matriz canónica', () => {
     prismaMock.rolePermission.count.mockResolvedValue(0)
     await ensureDefaultProfilePermissionsIfNeeded()
     expect(prismaMock.rolePermission.upsert).toHaveBeenCalled()
+  })
+
+  it('siembra TODOS los roles de la matriz, no una lista fija', async () => {
+    // La lista de built-ins estaba hardcodeada acá dentro: agregar un rol a la matriz no lo
+    // sembraba y quedaba sin ningún permiso, sin ruido. Ahora se deriva de la propia matriz.
+    seedMocks()
+    await upsertCanonicalProfilePermissions()
+
+    const seeded = prismaMock.orgRole.findUnique.mock.calls.map(([args]: any) => args.where.code)
+    expect(seeded.sort()).toEqual([...BUILTIN_PROFILE_ROLES].sort())
+  })
+
+  it('siembra los permisos de libreta de cada rol nuevo', async () => {
+    seedMocks()
+    await upsertCanonicalProfilePermissions()
+
+    const codes = new Set(prismaMock.permission.upsert.mock.calls.map(([args]: any) => args.where.code))
+    for (const code of ['gradebook.read', 'gradebook.grade', 'gradebook.close', 'gradebook.review', 'gradebook.endorse', 'gradebook.inspect', 'gradebook.manage']) {
+      expect(codes.has(code), `falta sembrar ${code}`).toBe(true)
+    }
+
+    // El visado se siembra con alcance ALL: si entrara como OWN, Dirección no podría visar
+    // libretas ajenas, que es justamente lo único que hace.
+    const endorseGrants = prismaMock.rolePermission.upsert.mock.calls
+      .map(([args]: any) => args.create)
+      .filter((c: any) => c.label === 'Visar libretas')
+    expect(endorseGrants.length).toBe(2) // ADMIN y DIRECCION
+    for (const grant of endorseGrants) expect(grant.scope).toBe('ALL')
   })
 })
 

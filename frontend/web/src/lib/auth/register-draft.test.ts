@@ -90,3 +90,52 @@ describe('register draft — fallos de storage (rama catch)', () => {
     spy.mockRestore()
   })
 })
+
+describe('register draft — borradores incompletos', () => {
+  it('completa los campos faltantes en vez de romper el formulario', () => {
+    // Un borrador truncado o de una versión anterior igual trae `v: 1`. Si sus campos
+    // llegan como `undefined`, el formulario los vuelca en estados que asume string y
+    // la página de registro queda en blanco.
+    window.sessionStorage.setItem('edutrack_register_draft', JSON.stringify({ v: 1 }))
+
+    const d = loadRegisterDraft()
+
+    expect(d).not.toBeNull()
+    expect(d?.email).toBe('')
+    expect(d?.firstName).toBe('')
+    expect(d?.nationalId).toBe('')
+    expect(d?.role).toBe('')
+    expect(d?.verificationStep).toBe(0)
+    expect(d?.verificationResults).toBeNull()
+  })
+
+  it('descarta un rol inválido', () => {
+    window.sessionStorage.setItem(
+      'edutrack_register_draft',
+      JSON.stringify({ v: 1, role: 'SUPERADMIN', email: 'a@b.com' }),
+    )
+
+    const d = loadRegisterDraft()
+
+    expect(d?.role).toBe('')
+    expect(d?.email).toBe('a@b.com')
+  })
+
+  it('conserva los valores válidos que sí vinieron', () => {
+    window.sessionStorage.setItem(
+      'edutrack_register_draft',
+      JSON.stringify({ v: 1, email: 'juan@example.com', role: 'TEACHER', verificationStep: 2 }),
+    )
+
+    const d = loadRegisterDraft()
+
+    expect(d?.email).toBe('juan@example.com')
+    expect(d?.role).toBe('TEACHER')
+    expect(d?.verificationStep).toBe(2)
+  })
+
+  it('también normaliza el borrador de onboarding', () => {
+    window.sessionStorage.setItem('edutrack_onboarding_draft', JSON.stringify({ v: 1 }))
+    expect(loadOnboardingDraft()?.lastName).toBe('')
+  })
+})
