@@ -124,10 +124,10 @@ export default function StudentSheet({
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const pendingRef = useRef<HTMLSectionElement | null>(null)
-  const accommodationsRef = useRef<HTMLSectionElement | null>(null)
-  const generalRef = useRef<HTMLSectionElement | null>(null)
-  const exemptionsRef = useRef<HTMLSectionElement | null>(null)
+  const pendingRef = useRef<HTMLElement | null>(null)
+  const accommodationsRef = useRef<HTMLElement | null>(null)
+  const generalRef = useRef<HTMLElement | null>(null)
+  const exemptionsRef = useRef<HTMLElement | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -171,7 +171,7 @@ export default function StudentSheet({
 
   useEffect(() => {
     if (!sheet || !focusSection) return
-    const map: Record<StudentBadgeFocus, HTMLSectionElement | null> = {
+    const map: Record<StudentBadgeFocus, HTMLElement | null> = {
       pending: pendingRef.current,
       accommodations: accommodationsRef.current,
       general: generalRef.current,
