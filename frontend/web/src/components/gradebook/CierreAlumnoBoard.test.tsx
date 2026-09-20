@@ -81,6 +81,8 @@ describe('<CierreAlumnoBoard />', () => {
     expect(screen.getByLabelText(/Rendimiento de Marzo/i)).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '7' })).toBeInTheDocument()
     expect(screen.getByDisplayValue(/Buen avance/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Imprimir cierre del alumno/i })).toBeInTheDocument()
+    expect(screen.getByText(/juicio de reunión/i)).toBeInTheDocument()
   })
 
   it('guarda el borrador al confirmar', async () => {
@@ -100,5 +102,44 @@ describe('<CierreAlumnoBoard />', () => {
         }),
       )
     })
+  })
+
+  it('no muestra combo ni textarea en períodos no habilitados', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (String(path).includes('/mine')) return { data: [] }
+      if (String(path).includes('/grades-board')) return { assessments: [], grades: [] }
+      if (String(path).includes('/closure')) {
+        return {
+          student: detail().students[0],
+          canGrade: true,
+          periods: [
+            {
+              periodId: 'p-future',
+              code: 'APE_FEB',
+              name: 'APE Febrero',
+              status: 'OPEN',
+              canEdit: false,
+              requiresGeneralGrade: true,
+              requiresConceptualJudgement: true,
+              assessmentCount: 0,
+              valueHundredths: null,
+              conceptualJudgement: null,
+              descriptor: null,
+              startsOn: '2099-02-01',
+            },
+          ],
+        }
+      }
+      return {}
+    })
+
+    render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Rendimiento de APE Febrero/i)).toBeInTheDocument(),
+    )
+    expect(screen.queryByLabelText(/Rendimiento de APE Febrero/i)?.tagName).toBe('SPAN')
+    expect(screen.queryByRole('textbox', { name: /Juicio de APE Febrero/i })).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Rendimiento de APE Febrero/i)).toHaveTextContent('—')
+    expect(screen.getByRole('button', { name: /Info de APE Febrero: Período no habilitado/i })).toBeInTheDocument()
   })
 })

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canEditStudentClosurePeriod,
   closureBlockers,
   describeValue,
   isLateClosure,
+  isPeriodCalendarOpen,
   periodWriteBlock,
   type StudentPeriodRow,
 } from './period-closure.js'
@@ -117,5 +119,52 @@ describe('periodWriteBlock', () => {
 
   it('el ciclo archivado gana sobre cualquier estado del período', () => {
     expect(periodWriteBlock({ periodStatus: 'OPEN', gradeBookStatus: 'ARCHIVED' })).toBe('ARCHIVED')
+  })
+})
+
+describe('isPeriodCalendarOpen', () => {
+  it('sin startsOn siempre está abierto', () => {
+    expect(isPeriodCalendarOpen({ startsOn: null, todayYmd: '2026-03-01' })).toBe(true)
+  })
+
+  it('bloquea antes del día de inicio', () => {
+    expect(
+      isPeriodCalendarOpen({
+        startsOn: new Date('2026-08-01T12:00:00.000Z'),
+        todayYmd: '2026-07-31',
+      }),
+    ).toBe(false)
+  })
+
+  it('habilita el mismo día de inicio y después', () => {
+    const startsOn = new Date('2026-08-01T12:00:00.000Z')
+    expect(isPeriodCalendarOpen({ startsOn, todayYmd: '2026-08-01' })).toBe(true)
+    expect(isPeriodCalendarOpen({ startsOn, todayYmd: '2026-09-01' })).toBe(true)
+  })
+})
+
+describe('canEditStudentClosurePeriod', () => {
+  it('no habilita períodos futuros aunque estén OPEN', () => {
+    expect(
+      canEditStudentClosurePeriod({
+        canGrade: true,
+        periodStatus: 'OPEN',
+        gradeBookStatus: 'ACTIVE',
+        startsOn: new Date('2026-10-01T12:00:00.000Z'),
+        todayYmd: '2026-09-20',
+      }),
+    ).toBe(false)
+  })
+
+  it('habilita cuando el calendario ya empezó', () => {
+    expect(
+      canEditStudentClosurePeriod({
+        canGrade: true,
+        periodStatus: 'OPEN',
+        gradeBookStatus: 'ACTIVE',
+        startsOn: new Date('2026-03-01T12:00:00.000Z'),
+        todayYmd: '2026-09-20',
+      }),
+    ).toBe(true)
   })
 })

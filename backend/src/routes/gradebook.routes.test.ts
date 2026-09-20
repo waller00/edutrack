@@ -26,6 +26,7 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     gradingScale: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     activityType: { findMany: vi.fn() },
     auditLog: { create: vi.fn() },
+    teacherMeetingRecord: { findMany: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
   },
   saveGradesMock: vi.fn(),
@@ -130,6 +131,7 @@ beforeEach(() => {
   prismaMock.studentPhoto.findUnique.mockResolvedValue(null)
   prismaMock.student.findMany.mockResolvedValue([])
   prismaMock.studentAccommodation.updateMany.mockResolvedValue({ count: 0 })
+  prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
   dayOccurrenceMock.mockResolvedValue({ kind: 'no_class' })
   findSessionMock.mockResolvedValue(null)
@@ -1682,6 +1684,8 @@ describe('cierre por alumno', () => {
         id: PERIOD_ID,
         code: 'MAY',
         name: 'Mayo',
+        startsOn: new Date('2026-03-01T12:00:00.000Z'),
+        endsOn: null,
         closesOn: null,
         requiresGeneralGrade: true,
         requiresConceptualJudgement: true,
@@ -1691,6 +1695,7 @@ describe('cierre por alumno', () => {
       {
         periodId: PERIOD_ID,
         status: 'OPEN',
+        closedAt: null,
         closedLate: false,
         grades: [{ valueHundredths: 700, conceptualJudgement: 'Bien' }],
       },
@@ -1709,7 +1714,39 @@ describe('cierre por alumno', () => {
       valueHundredths: 700,
       conceptualJudgement: 'Bien',
       canEdit: true,
+      meetingJudgement: null,
     })
+    expect(res.body.periods[0]).toHaveProperty('closedAt')
+  })
+
+  it('GET /students/:id/closure marca canEdit=false si el período no empezó', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      {
+        id: PERIOD_ID,
+        code: 'APE_FEB',
+        name: 'APE Febrero',
+        startsOn: new Date('2099-02-01T12:00:00.000Z'),
+        endsOn: null,
+        closesOn: null,
+        requiresGeneralGrade: true,
+        requiresConceptualJudgement: false,
+      },
+    ])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
+    prismaMock.assessment.findMany.mockResolvedValue([])
+    prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
+    prismaMock.studentPhoto.findUnique.mockResolvedValue(null)
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/${SID}/closure`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.periods[0].canEdit).toBe(false)
   })
 
   it('PUT /students/:id/closure guarda rendimiento y juicio', async () => {
@@ -1718,7 +1755,7 @@ describe('cierre por alumno', () => {
       { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: '1' },
     ])
     prismaMock.academicPeriod.findMany.mockResolvedValue([
-      { id: PERIOD_ID, code: 'MAY', name: 'Mayo' },
+      { id: PERIOD_ID, code: 'MAY', name: 'Mayo', startsOn: new Date('2026-03-01T12:00:00.000Z') },
     ])
     prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({
       id: 'gbp-1',
@@ -1736,5 +1773,30 @@ describe('cierre por alumno', () => {
     expect(res.status).toBe(200)
     expect(res.body.saved).toBe(1)
     expect(prismaMock.periodGrade.upsert).toHaveBeenCalled()
+  })
+
+  it('PUT /students/:id/closure rechaza períodos que aún no empezaron', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: '1' },
+    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: PERIOD_ID, code: 'APE_FEB', name: 'APE Febrero', startsOn: new Date('2099-02-01T12:00:00.000Z') },
+    ])
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({
+      id: 'gbp-1',
+      status: 'OPEN',
+    })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/students/${SID}/closure`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({
+        entries: [{ periodId: PERIOD_ID, valueHundredths: 800, conceptualJudgement: 'No debería' }],
+      })
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('PERIOD_NOT_ENABLED')
+    expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
   })
 })

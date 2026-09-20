@@ -125,3 +125,34 @@ export function periodWriteBlock(params: {
   if (params.periodStatus === 'CLOSED') return 'CLOSED'
   return null
 }
+
+/**
+ * ¿El calendario del período ya empezó?
+ *
+ * `startsOn` se guarda a mediodía UTC (`…T12:00:00.000Z`); el día civil es el
+ * `YYYY-MM-DD` del ISO. Sin `startsOn` no hay candado de calendario.
+ * `closesOn` no corta la edición: sólo marca el cierre como fuera de plazo.
+ */
+export function isPeriodCalendarOpen(params: {
+  startsOn: Date | null | undefined
+  /** Día civil institucional `YYYY-MM-DD`. */
+  todayYmd: string
+}): boolean {
+  if (!params.startsOn) return true
+  const startYmd = params.startsOn.toISOString().slice(0, 10)
+  return params.todayYmd >= startYmd
+}
+
+/** ¿El docente puede cargar rendimiento/juicio en el cierre por alumno? */
+export function canEditStudentClosurePeriod(params: {
+  canGrade: boolean
+  periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | string
+  gradeBookStatus: 'ACTIVE' | 'ARCHIVED' | string
+  startsOn: Date | null | undefined
+  todayYmd: string
+}): boolean {
+  if (!params.canGrade) return false
+  if (params.gradeBookStatus === 'ARCHIVED') return false
+  if (params.periodStatus === 'CLOSED') return false
+  return isPeriodCalendarOpen({ startsOn: params.startsOn, todayYmd: params.todayYmd })
+}

@@ -1,13 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
   CheckCircle2,
+  Info,
   Loader2,
   Maximize2,
   Minimize2,
+  Printer,
+  X,
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { apiBlob } from '@/lib/api/binary'
@@ -23,6 +26,8 @@ import {
   gradeSelectFromHundredths,
   gradeSelectToHundredths,
 } from '@/lib/gradebook/grade-1-10'
+import { printStudentClosure } from '@/lib/gradebook/student-closure-export'
+import { formatClosureStamp, periodInfoMessage } from '@/lib/gradebook/period-info'
 import { libretaCode } from '@/components/libreta/MisLibretas'
 import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
 
@@ -43,6 +48,13 @@ type ClosurePeriod = {
     iconToken: string | null
     isAlert: boolean
   } | null
+  startsOn?: string | null
+  endsOn?: string | null
+  closesOn?: string | null
+  closedAt?: string | null
+  closedLate?: boolean
+  meetingJudgement?: string | null
+  meetingJudgementMeta?: { createdAt: string; createdByName: string | null } | null
 }
 
 type ClosureSheet = {
@@ -65,6 +77,9 @@ type BoardGrade = {
 type BoardResponse = { assessments: BoardAssessment[]; grades: BoardGrade[] }
 
 type Draft = Record<string, { grade: string; judgement: string }>
+
+type InfoModal = { title: string; body: string } | null
+type MeetingModal = { periodName: string; text: string; meta: string | null } | null
 
 function buildDraft(periods: ClosurePeriod[]): Draft {
   const draft: Draft = {}
@@ -214,6 +229,49 @@ function periodAssessmentSummary(
   return { oral, written, other, result: averageHundredths(all) }
 }
 
+function SimpleModal({
+  title,
+  children,
+  onClose,
+}: {
+  title: string
+  children: ReactNode
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="responsive-modal" role="dialog" aria-modal="true" aria-labelledby="cierre-modal-title">
+      <div className="responsive-modal-panel max-w-lg space-y-3">
+        <header className="flex items-start justify-between gap-3">
+          <h2 id="cierre-modal-title" className="text-base font-semibold uppercase tracking-wide text-slate-800">
+            {title}
+          </h2>
+          <button type="button" aria-label="Cerrar" onClick={onClose} className="text-gray-400 hover:text-gray-700">
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </header>
+        {children}
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border border-slate-300 bg-slate-100 px-4 py-1.5 text-sm font-semibold uppercase tracking-wide text-slate-700 hover:bg-slate-200"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Cierre de promedios por alumno: carta del estudiante + calificación general y juicio por período.
  */
@@ -235,11 +293,16 @@ export default function CierreAlumnoBoard({
   const [judgementTall, setJudgementTall] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [printBusy, setPrintBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const [infoModal, setInfoModal] = useState<InfoModal>(null)
+  const [meetingModal, setMeetingModal] = useState<MeetingModal>(null)
 
   const selected = students[focusIndex] ?? null
   const courseLabel = `${detail.course.name} · ${detail.subject.name}`
+  const libretaLabel = libretaCode(detail)
 
   const loadMine = useCallback(async () => {
     try {
@@ -287,6 +350,30 @@ export default function CierreAlumnoBoard({
   useEffect(() => {
     if (focusIndex >= students.length) setFocusIndex(Math.max(0, students.length - 1))
   }, [students.length, focusIndex])
+
+  useEffect(() => {
+    const hasPhoto = sheet?.student.hasPhoto ?? selected?.hasPhoto
+    const studentId = selected?.studentId
+    if (!hasPhoto || !studentId) {
+      setPhotoUrl(null)
+      return
+    }
+    let revoked: string | null = null
+    let cancelled = false
+    void apiBlob(`/gradebook/${gradeBookId}/students/${studentId}/photo`)
+      .then((blob) => {
+        if (cancelled || !blob) return
+        revoked = URL.createObjectURL(blob)
+        setPhotoUrl(revoked)
+      })
+      .catch(() => {
+        if (!cancelled) setPhotoUrl(null)
+      })
+    return () => {
+      cancelled = true
+      if (revoked) URL.revokeObjectURL(revoked)
+    }
+  }, [gradeBookId, selected?.studentId, sheet?.student.hasPhoto, selected?.hasPhoto])
 
   const dirty = useMemo(() => {
     if (!sheet) return false
@@ -343,6 +430,35 @@ export default function CierreAlumnoBoard({
     if (sheet) setDraft(buildDraft(sheet.periods))
     setError(null)
     setOkMsg(null)
+  }
+
+  function handlePrint() {
+    if (!sheet || !selected) return
+    setPrintBusy(true)
+    setError(null)
+    try {
+      const assessments = board?.assessments ?? []
+      printStudentClosure({
+        detail,
+        student: selected,
+        index: focusIndex,
+        libretaLabel,
+        courseLabel,
+        photoUrl,
+        periods: sheet.periods.map((period) => ({
+          name: period.name,
+          status: period.status,
+          valueHundredths: gradeSelectToHundredths(draft[period.periodId]?.grade ?? '') ?? period.valueHundredths,
+          conceptualJudgement: draft[period.periodId]?.judgement ?? period.conceptualJudgement,
+          meetingJudgement: period.meetingJudgement ?? null,
+          summary: periodAssessmentSummary(studentGrades, assessments, period.periodId),
+        })),
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo imprimir')
+    } finally {
+      setPrintBusy(false)
+    }
   }
 
   if (students.length === 0) {
@@ -461,6 +577,22 @@ export default function CierreAlumnoBoard({
                       <span className="text-slate-800">{courseLabel}</span>
                     </p>
                   </div>
+                  {isFocus && (
+                    <button
+                      type="button"
+                      disabled={printBusy || !sheet}
+                      onClick={handlePrint}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+                      aria-label="Imprimir cierre del alumno"
+                      title="Imprimir"
+                    >
+                      {printBusy ? (
+                        <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                      ) : (
+                        <Printer className="h-5 w-5" aria-hidden />
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 {isFocus && periods.length > 0 && (
@@ -500,13 +632,14 @@ export default function CierreAlumnoBoard({
                     </div>
 
                     <div className="overflow-x-auto bg-white">
-                      <table className="w-full min-w-[640px] text-sm">
+                      <table className="w-full min-w-[760px] text-sm">
                         <thead className="border-b border-amber-100 text-xs uppercase tracking-wide text-slate-500">
                           <tr>
                             <th scope="col" className="px-3 py-2 text-left font-medium">Período</th>
                             <th scope="col" className="px-3 py-2 text-left font-medium">Rend.</th>
                             <th scope="col" className="px-3 py-2 text-left font-medium">Juicio asignatura</th>
-                            <th scope="col" className="px-3 py-2 text-left font-medium">Info.</th>
+                            <th scope="col" className="px-3 py-2 text-center font-medium">Juicio Reu.</th>
+                            <th scope="col" className="px-3 py-2 text-center font-medium">Info.</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -521,6 +654,8 @@ export default function CierreAlumnoBoard({
                             const missing =
                               (period.requiresGeneralGrade && !hasGrade) ||
                               (period.requiresConceptualJudgement && !hasJudgement)
+                            const infoText = periodInfoMessage(period)
+                            const hasMeeting = Boolean(period.meetingJudgement?.trim())
                             return (
                               <tr key={period.periodId}>
                                 <td className="px-3 py-2 font-medium text-slate-800">
@@ -532,49 +667,120 @@ export default function CierreAlumnoBoard({
                                   )}
                                 </td>
                                 <td className="px-3 py-2">
-                                  <Grade1to10Select
-                                    value={d.grade}
-                                    disabled={!period.canEdit || saving}
-                                    onChange={(value) =>
-                                      setDraft((prev) => ({
-                                        ...prev,
-                                        [period.periodId]: {
-                                          ...prev[period.periodId],
-                                          grade: value,
-                                          judgement: prev[period.periodId]?.judgement ?? '',
-                                        },
-                                      }))
-                                    }
-                                    aria-label={`Rendimiento de ${period.name}`}
-                                  />
-                                </td>
-                                <td className="px-3 py-2">
-                                  <textarea
-                                    value={d.judgement}
-                                    disabled={!period.canEdit || saving}
-                                    rows={judgementTall ? 4 : 2}
-                                    onChange={(e) =>
-                                      setDraft((prev) => ({
-                                        ...prev,
-                                        [period.periodId]: {
-                                          grade: prev[period.periodId]?.grade ?? '',
-                                          judgement: e.target.value,
-                                        },
-                                      }))
-                                    }
-                                    className="w-full rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-50"
-                                    aria-label={`Juicio de ${period.name}`}
-                                    placeholder="Juicio conceptual de la asignatura"
-                                  />
-                                </td>
-                                <td className="px-3 py-2">
-                                  {complete && !missing ? (
-                                    <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-label="Completo" />
-                                  ) : missing ? (
-                                    <AlertTriangle className="h-5 w-5 text-amber-500" aria-label="Pendiente" />
+                                  {period.canEdit ? (
+                                    <Grade1to10Select
+                                      value={d.grade}
+                                      disabled={saving}
+                                      onChange={(value) =>
+                                        setDraft((prev) => ({
+                                          ...prev,
+                                          [period.periodId]: {
+                                            ...prev[period.periodId],
+                                            grade: value,
+                                            judgement: prev[period.periodId]?.judgement ?? '',
+                                          },
+                                        }))
+                                      }
+                                      aria-label={`Rendimiento de ${period.name}`}
+                                    />
                                   ) : (
-                                    <span className="text-slate-300">—</span>
+                                    <span
+                                      className="inline-block min-w-[2.5rem] tabular-nums text-sm text-slate-700"
+                                      aria-label={`Rendimiento de ${period.name}`}
+                                    >
+                                      {d.grade || '—'}
+                                    </span>
                                   )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {period.canEdit ? (
+                                    <textarea
+                                      value={d.judgement}
+                                      disabled={saving}
+                                      rows={judgementTall ? 4 : 2}
+                                      onChange={(e) =>
+                                        setDraft((prev) => ({
+                                          ...prev,
+                                          [period.periodId]: {
+                                            grade: prev[period.periodId]?.grade ?? '',
+                                            judgement: e.target.value,
+                                          },
+                                        }))
+                                      }
+                                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                                      aria-label={`Juicio de ${period.name}`}
+                                      placeholder="Juicio conceptual de la asignatura"
+                                    />
+                                  ) : (
+                                    <p
+                                      className="min-h-[2.5rem] whitespace-pre-wrap text-sm text-slate-600"
+                                      aria-label={`Juicio de ${period.name}`}
+                                    >
+                                      {d.judgement || ''}
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  {hasMeeting ? (
+                                    <button
+                                      type="button"
+                                      title="Ver juicio de reunión"
+                                      aria-label={`Ver juicio de reunión de ${period.name}`}
+                                      onClick={() =>
+                                        setMeetingModal({
+                                          periodName: period.name,
+                                          text: period.meetingJudgement!.trim(),
+                                          meta: period.meetingJudgementMeta
+                                            ? [
+                                                period.meetingJudgementMeta.createdByName,
+                                                formatClosureStamp(period.meetingJudgementMeta.createdAt),
+                                              ]
+                                                .filter(Boolean)
+                                                .join(' · ')
+                                            : null,
+                                        })
+                                      }
+                                      className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-sky-300 text-sky-700 hover:bg-sky-50"
+                                    >
+                                      <Info className="h-4 w-4" aria-hidden />
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-300" title="Sin juicio de reunión cargado">
+                                      —
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    type="button"
+                                    title={infoText}
+                                    aria-label={`Info de ${period.name}: ${infoText}`}
+                                    onClick={() =>
+                                      setInfoModal({
+                                        title: period.name,
+                                        body: infoText,
+                                      })
+                                    }
+                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${
+                                      period.status === 'CLOSED'
+                                        ? 'bg-sky-600 text-white hover:bg-sky-700'
+                                        : !period.canEdit
+                                          ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50'
+                                          : complete && !missing
+                                            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100'
+                                            : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100'
+                                    }`}
+                                  >
+                                    {period.status === 'CLOSED' ? (
+                                      <Info className="h-4 w-4" aria-hidden />
+                                    ) : !period.canEdit || missing ? (
+                                      <AlertTriangle className="h-4 w-4" aria-hidden />
+                                    ) : complete ? (
+                                      <CheckCircle2 className="h-4 w-4" aria-hidden />
+                                    ) : (
+                                      <Info className="h-4 w-4" aria-hidden />
+                                    )}
+                                  </button>
                                 </td>
                               </tr>
                             )
@@ -582,6 +788,11 @@ export default function CierreAlumnoBoard({
                         </tbody>
                       </table>
                     </div>
+                    <p className="border-t border-amber-100 bg-amber-50/50 px-3 py-1.5 text-[11px] text-slate-600">
+                      El <strong>juicio de reunión</strong> lo carga administración en la matriz de reunión de
+                      profesores; el docente lo consulta acá. El <strong>juicio de asignatura</strong> lo escribe
+                      el docente en esta pantalla.
+                    </p>
                   </div>
                 )}
 
@@ -625,6 +836,24 @@ export default function CierreAlumnoBoard({
             Cancelar
           </button>
         </div>
+      )}
+
+      {infoModal && (
+        <SimpleModal title={infoModal.title} onClose={() => setInfoModal(null)}>
+          <p className="text-sm text-slate-800">{infoModal.body}</p>
+        </SimpleModal>
+      )}
+
+      {meetingModal && (
+        <SimpleModal
+          title={`${meetingModal.periodName} — Juicio de reunión`}
+          onClose={() => setMeetingModal(null)}
+        >
+          <p className="whitespace-pre-wrap text-sm text-slate-800">{meetingModal.text}</p>
+          {meetingModal.meta && (
+            <p className="text-[11px] italic text-slate-500">{meetingModal.meta}</p>
+          )}
+        </SimpleModal>
       )}
     </div>
   )

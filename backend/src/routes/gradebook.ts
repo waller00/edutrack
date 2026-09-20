@@ -51,11 +51,14 @@ import {
 } from '../services/gradebook/moodle-import.js'
 import {
   CLOSURE_BLOCKER_MESSAGES,
+  canEditStudentClosurePeriod,
   closureBlockers,
   describeValue,
   isLateClosure,
+  isPeriodCalendarOpen,
   periodWriteBlock,
 } from '../services/gradebook/period-closure.js'
+import { todayUruguayYmd } from '../services/events/event-versioning.js'
 
 /**
  * Libreta del docente (RF-021, RF-030, RF-002).
@@ -1809,7 +1812,7 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
     }
 
     const level = (ctx.row as any).courseOffering?.course?.level ?? null
-    const [periods, states, photo, assessments] = await Promise.all([
+    const [periods, states, photo, assessments, meetings] = await Promise.all([
       prisma.academicPeriod.findMany({
         where: { schoolYearId: ctx.row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
         orderBy: { sortOrder: 'asc' },
@@ -1832,6 +1835,22 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
           gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' } } } },
         },
       }),
+      // Juicio de reunión: lo carga adscripción/dirección en la matriz de reunión
+      // (`TeacherMeetingRecord`). El docente lo lee acá; no lo edita desde la libreta.
+      prisma.teacherMeetingRecord.findMany({
+        where: {
+          courseOfferingId: ctx.row.courseOfferingId,
+          OR: [{ studentId: student.studentId }, { studentId: null }],
+        },
+        select: {
+          periodId: true,
+          studentId: true,
+          decision: true,
+          createdAt: true,
+          createdBy: { select: { name: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
     ])
 
     const stateByPeriod = new Map(states.map((row) => [row.periodId, row]))
@@ -1843,6 +1862,27 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
       countByPeriod.set(assessment.periodId, (countByPeriod.get(assessment.periodId) ?? 0) + n)
     }
 
+    const meetingByPeriod = new Map<
+      string,
+      { decision: string; createdAt: string; createdByName: string | null }
+    >()
+    for (const period of periods) {
+      const forStudent = meetings.find((m) => m.periodId === period.id && m.studentId === student.studentId)
+      const forGroup = meetings.find((m) => m.periodId === period.id && m.studentId == null)
+      const pick = forStudent ?? forGroup
+      if (!pick) continue
+      const by = pick.createdBy
+      const createdByName = by
+        ? by.name?.trim() || [by.firstName, by.lastName].filter(Boolean).join(' ').trim() || null
+        : null
+      meetingByPeriod.set(period.id, {
+        decision: pick.decision,
+        createdAt: pick.createdAt.toISOString(),
+        createdByName,
+      })
+    }
+
+    const todayYmd = todayUruguayYmd()
     return res.json({
       student: {
         ...student,
@@ -1854,20 +1894,35 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
         const saved = state?.grades[0] ?? null
         const value = saved?.valueHundredths ?? null
         const status = state?.status ?? 'OPEN'
+        const meeting = meetingByPeriod.get(period.id) ?? null
         return {
           periodId: period.id,
           code: period.code,
           name: period.name,
+          startsOn: serializeYmd(period.startsOn),
+          endsOn: serializeYmd(period.endsOn),
           closesOn: serializeYmd(period.closesOn),
           requiresGeneralGrade: period.requiresGeneralGrade,
           requiresConceptualJudgement: period.requiresConceptualJudgement,
           status,
+          closedAt: state?.closedAt ? state.closedAt.toISOString() : null,
           closedLate: state?.closedLate ?? false,
-          canEdit: ctx.access.canGrade && status !== 'CLOSED' && ctx.row.status !== 'ARCHIVED',
+          canEdit: canEditStudentClosurePeriod({
+            canGrade: ctx.access.canGrade,
+            periodStatus: status,
+            gradeBookStatus: ctx.row.status,
+            startsOn: period.startsOn,
+            todayYmd,
+          }),
           assessmentCount: countByPeriod.get(period.id) ?? 0,
           valueHundredths: value,
           conceptualJudgement: saved?.conceptualJudgement ?? null,
           descriptor: describeValue(value, levels as never),
+          /** Texto de la reunión de profesores (si administración lo cargó). */
+          meetingJudgement: meeting?.decision ?? null,
+          meetingJudgementMeta: meeting
+            ? { createdAt: meeting.createdAt, createdByName: meeting.createdByName }
+            : null,
         }
       }),
     })
@@ -1931,9 +1986,11 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
       return res.status(404).json({ message: 'Hay períodos que no pertenecen a este ciclo.', code: 'PERIOD_NOT_FOUND' })
     }
 
+    const todayYmd = todayUruguayYmd()
     const userId = req.user?.id ?? req.user?.sub
     let saved = 0
     for (const entry of parsed.data.entries) {
+      const academic = periodById.get(entry.periodId)!
       const state = await ensureGradeBookPeriod(ctx.row.id, entry.periodId)
       const block = periodWriteBlock({ periodStatus: state.status, gradeBookStatus: ctx.row.status })
       if (block) {
@@ -1941,6 +1998,13 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
         return res.status(409).json({
           message: GRADE_BLOCK_MESSAGES[code],
           code,
+          detail: { periodId: entry.periodId },
+        })
+      }
+      if (!isPeriodCalendarOpen({ startsOn: academic.startsOn, todayYmd })) {
+        return res.status(409).json({
+          message: 'Este período todavía no está habilitado para carga.',
+          code: 'PERIOD_NOT_ENABLED',
           detail: { periodId: entry.periodId },
         })
       }
