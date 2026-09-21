@@ -10,7 +10,8 @@ export default function Page() {
         <header className="border-b border-gray-200 pb-2">
           <h1 className="text-lg font-bold uppercase tracking-wide text-slate-700">Reunión de profesores</h1>
           <p className="text-sm text-gray-600">
-            La matriz del grupo en tamaño de proyección, para mirarla entre todos.
+            Matriz del grupo en tamaño de proyección. El <strong>juicio de reunión</strong> se carga más
+            abajo, en el panel «Juicio / decisiones de la reunión» — no hace falta abrir la ficha del alumno.
           </p>
         </header>
         <GroupMatrix projection />

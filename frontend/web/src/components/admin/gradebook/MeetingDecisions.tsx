@@ -89,11 +89,15 @@ export default function MeetingDecisions({
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
+    <section
+      id="decisiones-reunion"
+      className="scroll-mt-4 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4"
+    >
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">Decisiones de la reunión</h3>
-        <p className="text-xs text-gray-500">
-          Quedan registradas con quién las cargó y cuándo. Sin estudiante, la decisión es del grupo.
+        <h3 className="text-sm font-semibold text-gray-900">Juicio / decisiones de la reunión</h3>
+        <p className="text-xs text-gray-600">
+          Acá se carga el texto que el docente ve en el cierre como <strong>Juicio Reu.</strong> Elegí el
+          alumno en «Sobre» (no hace falta abrir su ficha). Sin alumno, la decisión es del grupo entero.
         </p>
       </div>
 
@@ -149,7 +153,7 @@ export default function MeetingDecisions({
             value={text}
             maxLength={2000}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Se cita a la familia; se deriva a APE; continúa con apoyo…"
+            placeholder="Ej.: Reconocemos logros…; se cita a la familia; continúa con apoyo…"
           />
         </label>
         <div className="flex items-end">
@@ -160,7 +164,7 @@ export default function MeetingDecisions({
             className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" aria-hidden />
-            Registrar
+            Guardar juicio
           </button>
         </div>
       </div>
