@@ -265,8 +265,8 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
             administrativas.
           </p>
 
-          {/* En modo reunión se registran las decisiones acá mismo: es el momento en que se toman. */}
-          {projection && group && (
+          {/* Juicio de reunión: se carga acá (no en la ficha del alumno ni en el cierre del docente). */}
+          {group && periodId && (
             <MeetingDecisions
               courseOfferingId={group.courseOfferingId}
               courseOrientationId={group.courseOrientationId}
