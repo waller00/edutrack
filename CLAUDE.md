@@ -173,6 +173,12 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > Dirección tiene `plan` con alcance `all` y **no** tiene `grade`: así puede corregir la libreta de
 > un docente sin poder tocar una calificación. Con una sola llave esa mitad no se puede expresar.
 
+> **La nota oficial del período es R, no C.** C es la calificación del docente; R, la que queda
+> después de la reunión (`PeriodGrade.meetingValueHundredths`). Boletín, matriz, promedio, ficha e
+> indicadores leen R vía `officialPeriodValue` (`services/gradebook/period-closure.ts`); sin R, la
+> materia está pendiente. Los períodos siguen la planilla del liceo: `kind` DIAGNOSTICO / TRAMO /
+> ENTREGA, y sólo los TRAMO admiten evaluaciones. Las columnas Or/Otras/Ev muestran notas sueltas.
+
 > **La libreta del docente no promedia.** Es una decisión del liceo, no una omisión: la
 > calificación general del período la decide el docente. El promedio vive en la matriz
 > institucional (`transversalAverage`) y en la planilla de reunión, que es donde se usa para
