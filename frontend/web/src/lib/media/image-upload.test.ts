@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
-import { compressImage, fileToDataUrl } from './image-upload'
+import { compressImage, cropToSquare, fileToDataUrl } from './image-upload'
 
 describe('image-upload', () => {
   const originalCreateElement = document.createElement.bind(document)
@@ -61,7 +61,9 @@ describe('image-upload', () => {
     expect(result.type).toBe('image/jpeg')
   })
 
-  it('falls back to the original file when blob generation fails', async () => {
+  it('falla con un mensaje si no se puede generar el blob', async () => {
+    // Antes devolvía el archivo original sin comprimir; eso subía al servidor algo que nadie
+    // validó ni redimensionó. Es mejor cortar acá y decirlo.
     const sourceFile = new File(['raw'], 'avatar.png', { type: 'image/png' })
 
     class MockImage {
@@ -77,10 +79,71 @@ describe('image-upload', () => {
     globalThis.Image = MockImage as unknown as typeof Image
     toBlob.mockImplementation((callback: BlobCallback) => callback?.(null))
 
-    const result = await compressImage(sourceFile, 0.7, 800)
-
+    await expect(compressImage(sourceFile, 0.7, 800)).rejects.toThrow(/No se pudo procesar/)
     expect(drawImage).toHaveBeenCalledWith(expect.any(MockImage), 0, 0, 500, 300)
-    expect(result).toBe(sourceFile)
+  })
+
+  it('rechaza si el archivo no es una imagen, en vez de colgarse para siempre', async () => {
+    // Era el bug: sin `onerror`, un PDF renombrado .jpg dejaba la promesa pendiente y el botón
+    // congelado en "Guardando…".
+    const notAnImage = new File(['%PDF-1.4'], 'documento.jpg', { type: 'image/jpeg' })
+
+    class MockImage {
+      width = 0
+      height = 0
+      onload: null | (() => void) = null
+      onerror: null | (() => void) = null
+
+      set src(_value: string) {
+        this.onerror?.()
+      }
+    }
+
+    globalThis.Image = MockImage as unknown as typeof Image
+
+    await expect(compressImage(notAnImage, 0.7, 800)).rejects.toThrow(/no es una imagen/)
+  })
+
+  it('cropToSquare recorta el cuadrado central de una imagen apaisada', async () => {
+    const sourceFile = new File(['raw'], 'avatar.png', { type: 'image/png' })
+
+    class MockImage {
+      width = 1000
+      height = 400
+      onload: null | (() => void) = null
+
+      set src(_value: string) {
+        this.onload?.()
+      }
+    }
+
+    globalThis.Image = MockImage as unknown as typeof Image
+    toBlob.mockImplementation((callback: BlobCallback) => callback?.(new Blob(['x'], { type: 'image/jpeg' })))
+
+    const result = await cropToSquare(sourceFile, 320)
+
+    // Lado 400 (el menor), desplazado 300 en x para quedar centrado, escalado a 320.
+    expect(drawImage).toHaveBeenCalledWith(expect.any(MockImage), 300, 0, 400, 400, 0, 0, 320, 320)
+    expect(result.type).toBe('image/jpeg')
+  })
+
+  it('cropToSquare no desplaza una imagen ya cuadrada', async () => {
+    class MockImage {
+      width = 600
+      height = 600
+      onload: null | (() => void) = null
+
+      set src(_value: string) {
+        this.onload?.()
+      }
+    }
+
+    globalThis.Image = MockImage as unknown as typeof Image
+    toBlob.mockImplementation((callback: BlobCallback) => callback?.(new Blob(['x'], { type: 'image/jpeg' })))
+
+    await cropToSquare(new File(['raw'], 'a.png', { type: 'image/png' }), 320)
+
+    expect(drawImage).toHaveBeenCalledWith(expect.any(MockImage), 0, 0, 600, 600, 0, 0, 320, 320)
   })
 
   it('converts files into data urls', async () => {

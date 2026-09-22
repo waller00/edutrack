@@ -33,6 +33,8 @@ r.get("/", authGuard, requirePermission("licenses.read", "all"), async (req, res
   try {
     const from = typeof req.query.from === "string" ? parseDateOnly(req.query.from) : new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1));
     const to = typeof req.query.to === "string" ? parseDateOnly(req.query.to) : new Date(Date.UTC(new Date().getUTCFullYear(), 11, 31));
+    const schoolYearId = typeof req.query.schoolYearId === "string" && req.query.schoolYearId ? req.query.schoolYearId : null;
+    const schoolYearFilter = schoolYearId ? Prisma.sql`AND "schoolYearId" = ${schoolYearId}` : Prisma.empty;
 
     const rows = await prisma.$queryRaw<Array<{
       id: string;
@@ -46,7 +48,7 @@ r.get("/", authGuard, requirePermission("licenses.read", "all"), async (req, res
     }>>(Prisma.sql`
       SELECT id, date, type, reason, notes, "schoolYearId", "createdAt", "updatedAt"
       FROM "NonWorkingDay"
-      WHERE date >= ${from} AND date <= ${to}
+      WHERE date >= ${from} AND date <= ${to} ${schoolYearFilter}
       ORDER BY date ASC
     `);
 

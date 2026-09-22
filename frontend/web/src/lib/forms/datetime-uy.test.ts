@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatClockHhMmInUruguayFromIso,
   formatDateInUruguay,
+  formatDateTimeInUruguay,
   formatTimeInUruguay,
   isUruguayWallDateTimeInPast,
 } from '@/lib/forms/datetime-uy'
@@ -17,6 +18,18 @@ describe('datetime-uy', () => {
     expect(formatDateInUruguay('2025-06-15T15:00:00.000Z')).toMatch(/2025/)
     expect(formatDateInUruguay('2025-06-15T15:00:00.000Z')).toMatch(/06/)
     expect(formatDateInUruguay('2025-06-15T15:00:00.000Z')).toMatch(/15/)
+  })
+
+  it('formatea fecha + hora dd/mm/yyyy en Uruguay', () => {
+    const s = formatDateTimeInUruguay('2025-06-15T15:00:00.000Z') // 12:00 Uruguay
+    expect(s).toMatch(/15\/06\/2025/)
+    expect(s).toMatch(/12:00/)
+  })
+
+  it('fecha + hora con segundos cuando se pide', () => {
+    const s = formatDateTimeInUruguay('2025-06-15T15:00:07.000Z', { seconds: true })
+    expect(s).toMatch(/15\/06\/2025/)
+    expect(s).toMatch(/12:00:07/)
   })
 
   it('ISO → HH:MM para selects (Uruguay)', () => {

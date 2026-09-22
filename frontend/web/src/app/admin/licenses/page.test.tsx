@@ -7,6 +7,10 @@ vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
 }))
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
+const schoolYearContextMock = vi.hoisted(() => ({ current: null as any }))
+vi.mock('@/contexts/AdminSchoolYearContext', () => ({
+  useOptionalAdminSchoolYear: () => schoolYearContextMock.current,
+}))
 const mockedApi = vi.mocked(api)
 
 const activeLicense = {
@@ -24,6 +28,7 @@ const activeLicense = {
 describe('LicensesPage', () => {
   beforeEach(() => {
     mockedApi.mockReset()
+    schoolYearContextMock.current = null
   })
 
   it('carga licencias sin acciones de aprobación', async () => {
@@ -79,6 +84,52 @@ describe('LicensesPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Días no laborables' }))
 
     expect((await screen.findAllByText('12/06/2026')).length).toBeGreaterThan(0)
+  })
+
+  it('aplica el ciclo lectivo seleccionado a licencias y días no laborables', async () => {
+    schoolYearContextMock.current = {
+      loading: false,
+      years: [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          code: 2025,
+          label: 'Ciclo 2025',
+          startsOn: '2025-03-01T00:00:00.000Z',
+          endsOn: '2025-12-15T00:00:00.000Z',
+          status: 'ACTIVE',
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-01T00:00:00.000Z',
+        },
+      ],
+      activeId: '11111111-1111-4111-8111-111111111111',
+      selectedId: '11111111-1111-4111-8111-111111111111',
+      allYears: false,
+      setSelectedId: vi.fn(),
+      setAllYears: vi.fn(),
+      reload: vi.fn(),
+      schoolYearQuery: 'schoolYearId=11111111-1111-4111-8111-111111111111',
+      schoolYearScopedQuery: 'schoolYearId=11111111-1111-4111-8111-111111111111',
+    }
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('medical-leaves/all')) return { data: [] }
+      if (String(url).includes('non-working-days')) return { data: [] }
+      if (String(url).includes('admin/users')) return { data: [] }
+      return { data: [] }
+    })
+
+    render(<LicensesPage />)
+
+    await waitFor(() => {
+      expect(mockedApi).toHaveBeenCalledWith(
+        expect.stringContaining('/medical-leaves/all?'),
+      )
+      expect(mockedApi).toHaveBeenCalledWith(
+        expect.stringContaining('schoolYearId=11111111-1111-4111-8111-111111111111'),
+      )
+      expect(mockedApi).toHaveBeenCalledWith(
+        expect.stringContaining('/non-working-days?from=2025-03-01&to=2025-12-15&schoolYearId=11111111-1111-4111-8111-111111111111'),
+      )
+    })
   })
 
   it('elimina licencias seleccionadas', async () => {
@@ -175,8 +226,8 @@ describe('LicensesPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /nueva licencia/i }))
     fireEvent.change(screen.getByLabelText('Usuario de licencia'), { target: { value: 'u1' } })
-    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2025-01-01' } })
-    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '2025-01-03' } })
+    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '01/01/2025' } })
+    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '03/01/2025' } })
     expect(screen.queryByLabelText('Motivo (obligatorio)')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Crear Licencia' }))
 

@@ -25,6 +25,27 @@ function roundTo(n: number, decimals: number) {
   return Math.round(n * f) / f
 }
 
+function isAbsentStatus(status: AttendanceStatusResolved) {
+  return status === 'ABSENT_NOT_JUSTIFIED' || status === 'ABSENT_JUSTIFIED' || status === 'SUBSTITUTED'
+}
+
+function isCoveredStatus(status: AttendanceStatusResolved) {
+  // SUBSTITUTED es la ausencia del titular: NO aporta cobertura. La cobertura real proviene de la
+  // presencia efectiva (titular presente/tarde, o el suplente que sí asistió como instancia propia).
+  return status === 'PRESENT' || status === 'LATE'
+}
+
+/**
+ * Estado efectivo para conteos de ausencia. "Suplido" (SUBSTITUTED) no es un estado en sí: es la
+ * ausencia del titular, justificada o no según haya licencia activa que la cubra.
+ */
+export function effectiveAbsenceStatus(r: ResolvedAttendanceByInstance): AttendanceStatusResolved {
+  if (r.checkInStatusResolved === 'SUBSTITUTED') {
+    return (r.isJustifiedAbsence ? 'ABSENT_JUSTIFIED' : 'ABSENT_NOT_JUSTIFIED') as AttendanceStatusResolved
+  }
+  return r.checkInStatusResolved
+}
+
 export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance[], opts: { plannedInstancesCount?: number }) {
   const totalPlan = opts.plannedInstancesCount ?? resolvedInstances.length
   if (totalPlan === 0) {
@@ -45,19 +66,10 @@ export function computeRangeKpis(resolvedInstances: ResolvedAttendanceByInstance
   const M1_PUNCTUALITY_pct = totalIn ? roundTo(pct(onTime, totalIn), 2) : 0
   const M2_LATE_RATE_pct = totalIn ? roundTo(pct(late, totalIn), 2) : 0
 
-  const absent = resolvedInstances.filter(
-    (i) =>
-      i.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED' ||
-      i.checkInStatusResolved === 'ABSENT_JUSTIFIED' ||
-      i.checkInStatusResolved === 'SUBSTITUTED',
-  ).length
+  const absent = resolvedInstances.filter((i) => isAbsentStatus(i.checkInStatusResolved)).length
   const M4_AOP_pct = roundTo(pct(absent, totalPlan), 2)
 
-  const covered = resolvedInstances.filter((i) => {
-    const inCovered = i.checkInStatusResolved === 'PRESENT' || i.checkInStatusResolved === 'LATE'
-    const outCovered = i.checkOutStatusResolved === 'EXIT' || i.checkOutStatusResolved === 'EARLY_EXIT'
-    return inCovered || outCovered
-  }).length
+  const covered = resolvedInstances.filter((i) => isCoveredStatus(i.checkInStatusResolved)).length
   const M6_COVERAGE_CP_pct = roundTo(pct(covered, totalPlan), 2)
 
   // Horas reales vs plan: Delta% con denom planned_total.
@@ -228,7 +240,6 @@ const STATUS_DISTRIBUTION_ORDER: AttendanceStatusResolved[] = [
   'LATE',
   'ABSENT_NOT_JUSTIFIED',
   'ABSENT_JUSTIFIED',
-  'SUBSTITUTED',
 ]
 
 /** Distribución de estados de entrada (check-in) sobre el total planificado. */
@@ -236,7 +247,8 @@ export function computeStatusDistribution(resolved: ResolvedAttendanceByInstance
   const totalPlanned = resolved.length
   const counts = new Map<AttendanceStatusResolved, number>()
   for (const r of resolved) {
-    const s = r.checkInStatusResolved
+    // "Suplido" no es categoría propia: se mapea a ausencia justificada/no según licencia.
+    const s = effectiveAbsenceStatus(r)
     counts.set(s, (counts.get(s) ?? 0) + 1)
   }
   const rows = STATUS_DISTRIBUTION_ORDER.map((status) => {
@@ -326,10 +338,12 @@ export function computeTopRiskPeople(
       byUser.set(userId, row)
     }
 
+    // "Suplido" del titular se contabiliza como ausencia (justificada/no según licencia).
+    const eff = effectiveAbsenceStatus(r)
     row.plannedCount += 1
-    if (r.checkInStatusResolved === 'LATE') row.lateCount += 1
-    if (r.checkInStatusResolved === 'ABSENT_NOT_JUSTIFIED') row.absentNotJustifiedCount += 1
-    if (r.checkInStatusResolved === 'ABSENT_JUSTIFIED') row.absentJustifiedCount += 1
+    if (eff === 'LATE') row.lateCount += 1
+    if (eff === 'ABSENT_NOT_JUSTIFIED') row.absentNotJustifiedCount += 1
+    if (eff === 'ABSENT_JUSTIFIED') row.absentJustifiedCount += 1
   }
 
   const out: DashboardTopRiskPerson[] = [...byUser.values()].map((row) => ({

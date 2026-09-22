@@ -84,6 +84,7 @@ services:
       NODE_ENV: production
       PORT: 4000
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@pg:5432/${POSTGRES_DB:-asistencias}?schema=public}
+      # Solo lectura para el asistente NL->SQL; si falta, ese modo no ejecuta nada.
       PRISMA_DB_PUSH_FLAGS: ${PRISMA_DB_PUSH_FLAGS:---accept-data-loss}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # --- Keycloak / BFF ---
@@ -127,11 +128,6 @@ services:
       DIDIT_WEBHOOK_SECRET: ${DIDIT_WEBHOOK_SECRET:-}
       # Opcional: callback HTTPS para crear sesión (Didit); ej. https://TU-NGROK.ngrok-free.app/register?liveness=1
       DIDIT_CALLBACK_URL: ${DIDIT_CALLBACK_URL:-}
-      # RF-10 asistente (OpenAI): definir en .env del host; sin esto el endpoint responde 503
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      OPENAI_SQL_MODEL: ${OPENAI_SQL_MODEL:-}
-      QUERY_ASSISTANT_MODE: ${QUERY_ASSISTANT_MODE:-}
       ALLOW_ADMIN_TESTING_TOOLS: ${ALLOW_ADMIN_TESTING_TOOLS:-1}
       # Moodle: en local con Docker, MOODLE_BASE_URL=http://moodle:8080 (red moodle-net) y patch de wwwroot; ver scripts/patch-moodle-wwwroot-dynamic.php
       MOODLE_BASE_URL: ${MOODLE_BASE_URL:-}
@@ -147,6 +143,12 @@ services:
       # URL pública de Moodle para links en emails a alumnos (default: MOODLE_BASE_URL).
       MOODLE_PUBLIC_URL: ${MOODLE_PUBLIC_URL:-}
       ZKTECO_ICLOCK_PORT: ${ZKTECO_ICLOCK_PORT:-8081}
+      # Dispositivo biométrico F22: el seed usa estos valores para enlazar el equipo físico por su SN.
+      BIOMETRIC_DEVICE_CODE: ${BIOMETRIC_DEVICE_CODE:-}
+      BIOMETRIC_ADMS_SERIAL: ${BIOMETRIC_ADMS_SERIAL:-}
+      BIOMETRIC_DEVICE_NAME: ${BIOMETRIC_DEVICE_NAME:-}
+      BIOMETRIC_DEVICE_SECRET: ${BIOMETRIC_DEVICE_SECRET:-}
+      BIOMETRIC_DEVICE_TZ: ${BIOMETRIC_DEVICE_TZ:-}
       # Observabilidad (Sentry backend): vacio = deshabilitado
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}

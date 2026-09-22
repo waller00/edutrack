@@ -32,7 +32,8 @@ import {
 import { ensureMoodleUserById } from '../services/moodle.js';
 import { findNonWorkingDayForDate } from '../services/non-working-days.js';
 import { conflictKindBetween, findEventOverlapConflict, type EventSchedule } from '../services/events/event-overlap.js';
-import { isEventStartInPast, isMovingEventStartToPast, splitEventDefinitionForEdit, todayUruguayYmd } from '../services/events/event-versioning.js';
+import { hasUpcomingWeeklyOccurrence, isEventStartInPast, isMovingEventStartToPast, splitEventDefinitionForEdit, todayUruguayYmd, ymdInUruguay } from '../services/events/event-versioning.js';
+import { resolveOccurrenceInstant } from '../services/events/occurrence-instant.js';
 
 const r = Router();
 
@@ -773,12 +774,6 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       return res.status(400).json({ message: 'Fechas/hora inválidas (usar YYYY-MM-DD y HH:MM, hora de Uruguay)' });
     }
 
-    if (isEventStartInPast(startDateUtc)) {
-      return res.status(400).json({
-        message: 'No se pueden crear eventos en el pasado. La fecha y hora de inicio deben ser actuales o futuras.',
-      });
-    }
-
     // Validaciones para recurrencia.
     const isRecurring = Boolean(eventData.isRecurring);
     const recurrenceType = eventData.recurrenceType ?? (isRecurring ? 'WEEKLY' : 'NONE');
@@ -809,6 +804,37 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
       if (recurrenceEndUtc.getTime() < todayStartUtc.getTime()) {
         return res.status(400).json({ message: 'La fecha de fin de repetición ya pasó' });
       }
+    }
+
+    // Control de "pasado":
+    // - Evento único: el inicio no puede estar en el pasado.
+    // - Evento repetitivo: la primera ocurrencia (p. ej. hoy a las 9:00 cuando ya son las 18:00)
+    //   puede haber pasado; lo válido es que exista al menos una ocurrencia futura. La serie
+    //   arranca sola en la próxima ocurrencia (p. ej. el miércoles siguiente).
+    if (!isRecurring) {
+      if (isEventStartInPast(startDateUtc)) {
+        return res.status(400).json({
+          message: 'No se pueden crear eventos en el pasado. La fecha y hora de inicio deben ser actuales o futuras.',
+        });
+      }
+    } else if (recurrenceType === 'WEEKLY') {
+      const upcoming = hasUpcomingWeeklyOccurrence({
+        anchorYmd: ymd,
+        startHh: tStart.hh,
+        startMm: tStart.mm,
+        daysOfWeek: eventData.daysOfWeek,
+        recurrenceEndYmd: recurrenceEndUtc ? ymdInUruguay(recurrenceEndUtc) : null,
+      });
+      if (!upcoming) {
+        return res.status(400).json({
+          message: 'La repetición no tiene próximas ocurrencias: ya pasaron todos los días seleccionados dentro del rango. Ajustá los días o la fecha de fin.',
+        });
+      }
+    } else if (isEventStartInPast(startDateUtc)) {
+      // Recurrencias no semanales (p. ej. mensual): mantener la regla de inicio futuro.
+      return res.status(400).json({
+        message: 'No se pueden crear eventos en el pasado. La fecha y hora de inicio deben ser actuales o futuras.',
+      });
     }
 
     // Día no laborable: bloquea solo eventos únicos (la serie recurrente se marca en el calendario).
@@ -1847,31 +1873,6 @@ const occurrenceSelect = {
   effectiveFrom: true,
   effectiveUntil: true,
 } as const;
-
-function shiftYmd(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-/** Resuelve el instante UTC de la ocurrencia de un evento recurrente en el día civil `ymd`. */
-function resolveOccurrenceInstant(parent: any, ymd: string): { startAt: Date; endAt: Date } | null {
-  if (!parent.isRecurring) return null;
-  // Ventana ±1 día: un YYYY-MM-DD interpretado como UTC cae en el día civil anterior en UY,
-  // así que expandimos un margen y emparejamos por la fecha civil real de la ocurrencia.
-  const instances = expandRecurringEvent({ ...parent, childEvents: [] }, shiftYmd(ymd, -1), shiftYmd(ymd, 1)) as any[];
-  const match = instances.find((occ) => {
-    const occYmd = DateTime.fromJSDate(new Date(occ.startDate), { zone: 'utc' })
-      .setZone(getAppTimezone())
-      .toFormat('yyyy-MM-dd');
-    return occYmd === ymd;
-  });
-  if (!match) return null;
-  return {
-    startAt: new Date(match.startTime ?? match.startDate),
-    endAt: new Date(match.endTime ?? match.startDate),
-  };
-}
 
 /** Carga el evento padre + valida que sea recurrente, el permiso de scope y la ocurrencia. */
 async function loadOccurrenceContext(

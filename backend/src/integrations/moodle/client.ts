@@ -61,9 +61,23 @@ export function moodleUserAuthMethod(): string {
   return process.env.MOODLE_USER_AUTH?.trim() || "manual";
 }
 
-/** Idioma de las cuentas Moodle creadas (default español; overridable por env). */
-export function moodleUserLang(): string {
-  return process.env.MOODLE_USER_LANG?.trim() || "es";
+/**
+ * Idioma con el que se crean las cuentas Moodle.
+ *
+ * Devuelve `null` por defecto: en ese caso NO se envía el parámetro `lang` y la cuenta hereda el
+ * idioma por defecto del sitio. Esto es deliberado: si el pack de idioma no está instalado, Moodle
+ * rechaza TODA creación/actualización de usuario (`invalidparameter`), rompiendo la sincronización
+ * entera. Sólo se envía `lang` si `MOODLE_USER_LANG` está explícitamente seteado (y debe coincidir
+ * con un pack instalado en Moodle).
+ */
+export function moodleUserLang(): string | null {
+  return process.env.MOODLE_USER_LANG?.trim() || null;
+}
+
+/** Par `{ "<prefix>[lang]": value }` sólo si hay idioma configurado; vacío en caso contrario. */
+export function moodleUserLangParam(prefix: string): Record<string, string> {
+  const lang = moodleUserLang();
+  return lang ? { [`${prefix}[lang]`]: lang } : {};
 }
 
 /**

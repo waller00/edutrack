@@ -13,7 +13,7 @@ vi.mock("./client.js", () => ({
   moodleRest: moodleRestMock,
   isMoodleIntegrationEnabled: enabledMock,
   moodleUserAuthMethod: authMethodMock,
-  moodleUserLang: () => "es",
+  moodleUserLangParam: () => ({}),
 }));
 vi.mock("../../db/prisma.js", () => ({ prisma: prismaMock }));
 
@@ -112,7 +112,7 @@ describe("syncMoodleUser", () => {
     });
   });
 
-  it("marca confirmed=1 al crear usuarios oauth2", async () => {
+  it("crea usuarios oauth2 con auth=oauth2 y SIN la key confirmed (Moodle la rechaza)", async () => {
     authMethodMock.mockReturnValue("oauth2");
     moodleRestMock.mockImplementation(async (fn: string) => {
       if (fn === "core_user_get_users_by_field") return [];
@@ -125,7 +125,9 @@ describe("syncMoodleUser", () => {
     const createCall = moodleRestMock.mock.calls.find((c) => c[0] === "core_user_create_users");
     const params = createCall![1] as Record<string, string>;
     expect(params["users[0][auth]"]).toBe("oauth2");
-    expect(params["users[0][confirmed]"]).toBe("1");
+    // `core_user_create_users` rechaza `confirmed` ("Unexpected keys (confirmed) detected");
+    // los usuarios creados por el WS ya quedan confirmados.
+    expect(params["users[0][confirmed]"]).toBeUndefined();
   });
 
   it("lanza si la creación no devuelve un id (la outbox reintentará)", async () => {

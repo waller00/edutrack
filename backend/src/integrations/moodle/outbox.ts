@@ -14,10 +14,23 @@ import { syncMoodleStudentById } from "./student-users.js";
  */
 
 const BACKOFF_BASE_MS = 60_000; // 1 min, duplicando por intento
+let outboxWakeScheduled = false;
 
 function backoffFor(attempts: number): Date {
   const ms = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1), 6 * 60 * 60 * 1000);
   return new Date(Date.now() + ms);
+}
+
+function wakeOutboxSoon(): void {
+  if (outboxWakeScheduled) return;
+  outboxWakeScheduled = true;
+  const t = setTimeout(() => {
+    outboxWakeScheduled = false;
+    void processOutboxOnce(20).catch((error) => {
+      console.error("[moodle] outbox wake falló:", error);
+    });
+  }, 250);
+  t.unref?.();
 }
 
 /** Encola (idempotente por `dedupeKey`) un upsert de usuario. No bloquea ni lanza. */
@@ -42,6 +55,7 @@ export async function enqueueUserUpsert(userId: string): Promise<void> {
         payload: { userId },
       },
     });
+    wakeOutboxSoon();
   } catch (e) {
     console.error("[moodle] enqueueUserUpsert falló:", userId, e);
   }
@@ -69,6 +83,7 @@ export async function enqueueStudentUserUpsert(studentId: string): Promise<void>
         payload: { studentId },
       },
     });
+    wakeOutboxSoon();
   } catch (e) {
     console.error("[moodle] enqueueStudentUserUpsert falló:", studentId, e);
   }

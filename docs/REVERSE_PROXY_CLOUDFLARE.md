@@ -1,9 +1,9 @@
 # Reverse proxy publico con Cloudflare
 
-Este documento describe la primera etapa para publicar EduTrack por HTTPS detras
-de Cloudflare usando Nginx como reverse proxy. La etapa es aditiva: no cierra
-todavia los puertos directos `3000`, `4000` ni `8089`; eso se hace despues de
-validar el flujo completo.
+Este documento describe como publicar EduTrack por HTTPS detras de Cloudflare
+usando Nginx como reverse proxy. En produccion el proxy publica `80/443`; los
+servicios internos `web`, `auth` y `keycloak` no deben publicar `3000`, `4000`
+ni `8089` directamente.
 
 ## Arquitectura
 
@@ -80,19 +80,25 @@ bash scripts/validate-reverse-proxy-env.sh .env
 Validar configuracion combinada:
 
 ```bash
-docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml config
+docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml config
 ```
 
 Levantar o actualizar:
 
 ```bash
-docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml up -d reverse-proxy
+docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml up -d reverse-proxy
 ```
 
 Si se modificaron variables de frontend:
 
 ```bash
-docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml up -d --build web auth keycloak reverse-proxy
+docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml up -d --build web auth keycloak reverse-proxy
+```
+
+Si Moodle se levanta en el mismo servidor, cerrarlo tambien detras del proxy:
+
+```bash
+docker compose -f docker-compose.moodle.yml -f docker-compose.close-ports.moodle.prod.yml up -d
 ```
 
 ## Prueba local sin TLS
@@ -197,8 +203,9 @@ Cuando las validaciones anteriores pasen:
 Detener solo el proxy:
 
 ```bash
-docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml stop reverse-proxy
+docker compose -f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml stop reverse-proxy
 ```
 
-Mientras los puertos directos sigan publicados, el frontend, backend, Keycloak y
-Moodle continuan disponibles por sus rutas previas.
+Si se detiene el proxy en produccion, el sitio publico deja de responder; los
+servicios internos siguen vivos en la red Docker para diagnostico con
+`./scripts/dc-cloud.sh exec`.

@@ -1,8 +1,9 @@
 'use client'
 import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
+import DateField from '@/components/forms/DateField'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import {
@@ -21,21 +22,26 @@ import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import AdminIncidentsPanel from '@/components/admin/AdminIncidentsPanel'
 import AttendanceJustifyModal from '@/components/admin/AttendanceJustifyModal'
 import PersonAttendanceDrawer from '@/components/admin/PersonAttendanceDrawer'
+import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   BarChart3,
   Calendar,
   ChevronDown,
   ChevronRight,
+  Download,
   FileSpreadsheet,
   FileText,
+  Loader2,
   Search,
   Trash2,
 } from 'lucide-react'
 
-function withSchoolYear(path: string, schoolYearQuery: string): string {
-  if (!schoolYearQuery) return path
-  return path.includes('?') ? `${path}&${schoolYearQuery}` : `${path}?${schoolYearQuery}`
-}
+type NovedadesFormat = 'XLSX' | 'CSV'
+
+const NOVEDADES_EXPORT_FORMATS: { value: NovedadesFormat; label: string; hint: string }[] = [
+  { value: 'XLSX', label: 'Excel (.xlsx)', hint: 'Para revisar y ajustar antes de importar' },
+  { value: 'CSV', label: 'CSV (.csv)', hint: 'Formato universal de importación' },
+]
 
 function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
   if (attendance.type === 'CHECK_OUT' && attendance.status === 'PRESENT') {
@@ -105,6 +111,11 @@ type AttendanceStats = {
   absenceRate: number
   exitRate: number
   earlyExitRate: number
+}
+
+function formatRate(value: unknown): string {
+  const rate = Number(value ?? 0)
+  return `${Number.isFinite(rate) ? rate : 0}%`
 }
 
 type User = {
@@ -630,6 +641,26 @@ export default function AdminAttendance() {
 
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [novedadesExporting, setNovedadesExporting] = useState<'' | NovedadesFormat>('')
+  const [novedadesMenuOpen, setNovedadesMenuOpen] = useState(false)
+  const novedadesMenuRef = useRef<HTMLDivElement | null>(null)
+
+  // El menú de formato de novedades se cierra al hacer clic fuera o con Escape.
+  useEffect(() => {
+    if (!novedadesMenuOpen) return
+    function onPointerDown(event: MouseEvent) {
+      if (!novedadesMenuRef.current?.contains(event.target as Node)) setNovedadesMenuOpen(false)
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setNovedadesMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [novedadesMenuOpen])
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
@@ -955,6 +986,87 @@ export default function AdminAttendance() {
     }
   }
 
+  // El export de novedades sólo acepta estados del enum de la asistencia conciliada; el valor
+  // especial "ABSENCES" (usado en pantalla para agrupar ausencias) no aplica al backend de exports.
+  function toExportStatus(status: string): string | undefined {
+    const allowed = [
+      'PRESENT',
+      'LATE',
+      'ABSENT_NOT_JUSTIFIED',
+      'ABSENT_JUSTIFIED',
+      'EXIT',
+      'EARLY_EXIT',
+      'JUSTIFIED',
+      'SUBSTITUTED',
+    ]
+    return allowed.includes(status) ? status : undefined
+  }
+
+  // Novedades de liquidación de sueldos: una fila por docente y concepto (CI, horas dictadas,
+  // suplencias, faltas, licencias). Respeta exactamente los mismos filtros que la tabla en pantalla.
+  async function exportNovedades(format: NovedadesFormat) {
+    setNovedadesMenuOpen(false)
+    setNovedadesExporting(format)
+    try {
+      const apiUrl = apiBaseUrl()
+      const to = filters.endDate || new Date().toISOString().split('T')[0]
+      const from = filters.startDate || `${to.slice(0, 4)}-01-01`
+
+      const payload = {
+        reportKey: 'payroll_novedades',
+        format,
+        from,
+        to,
+        filters: {
+          role: filters.role || undefined,
+          userId: filters.userId || undefined,
+          eventId: filters.eventId || undefined,
+          eventType: filters.eventType || undefined,
+          status: toExportStatus(filters.status),
+          ...(syCtx?.allYears ? { allYears: true } : {}),
+          ...(!syCtx?.allYears && (syCtx?.selectedId ?? syCtx?.activeId)
+            ? { schoolYearId: syCtx.selectedId ?? syCtx.activeId }
+            : {}),
+        },
+      }
+
+      const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(payload) })
+      const exportId = res.exportId
+
+      let exportDone = false
+      for (let i = 0; i < 40; i++) {
+        const st = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        if (st.status === 'DONE') {
+          exportDone = true
+          break
+        }
+        if (st.status === 'FAILED') throw new Error(st.errorMessage || 'Error generando novedades')
+        await new Promise((r) => setTimeout(r, 250))
+      }
+      if (!exportDone) throw new Error('La exportación tardó demasiado en generarse')
+
+      const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
+      if (!dl.ok) throw new Error(`Error descargando novedades: ${dl.status}`)
+
+      const blob = await dl.blob()
+      const url = globalThis.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `EduTrack_Novedades_Liquidacion_${from.slice(0, 7)}_${to.slice(0, 7)}.${format === 'XLSX' ? 'xlsx' : 'csv'}`
+      document.body.appendChild(a)
+      a.click()
+      globalThis.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      setMessage(`✅ Novedades de liquidación (${format}) generadas correctamente`)
+    } catch (error: any) {
+      console.error('Error novedades:', error)
+      setMessage(`❌ Error: ${error.message || 'Error al exportar novedades'}`)
+    } finally {
+      setNovedadesExporting('')
+    }
+  }
+
   return (
     <RoleGuard permission="attendance.read" permissionScope="all">
       <main className="responsive-page max-w-7xl space-y-8">
@@ -988,6 +1100,7 @@ export default function AdminAttendance() {
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                 <button
                   onClick={() => exportReport('excel')}
+                  aria-label="Exportar asistencias a Excel"
                   className="btn-success inline-flex items-center gap-1.5 text-sm"
                 >
                   <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
@@ -995,6 +1108,7 @@ export default function AdminAttendance() {
                 </button>
                 <button
                   onClick={() => exportReport('pdf')}
+                  aria-label="Exportar asistencias a PDF"
                   className="btn-danger inline-flex items-center gap-1.5 text-sm"
                 >
                   <FileText className="h-4 w-4 shrink-0" aria-hidden />
@@ -1039,10 +1153,9 @@ export default function AdminAttendance() {
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Fecha inicio
               </label>
-              <input
-                type="date"
+              <DateField
                 value={filters.startDate}
-                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                onChange={(v) => setFilters({ ...filters, startDate: v })}
                 className="input-field"
               />
             </div>
@@ -1051,10 +1164,9 @@ export default function AdminAttendance() {
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Fecha fin
               </label>
-              <input
-                type="date"
+              <DateField
                 value={filters.endDate}
-                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                onChange={(v) => setFilters({ ...filters, endDate: v })}
                 className="input-field"
               />
             </div>
@@ -1253,6 +1365,68 @@ export default function AdminAttendance() {
               </select>
             </div>
           </div>
+
+          {/* Novedades de liquidación de sueldos: usa exactamente los filtros de arriba */}
+          <div className="mt-6 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2.5">
+              <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+              <div>
+                <div className="text-sm font-medium text-gray-900">Novedades de liquidación (sueldos)</div>
+                <p className="mt-0.5 max-w-xl text-xs leading-relaxed text-gray-500">
+                  Una fila por docente y concepto (CI, horas dictadas, suplencias, faltas, licencias) con los filtros
+                  aplicados, para importar en el sistema de sueldos (GNS, Memory, Kash, LIDESU). Si no elegís persona ni
+                  perfil, se toman todos los docentes.
+                </p>
+              </div>
+            </div>
+
+            <div className="relative shrink-0" ref={novedadesMenuRef}>
+              <button
+                type="button"
+                disabled={novedadesExporting !== ''}
+                onClick={() => setNovedadesMenuOpen(!novedadesMenuOpen)}
+                aria-haspopup="menu"
+                aria-expanded={novedadesMenuOpen}
+                className="btn-secondary inline-flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-50 sm:w-auto"
+              >
+                {novedadesExporting !== '' ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+                {novedadesExporting !== '' ? 'Generando…' : 'Exportar novedades'}
+                <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+              </button>
+
+              {novedadesMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Formato de exportación de novedades"
+                  className="absolute right-0 z-20 mt-2 w-64 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg"
+                >
+                  {NOVEDADES_EXPORT_FORMATS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => exportNovedades(option.value)}
+                      className="flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-emerald-50"
+                    >
+                      {option.value === 'XLSX' ? (
+                        <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                      ) : (
+                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                      )}
+                      <span>
+                        <span className="block text-sm font-medium text-gray-900">{option.label}</span>
+                        <span className="block text-xs text-gray-500">{option.hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Métricas (KPIs) */}
@@ -1260,7 +1434,7 @@ export default function AdminAttendance() {
           <div className="p-4 bg-white border rounded-lg shadow-sm">
             <div className="text-sm text-gray-500">{showingExitStats ? 'Tasa de Salida' : 'Tasa de Presencia'}</div>
             <div className="text-2xl font-bold text-emerald-600">
-              {statsLoading || !stats ? '—' : `${showingExitStats ? stats.exitRate : stats.attendanceRate}%`}
+              {statsLoading || !stats ? '—' : formatRate(showingExitStats ? stats.exitRate : stats.attendanceRate)}
             </div>
             <div className="text-xs text-gray-500">
               {showingExitStats
@@ -1283,7 +1457,7 @@ export default function AdminAttendance() {
               {statsLoading || !stats ? '—' : showingExitStats ? stats.earlyExitCount : stats.lateCount}
             </div>
             <div className="text-xs text-gray-500">
-              {statsLoading || !stats ? '' : `${showingExitStats ? stats.earlyExitRate : stats.lateRate}%`} tasa
+              {statsLoading || !stats ? '' : `${formatRate(showingExitStats ? stats.earlyExitRate : stats.lateRate)} tasa`}
             </div>
           </div>
 

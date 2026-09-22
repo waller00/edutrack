@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import DateField from '@/components/forms/DateField'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
@@ -15,7 +16,6 @@ import {
   Calendar,
   FileSpreadsheet,
   FileText,
-  GraduationCap,
   LayoutGrid,
   Lightbulb,
   Loader2,
@@ -23,10 +23,9 @@ import {
   RefreshCw,
   Search,
   Trash2,
-  Users,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import TrendLineChart from '@/components/charts/TrendLineChart'
 import BreakdownBarChart from '@/components/charts/BreakdownBarChart'
 import StatusDonutChart from '@/components/charts/StatusDonutChart'
@@ -371,7 +370,8 @@ export default function AdminAnalyticsPage() {
   /** Vacío = sin filtro (todos los usuarios planificados en el período). */
   const [roleFilter, setRoleFilter] = useState<string>('')
   const [eventType, setEventType] = useState<string>('')
-  const [granularity, setGranularity] = useState<SeriesGranularity>('week')
+  // null = ninguna granularidad elegida (sin botón resaltado); las tendencias usan 'week' por defecto.
+  const [granularity, setGranularity] = useState<SeriesGranularity | null>(null)
   const [users, setUsers] = useState<AnalyticsUserOption[]>([])
   const [selectedUserId, setSelectedUserId] = useState('')
   const [userSearch, setUserSearch] = useState('')
@@ -381,17 +381,57 @@ export default function AdminAnalyticsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
-  const [exportingKind, setExportingKind] = useState<'xlsx' | 'csv' | 'pdf' | 'person' | 'course' | null>(null)
+  const [exportingKind, setExportingKind] = useState<
+    'xlsx' | 'csv' | 'pdf' | 'person' | 'course' | null
+  >(null)
   const [exportNotice, setExportNotice] = useState<string>('')
 
   const apiUrl = apiBaseUrl()
   const analyticsSchoolYearId = syCtx?.selectedId ?? syCtx?.activeId ?? null
 
+  // Fila del ciclo lectivo efectivamente filtrado (para derivar su rango de fechas).
+  const selectedYearRow = useMemo(
+    () => (analyticsSchoolYearId ? syCtx?.years.find((y) => y.id === analyticsSchoolYearId) ?? null : null),
+    [syCtx?.years, analyticsSchoolYearId],
+  )
+
+  // Rango de fechas que corresponde al ciclo lectivo en foco: el dashboard debe mirar
+  // el período del ciclo seleccionado, no los últimos 30 días (que suelen quedar fuera
+  // de un ciclo cerrado y dejan todos los KPIs en 0). Se acota a "hoy" para ciclos en curso.
+  const yearRange = useMemo<{ from: string; to: string } | null>(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    if (syCtx?.allYears) {
+      const starts = (syCtx.years ?? [])
+        .map((y) => y.startsOn?.slice(0, 10))
+        .filter((v): v is string => Boolean(v))
+        .sort((a, b) => a.localeCompare(b))
+      if (starts.length === 0) return null
+      return { from: starts[0], to: today }
+    }
+    const start = selectedYearRow?.startsOn?.slice(0, 10)
+    if (!start) return null
+    const end = selectedYearRow?.endsOn?.slice(0, 10)
+    return { from: start, to: end && end < today ? end : today }
+  }, [syCtx?.allYears, syCtx?.years, selectedYearRow])
+
+  // Identidad de la selección de ciclo: cambiar de ciclo (o a "todos") re-sincroniza el rango,
+  // pero ediciones manuales de fecha posteriores se respetan (no se vuelven a sobreescribir).
+  const selectionKey = syCtx?.allYears ? 'ALL' : analyticsSchoolYearId
+  const appliedSelectionRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!yearRange || !selectionKey) return
+    if (appliedSelectionRef.current === selectionKey) return
+    appliedSelectionRef.current = selectionKey
+    setFrom(yearRange.from)
+    setTo(yearRange.to)
+  }, [selectionKey, yearRange])
+
   const loadDashboard = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ from, to, granularity })
+      const params = new URLSearchParams({ from, to, granularity: granularity ?? 'week' })
       if (selectedUserId) params.set('userId', selectedUserId)
       else if (roleFilter) params.set('role', roleFilter)
       if (eventType) params.set('eventType', eventType)
@@ -435,9 +475,16 @@ export default function AdminAnalyticsPage() {
 
   const resolvedCount = dashboard?.meta?.resolvedInstanceCount ?? 0
   const generatedLabel = dashboard?.meta?.generatedAt
-    ? new Intl.DateTimeFormat('es-UY', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(
-        new Date(dashboard.meta.generatedAt),
-      ) + ' UTC'
+    ? new Intl.DateTimeFormat('es-UY', {
+        timeZone: 'UTC',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        hourCycle: 'h23',
+      }).format(new Date(dashboard.meta.generatedAt)) + ' UTC'
     : null
 
   const exportFilters = () => ({
@@ -454,12 +501,19 @@ export default function AdminAnalyticsPage() {
     format: 'XLSX' | 'CSV' | 'PDF',
     filename: string,
     successMsg: string,
+    overrides?: { from: string; to: string; filters?: Record<string, unknown> },
   ) => {
     setExportNotice('')
     setExportingKind(kind)
     setError(null)
     try {
-      const body = { reportKey, format, from, to, filters: exportFilters() }
+      const body = {
+        reportKey,
+        format,
+        from: overrides?.from ?? from,
+        to: overrides?.to ?? to,
+        filters: overrides?.filters ?? exportFilters(),
+      }
       const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
       const exportId = res.exportId
 
@@ -495,6 +549,10 @@ export default function AdminAnalyticsPage() {
     }
   }
 
+  // Export de asistencias en analítica oculto temporalmente: se reimplementa más adelante.
+  // (El export de la página de Asistencias no se ve afectado.)
+  const showAnalyticsAttendanceExports = false
+
   const runExportAttendance = (format: 'XLSX' | 'CSV') =>
     runExport(
       format === 'XLSX' ? 'xlsx' : 'csv',
@@ -524,13 +582,20 @@ export default function AdminAnalyticsPage() {
     runExport('course', 'course_report', 'XLSX', `EduTrack_Reporte_por_curso_${from}_${to}.xlsx`, '✅ Reporte por curso listo.')
 
   function clearFiltersAndReload() {
-    const d = new Date()
-    d.setUTCDate(d.getUTCDate() - 29)
-    setFrom(d.toISOString().slice(0, 10))
-    setTo(new Date().toISOString().slice(0, 10))
+    // "Limpiar" vuelve al rango del ciclo lectivo en foco (no a los últimos 30 días,
+    // que para un ciclo cerrado quedan fuera de su período y muestran todo en 0).
+    if (yearRange) {
+      setFrom(yearRange.from)
+      setTo(yearRange.to)
+    } else {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - 29)
+      setFrom(d.toISOString().slice(0, 10))
+      setTo(new Date().toISOString().slice(0, 10))
+    }
     setRoleFilter('')
     setEventType('')
-    setGranularity('week')
+    setGranularity(null)
     setSelectedUserId('')
     setUserSearch('')
     setSelectedUserName('')
@@ -650,7 +715,7 @@ export default function AdminAnalyticsPage() {
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
+          <div className="flex shrink-0 flex-col gap-3 lg:items-end">
             <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
               <button
                 type="button"
@@ -661,77 +726,48 @@ export default function AdminAnalyticsPage() {
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
                 Refrescar
               </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'xlsx'}
-                className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportAttendance('XLSX')}
-              >
-                {exportingKind === 'xlsx' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                {selectedUserName ? 'Excel detalle' : 'Excel'}
-              </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'csv'}
-                className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportAttendance('CSV')}
-              >
-                {exportingKind === 'csv' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                )}
-                {selectedUserName ? 'CSV detalle' : 'CSV'}
-              </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'pdf'}
-                className="btn-danger inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportMonthly()}
-              >
-                {exportingKind === 'pdf' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                PDF resumen
-              </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'person'}
-                className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportPerson()}
-              >
-                {exportingKind === 'person' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Users className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                Por persona
-              </button>
-              <button
-                type="button"
-                disabled={loading || exportingKind === 'course'}
-                className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                onClick={() => void runExportCourse()}
-              >
-                {exportingKind === 'course' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <GraduationCap className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                Por curso
-              </button>
             </div>
-            <p className="max-w-sm text-right text-xs text-gray-500">
-              {selectedUserName
-                ? `Excel/CSV descargan el detalle filtrado de ${selectedUserName}; “Por persona” descarga su resumen.`
-                : 'Las exportaciones reutilizan el motor institucional de reportes sobre el mismo rango vigente.'}
-            </p>
+            {showAnalyticsAttendanceExports ? (
+              <div className="flex flex-col gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase text-emerald-800">
+                  <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
+                  Exportar asistencias
+                </div>
+                <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                  <button
+                    type="button"
+                    disabled={loading || exportingKind === 'xlsx'}
+                    className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                    onClick={() => void runExportAttendance('XLSX')}
+                  >
+                    {exportingKind === 'xlsx' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
+                    )}
+                    {selectedUserName ? 'Excel detalle' : 'Excel'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading || exportingKind === 'csv'}
+                    className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                    onClick={() => void runExportAttendance('CSV')}
+                  >
+                    {exportingKind === 'csv' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
+                    )}
+                    {selectedUserName ? 'CSV detalle' : 'CSV'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {showAnalyticsAttendanceExports && selectedUserName ? (
+              <p className="max-w-sm text-left text-xs text-gray-500 lg:text-right">
+                Exportando detalle filtrado de {selectedUserName}.
+              </p>
+            ) : null}
           </div>
         </header>
 
@@ -760,14 +796,14 @@ export default function AdminAnalyticsPage() {
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Desde (período)
               </label>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input-field" />
+              <DateField value={from} onChange={setFrom} className="input-field" />
             </div>
             <div>
               <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
                 <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                 Hasta (período)
               </label>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input-field" />
+              <DateField value={to} onChange={setTo} className="input-field" />
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Rol asignado al evento</label>
@@ -870,7 +906,7 @@ export default function AdminAnalyticsPage() {
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setGranularity(opt.value)}
+                  onClick={() => setGranularity((current) => (current === opt.value ? null : opt.value))}
                   className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                     granularity === opt.value ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
                   }`}
@@ -972,8 +1008,8 @@ export default function AdminAnalyticsPage() {
                   deltaHigherIsBetter={false}
                 />
                 <KpiCard
-                  label="Ausencias no cubiertas / plan"
-                  hint="Ausencias efectivas contra instancias programadas incluidas en el período."
+                  label="Ausentismo / plan"
+                  hint="Ausencias del titular contra instancias programadas incluidas en el período."
                   tone="red"
                   value={formatPct(dashboard.kpis.M4_AOP_pct)}
                   foot="Ausentismo efectivo institucional"

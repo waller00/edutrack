@@ -8,7 +8,7 @@ import AdminBiometricDevicesPanel from '@/components/admin/AdminBiometricDevices
 import AdminMoodlePanel from '@/components/admin/AdminMoodlePanel'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { api } from '@/lib/api/client'
-import { BookOpen, Cpu, Fingerprint, Loader2, Settings, Timer } from 'lucide-react'
+import { BookOpen, Cpu, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 type SettingsResponse = OperationalSettingsData
@@ -32,12 +32,6 @@ const SETTINGS_SECTIONS: {
     label: 'Asistencia',
     desc: 'Tolerancias de entrada, salida y marcas repetidas.',
     Icon: Timer,
-  },
-  {
-    id: 'identity',
-    label: 'Identidad',
-    desc: 'Verificación Didit y prueba de vida.',
-    Icon: Fingerprint,
   },
   {
     id: 'moodle',
@@ -84,7 +78,7 @@ export default function AdminSystemSettingsPage() {
   useEffect(() => {
     const params = new URLSearchParams(globalThis.location.search)
     const s = params.get('section')
-    if (s === 'attendance' || s === 'identity' || s === 'system' || s === 'readers' || s === 'moodle') setSection(s)
+    if (s === 'attendance' || s === 'system' || s === 'readers' || s === 'moodle') setSection(s)
   }, [])
 
   function selectSection(nextSection: SettingsSection) {
@@ -102,7 +96,6 @@ export default function AdminSystemSettingsPage() {
       const updated = await api<SettingsResponse>('/admin/system-settings', {
         method: 'PUT',
         body: JSON.stringify({
-          livenessCheckEnabled: data.livenessCheckEnabled,
           attendanceNoShowGraceMinutes: data.attendanceNoShowGraceMinutes,
           attendanceLateToleranceMinutes: data.attendanceLateToleranceMinutes,
           attendanceEarlyExitToleranceMinutes: data.attendanceEarlyExitToleranceMinutes,

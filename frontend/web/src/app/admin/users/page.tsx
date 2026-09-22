@@ -37,6 +37,7 @@ import {
   Lock,
   Pencil,
   Search,
+  Trash2,
   TriangleAlert,
   Unlock,
   Users,
@@ -205,6 +206,7 @@ export default function AdminUsersPage() {
           lastName: edit.lastName,
           isApproved: edit.isApproved,
           isActive: edit.isActive,
+          emailVerified: !!edit.emailVerifiedAt,
         }),
       })
       await load(filters)
@@ -295,6 +297,26 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function deleteUser(u: AdminUserRow) {
+    if (u.isActive) return
+    const name = displayUserName(u)
+    if (
+      !confirm(
+        `¿Eliminar definitivamente a ${name}?\n\n` +
+          'Esta acción no se puede deshacer: se borra la cuenta (incluido el acceso) y sus datos asociados. ' +
+          'El historial de auditoría se conserva de forma anónima.',
+      )
+    )
+      return
+    try {
+      await api(`/admin/users/${u.id}`, { method: 'DELETE' })
+      setNotice({ tone: 'success', text: `${name} fue eliminado definitivamente.` })
+      await load(filters)
+    } catch (e: unknown) {
+      setNotice({ tone: 'error', text: getAdminUserSaveErrorMessage(e) })
+    }
+  }
+
   function renderRowActions(u: AdminUserRow) {
     const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
     const biometricButtonClass = u.biometricLinked
@@ -360,6 +382,17 @@ export default function AdminUsersPage() {
             <Lock className="h-[18px] w-[18px] shrink-0" strokeWidth={2.25} aria-hidden />
           )}
         </button>
+        {!u.isActive && (
+          <button
+            type="button"
+            onClick={() => void deleteUser(u)}
+            className={`${ICON_ACTION_BTN} border-red-300 bg-red-50 text-red-600 hover:border-red-400 hover:bg-red-100 focus:ring-red-300`}
+            aria-label="Eliminar definitivamente"
+            title="Eliminar definitivamente (solo usuarios dados de baja)"
+          >
+            <Trash2 className="h-[18px] w-[18px] shrink-0" strokeWidth={2.25} aria-hidden />
+          </button>
+        )}
       </div>
     )
   }
@@ -870,6 +903,26 @@ export default function AdminUsersPage() {
                     <option value="true">Alta</option>
                     <option value="false">Baja</option>
                   </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Verificación email</label>
+                  <select
+                    value={edit.emailVerifiedAt ? 'true' : 'false'}
+                    onChange={(e) =>
+                      setEdit({
+                        ...edit,
+                        emailVerifiedAt:
+                          e.target.value === 'true' ? edit.emailVerifiedAt ?? new Date().toISOString() : null,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <option value="false">Sin verificar</option>
+                    <option value="true">Verificado</option>
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Marcá “Verificado” para validar el email a mano si el usuario no recibe el correo.
+                  </p>
                 </div>
               </div>
               {msg && <p className="mt-3 text-sm text-red-600">{msg}</p>}

@@ -1,0 +1,7 @@
+# Override productivo para cerrar los puertos directos de Moodle cuando se usa
+# docker-compose.moodle.yml. Moodle debe quedar publicado por reverse-proxy
+# (https://moodle.edutrack-uy.com), no por 8080/8443 directos.
+
+services:
+  moodle:
+    ports: !override []
