@@ -884,6 +884,7 @@ const MOODLE_ITEM = {
 
 function readyForImport(periodStatus: string | null = null) {
   prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+  prismaMock.academicPeriod.findUnique.mockResolvedValue({ schoolYearId: 'sy-1', level: 'EMS', isActive: true, kind: 'TRAMO' })
   prismaMock.gradeBookPeriod.findUnique.mockResolvedValue(periodStatus ? { status: periodStatus } : null)
   prismaMock.gradingScale.findUnique.mockResolvedValue(SCALE_ROW)
   prismaMock.assessment.findUnique.mockResolvedValue(null)
@@ -1798,5 +1799,145 @@ describe('cierre por alumno', () => {
     expect(res.status).toBe(409)
     expect(res.body.code).toBe('PERIOD_NOT_ENABLED')
     expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Estructura de la planilla: tramos, entregas, C y R ─────────────────────
+
+describe('planilla del liceo: tramos y entregas', () => {
+  const ENTREGA = {
+    ...PERIOD,
+    code: 'ENTREGA_1',
+    name: '1.ª Entrega (1.ª Reunión)',
+    kind: 'ENTREGA',
+    sortOrder: 30,
+    isMeeting: true,
+    judgementLabel: 'Informe de actuación',
+  }
+  const OPEN_STATE = { id: 'gbp-e1', status: 'OPEN', closedAt: null, closedLate: false, reopenedAt: null, reopenReason: null }
+
+  it('no deja cargar evaluaciones en una entrega', async () => {
+    readyForAssessments()
+    prismaMock.academicPeriod.findUnique.mockResolvedValue({ schoolYearId: 'sy-1', level: 'EMS', isActive: true, kind: 'ENTREGA' })
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ periodId: PERIOD_ID, date: '2026-05-10', title: 'Escrito', gradingScaleId: SCALE_ID })
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('PERIOD_NOT_GRADABLE')
+    expect(prismaMock.assessment.create).not.toHaveBeenCalled()
+  })
+
+  it('Moodle tampoco importa a una entrega', async () => {
+    readyForImport()
+    prismaMock.academicPeriod.findUnique.mockResolvedValue({ schoolYearId: 'sy-1', level: 'EMS', isActive: true, kind: 'ENTREGA' })
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/moodle/import`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send(importBody)
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('PERIOD_NOT_GRADABLE')
+  })
+
+  it('una entrega no cierra sin la nota de reunión (R)', async () => {
+    readyForClosure({ saved: COMPLETE })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/close`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('MISSING_MEETING_GRADES')
+    expect(prismaMock.gradeBookPeriod.update).not.toHaveBeenCalled()
+  })
+
+  it('cerrar la entrega cierra también los tramos que informa', async () => {
+    readyForClosure({ saved: [{ ...COMPLETE[0], meetingValueHundredths: 800 }] })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue(ENTREGA)
+    prismaMock.gradeBookPeriod.findUnique
+      .mockResolvedValueOnce(OPEN_STATE)
+      .mockResolvedValueOnce({ id: 'gbp-marabr', status: 'OPEN' })
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: 'p-diag', code: 'MODULO_INTRODUCTORIO', kind: 'DIAGNOSTICO', sortOrder: 10 },
+      { id: 'p-marabr', code: 'MARZO_ABRIL', kind: 'TRAMO', sortOrder: 20 },
+      { id: PERIOD_ID, code: 'ENTREGA_1', kind: 'ENTREGA', sortOrder: 30 },
+      { id: 'p-mayjun', code: 'MAYO_JUNIO', kind: 'TRAMO', sortOrder: 40 },
+    ])
+    prismaMock.gradeBookPeriod.update.mockResolvedValue({})
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/close`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.coveredPeriodCodes).toEqual(['MARZO_ABRIL'])
+    const closedIds = prismaMock.gradeBookPeriod.update.mock.calls.map((call: any) => call[0].where.id)
+    expect(closedIds).toEqual(['gbp-e1', 'gbp-marabr'])
+  })
+
+  it('guardar sólo R no borra la C que ya estaba', async () => {
+    readyForClosure()
+    await request(app())
+      .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ entries: [{ studentId: STUDENT_A, meetingValueHundredths: 700 }] })
+
+    const update = prismaMock.periodGrade.upsert.mock.calls[0][0].update
+    expect(update).toMatchObject({ meetingValueHundredths: 700 })
+    expect(update).not.toHaveProperty('valueHundredths')
+    expect(update).not.toHaveProperty('conceptualJudgement')
+  })
+
+  it('rechaza C o R fuera de la escala del nivel', async () => {
+    readyForClosure()
+    prismaMock.gradingScale.findUnique.mockResolvedValue({
+      name: 'Numérica 1 a 12',
+      minValueHundredths: 100,
+      maxValueHundredths: 1200,
+      levels: [],
+    })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ entries: [{ studentId: STUDENT_A, meetingValueHundredths: 1300 }] })
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('VALUE_OUT_OF_SCALE')
+    expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
+  })
+
+  it('la carta trae C, R, texto y el estado de cada período', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.assessment.findMany.mockResolvedValue([])
+    prismaMock.assessmentGrade.findMany.mockResolvedValue([])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: 'p-open', startsOn: new Date('2026-03-01T12:00:00.000Z') },
+      { id: 'p-closed', startsOn: new Date('2026-03-01T12:00:00.000Z') },
+    ])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      {
+        periodId: 'p-closed',
+        status: 'CLOSED',
+        grades: [{ studentId: STUDENT_A, valueHundredths: 700, meetingValueHundredths: 800, conceptualJudgement: 'Bien.' }],
+      },
+    ])
+    vi.setSystemTime(new Date('2026-05-20T12:00:00.000Z'))
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/grades-board`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.periodGrades).toEqual([
+      { periodId: 'p-closed', studentId: STUDENT_A, valueHundredths: 700, meetingValueHundredths: 800, conceptualJudgement: 'Bien.' },
+    ])
+    expect(res.body.periodStates).toEqual([
+      { periodId: 'p-open', status: 'OPEN', canEdit: true },
+      { periodId: 'p-closed', status: 'CLOSED', canEdit: false },
+    ])
   })
 })

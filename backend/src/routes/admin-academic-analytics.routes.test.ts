@@ -105,8 +105,8 @@ describe('GET /dashboard', () => {
         period: { id: 'p-1', name: 'Mayo', sortOrder: 20 },
         endorsements: [{ status: 'ENDORSED' }],
         grades: [
-          { studentId: 's1', studentLastName: 'B', studentFirstName: 'Ana', valueHundredths: 300 },
-          { studentId: 's2', studentLastName: 'C', studentFirstName: 'Beto', valueHundredths: 900 },
+          { studentId: 's1', studentLastName: 'B', studentFirstName: 'Ana', valueHundredths: 300, meetingValueHundredths: 300 },
+          { studentId: 's2', studentLastName: 'C', studentFirstName: 'Beto', valueHundredths: 900, meetingValueHundredths: 900 },
         ],
       },
     ])
@@ -176,8 +176,8 @@ describe('GET /comparison', () => {
 
   it('compara varios ciclos en la misma consulta (RF-200)', async () => {
     prismaMock.periodGrade.findMany.mockResolvedValue([
-      { studentId: 's1', valueHundredths: 900, gradeBookPeriod: { gradeBook } },
-      { studentId: 's2', valueHundredths: 300, gradeBookPeriod: { gradeBook: { ...gradeBook, schoolYearId: 'sy-2025', schoolYear: { label: '2025' } } } },
+      { studentId: 's1', meetingValueHundredths: 900, gradeBookPeriod: { gradeBook } },
+      { studentId: 's2', meetingValueHundredths: 300, gradeBookPeriod: { gradeBook: { ...gradeBook, schoolYearId: 'sy-2025', schoolYear: { label: '2025' } } } },
     ])
 
     const res = await request(app())
@@ -190,8 +190,8 @@ describe('GET /comparison', () => {
 
   it('agrupa por asignatura con su porcentaje de alerta (§5.5)', async () => {
     prismaMock.periodGrade.findMany.mockResolvedValue([
-      { studentId: 's1', valueHundredths: 300, gradeBookPeriod: { gradeBook } },
-      { studentId: 's2', valueHundredths: 900, gradeBookPeriod: { gradeBook } },
+      { studentId: 's1', meetingValueHundredths: 300, gradeBookPeriod: { gradeBook } },
+      { studentId: 's2', meetingValueHundredths: 900, gradeBookPeriod: { gradeBook } },
     ])
 
     const res = await request(app())
@@ -215,7 +215,7 @@ describe('GET /risk-matrix', () => {
         closedLate: false,
         period: { id: 'p-1', name: 'Mayo', sortOrder: 20 },
         endorsements: [],
-        grades: [{ studentId: 's1', studentLastName: 'B', studentFirstName: 'Ana', valueHundredths: 300 }],
+        grades: [{ studentId: 's1', studentLastName: 'B', studentFirstName: 'Ana', valueHundredths: 300, meetingValueHundredths: 300 }],
       },
     ])
 

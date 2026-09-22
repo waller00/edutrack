@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  acceptsAssessments,
   canEditStudentClosurePeriod,
   closureBlockers,
   describeValue,
   isLateClosure,
+  isOutOfScale,
   isPeriodCalendarOpen,
+  officialPeriodValue,
+  periodGradePatch,
+  periodsCoveredBy,
   periodWriteBlock,
   type StudentPeriodRow,
 } from './period-closure.js'
@@ -166,5 +171,75 @@ describe('canEditStudentClosurePeriod', () => {
         todayYmd: '2026-09-20',
       }),
     ).toBe(true)
+  })
+})
+
+describe('reunión: C y R', () => {
+  const rules = { requiresGeneralGrade: true, requiresConceptualJudgement: false, isMeeting: true }
+
+  it('un período con reunión que exige C exige también R', () => {
+    const rows = [
+      student({ studentId: 's1', meetingValueHundredths: 700 }),
+      student({ studentId: 's2', meetingValueHundredths: null }),
+    ]
+    expect(closureBlockers(rows, rules)).toEqual([{ code: 'MISSING_MEETING_GRADES', studentIds: ['s2'] }])
+  })
+
+  it('sin reunión, R no se exige', () => {
+    expect(closureBlockers([student({ meetingValueHundredths: null })], { ...rules, isMeeting: false })).toEqual([])
+  })
+
+  it('con reunión pero sin exigir C (APE), no exige R', () => {
+    expect(closureBlockers([student({ valueHundredths: null })], { ...rules, requiresGeneralGrade: false })).toEqual([])
+  })
+
+  it('la nota oficial es siempre R, nunca C', () => {
+    expect(officialPeriodValue({ meetingValueHundredths: 800 })).toBe(800)
+    expect(officialPeriodValue({ meetingValueHundredths: null })).toBeNull()
+    expect(officialPeriodValue(null)).toBeNull()
+  })
+})
+
+describe('periodGradePatch', () => {
+  it('lo que no viene no se toca y null lo borra', () => {
+    expect(periodGradePatch({ meetingValueHundredths: 700 })).toEqual({ meetingValueHundredths: 700 })
+    expect(periodGradePatch({ valueHundredths: null, conceptualJudgement: undefined })).toEqual({ valueHundredths: null })
+  })
+})
+
+describe('isOutOfScale', () => {
+  const scale = { minValueHundredths: 100, maxValueHundredths: 1000 }
+  it('controla el rango de la escala del nivel', () => {
+    expect(isOutOfScale(1100, scale)).toBe(true)
+    expect(isOutOfScale(50, scale)).toBe(true)
+    expect(isOutOfScale(500, scale)).toBe(false)
+    expect(isOutOfScale(null, scale)).toBe(false)
+    expect(isOutOfScale(1100, null)).toBe(false)
+  })
+})
+
+describe('periodsCoveredBy', () => {
+  const periods = [
+    { id: 'diag', kind: 'DIAGNOSTICO', sortOrder: 10 },
+    { id: 'mar-abr', kind: 'TRAMO', sortOrder: 20 },
+    { id: 'e1', kind: 'ENTREGA', sortOrder: 30 },
+    { id: 'may-jun', kind: 'TRAMO', sortOrder: 40 },
+    { id: 'jul', kind: 'TRAMO', sortOrder: 50 },
+    { id: 'e2', kind: 'ENTREGA', sortOrder: 60 },
+  ]
+
+  it('una entrega cubre los tramos desde la entrega anterior', () => {
+    expect(periodsCoveredBy(periods[2]!, periods)).toEqual(['mar-abr'])
+    expect(periodsCoveredBy(periods[5]!, periods)).toEqual(['may-jun', 'jul'])
+  })
+
+  it('un tramo no cubre nada', () => {
+    expect(periodsCoveredBy(periods[1]!, periods)).toEqual([])
+  })
+
+  it('sólo los tramos admiten evaluaciones', () => {
+    expect(acceptsAssessments('TRAMO')).toBe(true)
+    expect(acceptsAssessments('ENTREGA')).toBe(false)
+    expect(acceptsAssessments('DIAGNOSTICO')).toBe(false)
   })
 })

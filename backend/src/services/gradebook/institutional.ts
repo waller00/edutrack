@@ -62,12 +62,15 @@ export type ScaleLevelRow = {
 export type MatrixCell = {
   gradeBookId: string
   subjectId: string
+  /** R, la nota oficial del período (`officialPeriodValue`). */
   valueHundredths: number | null
+  /** C, la que propone el docente. Se muestra mientras no hay R, pero no promedia ni alerta. */
+  proposedValueHundredths?: number | null
   conceptualJudgement: string | null
   descriptor: ReturnType<typeof describeCell>
   /** Estado del período en esa libreta; `null` si nadie lo abrió todavía. */
   periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | null
-  /** No hay calificación cargada para este estudiante en esta asignatura. */
+  /** No hay nota de reunión (R) para este estudiante en esta asignatura. */
   pending: boolean
 }
 

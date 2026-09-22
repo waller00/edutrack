@@ -34,6 +34,7 @@ import ExcelJS from 'exceljs'
 import {
   buildClosureSheet,
   buildGradesSheet,
+  buildPlanillaSheet,
   buildStudentEvaluationsSheet,
   type GradeBookMeta,
 } from '../services/gradebook/exports/gradeBookWorkbook.js'
@@ -51,11 +52,16 @@ import {
 } from '../services/gradebook/moodle-import.js'
 import {
   CLOSURE_BLOCKER_MESSAGES,
+  PERIOD_SCALE_CODE_BY_LEVEL,
+  acceptsAssessments,
   canEditStudentClosurePeriod,
   closureBlockers,
   describeValue,
   isLateClosure,
+  isOutOfScale,
   isPeriodCalendarOpen,
+  periodGradePatch,
+  periodsCoveredBy,
   periodWriteBlock,
 } from '../services/gradebook/period-closure.js'
 import { todayUruguayYmd } from '../services/events/event-versioning.js'
@@ -999,7 +1005,12 @@ function serializeAssessment(row: any) {
     title: row.title,
     description: row.description,
     activityType: row.activityType
-      ? { id: row.activityType.id, code: row.activityType.code, name: row.activityType.name }
+      ? {
+          id: row.activityType.id,
+          code: row.activityType.code,
+          name: row.activityType.name,
+          category: row.activityType.category,
+        }
       : null,
     gradingScale: row.gradingScale
       ? {
@@ -1020,7 +1031,7 @@ function serializeAssessment(row: any) {
 
 const ASSESSMENT_INCLUDE = {
   period: { select: { id: true, name: true, code: true } },
-  activityType: { select: { id: true, code: true, name: true } },
+  activityType: { select: { id: true, code: true, name: true, category: true } },
   gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' as const } } } },
   _count: { select: { grades: true } },
 }
@@ -1053,7 +1064,8 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
     const ctx = await loadContext(req, res)
     if (!ctx) return
 
-    const [assessments, grades] = await Promise.all([
+    const level = (ctx.row as any).courseOffering?.course?.level ?? null
+    const [assessments, grades, periods, states] = await Promise.all([
       prisma.assessment.findMany({
         where: { gradeBookId: ctx.row.id, deletedAt: null },
         select: {
@@ -1061,7 +1073,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
           periodId: true,
           date: true,
           title: true,
-          activityType: { select: { id: true, code: true, name: true } },
+          activityType: { select: { id: true, code: true, name: true, category: true } },
           gradingScale: { select: { id: true, name: true, kind: true, decimals: true } },
           period: { select: { id: true, name: true, code: true, sortOrder: true } },
         },
@@ -1079,9 +1091,50 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
           gradedBy: { select: { name: true, firstName: true, lastName: true } },
         },
       }),
+      prisma.academicPeriod.findMany({
+        where: { schoolYearId: ctx.row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
+        select: { id: true, startsOn: true },
+      }),
+      // C, R y el texto de cada período: la carta los muestra en el mismo bloque que las notas,
+      // como la planilla, sin pedir alumno por alumno.
+      prisma.gradeBookPeriod.findMany({
+        where: { gradeBookId: ctx.row.id },
+        select: {
+          periodId: true,
+          status: true,
+          grades: {
+            select: {
+              studentId: true,
+              valueHundredths: true,
+              meetingValueHundredths: true,
+              conceptualJudgement: true,
+            },
+          },
+        },
+      }),
     ])
 
+    const todayYmd = todayUruguayYmd()
+    const statusByPeriod = new Map(states.map((state) => [state.periodId, state.status]))
+
     return res.json({
+      periodStates: periods.map((period) => {
+        const status = statusByPeriod.get(period.id) ?? 'OPEN'
+        return {
+          periodId: period.id,
+          status,
+          canEdit: canEditStudentClosurePeriod({
+            canGrade: ctx.access.canGrade,
+            periodStatus: status,
+            gradeBookStatus: ctx.row.status,
+            startsOn: period.startsOn,
+            todayYmd,
+          }),
+        }
+      }),
+      periodGrades: states.flatMap((state) =>
+        state.grades.map((grade) => ({ periodId: state.periodId, ...grade })),
+      ),
       assessments: assessments.map((row) => ({
         id: row.id,
         periodId: row.periodId,
@@ -1110,17 +1163,29 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
   }
 })
 
-/** El período tiene que pertenecer al ciclo y al nivel de la libreta. */
-async function assertPeriodFitsGradeBook(periodId: string, row: any): Promise<string | null> {
+type PeriodFitError = { message: string; code: 'PERIOD_MISMATCH' | 'PERIOD_NOT_GRADABLE' }
+
+/**
+ * El período tiene que pertenecer al ciclo y al nivel de la libreta, y admitir evaluaciones: en
+ * una entrega o en el diagnóstico no se cargan notas sueltas, como en la planilla.
+ */
+async function assertPeriodFitsGradeBook(periodId: string, row: any): Promise<PeriodFitError | null> {
   const period = await prisma.academicPeriod.findUnique({
     where: { id: periodId },
-    select: { schoolYearId: true, level: true, isActive: true },
+    select: { schoolYearId: true, level: true, isActive: true, kind: true },
   })
-  if (!period) return 'El período no existe.'
-  if (!period.isActive) return 'El período está desactivado.'
-  if (period.schoolYearId !== row.schoolYearId) return 'El período es de otro ciclo lectivo.'
+  const mismatch = (message: string): PeriodFitError => ({ message, code: 'PERIOD_MISMATCH' })
+  if (!period) return mismatch('El período no existe.')
+  if (!period.isActive) return mismatch('El período está desactivado.')
+  if (period.schoolYearId !== row.schoolYearId) return mismatch('El período es de otro ciclo lectivo.')
   const level = row.courseOffering?.course?.level ?? null
-  if (level && period.level !== level) return `El período no corresponde a ${level}.`
+  if (level && period.level !== level) return mismatch(`El período no corresponde a ${level}.`)
+  if (!acceptsAssessments(period.kind ?? 'TRAMO')) {
+    return {
+      message: 'En este período no se cargan evaluaciones: es una entrega o el diagnóstico.',
+      code: 'PERIOD_NOT_GRADABLE',
+    }
+  }
   return null
 }
 
@@ -1137,7 +1202,7 @@ r.post('/:id/assessments', requirePermission('gradebook.grade'), async (req: any
 
     const d = parsed.data
     const periodError = await assertPeriodFitsGradeBook(d.periodId, ctx.row)
-    if (periodError) return res.status(400).json({ message: periodError, code: 'PERIOD_MISMATCH' })
+    if (periodError) return res.status(400).json(periodError)
 
     const created = await prisma.assessment.create({
       data: {
@@ -1234,7 +1299,7 @@ r.patch('/:id/assessments/:assessmentId', requirePermission('gradebook.grade'), 
     const d = parsed.data
     if (d.periodId) {
       const periodError = await assertPeriodFitsGradeBook(d.periodId, ctx.row)
-      if (periodError) return res.status(400).json({ message: periodError, code: 'PERIOD_MISMATCH' })
+      if (periodError) return res.status(400).json(periodError)
     }
 
     const updated = await prisma.assessment.update({
@@ -1494,8 +1559,13 @@ r.get('/:id/options', requirePermission('gradebook.read'), async (req: any, res)
           id: true,
           code: true,
           name: true,
+          kind: true,
+          startsOn: true,
+          endsOn: true,
           requiresConceptualJudgement: true,
           requiresGeneralGrade: true,
+          isMeeting: true,
+          judgementLabel: true,
         },
       }),
       prisma.gradingScale.findMany({
@@ -1510,11 +1580,19 @@ r.get('/:id/options', requirePermission('gradebook.read'), async (req: any, res)
           OR: [{ scope: 'GLOBAL' }, { scope: 'TEACHER', ownerUserId: userId }],
         },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-        select: { id: true, code: true, name: true, scope: true },
+        select: { id: true, code: true, name: true, scope: true, category: true },
       }),
     ])
 
-    return res.json({ periods, scales, activityTypes })
+    return res.json({
+      periods: periods.map((period) => ({
+        ...period,
+        startsOn: serializeYmd(period.startsOn),
+        endsOn: serializeYmd(period.endsOn),
+      })),
+      scales,
+      activityTypes,
+    })
   } catch (error) {
     console.error('[gradebook] options:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -1525,7 +1603,10 @@ r.get('/:id/options', requirePermission('gradebook.read'), async (req: any, res)
 
 const periodGradeEntrySchema = z.object({
   studentId: z.string().uuid(),
+  /** C: la calificación del docente. */
   valueHundredths: z.number().int().nullish(),
+  /** R: la nota que queda después de la reunión. */
+  meetingValueHundredths: z.number().int().nullish(),
   conceptualJudgement: z.string().trim().max(2000).nullish(),
   /** Conducta en esta asignatura. El docente la pone junto con la nota, al cerrar. */
   conductValueHundredths: z.number().int().nullish(),
@@ -1586,9 +1667,12 @@ r.get('/:id/periods', requirePermission('gradebook.read'), async (req: any, res)
           periodId: period.id,
           code: period.code,
           name: period.name,
+          kind: period.kind,
           closesOn: serializeYmd(period.closesOn),
           requiresGeneralGrade: period.requiresGeneralGrade,
           requiresConceptualJudgement: period.requiresConceptualJudgement,
+          isMeeting: period.isMeeting,
+          judgementLabel: period.judgementLabel,
           status: state?.status ?? 'OPEN',
           closedAt: state?.closedAt ?? null,
           closedLate: state?.closedLate ?? false,
@@ -1626,7 +1710,7 @@ async function loadClosureContext(req: any, res: any) {
   }
 
   const state = await ensureGradeBookPeriod(ctx.row.id, period.id)
-  const [students, saved, assessments] = await Promise.all([
+  const [students, saved, assessments, scale] = await Promise.all([
     loadRosterForScope({
       schoolYearId: ctx.row.schoolYearId,
       courseOfferingId: ctx.row.courseOfferingId,
@@ -1638,9 +1722,31 @@ async function loadClosureContext(req: any, res: any) {
       where: { gradeBookId: ctx.row.id, periodId: period.id, deletedAt: null },
       include: { grades: { select: { studentId: true, valueHundredths: true, isAbsent: true } }, gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' } } } } },
     }),
+    loadPeriodScale(ctx.row),
   ])
 
-  return { ...ctx, period, state, students, saved, assessments }
+  return { ...ctx, period, state, students, saved, assessments, scale }
+}
+
+/** Escala con la que se ponen C y R en la libreta: la numérica de su nivel. */
+async function loadPeriodScale(row: any) {
+  const level: keyof typeof PERIOD_SCALE_CODE_BY_LEVEL = row.courseOffering?.course?.level === 'EMS' ? 'EMS' : 'EBI'
+  const scale = await prisma.gradingScale.findUnique({
+    where: { code: PERIOD_SCALE_CODE_BY_LEVEL[level] },
+    include: { levels: { orderBy: { sortOrder: 'asc' } } },
+  })
+  return scale ?? null
+}
+
+/** C o R fuera de la escala: devuelve el mensaje, o null si todo está en rango. */
+function periodValuesOutOfScale(
+  entries: ReadonlyArray<{ valueHundredths?: number | null; meetingValueHundredths?: number | null }>,
+  scale: { name: string; minValueHundredths: number | null; maxValueHundredths: number | null } | null,
+): string | null {
+  const wrong = entries.some(
+    (e) => isOutOfScale(e.valueHundredths, scale) || isOutOfScale(e.meetingValueHundredths, scale),
+  )
+  return wrong && scale ? `Hay notas fuera de la escala ${scale.name}.` : null
 }
 
 /**
@@ -1667,22 +1773,34 @@ function buildClosureRows(ctx: any) {
     }
   }
 
-  const levels = ctx.assessments[0]?.gradingScale?.levels ?? []
+  const levels = ctx.scale?.levels ?? ctx.assessments[0]?.gradingScale?.levels ?? []
   return ctx.students.map((student: any) => {
     const saved: any = savedByStudent.get(student.studentId)
     const values = valuesByStudent.get(student.studentId) ?? []
     const value = saved?.valueHundredths ?? null
+    const meetingValue = saved?.meetingValueHundredths ?? null
     return {
       studentId: student.studentId,
       lastName: student.lastName,
       firstName: student.firstName,
       assessmentCount: values.length,
       valueHundredths: value,
+      meetingValueHundredths: meetingValue,
       conceptualJudgement: saved?.conceptualJudgement ?? null,
       conductValueHundredths: saved?.conductValueHundredths ?? null,
       descriptor: describeValue(value, levels),
+      meetingDescriptor: describeValue(meetingValue, levels),
     }
   })
+}
+
+/** Lo que exige el período para cerrar (RF-052). */
+function closureRulesOf(period: any) {
+  return {
+    requiresGeneralGrade: period.requiresGeneralGrade,
+    requiresConceptualJudgement: period.requiresConceptualJudgement,
+    isMeeting: period.isMeeting ?? false,
+  }
 }
 
 /** Planilla de cierre del período. */
@@ -1692,16 +1810,15 @@ r.get('/:id/periods/:periodId', requirePermission('gradebook.read'), async (req:
     if (!ctx) return
 
     const rows = buildClosureRows(ctx)
-    const rules = {
-      requiresGeneralGrade: ctx.period.requiresGeneralGrade,
-      requiresConceptualJudgement: ctx.period.requiresConceptualJudgement,
-    }
+    const rules = closureRulesOf(ctx.period)
 
     return res.json({
       period: {
         id: ctx.period.id,
         code: ctx.period.code,
         name: ctx.period.name,
+        kind: ctx.period.kind,
+        judgementLabel: ctx.period.judgementLabel,
         closesOn: serializeYmd(ctx.period.closesOn),
         ...rules,
       },
@@ -1740,12 +1857,9 @@ r.put('/:id/periods/:periodId/grades', requirePermission('gradebook.grade'), asy
     }
 
     const rosterById = new Map(ctx.students.map((s: any) => [s.studentId, s]))
-    const entries = (parsed.data.entries ?? []).map((e) => ({
-      studentId: e.studentId,
-      valueHundredths: e.valueHundredths ?? null,
-      conceptualJudgement: e.conceptualJudgement ?? null,
-      conductValueHundredths: e.conductValueHundredths ?? null,
-    }))
+    const entries = parsed.data.entries ?? []
+    const rangeError = periodValuesOutOfScale(entries, ctx.scale)
+    if (rangeError) return res.status(400).json({ message: rangeError, code: 'VALUE_OUT_OF_SCALE' })
     const strangers = entries.filter((e) => !rosterById.has(e.studentId)).map((e) => e.studentId)
     if (strangers.length > 0) {
       return res.status(409).json({
@@ -1759,12 +1873,8 @@ r.put('/:id/periods/:periodId/grades', requirePermission('gradebook.grade'), asy
     await prisma.$transaction(
       entries.map((entry) => {
         const student: any = rosterById.get(entry.studentId)
-        const data = {
-          valueHundredths: entry.valueHundredths,
-          conceptualJudgement: entry.conceptualJudgement,
-          conductValueHundredths: entry.conductValueHundredths ?? null,
-          updatedByUserId: userId,
-        }
+        // Parcial: guardar sólo R no borra la C que ya estaba.
+        const data = { ...periodGradePatch(entry), updatedByUserId: userId }
         return prisma.periodGrade.upsert({
           where: { gradeBookPeriodId_studentId: { gradeBookPeriodId: ctx.state.id, studentId: entry.studentId } },
           update: data,
@@ -1854,7 +1964,8 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
     ])
 
     const stateByPeriod = new Map(states.map((row) => [row.periodId, row]))
-    const levels = assessments.find((a) => a.gradingScale?.levels?.length)?.gradingScale?.levels ?? []
+    const scale = await loadPeriodScale(ctx.row)
+    const levels = scale?.levels ?? assessments.find((a) => a.gradingScale?.levels?.length)?.gradingScale?.levels ?? []
     const countByPeriod = new Map<string, number>()
     for (const assessment of assessments) {
       if (!assessment.periodId) continue
@@ -1893,12 +2004,16 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
         const state = stateByPeriod.get(period.id)
         const saved = state?.grades[0] ?? null
         const value = saved?.valueHundredths ?? null
+        const meetingValue = saved?.meetingValueHundredths ?? null
         const status = state?.status ?? 'OPEN'
         const meeting = meetingByPeriod.get(period.id) ?? null
         return {
           periodId: period.id,
           code: period.code,
           name: period.name,
+          kind: period.kind,
+          isMeeting: period.isMeeting,
+          judgementLabel: period.judgementLabel,
           startsOn: serializeYmd(period.startsOn),
           endsOn: serializeYmd(period.endsOn),
           closesOn: serializeYmd(period.closesOn),
@@ -1916,8 +2031,10 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
           }),
           assessmentCount: countByPeriod.get(period.id) ?? 0,
           valueHundredths: value,
+          meetingValueHundredths: meetingValue,
           conceptualJudgement: saved?.conceptualJudgement ?? null,
           descriptor: describeValue(value, levels as never),
+          meetingDescriptor: describeValue(meetingValue, levels as never),
           /** Texto de la reunión de profesores (si administración lo cargó). */
           meetingJudgement: meeting?.decision ?? null,
           meetingJudgementMeta: meeting
@@ -1937,7 +2054,10 @@ const studentClosureSaveSchema = z.object({
     .array(
       z.object({
         periodId: z.string().uuid(),
+        /** C: la calificación del docente. */
         valueHundredths: z.number().int().nullish(),
+        /** R: la nota que queda después de la reunión. */
+        meetingValueHundredths: z.number().int().nullish(),
         conceptualJudgement: z.string().trim().max(2000).nullish(),
       }),
     )
@@ -1945,7 +2065,11 @@ const studentClosureSaveSchema = z.object({
     .max(40),
 })
 
-/** Guarda calificación general y juicio de un alumno en uno o más períodos. */
+/**
+ * Guarda C, R y el texto de un alumno en uno o más períodos.
+ *
+ * Es parcial: la carta guarda celda por celda, así que lo que no viene no se toca.
+ */
 r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), async (req: any, res) => {
   const parsed = studentClosureSaveSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
@@ -1985,6 +2109,8 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
     if (unknown.length > 0) {
       return res.status(404).json({ message: 'Hay períodos que no pertenecen a este ciclo.', code: 'PERIOD_NOT_FOUND' })
     }
+    const rangeError = periodValuesOutOfScale(parsed.data.entries, await loadPeriodScale(ctx.row))
+    if (rangeError) return res.status(400).json({ message: rangeError, code: 'VALUE_OUT_OF_SCALE' })
 
     const todayYmd = todayUruguayYmd()
     const userId = req.user?.id ?? req.user?.sub
@@ -2008,11 +2134,7 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
           detail: { periodId: entry.periodId },
         })
       }
-      const data = {
-        valueHundredths: entry.valueHundredths ?? null,
-        conceptualJudgement: entry.conceptualJudgement ?? null,
-        updatedByUserId: userId,
-      }
+      const data = { ...periodGradePatch(entry), updatedByUserId: userId }
       await prisma.periodGrade.upsert({
         where: { gradeBookPeriodId_studentId: { gradeBookPeriodId: state.id, studentId: student.studentId } },
         update: data,
@@ -2047,10 +2169,7 @@ r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), asy
     }
 
     const rows = buildClosureRows(ctx)
-    const blockers = closureBlockers(rows, {
-      requiresGeneralGrade: ctx.period.requiresGeneralGrade,
-      requiresConceptualJudgement: ctx.period.requiresConceptualJudgement,
-    })
+    const blockers = closureBlockers(rows, closureRulesOf(ctx.period))
     if (blockers.length > 0) {
       // Se devuelven todos juntos: la UI marca las filas que faltan de una vez.
       return res.status(409).json({
@@ -2062,15 +2181,12 @@ r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), asy
 
     const now = new Date()
     const closedLate = isLateClosure(ctx.period.closesOn, now)
+    const closedByUserId = req.user?.id ?? req.user?.sub
     await prisma.gradeBookPeriod.update({
       where: { id: ctx.state.id },
-      data: {
-        status: 'CLOSED',
-        closedByUserId: req.user?.id ?? req.user?.sub,
-        closedAt: now,
-        closedLate,
-      },
+      data: { status: 'CLOSED', closedByUserId, closedAt: now, closedLate },
     })
+    const coveredCodes = await closeCoveredTramos(ctx, { closedByUserId, closedAt: now })
 
     // Cerrar es un hito reglamentario: la trazabilidad se espera, no se dispara y se olvida.
     await recordAuditEventNow({
@@ -2079,15 +2195,46 @@ r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), asy
       req,
       entityType: 'GradeBookPeriod',
       entityId: ctx.state.id,
-      metadata: { gradeBookId: ctx.row.id, periodCode: ctx.period.code, closedLate, students: rows.length } as never,
+      metadata: {
+        gradeBookId: ctx.row.id,
+        periodCode: ctx.period.code,
+        closedLate,
+        students: rows.length,
+        coveredPeriodCodes: coveredCodes,
+      } as never,
     })
 
-    return res.json({ ok: true, closedAt: now.toISOString(), closedLate })
+    return res.json({ ok: true, closedAt: now.toISOString(), closedLate, coveredPeriodCodes: coveredCodes })
   } catch (error) {
     console.error('[gradebook] period close:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
+
+/**
+ * Cerrar una entrega congela también los tramos que informa (Marzo‑Abril para la 1.ª, etc.): sus
+ * notas sueltas y su C/R ya se llevaron a la reunión. Los tramos no exigen nada para cerrar, así
+ * que no hay bloqueos que chequear. Devuelve los códigos cerrados.
+ */
+async function closeCoveredTramos(ctx: any, closure: { closedByUserId: string | undefined; closedAt: Date }) {
+  if (ctx.period.kind !== 'ENTREGA') return []
+  const siblings = await prisma.academicPeriod.findMany({
+    where: { schoolYearId: ctx.period.schoolYearId, level: ctx.period.level, isActive: true },
+    select: { id: true, code: true, kind: true, sortOrder: true },
+  })
+  const coveredIds = periodsCoveredBy(ctx.period, siblings)
+  const closedCodes: string[] = []
+  for (const periodId of coveredIds) {
+    const state = await ensureGradeBookPeriod(ctx.row.id, periodId)
+    if (state.status === 'CLOSED') continue
+    await prisma.gradeBookPeriod.update({
+      where: { id: state.id },
+      data: { status: 'CLOSED', closedByUserId: closure.closedByUserId, closedAt: closure.closedAt, closedLate: false },
+    })
+    closedCodes.push(siblings.find((p) => p.id === periodId)?.code ?? periodId)
+  }
+  return closedCodes
+}
 
 /**
  * Reapertura de un período cerrado.
@@ -2247,6 +2394,10 @@ r.post('/:id/moodle/import', requirePermission('gradebook.grade'), async (req: a
     if (!ctx.access.canGrade) {
       return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
     }
+
+    // Las notas de Moodle son evaluaciones: sólo entran en un tramo del ciclo de la libreta.
+    const periodError = await assertPeriodFitsGradeBook(parsed.data.periodId, ctx.row)
+    if (periodError) return res.status(400).json(periodError)
 
     // Un período cerrado no se toca ni siquiera desde Moodle: se avisa y no se fuerza.
     const state = await prisma.gradeBookPeriod.findUnique({
@@ -2503,7 +2654,8 @@ r.get('/:id/exports/xlsx', requirePermission('exports.create'), async (req: any,
     const scale = await scaleForGradeBook(row.id)
     const decimals = scale?.decimals ?? 0
 
-    const [students, assessments, grades, periods] = await Promise.all([
+    const level = row.courseOffering?.course?.level ?? null
+    const [students, assessments, grades, periods, academicPeriods] = await Promise.all([
       loadRosterForScope({
         schoolYearId: row.schoolYearId,
         courseOfferingId: row.courseOfferingId,
@@ -2512,7 +2664,11 @@ r.get('/:id/exports/xlsx', requirePermission('exports.create'), async (req: any,
       }),
       prisma.assessment.findMany({
         where: { gradeBookId: row.id, deletedAt: null },
-        include: { period: { select: { name: true } }, gradingScale: { select: { decimals: true } } },
+        include: {
+          period: { select: { name: true } },
+          gradingScale: { select: { decimals: true } },
+          activityType: { select: { category: true } },
+        },
         orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       }),
       prisma.assessmentGrade.findMany({
@@ -2521,8 +2677,13 @@ r.get('/:id/exports/xlsx', requirePermission('exports.create'), async (req: any,
       }),
       prisma.gradeBookPeriod.findMany({
         where: { gradeBookId: row.id },
-        include: { period: { select: { name: true, sortOrder: true } }, grades: true },
+        include: { period: { select: { name: true, sortOrder: true, judgementLabel: true } }, grades: true },
         orderBy: { period: { sortOrder: 'asc' } },
+      }),
+      prisma.academicPeriod.findMany({
+        where: { schoolYearId: row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
+        select: { id: true, name: true, kind: true, judgementLabel: true },
+        orderBy: { sortOrder: 'asc' },
       }),
     ])
 
@@ -2541,6 +2702,23 @@ r.get('/:id/exports/xlsx', requirePermission('exports.create'), async (req: any,
       grades,
     )
 
+    // La planilla anual con la forma del Excel del liceo: es lo que el docente reconoce.
+    const categoryByAssessment = new Map(
+      assessments.map((a) => [a.id, { periodId: a.periodId, category: a.activityType?.category ?? 'OTRAS' }]),
+    )
+    buildPlanillaSheet(
+      workbook,
+      meta,
+      students,
+      academicPeriods,
+      grades.flatMap((grade) => {
+        const source = categoryByAssessment.get(grade.assessmentId)
+        return source ? [{ ...grade, ...source }] : []
+      }),
+      periods.flatMap((state) => state.grades.map((grade) => ({ ...grade, periodId: state.periodId }))),
+      decimals,
+    )
+
     // Una hoja de cierre por período, para que el Excel sirva de archivo del año entero.
     for (const state of periods) {
       buildClosureSheet(
@@ -2553,10 +2731,14 @@ r.get('/:id/exports/xlsx', requirePermission('exports.create'), async (req: any,
           firstName: grade.studentFirstName,
           documentId: grade.studentDocumentId,
           valueHundredths: grade.valueHundredths,
-          descriptorLabel: describeValue(grade.valueHundredths, (scale?.levels ?? []) as never)?.label ?? null,
+          meetingValueHundredths: grade.meetingValueHundredths,
+          // El descriptor que se informa es el de R, la nota oficial.
+          descriptorLabel:
+            describeValue(grade.meetingValueHundredths, (scale?.levels ?? []) as never)?.label ?? null,
           conceptualJudgement: grade.conceptualJudgement,
         })),
         decimals,
+        state.period.judgementLabel ?? undefined,
       )
     }
 
@@ -2573,10 +2755,13 @@ r.get('/:id/exports/xlsx', requirePermission('exports.create'), async (req: any,
   }
 })
 
-/** Arma las filas del PDF: cada estudiante con sus períodos cerrados. */
+/**
+ * Arma las filas del PDF: cada estudiante con sus períodos con reunión y su R. Las notas de trabajo
+ * de un tramo no se informan: lo que llega a la familia es lo que decidió la reunión.
+ */
 async function buildPdfStudents(row: any, levels: readonly any[], studentId?: string) {
   const periods = await prisma.gradeBookPeriod.findMany({
-    where: { gradeBookId: row.id },
+    where: { gradeBookId: row.id, period: { isMeeting: true } },
     include: {
       period: { select: { name: true, sortOrder: true } },
       grades: studentId ? { where: { studentId } } : true,
@@ -2597,8 +2782,9 @@ async function buildPdfStudents(row: any, levels: readonly any[], studentId?: st
       }
       entry.periods.push({
         periodName: state.period.name,
-        valueHundredths: grade.valueHundredths,
-        descriptorLabel: describeValue(grade.valueHundredths, levels as never)?.label ?? null,
+        // El PDF de la libreta informa la nota oficial: R.
+        valueHundredths: grade.meetingValueHundredths,
+        descriptorLabel: describeValue(grade.meetingValueHundredths, levels as never)?.label ?? null,
         conceptualJudgement: grade.conceptualJudgement,
         endorsementStatus: endorsed,
       })

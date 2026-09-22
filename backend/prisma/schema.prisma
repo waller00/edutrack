@@ -1560,6 +1560,16 @@ model GradingScaleLevel {
   @@index([scaleId, sortOrder])
 }
 
+/// Forma de un período en la libreta, igual que los bloques de la planilla del liceo.
+enum AcademicPeriodKind {
+  /// Diagnóstico inicial (reunión de trayectorias): sólo texto por estudiante, sin notas.
+  DIAGNOSTICO
+  /// Tramo de trabajo en el aula: admite evaluaciones (Or / Otras / Ev / Prueba) y lleva C y R.
+  TRAMO
+  /// Entrega de informe a las familias: informe de actuación, C y R. No admite evaluaciones.
+  ENTREGA
+}
+
 /// Período académico del ciclo (RF-050), administrable por año lectivo y nivel.
 ///
 /// `level` es obligatorio a propósito: los períodos reglamentarios de EBI y EMS no coinciden,
@@ -1573,13 +1583,19 @@ model AcademicPeriod {
   code                        String
   name                        String
   sortOrder                   Int                    @default(0)
+  kind                        AcademicPeriodKind     @default(TRAMO)
   startsOn                    DateTime?
   endsOn                      DateTime?
   /// Fecha límite de cierre; pasada, un cierre queda registrado como fuera de plazo (§5.9).
   closesOn                    DateTime?
-  /// Obligatoriedad configurable por período y plan (RF-052).
+  /// Obligatoriedad configurable por período y plan (RF-052). `requiresGeneralGrade` exige la C.
   requiresConceptualJudgement Boolean                @default(false)
   requiresGeneralGrade        Boolean                @default(true)
+  /// El período lleva reunión: tiene R (nota de reunión) y es el que listan la reunión, el
+  /// boletín, el visado y el control. Si además exige C, cerrar exige también R.
+  isMeeting                   Boolean                @default(false)
+  /// Nombre del texto del período en la libreta ("Informe de actuación", "Diagnóstico"…).
+  judgementLabel              String?
   isActive                    Boolean                @default(true)
   createdAt                   DateTime               @default(now())
   updatedAt                   DateTime               @updatedAt
@@ -1600,12 +1616,25 @@ enum ActivityTypeScope {
   TEACHER
 }
 
+/// Columna de la planilla del liceo en la que cae un tipo de actividad.
+enum ActivityCategory {
+  /// "Or": orales, exposiciones, participación.
+  ORAL
+  /// "Otras": trabajos, proyectos, laboratorio, tareas.
+  OTRAS
+  /// "Ev": evaluaciones escritas.
+  ESCRITO
+  /// Prueba semestral (julio y octubre–noviembre).
+  PRUEBA
+}
+
 /// Tipo de actividad de una evaluación (RF-041): predefinidos más los propios del docente.
 model ActivityType {
   id          String            @id @default(uuid())
   code        String
   name        String
   description String?           @db.Text
+  category    ActivityCategory  @default(OTRAS)
   scope       ActivityTypeScope @default(GLOBAL)
   /// Dueño cuando `scope = TEACHER`; null en los globales.
   ownerUserId String?
@@ -1843,7 +1872,11 @@ model GradeBookPeriod {
   @@index([periodId, status])
 }
 
-/// Calificación general del período y su juicio conceptual, por estudiante (RF-051, RF-052).
+/// Calificación del período (C), nota de reunión (R) y juicio conceptual, por estudiante
+/// (RF-051, RF-052).
+///
+/// **La nota oficial es R**, nunca C: es la que usan el boletín, el promedio de la reunión y los
+/// indicadores (`officialPeriodValue`). C es la que propone el docente antes de la reunión.
 ///
 /// El **descriptor** (RF-053) no se guarda: se deriva al leer del tramo de la escala. Si mañana
 /// cambia la redacción reglamentaria de los descriptores, las libretas viejas no se reescriben.
@@ -1859,8 +1892,10 @@ model PeriodGrade {
   studentFirstName  String
   studentDocumentId String?
 
-  /// Valor en centésimos (8 → 800).
-  valueHundredths     Int?
+  /// C: calificación que pone el docente, en centésimos (8 → 800).
+  valueHundredths        Int?
+  /// R: nota que queda después de la reunión de profesores. La pasa el docente en su libreta.
+  meetingValueHundredths Int?
   scaleLevelId        String?
   scaleLevel          GradingScaleLevel? @relation("PeriodGradeScaleLevel", fields: [scaleLevelId], references: [id], onDelete: SetNull)
   /// Juicio conceptual del docente. Su obligatoriedad la define el período (RF-052).

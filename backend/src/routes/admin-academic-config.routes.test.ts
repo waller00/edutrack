@@ -292,6 +292,45 @@ describe("períodos", () => {
     );
   });
 
+  it("crea una entrega con reunión y el nombre de su texto", async () => {
+    prismaMock.academicPeriod.create.mockResolvedValue({
+      id: PERIOD_ID,
+      code: "ENTREGA_1",
+      level: "EBI",
+      startsOn: null,
+      endsOn: null,
+      closesOn: null,
+    });
+
+    const res = await request(app())
+      .post("/admin/academic-config/periods")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({
+        ...NEW_PERIOD,
+        code: "ENTREGA_1",
+        kind: "ENTREGA",
+        isMeeting: true,
+        judgementLabel: "Informe de actuación",
+      });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.academicPeriod.create.mock.calls[0][0].data).toMatchObject({
+      kind: "ENTREGA",
+      isMeeting: true,
+      judgementLabel: "Informe de actuación",
+    });
+  });
+
+  it("un período nuevo es un tramo sin reunión si no se dice otra cosa", async () => {
+    prismaMock.academicPeriod.create.mockResolvedValue({ id: PERIOD_ID, code: "MAYO", level: "EBI", startsOn: null, endsOn: null, closesOn: null });
+    await request(app()).post("/admin/academic-config/periods").set("Authorization", `Bearer ${tok()}`).send(NEW_PERIOD);
+    expect(prismaMock.academicPeriod.create.mock.calls[0][0].data).toMatchObject({
+      kind: "TRAMO",
+      isMeeting: false,
+      judgementLabel: null,
+    });
+  });
+
   it("ignora un nivel inválido en vez de romper", async () => {
     prismaMock.academicPeriod.findMany.mockResolvedValue([]);
     await request(app())
@@ -406,6 +445,29 @@ describe("tipos de actividad", () => {
 
     expect(res.status).toBe(201);
     expect(prismaMock.activityType.create.mock.calls[0][0].data.scope).toBe("GLOBAL");
+  });
+
+  it("guarda la columna de la planilla del tipo (Or / Otras / Ev / Prueba)", async () => {
+    prismaMock.activityType.create.mockResolvedValue({ id: TYPE_ID, code: "PRUEBA" });
+    await request(app())
+      .post("/admin/academic-config/activity-types")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ code: "PRUEBA", name: "Prueba semestral", category: "PRUEBA" });
+    expect(prismaMock.activityType.create.mock.calls[0][0].data.category).toBe("PRUEBA");
+
+    await request(app())
+      .post("/admin/academic-config/activity-types")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ code: "DEBATE", name: "Debate" });
+    expect(prismaMock.activityType.create.mock.calls[1][0].data.category).toBe("OTRAS");
+  });
+
+  it("rechaza una columna que no existe en la planilla", async () => {
+    const res = await request(app())
+      .post("/admin/academic-config/activity-types")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ code: "X", name: "X", category: "CONDUCTA" });
+    expect(res.status).toBe(400);
   });
 
   it("no deja que administración toque un tipo propio de un docente", async () => {

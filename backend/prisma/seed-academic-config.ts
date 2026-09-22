@@ -10,7 +10,7 @@
  * los campos que el seed no gobierna.
  */
 import "dotenv/config";
-import type { AcademicLevel, PrismaClient } from "@prisma/client";
+import type { AcademicLevel, Prisma } from "@prisma/client";
 import { prisma } from "../src/db/prisma.js";
 import {
   GLOBAL_ACTIVITY_TYPES,
@@ -21,18 +21,35 @@ import {
 
 const LEVELS: readonly AcademicLevel[] = ["EBI", "EMS"];
 
+/** Cliente o transacción: `remap-ebi-periods.ts` siembra dentro de una transacción. */
+type Db = Prisma.TransactionClient;
+
 /**
  * `MM-DD` + año del ciclo → instante UTC al mediodía.
  *
  * Mediodía y no medianoche: la fecha se muestra como día civil uruguayo (UTC-3) y un
  * `T00:00:00Z` se lee como el día anterior. Mismo criterio que `seed-academic-catalog.ts`.
  */
-function periodDate(schoolYearCode: number, monthDay: string | null, yearOffset = 0): Date | null {
+export function periodDate(schoolYearCode: number, monthDay: string | null, yearOffset = 0): Date | null {
   if (!monthDay) return null;
   return new Date(`${schoolYearCode + yearOffset}-${monthDay}T12:00:00.000Z`);
 }
 
-async function upsertPeriods(db: PrismaClient, schoolYearId: string, schoolYearCode: number) {
+/**
+ * Lo que define la forma y las exigencias de un período en la libreta. El seed lo escribe al
+ * crear; `remap-ebi-periods.ts` lo impone una vez sobre los períodos que ya existían.
+ */
+export function periodShape(period: PeriodSeed) {
+  return {
+    kind: period.kind ?? "TRAMO",
+    requiresConceptualJudgement: period.requiresConceptualJudgement,
+    requiresGeneralGrade: period.requiresGeneralGrade,
+    isMeeting: period.isMeeting ?? false,
+    judgementLabel: period.judgementLabel ?? null,
+  } as const;
+}
+
+async function upsertPeriods(db: Db, schoolYearId: string, schoolYearCode: number) {
   let count = 0;
   for (const level of LEVELS) {
     for (const period of PERIODS_BY_LEVEL[level] as readonly PeriodSeed[]) {
@@ -50,8 +67,7 @@ async function upsertPeriods(db: PrismaClient, schoolYearId: string, schoolYearC
           startsOn: periodDate(schoolYearCode, period.startsOn, offset),
           endsOn: periodDate(schoolYearCode, period.endsOn, offset),
           closesOn: periodDate(schoolYearCode, period.closesOn, offset),
-          requiresConceptualJudgement: period.requiresConceptualJudgement,
-          requiresGeneralGrade: period.requiresGeneralGrade,
+          ...periodShape(period),
         },
         // No se pisa `isActive` ni las fechas: si Dirección ajustó el calendario del año,
         // reejecutar el seed no debe deshacerlo. Sólo se corrigen nombre y orden.
@@ -63,7 +79,7 @@ async function upsertPeriods(db: PrismaClient, schoolYearId: string, schoolYearC
   return count;
 }
 
-async function upsertScales(db: PrismaClient) {
+async function upsertScales(db: Db) {
   for (const scale of GRADING_SCALES) {
     const row = await db.gradingScale.upsert({
       where: { code: scale.code },
@@ -102,7 +118,7 @@ async function upsertScales(db: PrismaClient) {
   return GRADING_SCALES.length;
 }
 
-async function upsertActivityTypes(db: PrismaClient) {
+async function upsertActivityTypes(db: Db) {
   for (const type of GLOBAL_ACTIVITY_TYPES) {
     // Los globales tienen `ownerUserId = null`, y en Postgres los NULL no colisionan en una clave
     // única: `upsert` sobre `[ownerUserId, code]` insertaría duplicados. Por eso se busca primero.
@@ -113,18 +129,24 @@ async function upsertActivityTypes(db: PrismaClient) {
     if (existing) {
       await db.activityType.update({
         where: { id: existing.id },
-        data: { name: type.name, sortOrder: type.sortOrder },
+        data: { name: type.name, sortOrder: type.sortOrder, category: type.category },
       });
     } else {
       await db.activityType.create({
-        data: { code: type.code, name: type.name, sortOrder: type.sortOrder, scope: "GLOBAL" },
+        data: {
+          code: type.code,
+          name: type.name,
+          sortOrder: type.sortOrder,
+          category: type.category,
+          scope: "GLOBAL",
+        },
       });
     }
   }
   return GLOBAL_ACTIVITY_TYPES.length;
 }
 
-export async function seedAcademicConfig(db: PrismaClient = prisma) {
+export async function seedAcademicConfig(db: Db = prisma) {
   const scales = await upsertScales(db);
   const activityTypes = await upsertActivityTypes(db);
 

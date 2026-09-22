@@ -15,8 +15,11 @@ export type GradeBookCompleteness = {
   teacherName: string | null
   periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | null
   rosterSize: number
-  /** Estudiantes con calificación general del período. */
+  /** Estudiantes con calificación (C) del período. */
   gradedCount: number
+  /** Estudiantes con nota de reunión (R), cuando el período la exige. */
+  meetingGradedCount?: number
+  requiresMeetingGrade?: boolean
   /** Estudiantes con juicio conceptual, cuando el período lo exige. */
   judgedCount: number
   requiresJudgement: boolean
@@ -24,6 +27,7 @@ export type GradeBookCompleteness = {
 
 export type CompletenessSummary = GradeBookCompleteness & {
   missingGrades: number
+  missingMeetingGrades: number
   missingJudgements: number
   /** ¿Está lista para cerrar? Cerrada también cuenta como completa. */
   complete: boolean
@@ -33,11 +37,16 @@ export function summarize(row: GradeBookCompleteness): CompletenessSummary {
   const missingGrades = Math.max(0, row.rosterSize - row.gradedCount)
   // El juicio sólo falta si el período lo exige: en los que no, no es una omisión.
   const missingJudgements = row.requiresJudgement ? Math.max(0, row.rosterSize - row.judgedCount) : 0
+  const missingMeetingGrades = row.requiresMeetingGrade
+    ? Math.max(0, row.rosterSize - (row.meetingGradedCount ?? 0))
+    : 0
   return {
     ...row,
     missingGrades,
+    missingMeetingGrades,
     missingJudgements,
-    complete: row.periodStatus === 'CLOSED' || (missingGrades === 0 && missingJudgements === 0),
+    complete:
+      row.periodStatus === 'CLOSED' || (missingGrades === 0 && missingMeetingGrades === 0 && missingJudgements === 0),
   }
 }
 
@@ -45,8 +54,8 @@ export function summarize(row: GradeBookCompleteness): CompletenessSummary {
 export function sortByUrgency(rows: readonly CompletenessSummary[]): CompletenessSummary[] {
   return [...rows].sort((a, b) => {
     if (a.complete !== b.complete) return a.complete ? 1 : -1
-    const missingA = a.missingGrades + a.missingJudgements
-    const missingB = b.missingGrades + b.missingJudgements
+    const missingA = a.missingGrades + a.missingMeetingGrades + a.missingJudgements
+    const missingB = b.missingGrades + b.missingMeetingGrades + b.missingJudgements
     if (missingA !== missingB) return missingB - missingA
     return a.subjectName.localeCompare(b.subjectName, 'es')
   })
@@ -58,9 +67,13 @@ export function completionRequestBody(row: CompletenessSummary, periodName: stri
   if (row.missingGrades > 0) {
     faltantes.push(`${row.missingGrades} sin calificación`)
   }
+  if (row.missingMeetingGrades > 0) {
+    faltantes.push(`${row.missingMeetingGrades} sin nota de reunión (R)`)
+  }
   if (row.missingJudgements > 0) {
     faltantes.push(`${row.missingJudgements} sin juicio conceptual`)
   }
   if (faltantes.length === 0) return `${periodName}: la libreta está completa.`
-  return `${periodName}: ${faltantes.join(' y ')}.`
+  const list = faltantes.length > 1 ? `${faltantes.slice(0, -1).join(', ')} y ${faltantes.at(-1)}` : faltantes[0]
+  return `${periodName}: ${list}.`
 }
