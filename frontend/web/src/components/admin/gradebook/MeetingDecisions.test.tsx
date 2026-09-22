@@ -62,7 +62,7 @@ describe('<MeetingDecisions />', () => {
 
     fireEvent.change(screen.getByLabelText('Sobre'), { target: { value: 's2' } })
     fireEvent.change(screen.getByLabelText('Decisión'), { target: { value: 'Se deriva a APE.' } })
-    fireEvent.click(screen.getByRole('button', { name: /Registrar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     const [path, init] = mockedApi.mock.calls[1]
@@ -80,7 +80,7 @@ describe('<MeetingDecisions />', () => {
     await screen.findByText(/no se registró ninguna decisión/)
 
     fireEvent.change(screen.getByLabelText('Decisión'), { target: { value: 'Se refuerza convivencia.' } })
-    fireEvent.click(screen.getByRole('button', { name: /Registrar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     expect(JSON.parse(String(mockedApi.mock.calls[1][1]?.body)).studentId).toBeUndefined()
@@ -90,7 +90,7 @@ describe('<MeetingDecisions />', () => {
     setup()
     await screen.findByText(/no se registró ninguna decisión/)
 
-    fireEvent.click(screen.getByRole('button', { name: /Registrar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Escribí la decisión.')
     expect(mockedApi).toHaveBeenCalledTimes(1)
@@ -102,7 +102,7 @@ describe('<MeetingDecisions />', () => {
     await screen.findByText(/no se registró ninguna decisión/)
 
     fireEvent.change(screen.getByLabelText('Decisión'), { target: { value: 'Algo' } })
-    fireEvent.click(screen.getByRole('button', { name: /Registrar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Período cerrado')
   })
