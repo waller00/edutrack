@@ -3,13 +3,18 @@
 import { useState } from 'react'
 import ConfigModal from './ConfigModal'
 import { Check, Field, inputClass } from './fields'
-import type { ActivityType } from '@/lib/academic-config/types'
+import {
+  ACTIVITY_CATEGORY_OPTIONS,
+  type ActivityCategoryCode,
+  type ActivityType,
+} from '@/lib/academic-config/types'
 
 export type ActivityTypeDraft = {
   code: string
   name: string
   description: string
   sortOrder: number
+  category: ActivityCategoryCode
   isActive: boolean
 }
 
@@ -19,6 +24,7 @@ export function draftFromActivityType(type: ActivityType | null): ActivityTypeDr
     name: type?.name ?? '',
     description: type?.description ?? '',
     sortOrder: type?.sortOrder ?? 0,
+    category: type?.category ?? 'OTRAS',
     isActive: type?.isActive ?? true,
   }
 }
@@ -37,6 +43,7 @@ export function activityTypePayload(draft: ActivityTypeDraft, isEdit: boolean) {
     name: draft.name.trim(),
     description: draft.description.trim() || null,
     sortOrder: draft.sortOrder,
+    category: draft.category,
   }
   return isEdit ? { ...common, isActive: draft.isActive } : { ...common, code: draft.code.trim() }
 }
@@ -92,6 +99,25 @@ export default function ActivityTypeFormModal({ type, saving, error, onSave, onC
           <input id="type-name" value={draft.name} onChange={(e) => patch('name', e.target.value)} className={inputClass} />
         </Field>
       </div>
+
+      <Field
+        label="Columna de la planilla"
+        htmlFor="type-category"
+        hint="En qué columna del tramo aparecen sus notas en la carta del alumno."
+      >
+        <select
+          id="type-category"
+          value={draft.category}
+          onChange={(e) => patch('category', e.target.value as ActivityCategoryCode)}
+          className={inputClass}
+        >
+          {ACTIVITY_CATEGORY_OPTIONS.map((option) => (
+            <option key={option.code} value={option.code}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </Field>
 
       <Field label="Descripción" htmlFor="type-description" hint="Opcional. Ayuda al docente a elegir bien.">
         <textarea

@@ -60,12 +60,12 @@ describe('<CompletenessPanel />', () => {
   })
 
   it('nombra las dos cosas cuando faltan las dos', async () => {
-    respond([row({ missingGrades: 6, missingJudgements: 9 })])
+    respond([row({ missingGrades: 6, missingMeetingGrades: 4, missingJudgements: 9 })])
     render(<CompletenessPanel />)
     await pickPeriod()
 
     expect(
-      await screen.findByText('Mayo: 6 sin calificación y 9 sin juicio conceptual.'),
+      await screen.findByText('Mayo: 6 sin calificación, 4 sin nota de reunión (R) y 9 sin juicio conceptual.'),
     ).toBeInTheDocument()
   })
 

@@ -8,7 +8,7 @@ import {
 import type { ActivityType } from '@/lib/academic-config/types'
 
 const TYPE: ActivityType = {
-  id: 't-1', code: 'ESCRITO', name: 'Escrito', description: 'Prueba escrita',
+  id: 't-1', code: 'ESCRITO', name: 'Escrito', description: 'Prueba escrita', category: 'ESCRITO',
   scope: 'GLOBAL', isActive: true, sortOrder: 1, usage: { assessments: 5 },
 }
 
@@ -19,7 +19,7 @@ function draft(over: Partial<ActivityTypeDraft> = {}): ActivityTypeDraft {
 describe('draftFromActivityType', () => {
   it('sin tipo arranca vacío y activo', () => {
     const d = draftFromActivityType(null)
-    expect(d).toEqual({ code: '', name: '', description: '', sortOrder: 0, isActive: true })
+    expect(d).toEqual({ code: '', name: '', description: '', sortOrder: 0, category: 'OTRAS', isActive: true })
   })
 
   it('la descripción nula entra como cadena vacía', () => {
@@ -39,6 +39,14 @@ describe('validateActivityType', () => {
 
   it('exige nombre', () => {
     expect(validateActivityType(draft({ name: ' ' }), false)).toMatch(/nombre/i)
+  })
+})
+
+describe('columna de la planilla', () => {
+  it('un tipo nuevo cae en Otras; uno existente conserva la suya y la manda al guardar', () => {
+    expect(draftFromActivityType(null).category).toBe('OTRAS')
+    expect(activityTypePayload(draft(), true)).toMatchObject({ category: 'ESCRITO' })
+    expect(activityTypePayload(draft({ category: 'PRUEBA' }), false)).toMatchObject({ category: 'PRUEBA' })
   })
 })
 

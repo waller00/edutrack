@@ -8,7 +8,13 @@ import { withSchoolYear } from '@/lib/admin/school-year-query'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
 import PeriodFormModal, { periodPayload, type PeriodDraft } from './PeriodFormModal'
 import UsageNote from './UsageNote'
-import { LEVEL_LABELS, LEVEL_SHORT_LABELS, type AcademicLevel, type AcademicPeriod } from '@/lib/academic-config/types'
+import {
+  LEVEL_LABELS,
+  LEVEL_SHORT_LABELS,
+  PERIOD_KIND_SHORT,
+  type AcademicLevel,
+  type AcademicPeriod,
+} from '@/lib/academic-config/types'
 
 const LEVELS: AcademicLevel[] = ['EBI', 'EMS']
 
@@ -48,6 +54,10 @@ function PeriodRow({
       <td className="px-3 py-2">
         <div className="font-medium text-gray-900">{period.name}</div>
         <div className="font-mono text-xs text-gray-500">{period.code}</div>
+        <div className="text-xs text-gray-600">
+          {PERIOD_KIND_SHORT[period.kind ?? 'TRAMO']}
+          {period.isMeeting && ' · lleva reunión (R)'}
+        </div>
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-sm text-gray-700">
         {formatDay(period.startsOn)} – {formatDay(period.endsOn)}
@@ -55,8 +65,12 @@ function PeriodRow({
       <td className="whitespace-nowrap px-3 py-2 text-sm text-gray-700">{formatDay(period.closesOn)}</td>
       <td className="px-3 py-2">
         <div className="flex flex-wrap gap-1">
-          <RequirementBadge on={period.requiresGeneralGrade} label="Calificación" />
-          <RequirementBadge on={period.requiresConceptualJudgement} label="Juicio conceptual" />
+          <RequirementBadge on={period.requiresGeneralGrade} label="C" />
+          <RequirementBadge on={Boolean(period.isMeeting && period.requiresGeneralGrade)} label="R" />
+          <RequirementBadge
+            on={period.requiresConceptualJudgement}
+            label={period.judgementLabel || 'Juicio conceptual'}
+          />
         </div>
       </td>
       <td className="px-3 py-2 text-sm">

@@ -22,6 +22,11 @@ const STYLES: Record<string, LevelStyle> = {
   green: { badgeClass: 'bg-green-50 text-green-800 border-green-200', dotClass: 'bg-green-500', symbol: '✓' },
   emerald: { badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200', dotClass: 'bg-emerald-500', symbol: '★' },
   blue: { badgeClass: 'bg-blue-50 text-blue-800 border-blue-200', dotClass: 'bg-blue-500', symbol: '◆' },
+  // Los seis tramos de la planilla del liceo (1–2 rojo … 10 azul oscuro).
+  orange: { badgeClass: 'bg-orange-50 text-orange-800 border-orange-200', dotClass: 'bg-orange-500', symbol: '●' },
+  yellow: { badgeClass: 'bg-yellow-50 text-yellow-900 border-yellow-300', dotClass: 'bg-yellow-400', symbol: '◐' },
+  lime: { badgeClass: 'bg-lime-50 text-lime-900 border-lime-300', dotClass: 'bg-lime-500', symbol: '✓' },
+  indigo: { badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300', dotClass: 'bg-indigo-700', symbol: '★' },
 }
 
 const NEUTRAL: LevelStyle = {
@@ -36,6 +41,8 @@ const ICON_SYMBOLS: Record<string, string> = {
   'alert-circle': '●',
   check: '✓',
   star: '★',
+  half: '◐',
+  diamond: '◆',
 }
 
 export function levelStyle(level: Pick<ScaleLevel, 'colorToken' | 'iconToken'>): LevelStyle {

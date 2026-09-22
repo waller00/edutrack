@@ -12,7 +12,7 @@ describe('levelStyle', () => {
   })
 
   it('SIEMPRE devuelve un símbolo: el nivel no puede depender sólo del color (RNF 7.2)', () => {
-    const colors = ['red', 'amber', 'green', 'emerald', 'blue', 'desconocido', null]
+    const colors = ['red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald', 'blue', 'indigo', 'desconocido', null]
     for (const colorToken of colors) {
       expect(levelStyle({ colorToken, iconToken: null }).symbol.length).toBeGreaterThan(0)
     }
@@ -20,6 +20,19 @@ describe('levelStyle', () => {
 
   it('el iconToken del backend manda sobre el símbolo por defecto del color', () => {
     expect(levelStyle({ colorToken: 'red', iconToken: 'star' }).symbol).toBe('★')
+  })
+
+  it('los seis tramos de la escala 1 a 10 se distinguen también por símbolo', () => {
+    const tokens = [
+      ['red', 'alert-triangle'],
+      ['orange', 'alert-circle'],
+      ['yellow', 'half'],
+      ['lime', 'check'],
+      ['blue', 'diamond'],
+      ['indigo', 'star'],
+    ] as const
+    const symbols = tokens.map(([colorToken, iconToken]) => levelStyle({ colorToken, iconToken }).symbol)
+    expect(new Set(symbols).size).toBe(6)
   })
 
   it('ignora un iconToken desconocido y usa el del color', () => {

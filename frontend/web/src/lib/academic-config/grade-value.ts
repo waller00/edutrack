@@ -24,13 +24,17 @@ export function parseToHundredths(input: string): number | null {
 }
 
 /**
- * Umbral de aprobación numérica en la carta de evaluaciones: a partir de 5.
- * Por debajo → insuficiente (marca naranja discreta).
+ * Tramo de la escala que corresponde a un valor; espejo de `resolveLevel` del backend.
+ *
+ * El color, el símbolo y si aprueba salen siempre de la escala configurada, nunca de un umbral
+ * fijo en el front: si Dirección cambia la escala, la libreta la sigue sin tocar código.
  */
-export const PASSING_MIN_HUNDREDTHS = 500
-
-export function isInsufficientHundredths(value: number | null | undefined): boolean {
-  return value != null && Number.isFinite(value) && value < PASSING_MIN_HUNDREDTHS
+export function resolveLevel<T extends { minValueHundredths: number; maxValueHundredths: number }>(
+  value: number | null | undefined,
+  levels: readonly T[],
+): T | null {
+  if (value == null || !Number.isFinite(value)) return null
+  return levels.find((level) => value >= level.minValueHundredths && value <= level.maxValueHundredths) ?? null
 }
 
 /** Rango legible de un tramo: `"1 a 5,9"`. */

@@ -37,7 +37,10 @@ type Descriptor = { label: string; descriptor: string | null; colorToken: string
 
 type Cell = {
   gradeBookId: string
+  /** R, la nota de reunión: la oficial. */
   valueHundredths: number | null
+  /** C, la del docente. Se muestra como propuesta mientras no hay R; no promedia. */
+  proposedValueHundredths?: number | null
   conceptualJudgement: string | null
   descriptor: Descriptor
   periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | null
@@ -76,9 +79,24 @@ function groupLabel(g: Group) {
   return g.orientationName ? `${g.courseName} — ${g.orientationName}` : g.courseName
 }
 
-/** Celda de la matriz: color, símbolo y valor. El símbolo evita depender del color (RNF 7.2). */
+/**
+ * Celda de la matriz: color, símbolo y valor de R. El símbolo evita depender del color (RNF 7.2).
+ * Sin R, muestra la C del docente como propuesta —es lo que se discute en la reunión—, rotulada
+ * con texto y sin color de tramo, porque todavía no es una nota.
+ */
 function MatrixCell({ cell, decimals }: { cell: Cell; decimals: number }) {
   if (cell.pending) {
+    if (cell.proposedValueHundredths != null) {
+      return (
+        <span
+          className="inline-flex items-center gap-1 rounded border border-dashed border-gray-300 px-1.5 py-0.5 text-xs text-gray-600"
+          title="C propuesta por el docente; todavía sin nota de reunión (R)"
+        >
+          <span className="text-[10px] uppercase text-gray-400">C</span>
+          {formatHundredths(cell.proposedValueHundredths, decimals)}
+        </span>
+      )
+    }
     return <span className="text-xs text-gray-400" title="Sin calificación del período">—</span>
   }
   const style = cell.descriptor ? levelStyle(cell.descriptor) : null
@@ -260,9 +278,10 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
           </div>
 
           <p className="text-xs text-gray-500">
-            <strong>{matrix.averageLabel}.</strong> No sustituye las decisiones pedagógicas de la reunión
-            de profesores. Las alertas son informativas y no generan por sí solas decisiones
-            administrativas.
+            <strong>{matrix.averageLabel}.</strong> Se calcula con la nota de reunión (R); una celda con{' '}
+            <span className="rounded border border-dashed border-gray-300 px-1">C</span> es la propuesta del
+            docente y todavía no cuenta. No sustituye las decisiones pedagógicas de la reunión de profesores.
+            Las alertas son informativas y no generan por sí solas decisiones administrativas.
           </p>
 
           {/* Juicio de reunión: se carga acá (no en la ficha del alumno ni en el cierre del docente). */}
