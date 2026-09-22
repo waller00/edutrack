@@ -16,17 +16,24 @@ import {
 import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api/client'
 import { apiBlob } from '@/lib/api/binary'
-import { formatHundredths, isInsufficientHundredths } from '@/lib/academic-config/grade-value'
+import { formatHundredths } from '@/lib/academic-config/grade-value'
 import {
-  ACTIVITY_CATEGORY_LABEL,
+  ACTIVITY_CATEGORY_ORDER,
+  ACTIVITY_CATEGORY_TITLE,
   activityCategory,
-  averageHundredths,
   type ActivityCategory,
 } from '@/lib/gradebook/activity-category'
+import {
+  gradablePeriods,
+  mergePeriodGrade,
+  tramoForDate,
+  type LibretaPeriod,
+  type StoredPeriodGrade,
+} from '@/lib/gradebook/period-blocks'
 import { gradeBookTitle, studentFullName } from '@/lib/gradebook/labels'
+import { todayYmdUruguay as todayYmd } from '@/lib/libreta/absence-day'
 import {
   downloadStudentEvaluationsXlsx,
-  gradeTooltipLine,
   printStudentEvaluations,
 } from '@/lib/gradebook/student-evaluation-export'
 import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
@@ -35,11 +42,41 @@ import StudentBadges, { type StudentBadgeFocus } from '@/components/libreta/Stud
 import StudentSheet from '@/components/libreta/StudentSheet'
 import MoodleImportPanel from './MoodleImportPanel'
 import AssessmentsPanel from './AssessmentsPanel'
+import PeriodBlock, { type BlockLevel, type PeriodGradePatch } from './PeriodBlock'
 
-type Period = { id: string; code: string; name: string }
-type Scale = { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number }
-type ActivityType = { id: string; code: string; name: string; scope: 'GLOBAL' | 'TEACHER' }
+type Period = LibretaPeriod
+type Scale = { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number; levels?: BlockLevel[] }
+type ActivityType = { id: string; code: string; name: string; scope: 'GLOBAL' | 'TEACHER'; category?: string | null }
 type Options = { periods: Period[]; scales: Scale[]; activityTypes: ActivityType[] }
+
+/** Desde qué celda se abrió la carga: la planilla se llena clickeando en la columna. */
+type AddPreset = { periodId?: string; category?: ActivityCategory }
+
+
+/** Primer tipo de actividad de una columna de la planilla, para precargar el formulario. */
+function firstTypeOf(activityTypes: ActivityType[], category: ActivityCategory | undefined): string {
+  const match = category ? activityTypes.find((t) => activityCategory(t) === category) : undefined
+  return match?.id ?? activityTypes[0]?.id ?? ''
+}
+
+/** Tipos agrupados por columna (Or / Otras / Ev / Prueba), como están en la planilla. */
+function ActivityTypeOptions({ activityTypes }: { activityTypes: ActivityType[] }) {
+  return (
+    <>
+      {ACTIVITY_CATEGORY_ORDER.map((category) => {
+        const types = activityTypes.filter((t) => activityCategory(t) === category)
+        if (types.length === 0) return null
+        return (
+          <optgroup key={category} label={ACTIVITY_CATEGORY_TITLE[category]}>
+            {types.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </optgroup>
+        )
+      })}
+    </>
+  )
+}
 
 /** Escala fija de la libreta docente: siempre 1–10 (más N/A). */
 const GRADE_1_TO_10 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const
@@ -101,7 +138,7 @@ type BoardAssessment = {
   period: Period | null
   date: string
   title: string
-  activityType: { id: string; code: string; name: string } | null
+  activityType: { id: string; code: string; name: string; category?: string | null } | null
   gradingScale: { id: string; name: string; kind: string; decimals: number } | null
 }
 
@@ -115,113 +152,19 @@ type BoardGrade = {
   gradedByName: string | null
 }
 
-type BoardResponse = { assessments: BoardAssessment[]; grades: BoardGrade[] }
+type PeriodState = { periodId: string; status: 'OPEN' | 'CLOSED' | 'REOPENED'; canEdit: boolean }
+
+type BoardResponse = {
+  assessments: BoardAssessment[]
+  grades: BoardGrade[]
+  /** C, R y el texto de cada alumno por período. */
+  periodGrades?: StoredPeriodGrade[]
+  periodStates?: PeriodState[]
+}
 
 type StudentGradeRow = BoardGrade & {
   assessment: BoardAssessment
   category: ActivityCategory
-}
-
-type GradeHint = { date: string; title: string; comment: string | null; valueHundredths: number | null }
-
-function periodSummary(
-  rows: readonly StudentGradeRow[],
-  periodId: string,
-): Record<ActivityCategory | 'result', { average: number | null; hints: GradeHint[] }> {
-  const inPeriod = rows.filter((r) => r.assessment.periodId === periodId && !r.isAbsent)
-  const pack = (cat: ActivityCategory | 'all') => {
-    const subset = cat === 'all' ? inPeriod : inPeriod.filter((r) => r.category === cat)
-    return {
-      average: averageHundredths(subset.map((r) => r.valueHundredths)),
-      hints: subset.map((r) => ({
-        date: r.assessment.date,
-        title: r.assessment.title,
-        comment: r.comment,
-        valueHundredths: r.valueHundredths,
-      })),
-    }
-  }
-  return {
-    oral: pack('oral'),
-    written: pack('written'),
-    other: pack('other'),
-    result: pack('all'),
-  }
-}
-
-function PeriodBlock({
-  period,
-  summary,
-  decimals,
-}: {
-  period: Period
-  summary: Record<ActivityCategory | 'result', { average: number | null; hints: GradeHint[] }>
-  decimals: number
-}) {
-  const cells: Array<{
-    key: string
-    label: string
-    data: { average: number | null; hints: GradeHint[] }
-    highlight?: boolean
-  }> = [
-    { key: 'oral', label: ACTIVITY_CATEGORY_LABEL.oral, data: summary.oral },
-    { key: 'written', label: ACTIVITY_CATEGORY_LABEL.written, data: summary.written },
-    { key: 'other', label: ACTIVITY_CATEGORY_LABEL.other, data: summary.other },
-    { key: 'result', label: 'R', data: summary.result, highlight: true },
-  ]
-  return (
-    <div className="w-[16.5rem] shrink-0 overflow-hidden rounded border border-amber-200 bg-white text-xs">
-      <p className="bg-amber-100 px-2 py-1.5 text-center font-semibold leading-snug text-amber-950">{period.name}</p>
-      <div className="grid grid-cols-4 divide-x divide-amber-100 border-t border-amber-200">
-        {cells.map((cell) => {
-          const tooltip = cell.highlight
-            ? cell.data.hints.length
-              ? `Resultado del período\n${cell.data.hints.map((h) => gradeTooltipLine(h)).join('\n')}`
-              : 'Resultado del período (promedio)'
-            : cell.data.hints.map((h) => gradeTooltipLine(h)).join('\n') || undefined
-          const valueHundredths =
-            !cell.highlight && cell.data.hints.length === 1
-              ? cell.data.hints[0]?.valueHundredths ?? null
-              : cell.data.average
-          const display = formatHundredths(valueHundredths, decimals)
-          const insufficient = isInsufficientHundredths(valueHundredths)
-          return (
-            <div
-              key={cell.key}
-              className={`px-1.5 py-1.5 text-center ${cell.highlight ? 'bg-amber-50' : ''}`}
-              title={tooltip}
-            >
-              <p
-                className={`whitespace-nowrap font-medium ${
-                  cell.highlight ? 'font-bold text-amber-900' : 'text-slate-600'
-                }`}
-              >
-                {cell.label}
-              </p>
-              <p className="cursor-default tabular-nums">
-                {insufficient ? (
-                  <span
-                    className="inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-orange-100 px-1 py-0.5 font-medium text-orange-700 ring-1 ring-inset ring-orange-200/80"
-                    aria-label={`${display}, insuficiente`}
-                  >
-                    {display}
-                  </span>
-                ) : (
-                  <span
-                    className={
-                      cell.highlight ? 'bg-amber-100 font-semibold text-amber-950' : 'text-slate-900'
-                    }
-                  >
-                    {display}
-                  </span>
-                )}
-              </p>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
 }
 
 function AddGradeForm({
@@ -229,6 +172,7 @@ function AddGradeForm({
   student,
   courseLabel,
   options,
+  preset,
   onCancel,
   onSaved,
 }: {
@@ -236,13 +180,18 @@ function AddGradeForm({
   student: RosterStudent
   courseLabel: string
   options: Options
+  preset: AddPreset
   onCancel: () => void
   onSaved: () => Promise<void>
 }) {
   const gradingScaleId = pickNumeric1to10ScaleId(options.scales)
-  const [activityTypeId, setActivityTypeId] = useState(options.activityTypes[0]?.id ?? '')
-  const [periodId, setPeriodId] = useState(options.periods[0]?.id ?? '')
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  // Las notas sueltas sólo van en los tramos; las entregas llevan C, R e informe.
+  const tramos = gradablePeriods(options.periods)
+  const [activityTypeId, setActivityTypeId] = useState(() => firstTypeOf(options.activityTypes, preset.category))
+  const [periodId, setPeriodId] = useState(
+    () => preset.periodId ?? tramoForDate(options.periods, todayYmd())?.id ?? tramos[0]?.id ?? '',
+  )
+  const [date, setDate] = useState(todayYmd)
   const [gradeSelect, setGradeSelect] = useState('')
   const [comment, setComment] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -320,9 +269,7 @@ function AddGradeForm({
           onChange={(e) => setActivityTypeId(e.target.value)}
           className="rounded border border-gray-300 px-2 py-1.5"
         >
-          {options.activityTypes.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
+          <ActivityTypeOptions activityTypes={options.activityTypes} />
         </select>
       </label>
 
@@ -334,7 +281,7 @@ function AddGradeForm({
           onChange={(e) => setPeriodId(e.target.value)}
           className="rounded border border-gray-300 px-2 py-1.5"
         >
-          {options.periods.map((p) => (
+          {tramos.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
@@ -457,15 +404,13 @@ function EditGradeForm({
         <label className="text-sm">
           <span className="mb-1 block text-xs text-gray-600">Tipo</span>
           <select value={activityTypeId} onChange={(e) => setActivityTypeId(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5">
-            {options.activityTypes.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
+            <ActivityTypeOptions activityTypes={options.activityTypes} />
           </select>
         </label>
         <label className="text-sm">
           <span className="mb-1 block text-xs text-gray-600">Período</span>
           <select value={periodId} onChange={(e) => setPeriodId(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5">
-            {options.periods.map((p) => (
+            {gradablePeriods(options.periods).map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
@@ -757,16 +702,20 @@ function StudentCard({
   detail,
   periods,
   rows,
+  periodGrades,
+  periodStates,
+  levels,
   decimals,
   canGrade,
   options,
   gradeBookId,
-  adding,
+  addPreset,
   detailOpen,
   onToggleAdd,
   onToggleDetail,
   onOpenSheet,
   onSaved,
+  onSavePeriodGrade,
 }: {
   index: number
   student: RosterStudent
@@ -775,16 +724,21 @@ function StudentCard({
   detail: GradeBookDetail
   periods: Period[]
   rows: StudentGradeRow[]
+  periodGrades: StoredPeriodGrade[]
+  periodStates: Map<string, PeriodState>
+  levels: BlockLevel[]
   decimals: number
   canGrade: boolean
   options: Options | null
   gradeBookId: string
-  adding: boolean
+  /** Formulario de carga abierto, con lo que precargó la celda; null si está cerrado. */
+  addPreset: AddPreset | null
   detailOpen: boolean
-  onToggleAdd: () => void
+  onToggleAdd: (preset?: AddPreset) => void
   onToggleDetail: () => void
   onOpenSheet: (focus: StudentBadgeFocus) => void
   onSaved: () => Promise<void>
+  onSavePeriodGrade: (periodId: string, patch: PeriodGradePatch) => Promise<void>
 }) {
   const [exportBusy, setExportBusy] = useState<'print' | 'xlsx' | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
@@ -830,6 +784,12 @@ function StudentCard({
           decimals: r.assessment.gradingScale?.decimals ?? decimals,
           category: r.category,
         })),
+        periodResults: Object.fromEntries(
+          periods.map((period) => {
+            const saved = periodGrades.find((g) => g.periodId === period.id)
+            return [period.name, { c: saved?.valueHundredths ?? null, r: saved?.meetingValueHundredths ?? null }]
+          }),
+        ),
       })
     } catch (err) {
       setExportError(err instanceof Error ? err.message : 'No se pudo imprimir')
@@ -892,7 +852,7 @@ function StudentCard({
           {canGrade && (
             <button
               type="button"
-              onClick={onToggleAdd}
+              onClick={() => onToggleAdd()}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-teal-600 text-teal-700 hover:bg-teal-50"
               aria-label={`Agregar calificación a ${studentFullName(student)}`}
               title="Agregar calificación"
@@ -933,14 +893,33 @@ function StudentCard({
 
       {periods.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {periods.map((period) => (
-            <PeriodBlock
-              key={period.id}
-              period={period}
-              summary={periodSummary(rows, period.id)}
-              decimals={decimals}
-            />
-          ))}
+          {periods.map((period) => {
+            const state = periodStates.get(period.id)
+            return (
+              <PeriodBlock
+                key={period.id}
+                period={period}
+                grades={rows
+                  .filter((r) => r.assessment.periodId === period.id)
+                  .map((r) => ({
+                    key: r.assessmentId,
+                    category: r.category,
+                    valueHundredths: r.valueHundredths,
+                    isAbsent: r.isAbsent,
+                    date: r.assessment.date,
+                    title: r.assessment.title,
+                    comment: r.comment,
+                  }))}
+                saved={periodGrades.find((g) => g.periodId === period.id) ?? null}
+                levels={levels}
+                decimals={decimals}
+                status={state?.status}
+                editable={canGrade && (state?.canEdit ?? false)}
+                onSave={(patch) => onSavePeriodGrade(period.id, patch)}
+                onAddGrade={(category) => onToggleAdd({ periodId: period.id, category })}
+              />
+            )
+          })}
         </div>
       )}
 
@@ -955,13 +934,15 @@ function StudentCard({
         </button>
       </div>
 
-      {adding && options && (
+      {addPreset && options && (
         <AddGradeForm
+          key={`${addPreset.periodId ?? ''}-${addPreset.category ?? ''}`}
           gradeBookId={gradeBookId}
           student={student}
           courseLabel={courseLabel}
           options={options}
-          onCancel={onToggleAdd}
+          preset={addPreset}
+          onCancel={() => onToggleAdd()}
           onSaved={onSaved}
         />
       )}
@@ -998,7 +979,7 @@ export default function EvaluationsBoard({
   const [error, setError] = useState<string | null>(null)
   const [focusIndex, setFocusIndex] = useState(0)
   const [showAll, setShowAll] = useState(() => !alumnoParam)
-  const [addingStudentId, setAddingStudentId] = useState<string | null>(null)
+  const [adding, setAdding] = useState<{ studentId: string; preset: AddPreset } | null>(null)
   const [detailStudentIds, setDetailStudentIds] = useState<Set<string>>(() => new Set())
   const [showLegacy, setShowLegacy] = useState(false)
   const [sheetStudent, setSheetStudent] = useState<{
@@ -1050,7 +1031,7 @@ export default function EvaluationsBoard({
       const row: StudentGradeRow = {
         ...grade,
         assessment,
-        category: activityCategory(assessment.activityType?.code),
+        category: activityCategory(assessment.activityType),
       }
       const bucket = map.get(grade.studentId)
       if (bucket) bucket.push(row)
@@ -1065,6 +1046,36 @@ export default function EvaluationsBoard({
   const periods = options?.periods ?? []
   const decimals = options?.scales[0]?.decimals ?? 0
   const students = detail.students
+  // Colores y símbolos por tramo: los de la escala con la que se califica, nunca un umbral fijo.
+  const levels = useMemo(() => {
+    const scales = options?.scales ?? []
+    return scales.find((s) => s.id === pickNumeric1to10ScaleId(scales))?.levels ?? []
+  }, [options])
+  const periodStates = useMemo(
+    () => new Map((board?.periodStates ?? []).map((state) => [state.periodId, state])),
+    [board],
+  )
+
+  /** Guarda C, R o el texto de una celda. Es parcial: lo que no viene no se toca. */
+  async function savePeriodGrade(studentId: string, periodId: string, patch: PeriodGradePatch) {
+    await api(`/gradebook/${gradeBookId}/students/${studentId}/closure`, {
+      method: 'PUT',
+      body: JSON.stringify({ entries: [{ periodId, ...patch }] }),
+    })
+    setBoard((prev) =>
+      prev ? { ...prev, periodGrades: mergePeriodGrade(prev.periodGrades ?? [], periodId, studentId, patch) } : prev,
+    )
+  }
+
+  function toggleAdd(studentId: string, preset?: AddPreset) {
+    setAdding((current) => {
+      const sameCell =
+        current?.studentId === studentId &&
+        current.preset.periodId === preset?.periodId &&
+        current.preset.category === preset?.category
+      return sameCell ? null : { studentId, preset: preset ?? {} }
+    })
+  }
 
   const visibleStudents = showAll
     ? students
@@ -1115,8 +1126,11 @@ export default function EvaluationsBoard({
       <header className="flex flex-wrap items-end justify-between gap-2 border-b border-slate-200 pb-2">
         <div>
           <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">
-            Orales, escritos y o. actividades
+            Calificaciones · Or · Otras · Ev · C · R
           </h2>
+          <p className="text-xs text-slate-500">
+            C es la calificación del docente; R, la que queda después de la reunión.
+          </p>
           <p className="text-sm text-slate-600">{title}</p>
         </div>
       </header>
@@ -1225,21 +1239,23 @@ export default function EvaluationsBoard({
                 detail={detail}
                 periods={periods}
                 rows={rowsByStudent.get(student.studentId) ?? []}
+                periodGrades={(board?.periodGrades ?? []).filter((g) => g.studentId === student.studentId)}
+                periodStates={periodStates}
+                levels={levels}
                 decimals={decimals}
                 canGrade={detail.access.canGrade}
                 options={options}
                 gradeBookId={gradeBookId}
-                adding={addingStudentId === student.studentId}
+                addPreset={adding?.studentId === student.studentId ? adding.preset : null}
                 detailOpen={detailStudentIds.has(student.studentId)}
-                onToggleAdd={() =>
-                  setAddingStudentId((id) => (id === student.studentId ? null : student.studentId))
-                }
+                onToggleAdd={(preset) => toggleAdd(student.studentId, preset)}
                 onToggleDetail={() => toggleDetail(student.studentId)}
                 onOpenSheet={(focus) => setSheetStudent({ studentId: student.studentId, focus })}
                 onSaved={async () => {
-                  setAddingStudentId(null)
+                  setAdding(null)
                   await load()
                 }}
+                onSavePeriodGrade={(periodId, patch) => savePeriodGrade(student.studentId, periodId, patch)}
               />
             )
           })}
@@ -1263,7 +1279,7 @@ export default function EvaluationsBoard({
           <div className="mt-3">
             <MoodleImportPanel
               gradeBookId={gradeBookId}
-              periods={options.periods}
+              periods={gradablePeriods(options.periods)}
               scales={options.scales}
               onImported={() => void load()}
             />

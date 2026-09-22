@@ -12,6 +12,7 @@ function period(over: Partial<AcademicPeriod> = {}): AcademicPeriod {
     id: 'p-1', schoolYearId: 'sy-1', level: 'EBI', code: 'MAYO', name: 'Mayo', sortOrder: 2,
     startsOn: '2026-05-01', endsOn: '2026-05-31', closesOn: '2026-06-08',
     requiresConceptualJudgement: true, requiresGeneralGrade: true, isActive: true,
+    kind: 'TRAMO', isMeeting: false, judgementLabel: null,
     usage: { assessments: 0, closedGradeBooks: 0 },
     ...over,
   }

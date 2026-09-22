@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   formatHundredths,
   formatRange,
-  isInsufficientHundredths,
   parseToHundredths,
+  resolveLevel,
 } from './grade-value'
 
 describe('formatHundredths', () => {
@@ -43,15 +43,20 @@ describe('parseToHundredths', () => {
   })
 })
 
-describe('isInsufficientHundredths', () => {
-  it('marca insuficiente por debajo de 5; el 5 alcanza', () => {
-    expect(isInsufficientHundredths(300)).toBe(true)
-    expect(isInsufficientHundredths(400)).toBe(true)
-    expect(isInsufficientHundredths(499)).toBe(true)
-    expect(isInsufficientHundredths(500)).toBe(false)
-    expect(isInsufficientHundredths(600)).toBe(false)
-    expect(isInsufficientHundredths(800)).toBe(false)
-    expect(isInsufficientHundredths(null)).toBe(false)
+describe('resolveLevel', () => {
+  const levels = [
+    { code: 'EN_PROCESO', minValueHundredths: 300, maxValueHundredths: 499 },
+    { code: 'SUFICIENTE', minValueHundredths: 500, maxValueHundredths: 599 },
+  ]
+
+  it('devuelve el tramo que cubre el valor, con extremos inclusivos', () => {
+    expect(resolveLevel(499, levels)?.code).toBe('EN_PROCESO')
+    expect(resolveLevel(500, levels)?.code).toBe('SUFICIENTE')
+  })
+
+  it('null si no hay valor o ningún tramo lo cubre', () => {
+    expect(resolveLevel(null, levels)).toBeNull()
+    expect(resolveLevel(1000, levels)).toBeNull()
   })
 })
 

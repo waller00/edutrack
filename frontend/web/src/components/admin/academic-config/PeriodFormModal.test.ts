@@ -6,6 +6,7 @@ const PERIOD: AcademicPeriod = {
   id: 'p-1', schoolYearId: 'sy-1', level: 'EBI', code: 'MAYO', name: 'Mayo', sortOrder: 2,
   startsOn: '2026-05-01', endsOn: '2026-05-31', closesOn: '2026-06-08',
   requiresConceptualJudgement: true, requiresGeneralGrade: true, isActive: true,
+  kind: 'TRAMO', isMeeting: false, judgementLabel: null,
   usage: { assessments: 3, closedGradeBooks: 1 },
 }
 
@@ -71,6 +72,20 @@ describe('periodPayload', () => {
     expect(body).not.toHaveProperty('level')
     expect(body).not.toHaveProperty('code')
     expect(body).toHaveProperty('isActive', true)
+  })
+
+  it('manda el tipo de bloque, si lleva reunión y el nombre del texto', () => {
+    const body = periodPayload(
+      draft({ kind: 'ENTREGA', isMeeting: true, judgementLabel: ' Informe de actuación ' }),
+      false,
+      'sy-1',
+    )
+    expect(body).toMatchObject({ kind: 'ENTREGA', isMeeting: true, judgementLabel: 'Informe de actuación' })
+    expect(periodPayload(draft({ judgementLabel: '  ' }), true, 'sy-1').judgementLabel).toBeNull()
+  })
+
+  it('un período nuevo arranca como tramo sin reunión', () => {
+    expect(draftFromPeriod(null, 'EBI')).toMatchObject({ kind: 'TRAMO', isMeeting: false, judgementLabel: '' })
   })
 
   it('las fechas vacías viajan como null, no como cadena', () => {

@@ -1,15 +1,19 @@
 import { formatHundredths } from '@/lib/academic-config/grade-value'
-import type { ActivityCategory } from '@/lib/gradebook/activity-category'
-import { ACTIVITY_CATEGORY_LABEL } from '@/lib/gradebook/activity-category'
+import { ACTIVITY_CATEGORY_LABEL, ACTIVITY_CATEGORY_ORDER, type ActivityCategory } from '@/lib/gradebook/activity-category'
 import type { GradeBookDetail, RosterStudent } from '@/lib/gradebook/types'
 
 export type ClosurePrintPeriod = {
   name: string
   status: string
+  /** C: la calificación del docente. */
   valueHundredths: number | null
+  /** R: la nota de reunión. */
+  meetingValueHundredths: number | null
+  judgementLabel: string
   conceptualJudgement: string | null
   meetingJudgement: string | null
-  summary: Record<ActivityCategory | 'result', number | null>
+  /** Notas sueltas por columna, ya formateadas ("7 · 9"); vacío si el período no las admite. */
+  notes: Partial<Record<ActivityCategory, string>>
 }
 
 function escapeHtml(value: string): string {
@@ -34,21 +38,20 @@ export function printStudentClosure(input: {
 }): void {
   const { detail, student, index, libretaLabel, courseLabel, photoUrl, periods } = input
 
+  const cell = (v: number | null) => escapeHtml(formatHundredths(v, 0))
   const minis = periods
     .map((period) => {
-      const s = period.summary
-      const cell = (v: number | null) => escapeHtml(formatHundredths(v, 0))
+      const categories = ACTIVITY_CATEGORY_ORDER.filter((cat) => period.notes[cat] !== undefined)
       return `<div class="mini">
         <p class="mini-title">${escapeHtml(period.name)}</p>
         <table><thead><tr>
-          <th>${ACTIVITY_CATEGORY_LABEL.oral}</th>
-          <th>${ACTIVITY_CATEGORY_LABEL.written}</th>
-          <th>${ACTIVITY_CATEGORY_LABEL.other}</th>
-          <th>R</th>
+          ${categories.map((cat) => `<th>${ACTIVITY_CATEGORY_LABEL[cat]}</th>`).join('')}
+          <th>C</th><th>R</th>
         </tr></thead>
         <tbody><tr>
-          <td>${cell(s.oral)}</td><td>${cell(s.written)}</td><td>${cell(s.other)}</td>
-          <td><strong>${cell(s.result)}</strong></td>
+          ${categories.map((cat) => `<td>${escapeHtml(period.notes[cat] ?? '—')}</td>`).join('')}
+          <td>${cell(period.valueHundredths)}</td>
+          <td><strong>${cell(period.meetingValueHundredths)}</strong></td>
         </tr></tbody></table>
       </div>`
     })
@@ -56,11 +59,12 @@ export function printStudentClosure(input: {
 
   const rows = periods
     .map((period) => {
-      const rend = period.valueHundredths == null ? '—' : formatHundredths(period.valueHundredths, 0)
+      const text = period.conceptualJudgement?.trim()
       return `<tr>
         <td>${escapeHtml(period.name)}${period.status === 'CLOSED' ? ' <em>(cerrado)</em>' : ''}</td>
-        <td>${escapeHtml(rend)}</td>
-        <td>${escapeHtml(period.conceptualJudgement?.trim() || '—')}</td>
+        <td>${cell(period.valueHundredths)}</td>
+        <td><strong>${cell(period.meetingValueHundredths)}</strong></td>
+        <td>${text ? `<em>${escapeHtml(period.judgementLabel)}:</em> ${escapeHtml(text)}` : '—'}</td>
         <td>${escapeHtml(period.meetingJudgement?.trim() || '—')}</td>
       </tr>`
     })
@@ -93,7 +97,7 @@ export function printStudentClosure(input: {
   @media print { .print-link, button { display: none; } }
 </style></head><body>
   <a class="print-link" href="#" onclick="window.print();return false">(Imprimir)</a>
-  <h1>Cierre de promedios por alumno</h1>
+  <h1>Cierre por alumno</h1>
   <p class="meta">${escapeHtml(libretaLabel)} · ${escapeHtml(courseLabel)} · Ciclo ${escapeHtml(String(detail.schoolYear.label))}</p>
   <div class="head">
     ${photo}
@@ -109,9 +113,9 @@ export function printStudentClosure(input: {
   <h2 style="font-size:14px;margin:0 0 8px">Calificaciones y juicios</h2>
   <table class="judgements">
     <thead><tr>
-      <th>Período</th><th>Rend.</th><th>Juicio asignatura</th><th>Juicio reunión</th>
+      <th>Período</th><th>C</th><th>R</th><th>Informe / juicio</th><th>Juicio reunión</th>
     </tr></thead>
-    <tbody>${rows || '<tr><td colspan="4">Sin períodos</td></tr>'}</tbody>
+    <tbody>${rows || '<tr><td colspan="5">Sin períodos</td></tr>'}</tbody>
   </table>
   <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250))</script>
 </body></html>`

@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import {
-  activityCategory,
-  averageHundredths,
-} from './activity-category'
+import { ACTIVITY_CATEGORY_LABEL, ACTIVITY_CATEGORY_ORDER, activityCategory } from './activity-category'
 
 describe('activityCategory', () => {
-  it('clasifica orales y escritos del catálogo DGES', () => {
-    expect(activityCategory('ORAL')).toBe('oral')
-    expect(activityCategory('EXPOSICION')).toBe('oral')
-    expect(activityCategory('ESCRITO')).toBe('written')
-    expect(activityCategory('TRABAJO_EN_CLASE')).toBe('other')
+  it('usa la columna que define el tipo de actividad', () => {
+    expect(activityCategory({ code: 'DEBATE', category: 'ORAL' })).toBe('oral')
+    expect(activityCategory({ code: 'ESCRITO', category: 'OTRAS' })).toBe('other')
+    expect(activityCategory({ code: 'X', category: 'PRUEBA' })).toBe('test')
+  })
+
+  it('sin columna, la deduce del código del catálogo', () => {
+    expect(activityCategory({ code: 'ORAL' })).toBe('oral')
+    expect(activityCategory({ code: 'EXPOSICION' })).toBe('oral')
+    expect(activityCategory({ code: 'ESCRITO' })).toBe('written')
+    expect(activityCategory({ code: 'PRUEBA' })).toBe('test')
+    expect(activityCategory({ code: 'TRABAJO_EN_CLASE' })).toBe('other')
     expect(activityCategory(null)).toBe('other')
   })
 })
 
-describe('averageHundredths', () => {
-  it('promedia e ignora nulos', () => {
-    expect(averageHundredths([800, null, 600])).toBe(700)
-    expect(averageHundredths([])).toBeNull()
-    expect(averageHundredths([null, undefined])).toBeNull()
+describe('rótulos de la planilla', () => {
+  it('siguen el orden Or · Otras · Ev · Prueba', () => {
+    expect(ACTIVITY_CATEGORY_ORDER.map((c) => ACTIVITY_CATEGORY_LABEL[c])).toEqual(['Or', 'Otras', 'Ev', 'Prueba'])
   })
 })

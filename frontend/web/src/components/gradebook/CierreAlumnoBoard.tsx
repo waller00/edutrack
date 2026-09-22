@@ -14,13 +14,15 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { apiBlob } from '@/lib/api/binary'
-import { formatHundredths, isInsufficientHundredths } from '@/lib/academic-config/grade-value'
+import { activityCategory } from '@/lib/gradebook/activity-category'
 import {
-  ACTIVITY_CATEGORY_LABEL,
-  activityCategory,
-  averageHundredths,
-  type ActivityCategory,
-} from '@/lib/gradebook/activity-category'
+  blockCategories,
+  formatGradeList,
+  gradesByCategory,
+  judgementLabelOf,
+  periodKind,
+  type PeriodKind,
+} from '@/lib/gradebook/period-blocks'
 import {
   GRADE_1_TO_10,
   gradeSelectFromHundredths,
@@ -30,6 +32,8 @@ import { printStudentClosure } from '@/lib/gradebook/student-closure-export'
 import { formatClosureStamp, periodInfoMessage } from '@/lib/gradebook/period-info'
 import { libretaCode } from '@/components/libreta/MisLibretas'
 import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
+import PeriodBlock, { type BlockGrade } from './PeriodBlock'
+import MeetingPeriodsBar from './MeetingPeriodsBar'
 
 type ClosurePeriod = {
   periodId: string
@@ -37,10 +41,16 @@ type ClosurePeriod = {
   name: string
   status: 'OPEN' | 'CLOSED' | 'REOPENED'
   canEdit: boolean
+  kind?: PeriodKind
+  isMeeting?: boolean
+  judgementLabel?: string | null
   requiresGeneralGrade: boolean
   requiresConceptualJudgement: boolean
   assessmentCount: number
+  /** C: la calificación del docente. */
   valueHundredths: number | null
+  /** R: la nota que queda después de la reunión. */
+  meetingValueHundredths?: number | null
   conceptualJudgement: string | null
   descriptor: {
     label: string
@@ -66,17 +76,21 @@ type ClosureSheet = {
 type BoardAssessment = {
   id: string
   periodId: string
-  activityType: { code: string; name: string } | null
+  date: string
+  title: string
+  activityType: { code: string; name: string; category?: string | null } | null
 }
 type BoardGrade = {
   assessmentId: string
   studentId: string
   valueHundredths: number | null
   isAbsent: boolean
+  comment?: string | null
 }
 type BoardResponse = { assessments: BoardAssessment[]; grades: BoardGrade[] }
 
-type Draft = Record<string, { grade: string; judgement: string }>
+/** Borrador por período: C, R y el texto. */
+type Draft = Record<string, { grade: string; meeting: string; judgement: string }>
 
 type InfoModal = { title: string; body: string } | null
 type MeetingModal = { periodName: string; text: string; meta: string | null } | null
@@ -86,6 +100,7 @@ function buildDraft(periods: ClosurePeriod[]): Draft {
   for (const period of periods) {
     draft[period.periodId] = {
       grade: gradeSelectFromHundredths(period.valueHundredths),
+      meeting: gradeSelectFromHundredths(period.meetingValueHundredths),
       judgement: period.conceptualJudgement ?? '',
     }
   }
@@ -170,63 +185,47 @@ function StudentAvatar({
   )
 }
 
-function PeriodMini({
-  periodName,
-  summary,
-}: {
-  periodName: string
-  summary: Record<ActivityCategory | 'result', number | null>
-}) {
-  const cells: Array<{ key: string; label: string; value: number | null; highlight?: boolean }> = [
-    { key: 'oral', label: ACTIVITY_CATEGORY_LABEL.oral, value: summary.oral },
-    { key: 'written', label: ACTIVITY_CATEGORY_LABEL.written, value: summary.written },
-    { key: 'other', label: ACTIVITY_CATEGORY_LABEL.other, value: summary.other },
-    { key: 'result', label: 'R', value: summary.result, highlight: true },
-  ]
-  return (
-    <div className="w-[14.5rem] shrink-0 overflow-hidden rounded border border-amber-200 bg-white text-[11px]">
-      <p className="bg-amber-100 px-2 py-1 text-center font-semibold text-amber-950">{periodName}</p>
-      <div className="grid grid-cols-4 divide-x divide-amber-100 border-t border-amber-200">
-        {cells.map((cell) => {
-          const display = formatHundredths(cell.value, 0)
-          const insufficient = isInsufficientHundredths(cell.value)
-          return (
-            <div key={cell.key} className={`px-1 py-1 text-center ${cell.highlight ? 'bg-amber-50' : ''}`}>
-              <p className={`font-medium ${cell.highlight ? 'text-amber-900' : 'text-slate-600'}`}>{cell.label}</p>
-              {insufficient ? (
-                <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-orange-100 px-1 font-medium text-orange-700 ring-1 ring-inset ring-orange-200/80">
-                  {display}
-                </span>
-              ) : (
-                <span className={cell.highlight ? 'font-semibold text-amber-950' : 'text-slate-900'}>{display}</span>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+/** Notas sueltas del alumno en un período, listas para el bloque de la planilla. */
+function periodBlockGrades(grades: BoardGrade[], assessments: BoardAssessment[], periodId: string): BlockGrade[] {
+  const byId = new Map(assessments.filter((a) => a.periodId === periodId).map((a) => [a.id, a]))
+  return grades.flatMap((grade) => {
+    const assessment = byId.get(grade.assessmentId)
+    if (!assessment) return []
+    return [
+      {
+        key: grade.assessmentId,
+        category: activityCategory(assessment.activityType),
+        valueHundredths: grade.valueHundredths,
+        isAbsent: grade.isAbsent,
+        date: assessment.date,
+        title: assessment.title,
+        comment: grade.comment ?? null,
+      },
+    ]
+  })
 }
 
-function periodAssessmentSummary(
-  grades: BoardGrade[],
-  assessments: BoardAssessment[],
-  periodId: string,
-): Record<ActivityCategory | 'result', number | null> {
-  const inPeriod = assessments.filter((a) => a.periodId === periodId)
-  const byCat: Record<ActivityCategory, number[]> = { oral: [], written: [], other: [] }
-  for (const assessment of inPeriod) {
-    const cat = activityCategory(assessment.activityType?.code)
-    for (const grade of grades) {
-      if (grade.assessmentId !== assessment.id || grade.isAbsent || grade.valueHundredths == null) continue
-      byCat[cat].push(grade.valueHundredths)
-    }
-  }
-  const oral = averageHundredths(byCat.oral)
-  const written = averageHundredths(byCat.written)
-  const other = averageHundredths(byCat.other)
-  const all = [...byCat.oral, ...byCat.written, ...byCat.other]
-  return { oral, written, other, result: averageHundredths(all) }
+/** ¿Qué cambió en el borrador de un período? Sólo eso se manda: el guardado es parcial. */
+function draftPatch(period: ClosurePeriod, d: Draft[string] | undefined) {
+  if (!d) return null
+  const patch: { valueHundredths?: number | null; meetingValueHundredths?: number | null; conceptualJudgement?: string | null } = {}
+  const grade = gradeSelectToHundredths(d.grade)
+  const meeting = gradeSelectToHundredths(d.meeting)
+  const judgement = d.judgement.trim() || null
+  if (grade !== (period.valueHundredths ?? null)) patch.valueHundredths = grade
+  if (meeting !== (period.meetingValueHundredths ?? null)) patch.meetingValueHundredths = meeting
+  if (judgement !== (period.conceptualJudgement ?? null)) patch.conceptualJudgement = judgement
+  return Object.keys(patch).length > 0 ? patch : null
+}
+
+/** Qué le falta al período para cerrar, según su configuración: C, R (si lleva reunión) y el texto. */
+function periodCompleteness(period: ClosurePeriod, d: Draft[string]) {
+  const needsMeeting = Boolean(period.isMeeting && period.requiresGeneralGrade)
+  const missing =
+    (period.requiresGeneralGrade && gradeSelectToHundredths(d.grade) == null) ||
+    (needsMeeting && gradeSelectToHundredths(d.meeting) == null) ||
+    (period.requiresConceptualJudgement && d.judgement.trim().length === 0)
+  return { missing, complete: !missing }
 }
 
 function SimpleModal({
@@ -377,13 +376,7 @@ export default function CierreAlumnoBoard({
 
   const dirty = useMemo(() => {
     if (!sheet) return false
-    return sheet.periods.some((period) => {
-      const d = draft[period.periodId]
-      if (!d) return false
-      const grade = gradeSelectToHundredths(d.grade)
-      const judgement = d.judgement.trim() || null
-      return grade !== (period.valueHundredths ?? null) || judgement !== (period.conceptualJudgement ?? null)
-    })
+    return sheet.periods.some((period) => draftPatch(period, draft[period.periodId]) != null)
   }, [sheet, draft])
 
   const visibleStudents = showAll ? students : selected ? [selected] : []
@@ -395,19 +388,10 @@ export default function CierreAlumnoBoard({
 
   async function save() {
     if (!sheet || !selected || !dirty) return
-    const entries = sheet.periods
-      .filter((period) => {
-        const d = draft[period.periodId]
-        if (!d || !period.canEdit) return false
-        const grade = gradeSelectToHundredths(d.grade)
-        const judgement = d.judgement.trim() || null
-        return grade !== (period.valueHundredths ?? null) || judgement !== (period.conceptualJudgement ?? null)
-      })
-      .map((period) => ({
-        periodId: period.periodId,
-        valueHundredths: gradeSelectToHundredths(draft[period.periodId]?.grade ?? ''),
-        conceptualJudgement: draft[period.periodId]?.judgement.trim() || null,
-      }))
+    const entries = sheet.periods.flatMap((period) => {
+      const patch = period.canEdit ? draftPatch(period, draft[period.periodId]) : null
+      return patch ? [{ periodId: period.periodId, ...patch }] : []
+    })
     if (entries.length === 0) return
 
     setSaving(true)
@@ -445,14 +429,22 @@ export default function CierreAlumnoBoard({
         libretaLabel,
         courseLabel,
         photoUrl,
-        periods: sheet.periods.map((period) => ({
-          name: period.name,
-          status: period.status,
-          valueHundredths: gradeSelectToHundredths(draft[period.periodId]?.grade ?? '') ?? period.valueHundredths,
-          conceptualJudgement: draft[period.periodId]?.judgement ?? period.conceptualJudgement,
-          meetingJudgement: period.meetingJudgement ?? null,
-          summary: periodAssessmentSummary(studentGrades, assessments, period.periodId),
-        })),
+        periods: sheet.periods.map((period) => {
+          const blockGrades = periodBlockGrades(studentGrades, assessments, period.periodId)
+          const buckets = gradesByCategory(blockGrades)
+          const categories = periodKind(period) === 'TRAMO' ? blockCategories(blockGrades) : []
+          return {
+            name: period.name,
+            status: period.status,
+            valueHundredths: gradeSelectToHundredths(draft[period.periodId]?.grade ?? '') ?? period.valueHundredths,
+            meetingValueHundredths:
+              gradeSelectToHundredths(draft[period.periodId]?.meeting ?? '') ?? period.meetingValueHundredths ?? null,
+            judgementLabel: judgementLabelOf(period),
+            conceptualJudgement: draft[period.periodId]?.judgement ?? period.conceptualJudgement,
+            meetingJudgement: period.meetingJudgement ?? null,
+            notes: Object.fromEntries(categories.map((cat) => [cat, formatGradeList(buckets[cat])])),
+          }
+        }),
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo imprimir')
@@ -473,10 +465,19 @@ export default function CierreAlumnoBoard({
     <div className="space-y-3">
       <header>
         <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">
-          Cierre de promedios por alumno
+          Cierre por alumno · C y R
         </h2>
         <p className="text-sm text-slate-600">{courseLabel}</p>
+        <p className="text-xs text-slate-500">
+          C es la calificación que ponés vos; R, la que queda después de la reunión. La libreta no promedia.
+        </p>
       </header>
+
+      <MeetingPeriodsBar
+        gradeBookId={gradeBookId}
+        canClose={detail.access.canGrade}
+        onClosed={() => void loadStudent()}
+      />
 
       <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-100/80 px-3 py-2 text-sm">
         <span className="font-medium text-slate-700">Libreta</span>
@@ -598,10 +599,19 @@ export default function CierreAlumnoBoard({
                 {isFocus && periods.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {periods.map((period) => (
-                      <PeriodMini
+                      <PeriodBlock
                         key={period.periodId}
-                        periodName={period.name}
-                        summary={periodAssessmentSummary(grades, assessments, period.periodId)}
+                        period={{ ...period, id: period.periodId }}
+                        grades={periodBlockGrades(grades, assessments, period.periodId)}
+                        saved={{
+                          valueHundredths: period.valueHundredths,
+                          meetingValueHundredths: period.meetingValueHundredths ?? null,
+                          conceptualJudgement: period.conceptualJudgement,
+                        }}
+                        levels={[]}
+                        decimals={0}
+                        status={period.status}
+                        editable={false}
                       />
                     ))}
                   </div>
@@ -636,24 +646,23 @@ export default function CierreAlumnoBoard({
                         <thead className="border-b border-amber-100 text-xs uppercase tracking-wide text-slate-500">
                           <tr>
                             <th scope="col" className="px-3 py-2 text-left font-medium">Período</th>
-                            <th scope="col" className="px-3 py-2 text-left font-medium">Rend.</th>
-                            <th scope="col" className="px-3 py-2 text-left font-medium">Juicio asignatura</th>
+                            <th scope="col" className="px-3 py-2 text-left font-medium" title="Calificación del docente">
+                              C
+                            </th>
+                            <th scope="col" className="px-3 py-2 text-left font-medium" title="Nota de reunión">
+                              R
+                            </th>
+                            <th scope="col" className="px-3 py-2 text-left font-medium">Informe / juicio</th>
                             <th scope="col" className="px-3 py-2 text-center font-medium">Juicio Reu.</th>
                             <th scope="col" className="px-3 py-2 text-center font-medium">Info.</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {periods.map((period) => {
-                            const d = draft[period.periodId] ?? { grade: '', judgement: '' }
-                            const gradeValue = gradeSelectToHundredths(d.grade)
-                            const hasGrade = gradeValue != null
-                            const hasJudgement = d.judgement.trim().length > 0
-                            const complete =
-                              (!period.requiresGeneralGrade || hasGrade) &&
-                              (!period.requiresConceptualJudgement || hasJudgement)
-                            const missing =
-                              (period.requiresGeneralGrade && !hasGrade) ||
-                              (period.requiresConceptualJudgement && !hasJudgement)
+                            const d = draft[period.periodId] ?? { grade: '', meeting: '', judgement: '' }
+                            const { complete, missing } = periodCompleteness(period, d)
+                            const judgementLabel = judgementLabelOf(period)
+                            const hasGrades = periodKind(period) !== 'DIAGNOSTICO'
                             const infoText = periodInfoMessage(period)
                             const hasMeeting = Boolean(period.meetingJudgement?.trim())
                             return (
@@ -666,32 +675,33 @@ export default function CierreAlumnoBoard({
                                     </span>
                                   )}
                                 </td>
-                                <td className="px-3 py-2">
-                                  {period.canEdit ? (
-                                    <Grade1to10Select
-                                      value={d.grade}
-                                      disabled={saving}
-                                      onChange={(value) =>
-                                        setDraft((prev) => ({
-                                          ...prev,
-                                          [period.periodId]: {
-                                            ...prev[period.periodId],
-                                            grade: value,
-                                            judgement: prev[period.periodId]?.judgement ?? '',
-                                          },
-                                        }))
-                                      }
-                                      aria-label={`Rendimiento de ${period.name}`}
-                                    />
-                                  ) : (
-                                    <span
-                                      className="inline-block min-w-[2.5rem] tabular-nums text-sm text-slate-700"
-                                      aria-label={`Rendimiento de ${period.name}`}
-                                    >
-                                      {d.grade || '—'}
-                                    </span>
-                                  )}
-                                </td>
+                                {(['grade', 'meeting'] as const).map((field) => {
+                                  const label = field === 'grade' ? `C de ${period.name}` : `R de ${period.name}`
+                                  return (
+                                    <td key={field} className="px-3 py-2">
+                                      {hasGrades && period.canEdit ? (
+                                        <Grade1to10Select
+                                          value={d[field]}
+                                          disabled={saving}
+                                          onChange={(value) =>
+                                            setDraft((prev) => ({
+                                              ...prev,
+                                              [period.periodId]: { ...d, ...prev[period.periodId], [field]: value },
+                                            }))
+                                          }
+                                          aria-label={label}
+                                        />
+                                      ) : (
+                                        <span
+                                          className="inline-block min-w-[2.5rem] tabular-nums text-sm text-slate-700"
+                                          aria-label={label}
+                                        >
+                                          {(hasGrades && d[field]) || '—'}
+                                        </span>
+                                      )}
+                                    </td>
+                                  )
+                                })}
                                 <td className="px-3 py-2">
                                   {period.canEdit ? (
                                     <textarea
@@ -701,20 +711,17 @@ export default function CierreAlumnoBoard({
                                       onChange={(e) =>
                                         setDraft((prev) => ({
                                           ...prev,
-                                          [period.periodId]: {
-                                            grade: prev[period.periodId]?.grade ?? '',
-                                            judgement: e.target.value,
-                                          },
+                                          [period.periodId]: { ...d, ...prev[period.periodId], judgement: e.target.value },
                                         }))
                                       }
                                       className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                                      aria-label={`Juicio de ${period.name}`}
-                                      placeholder="Juicio conceptual de la asignatura"
+                                      aria-label={`${judgementLabel} de ${period.name}`}
+                                      placeholder={judgementLabel}
                                     />
                                   ) : (
                                     <p
                                       className="min-h-[2.5rem] whitespace-pre-wrap text-sm text-slate-600"
-                                      aria-label={`Juicio de ${period.name}`}
+                                      aria-label={`${judgementLabel} de ${period.name}`}
                                     >
                                       {d.judgement || ''}
                                     </p>
@@ -789,9 +796,9 @@ export default function CierreAlumnoBoard({
                       </table>
                     </div>
                     <p className="border-t border-amber-100 bg-amber-50/50 px-3 py-1.5 text-[11px] text-slate-600">
-                      El <strong>juicio de reunión</strong> lo carga administración en la matriz de reunión de
-                      profesores; el docente lo consulta acá. El <strong>juicio de asignatura</strong> lo escribe
-                      el docente en esta pantalla.
+                      <strong>C</strong> es tu calificación y <strong>R</strong> la que quedó en la reunión: el
+                      boletín y la reunión usan R. El <strong>juicio de reunión</strong> lo carga administración en
+                      la matriz de reunión; acá se consulta.
                     </p>
                   </div>
                 )}

@@ -73,13 +73,14 @@ describe('<CierreAlumnoBoard />', () => {
     })
   })
 
-  it('muestra la tabla de calificaciones y juicios con combo 1-10', async () => {
+  it('muestra la tabla con C y R en combo 1-10', async () => {
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
 
     await waitFor(() => expect(screen.getByText(/Calificaciones y juicios/i)).toBeInTheDocument())
     expect(screen.getAllByText(/Marzo – Abril/).length).toBeGreaterThan(0)
-    expect(screen.getByLabelText(/Rendimiento de Marzo/i)).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '7' })).toBeInTheDocument()
+    expect(screen.getByLabelText('C de Marzo – Abril')).toHaveValue('7')
+    expect(screen.getByLabelText('R de Marzo – Abril')).toHaveValue('')
+    expect(screen.getAllByRole('option', { name: '7' }).length).toBeGreaterThan(0)
     expect(screen.getByDisplayValue(/Buen avance/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Imprimir cierre del alumno/i })).toBeInTheDocument()
     expect(screen.getByText(/juicio de reunión/i)).toBeInTheDocument()
@@ -88,9 +89,9 @@ describe('<CierreAlumnoBoard />', () => {
   it('guarda el borrador al confirmar', async () => {
     const user = userEvent.setup()
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
-    await waitFor(() => expect(screen.getByLabelText(/Rendimiento de Marzo/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('C de Marzo – Abril')).toBeInTheDocument())
 
-    await user.selectOptions(screen.getByLabelText(/Rendimiento de Marzo/i), '8')
+    await user.selectOptions(screen.getByLabelText('C de Marzo – Abril'), '8')
     await user.click(screen.getByRole('button', { name: /Guardar/i }))
 
     await waitFor(() => {
@@ -101,6 +102,24 @@ describe('<CierreAlumnoBoard />', () => {
           body: expect.stringContaining('"valueHundredths":800'),
         }),
       )
+    })
+  })
+
+  it('guardar sólo la R manda sólo la R: no pisa la C ni el juicio', async () => {
+    const user = userEvent.setup()
+    render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    await waitFor(() => expect(screen.getByLabelText('R de Marzo – Abril')).toBeInTheDocument())
+
+    await user.selectOptions(screen.getByLabelText('R de Marzo – Abril'), '9')
+    await user.click(screen.getByRole('button', { name: /Guardar/i }))
+
+    await waitFor(() => {
+      const call = apiMock.mock.calls.find(([path, init]) =>
+        String(path).endsWith('/closure') && (init as RequestInit | undefined)?.method === 'PUT',
+      )
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
+        entries: [{ periodId: 'p-1', meetingValueHundredths: 900 }],
+      })
     })
   })
 
@@ -134,12 +153,11 @@ describe('<CierreAlumnoBoard />', () => {
     })
 
     render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
-    await waitFor(() =>
-      expect(screen.getByLabelText(/Rendimiento de APE Febrero/i)).toBeInTheDocument(),
-    )
-    expect(screen.queryByLabelText(/Rendimiento de APE Febrero/i)?.tagName).toBe('SPAN')
-    expect(screen.queryByRole('textbox', { name: /Juicio de APE Febrero/i })).not.toBeInTheDocument()
-    expect(screen.getByLabelText(/Rendimiento de APE Febrero/i)).toHaveTextContent('—')
+    await waitFor(() => expect(screen.getByLabelText('C de APE Febrero')).toBeInTheDocument())
+    expect(screen.getByLabelText('C de APE Febrero').tagName).toBe('SPAN')
+    expect(screen.getByLabelText('R de APE Febrero').tagName).toBe('SPAN')
+    expect(screen.queryByRole('textbox', { name: /de APE Febrero/i })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('C de APE Febrero')).toHaveTextContent('—')
     expect(screen.getByRole('button', { name: /Info de APE Febrero: Período no habilitado/i })).toBeInTheDocument()
   })
 })

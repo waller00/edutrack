@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ClipboardList, Loader2, Plus } from 'lucide-react'
 import { api } from '@/lib/api/client'
+import { gradablePeriods, type LibretaPeriod } from '@/lib/gradebook/period-blocks'
 import GradeSheet from './GradeSheet'
 import MoodleImportPanel from './MoodleImportPanel'
 
-type Period = { id: string; code: string; name: string }
+type Period = LibretaPeriod
 type Scale = { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number }
 type ActivityType = { id: string; name: string; scope: 'GLOBAL' | 'TEACHER' }
 
@@ -88,7 +89,7 @@ function NewAssessmentForm({
           className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
         >
           <option value="">Elegí…</option>
-          {options.periods.map((p) => (
+          {gradablePeriods(options.periods).map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
@@ -198,7 +199,7 @@ export default function AssessmentsPanel({
       {canGrade && options && (
         <MoodleImportPanel
           gradeBookId={gradeBookId}
-          periods={options.periods}
+          periods={gradablePeriods(options.periods)}
           scales={options.scales}
           onImported={() => void load()}
         />

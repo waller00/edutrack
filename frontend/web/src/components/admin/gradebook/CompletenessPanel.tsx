@@ -15,6 +15,8 @@ type Row = {
   periodStatus: string | null
   rosterSize: number
   missingGrades: number
+  /** Sin nota de reunión (R), en los períodos que la exigen. */
+  missingMeetingGrades?: number
   missingJudgements: number
   complete: boolean
 }
@@ -25,8 +27,10 @@ type PeriodOption = { periodId: string; name: string }
 function detailOf(row: Row, periodName: string): string {
   const faltantes: string[] = []
   if (row.missingGrades > 0) faltantes.push(`${row.missingGrades} sin calificación`)
+  if ((row.missingMeetingGrades ?? 0) > 0) faltantes.push(`${row.missingMeetingGrades} sin nota de reunión (R)`)
   if (row.missingJudgements > 0) faltantes.push(`${row.missingJudgements} sin juicio conceptual`)
-  return `${periodName}: ${faltantes.join(' y ')}.`
+  const list = faltantes.length > 1 ? `${faltantes.slice(0, -1).join(', ')} y ${faltantes.at(-1)}` : faltantes[0]
+  return `${periodName}: ${list}.`
 }
 
 /**

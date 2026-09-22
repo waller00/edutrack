@@ -2,6 +2,7 @@ import { apiBaseUrl } from '@/lib/api/client'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import type { ActivityCategory } from '@/lib/gradebook/activity-category'
 import { ACTIVITY_CATEGORY_LABEL } from '@/lib/gradebook/activity-category'
+import { blockCategories, formatGradeList } from '@/lib/gradebook/period-blocks'
 import type { GradeBookDetail, RosterStudent } from '@/lib/gradebook/types'
 
 export type PrintGradeRow = {
@@ -76,8 +77,10 @@ export function printStudentEvaluations(input: {
   libretaLabel: string
   rows: readonly PrintGradeRow[]
   photoUrl: string | null
+  /** C y R de cada período, por nombre de período. */
+  periodResults?: Record<string, { c: number | null; r: number | null }>
 }): void {
-  const { detail, student, index, libretaLabel, rows, photoUrl } = input
+  const { detail, student, index, libretaLabel, rows, photoUrl, periodResults = {} } = input
   const byPeriod = new Map<string, PrintGradeRow[]>()
   for (const row of rows) {
     const bucket = byPeriod.get(row.periodName)
@@ -87,21 +90,12 @@ export function printStudentEvaluations(input: {
 
   const periodsHtml = [...byPeriod.entries()]
     .map(([periodName, periodRows]) => {
-      const avg = (cat: ActivityCategory) => {
-        const vals = periodRows
-          .filter((r) => r.category === cat && !r.isAbsent && r.valueHundredths != null)
-          .map((r) => r.valueHundredths as number)
-        if (vals.length === 0) return '—'
-        const mean = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
-        return formatHundredths(mean, periodRows[0]?.decimals ?? 0)
-      }
-      const all = periodRows
-        .filter((r) => !r.isAbsent && r.valueHundredths != null)
-        .map((r) => r.valueHundredths as number)
-      const result =
-        all.length === 0
-          ? '—'
-          : formatHundredths(Math.round(all.reduce((a, b) => a + b, 0) / all.length), periodRows[0]?.decimals ?? 0)
+      // Las notas sueltas de cada columna, como en la planilla: nunca un promedio.
+      const decimals = periodRows[0]?.decimals ?? 0
+      const categories = blockCategories(periodRows)
+      const notes = (cat: ActivityCategory) =>
+        escapeHtml(formatGradeList(periodRows.filter((r) => r.category === cat), decimals))
+      const result = periodResults[periodName] ?? { c: null, r: null }
 
       const detailRows = periodRows
         .map(
@@ -118,14 +112,14 @@ export function printStudentEvaluations(input: {
         <h2>${escapeHtml(periodName)}</h2>
         <table class="summary">
           <thead><tr>
-            <th>${ACTIVITY_CATEGORY_LABEL.oral}</th>
-            <th>${ACTIVITY_CATEGORY_LABEL.written}</th>
-            <th>${ACTIVITY_CATEGORY_LABEL.other}</th>
-            <th>R</th>
+            ${categories.map((cat) => `<th>${ACTIVITY_CATEGORY_LABEL[cat]}</th>`).join('')}
+            <th>C</th><th>R</th>
             <th>J.</th><th>NJ.</th><th>Fictas</th>
           </tr></thead>
           <tbody><tr>
-            <td>${avg('oral')}</td><td>${avg('written')}</td><td>${avg('other')}</td><td>${result}</td>
+            ${categories.map((cat) => `<td>${notes(cat)}</td>`).join('')}
+            <td>${escapeHtml(formatHundredths(result.c, decimals))}</td>
+            <td><strong>${escapeHtml(formatHundredths(result.r, decimals))}</strong></td>
             <td></td><td></td><td>${student.absences ?? ''}</td>
           </tr></tbody>
         </table>

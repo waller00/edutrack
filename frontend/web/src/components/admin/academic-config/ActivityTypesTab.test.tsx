@@ -9,7 +9,7 @@ const mockedApi = vi.mocked(api)
 
 function type(over: Partial<ActivityType> = {}): ActivityType {
   return {
-    id: 't-1', code: 'ESCRITO', name: 'Escrito', description: 'Prueba escrita',
+    id: 't-1', code: 'ESCRITO', name: 'Escrito', description: 'Prueba escrita', category: 'ESCRITO',
     scope: 'GLOBAL', isActive: true, sortOrder: 1, usage: { assessments: 0 },
     ...over,
   }

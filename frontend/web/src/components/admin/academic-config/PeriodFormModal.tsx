@@ -4,7 +4,13 @@ import { useState } from 'react'
 import DateField from '@/components/forms/DateField'
 import ConfigModal from './ConfigModal'
 import { Check, Field, inputClass } from './fields'
-import { LEVEL_LABELS, type AcademicLevel, type AcademicPeriod } from '@/lib/academic-config/types'
+import {
+  LEVEL_LABELS,
+  PERIOD_KIND_LABELS,
+  type AcademicLevel,
+  type AcademicPeriod,
+  type PeriodKind,
+} from '@/lib/academic-config/types'
 
 export type PeriodDraft = {
   level: AcademicLevel
@@ -16,6 +22,9 @@ export type PeriodDraft = {
   closesOn: string
   requiresConceptualJudgement: boolean
   requiresGeneralGrade: boolean
+  kind: PeriodKind
+  isMeeting: boolean
+  judgementLabel: string
   isActive: boolean
 }
 
@@ -30,6 +39,9 @@ export function draftFromPeriod(period: AcademicPeriod | null, level: AcademicLe
     closesOn: period?.closesOn ?? '',
     requiresConceptualJudgement: period?.requiresConceptualJudgement ?? false,
     requiresGeneralGrade: period?.requiresGeneralGrade ?? true,
+    kind: period?.kind ?? 'TRAMO',
+    isMeeting: period?.isMeeting ?? false,
+    judgementLabel: period?.judgementLabel ?? '',
     isActive: period?.isActive ?? true,
   }
 }
@@ -62,6 +74,9 @@ export function periodPayload(draft: PeriodDraft, isEdit: boolean, schoolYearId:
     closesOn: draft.closesOn || null,
     requiresConceptualJudgement: draft.requiresConceptualJudgement,
     requiresGeneralGrade: draft.requiresGeneralGrade,
+    kind: draft.kind,
+    isMeeting: draft.isMeeting,
+    judgementLabel: draft.judgementLabel.trim() || null,
   }
   return isEdit
     ? { ...common, isActive: draft.isActive }
@@ -133,6 +148,48 @@ export default function PeriodFormModal({ period, level, saving, error, onSave, 
         </Field>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Tipo de bloque"
+          htmlFor="period-kind"
+          hint="Cómo aparece en la carta del alumno, igual que en la planilla del liceo."
+        >
+          <select
+            id="period-kind"
+            value={draft.kind}
+            onChange={(e) => patch('kind', e.target.value as PeriodKind)}
+            className={inputClass}
+          >
+            {(Object.keys(PERIOD_KIND_LABELS) as PeriodKind[]).map((kind) => (
+              <option key={kind} value={kind}>
+                {PERIOD_KIND_LABELS[kind]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field
+          label="Nombre del texto"
+          htmlFor="period-judgement-label"
+          hint="Por ejemplo: Informe de actuación, Diagnóstico, Informe para envío APE."
+        >
+          <input
+            id="period-judgement-label"
+            value={draft.judgementLabel}
+            maxLength={80}
+            onChange={(e) => patch('judgementLabel', e.target.value)}
+            className={inputClass}
+          />
+        </Field>
+      </div>
+
+      <Check
+        id="period-meeting"
+        label="Lleva reunión (tiene R)"
+        hint="Aparece en la reunión, el boletín, el visado y el control. Si además exige C, para cerrar hace falta R."
+        checked={draft.isMeeting}
+        onChange={(v) => patch('isMeeting', v)}
+      />
+
       <Field label="Orden" htmlFor="period-order" hint="Define en qué posición aparece dentro del nivel.">
         <input
           id="period-order"
@@ -148,15 +205,15 @@ export default function PeriodFormModal({ period, level, saving, error, onSave, 
         <legend className="px-1 text-xs font-medium text-gray-600">Obligatorio para poder cerrar</legend>
         <Check
           id="period-requires-grade"
-          label="Calificación general"
-          hint="Sin la nota de cada estudiante, la libreta no cierra."
+          label="Calificación (C)"
+          hint="Sin la C de cada estudiante, la libreta no cierra."
           checked={draft.requiresGeneralGrade}
           onChange={(v) => patch('requiresGeneralGrade', v)}
         />
         <Check
           id="period-requires-judgement"
-          label="Juicio conceptual"
-          hint="Exige el texto valorativo por estudiante."
+          label="Texto del período"
+          hint="Exige el informe o juicio de cada estudiante."
           checked={draft.requiresConceptualJudgement}
           onChange={(v) => patch('requiresConceptualJudgement', v)}
         />

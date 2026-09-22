@@ -6,7 +6,7 @@ import { api } from '@/lib/api/client'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
 import ActivityTypeFormModal, { activityTypePayload, type ActivityTypeDraft } from './ActivityTypeFormModal'
 import UsageNote from './UsageNote'
-import type { ActivityType } from '@/lib/academic-config/types'
+import { ACTIVITY_CATEGORY_OPTIONS, type ActivityType } from '@/lib/academic-config/types'
 
 type Props = { onError: (message: string) => void }
 
@@ -108,6 +108,9 @@ export default function ActivityTypesTab({ onError }: Props) {
             >
               <p className="text-sm font-medium text-gray-900">{type.name}</p>
               <p className="font-mono text-xs text-gray-500">{type.code}</p>
+              <p className="text-xs text-gray-600">
+                Columna: {ACTIVITY_CATEGORY_OPTIONS.find((o) => o.code === type.category)?.label ?? 'Otras'}
+              </p>
               {!type.isActive && <p className="mt-1 text-xs text-gray-500">Inactivo</p>}
               {type.description && <p className="mt-1 text-xs text-gray-600">{type.description}</p>}
               <UsageNote items={[{ count: type.usage.assessments, one: 'evaluación', many: 'evaluaciones' }]} />
