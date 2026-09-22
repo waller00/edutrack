@@ -312,6 +312,34 @@ entienden solos.
   notas y juicios conceptuales; `gradebook.plan`, la planificación y el desarrollo del curso.
   Dirección tiene `plan` con alcance ALL y no tiene `grade`, así que corrige la libreta de un
   docente sin poder tocar una calificación ni un juicio — que es exactamente lo que pide el liceo.
+- **Estructura de la planilla del liceo.** La carta del alumno reproduce los bloques de la planilla
+  que el liceo usaba en Excel (`docs/Prototipo Libreta.xlsx`), para no cambiarle la operativa al
+  docente. Cada período tiene un **tipo** (`AcademicPeriod.kind`):
+  - *Diagnóstico* (reunión de trayectorias): sólo texto por estudiante.
+  - *Tramo* (Marzo–Abril, Mayo–Junio, Julio, Agosto–Setiembre, Octubre–Noviembre, Diciembre, APE
+    Febrero): columnas **Or · Otras · Ev** con las notas sueltas —nunca un promedio—, **Prueba** si
+    hubo prueba semestral, y **C · R**. La columna de cada nota la define el tipo de actividad
+    (`ActivityType.category`), editable en la configuración.
+  - *Entrega* (1.ª a 4.ª, cada una con su reunión): **informe de actuación · C · R**. No admite
+    notas sueltas: ni el docente ni la importación de Moodle pueden cargar evaluaciones ahí.
+- **C y R.** **C** es la calificación que pone el docente; **R**, la que queda después de la reunión
+  de profesores, y también la pasa el docente en su libreta (`PeriodGrade.meetingValueHundredths`).
+  **La nota oficial es siempre R** (`officialPeriodValue`): la usan el boletín, el promedio de la
+  reunión, la ficha académica y los indicadores. Mientras no haya R, la materia figura pendiente; la
+  matriz muestra la C como *propuesta*, rotulada y sin color de tramo, y no la promedia.
+- **Períodos con reunión** (`AcademicPeriod.isMeeting`): las entregas, Diciembre y APE Febrero. Son
+  los que listan la reunión, el boletín, el visado y el control. Si además exigen C, cerrar exige R.
+- **Cerrar una entrega cierra sus tramos** (los que están entre la entrega anterior y ella): una
+  entrega cuyas notas de tramo siguieran editables dejaría de significar algo. Se cierra desde la
+  sección Cierre de la libreta; si falta algo, se listan todos los faltantes juntos.
+- **Escala 1 a 10 en seis tramos**, con los colores de la planilla: 1–2 rojo, 3–4 naranja, 5
+  amarillo, 6–7 verde claro, 8–9 azul y 10 azul oscuro. **Se aprueba desde 5.** Cada tramo lleva
+  además símbolo y texto (RNF 7.2). El color de la UI sale siempre de la escala, nunca de un umbral
+  fijo en el front.
+- **Transición:** `npm run seed:remap-ebi-periods` (dry-run; `-- --apply` para aplicar) siembra la
+  estructura nueva, mueve las evaluaciones de Mayo, Junio‑Julio y Evaluación Semestral a los tramos
+  nuevos, da de baja esos períodos si quedaron vacíos y completa R desde C en los períodos que ya
+  estaban cerrados.
 - **Parametrización (RF-044, RF-050, RF-041):** escalas con sus tramos y descriptores, períodos por
   ciclo **y nivel** —EBI y EMS tienen calendarios distintos— y tipos de actividad. Todo se edita
   desde administración, sin tocar código.
