@@ -19,6 +19,7 @@ import {
   resolveGradeBookRecipients,
 } from '../services/gradebook/notifications.js'
 import { SECTION_LABELS } from '../services/gradebook/endorsement.js'
+import { PERIOD_SCALE_CODE_BY_LEVEL, officialPeriodValue } from '../services/gradebook/period-closure.js'
 import { userPermissionScope } from '../middlewares/auth.js'
 import {
   assertCanTransition,
@@ -54,6 +55,17 @@ const r = Router()
 
 const SCALE_INCLUDE = { levels: { orderBy: { sortOrder: 'asc' as const } } }
 
+/**
+ * Escala de C y R del nivel (1–10 en EBI, 1–12 en EMS). Los descriptores y el semáforo de la
+ * matriz y del boletín salen de ella; si no está sembrada, cae en la primera escala activa.
+ */
+async function periodScaleFor(level: string | null | undefined) {
+  const code = PERIOD_SCALE_CODE_BY_LEVEL[level === 'EMS' ? 'EMS' : 'EBI']
+  const byLevel = await prisma.gradingScale.findFirst({ where: { isActive: true, code }, include: SCALE_INCLUDE })
+  if (byLevel) return byLevel
+  return prisma.gradingScale.findFirst({ where: { isActive: true }, include: SCALE_INCLUDE, orderBy: { sortOrder: 'asc' } })
+}
+
 const matrixQuerySchema = z.object({
   courseOfferingId: z.string().uuid(),
   courseOrientationId: z.string().uuid().optional(),
@@ -77,10 +89,18 @@ r.get('/periods', async (req: any, res) => {
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
 
     const level = ['EBI', 'EMS'].includes(String(req.query.level)) ? String(req.query.level) : undefined
+    // La reunión, el control y el boletín trabajan sobre los períodos con reunión (entregas,
+    // diciembre, febrero): los tramos de trabajo no tienen R y no se informan. `all=true` los trae.
+    const onlyMeetings = req.query.all !== 'true'
     const periods = await prisma.academicPeriod.findMany({
-      where: { schoolYearId, isActive: true, ...(level ? { level: level as never } : {}) },
+      where: {
+        schoolYearId,
+        isActive: true,
+        ...(level ? { level: level as never } : {}),
+        ...(onlyMeetings ? { isMeeting: true } : {}),
+      },
       orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }],
-      select: { id: true, code: true, name: true, level: true, closesOn: true },
+      select: { id: true, code: true, name: true, level: true, closesOn: true, kind: true, isMeeting: true },
     })
     return res.json({ data: periods })
   } catch (error) {
@@ -171,9 +191,8 @@ r.get('/group-matrix', async (req: any, res) => {
         where: { periodId: parsed.data.periodId, gradeBookId: { in: books.map((b) => b.id) } },
         include: { grades: true },
       }),
-      // Los descriptores salen de la escala activa; la matriz muestra el resultado del período,
-      // que puede venir de evaluaciones con escalas distintas.
-      prisma.gradingScale.findFirst({ where: { isActive: true }, include: SCALE_INCLUDE, orderBy: { sortOrder: 'asc' } }),
+      // Los descriptores salen de la escala del nivel: es con la que se ponen C y R.
+      periodScaleFor(offering.course?.level),
     ])
 
     const levels = scale?.levels ?? []
@@ -207,11 +226,14 @@ r.get('/group-matrix', async (req: any, res) => {
       const cells: MatrixCell[] = books.map((book) => {
         const state = stateByBook.get(book.id)
         const grade = state?.grades.find((g: any) => g.studentId === student.studentId)
-        const value = grade?.valueHundredths ?? null
+        // La nota oficial es R. Mientras la reunión no la fije, la celda muestra la C como
+        // propuesta, pero no cuenta para el promedio ni para las alertas.
+        const value = officialPeriodValue(grade)
         return {
           gradeBookId: book.id,
           subjectId: book.subjectId,
           valueHundredths: value,
+          proposedValueHundredths: grade?.valueHundredths ?? null,
           conceptualJudgement: grade?.conceptualJudgement ?? null,
           conductValueHundredths: grade?.conductValueHundredths ?? null,
           descriptor: describeCell(value, levels),
@@ -286,7 +308,7 @@ r.get('/students/:studentId', async (req: any, res) => {
         include: {
           gradeBookPeriod: {
             include: {
-              period: { select: { code: true, name: true, sortOrder: true } },
+              period: { select: { code: true, name: true, sortOrder: true, isMeeting: true } },
               gradeBook: {
                 include: {
                   subject: { select: { name: true } },
@@ -301,7 +323,10 @@ r.get('/students/:studentId', async (req: any, res) => {
       }),
     ])
 
-    const history: StudentHistoryEntry[] = grades.map((row) => {
+    // La trayectoria es la oficial: los períodos con reunión y su R. Las notas de trabajo de un
+    // tramo no son un resultado del estudiante.
+    const official = grades.filter((row) => row.gradeBookPeriod.period.isMeeting)
+    const history: StudentHistoryEntry[] = official.map((row) => {
       const book = row.gradeBookPeriod.gradeBook
       return {
         schoolYearCode: book.schoolYear.code,
@@ -312,7 +337,7 @@ r.get('/students/:studentId', async (req: any, res) => {
         periodName: row.gradeBookPeriod.period.name,
         periodSortOrder: row.gradeBookPeriod.period.sortOrder,
         subjectName: book.subject.name,
-        valueHundredths: row.valueHundredths,
+        valueHundredths: officialPeriodValue(row),
         conceptualJudgement: row.conceptualJudgement,
       }
     })
@@ -512,7 +537,14 @@ r.get('/completeness', requirePermission('gradebook.review', 'all'), async (req:
   try {
     const period = await prisma.academicPeriod.findUnique({
       where: { id: periodId },
-      select: { id: true, name: true, schoolYearId: true, requiresConceptualJudgement: true },
+      select: {
+        id: true,
+        name: true,
+        schoolYearId: true,
+        requiresConceptualJudgement: true,
+        requiresGeneralGrade: true,
+        isMeeting: true,
+      },
     })
     if (!period) return res.status(404).json({ message: 'Período no encontrado' })
 
@@ -545,8 +577,10 @@ r.get('/completeness', requirePermission('gradebook.review', 'all'), async (req:
           periodStatus: (state?.status as any) ?? null,
           rosterSize: roster.length,
           gradedCount: grades.filter((g: any) => g.valueHundredths != null).length,
+          meetingGradedCount: grades.filter((g: any) => g.meetingValueHundredths != null).length,
           judgedCount: grades.filter((g: any) => (g.conceptualJudgement ?? '').trim() !== '').length,
           requiresJudgement: period.requiresConceptualJudgement,
+          requiresMeetingGrade: Boolean(period.isMeeting && period.requiresGeneralGrade),
         })
       }),
     )
@@ -616,7 +650,7 @@ r.get('/report-card/:studentId', requirePermission('exports.create'), async (req
       where: { studentId: student.id, enrollmentStatus: 'ACTIVE' },
       include: {
         schoolYear: { select: { id: true, label: true } },
-        courseOffering: { include: { course: { select: { name: true } } } },
+        courseOffering: { include: { course: { select: { name: true, level: true } } } },
         courseOrientation: { include: { orientation: { select: { name: true } } } },
       },
       orderBy: { createdAt: 'desc' },
@@ -641,7 +675,7 @@ r.get('/report-card/:studentId', requirePermission('exports.create'), async (req
         where: { periodId, gradeBookId: { in: relevant.map((b: any) => b.id) } },
         include: { grades: { where: { studentId: student.id } } },
       }),
-      prisma.gradingScale.findFirst({ where: { isActive: true }, include: SCALE_INCLUDE, orderBy: { sortOrder: 'asc' } }),
+      periodScaleFor(enrollment.courseOffering.course?.level),
       (prisma as any).studentConductRecord.findUnique({
         where: { studentId_periodId: { studentId: student.id, periodId } },
         select: { valueHundredths: true },
@@ -671,7 +705,8 @@ r.get('/report-card/:studentId', requirePermission('exports.create'), async (req
       period: { name: period?.name ?? '' },
       subjects: relevant.map((book: any) => {
         const grade = stateByBook.get(book.id)?.grades?.[0]
-        const value = grade?.valueHundredths ?? null
+        // Al boletín va siempre R: sin reunión, la materia figura pendiente.
+        const value = officialPeriodValue(grade)
         return {
           subjectName: book.subject?.name ?? '—',
           teacherName: book.teacher?.name ?? null,
@@ -784,8 +819,10 @@ r.get('/endorsements', async (req: any, res) => {
     const rows = await prisma.gradeBookPeriod.findMany({
       where: {
         gradeBook: { schoolYearId },
-        // Sólo lo cerrado llega a la grilla: un período abierto no tiene nada firme que visar.
+        // Sólo lo cerrado llega a la grilla: un período abierto no tiene nada firme que visar. Y
+        // sólo lo que tiene reunión: los tramos se cierran junto con su entrega y no se visan.
         status: 'CLOSED',
+        period: { isMeeting: true },
         ...(typeof req.query.periodId === 'string' ? { periodId: req.query.periodId } : {}),
         ...(typeof req.query.courseOfferingId === 'string'
           ? { gradeBook: { schoolYearId, courseOfferingId: req.query.courseOfferingId } }

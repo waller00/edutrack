@@ -19,6 +19,7 @@
     "seed:production:clean": "tsx prisma/seed-production-clean.ts",
     "seed:academic": "tsx prisma/seed-academic-catalog.ts",
     "seed:academic-config": "tsx prisma/seed-academic-config.ts",
+    "seed:remap-ebi-periods": "tsx prisma/remap-ebi-periods.ts",
     "seed:teachers": "tsx prisma/seed-teachers.ts",
     "seed:bootstrap": "tsx prisma/seed-bootstrap.ts",
     "seed:realistic": "tsx prisma/seed-realistic-dataset.ts",

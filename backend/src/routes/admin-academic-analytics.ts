@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
+import { officialPeriodValue } from '../services/gradebook/period-closure.js'
 import {
   buildComparison,
   managementBlock,
@@ -95,9 +96,11 @@ async function loadSnapshot(filters: z.infer<typeof filtersSchema>, schoolYearId
   const ids = gradeBooks.map((gb) => gb.id)
 
   const [states, assessmentCounts] = await Promise.all([
+    // Sólo los períodos con reunión: las notas de un tramo son de trabajo, no un resultado.
     prisma.gradeBookPeriod.findMany({
       where: {
         gradeBookId: { in: ids },
+        period: { isMeeting: true },
         ...(filters.periodId ? { periodId: filters.periodId } : {}),
       },
       include: {
@@ -170,11 +173,12 @@ r.get('/dashboard', async (req: any, res) => {
           assessments: 0,
         }
         const gradeBook = snapshot.gradeBooks.find((gb) => gb.id === state.gradeBookId)
-        if (gradeBook) entry.bySubject.set(gradeBook.subjectId, grade.valueHundredths)
-        entry.byPeriod.set(state.period.sortOrder, grade.valueHundredths)
+        const value = officialPeriodValue(grade)
+        if (gradeBook) entry.bySubject.set(gradeBook.subjectId, value)
+        entry.byPeriod.set(state.period.sortOrder, value)
         entry.assessments += assessmentsByBook.get(state.gradeBookId) ?? 0
         perStudent.set(grade.studentId, entry)
-        if (grade.valueHundredths != null) allValues.push(grade.valueHundredths)
+        if (value != null) allValues.push(value)
       }
     }
 
@@ -191,7 +195,7 @@ r.get('/dashboard', async (req: any, res) => {
       const state = snapshot.states.find((s) => s.gradeBookId === gb.id)
       return {
         gradeBookId: gb.id,
-        gradedStudents: state?.grades.length ?? 0,
+        gradedStudents: state?.grades.filter((g) => officialPeriodValue(g) != null).length ?? 0,
         rosterSize: sizes.get(gb.id) ?? 0,
         periodStatus: (state?.status as never) ?? null,
         endorsed: state?.endorsements[0]?.status === 'ENDORSED',
@@ -238,8 +242,9 @@ r.get('/comparison', async (req: any, res) => {
 
     const rows = await prisma.periodGrade.findMany({
       where: {
-        valueHundredths: { not: null },
+        meetingValueHundredths: { not: null },
         gradeBookPeriod: {
+          period: { isMeeting: true },
           ...(parsed.data.periodId ? { periodId: parsed.data.periodId } : {}),
           gradeBook: {
             schoolYearId: { in: years },
@@ -251,7 +256,7 @@ r.get('/comparison', async (req: any, res) => {
       },
       select: {
         studentId: true,
-        valueHundredths: true,
+        meetingValueHundredths: true,
         gradeBookPeriod: {
           select: {
             gradeBook: {
@@ -278,7 +283,7 @@ r.get('/comparison', async (req: any, res) => {
             : [book.subject.id, book.subject.name]
 
       const bucket = buckets.get(key) ?? { label, values: [], students: new Set<string>() }
-      bucket.values.push(row.valueHundredths!)
+      bucket.values.push(row.meetingValueHundredths!)
       bucket.students.add(row.studentId)
       buckets.set(key, bucket)
     }
@@ -330,7 +335,7 @@ r.get('/risk-matrix', async (req: any, res) => {
           firstName: grade.studentFirstName,
           bySubject: new Map(),
         }
-        entry.bySubject.set(subjectId, grade.valueHundredths)
+        entry.bySubject.set(subjectId, officialPeriodValue(grade))
         perStudent.set(grade.studentId, entry)
       }
     }

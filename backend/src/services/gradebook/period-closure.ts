@@ -31,8 +31,11 @@ export type ScaleLevelRow = {
 }
 
 export type PeriodRules = {
+  /** Exige C, la calificación del docente. */
   requiresGeneralGrade: boolean
   requiresConceptualJudgement: boolean
+  /** Lleva reunión. Si además exige C, exige también R. */
+  isMeeting?: boolean
 }
 
 export type StudentPeriodRow = {
@@ -41,8 +44,88 @@ export type StudentPeriodRow = {
   firstName: string
   /** Notas del período que cuentan para el promedio (las ausencias no entran). */
   assessmentValues: number[]
+  /** C: la calificación del docente. */
   valueHundredths: number | null
+  /** R: la nota que queda después de la reunión. */
+  meetingValueHundredths?: number | null
   conceptualJudgement: string | null
+}
+
+/**
+ * **La nota oficial del período es R**, la que queda después de la reunión: la usan el boletín,
+ * el promedio de la reunión, la matriz y los indicadores. C es la que propone el docente y nunca
+ * la reemplaza. Mientras no haya R, el período está pendiente para todo lo institucional.
+ *
+ * Es el único lugar donde vive la regla: cualquier lectura institucional pasa por acá.
+ */
+export function officialPeriodValue(
+  grade: { meetingValueHundredths?: number | null } | null | undefined,
+): number | null {
+  return grade?.meetingValueHundredths ?? null
+}
+
+/** Escala con la que se ponen C y R: la numérica de cada nivel. */
+export const PERIOD_SCALE_CODE_BY_LEVEL = { EBI: 'NUMERICA_1_10', EMS: 'NUMERICA_1_12' } as const
+
+/** ¿El valor está fuera del rango de la escala? `null` (borrar) nunca lo está. */
+export function isOutOfScale(
+  value: number | null | undefined,
+  scale: { minValueHundredths: number | null; maxValueHundredths: number | null } | null,
+): boolean {
+  if (value == null || !scale) return false
+  if (scale.minValueHundredths != null && value < scale.minValueHundredths) return true
+  return scale.maxValueHundredths != null && value > scale.maxValueHundredths
+}
+
+/** Sólo los tramos de trabajo admiten evaluaciones; entregas y diagnóstico no. */
+export function acceptsAssessments(kind: 'DIAGNOSTICO' | 'TRAMO' | 'ENTREGA' | string): boolean {
+  return kind === 'TRAMO'
+}
+
+type OrderedPeriod = { id: string; kind: string; sortOrder: number }
+
+/**
+ * Tramos que informa una entrega: los que quedan entre la entrega anterior y ella, en el orden de
+ * la planilla. Cerrar la entrega los cierra también, porque una entrega cuyas notas de tramo
+ * siguen editables dejaría de significar algo (mismo criterio que "un período cerrado congela sus
+ * evaluaciones").
+ */
+export function periodsCoveredBy(target: OrderedPeriod, periods: readonly OrderedPeriod[]): string[] {
+  if (target.kind !== 'ENTREGA') return []
+  const previousEntrega = periods
+    .filter((p) => p.kind === 'ENTREGA' && p.sortOrder < target.sortOrder)
+    .reduce((max, p) => Math.max(max, p.sortOrder), Number.NEGATIVE_INFINITY)
+  return periods
+    .filter((p) => p.kind === 'TRAMO' && p.sortOrder > previousEntrega && p.sortOrder < target.sortOrder)
+    .map((p) => p.id)
+}
+
+export type PeriodGradeInput = {
+  valueHundredths?: number | null
+  meetingValueHundredths?: number | null
+  conceptualJudgement?: string | null
+  conductValueHundredths?: number | null
+}
+
+const PERIOD_GRADE_FIELDS = [
+  'valueHundredths',
+  'meetingValueHundredths',
+  'conceptualJudgement',
+  'conductValueHundredths',
+] as const satisfies ReadonlyArray<keyof PeriodGradeInput>
+
+/**
+ * Actualización parcial: lo que no viene (`undefined`) no se toca y `null` lo borra.
+ *
+ * La carta del docente guarda C, R y el informe celda por celda; si mandar sólo R borrara C, cada
+ * cambio pisaría lo que la celda de al lado ya tenía.
+ */
+export function periodGradePatch(entry: PeriodGradeInput): PeriodGradeInput {
+  const patch: PeriodGradeInput = {}
+  for (const field of PERIOD_GRADE_FIELDS) {
+    if (entry[field] !== undefined) (patch as Record<string, unknown>)[field] = entry[field]
+  }
+  return patch
 }
 
 // La libreta del docente NO promedia: el liceo es explícito y por eso acá no hay una función que
@@ -65,7 +148,7 @@ export function describeValue(valueHundredths: number | null, levels: readonly S
 }
 
 export type ClosureBlocker = {
-  code: 'MISSING_GRADES' | 'MISSING_JUDGEMENT'
+  code: 'MISSING_GRADES' | 'MISSING_MEETING_GRADES' | 'MISSING_JUDGEMENT'
   studentIds: string[]
 }
 
@@ -87,6 +170,11 @@ export function closureBlockers(
     if (missing.length > 0) blockers.push({ code: 'MISSING_GRADES', studentIds: missing })
   }
 
+  if (rules.requiresGeneralGrade && rules.isMeeting) {
+    const missing = students.filter((s) => s.meetingValueHundredths == null).map((s) => s.studentId)
+    if (missing.length > 0) blockers.push({ code: 'MISSING_MEETING_GRADES', studentIds: missing })
+  }
+
   if (rules.requiresConceptualJudgement) {
     const missing = students
       .filter((s) => (s.conceptualJudgement ?? '').trim() === '')
@@ -98,7 +186,8 @@ export function closureBlockers(
 }
 
 export const CLOSURE_BLOCKER_MESSAGES: Record<ClosureBlocker['code'], string> = {
-  MISSING_GRADES: 'Hay estudiantes sin calificación general del período.',
+  MISSING_GRADES: 'Hay estudiantes sin calificación (C) del período.',
+  MISSING_MEETING_GRADES: 'Hay estudiantes sin la nota de reunión (R).',
   MISSING_JUDGEMENT: 'Este período exige juicio conceptual y hay estudiantes sin él.',
 }
 

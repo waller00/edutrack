@@ -59,7 +59,7 @@ function subjectRows(doc: PDFKit.PDFDocument, card: ReportCard, decimals: number
     doc
       .font('Helvetica')
       .text(
-        `   ${subject.valueHundredths == null ? 'Sin calificar' : formatAverage(subject.valueHundredths, decimals)}` +
+        `   ${subject.valueHundredths == null ? 'Pendiente de reunión' : formatAverage(subject.valueHundredths, decimals)}` +
           `${subject.descriptor ? ` · ${subject.descriptor}` : ''}` +
           `${subject.conductValueHundredths != null ? ` · Conducta: ${conductText(subject.conductValueHundredths)}` : ''}`,
       )

@@ -94,38 +94,49 @@ export type ExportClosureRow = {
   lastName: string
   firstName: string
   documentId: string | null
+  /** C: la calificación del docente. */
   valueHundredths: number | null
+  /** R: la nota de reunión, la oficial. */
+  meetingValueHundredths: number | null
+  /** Descriptor de R, que es la que se informa. */
   descriptorLabel: string | null
   conceptualJudgement: string | null
 }
 
-/** Excel de cierre: calificación general, descriptor y juicio conceptual (RF-120). */
+function hundredthsCell(value: number | null): number | null {
+  return value == null ? null : value / 100
+}
+
+/** Excel de cierre: C, R, descriptor de R y el texto del período (RF-120). */
 export function buildClosureSheet(
   workbook: ExcelJS.Workbook,
   meta: GradeBookMeta,
   periodName: string,
   rows: readonly ExportClosureRow[],
   decimals: number,
+  judgementLabel = 'Juicio conceptual',
 ) {
   const sheet = workbook.addWorksheet(`Cierre ${periodName}`.slice(0, 31))
   writeMetaHeader(sheet, meta, `Cierre de período — ${periodName}`)
 
   const headerRowNumber = 5
-  sheet.addRow(['Estudiante', 'Documento', 'Calificación', 'Descriptor', 'Juicio conceptual'])
+  sheet.addRow(['Estudiante', 'Documento', 'C (calificación)', 'R (reunión)', 'Descriptor', judgementLabel])
 
   if (rows.length === 0) {
-    addNoDataRow(sheet, 5, 'No hay estudiantes con cierre cargado.')
+    addNoDataRow(sheet, 6, 'No hay estudiantes con cierre cargado.')
   }
 
   for (const row of rows) {
     const added = sheet.addRow([
       `${row.lastName}, ${row.firstName}`,
       row.documentId ?? '',
-      row.valueHundredths == null ? null : row.valueHundredths / 100,
+      hundredthsCell(row.valueHundredths),
+      hundredthsCell(row.meetingValueHundredths),
       row.descriptorLabel ?? '',
       row.conceptualJudgement ?? '',
     ])
     added.getCell(3).numFmt = numberFormatFor(decimals)
+    added.getCell(4).numFmt = numberFormatFor(decimals)
   }
 
   formatWorksheetForExport(sheet, { headerRow: headerRowNumber })
@@ -230,6 +241,134 @@ export function buildStudentEvaluationsSheet(
       added.getCell(7).numFmt = numberFormatFor(row.decimals)
     }
   }
+
+  formatWorksheetForExport(sheet, { headerRow: headerRowNumber })
+  return sheet
+}
+
+// ─── Hoja «Planilla»: la misma forma que la planilla del liceo ──────────────
+
+export type PlanillaCategory = 'ORAL' | 'OTRAS' | 'ESCRITO' | 'PRUEBA'
+
+export type PlanillaPeriod = {
+  id: string
+  name: string
+  kind: 'DIAGNOSTICO' | 'TRAMO' | 'ENTREGA'
+  judgementLabel: string | null
+}
+
+export type PlanillaAssessmentGrade = {
+  periodId: string
+  studentId: string
+  category: PlanillaCategory
+  valueHundredths: number | null
+  isAbsent: boolean
+}
+
+export type PlanillaPeriodGrade = {
+  periodId: string
+  studentId: string
+  valueHundredths: number | null
+  meetingValueHundredths: number | null
+  conceptualJudgement: string | null
+}
+
+type PlanillaField = PlanillaCategory | 'C' | 'R' | 'TEXT'
+
+export type PlanillaColumn = { periodId: string; field: PlanillaField; label: string }
+
+const CATEGORY_LABEL: Record<PlanillaCategory, string> = { ORAL: 'Or', OTRAS: 'Otras', ESCRITO: 'Ev', PRUEBA: 'Prueba' }
+
+/**
+ * Columnas de cada período, en el orden de la planilla: un tramo lleva Or · Otras · Ev · C · R (y
+ * Prueba si hubo alguna); una entrega, su informe · C · R; el diagnóstico, sólo el texto.
+ */
+export function planillaColumns(
+  periods: readonly PlanillaPeriod[],
+  grades: readonly PlanillaAssessmentGrade[],
+): PlanillaColumn[] {
+  const withPrueba = new Set(grades.filter((g) => g.category === 'PRUEBA').map((g) => g.periodId))
+  return periods.flatMap((period): PlanillaColumn[] => {
+    const text = { periodId: period.id, field: 'TEXT' as const, label: period.judgementLabel ?? 'Texto' }
+    const grade = (field: 'C' | 'R') => ({ periodId: period.id, field, label: field })
+    if (period.kind === 'DIAGNOSTICO') return [text]
+    if (period.kind === 'ENTREGA') return [text, grade('C'), grade('R')]
+    const categories: PlanillaCategory[] = withPrueba.has(period.id)
+      ? ['ORAL', 'OTRAS', 'ESCRITO', 'PRUEBA']
+      : ['ORAL', 'OTRAS', 'ESCRITO']
+    return [
+      ...categories.map((category) => ({ periodId: period.id, field: category, label: CATEGORY_LABEL[category] })),
+      grade('C'),
+      grade('R'),
+    ]
+  })
+}
+
+/** Notas sueltas de una celda Or/Otras/Ev/Prueba, como las escribe el docente: "7 · 8 · Aus". */
+function joinGrades(grades: readonly PlanillaAssessmentGrade[]): string {
+  return grades
+    .map((g) => (g.isAbsent ? 'Aus' : formatGradeValue(g.valueHundredths, 0)))
+    .filter((v): v is string => Boolean(v))
+    .join(' · ')
+}
+
+function planillaCell(
+  column: PlanillaColumn,
+  grades: readonly PlanillaAssessmentGrade[],
+  saved: PlanillaPeriodGrade | undefined,
+): string | number | null {
+  if (column.field === 'C') return hundredthsCell(saved?.valueHundredths ?? null)
+  if (column.field === 'R') return hundredthsCell(saved?.meetingValueHundredths ?? null)
+  if (column.field === 'TEXT') return saved?.conceptualJudgement ?? ''
+  return joinGrades(grades.filter((g) => g.periodId === column.periodId && g.category === column.field))
+}
+
+/**
+ * Hoja con la disposición de la planilla que el liceo ya usa (`Cal7mo`): una fila por estudiante
+ * y el año en horizontal. C y R van como número; Or/Otras/Ev juntan las notas sueltas del tramo
+ * en texto, porque son varias por celda —igual que en la planilla— y nunca se promedian.
+ */
+export function buildPlanillaSheet(
+  workbook: ExcelJS.Workbook,
+  meta: GradeBookMeta,
+  students: readonly ExportStudent[],
+  periods: readonly PlanillaPeriod[],
+  grades: readonly PlanillaAssessmentGrade[],
+  periodGrades: readonly PlanillaPeriodGrade[],
+  decimals: number,
+) {
+  const sheet = workbook.addWorksheet('Planilla')
+  writeMetaHeader(sheet, meta, 'Planilla anual')
+
+  const columns = planillaColumns(periods, grades)
+  const fixed = 3
+  const groupRow = sheet.addRow(['', '', '', ...columns.map(() => '')])
+  let start = fixed + 1
+  for (const period of periods) {
+    const span = columns.filter((c) => c.periodId === period.id).length
+    groupRow.getCell(start).value = period.name
+    if (span > 1) sheet.mergeCells(groupRow.number, start, groupRow.number, start + span - 1)
+    start += span
+  }
+  groupRow.font = { bold: true }
+
+  const headerRowNumber = groupRow.number + 1
+  sheet.addRow(['Nº', 'Estudiante', 'Documento', ...columns.map((c) => c.label)])
+  if (students.length === 0) addNoDataRow(sheet, fixed + columns.length, 'El grupo no tiene estudiantes matriculados.')
+
+  const savedByKey = new Map(periodGrades.map((g) => [`${g.periodId}::${g.studentId}`, g]))
+  students.forEach((student, index) => {
+    const own = grades.filter((g) => g.studentId === student.studentId)
+    const row = sheet.addRow([
+      index + 1,
+      `${student.lastName}, ${student.firstName}`,
+      student.documentId ?? '',
+      ...columns.map((column) => planillaCell(column, own, savedByKey.get(`${column.periodId}::${student.studentId}`))),
+    ])
+    columns.forEach((column, i) => {
+      if (column.field === 'C' || column.field === 'R') row.getCell(fixed + 1 + i).numFmt = numberFormatFor(decimals)
+    })
+  })
 
   formatWorksheetForExport(sheet, { headerRow: headerRowNumber })
   return sheet

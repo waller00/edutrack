@@ -52,6 +52,25 @@ describe('summarize', () => {
   })
 })
 
+describe('nota de reunión (R)', () => {
+  it('en un período con reunión, falta R aunque la C esté completa', () => {
+    const s = summarize(row({ requiresMeetingGrade: true, meetingGradedCount: 15 }))
+    expect(s.missingMeetingGrades).toBe(5)
+    expect(s.complete).toBe(false)
+  })
+
+  it('sin reunión, R no falta', () => {
+    expect(summarize(row({ meetingGradedCount: 0 })).missingMeetingGrades).toBe(0)
+  })
+
+  it('el aviso al docente dice cuántos no tienen R', () => {
+    const s = summarize(row({ gradedCount: 18, requiresMeetingGrade: true, meetingGradedCount: 10, judgedCount: 19 }))
+    expect(completionRequestBody(s, '1.ª Entrega')).toBe(
+      '1.ª Entrega: 2 sin calificación, 10 sin nota de reunión (R) y 1 sin juicio conceptual.',
+    )
+  })
+})
+
 describe('sortByUrgency', () => {
   it('primero lo que más falta, y lo completo al final', () => {
     const rows = [

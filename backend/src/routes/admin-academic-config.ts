@@ -24,6 +24,8 @@ import {
 const r = Router()
 
 const ACADEMIC_LEVELS = ['EBI', 'EMS'] as const
+const PERIOD_KINDS = ['DIAGNOSTICO', 'TRAMO', 'ENTREGA'] as const
+const ACTIVITY_CATEGORIES = ['ORAL', 'OTRAS', 'ESCRITO', 'PRUEBA'] as const
 
 const scaleLevelSchema = z.object({
   code: z.string().trim().min(1).max(60).regex(/^[A-Z0-9_]+$/, 'Usá mayúsculas, números y guion bajo'),
@@ -67,6 +69,11 @@ const periodSchema = z.object({
   closesOn: ymdSchema.nullish(),
   requiresConceptualJudgement: z.boolean().default(false),
   requiresGeneralGrade: z.boolean().default(true),
+  /** Forma del bloque en la libreta: diagnóstico, tramo de trabajo o entrega. */
+  kind: z.enum(PERIOD_KINDS).default('TRAMO'),
+  /** Lleva reunión: tiene R y aparece en reunión, boletín, visado y control. */
+  isMeeting: z.boolean().default(false),
+  judgementLabel: z.string().trim().max(80).nullish(),
 })
 
 const periodUpdateSchema = periodSchema
@@ -79,6 +86,8 @@ const activityTypeSchema = z.object({
   name: z.string().trim().min(1).max(160),
   description: z.string().trim().max(1000).nullish(),
   sortOrder: z.number().int().min(0).default(0),
+  /** Columna de la planilla: Or, Otras, Ev o Prueba. */
+  category: z.enum(ACTIVITY_CATEGORIES).default('OTRAS'),
 })
 
 const activityTypeUpdateSchema = activityTypeSchema
@@ -394,6 +403,9 @@ r.post('/periods', async (req: any, res) => {
         sortOrder: d.sortOrder ?? 0,
         requiresConceptualJudgement: d.requiresConceptualJudgement ?? false,
         requiresGeneralGrade: d.requiresGeneralGrade ?? true,
+        kind: d.kind ?? 'TRAMO',
+        isMeeting: d.isMeeting ?? false,
+        judgementLabel: d.judgementLabel || null,
         ...window,
       },
     })
@@ -432,6 +444,9 @@ r.patch('/periods/:id', async (req: any, res) => {
           ? {}
           : { requiresConceptualJudgement: d.requiresConceptualJudgement }),
         ...(d.requiresGeneralGrade === undefined ? {} : { requiresGeneralGrade: d.requiresGeneralGrade }),
+        ...(d.kind === undefined ? {} : { kind: d.kind }),
+        ...(d.isMeeting === undefined ? {} : { isMeeting: d.isMeeting }),
+        ...(d.judgementLabel === undefined ? {} : { judgementLabel: d.judgementLabel || null }),
         ...(d.isActive === undefined ? {} : { isActive: d.isActive }),
         ...window,
       },
@@ -498,6 +513,7 @@ r.post('/activity-types', async (req: any, res) => {
         name: d.name,
         description: d.description ?? null,
         sortOrder: d.sortOrder ?? 0,
+        category: d.category ?? 'OTRAS',
         scope: 'GLOBAL',
       },
     })
@@ -529,6 +545,7 @@ r.patch('/activity-types/:id', async (req: any, res) => {
         ...(d.name === undefined ? {} : { name: d.name }),
         ...(d.description === undefined ? {} : { description: d.description ?? null }),
         ...(d.sortOrder === undefined ? {} : { sortOrder: d.sortOrder }),
+        ...(d.category === undefined ? {} : { category: d.category }),
         ...(d.isActive === undefined ? {} : { isActive: d.isActive }),
       },
     })

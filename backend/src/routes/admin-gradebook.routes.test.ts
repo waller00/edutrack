@@ -164,7 +164,7 @@ describe('GET /group-matrix', () => {
       { studentId: STUDENT_ID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
     ])
     prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
-      { gradeBookId: 'gb-1', status: 'CLOSED', grades: [{ studentId: STUDENT_ID, valueHundredths: 300, conceptualJudgement: 'Debe reforzar.' }] },
+      { gradeBookId: 'gb-1', status: 'CLOSED', grades: [{ studentId: STUDENT_ID, valueHundredths: 300, meetingValueHundredths: 300, conceptualJudgement: 'Debe reforzar.' }] },
       { gradeBookId: 'gb-2', status: 'OPEN', grades: [] },
     ])
 
@@ -176,6 +176,23 @@ describe('GET /group-matrix', () => {
     expect(row.alertCount).toBe(1)
     expect(row.cells[0].descriptor.label).toBe('Insuficiente')
     expect(row.cells[0].periodStatus).toBe('CLOSED')
+  })
+
+  it('sin R la materia queda pendiente: la C se muestra como propuesta y no promedia', async () => {
+    prismaMock.gradeBook.findMany.mockResolvedValue([book({ id: 'gb-1' })])
+    rosterMock.mockResolvedValue([
+      { studentId: STUDENT_ID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      { gradeBookId: 'gb-1', status: 'OPEN', grades: [{ studentId: STUDENT_ID, valueHundredths: 300, meetingValueHundredths: null }] },
+    ])
+
+    const res = await request(app()).get(url).set('Authorization', `Bearer ${tok()}`)
+
+    const row = res.body.students[0]
+    expect(row.cells[0]).toMatchObject({ valueHundredths: null, proposedValueHundredths: 300, pending: true })
+    expect(row.averageHundredths).toBeNull()
+    expect(row.alertCount).toBe(0)
   })
 
   it('rotula el promedio como indicador automático (RF-061)', async () => {
@@ -212,9 +229,9 @@ describe('GET /students/:studentId', () => {
       courseOrientation: null,
     }
     prismaMock.periodGrade.findMany.mockResolvedValue([
-      { valueHundredths: 900, conceptualJudgement: null, gradeBookPeriod: { period: { code: 'P1', name: 'Uno', sortOrder: 10 }, gradeBook } },
-      { valueHundredths: 700, conceptualJudgement: null, gradeBookPeriod: { period: { code: 'P2', name: 'Dos', sortOrder: 20 }, gradeBook } },
-      { valueHundredths: 500, conceptualJudgement: null, gradeBookPeriod: { period: { code: 'P3', name: 'Tres', sortOrder: 30 }, gradeBook } },
+      { valueHundredths: 900, meetingValueHundredths: 900, conceptualJudgement: null, gradeBookPeriod: { period: { code: 'P1', name: 'Uno', sortOrder: 10, isMeeting: true }, gradeBook } },
+      { valueHundredths: 700, meetingValueHundredths: 700, conceptualJudgement: null, gradeBookPeriod: { period: { code: 'P2', name: 'Dos', sortOrder: 20, isMeeting: true }, gradeBook } },
+      { valueHundredths: 500, meetingValueHundredths: 500, conceptualJudgement: null, gradeBookPeriod: { period: { code: 'P3', name: 'Tres', sortOrder: 30, isMeeting: true }, gradeBook } },
     ])
 
     const res = await request(app())
@@ -286,6 +303,15 @@ describe('GET /periods', () => {
     prismaMock.academicPeriod.findMany.mockResolvedValue([])
     await request(app()).get('/admin/gradebook/periods?level=EBI').set('Authorization', `Bearer ${tok()}`)
     expect(prismaMock.academicPeriod.findMany.mock.calls[0][0].where.level).toBe('EBI')
+  })
+
+  it('por defecto sólo los períodos con reunión; con all=true, todos', async () => {
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+    await request(app()).get('/admin/gradebook/periods').set('Authorization', `Bearer ${tok()}`)
+    expect(prismaMock.academicPeriod.findMany.mock.calls[0][0].where.isMeeting).toBe(true)
+
+    await request(app()).get('/admin/gradebook/periods?all=true').set('Authorization', `Bearer ${tok()}`)
+    expect(prismaMock.academicPeriod.findMany.mock.calls[1][0].where).not.toHaveProperty('isMeeting')
   })
 })
 
@@ -706,7 +732,7 @@ describe('boletín', () => {
       book({ id: 'gb-2', subjectId: 's-2', subject: { id: 's-2', name: 'Historia', sortOrder: 20 } }),
     ])
     prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
-      { gradeBookId: 'gb-1', grades: [{ studentId: ST_ID, valueHundredths: 800, conceptualJudgement: 'Muy bien.', conductValueHundredths: 400 }] },
+      { gradeBookId: 'gb-1', grades: [{ studentId: ST_ID, valueHundredths: 800, meetingValueHundredths: 800, conceptualJudgement: 'Muy bien.', conductValueHundredths: 400 }] },
       { gradeBookId: 'gb-2', grades: [] },
     ])
     prismaMock.studentConductRecord.findUnique = vi.fn().mockResolvedValue({ valueHundredths: 300 })
