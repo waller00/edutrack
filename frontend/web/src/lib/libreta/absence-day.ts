@@ -36,32 +36,37 @@ export function weekdayNameEs(ymd: string): string {
 /**
  * Valores del combo de inasistencia.
  * Vacío = presente (el docente solo marca faltas y tardes).
- * LATE / media falta se entienden como 0,5 sin mostrarlo en la etiqueta.
+ * No hay "media falta" a elegir: la llegada tarde ya es la media falta. Si adscripción graduó una
+ * ausencia a media al justificarla, el combo la sigue mostrando como falta y no la pisa.
  */
-export type DayMarkSelectValue = '' | 'LATE' | 'ABSENT_100' | 'ABSENT_50'
+export type DayMarkSelectValue = '' | 'LATE' | 'ABSENT_100'
 
-export function dayMarkToSelect(mark: {
-  status: string
-  absenceWeightHundredths: number | null
-} | null): DayMarkSelectValue {
+export function dayMarkToSelect(
+  mark: {
+    status: string
+    absenceWeightHundredths: number | null
+  } | null,
+): DayMarkSelectValue {
   if (!mark) return ''
   if (mark.status === 'PRESENT') return ''
   if (mark.status === 'LATE') return 'LATE'
   if (mark.status === 'ABSENT' || mark.status === 'ABSENT_JUSTIFIED') {
-    return mark.absenceWeightHundredths === 50 ? 'ABSENT_50' : 'ABSENT_100'
+    return 'ABSENT_100'
   }
   return ''
 }
 
-/** Vacío → PRESENT (vino). Solo se usa al guardar. */
+/**
+ * Vacío → PRESENT (vino). Solo se usa al guardar. La ausencia viaja sin peso: el backend conserva
+ * el que ya estuviera guardado (una marca nueva vale una falta entera).
+ */
 export function selectToDayMark(value: DayMarkSelectValue): {
   status: 'PRESENT' | 'LATE' | 'ABSENT'
-  absenceWeightHundredths: number | null
+  absenceWeightHundredths?: number | null
 } {
   if (!value) return { status: 'PRESENT', absenceWeightHundredths: null }
   if (value === 'LATE') return { status: 'LATE', absenceWeightHundredths: null }
-  if (value === 'ABSENT_50') return { status: 'ABSENT', absenceWeightHundredths: 50 }
-  return { status: 'ABSENT', absenceWeightHundredths: 100 }
+  return { status: 'ABSENT' }
 }
 
 /** Filas CSV del historial de inasistencias (estilo Libro del Profesor). */

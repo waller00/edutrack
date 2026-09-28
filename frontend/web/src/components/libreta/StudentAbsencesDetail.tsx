@@ -104,7 +104,8 @@ export default function StudentAbsencesDetail({ gradeBookId, studentId, detail, 
       toYmd: to,
       subjects: filteredSubjects.map((subject) => ({
         subjectName: subject.subjectName,
-        absences: subject.absences,
+        // En ciclo básico la falta es del día y no se reparte entre materias: se exportan las marcas.
+        absences: history.basicCycle ? `${subject.entries.length} marca(s)` : subject.absences,
         entries: subject.entries.map((entry) => ({
           ymd: entry.ymd,
           label: entry.label,
@@ -221,6 +222,8 @@ export default function StudentAbsencesDetail({ gradeBookId, studentId, detail, 
             {history.overall.lates} tarde{history.overall.lates === 1 ? '' : 's'}
           </p>
 
+          {history.basicCycle && <BasicCycleDays days={history.days ?? []} />}
+
           {filteredSubjects.length === 0 ? (
             <p className="rounded-lg border border-gray-200 bg-white px-4 py-6 text-center text-sm text-gray-500">
               No hay inasistencias en el rango elegido.
@@ -231,7 +234,9 @@ export default function StudentAbsencesDetail({ gradeBookId, studentId, detail, 
                 <header className="flex items-center justify-between bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
                   <span>{subject.subjectName.toUpperCase()}</span>
                   <span className="text-xs font-bold uppercase tracking-wide text-slate-600">
-                    Falta: {subject.absences}
+                    {history.basicCycle
+                      ? `${subject.entries.length} marca${subject.entries.length === 1 ? '' : 's'}`
+                      : `Falta: ${subject.absences}`}
                   </span>
                 </header>
                 <ul className="divide-y divide-slate-100">
@@ -248,5 +253,26 @@ export default function StudentAbsencesDetail({ gradeBookId, studentId, detail, 
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Ciclo básico: el acumulado es la suma de los días, no de las clases. Se muestra el aporte de
+ * cada día para que se entienda de dónde sale — con texto, nunca sólo con color.
+ */
+function BasicCycleDays({ days }: { days: Array<{ ymd: string; hundredths: number; absences: string }> }) {
+  const counted = days.filter((day) => day.hundredths > 0)
+  if (counted.length === 0) return null
+  return (
+    <section className="rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-slate-600">Faltas por día (ciclo básico)</h3>
+      <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+        {counted.map((day) => (
+          <li key={day.ymd} className="tabular-nums text-slate-700">
+            {formatYmdDisplay(day.ymd)}: <span className="font-medium">{day.hundredths >= 100 ? 'Falta' : 'Media falta'}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }

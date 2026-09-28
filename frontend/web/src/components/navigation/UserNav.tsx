@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   BarChart3,
   Bell,
+  BellRing,
   BookMarked,
   BookOpen,
   CalendarDays,
@@ -76,7 +77,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Cursos', href: '/admin/courses', permission: 'courses.manage' },
       { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage' },
       { label: 'Mensualidades', href: '/admin/tuition', permission: 'students.manage', permissionScope: 'all' },
-      { label: 'Pase de lista (control)', href: '/admin/student-attendance', permission: 'student-attendance.manage' },
+      // Lo ven adscripción y dirección para justificar; administración también tiene `justify`.
+      { label: 'Pase de lista y justificaciones', href: '/admin/student-attendance', permission: 'student-attendance.justify', permissionScope: 'all' },
     ],
   },
   {
@@ -90,12 +92,19 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Cerrar Prom. por Alumno', href: '/libreta/cierre-alumno', permission: 'gradebook.close', permissionScope: 'own' },
       { label: 'Cerrar Prom. por Libreta', href: '/libreta/cierre-libreta', permission: 'gradebook.close', permissionScope: 'own' },
       // Supervisión: adscripción, dirección e inspección.
-      { label: 'Vista de grupo', href: '/libreta/grupo', permission: 'gradebook.read', permissionScope: 'all' },
       { label: 'Control de libretas', href: '/libreta/control', permission: 'gradebook.review', permissionScope: 'all' },
       { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
       { label: 'Reunión de profesores', href: '/libreta/reunion', permission: 'gradebook.read', permissionScope: 'all' },
       { label: 'Inteligencia académica', href: '/libreta/indicadores', permission: 'academic-analytics.read', permissionScope: 'all' },
       { label: 'Configuración de libreta', href: '/libreta/configuracion', permission: 'academic-config.manage' },
+    ],
+  },
+  {
+    title: 'Reportes',
+    icon: BellRing,
+    items: [
+      // Notas bajas, bajas de boletín, faltas seguidas y 18/25 faltas, con sus alertas.
+      { label: 'Reportes de estudiantes', href: '/admin/reportes', permission: 'student-reports.read', permissionScope: 'all' },
     ],
   },
   {
@@ -129,6 +138,7 @@ function isPublicPath(pathname: string) {
 
 function itemIcon(label: string) {
   if (/pase de lista/i.test(label)) return ClipboardList
+  if (/reportes/i.test(label)) return BellRing
   if (/libreta|evaluacion|cerrar prom|visado|reunión|reunion/i.test(label)) return BookOpen
   if (/curso/i.test(label)) return BookOpen
   if (/estudiante/i.test(label)) return GraduationCap

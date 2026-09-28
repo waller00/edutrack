@@ -155,6 +155,21 @@ describe('inasistencias: adscripción justifica, el docente no', () => {
     expect(scopeOf('ADSCRIPTO', 'student-attendance.read')).toBe('all')
   })
 
+  it('reportes y alertas: adscripción y dirección sí, el docente no', () => {
+    for (const role of ['ADMIN', 'ADSCRIPTO', 'DIRECCION'] as const) {
+      expect(scopeOf(role, 'student-reports.read'), `${role} debe ver reportes`).toBe('all')
+    }
+    for (const role of ['TEACHER', 'STAFF'] as const) {
+      expect(scopeOf(role, 'student-reports.read'), `${role} no debe ver reportes`).toBeNull()
+    }
+  })
+
+  it('DIRECCION también justifica, previa o posteriormente', () => {
+    expect(scopeOf('DIRECCION', 'student-attendance.justify')).toBe('all')
+    expect(scopeOf('DIRECCION', 'student-attendance.read')).toBe('all')
+    expect(scopeOf('DIRECCION', 'student-attendance.manage')).toBeNull()
+  })
+
   it('el docente pasa lista pero no justifica', () => {
     for (const role of ['TEACHER', 'STAFF'] as const) {
       expect(scopeOf(role, 'student-attendance.take')).toBe('own')

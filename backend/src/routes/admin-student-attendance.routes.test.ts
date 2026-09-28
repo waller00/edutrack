@@ -9,8 +9,10 @@ const { prismaMock } = vi.hoisted(() => ({
     event: { findMany: vi.fn() },
     nonWorkingDay: { findMany: vi.fn() },
     studentAttendanceSession: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    studentAttendanceEntry: { findUnique: vi.fn(), update: vi.fn() },
+    studentAttendanceEntry: { findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
     studentAttendanceJustification: { create: vi.fn() },
+    studentEnrollment: { findFirst: vi.fn(), findMany: vi.fn() },
+    studentAbsenceJustificationRange: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
     $transaction: vi.fn(),
@@ -179,5 +181,95 @@ describe("admin student-attendance routes", () => {
       expect.objectContaining({ data: { lockedAt: null, lockedByUserId: null } }),
     );
     expect(prismaMock.$executeRaw).toHaveBeenCalled();
+  });
+
+  describe("justificación por días (ciclo básico)", () => {
+    const STUDENT = "66666666-6666-4666-8666-666666666666";
+    const body = { studentId: STUDENT, fromYmd: "2026-05-11", toYmd: "2026-05-12", reason: "Viaje familiar" };
+
+    beforeEach(() => {
+      prismaMock.studentEnrollment.findFirst.mockResolvedValue({
+        schoolYearId: "sy-1",
+        courseOffering: { course: { level: "EBI" } },
+      });
+      prismaMock.studentAbsenceJustificationRange.create.mockResolvedValue({ id: "range-1" });
+      prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([{ id: ENTRY_ID, note: null }]);
+      prismaMock.studentAttendanceEntry.update.mockResolvedValue({});
+    });
+
+    it("crea el rango y justifica las ausencias ya marcadas", async () => {
+      const res = await request(app())
+        .post("/admin/student-attendance/justification-ranges")
+        .set("Authorization", `Bearer ${tok()}`)
+        .send(body);
+
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ range: { id: "range-1" }, justifiedCount: 1 });
+    });
+
+    it("400 con el rango invertido", async () => {
+      const res = await request(app())
+        .post("/admin/student-attendance/justification-ranges")
+        .set("Authorization", `Bearer ${tok()}`)
+        .send({ ...body, fromYmd: "2026-05-13" });
+      expect(res.status).toBe(400);
+    });
+
+    it("409 para un estudiante que no es de ciclo básico", async () => {
+      prismaMock.studentEnrollment.findFirst.mockResolvedValue({
+        schoolYearId: "sy-1",
+        courseOffering: { course: { level: "EMS" } },
+      });
+      const res = await request(app())
+        .post("/admin/student-attendance/justification-ranges")
+        .set("Authorization", `Bearer ${tok()}`)
+        .send(body);
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("NOT_BASIC_CYCLE");
+    });
+
+    it("lista los rangos del estudiante", async () => {
+      prismaMock.studentAbsenceJustificationRange.findMany.mockResolvedValue([{ id: "range-1" }]);
+      const res = await request(app())
+        .get(`/admin/student-attendance/justification-ranges?studentId=${STUDENT}`)
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([{ id: "range-1" }]);
+      expect(prismaMock.studentAbsenceJustificationRange.findMany.mock.calls[0][0].where).toEqual({
+        studentId: STUDENT,
+        schoolYearId: "sy-1",
+      });
+    });
+
+    it("el buscador sólo trae estudiantes de ciclo básico", async () => {
+      prismaMock.studentEnrollment.findMany.mockResolvedValue([
+        { student: { id: STUDENT, firstName: "Ana", lastName: "Díaz", documentId: "1" }, courseOffering: { course: { name: "7 EBI" } } },
+      ]);
+      const res = await request(app())
+        .get("/admin/student-attendance/justification-ranges/students?q=ana diaz")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([{ id: STUDENT, firstName: "Ana", lastName: "Díaz", documentId: "1", courseName: "7 EBI" }]);
+      const where = prismaMock.studentEnrollment.findMany.mock.calls[0][0].where;
+      expect(where.courseOffering).toEqual({ course: { level: "EBI" } });
+      expect(where.AND).toHaveLength(2);
+    });
+
+    it("con menos de dos letras no busca", async () => {
+      const res = await request(app())
+        .get("/admin/student-attendance/justification-ranges/students?q=a")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.body.data).toEqual([]);
+      expect(prismaMock.studentEnrollment.findMany).not.toHaveBeenCalled();
+    });
+
+    it("revoca un rango", async () => {
+      prismaMock.studentAbsenceJustificationRange.findUnique.mockResolvedValue({ id: "range-1", revokedAt: null });
+      prismaMock.studentAbsenceJustificationRange.update.mockResolvedValue({ id: "range-1" });
+      const res = await request(app())
+        .post("/admin/student-attendance/justification-ranges/range-1/revoke")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+    });
   });
 });

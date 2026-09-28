@@ -7,6 +7,9 @@ import {
   isAbsence,
   isValidAbsenceWeight,
   totalAbsenceHundredths,
+  absenceHundredthsFor,
+  basicCycleDays,
+  basicCycleMarkWeight,
 } from './absence-weight.js'
 
 describe('isAbsence', () => {
@@ -31,10 +34,14 @@ describe('effectiveWeight', () => {
     expect(effectiveWeight({ status: 'ABSENT', absenceWeightHundredths: HALF_ABSENCE })).toBe(50)
   })
 
-  it('lo que no es ausencia pesa cero, aunque traiga un peso cargado', () => {
+  it('presente pesa cero, aunque traiga un peso cargado', () => {
     // Un peso viejo sobre una marca que después pasó a PRESENT no debe sumar.
     expect(effectiveWeight({ status: 'PRESENT', absenceWeightHundredths: 100 })).toBe(0)
-    expect(effectiveWeight({ status: 'LATE', absenceWeightHundredths: 50 })).toBe(0)
+  })
+
+  it('la llegada tarde es media falta, sin importar el peso guardado', () => {
+    expect(effectiveWeight({ status: 'LATE', absenceWeightHundredths: null })).toBe(HALF_ABSENCE)
+    expect(effectiveWeight({ status: 'LATE', absenceWeightHundredths: 100 })).toBe(HALF_ABSENCE)
   })
 })
 
@@ -54,7 +61,7 @@ describe('totalAbsenceHundredths', () => {
         { status: 'PRESENT', absenceWeightHundredths: null },
         { status: 'LATE', absenceWeightHundredths: null },
       ]),
-    ).toBe(250)
+    ).toBe(300)
   })
 
   it('sin marcas da cero', () => {
@@ -81,5 +88,72 @@ describe('isValidAbsenceWeight', () => {
     for (const value of [0, 25, 75, 101, -50]) {
       expect(isValidAbsenceWeight(value), `${value} no debería valer`).toBe(false)
     }
+  })
+})
+
+describe('ciclo básico: la falta es del día', () => {
+  const mark = (ymd: string, status: string, absenceWeightHundredths: number | null = null) => ({
+    ymd,
+    status,
+    absenceWeightHundredths,
+  })
+
+  it('pesos por marca: ausente 1, justificada y tarde ½, presente 0', () => {
+    expect(basicCycleMarkWeight('ABSENT')).toBe(100)
+    expect(basicCycleMarkWeight('ABSENT_JUSTIFIED')).toBe(50)
+    expect(basicCycleMarkWeight('LATE')).toBe(50)
+    expect(basicCycleMarkWeight('PRESENT')).toBe(0)
+  })
+
+  it('faltar a una sola materia ya es la falta del día', () => {
+    const day = ['PRESENT', 'PRESENT', 'ABSENT', 'PRESENT'].map((s) => mark('2026-10-01', s))
+    expect(absenceHundredthsFor(day, 'EBI')).toBe(100)
+  })
+
+  it('dos tardes el mismo día siguen siendo media falta', () => {
+    expect(absenceHundredthsFor([mark('2026-10-01', 'LATE'), mark('2026-10-01', 'LATE')], 'EBI')).toBe(50)
+  })
+
+  it('tarde y ausencia el mismo día son una falta, no una y media', () => {
+    expect(absenceHundredthsFor([mark('2026-10-01', 'LATE'), mark('2026-10-01', 'ABSENT')], 'EBI')).toBe(100)
+  })
+
+  it('justificada y tarde el mismo día son media falta', () => {
+    expect(
+      absenceHundredthsFor([mark('2026-10-01', 'ABSENT_JUSTIFIED'), mark('2026-10-01', 'LATE')], 'EBI'),
+    ).toBe(50)
+  })
+
+  it('una ausencia sin justificar pesa más que la justificada del mismo día', () => {
+    expect(
+      absenceHundredthsFor([mark('2026-10-01', 'ABSENT_JUSTIFIED'), mark('2026-10-01', 'ABSENT')], 'EBI'),
+    ).toBe(100)
+  })
+
+  it('los días se suman', () => {
+    const marks = [
+      mark('2026-10-01', 'ABSENT'),
+      mark('2026-10-02', 'LATE'),
+      mark('2026-10-02', 'LATE'),
+      mark('2026-10-03', 'PRESENT'),
+      mark('2026-10-05', 'ABSENT_JUSTIFIED'),
+    ]
+    expect(absenceHundredthsFor(marks, 'EBI')).toBe(200)
+    expect(basicCycleDays(marks)).toEqual([
+      { ymd: '2026-10-01', hundredths: 100 },
+      { ymd: '2026-10-02', hundredths: 50 },
+      { ymd: '2026-10-03', hundredths: 0 },
+      { ymd: '2026-10-05', hundredths: 50 },
+    ])
+  })
+
+  it('ignora el peso cargado a mano: lo fija la regla', () => {
+    expect(absenceHundredthsFor([mark('2026-10-01', 'ABSENT', HALF_ABSENCE)], 'EBI')).toBe(100)
+  })
+
+  it('bachillerato y cursos sin nivel siguen sumando por marca', () => {
+    const marks = [mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'ABSENT'), mark('2026-10-01', 'LATE')]
+    expect(absenceHundredthsFor(marks, 'EMS')).toBe(250)
+    expect(absenceHundredthsFor(marks, null)).toBe(250)
   })
 })

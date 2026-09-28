@@ -22,6 +22,7 @@ import {
   weekdayNameEs,
   type DayMarkSelectValue,
 } from '@/lib/libreta/absence-day'
+import { isBasicCycleLevel } from '@/lib/libreta/absences'
 import { libretaCode } from './MisLibretas'
 import StudentAbsencesDetail from './StudentAbsencesDetail'
 
@@ -98,6 +99,7 @@ export default function InasistenciasSection() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const basicCycle = isBasicCycleLevel(detail?.course.level)
 
   const loadBoard = useCallback(async () => {
     if (!gradeBookId) return
@@ -206,6 +208,11 @@ export default function InasistenciasSection() {
         <h2 className="text-base font-bold uppercase tracking-wide text-teal-800">Inasistencias</h2>
         <p className="text-sm text-slate-600">
           {detail.subject.name} · {detail.course.name}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          {basicCycle
+            ? 'Ciclo básico: faltar a una sola clase ya es la falta del día. La llegada tarde y la falta justificada valen media, y en un mismo día cuenta la marca más pesada.'
+            : 'La llegada tarde vale media falta.'}
         </p>
       </header>
 
@@ -366,7 +373,6 @@ export default function InasistenciasSection() {
                           <option value="">—</option>
                           <option value="ABSENT_100">Falta</option>
                           <option value="LATE">Llegada tarde</option>
-                          <option value="ABSENT_50">Media falta</option>
                         </select>
                       </td>
                       <td className="px-3 py-2 text-xs text-slate-600">

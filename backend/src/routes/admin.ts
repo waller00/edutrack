@@ -51,6 +51,7 @@ import adminSchoolYearsRoutes from './admin-school-years.js'
 import adminAcademicConfigRoutes from './admin-academic-config.js'
 import adminGradeBookRoutes from './admin-gradebook.js'
 import adminAcademicAnalyticsRoutes from './admin-academic-analytics.js'
+import adminStudentReportsRoutes from './admin-student-reports.js'
 
 const r = Router()
 r.use(authGuard)
@@ -1165,5 +1166,6 @@ r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSch
 r.use('/academic-config', requirePermission('academic-config.manage', 'all'), adminAcademicConfigRoutes)
 r.use('/gradebook', requirePermission('gradebook.read', 'all'), adminGradeBookRoutes)
 r.use('/academic-analytics', requirePermission('academic-analytics.read', 'all'), adminAcademicAnalyticsRoutes)
+r.use('/student-reports', requirePermission('student-reports.read', 'all'), adminStudentReportsRoutes)
 
 export default r

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, Presentation } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
@@ -29,9 +29,11 @@ type Group = {
   courseName: string
   courseOrientationId: string | null
   orientationName: string | null
+  /** EBI / EMS: cada nivel tiene sus propias reuniones. */
+  level?: 'EBI' | 'EMS' | null
 }
 
-type Period = { id: string; name: string }
+type Period = { id: string; name: string; level?: 'EBI' | 'EMS' | null }
 
 type Descriptor = { label: string; descriptor: string | null; colorToken: string | null; iconToken: string | null; isAlert: boolean } | null
 
@@ -155,6 +157,16 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
     void loadMatrix()
   }, [loadMatrix])
 
+  // Sólo las reuniones del nivel del grupo: un período EMS sobre un grupo EBI da una matriz vacía.
+  const visiblePeriods = periods.filter((p) => !group?.level || !p.level || p.level === group.level)
+
+  function selectGroup(next: Group | null) {
+    setGroup(next)
+    setMatrix(null)
+    const current = periods.find((p) => p.id === periodId)
+    if (next?.level && current?.level && current.level !== next.level) setPeriodId('')
+  }
+
   if (loading) {
     return (
       <p className="flex items-center gap-2 py-8 text-sm text-gray-500">
@@ -171,7 +183,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
           <span className="mb-1 block text-xs text-gray-600">Grupo</span>
           <select
             value={group ? groupKey(group) : ''}
-            onChange={(e) => setGroup(groups.find((g) => groupKey(g) === e.target.value) ?? null)}
+            onChange={(e) => selectGroup(groups.find((g) => groupKey(g) === e.target.value) ?? null)}
             className="rounded border border-gray-300 px-2 py-1.5 text-sm"
           >
             <option value="">Elegí un grupo…</option>
@@ -188,20 +200,11 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
             className="rounded border border-gray-300 px-2 py-1.5 text-sm"
           >
             <option value="">Elegí un período…</option>
-            {periods.map((p) => (
+            {visiblePeriods.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
         </label>
-        {!projection && matrix && (
-          <Link
-            href="/libreta/reunion"
-            className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            <Presentation className="h-4 w-4" aria-hidden />
-            Modo reunión
-          </Link>
-        )}
       </div>
 
       {error && (

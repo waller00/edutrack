@@ -1,9 +1,12 @@
-import { AuditAction, type StudentAttendanceStatus } from '@prisma/client'
+import { AuditAction, type Prisma, type StudentAttendanceStatus } from '@prisma/client'
 import { prisma } from '../../db/prisma.js'
 import { uruguayWallToUtc } from '../../config/app-timezone.js'
 import { recordAuditEvent, recordAuditEventNow } from '../audit-log.js'
 import type { TeacherWritableStatus } from './edit-window.js'
 import { eventFamilyIdOf } from './occurrence.js'
+import { activeRangesFor, type ActiveRange } from './justification-range.js'
+import { justifyEntryTx } from './justify.js'
+import { scheduleStudentAlertScan } from '../student-reports/alerts-scan.js'
 import {
   findStudentsOutsideRoster,
   overridesJustification,
@@ -72,6 +75,16 @@ type SaveParams = {
   req?: any
 }
 
+/** Justifica la marca recién guardada si cae en un rango vigente, a nombre de quien lo cargó. */
+async function justifyFromRange(
+  tx: Prisma.TransactionClient,
+  entry: { id: string; note: string | null },
+  range: ActiveRange | undefined,
+) {
+  if (!range) return
+  await justifyEntryTx(tx, entry, { reason: range.reason, actorUserId: range.createdByUserId, rangeId: range.id })
+}
+
 /** Sesión + entradas de una ocurrencia, o `null` si nunca se tomó. */
 export async function findSession(eventId: string, occurrenceYmd: string, db = prisma) {
   return db.studentAttendanceSession.findUnique({
@@ -114,6 +127,13 @@ export async function saveRollCall(params: SaveParams) {
       revertedJustification: overridesJustification(previous, incoming.status),
     }
   })
+
+  // Justificación por días (ciclo básico): la ausencia que cae en un rango vigente entra ya
+  // justificada, a nombre de quien cargó el rango. Una tarde o una presencia no se tocan.
+  const ranges = await activeRangesFor(
+    resolved.filter((e) => e.status === 'ABSENT').map((e) => e.studentId),
+    params.occurrenceYmd,
+  )
 
   const now = new Date()
   const occurrenceDate = occurrenceDateOf(params.occurrenceYmd)
@@ -163,7 +183,7 @@ export async function saveRollCall(params: SaveParams) {
           : {
               absenceWeightHundredths: isAbsent ? entry.absenceWeightHundredths : null,
             }
-      await tx.studentAttendanceEntry.upsert({
+      const saved = await tx.studentAttendanceEntry.upsert({
         where: { sessionId_studentId: { sessionId: header.id, studentId: entry.studentId } },
         create: {
           sessionId: header.id,
@@ -188,6 +208,8 @@ export async function saveRollCall(params: SaveParams) {
           ...(isAbsent ? {} : { absenceWeightHundredths: null }),
         },
       })
+      // `ranges` sólo tiene a quienes quedaron ausentes: no hace falta volver a mirar el estado.
+      await justifyFromRange(tx, saved, ranges.get(entry.studentId))
     }
 
     return header
@@ -204,6 +226,7 @@ export async function saveRollCall(params: SaveParams) {
     outsideWindow: params.outsideWindow,
     byAdmin: params.actedAsAdmin,
     revertedJustifications: resolved.filter((e) => e.revertedJustification).map((e) => e.studentId),
+    rangeJustified: [...ranges.keys()],
   }
   const auditInput = {
     action: isFirstTake ? AuditAction.STUDENT_ROLL_CALL_TAKEN : AuditAction.STUDENT_ROLL_CALL_UPDATED,
@@ -217,5 +240,7 @@ export async function saveRollCall(params: SaveParams) {
   if (params.outsideWindow || params.actedAsAdmin) await recordAuditEventNow(auditInput)
   else recordAuditEvent(auditInput)
 
+  // Faltas seguidas y umbrales de 18/25: se revisan en unos minutos, no en cada guardado.
+  scheduleStudentAlertScan()
   return session
 }

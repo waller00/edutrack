@@ -18,6 +18,7 @@ import {
   releaseStaleLocks,
 } from "./integrations/moodle/index.js";
 import { startMetricsServer } from "./observability/metrics.js";
+import { scanStudentAlerts } from "./services/student-reports/alerts-scan.js";
 
 // API principal (4000) y puerto ADMS ZKTeco (8081, mismo proceso HTTP)
 const port = Number(process.env.PORT || 4000);
@@ -66,6 +67,17 @@ const attendanceMonitorInterval = setInterval(() => {
   });
 }, monitorTickMs);
 attendanceMonitorInterval.unref?.();
+
+// --- Alertas de estudiantes (bajó de boletín, faltas seguidas, 18/25 faltas) ---
+// Cada hora, sobre el ciclo activo. El pase de lista además pide un escaneo al guardar
+// (`scheduleStudentAlertScan`), así que el aviso de faltas no espera a la vuelta del reloj.
+const studentAlertsIntervalMs = 60 * 60 * 1000;
+const studentAlertsInterval = setInterval(() => {
+  scanStudentAlerts().catch((error) => {
+    console.error("student alerts tick:", error);
+  });
+}, studentAlertsIntervalMs);
+studentAlertsInterval.unref?.();
 
 // --- Integración Moodle: outbox (reintentos) + reconciliación opcional ---
 // Mismo patrón que el monitor de asistencia: un tick frecuente, gateado por SystemSettings.

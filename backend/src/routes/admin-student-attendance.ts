@@ -7,7 +7,7 @@ import { isYmdDateString } from '../config/app-timezone.js'
 import { todayUruguayYmd } from '../services/events/event-versioning.js'
 import { occurrenceYmdOf } from '../services/events/occurrence-instant.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
-import { FULL_ABSENCE, HALF_ABSENCE } from '../services/student-attendance/absence-weight.js'
+import { FULL_ABSENCE, HALF_ABSENCE, isBasicCycle } from '../services/student-attendance/absence-weight.js'
 import { AuditAction } from '@prisma/client'
 import { recordAuditEventNow } from '../services/audit-log.js'
 import {
@@ -17,6 +17,12 @@ import {
   type ExpandedOccurrence,
 } from '../services/student-attendance/pending.js'
 import { justifyStudentAbsence } from '../services/student-attendance/justify.js'
+import {
+  createJustificationRange,
+  listJustificationRanges,
+  revokeJustificationRange,
+  searchBasicCycleStudents,
+} from '../services/student-attendance/justification-range.js'
 import {
   consolidateRange,
   overallTotals,
@@ -186,6 +192,100 @@ r.post('/entries/:entryId/justify', requirePermission('student-attendance.justif
   }
 })
 
+const rangeSchema = z
+  .object({
+    studentId: z.string().uuid(),
+    fromYmd: z.string().refine(isYmdDateString, 'Fecha desde inválida'),
+    toYmd: z.string().refine(isYmdDateString, 'Fecha hasta inválida'),
+    reason: z.string().trim().min(3).max(500),
+    notes: z.string().trim().max(1000).nullish(),
+  })
+  .refine((v) => v.fromYmd <= v.toYmd, { message: 'La fecha desde no puede ser posterior a la hasta', path: ['toYmd'] })
+
+const rangeListSchema = z.object({ studentId: z.string().uuid().optional() })
+
+function sendRollCallError(res: any, error: unknown, label: string) {
+  if (error instanceof RollCallError) {
+    return res.status(error.statusCode).json({ message: error.message, code: error.code })
+  }
+  console.error(`[admin-student-attendance] ${label}:`, error)
+  return res.status(500).json({ message: 'Error interno del servidor' })
+}
+
+/**
+ * Justificaciones por días completos (ciclo básico). Previa o posterior: al crearla justifica
+ * las ausencias ya marcadas en el rango, y las que se marquen después entran justificadas.
+ */
+r.get('/justification-ranges', requirePermission('student-attendance.justify', 'all'), async (req: any, res) => {
+  try {
+    const parsed = rangeListSchema.safeParse(req.query)
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+    }
+    const schoolYearId = await resolveSchoolYearIdForList(prisma, {
+      role: req.user?.role,
+      requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
+    })
+    const data = await listJustificationRanges({ studentId: parsed.data.studentId, schoolYearId })
+    return res.json({ data })
+  } catch (error) {
+    return sendRollCallError(res, error, 'ranges list')
+  }
+})
+
+r.get('/justification-ranges/students', requirePermission('student-attendance.justify', 'all'), async (req: any, res) => {
+  try {
+    const q = String(req.query.q ?? '').trim()
+    if (q.length < 2) return res.json({ data: [] })
+    const schoolYearId = await resolveSchoolYearIdForList(prisma, {
+      role: req.user?.role,
+      requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
+    })
+    return res.json({ data: await searchBasicCycleStudents({ q: q.slice(0, 80), schoolYearId }) })
+  } catch (error) {
+    return sendRollCallError(res, error, 'range students')
+  }
+})
+
+r.post('/justification-ranges', requirePermission('student-attendance.justify', 'all'), async (req: any, res) => {
+  try {
+    const parsed = rangeSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+    }
+    const { studentId, fromYmd, toYmd, reason, notes } = parsed.data
+    const result = await createJustificationRange({
+      studentId: studentId!,
+      fromYmd: fromYmd!,
+      toYmd: toYmd!,
+      reason: reason!,
+      notes: notes ?? null,
+      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      req,
+    })
+    return res.status(201).json(result)
+  } catch (error) {
+    return sendRollCallError(res, error, 'range create')
+  }
+})
+
+r.post(
+  '/justification-ranges/:rangeId/revoke',
+  requirePermission('student-attendance.justify', 'all'),
+  async (req: any, res) => {
+    try {
+      const range = await revokeJustificationRange({
+        rangeId: String(req.params.rangeId),
+        actorUserId: req.user?.id ?? req.user?.sub ?? null,
+        req,
+      })
+      return res.json({ range })
+    } catch (error) {
+      return sendRollCallError(res, error, 'range revoke')
+    }
+  },
+)
+
 /** Reabre una planilla cerrada para que el docente pueda corregirla. */
 r.post('/sessions/:sessionId/reopen', requirePermission('student-attendance.manage', 'all'), async (req: any, res) => {
   try {
@@ -274,6 +374,7 @@ r.get('/students/:studentId', async (req: any, res) => {
             subjectId: true,
             subject: { select: { name: true } },
             event: { select: { title: true } },
+            courseOffering: { select: { course: { select: { level: true } } } },
           },
         },
       },
@@ -288,10 +389,14 @@ r.get('/students/:studentId', async (req: any, res) => {
     }))
 
     const settings = await getStudentRollCallSettings()
-    const opts = { thresholdPercent: settings.dailyAbsenceThresholdPercent }
+    // Un estudiante cursa un solo grupo por ciclo: el nivel de sus marcas es el suyo.
+    const level =
+      entries.map((e) => e.session.courseOffering?.course?.level).find((value) => value != null) ?? null
+    const opts = { thresholdPercent: settings.dailyAbsenceThresholdPercent, level }
 
     return res.json({
       student,
+      basicCycle: isBasicCycle(level),
       bySubject: totalsBySubject(cells),
       daily: consolidateRange(cells, opts),
       overall: overallTotals(cells, opts),

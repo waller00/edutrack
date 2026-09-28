@@ -277,26 +277,61 @@ describe('GET /gradebook/:id', () => {
       { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
       { studentId: 's2', studentEnrollmentId: 'e2', firstName: 'Beto', lastName: 'C', documentId: null },
     ])
+    const day = { session: { occurrenceYmd: '2026-05-04' } }
     prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
-      { studentId: 's1', status: 'ABSENT', absenceWeightHundredths: null },
-      { studentId: 's1', status: 'ABSENT', absenceWeightHundredths: 50 },
-      { studentId: 's1', status: 'ABSENT_JUSTIFIED', absenceWeightHundredths: null },
-      { studentId: 's1', status: 'LATE', absenceWeightHundredths: null },
-      { studentId: 's2', status: 'PRESENT', absenceWeightHundredths: null },
+      { studentId: 's1', status: 'ABSENT', absenceWeightHundredths: null, ...day },
+      { studentId: 's1', status: 'ABSENT', absenceWeightHundredths: 50, ...day },
+      { studentId: 's1', status: 'ABSENT_JUSTIFIED', absenceWeightHundredths: null, ...day },
+      { studentId: 's1', status: 'LATE', absenceWeightHundredths: null, ...day },
+      { studentId: 's2', status: 'PRESENT', absenceWeightHundredths: null, ...day },
     ])
 
     const res = await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok()}`)
 
     expect(res.status).toBe(200)
-    // 1 + 0,5 + 1 (la justificada cuenta) = 2,5
+    // 1 + 0,5 + 1 (la justificada cuenta) + 0,5 (la tarde es media falta) = 3
     expect(res.body.students[0]).toMatchObject({
       studentId: 's1',
-      absences: '2,5',
-      absenceHundredths: 250,
+      absences: '3',
+      absenceHundredths: 300,
       justifiedCount: 1,
       lates: 1,
     })
     expect(res.body.students[1]).toMatchObject({ studentId: 's2', absences: '0', absenceHundredths: 0 })
+  })
+
+  it('en ciclo básico la falta es del día: tarde y justificada valen media', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue({
+      ...ROW,
+      courseOffering: { ...ROW.courseOffering, course: { id: 'c-7', name: '7 EBI', code: '7EBI', level: 'EBI' } },
+    })
+    rosterMock.mockResolvedValue([
+      { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    const on = (ymd: string, status: string) => ({
+      studentId: 's1',
+      status,
+      absenceWeightHundredths: null,
+      session: { occurrenceYmd: ymd },
+    })
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
+      // Lunes: falta a una sola materia → 1
+      on('2026-05-04', 'PRESENT'),
+      on('2026-05-04', 'ABSENT'),
+      // Martes: dos tardes → ½
+      on('2026-05-05', 'LATE'),
+      on('2026-05-05', 'LATE'),
+      // Miércoles: tarde + ausencia → 1, no 1½
+      on('2026-05-06', 'LATE'),
+      on('2026-05-06', 'ABSENT'),
+      // Jueves: justificada → ½
+      on('2026-05-07', 'ABSENT_JUSTIFIED'),
+    ])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.students[0]).toMatchObject({ absenceHundredths: 300, absences: '3', lates: 3, justifiedCount: 1 })
   })
 
   it('las faltas son GLOBALES del ciclo, no de la asignatura', async () => {
@@ -1629,6 +1664,30 @@ describe('inasistencias diarias de la libreta', () => {
         entries: [expect.objectContaining({ studentId: SID, status: 'ABSENT', absenceWeightHundredths: 50 })],
       }),
     )
+  })
+
+  it('PUT /absences/day sin peso no pisa el que haya fijado adscripción', async () => {
+    // El docente ya no elige "media falta": una ausencia sin peso viaja como undefined.
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    dayOccurrenceMock.mockResolvedValue({
+      kind: 'class',
+      event: { id: 'ev-1' },
+      startAt: new Date('2026-09-14T12:00:00Z'),
+      endAt: new Date('2026-09-14T13:00:00Z'),
+      occurrenceCount: 1,
+    })
+
+    await request(app())
+      .put(`/gradebook/${GB_ID}/absences/day`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ date: '2026-09-14', entries: [{ studentId: SID, status: 'ABSENT' }] })
+
+    const [entry] = saveRollCallMock.mock.calls[0][0].entries
+    expect(entry).toMatchObject({ studentId: SID, status: 'ABSENT' })
+    expect(entry.absenceWeightHundredths).toBeUndefined()
   })
 
   it('PUT /absences/day en S/H usa el evento ancla', async () => {

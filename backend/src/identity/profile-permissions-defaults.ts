@@ -79,6 +79,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.inspect', 'Libreta', 'inspect', 'Consultar libretas y registrar visitas de inspección', true, 'all'),
     perm('gradebook.manage', 'Libreta', 'manage', 'Corregir y reabrir fuera de plazo', true, 'all'),
     perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),
+    perm('student-reports.read', 'Reportes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
     perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de clases', true, 'all'),
     perm('student-attendance.read', 'Pase de lista', 'read', 'Ver pase de lista', true, 'all'),
     perm('student-attendance.justify', 'Pase de lista', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
@@ -127,6 +128,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     // `student-attendance.manage`, que además habilita reabrir listas ya cerradas.
     perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista del centro', true, 'all'),
     perm('student-attendance.justify', 'Pase de lista', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
+    // Las alertas de faltas le llegan a adscripción, que es quien sigue al alumno.
+    perm('student-reports.read', 'Reportes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
   ],
   // Dirección: además de observar, es el único rol con `gradebook.endorse`. Ese permiso, y no un
   // `if` en una ruta, es lo que cumple la nota funcional del pliego ("el visado formal corresponde
@@ -146,6 +149,11 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
     perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),
+    // En ciclo básico dirección también justifica faltas, previa o posteriormente. Igual que
+    // adscripción: el permiso acotado, sin `manage`.
+    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista del centro', true, 'all'),
+    perm('student-attendance.justify', 'Pase de lista', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
+    perm('student-reports.read', 'Reportes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
   ],
   // Inspección: consulta y observa dentro de su ámbito. Sin `gradebook.endorse` —los visados de
   // Dirección no le son modificables— y sin la línea base "propia", porque no es personal del
