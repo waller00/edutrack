@@ -154,3 +154,35 @@ describe('DAILY_CONSOLIDATION_LABEL', () => {
     expect(Object.keys(DAILY_CONSOLIDATION_LABEL)).toHaveLength(4)
   })
 })
+
+describe('ciclo básico: el umbral no aplica, el día vale su peor marca', () => {
+  const EBI = { thresholdPercent: 50, level: 'EBI' }
+
+  it('faltar a una sola de cuatro clases ya es la falta del día', () => {
+    expect(consolidateDay([cell('ABSENT'), cell('PRESENT'), cell('PRESENT'), cell('PRESENT')], EBI)).toBe('ABSENCE')
+  })
+
+  it('una o dos tardes son media falta', () => {
+    expect(consolidateDay([cell('LATE'), cell('PRESENT')], EBI)).toBe('HALF_ABSENCE')
+    expect(consolidateDay([cell('LATE'), cell('LATE')], EBI)).toBe('HALF_ABSENCE')
+  })
+
+  it('la justificada es media falta; con una sin justificar, falta entera', () => {
+    expect(consolidateDay([cell('ABSENT_JUSTIFIED'), cell('LATE')], EBI)).toBe('HALF_ABSENCE')
+    expect(consolidateDay([cell('ABSENT_JUSTIFIED'), cell('ABSENT')], EBI)).toBe('ABSENCE')
+  })
+
+  it('sin marcas que pesen, presente', () => {
+    expect(consolidateDay([cell('PRESENT'), cell('PRESENT')], EBI)).toBe('PRESENT')
+  })
+
+  it('las unidades del rango suman por día', () => {
+    const cells = [
+      cell('ABSENT', { ymd: '2026-05-11' }),
+      cell('PRESENT', { ymd: '2026-05-11' }),
+      cell('LATE', { ymd: '2026-05-12' }),
+      cell('LATE', { ymd: '2026-05-12' }),
+    ]
+    expect(overallTotals(cells, EBI).absenceUnits).toBe(1.5)
+  })
+})

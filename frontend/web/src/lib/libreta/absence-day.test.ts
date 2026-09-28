@@ -34,10 +34,18 @@ describe('dayMarkToSelect / selectToDayMark', () => {
     expect(dayMarkToSelect(null)).toBe('')
     expect(dayMarkToSelect({ status: 'PRESENT', absenceWeightHundredths: null })).toBe('')
     expect(dayMarkToSelect({ status: 'ABSENT', absenceWeightHundredths: 100 })).toBe('ABSENT_100')
-    expect(dayMarkToSelect({ status: 'ABSENT', absenceWeightHundredths: 50 })).toBe('ABSENT_50')
     expect(selectToDayMark('')).toEqual({ status: 'PRESENT', absenceWeightHundredths: null })
-    expect(selectToDayMark('ABSENT_50')).toEqual({ status: 'ABSENT', absenceWeightHundredths: 50 })
     expect(selectToDayMark('LATE')).toEqual({ status: 'LATE', absenceWeightHundredths: null })
+  })
+
+  it('no hay media falta a elegir: una ausencia siempre se muestra como falta', () => {
+    expect(dayMarkToSelect({ status: 'ABSENT', absenceWeightHundredths: 50 })).toBe('ABSENT_100')
+    expect(dayMarkToSelect({ status: 'ABSENT_JUSTIFIED', absenceWeightHundredths: null })).toBe('ABSENT_100')
+    expect(dayMarkToSelect({ status: 'LATE', absenceWeightHundredths: null })).toBe('LATE')
+  })
+
+  it('la ausencia viaja sin peso para no pisar el que fijó adscripción', () => {
+    expect(selectToDayMark('ABSENT_100')).toEqual({ status: 'ABSENT' })
   })
 })
 

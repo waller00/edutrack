@@ -7,7 +7,15 @@ import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { canResolveRoster, loadRosterForScope } from '../services/student-attendance/roster.js'
 import { resolveGradeBookAccess, type GradeBookAccess } from '../services/gradebook/access.js'
 import { photoETag } from '../services/student-photo.js'
-import { effectiveWeight, formatAbsenceUnits, isValidAbsenceWeight } from '../services/student-attendance/absence-weight.js'
+import {
+  basicCycleDays,
+  basicCycleMarkWeight,
+  effectiveWeight,
+  formatAbsenceUnits,
+  isBasicCycle,
+  isValidAbsenceWeight,
+} from '../services/student-attendance/absence-weight.js'
+import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
 import {
   resolveGradeBookDayOccurrence,
   resolveMarkTarget,
@@ -99,6 +107,36 @@ async function loadGradeBook(id: string) {
 
 function orientationNameOf(row: any): string | null {
   return row.courseOrientation?.orientation?.name ?? row.orientation?.name ?? null
+}
+
+/** Nivel del grupo de la libreta (EBI / EMS). Decide cómo se cuentan las faltas. */
+function levelOfRow(row: any): string | null {
+  return row.courseOffering?.course?.level ?? null
+}
+
+/**
+ * Etiqueta de una marca en el detalle de inasistencias. En ciclo básico la justificada siempre
+ * vale media y se muestra como justificada; en el resto, un peso de 50 es "media falta".
+ */
+function absenceMarkLabel(status: string, weight: number, basicCycle: boolean): string {
+  if (status === 'LATE') return 'TARDE'
+  if (status === 'PRESENT') return 'PRESENTE'
+  if (status === 'ABSENT_JUSTIFIED' && (basicCycle || weight !== 50)) return 'FALTA JUSTIFICADA'
+  return weight === 50 ? 'MEDIA FALTA' : 'FALTA'
+}
+
+/**
+ * Peso a guardar de una marca de la planilla diaria. El docente ya no elige "media falta": una
+ * ausencia sin peso explícito viaja como `undefined`, que en `saveRollCall` significa "no pisar"
+ * — así una ausencia que adscripción graduó a media no vuelve a valer una entera por un reguardado.
+ * En ciclo básico el peso lo fija la regla del día y no se guarda ninguno.
+ */
+function dayMarkWeight(
+  entry: { status?: string; absenceWeightHundredths?: number | null },
+  level: string | null,
+): number | null | undefined {
+  if (entry.status !== 'ABSENT' || isBasicCycle(level)) return null
+  return entry.absenceWeightHundredths ?? undefined
 }
 
 /** Encabezado de la libreta (RF-021). */
@@ -273,29 +311,11 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
     // docente veía sólo las suyas, que es lo contrario de lo que se necesita para detectar a
     // quien está faltando. Se traen acá porque la grilla las muestra junto a cada alumno y
     // pedirlas de a una sería N consultas.
-    const attendance = await prisma.studentAttendanceEntry.findMany({
-      where: {
-        studentId: { in: students.map((s) => s.studentId) },
-        session: { schoolYearId: row.schoolYearId },
-      },
-      select: { studentId: true, status: true, absenceWeightHundredths: true },
-    })
-
-    const absencesByStudent = new Map<
-      string,
-      { absenceHundredths: number; justified: number; lates: number }
-    >()
-    for (const mark of attendance) {
-      const entry = absencesByStudent.get(mark.studentId) ?? {
-        absenceHundredths: 0,
-        justified: 0,
-        lates: 0,
-      }
-      entry.absenceHundredths += effectiveWeight(mark)
-      if (mark.status === 'ABSENT_JUSTIFIED') entry.justified += 1
-      if (mark.status === 'LATE') entry.lates += 1
-      absencesByStudent.set(mark.studentId, entry)
-    }
+    const absencesByStudent = await loadAbsenceTotals(
+      students.map((s) => s.studentId),
+      row.schoolYearId,
+      levelOfRow(row),
+    )
 
     const studentIds = students.map((s) => s.studentId)
     const [photoRows, badgeSource] = students.length
@@ -410,31 +430,11 @@ r.get('/:id/absences/day', requirePermission('gradebook.read'), async (req: any,
       courseOrientationId: ctx.row.courseOrientationId,
     })
 
-    const attendance = students.length
-      ? await prisma.studentAttendanceEntry.findMany({
-          where: {
-            studentId: { in: students.map((s) => s.studentId) },
-            session: { schoolYearId: ctx.row.schoolYearId },
-          },
-          select: { studentId: true, status: true, absenceWeightHundredths: true },
-        })
-      : []
-
-    const absencesByStudent = new Map<
-      string,
-      { absenceHundredths: number; justified: number; lates: number }
-    >()
-    for (const mark of attendance) {
-      const entry = absencesByStudent.get(mark.studentId) ?? {
-        absenceHundredths: 0,
-        justified: 0,
-        lates: 0,
-      }
-      entry.absenceHundredths += effectiveWeight(mark)
-      if (mark.status === 'ABSENT_JUSTIFIED') entry.justified += 1
-      if (mark.status === 'LATE') entry.lates += 1
-      absencesByStudent.set(mark.studentId, entry)
-    }
+    const absencesByStudent = await loadAbsenceTotals(
+      students.map((s) => s.studentId),
+      ctx.row.schoolYearId,
+      levelOfRow(ctx.row),
+    )
 
     const photoRows = students.length
       ? await prisma.studentPhoto.findMany({
@@ -562,8 +562,7 @@ r.put('/:id/absences/day', requirePermission('gradebook.grade'), async (req: any
       entries: parsed.data.entries.map((e) => ({
         studentId: e.studentId,
         status: e.status,
-        absenceWeightHundredths:
-          e.status === 'ABSENT' ? (e.absenceWeightHundredths ?? 100) : null,
+        absenceWeightHundredths: dayMarkWeight(e, levelOfRow(ctx.row)),
       })),
       source: 'MANUAL',
       actorUserId: req.user?.id ?? req.user?.sub,
@@ -829,24 +828,21 @@ r.get('/:id/students/:studentId/absences', requirePermission('gradebook.read'), 
       orderBy: { session: { occurrenceYmd: 'desc' } },
     })
 
-    let absenceHundredths = 0
+    // En ciclo básico lo que suma es el día (su peor marca), no cada clase: el peso de la marca
+    // sólo informa cuánto aportaría si fuera la única del día.
+    const basicCycle = isBasicCycle(levelOfRow(ctx.row))
+    const days = basicCycle
+      ? basicCycleDays(entries.map((e) => ({ ...e, ymd: e.session.occurrenceYmd })))
+      : []
+    let absenceHundredths = days.reduce((acc, day) => acc + day.hundredths, 0)
     let lates = 0
     let justified = 0
     const mapped = entries.map((entry) => {
-      const weight = effectiveWeight(entry)
-      absenceHundredths += weight
+      const weight = basicCycle ? basicCycleMarkWeight(entry.status) : effectiveWeight(entry)
+      if (!basicCycle) absenceHundredths += weight
       if (entry.status === 'LATE') lates += 1
       if (entry.status === 'ABSENT_JUSTIFIED') justified += 1
-      const label =
-        entry.status === 'LATE'
-          ? 'TARDE'
-          : entry.status === 'PRESENT'
-            ? 'PRESENTE'
-            : weight === 50
-              ? 'MEDIA FALTA'
-              : entry.status === 'ABSENT_JUSTIFIED'
-                ? 'FALTA JUSTIFICADA'
-                : 'FALTA'
+      const label = absenceMarkLabel(entry.status, weight, basicCycle)
       return {
         entryId: entry.id,
         status: entry.status,
@@ -902,6 +898,9 @@ r.get('/:id/students/:studentId/absences', requirePermission('gradebook.read'), 
         lates,
         justifiedCount: justified,
       },
+      basicCycle,
+      /** Sólo ciclo básico: cuánto sumó cada día con marcas. */
+      days: days.map((day) => ({ ...day, absences: formatAbsenceUnits(day.hundredths) })),
       bySubject: [...bySubjectMap.values()].map((s) => ({
         subjectId: s.subjectId,
         subjectName: s.subjectName,

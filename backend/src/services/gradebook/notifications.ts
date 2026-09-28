@@ -125,11 +125,12 @@ export function completionRequestNotification(params: {
   subjectName: string
   detail: string
   gradeBookId: string
+  periodId?: string
 }): GradeBookNotification {
   return {
     type: 'GRADEBOOK_PERIOD_CLOSING',
     title: `Falta completar ${params.subjectName}`,
     body: params.detail,
-    actionUrl: `/libreta/${params.gradeBookId}/cierre`,
+    actionUrl: `/libreta/${params.gradeBookId}/cierre${params.periodId ? `?periodId=${params.periodId}` : ''}`,
   }
 }

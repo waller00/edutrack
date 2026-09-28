@@ -10,6 +10,9 @@ import {
   officialPeriodValue,
   periodGradePatch,
   periodsCoveredBy,
+  isReportCardPeriod,
+  assessmentPeriodsFor,
+  previousReportCardPeriod,
   periodWriteBlock,
   type StudentPeriodRow,
 } from './period-closure.js'
@@ -241,5 +244,50 @@ describe('periodsCoveredBy', () => {
     expect(acceptsAssessments('TRAMO')).toBe(true)
     expect(acceptsAssessments('ENTREGA')).toBe(false)
     expect(acceptsAssessments('DIAGNOSTICO')).toBe(false)
+  })
+})
+
+describe('reuniones de boletín', () => {
+  const p = (id: string, kind: string, sortOrder: number, flags: Partial<{ isMeeting: boolean; requiresGeneralGrade: boolean; requiresConceptualJudgement: boolean }> = {}) => ({
+    id,
+    kind,
+    sortOrder,
+    isMeeting: false,
+    requiresGeneralGrade: true,
+    requiresConceptualJudgement: false,
+    ...flags,
+  })
+  const boletin = { isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: true }
+  // Planilla EBI: diagnóstico, tramos, entregas y APE.
+  const ebi = [
+    p('diag', 'DIAGNOSTICO', 1, { requiresGeneralGrade: false, requiresConceptualJudgement: true }),
+    p('marzo', 'TRAMO', 2),
+    p('mayo', 'TRAMO', 3),
+    p('e1', 'ENTREGA', 4, boletin),
+    p('julio', 'TRAMO', 5),
+    p('e2', 'ENTREGA', 6, boletin),
+    p('ape', 'TRAMO', 20, { isMeeting: true, requiresGeneralGrade: false }),
+  ]
+
+  it('boletín son las entregas y los semestres, no las APE ni los exámenes', () => {
+    expect(ebi.filter(isReportCardPeriod).map((x) => x.id)).toEqual(['e1', 'e2'])
+    const examenes = p('exd', 'TRAMO', 10, { isMeeting: true, requiresGeneralGrade: true })
+    expect(isReportCardPeriod(examenes)).toBe(false)
+  })
+
+  it('una entrega informa las evaluaciones de sus tramos', () => {
+    expect(assessmentPeriodsFor(ebi[3], ebi)).toEqual(['marzo', 'mayo'])
+    expect(assessmentPeriodsFor(ebi[5], ebi)).toEqual(['julio'])
+  })
+
+  it('un semestre (tramo con reunión) se informa a sí mismo; un diagnóstico, nada', () => {
+    const semestre = p('s1', 'TRAMO', 1, boletin)
+    expect(assessmentPeriodsFor(semestre, [semestre])).toEqual(['s1'])
+    expect(assessmentPeriodsFor(ebi[0], ebi)).toEqual([])
+  })
+
+  it('el boletín anterior es la reunión de boletín previa, no un tramo ni una APE', () => {
+    expect(previousReportCardPeriod(ebi[5], ebi)?.id).toBe('e1')
+    expect(previousReportCardPeriod(ebi[3], ebi)).toBeNull()
   })
 })

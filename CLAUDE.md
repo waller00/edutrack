@@ -185,8 +185,21 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > escolaridad y abanderados.
 
 > **Las faltas se cuentan en centésimos y son globales.** `100` es una falta entera, `50` media.
-> El peso lo fija adscripción al justificar, no se deriva del estado. Y el conteo es del ciclo en
-> todo el liceo, no de la asignatura: filtrar por `subjectId` ahí es un bug, no una optimización.
+> La llegada tarde vale `50` en todos los niveles (es "la" media falta: el docente no elige otra).
+> Adscripción todavía puede graduar una ausencia al justificar. Y el conteo es del ciclo en todo el
+> liceo, no de la asignatura: filtrar por `subjectId` ahí es un bug, no una optimización.
+
+> **En ciclo básico (`AcademicLevel.EBI`) la falta es del día.** El día vale la peor de sus
+> marcas: `ABSENT` 100, `ABSENT_JUSTIFIED` 50, `LATE` 50. Dos tardes son 50, y tarde + ausencia
+> es 100, no 150. Ahí `absenceWeightHundredths` se ignora. Todo total pasa por
+> `absenceHundredthsFor` / `loadAbsenceTotals` (`services/student-attendance/`) con el nivel del
+> grupo; sumar `effectiveWeight` a mano rompe ciclo básico. La justificación por días
+> (`StudentAbsenceJustificationRange`) la aplica `saveRollCall` al pasar lista.
+
+> **"Reunión de boletín" es `isReportCardPeriod`** (`services/gradebook/period-closure.ts`):
+> reunión que pide C y juicio. EBI: 1.ª–4.ª Entrega; EMS: los semestres (son `TRAMO` con reunión,
+> así que filtrar por `kind === 'ENTREGA'` deja afuera a todo EMS). Control de libretas y Reportes
+> la usan; `assessmentPeriodsFor` da los tramos cuyas evaluaciones informa.
 
 > **Las adecuaciones guardan un enlace, nunca el informe.** Un informe psicológico de un menor es un
 > documento clínico, y la política de privacidad lo prohíbe (§4 bis).

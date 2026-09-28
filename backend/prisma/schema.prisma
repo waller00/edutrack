@@ -24,6 +24,8 @@ enum InAppNotificationType {
   GRADEBOOK_MESSAGE
   /// El período está por cerrar y la libreta todavía tiene pendientes.
   GRADEBOOK_PERIOD_CLOSING
+  /// Alerta de un estudiante (bajó de boletín, faltas seguidas, 18/25 faltas).
+  STUDENT_ALERT
 }
 
 /// Registro append-only de acciones relevantes (RF-11). Sin updates ni deletes desde la app.
@@ -59,6 +61,8 @@ enum AuditAction {
   STUDENT_ROLL_CALL_DELETED
   STUDENT_ROLL_CALL_REOPENED
   STUDENT_ATTENDANCE_JUSTIFIED
+  STUDENT_ATTENDANCE_RANGE_JUSTIFIED
+  STUDENT_ATTENDANCE_RANGE_REVOKED
   ACADEMIC_CONFIG_CREATED
   ACADEMIC_CONFIG_UPDATED
   ACADEMIC_CONFIG_DEACTIVATED
@@ -72,6 +76,7 @@ enum AuditAction {
   MOODLE_GRADES_IMPORTED
   GRADEBOOK_OBSERVED
   GRADEBOOK_ENDORSED
+  GRADEBOOK_COMPLETION_REQUESTED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).
@@ -982,6 +987,8 @@ model Student {
   tuitionMonths     StudentTuitionMonth[]
   enrollments       StudentEnrollment[]
   attendanceEntries StudentAttendanceEntry[]
+  absenceJustificationRanges StudentAbsenceJustificationRange[]
+  alerts            StudentAlert[]
 
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
@@ -1482,10 +1489,66 @@ model StudentAttendanceJustification {
   createdByUserId String?
   createdBy       User?                              @relation("StudentAttendanceJustificationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdAt       DateTime                           @default(now())
+  /// Rango de días que produjo esta justificación, si vino de uno (previa o posterior).
+  rangeId         String?
+  range           StudentAbsenceJustificationRange?  @relation(fields: [rangeId], references: [id], onDelete: SetNull)
 
   @@index([entryId])
   @@index([createdByUserId])
   @@index([createdAt])
+  @@index([rangeId])
+}
+
+enum StudentAlertType {
+  /// La R de una materia bajó respecto del boletín anterior.
+  GRADE_DROP
+  /// Días de clase seguidos con falta entera sin justificar.
+  ABSENCE_STREAK
+  /// Llegó a 18 faltas (y otra vez a 25).
+  ABSENCE_THRESHOLD
+}
+
+/// Alertas ya detectadas. Las alertas se calculan al leer; esta tabla sólo existe para avisar
+/// **una vez** por alerta: `key` la identifica dentro de su tipo (umbral "18"/"25", día de inicio
+/// de la racha, "periodo:asignatura"), y el unique impide notificar dos veces lo mismo.
+model StudentAlert {
+  id           String           @id @default(uuid())
+  schoolYearId String
+  studentId    String
+  student      Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  type         StudentAlertType
+  key          String
+  /// Datos para mostrar la alerta sin recalcular (nombre, curso, valores).
+  payload      Json
+  createdAt    DateTime         @default(now())
+
+  @@unique([type, studentId, key])
+  @@index([schoolYearId, createdAt])
+}
+
+/// Justificación de días completos de un estudiante de ciclo básico, cargada por adscripción o
+/// dirección. Puede ser **previa** (el alumno avisa que va a faltar) o **posterior**: al crearla
+/// justifica las ausencias que ya existen en el rango, y al pasar lista las que caigan dentro
+/// entran ya justificadas. Revocarla no deshace lo justificado: eso fue un acto registrado.
+model StudentAbsenceJustificationRange {
+  id              String    @id @default(uuid())
+  studentId       String
+  student         Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schoolYearId    String
+  /// Días civiles YYYY-MM-DD, ambos inclusive. Se comparan con `occurrenceYmd` como texto.
+  fromYmd         String    @db.VarChar(10)
+  toYmd           String    @db.VarChar(10)
+  reason          String
+  notes           String?   @db.Text
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  revokedByUserId String?
+
+  justifications StudentAttendanceJustification[]
+
+  @@index([studentId, fromYmd, toYmd])
+  @@index([schoolYearId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

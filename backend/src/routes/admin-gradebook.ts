@@ -3,9 +3,11 @@ import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
 import { attachmentDisposition } from '../services/exports/content-disposition.js'
 import { requirePermission } from '../middlewares/auth.js'
-import { effectiveWeight } from '../services/student-attendance/absence-weight.js'
+import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
 import { buildReportCard } from '../services/gradebook/report-card.js'
-import { sortByUrgency, summarize } from '../services/gradebook/completeness.js'
+import { completionRequestBody } from '../services/gradebook/completeness.js'
+import { periodScaleFor } from '../services/gradebook/period-scale.js'
+import { loadPeriodCompleteness } from '../services/gradebook/completeness-loader.js'
 import { completionRequestNotification } from '../services/gradebook/notifications.js'
 import { generateReportCardPdf } from '../services/gradebook/exports/reportCardPdf.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
@@ -19,7 +21,7 @@ import {
   resolveGradeBookRecipients,
 } from '../services/gradebook/notifications.js'
 import { SECTION_LABELS } from '../services/gradebook/endorsement.js'
-import { PERIOD_SCALE_CODE_BY_LEVEL, officialPeriodValue } from '../services/gradebook/period-closure.js'
+import { isReportCardPeriod, officialPeriodValue } from '../services/gradebook/period-closure.js'
 import { userPermissionScope } from '../middlewares/auth.js'
 import {
   assertCanTransition,
@@ -53,18 +55,6 @@ import {
 
 const r = Router()
 
-const SCALE_INCLUDE = { levels: { orderBy: { sortOrder: 'asc' as const } } }
-
-/**
- * Escala de C y R del nivel (1–10 en EBI, 1–12 en EMS). Los descriptores y el semáforo de la
- * matriz y del boletín salen de ella; si no está sembrada, cae en la primera escala activa.
- */
-async function periodScaleFor(level: string | null | undefined) {
-  const code = PERIOD_SCALE_CODE_BY_LEVEL[level === 'EMS' ? 'EMS' : 'EBI']
-  const byLevel = await prisma.gradingScale.findFirst({ where: { isActive: true, code }, include: SCALE_INCLUDE })
-  if (byLevel) return byLevel
-  return prisma.gradingScale.findFirst({ where: { isActive: true }, include: SCALE_INCLUDE, orderBy: { sortOrder: 'asc' } })
-}
 
 const matrixQuerySchema = z.object({
   courseOfferingId: z.string().uuid(),
@@ -91,7 +81,10 @@ r.get('/periods', async (req: any, res) => {
     const level = ['EBI', 'EMS'].includes(String(req.query.level)) ? String(req.query.level) : undefined
     // La reunión, el control y el boletín trabajan sobre los períodos con reunión (entregas,
     // diciembre, febrero): los tramos de trabajo no tienen R y no se informan. `all=true` los trae.
+    // `reportCard=true` deja sólo las reuniones de boletín (entregas, semestres): es lo que mira
+    // el control de libretas y los reportes, sin exámenes ni APE.
     const onlyMeetings = req.query.all !== 'true'
+    const onlyReportCards = req.query.reportCard === 'true'
     const periods = await prisma.academicPeriod.findMany({
       where: {
         schoolYearId,
@@ -100,9 +93,19 @@ r.get('/periods', async (req: any, res) => {
         ...(onlyMeetings ? { isMeeting: true } : {}),
       },
       orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }],
-      select: { id: true, code: true, name: true, level: true, closesOn: true, kind: true, isMeeting: true },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        level: true,
+        closesOn: true,
+        kind: true,
+        isMeeting: true,
+        requiresGeneralGrade: true,
+        requiresConceptualJudgement: true,
+      },
     })
-    return res.json({ data: periods })
+    return res.json({ data: onlyReportCards ? periods.filter(isReportCardPeriod) : periods })
   } catch (error) {
     console.error('[admin-gradebook] periods:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -201,26 +204,16 @@ r.get('/group-matrix', async (req: any, res) => {
     // La reunión mira tres cosas juntas: rendimiento, conducta e inasistencias. Las dos últimas no
     // viven en la libreta —son del estudiante, no de la materia— así que se traen acá.
     const studentIds = students.map((s) => s.studentId)
-    const [conductRows, attendanceRows] = await Promise.all([
+    const [conductRows, absenceByStudent] = await Promise.all([
       (prisma as any).studentConductRecord.findMany({
         where: { periodId: parsed.data.periodId, studentId: { in: studentIds } },
         select: { studentId: true, valueHundredths: true },
       }),
-      prisma.studentAttendanceEntry.findMany({
-        where: {
-          studentId: { in: studentIds },
-          session: { schoolYearId: offering.schoolYear.id },
-        },
-        select: { studentId: true, status: true, absenceWeightHundredths: true },
-      }),
+      loadAbsenceTotals(studentIds, offering.schoolYear.id, offering.course?.level),
     ])
     const conductByStudent = new Map<string, number | null>(
       conductRows.map((row: any) => [row.studentId, row.valueHundredths ?? null]),
     )
-    const absenceByStudent = new Map<string, number>()
-    for (const mark of attendanceRows) {
-      absenceByStudent.set(mark.studentId, (absenceByStudent.get(mark.studentId) ?? 0) + effectiveWeight(mark))
-    }
 
     const rows = students.map((student) => {
       const cells: MatrixCell[] = books.map((book) => {
@@ -251,7 +244,7 @@ r.get('/group-matrix', async (req: any, res) => {
         /** Conducta institucional del período: la pone adscripción, no el docente. */
         conductValueHundredths: conductByStudent.get(student.studentId) ?? null,
         /** Faltas del ciclo en todo el liceo, en centésimos (150 = una falta y media). */
-        absenceHundredths: absenceByStudent.get(student.studentId) ?? 0,
+        absenceHundredths: absenceByStudent.get(student.studentId)?.absenceHundredths ?? 0,
       }
     })
 
@@ -535,70 +528,26 @@ r.get('/completeness', requirePermission('gradebook.review', 'all'), async (req:
   if (!periodId) return res.status(400).json({ message: 'Falta el período' })
 
   try {
-    const period = await prisma.academicPeriod.findUnique({
-      where: { id: periodId },
-      select: {
-        id: true,
-        name: true,
-        schoolYearId: true,
-        requiresConceptualJudgement: true,
-        requiresGeneralGrade: true,
-        isMeeting: true,
-      },
+    const result = await loadPeriodCompleteness(periodId)
+    if (!result) return res.status(404).json({ message: 'Período no encontrado' })
+    return res.json({
+      period: { id: result.period.id, name: result.period.name, level: result.period.level },
+      data: result.rows,
     })
-    if (!period) return res.status(404).json({ message: 'Período no encontrado' })
-
-    const books = await prisma.gradeBook.findMany({
-      where: { schoolYearId: period.schoolYearId, status: 'ACTIVE' },
-      include: {
-        subject: { select: { name: true } },
-        teacher: { select: { id: true, name: true } },
-        courseOffering: { include: { course: { select: { name: true } } } },
-        periods: { where: { periodId }, include: { grades: true } },
-      },
-    })
-
-    const rows = await Promise.all(
-      books.map(async (book) => {
-        const roster = await loadRosterForScope({
-          schoolYearId: book.schoolYearId,
-          courseOfferingId: book.courseOfferingId,
-          orientationId: book.orientationId,
-          courseOrientationId: book.courseOrientationId,
-        })
-        const state = book.periods[0] ?? null
-        const grades = state?.grades ?? []
-        return summarize({
-          gradeBookId: book.id,
-          subjectName: book.subject?.name ?? '—',
-          courseName: book.courseOffering?.course?.name ?? '—',
-          teacherUserId: book.teacherUserId,
-          teacherName: book.teacher?.name ?? null,
-          periodStatus: (state?.status as any) ?? null,
-          rosterSize: roster.length,
-          gradedCount: grades.filter((g: any) => g.valueHundredths != null).length,
-          meetingGradedCount: grades.filter((g: any) => g.meetingValueHundredths != null).length,
-          judgedCount: grades.filter((g: any) => (g.conceptualJudgement ?? '').trim() !== '').length,
-          requiresJudgement: period.requiresConceptualJudgement,
-          requiresMeetingGrade: Boolean(period.isMeeting && period.requiresGeneralGrade),
-        })
-      }),
-    )
-
-    return res.json({ period: { id: period.id, name: period.name }, data: sortByUrgency(rows) })
   } catch (error) {
     console.error('[admin-gradebook] completeness:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
 
-/** Avisa al docente, por notificación interna, qué le falta en una libreta. */
+/**
+ * Avisa al docente, por notificación interna, qué le falta en una libreta para la reunión.
+ * El texto lo arma el backend con el mismo cálculo que ve administración: así el aviso no puede
+ * decir algo distinto de la pantalla.
+ */
 r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review', 'all'), async (req: any, res) => {
   const periodId = typeof req.body?.periodId === 'string' ? req.body.periodId : null
-  const detail = typeof req.body?.detail === 'string' ? req.body.detail.trim() : ''
-  if (!periodId || detail === '') {
-    return res.status(400).json({ message: 'Falta el período o el detalle del aviso' })
-  }
+  if (!periodId) return res.status(400).json({ message: 'Falta el período' })
 
   try {
     const book = await prisma.gradeBook.findUnique({
@@ -610,16 +559,36 @@ r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review
       return res.status(409).json({ message: 'La libreta no tiene docente titular', code: 'NO_TEACHER' })
     }
 
+    const result = await loadPeriodCompleteness(periodId, { gradeBookId: book.id })
+    if (!result) return res.status(404).json({ message: 'Período no encontrado' })
+    const row = result.rows[0]
+    if (!row) {
+      return res.status(409).json({ message: 'La libreta no corresponde a esa reunión', code: 'LEVEL_MISMATCH' })
+    }
+    if (row.complete) {
+      return res.status(409).json({ message: 'La libreta ya está completa', code: 'ALREADY_COMPLETE' })
+    }
+
     const actorUserId = req.user?.id ?? req.user?.sub ?? null
+    const detail = completionRequestBody(row, result.period.name)
     const sent = await notifyGradeBook(
       await resolveGradeBookRecipients(book.id, actorUserId),
       completionRequestNotification({
         subjectName: book.subject?.name ?? 'la libreta',
         detail,
         gradeBookId: book.id,
+        periodId,
       }),
     )
-    return res.json({ ok: true, notified: sent })
+    await recordAuditEventNow({
+      action: AuditAction.GRADEBOOK_COMPLETION_REQUESTED,
+      actorUserId,
+      req,
+      entityType: 'GradeBook',
+      entityId: book.id,
+      metadata: { periodId, detail, notified: sent },
+    })
+    return res.json({ ok: true, notified: sent, detail })
   } catch (error) {
     console.error('[admin-gradebook] completeness request:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -680,10 +649,7 @@ r.get('/report-card/:studentId', requirePermission('exports.create'), async (req
         where: { studentId_periodId: { studentId: student.id, periodId } },
         select: { valueHundredths: true },
       }),
-      prisma.studentAttendanceEntry.findMany({
-        where: { studentId: student.id, session: { schoolYearId: enrollment.schoolYearId } },
-        select: { status: true, absenceWeightHundredths: true },
-      }),
+      loadAbsenceTotals([student.id], enrollment.schoolYearId, enrollment.courseOffering.course?.level),
     ])
 
     const levels = scale?.levels ?? []
@@ -718,8 +684,8 @@ r.get('/report-card/:studentId', requirePermission('exports.create'), async (req
       }),
       conductValueHundredths: conduct?.valueHundredths ?? null,
       attendance: {
-        absenceHundredths: attendance.reduce((acc, mark) => acc + effectiveWeight(mark), 0),
-        justifiedCount: attendance.filter((mark) => mark.status === 'ABSENT_JUSTIFIED').length,
+        absenceHundredths: attendance.get(student.id)?.absenceHundredths ?? 0,
+        justifiedCount: attendance.get(student.id)?.justified ?? 0,
       },
     })
 

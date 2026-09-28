@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   completionRequestBody,
+  countMissingAssessmentGrades,
   sortByUrgency,
   summarize,
   type GradeBookCompleteness,
@@ -16,96 +17,118 @@ function row(over: Partial<GradeBookCompleteness> = {}): GradeBookCompleteness {
     periodStatus: 'OPEN',
     rosterSize: 20,
     gradedCount: 20,
+    requiresGrade: true,
     judgedCount: 20,
     requiresJudgement: true,
+    meetingGradedCount: 0,
+    expectsAssessments: true,
+    assessmentCount: 3,
+    missingAssessmentGrades: 0,
     ...over,
   }
 }
 
 describe('summarize', () => {
-  it('una libreta con todo cargado está completa', () => {
-    expect(summarize(row())).toMatchObject({ missingGrades: 0, missingJudgements: 0, complete: true })
+  it('con evaluaciones, C y juicio cargados, está lista para la reunión', () => {
+    expect(summarize(row())).toMatchObject({ missingGrades: 0, missingJudgements: 0, hasNoAssessments: false, complete: true })
   })
 
-  it('cuenta cuántos estudiantes faltan, no sólo que falta algo', () => {
-    // Adscripción necesita el número para saber si es un olvido o la libreta entera sin tocar.
+  it('la R no se exige: se pone en la reunión misma', () => {
+    expect(summarize(row({ meetingGradedCount: 0 })).complete).toBe(true)
+  })
+
+  it('cuenta lo que falta de C y juicio', () => {
     const s = summarize(row({ gradedCount: 14, judgedCount: 11 }))
-    expect(s.missingGrades).toBe(6)
-    expect(s.missingJudgements).toBe(9)
-    expect(s.complete).toBe(false)
+    expect(s).toMatchObject({ missingGrades: 6, missingJudgements: 9, complete: false })
   })
 
-  it('el juicio no falta si el período no lo exige', () => {
-    const s = summarize(row({ judgedCount: 0, requiresJudgement: false }))
-    expect(s.missingJudgements).toBe(0)
-    expect(s.complete).toBe(true)
+  it('el juicio no falta si el período no lo pide; la C tampoco', () => {
+    const s = summarize(row({ judgedCount: 0, requiresJudgement: false, gradedCount: 0, requiresGrade: false }))
+    expect(s).toMatchObject({ missingJudgements: 0, missingGrades: 0, complete: true })
   })
 
-  it('un período cerrado cuenta como completo aunque los números no cierren', () => {
-    // Si se cerró, pasó por las validaciones de cierre: reclamarle al docente sería ruido.
-    expect(summarize(row({ periodStatus: 'CLOSED', gradedCount: 0 })).complete).toBe(true)
+  it('sin evaluaciones en los tramos de la reunión no está al día', () => {
+    const s = summarize(row({ assessmentCount: 0 }))
+    expect(s).toMatchObject({ hasNoAssessments: true, complete: false })
   })
 
-  it('no da faltantes negativos si hay más notas que estudiantes del roster', () => {
-    // Pasa cuando un alumno se dio de baja después de que le cargaron la nota.
-    expect(summarize(row({ rosterSize: 18, gradedCount: 20 })).missingGrades).toBe(0)
+  it('notas de evaluación sin cargar la dejan incompleta', () => {
+    expect(summarize(row({ missingAssessmentGrades: 4 })).complete).toBe(false)
+  })
+
+  it('si la reunión no informa tramos (diagnóstico), no se exigen evaluaciones', () => {
+    const s = summarize(row({ expectsAssessments: false, assessmentCount: 0, missingAssessmentGrades: 5 }))
+    expect(s).toMatchObject({ hasNoAssessments: false, missingAssessmentGrades: 0, complete: true })
+  })
+
+  it('cerrada cuenta como completa aunque falten cosas', () => {
+    expect(summarize(row({ periodStatus: 'CLOSED', gradedCount: 0, assessmentCount: 0 })).complete).toBe(true)
   })
 })
 
-describe('nota de reunión (R)', () => {
-  it('en un período con reunión, falta R aunque la C esté completa', () => {
-    const s = summarize(row({ requiresMeetingGrade: true, meetingGradedCount: 15 }))
-    expect(s.missingMeetingGrades).toBe(5)
-    expect(s.complete).toBe(false)
+describe('countMissingAssessmentGrades', () => {
+  const roster = new Set(['a', 'b', 'c'])
+  const grade = (studentId: string, over: Partial<{ valueHundredths: number | null; isAbsent: boolean; scaleLevelId: string | null }> = {}) => ({
+    studentId,
+    valueHundredths: 700,
+    isAbsent: false,
+    scaleLevelId: null,
+    ...over,
   })
 
-  it('sin reunión, R no falta', () => {
-    expect(summarize(row({ meetingGradedCount: 0 })).missingMeetingGrades).toBe(0)
+  it('por evaluación, cuenta alumnos del grupo sin nota', () => {
+    expect(countMissingAssessmentGrades([{ grades: [grade('a')] }, { grades: [grade('a'), grade('b')] }], roster)).toBe(3)
   })
 
-  it('el aviso al docente dice cuántos no tienen R', () => {
-    const s = summarize(row({ gradedCount: 18, requiresMeetingGrade: true, meetingGradedCount: 10, judgedCount: 19 }))
-    expect(completionRequestBody(s, '1.ª Entrega')).toBe(
-      '1.ª Entrega: 2 sin calificación, 10 sin nota de reunión (R) y 1 sin juicio conceptual.',
-    )
+  it('"no rindió" y el tramo de una escala ordinal cuentan como cargados', () => {
+    const grades = [grade('a', { valueHundredths: null, isAbsent: true }), grade('b', { valueHundredths: null, scaleLevelId: 'lvl' }), grade('c')]
+    expect(countMissingAssessmentGrades([{ grades }], roster)).toBe(0)
+  })
+
+  it('una fila sin valor no cuenta, y un alumno dado de baja no tapa a uno del grupo', () => {
+    const grades = [grade('a', { valueHundredths: null }), grade('baja'), grade('b'), grade('c')]
+    expect(countMissingAssessmentGrades([{ grades }], roster)).toBe(1)
   })
 })
 
 describe('sortByUrgency', () => {
-  it('primero lo que más falta, y lo completo al final', () => {
+  it('primero lo incompleto, y entre lo incompleto lo que más falta', () => {
     const rows = [
       summarize(row({ gradeBookId: 'ok' })),
-      summarize(row({ gradeBookId: 'poco', gradedCount: 19, judgedCount: 20 })),
-      summarize(row({ gradeBookId: 'mucho', gradedCount: 2, judgedCount: 2 })),
+      summarize(row({ gradeBookId: 'poco', gradedCount: 19 })),
+      summarize(row({ gradeBookId: 'mucho', gradedCount: 2, missingAssessmentGrades: 10 })),
     ]
     expect(sortByUrgency(rows).map((r) => r.gradeBookId)).toEqual(['mucho', 'poco', 'ok'])
   })
 
-  it('a igualdad de faltantes, ordena por asignatura', () => {
+  it('a igual faltante, por materia', () => {
     const rows = [
-      summarize(row({ gradeBookId: 'b', subjectName: 'Historia', gradedCount: 19, judgedCount: 20 })),
-      summarize(row({ gradeBookId: 'a', subjectName: 'Biología', gradedCount: 19, judgedCount: 20 })),
+      summarize(row({ gradeBookId: 'b', subjectName: 'Historia', gradedCount: 19 })),
+      summarize(row({ gradeBookId: 'a', subjectName: 'Biología', gradedCount: 19 })),
     ]
     expect(sortByUrgency(rows).map((r) => r.subjectName)).toEqual(['Biología', 'Historia'])
   })
 })
 
 describe('completionRequestBody', () => {
-  it('dice exactamente qué falta, no "revisá tu libreta"', () => {
-    const s = summarize(row({ gradedCount: 14, judgedCount: 11 }))
-    expect(completionRequestBody(s, 'Mayo')).toBe('Mayo: 6 sin calificación y 9 sin juicio conceptual.')
-  })
-
-  it('nombra sólo lo que falta', () => {
-    expect(completionRequestBody(summarize(row({ gradedCount: 18 })), 'Mayo')).toBe(
-      'Mayo: 2 sin calificación.',
-    )
-    expect(completionRequestBody(summarize(row({ judgedCount: 18 })), 'Mayo')).toBe(
-      'Mayo: 2 sin juicio conceptual.',
+  it('dice qué falta y cuánto', () => {
+    const s = summarize(row({ gradedCount: 14, judgedCount: 11, missingAssessmentGrades: 5 }))
+    expect(completionRequestBody(s, '1.ª Entrega')).toBe(
+      '1.ª Entrega: 5 notas de evaluación sin cargar, 6 sin calificación del período y 9 sin juicio conceptual.',
     )
   })
 
-  it('si no falta nada lo dice, en vez de mandar un aviso vacío', () => {
+  it('avisa cuando no hay evaluaciones', () => {
+    expect(completionRequestBody(summarize(row({ assessmentCount: 0 })), 'Mayo')).toBe('Mayo: no hay evaluaciones cargadas.')
+  })
+
+  it('en singular cuando falta una sola nota', () => {
+    expect(completionRequestBody(summarize(row({ missingAssessmentGrades: 1 })), 'Mayo')).toBe(
+      'Mayo: 1 nota de evaluación sin cargar.',
+    )
+  })
+
+  it('completa, lo dice', () => {
     expect(completionRequestBody(summarize(row()), 'Mayo')).toBe('Mayo: la libreta está completa.')
   })
 })

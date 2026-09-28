@@ -90,11 +90,22 @@ describe('<InasistenciasSection />', () => {
     expect(screen.getByLabelText(/Inasistencia de Cabrera, Camila/i)).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /^Falta$/i })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /Llegada tarde/i })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /^Media falta$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /^Media falta$/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/faltar a una sola clase ya es la falta del día/i)).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Presente/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /0,5/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Guardar/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Cancelar/i })).toBeInTheDocument()
+  })
+
+  it('en bachillerato tampoco hay "media falta": la llegada tarde ya lo es', async () => {
+    detail.mockReturnValue({ ...baseDetail(), course: { id: 'c3', name: '3 EMS', code: '3EMS', level: 'EMS' } })
+    render(<InasistenciasSection />)
+
+    await waitFor(() => expect(screen.getByText(/CABRERA, CAMILA/i)).toBeInTheDocument())
+    expect(screen.queryByRole('option', { name: /^Media falta$/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/La llegada tarde vale media falta/i)).toBeInTheDocument()
+    expect(screen.queryByText(/faltar a una sola clase/i)).not.toBeInTheDocument()
   })
 
   it('muestra el día de la semana sin S/H y deja el combo activo', async () => {

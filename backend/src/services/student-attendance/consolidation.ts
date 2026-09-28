@@ -1,4 +1,5 @@
 import type { StudentAttendanceStatus } from '@prisma/client'
+import { FULL_ABSENCE, HALF_ABSENCE, basicCycleDayHundredths, isBasicCycle } from './absence-weight.js'
 
 /**
  * Una marca de un estudiante en una clase, ya aplanada para el cálculo.
@@ -20,6 +21,12 @@ export const DAILY_CONSOLIDATION_LABEL: Record<DailyConsolidation, string> = {
   NO_CLASSES: 'Sin clases',
 }
 
+/**
+ * `level` es el nivel del grupo. En ciclo básico (EBI) el umbral no aplica: el día vale su peor
+ * marca — una ausencia es la falta del día, y una tarde o una justificada son media.
+ */
+export type ConsolidationOptions = { thresholdPercent: number; level?: string | null }
+
 function isAbsent(status: StudentAttendanceStatus): boolean {
   return status === 'ABSENT' || status === 'ABSENT_JUSTIFIED'
 }
@@ -33,13 +40,20 @@ function isAbsent(status: StudentAttendanceStatus): boolean {
  */
 export function consolidateDay(
   cells: readonly AttendanceCell[],
-  opts: { thresholdPercent: number },
+  opts: ConsolidationOptions,
 ): DailyConsolidation {
   if (cells.length === 0) return 'NO_CLASSES'
+  if (isBasicCycle(opts.level)) return basicCycleConsolidation(cells)
   const absent = cells.filter((c) => isAbsent(c.status)).length
   if (absent === 0) return 'PRESENT'
   const ratio = (absent / cells.length) * 100
   return ratio >= opts.thresholdPercent ? 'ABSENCE' : 'HALF_ABSENCE'
+}
+
+function basicCycleConsolidation(cells: readonly AttendanceCell[]): DailyConsolidation {
+  const hundredths = basicCycleDayHundredths(cells)
+  if (hundredths >= FULL_ABSENCE) return 'ABSENCE'
+  return hundredths >= HALF_ABSENCE ? 'HALF_ABSENCE' : 'PRESENT'
 }
 
 export function groupByDay(cells: readonly AttendanceCell[]): Map<string, AttendanceCell[]> {
@@ -63,7 +77,7 @@ export type DailyRow = {
 
 export function consolidateRange(
   cells: readonly AttendanceCell[],
-  opts: { thresholdPercent: number },
+  opts: ConsolidationOptions,
 ): DailyRow[] {
   const rows: DailyRow[] = []
   for (const [ymd, dayCells] of groupByDay(cells)) {
@@ -138,7 +152,7 @@ export type OverallTotals = {
 
 export function overallTotals(
   cells: readonly AttendanceCell[],
-  opts: { thresholdPercent: number },
+  opts: ConsolidationOptions,
 ): OverallTotals {
   const absent = cells.filter((c) => c.status === 'ABSENT').length
   const absentJustified = cells.filter((c) => c.status === 'ABSENT_JUSTIFIED').length

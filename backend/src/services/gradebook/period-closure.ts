@@ -100,6 +100,39 @@ export function periodsCoveredBy(target: OrderedPeriod, periods: readonly Ordere
     .map((p) => p.id)
 }
 
+/**
+ * ¿Es una reunión de boletín? Son las reuniones generales donde el docente expone las notas y se
+ * cierra la R: en EBI la 1.ª a 4.ª Entrega, en EMS los dos semestres. Las de exámenes (sin juicio)
+ * y las APE (sin calificación general) también son reuniones, pero no producen boletín.
+ */
+export function isReportCardPeriod(p: {
+  isMeeting: boolean
+  requiresGeneralGrade: boolean
+  requiresConceptualJudgement: boolean
+}): boolean {
+  return p.isMeeting && p.requiresGeneralGrade && p.requiresConceptualJudgement
+}
+
+/**
+ * Períodos cuyas evaluaciones informa una reunión. Una entrega (EBI) informa los tramos que cubre;
+ * un tramo que es reunión (los semestres de EMS) se informa a sí mismo. Un diagnóstico, nada.
+ */
+export function assessmentPeriodsFor(target: OrderedPeriod, periods: readonly OrderedPeriod[]): string[] {
+  if (target.kind === 'ENTREGA') return periodsCoveredBy(target, periods)
+  return acceptsAssessments(target.kind) ? [target.id] : []
+}
+
+/** Reunión de boletín anterior del mismo nivel, por el orden de la planilla. */
+export function previousReportCardPeriod<T extends OrderedPeriod & Parameters<typeof isReportCardPeriod>[0]>(
+  target: T,
+  periods: readonly T[],
+): T | null {
+  const earlier = periods
+    .filter((p) => isReportCardPeriod(p) && p.sortOrder < target.sortOrder)
+    .sort((a, b) => b.sortOrder - a.sortOrder)
+  return earlier[0] ?? null
+}
+
 export type PeriodGradeInput = {
   valueHundredths?: number | null
   meetingValueHundredths?: number | null

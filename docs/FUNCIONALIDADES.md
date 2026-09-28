@@ -271,8 +271,28 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
 - **Listas sin pasar:** una clase terminada sin lista queda **pendiente**; no se generan faltas
   automáticas. Administración las ve en un panel por curso y fecha.
 - **Faltas:** se guardan por clase. La consolidación diaria (presente / media falta / falta) se
-  **deriva** al leer, según `studentDailyAbsenceThresholdPercent`. La llegada tarde cuenta como
-  asistencia, y las clases sin lista tomada no entran en ningún denominador.
+  **deriva** al leer, según `studentDailyAbsenceThresholdPercent`, y las clases sin lista tomada
+  no entran en ningún denominador.
+- **La llegada tarde es la media falta, en todos los niveles.** El docente ya no elige "Media
+  falta" en la libreta: marca falta o llegada tarde. En bachillerato cada tarde suma 0,5 (EMS sigue
+  contando por clase); una ausencia que adscripción graduó a media al justificarla se respeta y el
+  docente no la pisa al volver a guardar el día.
+- **Ciclo básico (EBI, 7.º a 9.º) cuenta la falta por día**, sin umbral:
+  - faltar a **una sola** clase del día (sin justificar) ya es la falta del día;
+  - una **llegada tarde** vale media falta y **no se justifica**;
+  - una **ausencia justificada** vale media falta.
+
+  El día vale la marca más pesada, no la suma: dos tardes son media falta, y tarde + ausencia es
+  una falta (no una y media). En ciclo básico el peso manual (`absenceWeightHundredths`) se ignora
+  y el docente no ve la opción "Media falta".
+- **Justificación por días (ciclo básico):** adscripción o dirección (`student-attendance.justify`)
+  cargan un rango de días completos con motivo (`StudentAbsenceJustificationRange`), en
+  `/admin/student-attendance`.
+  - Puede ser **previa**: las ausencias que se marquen en esos días entran ya justificadas, a nombre
+    de quien cargó el rango.
+  - O **posterior**: al crearla justifica las ausencias ya marcadas del rango.
+  - Si el docente marca presente o tarde, gana su marca.
+  - Revocar un rango deja de aplicarlo de ahí en adelante, pero no deshace lo ya justificado.
 - **Suplencias:** el suplente oficial del día puede pasar la lista igual que el titular.
 
 ---
@@ -292,7 +312,7 @@ pantalla con paneles apilados.
 Cada sección lleva en el menú una línea que explica para qué sirve: "Precierre" o "Visados" no se
 entienden solos.
 
-**Pantallas de supervisión:** `/libreta/grupo` (matriz), `/libreta/visado`, `/libreta/reunion`,
+**Pantallas de supervisión:** `/libreta/reunion` (matriz del grupo), `/libreta/control`, `/libreta/visado`,
 `/libreta/indicadores`, `/libreta/estudiante/[id]` (ficha) y `/libreta/configuracion`
 (parametrización académica). Entradas globales de trabajo: `/libreta/inasistencias`,
 `/libreta/evaluaciones`, `/libreta/cierre-alumno` y `/libreta/cierre-libreta`.
@@ -370,7 +390,9 @@ entienden solos.
   liceo**, no por materia: `GET /gradebook/:id` las devuelve del ciclo entero. Cada marca lleva un
   peso en centésimos (`100` = falta entera, `50` = media) que fija **adscripción caso por caso** al
   justificar — no hay regla automática. Justificar es de adscripción (`student-attendance.justify`),
-  no del docente, que sólo marca presente/tarde/ausente.
+  no del docente, que sólo marca presente/tarde/ausente. **En ciclo básico** la regla sí es
+  automática y por día (§11 bis): libreta, planilla de reunión y boletín suman los días, y el
+  detalle del alumno muestra cuánto aportó cada uno. Ahí también justifica dirección.
 - **Conducta, dos veces.** Cada docente pone la de su asignatura junto a la nota del período
   (`PeriodGrade.conductValueHundredths`), y adscripción pone una institucional por estudiante y
   período (`StudentConductRecord`). La reunión las ve juntas. Usa su propia escala (`CONDUCTA`),
@@ -381,9 +403,17 @@ entienden solos.
 - **Boletín (`GET /admin/gradebook/report-card/:studentId?periodId=`):** PDF por estudiante y
   período con nota y juicio de **todas** sus asignaturas, conducta, promedio e inasistencias. Es la
   única salida transversal: el resto de las exportaciones son por libreta, o sea de una materia.
-- **Control de adscripción (`/libreta/control`):** qué libretas están incompletas en un período,
-  con cuántos estudiantes faltan en cada una, y aviso al docente por notificación interna diciendo
-  exactamente qué falta.
+- **Control de libretas (`/libreta/control`):** antes de cada reunión de boletín (cada ~2 meses)
+  administración revisa que cada docente esté al día y, si no, le avisa por notificación interna.
+  - El desplegable lista sólo **reuniones de boletín**, separadas por nivel: EBI 1.ª a 4.ª Entrega,
+    EMS 1.er y 2.º semestre (`isReportCardPeriod`: reunión que pide C y juicio; quedan afuera
+    exámenes y APE). Se preselecciona la próxima.
+  - Sólo aparecen las libretas del nivel de la reunión.
+  - "Al día" = las **evaluaciones** de los tramos que informa la reunión tienen nota (o "no rindió")
+    para cada alumno del grupo, está la **calificación del período (C)** y el **juicio** cuando el
+    período los pide. La **R no se exige**: se pone en la reunión misma.
+  - El texto del aviso lo arma el backend con el mismo cálculo que ve la pantalla; queda en la
+    auditoría (`GRADEBOOK_COMPLETION_REQUESTED`).
 - **Hoja del estudiante (`GET /gradebook/:id/students/:studentId`):** dentro de la libreta, el
   docente abre a cualquier estudiante de **su** grupo y ve foto, nacimiento, de dónde vino el pase o
   cómo promovió el año anterior, si está derivado a APE, las materias que arrastra y las
@@ -403,8 +433,9 @@ entienden solos.
 
 ### Vistas institucionales (RF-031, RF-060, RF-061, RF-070)
 
-**Pantallas:** `/libreta/grupo` (matriz de grupo), `/libreta/estudiante/[id]` (ficha
-académica) y `/libreta/reunion` (modo reunión). Permiso `gradebook.read` de alcance ALL:
+**Pantallas:** `/libreta/reunion` (matriz de grupo) y `/libreta/estudiante/[id]` (ficha
+académica). La vieja "Vista de grupo" (`/libreta/grupo`) era la misma matriz: se unificó y la ruta
+redirige a la reunión. El período se filtra por el nivel del grupo. Permiso `gradebook.read` de alcance ALL:
 adscripción, dirección, inspección y administración.
 
 - **Matriz Estudiante × Asignatura** del período, con calificación, juicio, descriptor, pendientes
@@ -546,6 +577,25 @@ Desde `/libreta/[id]`, con permiso `exports.create`.
 
 ## 14. Reportes y exportaciones
 
+### Reportes de estudiantes (`/admin/reportes`)
+
+Permiso `student-reports.read` (administración, dirección y adscripción). Todo se deriva al leer
+(`services/student-reports/`); la pestaña vive en la URL (`?tab=`).
+
+- **Notas bajas:** % de alumnos con nota baja por materia y curso en una reunión de boletín, más el
+  total por curso con alumnos distintos. Nota baja = banda de alerta (`isAlert`) de la escala del
+  nivel, sobre la R.
+- **Bajas de boletín:** materias en las que la R es menor que la del boletín anterior del mismo nivel.
+- **Faltas seguidas:** 3 o más días de clase seguidos del grupo con falta entera sin justificar
+  (EBI: alguna ausencia sin justificar ese día; EMS: la consolidación diaria da falta). Fines de
+  semana y feriados no son días de clase, así que no cortan la racha.
+- **18 / 25 faltas:** con el mismo conteo que la libreta (por día en ciclo básico).
+- **Alertas:** cada una se guarda en `StudentAlert` (unique tipo + alumno + clave) y se avisa **una
+  sola vez** por notificación `STUDENT_ALERT` a DIRECCION y ADSCRIPTO; con más de 5 nuevas, un
+  resumen. El escaneo corre cada hora y, además, unos minutos después de guardar una lista.
+
+### Asistencia del personal
+
 Documentado en detalle en `docs/REPORTES.md`.
 
 - **Excel (.xlsx)** y **PDF** desde gestión de asistencias.
@@ -619,7 +669,7 @@ grupo** que conserva la sección abierta: el docente entra una vez y cambia de g
 Trabajo transversal — `/libreta/inasistencias`, `/libreta/evaluaciones`, `/libreta/cierre-alumno`,
 `/libreta/cierre-libreta`.
 
-Supervisión y parametrización — `/libreta/grupo`, `/libreta/control`, `/libreta/visado`, `/libreta/reunion`,
+Supervisión y parametrización — `/libreta/reunion`, `/libreta/control`, `/libreta/visado`,
 `/libreta/indicadores`, `/libreta/estudiante/[id]`, `/libreta/configuracion`.
 
 ### General

@@ -97,6 +97,10 @@ export type StudentAbsencesHistory = {
     lates: number
     justifiedCount: number
   }
+  /** Ciclo básico: la falta es del día, así que el acumulado sale de `days` y no de las materias. */
+  basicCycle?: boolean
+  /** Sólo ciclo básico: cuánto sumó cada día con marcas (la marca más pesada del día). */
+  days?: Array<{ ymd: string; hundredths: number; absences: string }>
   bySubject: Array<{
     subjectId: string | null
     subjectName: string

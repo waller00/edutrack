@@ -1,4 +1,4 @@
-import { AuditAction } from '@prisma/client'
+import { AuditAction, type Prisma } from '@prisma/client'
 import { prisma } from '../../db/prisma.js'
 import { recordAuditEventNow } from '../audit-log.js'
 import { appendJustificationNote } from './roll-call-rules.js'
@@ -14,6 +14,53 @@ export type JustifyInput = {
   absenceWeightHundredths?: number | null
   actorUserId?: string | null
   req?: any
+}
+
+type JustifiableEntry = { id: string; note: string | null }
+
+/**
+ * El trámite dentro de una transacción: la fila de transición y el cambio de estado de la marca.
+ * Lo comparten la justificación de una marca suelta y la de un rango de días.
+ */
+export async function justifyEntryTx(
+  tx: Prisma.TransactionClient,
+  entry: JustifiableEntry,
+  input: {
+    reason: string
+    type?: JustifyInput['type']
+    notes?: string | null
+    attachment?: string | null
+    absenceWeightHundredths?: number | null
+    actorUserId?: string | null
+    rangeId?: string | null
+  },
+) {
+  const justification = await tx.studentAttendanceJustification.create({
+    data: {
+      entryId: entry.id,
+      type: input.type ?? 'ABSENCE',
+      reason: input.reason,
+      notes: input.notes?.trim() || null,
+      attachment: input.attachment?.trim() || null,
+      previousStatus: 'ABSENT',
+      newStatus: 'ABSENT_JUSTIFIED',
+      createdByUserId: input.actorUserId ?? null,
+      rangeId: input.rangeId ?? null,
+    },
+  })
+  const row = await tx.studentAttendanceEntry.update({
+    where: { id: entry.id },
+    data: {
+      status: 'ABSENT_JUSTIFIED',
+      note: appendJustificationNote(entry.note, input.reason),
+      // Justificar y graduar la falta son el mismo trámite para adscripción: se hace de una.
+      // Sin valor, el peso queda como estaba (y una ausencia sin peso vale una falta entera).
+      ...(input.absenceWeightHundredths != null
+        ? { absenceWeightHundredths: input.absenceWeightHundredths }
+        : {}),
+    },
+  })
+  return { row, justificationId: justification.id }
 }
 
 /**
@@ -43,33 +90,7 @@ export async function justifyStudentAbsence(input: JustifyInput) {
     )
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const justification = await tx.studentAttendanceJustification.create({
-      data: {
-        entryId: entry.id,
-        type: input.type ?? 'ABSENCE',
-        reason,
-        notes: input.notes?.trim() || null,
-        attachment: input.attachment?.trim() || null,
-        previousStatus,
-        newStatus: 'ABSENT_JUSTIFIED',
-        createdByUserId: input.actorUserId ?? null,
-      },
-    })
-    const row = await tx.studentAttendanceEntry.update({
-      where: { id: entry.id },
-      data: {
-        status: 'ABSENT_JUSTIFIED',
-        note: appendJustificationNote(entry.note, reason),
-        // Justificar y graduar la falta son el mismo trámite para adscripción: se hace de una.
-        // Sin valor, el peso queda como estaba (y una ausencia sin peso vale una falta entera).
-        ...(input.absenceWeightHundredths != null
-          ? { absenceWeightHundredths: input.absenceWeightHundredths }
-          : {}),
-      },
-    })
-    return { row, justificationId: justification.id }
-  })
+  const updated = await prisma.$transaction((tx) => justifyEntryTx(tx, entry, { ...input, reason }))
 
   await recordAuditEventNow({
     action: AuditAction.STUDENT_ATTENDANCE_JUSTIFIED,
