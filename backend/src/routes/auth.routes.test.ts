@@ -13,11 +13,6 @@ const {
   getSsoRegistrationMock,
   consumeSsoRegistrationMock,
   ensureDefaultPermissionsMock,
-  livenessRequiredMock,
-  diditConfiguredMock,
-  syncLivenessMock,
-  fetchDecisionMock,
-  expiryErrorMock,
   getOrgRoleIdMock,
   saveSessionMock,
   newSessionIdMock,
@@ -32,11 +27,6 @@ const {
     },
     systemSettings: {
       upsert: vi.fn(),
-    },
-    livenessSession: {
-      findUnique: vi.fn(),
-      findFirst: vi.fn(),
-      update: vi.fn(),
     },
     rolePermission: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -55,11 +45,6 @@ const {
   getSsoRegistrationMock: vi.fn().mockResolvedValue(null),
   consumeSsoRegistrationMock: vi.fn().mockResolvedValue(null),
   ensureDefaultPermissionsMock: vi.fn().mockResolvedValue(undefined),
-  livenessRequiredMock: vi.fn().mockReturnValue(false),
-  diditConfiguredMock: vi.fn().mockReturnValue(false),
-  syncLivenessMock: vi.fn().mockResolvedValue(undefined),
-  fetchDecisionMock: vi.fn().mockResolvedValue(null),
-  expiryErrorMock: vi.fn().mockReturnValue(null),
   getOrgRoleIdMock: vi.fn().mockResolvedValue("mock-org-role-id"),
   saveSessionMock: vi.fn().mockResolvedValue(undefined),
   newSessionIdMock: vi.fn().mockReturnValue("perf-sid-1"),
@@ -81,17 +66,6 @@ vi.mock("../auth/session-store.js", () => ({ newSessionId: newSessionIdMock, sav
 vi.mock("../identity/org-role-service.js", () => ({
   normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
   getOrgRoleIdByCodeOrThrow: getOrgRoleIdMock,
-}));
-vi.mock("../config/system-settings.js", () => ({
-  isLivenessRequiredForRegistration: livenessRequiredMock,
-  isDiditConfigured: diditConfiguredMock,
-}));
-vi.mock("../integrations/didit/sync-session.js", () => ({
-  syncLivenessSessionFromDiditApi: syncLivenessMock,
-  fetchDiditDecisionJson: fetchDecisionMock,
-}));
-vi.mock("../integrations/didit/register-verification-from-decision.js", () => ({
-  getDocumentExpiryValidationErrorFromDecision: expiryErrorMock,
 }));
 vi.mock("../identity/profile-permissions-repository.js", () => ({
   ensureDefaultProfilePermissionsIfNeeded: ensureDefaultPermissionsMock,
@@ -121,20 +95,12 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     getSsoRegistrationMock.mockResolvedValue(null);
     consumeSsoRegistrationMock.mockResolvedValue(null);
     ensureDefaultPermissionsMock.mockResolvedValue(undefined);
-    livenessRequiredMock.mockReturnValue(false);
-    diditConfiguredMock.mockReturnValue(false);
-    syncLivenessMock.mockResolvedValue(undefined);
-    fetchDecisionMock.mockResolvedValue(null);
-    expiryErrorMock.mockReturnValue(null);
     getOrgRoleIdMock.mockResolvedValue("mock-org-role-id");
     saveSessionMock.mockResolvedValue(undefined);
     newSessionIdMock.mockReturnValue("perf-sid-1");
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {
-        return (arg as (tx: { user: typeof prismaMock.user; livenessSession: { update: ReturnType<typeof vi.fn> } }) => Promise<unknown>)({
-          user: prismaMock.user,
-          livenessSession: { update: vi.fn().mockResolvedValue({}) },
-        });
+        return (arg as (tx: { user: typeof prismaMock.user }) => Promise<unknown>)({ user: prismaMock.user });
       }
       return Promise.all(arg as Promise<unknown>[]);
     });
@@ -371,13 +337,6 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     // El menú lo arma el frontend a partir de `permissions`; ya no se devuelve navLinks.
     expect(res.body.navLinks).toBeUndefined();
     expect(Array.isArray(res.body.permissions)).toBe(true);
-  });
-
-  it("GET /auth/registration-options informa estado de liveness/Didit", async () => {
-    const res = await request(app()).get("/auth/registration-options");
-    expect(res.status).toBe(200);
-    expect(res.body.livenessCheckEnabled).toBe(false);
-    expect(res.body.diditConfigured).toBe(false);
   });
 
   it("GET /auth/check-username disponible cuando no existe", async () => {
@@ -680,120 +639,20 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.body.message).toMatch(/no coincide/i);
   });
 
-  // --- Registro con prueba de vida (Didit) ---
-  const validUuid = "11111111-1111-4111-8111-111111111111";
-  function livenessOn() {
-    livenessRequiredMock.mockReturnValue(true);
-    diditConfiguredMock.mockReturnValue(true);
+  // --- Registro sin prueba de vida: el control es la aprobación manual ---
+  it("POST /auth/register crea la cuenta sin prueba de vida y la deja pendiente de aprobación", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
-  }
+    prismaMock.user.create.mockResolvedValue({ id: "u-new", email: "err@example.com", username: "err.handler" });
 
-  it("POST /auth/register devuelve 503 si liveness requerido pero Didit sin configurar", async () => {
-    livenessRequiredMock.mockReturnValue(true);
-    diditConfiguredMock.mockReturnValue(false);
-    prismaMock.user.findUnique.mockResolvedValue(null);
-    const res = await request(app()).post("/auth/register").send(registerBody());
-    expect(res.status).toBe(503);
-  });
-
-  it("POST /auth/register exige livenessToken cuando hay prueba de vida", async () => {
-    livenessOn();
-    const res = await request(app()).post("/auth/register").send(registerBody());
-    expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/prueba de vida/i);
-  });
-
-  it("POST /auth/register rechaza sesión de liveness no aprobada", async () => {
-    livenessOn();
-    prismaMock.livenessSession.findFirst.mockResolvedValue({
-      id: "ls1",
-      status: "PENDING",
-      consumedAt: null,
-      diditSessionId: null,
-      expiresAt: new Date(Date.now() + 100000),
-    });
+    // Un cliente viejo que todavía mande `livenessToken` no rompe: el campo se ignora.
     const res = await request(app())
       .post("/auth/register")
-      .send(registerBody({ livenessToken: validUuid }));
-    expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/no válida|aprobada/i);
-  });
+      .send(registerBody({ livenessToken: "11111111-1111-4111-8111-111111111111" }));
 
-  it("POST /auth/register rechaza liveness vencido", async () => {
-    livenessOn();
-    prismaMock.livenessSession.findFirst.mockResolvedValue({
-      id: "ls1",
-      status: "APPROVED",
-      consumedAt: null,
-      diditSessionId: "d1",
-      expiresAt: new Date(Date.now() - 100000),
-    });
-    const res = await request(app())
-      .post("/auth/register")
-      .send(registerBody({ livenessToken: validUuid }));
-    expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/venció/i);
-  });
-
-  it("POST /auth/register rechaza liveness sin documento validado por Didit", async () => {
-    livenessOn();
-    prismaMock.livenessSession.findFirst.mockResolvedValue({
-      id: "ls1",
-      status: "APPROVED",
-      consumedAt: null,
-      diditSessionId: "d1",
-      expiresAt: new Date(Date.now() + 100000),
-    });
-    fetchDecisionMock.mockResolvedValue(null);
-    const res = await request(app())
-      .post("/auth/register")
-      .send(registerBody({ livenessToken: validUuid }));
-    expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/documento/i);
-  });
-
-  it("POST /auth/register rechaza documento vencido según Didit", async () => {
-    livenessOn();
-    prismaMock.livenessSession.findFirst.mockResolvedValue({
-      id: "ls1",
-      status: "APPROVED",
-      consumedAt: null,
-      diditSessionId: "d1",
-      expiresAt: new Date(Date.now() + 100000),
-    });
-    fetchDecisionMock.mockResolvedValue({ decision: {} });
-    expiryErrorMock.mockReturnValue("El documento está vencido");
-    const res = await request(app())
-      .post("/auth/register")
-      .send(registerBody({ livenessToken: validUuid, birthdate: "1990-01-01T00:00:00.000Z" }));
-    expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/vencido/i);
-  });
-
-  it("POST /auth/register completa con liveness aprobado (sincroniza desde Didit)", async () => {
-    livenessOn();
-    prismaMock.livenessSession.findFirst.mockResolvedValue({
-      id: "ls1",
-      status: "PENDING",
-      consumedAt: null,
-      diditSessionId: "d1",
-      expiresAt: new Date(Date.now() + 100000),
-    });
-    prismaMock.livenessSession.findUnique.mockResolvedValue({
-      id: "ls1",
-      status: "APPROVED",
-      consumedAt: null,
-      diditSessionId: "d1",
-      expiresAt: new Date(Date.now() + 100000),
-    });
-    fetchDecisionMock.mockResolvedValue({ decision: {} });
-    expiryErrorMock.mockReturnValue(null);
-    prismaMock.user.create.mockResolvedValue({ id: "u-lv", email: "err@example.com", username: "err.handler" });
-    const res = await request(app())
-      .post("/auth/register")
-      .send(registerBody({ livenessToken: validUuid }));
     expect(res.status).toBe(200);
-    expect(syncLivenessMock).toHaveBeenCalledWith("ls1");
+    const data = prismaMock.user.create.mock.calls[0][0].data;
+    expect(data.isApproved).toBe(false);
+    expect(data).not.toHaveProperty("livenessVerifiedAt");
   });
 
   // --- Perfil: cédula y rol ---
@@ -971,7 +830,7 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.status).toBe(401);
   });
 
-  // --- Registro: rol inválido, placeholder SSO, diditId faltante, username con 2do apellido ---
+  // --- Registro: rol inválido, placeholder SSO, username con 2do apellido ---
   it("POST /auth/register devuelve 400 si el rol no se resuelve", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     getOrgRoleIdMock.mockRejectedValueOnce(new Error("ROLE_NOT_FOUND"));
@@ -1000,21 +859,6 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.status).toBe(200);
     expect(prismaMock.user.update).toHaveBeenCalled();
     expect(prismaMock.user.create).not.toHaveBeenCalled();
-  });
-
-  it("POST /auth/register rechaza sesión Didit sin diditSessionId", async () => {
-    livenessOn();
-    prismaMock.livenessSession.findFirst.mockResolvedValue({
-      id: "ls1",
-      status: "APPROVED",
-      consumedAt: null,
-      diditSessionId: null,
-      expiresAt: new Date(Date.now() + 100000),
-    });
-    const res = await request(app())
-      .post("/auth/register")
-      .send(registerBody({ livenessToken: validUuid }));
-    expect(res.status).toBe(400);
   });
 
   it("POST /auth/register genera username con inicial del segundo apellido", async () => {

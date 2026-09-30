@@ -14,9 +14,6 @@ import {
   mapProfileUpdateError,
 } from "../auth/auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
-import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/system-settings.js";
-import { syncLivenessSessionFromDiditApi, fetchDiditDecisionJson } from "../integrations/didit/sync-session.js";
-import { getDocumentExpiryValidationErrorFromDecision } from "../integrations/didit/register-verification-from-decision.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
 import { createKeycloakUser, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
@@ -67,7 +64,6 @@ const registerSchema = z.object({
   phone: z.string().min(7).max(20).optional(),
   birthdate: z.string().datetime().optional(),
   role: z.enum(["ADMIN", "STAFF", "TEACHER"]).optional(),
-  livenessToken: z.string().uuid().optional(),
   ssoRegistrationToken: z.string().min(20).max(128).optional(),
 });
 
@@ -221,14 +217,6 @@ async function validateAndBuildProfileUpdate(data: {
   return update;
 }
 
-r.get("/registration-options", async (_req, res) => {
-  const livenessRequired = isLivenessRequiredForRegistration();
-  return res.json({
-    livenessCheckEnabled: livenessRequired,
-    diditConfigured: isDiditConfigured(),
-  });
-});
-
 r.get("/check-username", async (req, res) => {
   const u = String(req.query.u || "").trim();
   const valid = USERNAME_REGEX.test(u);
@@ -331,7 +319,6 @@ r.post("/register", async (req, res) => {
     phone,
     birthdate,
     role,
-    livenessToken,
     ssoRegistrationToken,
   } = parsed.data;
 
@@ -350,48 +337,8 @@ r.post("/register", async (req, res) => {
     prisma.user.findUnique({ where: { email } }),
     nationalId ? prisma.user.findUnique({ where: { nationalId: onlyDigits(nationalId) } }) : Promise.resolve(null),
   ]);
-  const requireDidit = isLivenessRequiredForRegistration();
-  if (requireDidit && !isDiditConfigured()) {
-    return res.status(503).json({
-      message:
-        "El registro con verificación de identidad no está disponible: el servidor no tiene configurado Didit (DIDIT_API_KEY y DIDIT_WORKFLOW_ID).",
-    });
-  }
-  const livenessRequired = requireDidit;
-  let livenessRowId: string | null = null;
-  if (livenessRequired) {
-    if (!livenessToken) {
-      return res.status(400).json({ message: "Falta completar la prueba de vida (Didit)." });
-    }
-    let ls = await prisma.livenessSession.findFirst({
-      where: { OR: [{ id: livenessToken }, { diditSessionId: livenessToken }] },
-    });
-    if (ls && ls.status !== "APPROVED" && !ls.consumedAt && ls.diditSessionId) {
-      await syncLivenessSessionFromDiditApi(ls.id);
-      ls = await prisma.livenessSession.findUnique({ where: { id: ls.id } });
-    }
-    if (!ls || ls.status !== "APPROVED" || ls.consumedAt) {
-      return res.status(400).json({ message: "Prueba de vida no válida o no aprobada. Iniciá el proceso otra vez." });
-    }
-    if (ls.expiresAt < new Date()) {
-      return res.status(400).json({ message: "La prueba de vida venció. Iniciá una nueva sesión." });
-    }
-    const diditId = ls.diditSessionId?.trim();
-    if (!diditId) {
-      return res.status(400).json({ message: "Sesión Didit incompleta. Reiniciá la verificación." });
-    }
-    const decision = await fetchDiditDecisionJson(diditId);
-    if (!decision) {
-      return res.status(400).json({ message: "No se pudo validar el documento con Didit. Reintentá en un momento." });
-    }
-    const birthIso = birthdate ? String(birthdate).slice(0, 10) : "";
-    const expiryErr = getDocumentExpiryValidationErrorFromDecision(decision, birthIso);
-    if (expiryErr) {
-      return res.status(400).json({ message: expiryErr });
-    }
-    livenessRowId = ls.id;
-  }
-
+  // Sin prueba de vida: la identidad la controla administración, que aprueba cada cuenta nueva
+  // (se crea con `isApproved: false` y no puede entrar hasta entonces).
   const canCompleteSsoPlaceholder =
     Boolean(ssoProfile && byEmail && byEmail.isActive && !byEmail.isApproved);
   if (byEmail && !canCompleteSsoPlaceholder) return res.status(409).json({ message: "Correo ya registrado" });
@@ -418,7 +365,6 @@ r.post("/register", async (req, res) => {
     return res.status(400).json({ message: "Rol inválido." });
   }
 
-  const nowLv = livenessRequired && livenessRowId ? new Date() : null;
   // El username se genera ANTES de la transacción: chequea unicidad contra la app y contra
   // Keycloak (I/O de red), que no debe correr dentro de un $transaction.
   const generatedUsername = byEmail?.username || (await generateUniqueUsername(firstName, lastName));
@@ -438,7 +384,6 @@ r.post("/register", async (req, res) => {
       approvedAt: null,
       isActive: true,
       emailVerifiedAt: ssoProfile?.emailVerified ? new Date() : null,
-      livenessVerifiedAt: nowLv,
     };
     const u = canCompleteSsoPlaceholder && byEmail
       ? await tx.user.update({
@@ -448,12 +393,6 @@ r.post("/register", async (req, res) => {
       : await tx.user.create({
         data: userData,
       });
-    if (livenessRequired && livenessRowId) {
-      await tx.livenessSession.update({
-        where: { id: livenessRowId },
-        data: { consumedAt: new Date() },
-      });
-    }
     return u;
   });
 

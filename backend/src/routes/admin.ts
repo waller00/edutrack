@@ -4,7 +4,7 @@ import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
 import { z } from 'zod'
 import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
-import { isDiditConfigured, isMoodleSyncEnabledFromEnv, getMoodleOperationalSettings } from '../config/system-settings.js'
+import { isMoodleSyncEnabledFromEnv, getMoodleOperationalSettings } from '../config/system-settings.js'
 import { getOrCreateSystemSettings } from '../config/system-settings.js'
 import {
   INSTITUTION_TIMEZONE_OPTIONS,
@@ -930,8 +930,6 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
     studentDailyAbsenceThresholdPercent?: number | null
   }
   return res.json({
-    diditConfigured: isDiditConfigured(),
-    livenessCheckEnabled: row.livenessCheckEnabled,
     attendanceNoShowGraceMinutes: row.attendanceNoShowGraceMinutes,
     attendanceLateToleranceMinutes: row.attendanceLateToleranceMinutes,
     attendanceEarlyExitToleranceMinutes: settings.attendanceEarlyExitToleranceMinutes ?? row.attendanceLateToleranceMinutes,
@@ -957,7 +955,6 @@ r.get('/system-settings', requirePermission('settings.manage', 'all'), async (_r
 r.put('/system-settings', requirePermission('settings.manage', 'all'), async (req, res) => {
   const parsed = z
     .object({
-      livenessCheckEnabled: z.boolean().optional(),
       attendanceNoShowGraceMinutes: z.number().int().min(1).max(180).optional(),
       attendanceLateToleranceMinutes: z.number().int().min(0).max(120).optional(),
       attendanceEarlyExitToleranceMinutes: z.number().int().min(0).max(120).optional(),
@@ -988,7 +985,6 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
     where: { id: 'default' },
     create: {
       id: 'default',
-      livenessCheckEnabled: data.livenessCheckEnabled ?? false,
       attendanceNoShowGraceMinutes: data.attendanceNoShowGraceMinutes ?? 15,
       attendanceLateToleranceMinutes: data.attendanceLateToleranceMinutes ?? 5,
       attendanceEarlyExitToleranceMinutes: data.attendanceEarlyExitToleranceMinutes ?? 5,
@@ -1029,8 +1025,6 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
   })
 
   return res.json({
-    diditConfigured: isDiditConfigured(),
-    livenessCheckEnabled: updated.livenessCheckEnabled,
     attendanceNoShowGraceMinutes: updated.attendanceNoShowGraceMinutes,
     attendanceLateToleranceMinutes: updated.attendanceLateToleranceMinutes,
     attendanceEarlyExitToleranceMinutes: updatedSettings.attendanceEarlyExitToleranceMinutes ?? updated.attendanceLateToleranceMinutes,

@@ -1,139 +1,54 @@
 'use client'
 
-import { AlertTriangle, ArrowLeft, Check, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, Clock } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
-import {
-  buildReviewRows,
-  canConfirmRegistration,
-  getReviewBlockingReason,
-  type DiditDocumentFields,
-  type ReviewRowStatus,
-} from '@/lib/auth/register-review'
-import type { RegisterVerificationResults } from '@/lib/auth/register-form-validation'
-
-const STATUS_STYLES: Record<ReviewRowStatus, { icon: React.ReactNode; row: string; text: string; label: string }> = {
-  match: {
-    icon: <Check className="h-4 w-4" aria-hidden />,
-    row: 'border-emerald-200 bg-emerald-50/60',
-    text: 'text-emerald-700',
-    label: 'Coincide',
-  },
-  mismatch: {
-    icon: <X className="h-4 w-4" aria-hidden />,
-    row: 'border-red-200 bg-red-50/60',
-    text: 'text-red-700',
-    label: 'No coincide',
-  },
-  unknown: {
-    icon: <AlertTriangle className="h-4 w-4" aria-hidden />,
-    row: 'border-amber-200 bg-amber-50/60',
-    text: 'text-amber-700',
-    label: 'Sin confirmar',
-  },
-}
+import { buildReviewSummary, type RegisterReviewData } from '@/lib/auth/register-review'
 
 /**
- * Paso 3: muestra el mapeo entre lo que declaró el usuario y lo que Didit leyó del
- * documento. Solo habilita «Terminar» si todas las filas coinciden; si no, el único
- * camino es volver a corregir.
+ * Paso 2: resumen de lo que ingresó el usuario antes de crear la cuenta. No hay verificación de
+ * identidad en línea: la cuenta nace pendiente y administración la aprueba.
  */
 export default function RegisterReview({
-  verificationResults,
-  documentFields,
-  account,
+  data,
+  canConfirm,
   submitting,
   onBack,
   onCancel,
-  onRetryVerification,
   onConfirm,
 }: {
-  verificationResults: RegisterVerificationResults | null
-  documentFields?: DiditDocumentFields
-  /** Datos que no vienen del documento pero se crean con la cuenta. */
-  account: { email: string; phone: string; roleLabel: string }
+  data: RegisterReviewData
+  /** Los datos del paso 1 son válidos. */
+  canConfirm: boolean
   submitting: boolean
   onBack: () => void
   /** Abandona el alta por completo. Sin esto el paso queda sin salida. */
   onCancel: () => void
-  /** Descarta la lectura del documento y arranca una verificación nueva. */
-  onRetryVerification: () => void
   onConfirm: () => void
 }) {
-  const rows = buildReviewRows(verificationResults, documentFields)
-  const canConfirm = canConfirmRegistration(rows)
-  const blockingReason = getReviewBlockingReason(rows)
+  const rows = buildReviewSummary(data)
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold text-gray-900">Revisá tus datos</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Comparamos lo que ingresaste con lo que leímos de tu documento. Si está todo bien, terminá el
-          registro; si algo no coincide, volvé y corregilo.
+          Si está todo bien, terminá el registro; si algo está mal, volvé y corregilo.
         </p>
       </div>
 
-      <div className="space-y-2">
-        {rows.map((row) => {
-          const style = STATUS_STYLES[row.status]
-          return (
-            <div key={row.field} className={`rounded-xl border p-4 ${style.row}`}>
-              <div className="flex items-start justify-between gap-3">
-                <p className="font-medium text-gray-900">{row.label}</p>
-                <span className={`flex shrink-0 items-center gap-1 text-sm font-medium ${style.text}`}>
-                  {style.icon}
-                  {style.label}
-                </span>
-              </div>
+      <dl className="grid grid-cols-1 gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm sm:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.label} className="flex gap-2">
+            <dt className="text-gray-500">{row.label}:</dt>
+            <dd className="min-w-0 break-words font-medium text-gray-900">{row.value || '—'}</dd>
+          </div>
+        ))}
+      </dl>
 
-              <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-                <div className="flex gap-2">
-                  <dt className="text-gray-500">Ingresaste:</dt>
-                  <dd className="min-w-0 break-words font-medium text-gray-900">{row.declared || '—'}</dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="text-gray-500">Tu documento dice:</dt>
-                  <dd className="min-w-0 break-words font-medium text-gray-900">
-                    {row.fromDocument || <span className="font-normal text-gray-400">no lo pudimos leer</span>}
-                  </dd>
-                </div>
-              </dl>
-
-              {row.status !== 'match' && (
-                <p className={`mt-2 text-sm ${style.text}`}>{row.message}</p>
-              )}
-            </div>
-          )
-        })}
+      <div className="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+        <Clock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <p>Tu cuenta queda pendiente hasta que administración revise tus datos y la apruebe.</p>
       </div>
-
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-        <h3 className="mb-2 text-sm font-semibold text-gray-800">Datos de la cuenta</h3>
-        <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
-          <div className="flex gap-2">
-            <dt className="text-gray-500">Correo:</dt>
-            <dd className="min-w-0 break-all font-medium text-gray-900">{account.email}</dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="text-gray-500">Celular:</dt>
-            <dd className="font-medium text-gray-900">{account.phone || '—'}</dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="text-gray-500">Perfil:</dt>
-            <dd className="font-medium text-gray-900">{account.roleLabel}</dd>
-          </div>
-        </dl>
-      </div>
-
-      {blockingReason && (
-        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-medium text-red-700">{blockingReason}</p>
-          <p className="mt-2 text-sm text-red-700">
-            Si lo que ingresaste está bien, puede haber fallado la lectura del documento:
-            probá <strong>verificar de nuevo</strong> con mejor luz y sin reflejos.
-          </p>
-        </div>
-      )}
 
       <div className="flex flex-col gap-3 border-t border-gray-200 pt-6 sm:flex-row">
         <button type="button" onClick={onBack} disabled={submitting} className="btn-secondary flex-1 justify-center">
@@ -142,19 +57,9 @@ export default function RegisterReview({
         </button>
         <button
           type="button"
-          onClick={onRetryVerification}
-          disabled={submitting}
-          className="btn-secondary flex-1 justify-center"
-        >
-          <RefreshCw className="mr-1 h-4 w-4" aria-hidden />
-          Verificar de nuevo
-        </button>
-        <button
-          type="button"
           onClick={onConfirm}
           disabled={!canConfirm || submitting}
           className="btn-primary flex-1 justify-center disabled:opacity-60"
-          title={canConfirm ? undefined : (blockingReason ?? undefined)}
         >
           <PendingButtonContent pending={submitting} pendingText="Creando cuenta…" idle="Terminar registro" />
         </button>

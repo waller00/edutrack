@@ -160,7 +160,7 @@ Luego validar manualmente:
 - cookie `sid` marcada como segura;
 - `GET https://api.edutrack-uy.com/ready`;
 - carga de Moodle por `https://moodle.edutrack-uy.com`;
-- flujos externos que entren al backend, como Didit o ZKTeco si estan activos.
+- flujos externos que entren al backend, como ZKTeco si esta activo.
 
 ## Monitoreo y k6
 

@@ -17,7 +17,7 @@ La arquitectura actual incluye:
 - Base de datos PostgreSQL administrada por Prisma.
 - Contenedores Docker mediante `docker-compose.yml` y `docker-compose.cloud.yml`.
 - Despliegue cloud en Droplet Ubuntu con Docker Compose.
-- Integraciones externas: Google (vía Keycloak), SMTP/SendGrid, Didit, Web Push y APIs de IA opcionales.
+- Integraciones externas: Google (vía Keycloak), SMTP/SendGrid, Web Push y APIs de IA opcionales.
 - Scripts de exportación, importación y restauración de base de datos.
 - Análisis de seguridad en CI con Trivy.
 
@@ -30,9 +30,11 @@ Los datos deben ser accesibles solo por usuarios autorizados. Controles:
 - Autenticación OIDC vía Keycloak (usuario/contraseña, Google, TOTP en el IdP).
 - Patrón BFF: tokens OIDC en Redis; cookie HttpOnly `sid` en el navegador.
 - Contraseñas gestionadas en Keycloak (no en Postgres).
-- Variables de entorno para secretos (`KEYCLOAK_CLIENT_SECRET`, SMTP, Didit, VAPID, etc.).
+- Variables de entorno para secretos (`KEYCLOAK_CLIENT_SECRET`, SMTP, VAPID, etc.).
 - Permisos granulares por `orgRole` en Postgres.
-- Verificación de identidad en registro mediante Didit (documento y prueba de vida).
+- Aprobación manual de cada cuenta nueva: el alta queda pendiente (`isApproved: false`) hasta que
+  administración revisa los datos declarados. La prueba de vida con Didit se retiró; ya no se envían
+  documento ni biometría a un tercero.
 
 ### Integridad
 
@@ -42,7 +44,6 @@ La informacion debe mantenerse correcta y trazable. Controles relevantes:
 - Validaciones de negocio en backend.
 - Auditoria de acciones criticas mediante `AuditLog`.
 - Restricciones de base de datos, indices y claves unicas.
-- Verificacion de firma HMAC en webhooks de Didit.
 - Procesamiento controlado de marcaciones biometricas para evitar duplicados.
 - Tests automatizados en backend y frontend.
 
@@ -65,7 +66,7 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 | Sesiones | Cookie `sid` + Redis | `session-store.ts`, `middlewares/auth.ts` |
 | Contrasenas | IdP Keycloak | Admin API + portal de cuenta |
 | Autorizacion | Roles y permisos | `OrgRole`, `Permission`, `RolePermission` |
-| Datos personales | Validacion de cedula e identidad | Didit |
+| Datos personales | Validacion de cedula e identidad | Digito verificador de la CI + aprobacion manual |
 | Auditoria | Registro de acciones criticas | Modelo `AuditLog` |
 | Notificaciones | In-app, email y web push | PostgreSQL, SMTP/SendGrid, VAPID |
 | Seguridad HTTP | Headers y CORS | Helmet, CORS configurable |
@@ -83,7 +84,6 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 | Vulnerabilidades en dependencias | Medio/alto | Trivy en CI | Dependabot/Renovate y politicas de actualizacion |
 | Acceso indebido | Alto | Roles, permisos, sesion BFF | TOTP en Keycloak para administradores |
 | Error humano en despliegue | Medio | Docker Compose y scripts | Runbook de despliegue y rollback |
-| Webhook falso de identidad | Alto | Validacion HMAC Didit | Monitoreo de errores y alertas |
 | Indisponibilidad de email/push | Medio | Canales separados | Cola de reintentos y fallback operativo |
 
 ## Continuidad del negocio
@@ -101,7 +101,7 @@ La continuidad del negocio busca que EduTrack pueda seguir operando o recuperars
 | Backend API | Critica | 1 hora | No aplica | Puede reconstruirse desde imagen/codigo; no almacena estado persistente propio |
 | Frontend web | Alta | 1 hora | No aplica | Puede reconstruirse desde codigo o imagen Docker |
 | Notificaciones email/push | Media | 4 horas | 24 horas | La perdida no impide operar, pero afecta avisos |
-| Integraciones externas Didit/Google/IA | Media | 8 horas | Segun proveedor | Dependen de terceros; debe existir modo degradado |
+| Integraciones externas Google/IA | Media | 8 horas | Segun proveedor | Dependen de terceros; debe existir modo degradado |
 | Reportes/exportaciones | Media | 8 horas | 24 horas | Son importantes para gestion, pero no bloquean el uso principal |
 
 Para un proyecto academico o primera etapa productiva, un objetivo razonable es:
@@ -231,7 +231,6 @@ RTO esperado: 2 a 4 horas si el backup externo y secretos estan disponibles.
 
 Si una integracion externa falla, EduTrack deberia mantener el mayor nivel de operacion posible:
 
-- Si Didit no esta disponible: permitir registro solo si la politica institucional lo autoriza, o dejar altas pendientes de aprobacion manual.
 - Si SMTP/SendGrid falla: mantener notificaciones in-app y registrar error de envio.
 - Si Web Push falla: no bloquear operaciones principales.
 - Si la terminal biometrica falla: permitir carga administrativa de asistencia con auditoria.
@@ -265,7 +264,7 @@ Para produccion se recomienda:
 - No exponer PostgreSQL publicamente.
 - Restringir SSH por clave publica y deshabilitar login por contrasena.
 - Mantener firewall con puertos minimos: 80/443 y SSH restringido.
-- Rotar `KEYCLOAK_CLIENT_SECRET`, credenciales SMTP, Didit y VAPID ante sospecha de exposicion.
+- Rotar `KEYCLOAK_CLIENT_SECRET`, credenciales SMTP y VAPID ante sospecha de exposicion.
 - Mantener `.env` fuera de Git.
 - Activar backups automaticos del proveedor cloud.
 - Monitorear uso de CPU, RAM, disco y disponibilidad HTTP.

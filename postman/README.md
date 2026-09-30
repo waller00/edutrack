@@ -48,7 +48,6 @@ La sesión caduca: si empezás a ver 401, repetí el paso.
 01 · Sesión (empezar acá)        login, refresh, me, logout
 02 · Cuenta y 2FA                Keycloak: contraseña, OTP, recuperación por correo
 03 · Registro y perfil propio    alta pública, verificación de correo, perfil
-04 · Prueba de vida (Didit)      liveness + webhook
 05-09 · Admin                    usuarios, perfiles/permisos, ajustes, estudiantes, ciclos lectivos
 10 · Estructura académica        cursos, orientaciones, asignaturas
 11-12 · Eventos y suplencias     horarios, recurrencias, ocurrencias, cobertura

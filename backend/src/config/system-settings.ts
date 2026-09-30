@@ -13,28 +13,11 @@ export function isMoodleSyncEnabledFromEnv(): boolean {
   return parseEnvBool('MOODLE_SYNC_ENABLED')
 }
 
-export function isDiditConfigured() {
-  const key = (process.env.DIDIT_API_KEY || '').trim()
-  const wid = (process.env.DIDIT_WORKFLOW_ID || '').trim()
-  return Boolean(key && wid)
-}
-
-/**
- * Política: el alta exige Didit/prueba de vida.
- * Bypass solo para desarrollo (`ALLOW_REGISTER_WITHOUT_DIDIT=true`) o ejecución bajo Vitest (`NODE_ENV=test`).
- */
-export function isLivenessRequiredForRegistration() {
-  if (process.env.NODE_ENV === 'test') return false
-  if ((process.env.ALLOW_REGISTER_WITHOUT_DIDIT || '').trim() === 'true') return false
-  return true
-}
-
 export async function getOrCreateSystemSettings() {
   const row = await prisma.systemSettings.upsert({
     where: { id: DEFAULT_ID },
     create: {
       id: DEFAULT_ID,
-      livenessCheckEnabled: false,
       attendanceNoShowGraceMinutes: 15,
       attendanceLateToleranceMinutes: 5,
       attendanceEarlyExitToleranceMinutes: 5,

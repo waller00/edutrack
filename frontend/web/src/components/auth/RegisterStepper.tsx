@@ -2,7 +2,7 @@
 
 import { Check } from 'lucide-react'
 
-export const REGISTER_STEPS = ['Tus datos', 'Verificación', 'Revisión'] as const
+export const REGISTER_STEPS = ['Tus datos', 'Revisión'] as const
 
 /** Indicador de progreso del alta. `current` es 0-based. */
 export default function RegisterStepper({ current }: { current: number }) {

@@ -723,37 +723,6 @@
       "description": "Alta de usuarios desde el formulario público y edición del propio perfil.",
       "item": [
         {
-          "name": "Opciones de registro",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/auth/registration-options",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "registration-options"
-              ]
-            },
-            "description": "Dice si la prueba de vida (Didit) es obligatoria y si está configurada."
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
-                  "pm.request.headers.remove(\"Cookie\");"
-                ]
-              }
-            }
-          ]
-        },
-        {
           "name": "¿Username disponible?",
           "request": {
             "method": "GET",
@@ -849,10 +818,10 @@
                 "register"
               ]
             },
-            "description": "password y livenessToken son opcionales según configuración (SSO / liveness apagado).",
+            "description": "password es opcional en el alta con Google (SSO). La cuenta queda pendiente hasta que un admin la apruebe.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"nuevo.docente@ejemplo.com\",\n  \"password\": \"Contrasena.Fuerte1\",\n  \"nationalId\": \"12345672\",\n  \"firstName\": \"Ana\",\n  \"lastName\": \"Pérez\",\n  \"phone\": \"099123456\",\n  \"birthdate\": \"1990-05-12T00:00:00.000Z\",\n  \"role\": \"TEACHER\",\n  \"livenessToken\": \"{{livenessToken}}\"\n}",
+              "raw": "{\n  \"email\": \"nuevo.docente@ejemplo.com\",\n  \"password\": \"Contrasena.Fuerte1\",\n  \"nationalId\": \"12345672\",\n  \"firstName\": \"Ana\",\n  \"lastName\": \"Pérez\",\n  \"phone\": \"099123456\",\n  \"birthdate\": \"1990-05-12T00:00:00.000Z\",\n  \"role\": \"TEACHER\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -971,201 +940,6 @@
             }
           },
           "response": []
-        }
-      ]
-    },
-    {
-      "name": "04 · Prueba de vida (Didit)",
-      "description": "Liveness para el registro. Inactivo si faltan DIDIT_API_KEY / DIDIT_WORKFLOW_ID.",
-      "item": [
-        {
-          "name": "Crear sesión de liveness",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/auth/didit/liveness-session",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "didit",
-                "liveness-session"
-              ]
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"nuevo.docente@ejemplo.com\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "if (pm.response.code === 200) { pm.environment.set(\"livenessToken\", pm.response.json().id || \"\"); }"
-                ]
-              }
-            },
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
-                  "pm.request.headers.remove(\"Cookie\");"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Estado de la sesión de liveness",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/auth/liveness/status?token={{livenessToken}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "liveness",
-                "status"
-              ],
-              "query": [
-                {
-                  "key": "token",
-                  "value": "{{livenessToken}}",
-                  "description": "UUID interno o didit_session_id"
-                }
-              ]
-            },
-            "description": ""
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
-                  "pm.request.headers.remove(\"Cookie\");"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Verificar campos contra el documento",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/auth/didit/register-field-verify",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "didit",
-                "register-field-verify"
-              ]
-            },
-            "description": "Contrasta lo que escribió la persona contra lo que leyó Didit del documento.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"livenessToken\": \"{{livenessToken}}\",\n  \"email\": \"nuevo.docente@ejemplo.com\",\n  \"firstName\": \"Ana\",\n  \"lastName\": \"Pérez\",\n  \"nationalId\": \"12345672\",\n  \"birthdate\": \"1990-05-12\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
-                  "pm.request.headers.remove(\"Cookie\");"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Webhook de Didit",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "x-signature",
-                "value": "<HMAC>"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/didit",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "didit"
-              ]
-            },
-            "description": "Lo llama Didit, no vos. El cuerpo se lee en raw para validar el HMAC — está documentado acá por completitud.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\"session_id\":\"...\",\"status\":\"Approved\"}",
-              "options": {
-                "raw": {
-                  "language": "text"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Endpoint público / autenticado por otro medio: no inyectar cookie de sesión.",
-                  "pm.request.headers.remove(\"Cookie\");"
-                ]
-              }
-            }
-          ]
         }
       ]
     },
@@ -1706,7 +1480,7 @@
             "description": "Todos los campos son opcionales: mandá solo los que querés cambiar.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"livenessCheckEnabled\": false,\n  \"attendanceLateToleranceMinutes\": 10,\n  \"attendanceNoShowGraceMinutes\": 30,\n  \"attendanceEarlyExitToleranceMinutes\": 10,\n  \"attendanceClassBridgeGapMinutes\": 30,\n  \"attendanceMonitorEnabled\": true,\n  \"attendanceMonitorIntervalMs\": 300000,\n  \"biometricDuplicateWindowMinutes\": 5,\n  \"moodleSyncEnabled\": true,\n  \"moodleSyncStudents\": true,\n  \"moodleReconcileIntervalMs\": 3600000,\n  \"institutionTimezone\": \"America/Montevideo\"\n}",
+              "raw": "{\n  \"attendanceLateToleranceMinutes\": 10,\n  \"attendanceNoShowGraceMinutes\": 30,\n  \"attendanceEarlyExitToleranceMinutes\": 10,\n  \"attendanceClassBridgeGapMinutes\": 30,\n  \"attendanceMonitorEnabled\": true,\n  \"attendanceMonitorIntervalMs\": 300000,\n  \"biometricDuplicateWindowMinutes\": 5,\n  \"moodleSyncEnabled\": true,\n  \"moodleSyncStudents\": true,\n  \"moodleReconcileIntervalMs\": 3600000,\n  \"institutionTimezone\": \"America/Montevideo\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -6169,11 +5943,6 @@
     },
     {
       "key": "linkRequestId",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "livenessToken",
       "value": "",
       "type": "string"
     }

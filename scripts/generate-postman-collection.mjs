@@ -221,10 +221,6 @@ folders.push(
     '03 · Registro y perfil propio',
     'Alta de usuarios desde el formulario público y edición del propio perfil.',
     [
-      R('Opciones de registro', 'GET', '/auth/registration-options', {
-        noAuth: true,
-        desc: 'Dice si la prueba de vida (Didit) es obligatoria y si está configurada.',
-      }),
       R('¿Username disponible?', 'GET', '/auth/check-username', {
         noAuth: true,
         query: [['u', 'jperez']],
@@ -244,9 +240,8 @@ folders.push(
           phone: '099123456',
           birthdate: '1990-05-12T00:00:00.000Z',
           role: 'TEACHER',
-          livenessToken: '{{livenessToken}}',
         },
-        desc: 'password y livenessToken son opcionales según configuración (SSO / liveness apagado).',
+        desc: 'password es opcional en el alta con Google (SSO). La cuenta queda pendiente hasta que un admin la apruebe.',
       }),
       R('Verificar correo', 'POST', '/auth/verify', { noAuth: true, body: { token: '<token del mail>' } }),
       R('Reenviar verificación', 'POST', '/auth/verify/resend'),
@@ -260,43 +255,6 @@ folders.push(
           birthdate: '1990-05-12',
         },
         desc: 'La cédula solo se puede fijar una vez (después la cambia un admin). Cambiar el email invalida la verificación.',
-      }),
-    ],
-  ),
-)
-
-folders.push(
-  F(
-    '04 · Prueba de vida (Didit)',
-    'Liveness para el registro. Inactivo si faltan DIDIT_API_KEY / DIDIT_WORKFLOW_ID.',
-    [
-      R('Crear sesión de liveness', 'POST', '/auth/didit/liveness-session', {
-        noAuth: true,
-        body: { email: 'nuevo.docente@ejemplo.com' },
-        test: 'if (pm.response.code === 200) { pm.environment.set("livenessToken", pm.response.json().id || ""); }',
-      }),
-      R('Estado de la sesión de liveness', 'GET', '/auth/liveness/status', {
-        noAuth: true,
-        query: [['token', '{{livenessToken}}', { desc: 'UUID interno o didit_session_id' }]],
-      }),
-      R('Verificar campos contra el documento', 'POST', '/auth/didit/register-field-verify', {
-        noAuth: true,
-        body: {
-          livenessToken: '{{livenessToken}}',
-          email: 'nuevo.docente@ejemplo.com',
-          firstName: 'Ana',
-          lastName: 'Pérez',
-          nationalId: '12345672',
-          birthdate: '1990-05-12',
-        },
-        desc: 'Contrasta lo que escribió la persona contra lo que leyó Didit del documento.',
-      }),
-      R('Webhook de Didit', 'POST', '/webhooks/didit', {
-        noAuth: true,
-        headers: [{ key: 'x-signature', value: '<HMAC>' }],
-        rawBody: '{"session_id":"...","status":"Approved"}',
-        contentType: 'application/json',
-        desc: 'Lo llama Didit, no vos. El cuerpo se lee en raw para validar el HMAC — está documentado acá por completitud.',
       }),
     ],
   ),
@@ -394,7 +352,6 @@ folders.push(
       R('Leer ajustes', 'GET', '/admin/system-settings'),
       R('Guardar ajustes', 'PUT', '/admin/system-settings', {
         body: {
-          livenessCheckEnabled: false,
           attendanceLateToleranceMinutes: 10,
           attendanceNoShowGraceMinutes: 30,
           attendanceEarlyExitToleranceMinutes: 10,
@@ -1318,7 +1275,6 @@ const collection = {
     { key: 'deviceSecret', value: '', type: 'string' },
     { key: 'deviceSn', value: '', type: 'string' },
     { key: 'linkRequestId', value: '', type: 'string' },
-    { key: 'livenessToken', value: '', type: 'string' },
   ],
 }
 
@@ -1361,7 +1317,6 @@ const sharedIds = [
   'deviceCode',
   'deviceSn',
   'linkRequestId',
-  'livenessToken',
 ]
 
 const localEnv = env('EduTrack · Local', [

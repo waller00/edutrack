@@ -46,9 +46,7 @@ describe('RegisterPage', () => {
   })
 
   it('redirige si ya hay sesión', async () => {
-    mockedApi
-      .mockResolvedValueOnce({ email: 'x' })
-      .mockResolvedValueOnce({ livenessCheckEnabled: false })
+    mockedApi.mockResolvedValueOnce({ email: 'x' })
 
     render(<RegisterPage />)
 
@@ -58,23 +56,24 @@ describe('RegisterPage', () => {
   it('muestra el paso de datos si no hay sesión', async () => {
     mockedApi
       .mockImplementationOnce(() => Promise.reject(new Error('401')))
-      .mockResolvedValue({ livenessCheckEnabled: false })
+      .mockResolvedValue({})
 
     render(<RegisterPage />)
 
     expect(await screen.findByText('Crear Cuenta')).toBeInTheDocument()
-    // Arranca en el paso 1; la verificación de identidad vive en el paso 2.
+    // Arranca en el paso 1 (Datos); el paso 2 es la revisión.
     expect(screen.getByRole('textbox', { name: /correo/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /continuar$/i })).toBeInTheDocument()
-    expect(
-      screen.queryByText(/alta con verificación online no está disponible en este entorno/i),
-    ).not.toBeInTheDocument()
+    // Dos pasos: ya no hay verificación de identidad en línea.
+    expect(screen.getByText('Tus datos')).toBeInTheDocument()
+    expect(screen.getByText('Revisión')).toBeInTheDocument()
+    expect(screen.queryByText('Verificación')).not.toBeInTheDocument()
   })
 
   it('revela los errores por campo al intentar continuar con el formulario vacío', async () => {
     mockedApi
       .mockImplementationOnce(() => Promise.reject(new Error('401')))
-      .mockResolvedValue({ livenessCheckEnabled: true })
+      .mockResolvedValue({})
     render(<RegisterPage />)
     await screen.findByText('Crear Cuenta')
 
@@ -90,7 +89,7 @@ describe('RegisterPage', () => {
   it('valida en vivo mientras se escribe, sin esperar al envío', async () => {
     mockedApi
       .mockImplementationOnce(() => Promise.reject(new Error('401')))
-      .mockResolvedValue({ livenessCheckEnabled: true })
+      .mockResolvedValue({})
     render(<RegisterPage />)
     await screen.findByText('Crear Cuenta')
 
@@ -107,7 +106,7 @@ describe('RegisterPage', () => {
   it('marca los campos obligatorios con asterisco accesible', async () => {
     mockedApi
       .mockImplementationOnce(() => Promise.reject(new Error('401')))
-      .mockResolvedValue({ livenessCheckEnabled: true })
+      .mockResolvedValue({})
     render(<RegisterPage />)
     await screen.findByText('Crear Cuenta')
 
@@ -133,7 +132,7 @@ describe('RegisterPage', () => {
           emailLocked: true,
         })
       }
-      return Promise.resolve({ livenessCheckEnabled: false })
+      return Promise.resolve({})
     })
 
     render(<RegisterPage />)
@@ -154,16 +153,14 @@ describe('RegisterPage', () => {
     )
   })
 
-  it('cancelar borra el borrador y el token de verificación pendientes', async () => {
+  it('cancelar limpia la marca de auto-login', async () => {
     const locationMock = { href: '', replace: vi.fn(), search: '' }
     Object.defineProperty(window, 'location', { configurable: true, value: locationMock })
-    sessionStorage.setItem('edutrack_register_draft', JSON.stringify({ v: 1 }))
-    sessionStorage.setItem('edutrack_liveness_token', 'token-viejo')
     sessionStorage.setItem('edutrack.login.autostarted', '1')
 
     mockedApi
       .mockImplementationOnce(() => Promise.reject(new Error('401')))
-      .mockResolvedValue({ livenessCheckEnabled: true })
+      .mockResolvedValue({})
 
     render(<RegisterPage />)
     await screen.findByText('Crear Cuenta')
@@ -171,9 +168,45 @@ describe('RegisterPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^cancelar$/i }))
 
     await waitFor(() => expect(locationMock.href).toBe('/login?cancelled=1'))
-    // Si algo de esto sobrevive, al volver a /register el wizard retoma un paso viejo.
-    expect(sessionStorage.getItem('edutrack_register_draft')).toBeNull()
-    expect(sessionStorage.getItem('edutrack_liveness_token')).toBeNull()
     expect(sessionStorage.getItem('edutrack.login.autostarted')).toBeNull()
+  })
+
+  it('datos → revisión → crea la cuenta sin prueba de vida', async () => {
+    mockedApi.mockImplementation((path) => {
+      if (path === '/auth/me') return Promise.reject(new Error('401'))
+      return Promise.resolve({})
+    })
+    const { container } = render(<RegisterPage />)
+    await screen.findByText('Crear Cuenta')
+
+    const fill = (selector: string, value: string) =>
+      fireEvent.change(container.querySelector(selector) as HTMLElement, { target: { value } })
+    fill('#register-email', 'juan@example.com')
+    fill('#register-password', 'Abcdef12')
+    fill('#register-confirm', 'Abcdef12')
+    fill('#register-national-id', '11111111')
+    fill('#register-first-name', 'Juan')
+    fill('#register-last-name', 'Pérez')
+    fireEvent.change(screen.getByTestId('birthdate-input'), { target: { value: '1990-01-15' } })
+    fill('#register-role', 'TEACHER')
+
+    fireEvent.click(screen.getByRole('button', { name: /continuar$/i }))
+
+    // Revisión: el resumen de lo declarado y el aviso de aprobación manual.
+    expect(await screen.findByText('Revisá tus datos')).toBeInTheDocument()
+    expect(screen.getByText('15/01/1990')).toBeInTheDocument()
+    expect(screen.getByText(/queda pendiente hasta que administración/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /terminar registro/i }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/auth/register', expect.objectContaining({ method: 'POST' })),
+    )
+    const call = mockedApi.mock.calls.find(([path]) => path === '/auth/register')
+    const body = JSON.parse(String((call?.[1] as RequestInit).body))
+    expect(body).toMatchObject({ email: 'juan@example.com', firstName: 'Juan', role: 'TEACHER' })
+    expect(body).not.toHaveProperty('livenessToken')
+    expect(await screen.findByText('Registro Exitoso')).toBeInTheDocument()
+    expect(mockedApi.mock.calls.some(([path]) => /didit|liveness|registration-options/.test(String(path)))).toBe(false)
   })
 })

@@ -876,7 +876,9 @@ describe("admin routes (prisma mock)", () => {
       const res = await request(app()).get("/admin/system-settings").set(adminHdr());
       expect(res.status).toBe(200);
       expect(res.body.attendanceLateToleranceMinutes).toBe(5);
-      expect(res.body).toHaveProperty("diditConfigured");
+      // Didit se quitó: la configuración ya no informa nada de prueba de vida.
+      expect(res.body).not.toHaveProperty("diditConfigured");
+      expect(res.body).not.toHaveProperty("livenessCheckEnabled");
       expect(res.body.institutionTimezone).toBe("America/Montevideo");
       expect(Array.isArray(res.body.institutionTimezoneOptions)).toBe(true);
     });

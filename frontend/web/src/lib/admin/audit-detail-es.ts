@@ -26,6 +26,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 }
 
 const SYSTEM_SETTINGS_LABELS: Record<string, string> = {
+  // Ajuste de Didit, ya retirado: la etiqueta queda para leer auditorías viejas.
   livenessCheckEnabled: 'verificación de vida en altas',
   attendanceNoShowGraceMinutes: 'tolerancia de no-show docente',
   attendanceLateToleranceMinutes: 'tolerancia de llegada tarde',
