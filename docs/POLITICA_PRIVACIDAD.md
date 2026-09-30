@@ -85,7 +85,6 @@ EduTrack puede integrarse con proveedores o sistemas externos segun configuracio
 - Keycloak u otro proveedor de identidad.
 - Moodle u otra plataforma educativa.
 - Servicios de correo transaccional.
-- Servicios de verificacion de identidad o prueba de vida, si estan habilitados.
 - Servicios de observabilidad y monitoreo, con sanitizacion de datos.
 - Servicios de infraestructura cloud.
 

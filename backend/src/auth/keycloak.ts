@@ -5,7 +5,7 @@ import * as oidc from "openid-client";
  *
  * - `getOidcConfig()`: descubre la configuracion OIDC del realm (cacheada).
  * - helpers para construir URLs de login/logout e intercambiar codigos.
- * - Admin API para provisionar usuarios (registro con Didit).
+ * - Admin API para provisionar usuarios (registro de la app).
  *
  * Todo el modulo asume AUTH_MODE=keycloak; si Keycloak no responde, las rutas
  * que lo usan devolveran error controlado.
@@ -267,7 +267,7 @@ export type CreateKeycloakUserInput = {
 
 /**
  * Crea un usuario en el realm y le asigna el rol. Devuelve el id de Keycloak.
- * Usado por el registro de la app tras pasar la prueba de vida (Didit).
+ * Usado por el registro de la app (la cuenta queda pendiente de aprobación).
  */
 export async function createKeycloakUser(input: CreateKeycloakUserInput): Promise<string> {
   const token = await getAdminToken();

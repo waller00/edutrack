@@ -15,7 +15,7 @@ EduTrack es una **plataforma de gestión administrativa integral** orientada a i
 - Estructura **académica** por ciclo lectivo (cursos, materias, estudiantes administrativos).
 - **Reportes, analítica y consultas** en lenguaje natural para administración.
 - Integración opcional con **Moodle** (alta de usuarios vía API REST).
-- Verificación de identidad en registro (**Didit** / prueba de vida) y **biométrico** vía protocolo ADMS.
+- Alta con **aprobación manual** de cada cuenta nueva y **biométrico** vía protocolo ADMS.
 
 ---
 
@@ -99,9 +99,11 @@ En vistas de administración, el **año lectivo activo** filtra listados (asiste
 - Contraseña creada en **Keycloak** (`createKeycloakUser`).
 - **Verificación de email** (enlace/código).
 - **Cloudflare Turnstile** en registro cuando está configurado.
-- **Prueba de vida / Didit** (workflow configurable): obligatoria salvo bypass de desarrollo o entorno de tests.
-- Flujos UI: `/register`, `/register-step-by-step`, `/register/didit-return`, `/verify`.
-- Tras registro: **pendiente de aprobación** hasta que un admin apruebe la cuenta.
+- **Sin verificación de identidad en línea.** La prueba de vida con Didit se quitó: el registro son dos
+  pasos, **Datos → Revisión**, y la identidad la controla administración al aprobar la cuenta.
+- Flujos UI: `/register` (`/register-step-by-step` redirige ahí), `/verify`, `/onboarding` (completar
+  datos faltantes, p. ej. tras entrar con Google).
+- Tras registro: **pendiente de aprobación** (`isApproved: false`) hasta que un admin apruebe la cuenta.
 
 ### 4.3 Recupero y seguridad de cuenta
 
@@ -624,7 +626,6 @@ Secciones:
 
 1. **Sistema:** monitor automático de asistencia (activo, intervalo).
 2. **Asistencia:** tolerancias no-show, tarde, puente entre clases, umbral de tarde biométrica.
-3. **Identidad:** activación de verificación Didit / prueba de vida en registro.
 
 Valores persistidos en tabla `SystemSettings`.
 
@@ -648,7 +649,7 @@ importación es unidireccional: EduTrack es la fuente de verdad y **no** escribe
 ## 18. Pantallas y rutas web (mapa)
 
 ### Públicas / auth
-`/login`, `/register`, `/register-step-by-step`, `/verify`, `/onboarding`, `/register/didit-return`
+`/login`, `/register`, `/register-step-by-step`, `/verify`, `/onboarding`
 
 `/forgot` y `/reset` redirigen al login de Keycloak (recupero gestionado en el IdP).
 
@@ -699,7 +700,6 @@ El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por ro
 | `analytics` | KPIs |
 | `in-app-notifications` | Notificaciones |
 | `web-push` | Push subscriptions |
-| `didit-liveness`, `didit-webhook` | Verificación identidad |
 | `dni-processor` | Procesamiento documento |
 | `non-working-days` | Calendario |
 
@@ -739,7 +739,7 @@ Funcionalidades **no** implementadas:
 
 | Actor | Puede hacer |
 |-------|-------------|
-| **Visitante** | Registrarse, verificar email, Didit (si activo), recuperar contraseña |
+| **Visitante** | Registrarse (queda pendiente de aprobación), verificar email, recuperar contraseña |
 | **Usuario pendiente** | Completar perfil; sin módulos operativos hasta aprobación |
 | **Administrador** | Todo lo anterior + usuarios, asistencias, eventos, licencias, académico, reportes, analítica, consultas, auditoría, configuración, perfiles |
 | **Docente / Staff** | Ver propias asistencias, eventos, licencias; notificaciones; **pasar lista de sus clases** |

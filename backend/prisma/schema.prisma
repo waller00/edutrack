@@ -157,7 +157,8 @@ model User {
   isApproved                             Boolean                          @default(true)
   approvedAt                             DateTime?
   isActive                               Boolean                          @default(true)
-  /// Prueba de vida (Didit) completada al registrarse (si el sistema la exigía).
+  /// Deprecado: Didit se quitó y ya no se escribe. Se borra en la limpieza de base (con backup y
+  /// `db push --accept-data-loss`); dejarlo evita que el `db push` del deploy falle por pérdida de datos.
   livenessVerifiedAt                     DateTime?
 
   @@index([roleId])
@@ -232,6 +233,7 @@ model AuditLog {
 /// Configuración global (fila única `default`).
 model SystemSettings {
   id                                  String   @id @default("default")
+  /// Deprecado: nada lo lee desde que se quitó Didit. Se borra en la limpieza de base.
   livenessCheckEnabled                Boolean  @default(false)
   attendanceNoShowGraceMinutes        Int      @default(15)
   attendanceLateToleranceMinutes      Int      @default(5)
@@ -363,6 +365,7 @@ model MoodleEnrolmentMap {
   @@index([status, endsAt])
 }
 
+/// Deprecado junto con `LivenessSession`: Didit se quitó.
 enum LivenessSessionStatus {
   PENDING
   IN_PROGRESS
@@ -373,7 +376,8 @@ enum LivenessSessionStatus {
   ERROR
 }
 
-/// Sesión de prueba de vida Didit (pre-registro). `id` se envía como `vendor_data`.
+/// Deprecado: sesión de prueba de vida Didit, que se quitó. Nada la lee ni la escribe; queda hasta
+/// la limpieza de base para que el `db push` del deploy no falle por borrar una tabla con filas.
 model LivenessSession {
   id             String                @id @default(uuid())
   diditSessionId String?               @unique

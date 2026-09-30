@@ -19,7 +19,6 @@ Mapa de dónde buscar cada tipo de código. Imports del frontend: `@/lib/api/cli
 | `events/` | Consultas y expansión de eventos |
 | `medical-leaves/` | Validaciones de licencias |
 | `notifications/` | Email y canales |
-| `integrations/didit/` | Prueba de vida en registro |
 
 ### Auth (detalle)
 

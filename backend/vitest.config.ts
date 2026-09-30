@@ -42,9 +42,6 @@ export default defineConfig({
         "src/routes/admin-school-years.ts",
         // Token de registro SSO en Redis (BFF): integración, mismo criterio que session-store.
         "src/auth/sso-registration.ts",
-        // Integraciones externas y webhooks: se validan con contratos/manual en entorno real.
-        "src/integrations/didit/**",
-        "src/routes/didit-*.ts",
         // Autenticación Keycloak/BFF (OIDC + Admin API + Redis): integración validada
         // end-to-end contra Keycloak/Redis reales, no por unit tests.
         "src/auth/keycloak.ts",

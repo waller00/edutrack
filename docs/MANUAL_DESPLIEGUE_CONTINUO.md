@@ -137,7 +137,7 @@ ZKTECO_ICLOCK_PORT=0
 COOKIE_SECURE=false
 COOKIE_SAMESITE=lax
 
-# SMTP, Didit, Sentry, etc. según entorno
+# SMTP, Sentry, etc. según entorno
 ```
 
 En produccion, usar los dominios HTTPS detras del reverse proxy, sin puertos

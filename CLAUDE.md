@@ -49,7 +49,6 @@ backend/                       # API Express + Prisma
     services/                  # Lógica de negocio
     integrations/
       moodle/                  # Sincronización EduTrack→Moodle
-      didit/                   # Prueba de vida (liveness)
       zkteco/                  # Biometría ZKTeco iclock
     auth/                      # Keycloak BFF, sesiones Redis
     db/                        # Prisma client singleton

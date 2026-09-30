@@ -36,7 +36,6 @@ export async function wipeOperationalTestingData() {
   await prisma.course.deleteMany()
   await prisma.nonWorkingDay.deleteMany()
   await prisma.biometricLinkRequest.deleteMany()
-  await prisma.livenessSession.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.inAppNotification.deleteMany()
 }
@@ -70,7 +69,6 @@ export async function resetDatabaseToSingleAdmin(opts?: {
   await prisma.biometricDevice.deleteMany()
   await prisma.webPushSubscription.deleteMany()
   await prisma.emailVerification.deleteMany()
-  await prisma.livenessSession.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.inAppNotification.deleteMany()
   await prisma.user.deleteMany()

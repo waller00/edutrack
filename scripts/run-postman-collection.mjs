@@ -119,9 +119,6 @@ function captureVariables(name, json) {
     ['exportId', 'exportId'],
     ['token', 'lastToken'],
     ['twoFactorToken', 'twoFactorToken'],
-    ['sessionId', 'diditSessionId'],
-    ['diditSessionId', 'diditSessionId'],
-    ['verificationUrl', 'diditVerificationUrl'],
     ['courseOfferingId', 'courseOfferingId'],
   ]
   for (const [key, variable] of pairs) {
@@ -173,9 +170,6 @@ function isPublicScenario(name) {
     name.includes('Verificar correo') ||
     name.includes('Solicitar recuperación') ||
     name.includes('Restablecer contraseña') ||
-    name.includes('Crear sesión Didit') ||
-    name.includes('Verificar campos Didit') ||
-    name.includes('Consultar estado Didit') ||
     name.includes('Ingesta ADMS')
 }
 

@@ -2,8 +2,6 @@ import "dotenv/config";
 /** En Windows, `fetch`/undici a veces eligiendo IPv6 mal enrutado; priorizamos IPv4 (misma API que curl). */
 import dns from "node:dns";
 import express from "express";
-import diditWebhookHandler from "./routes/didit-webhook.js";
-import diditLivenessRoutes from "./routes/didit-liveness.js";
 import * as Sentry from "@sentry/node";
 import cors from "cors";
 import type { CorsOptions } from "cors";
@@ -146,12 +144,6 @@ app.use((req, _res, next) => {
   next();
 });
 app.use("/iclock", iclockTextParser, zktecoIclockRoutes);
-// Webhook Didit: cuerpo raw para validar HMAC
-app.post(
-  "/webhooks/didit",
-  express.raw({ type: "application/json", limit: "2mb" }),
-  diditWebhookHandler,
-);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
@@ -159,7 +151,6 @@ app.use(cookieParser());
 app.use("/auth/login", rateLimit({ bucket: "login", max: 10, windowSeconds: 60 }));
 app.use("/auth", keycloakAuthRoutes);
 app.use("/auth", authRoutes);
-app.use("/auth", diditLivenessRoutes);
 app.use("/admin", adminRoutes);
 app.use("/admin/testing", adminTestingRoutes);
 app.use("/attendance", attendanceRoutes);
