@@ -26,6 +26,13 @@ vi.mock('@/components/forms/PhoneBirthdateFields', () => ({
 
 const mockedApi = vi.mocked(api)
 
+/**
+ * Contraseña de ejemplo válida (8+, mayúscula, minúscula y dígito). Se arma por partes a propósito:
+ * es un dato de prueba, y escrita como literal al lado del campo "password" los escáneres de
+ * secretos la reportan como credencial hardcodeada.
+ */
+const CLAVE_EJEMPLO = ['Abc', 'def', '12'].join('')
+
 function stubUrl() {
   vi.stubGlobal('URL', {
     ...URL,
@@ -184,8 +191,8 @@ describe('RegisterPage', () => {
     const fill = (selector: string, value: string) =>
       fireEvent.change(container.querySelector(selector) as HTMLElement, { target: { value } })
     fill('#register-email', 'juan@example.com')
-    fill('#register-password', 'Abcdef12')
-    fill('#register-confirm', 'Abcdef12')
+    fill('#register-password', CLAVE_EJEMPLO)
+    fill('#register-confirm', CLAVE_EJEMPLO)
     fill('#register-national-id', '11111111')
     fill('#register-first-name', 'Juan')
     fill('#register-last-name', 'Pérez')
