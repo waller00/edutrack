@@ -19,7 +19,7 @@ sonar.javascript.lcov.reportPaths=backend/coverage/lcov.info,...
 
 Tras `npm run test:coverage`, ejecutá el scanner de Sonar para subir líneas/ramas cubiertas.
 
-Objetivo global (backend + frontend): **≥ 70%**. `dni-processor.ts` está excluido de la métrica por bajo retorno (OCR).
+Objetivo global (backend + frontend): **≥ 70%**.
 
 ## Estrategia de cobertura
 
@@ -32,7 +32,7 @@ Objetivo global (backend + frontend): **≥ 70%**. `dni-processor.ts` está excl
 
 ## Archivos de bajo retorno
 
-- `dni-processor.ts`, `reports.ts`: mocks pesados o E2E; excluidos o parcialmente cubiertos según `sonar.coverage.exclusions`.
+- `reports.ts`: mocks pesados o E2E; excluido o parcialmente cubierto según `sonar.coverage.exclusions`.
 
 ## Auth en tests
 

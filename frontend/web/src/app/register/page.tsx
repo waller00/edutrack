@@ -12,21 +12,23 @@ import { loginUrl, logoutUrl } from '@/lib/auth/urls'
 import { PASSWORD_MAX_LENGTH, getPasswordStrength, getStrengthBarClass } from '@/lib/auth/password-strength'
 import { validateRegisterForm, type RegisterRole } from '@/lib/auth/register-form-validation'
 import {
-  isRegisterDataStepComplete,
+  isRegisterFormComplete,
   validateRegisterFields,
   type RegisterFieldName,
   type RegisterFieldValues,
 } from '@/lib/auth/register-field-validation'
 import FormField, { fieldInputClass } from '@/components/forms/FormField'
-import RegisterStepper from '@/components/auth/RegisterStepper'
-import RegisterReview from '@/components/auth/RegisterReview'
+import { Clock } from 'lucide-react'
+import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 
 /**
- * Pasos del alta: datos → revisión y confirmación. No hay verificación de identidad en línea:
- * la cuenta nace pendiente y administración la aprueba antes de que pueda entrar.
+ * Alta en **un solo paso**: se completan los datos y se crea la cuenta.
+ *
+ * Antes había un segundo paso de revisión porque la prueba de vida con Didit devolvía los datos
+ * leídos del documento y había que confirmarlos contra lo declarado. Sin esa verificación, el paso
+ * sólo repetía lo que el usuario acababa de escribir. La identidad la controla administración al
+ * aprobar la cuenta, que nace pendiente.
  */
-const STEP_DATA = 0
-const STEP_REVIEW = 1
 
 type SsoRegisterPrefill = {
   email: string
@@ -58,7 +60,6 @@ export default function RegisterPage() {
   const [ssoRegistrationToken, setSsoRegistrationToken] = useState<string | null>(null)
   const [ssoEmailLocked, setSsoEmailLocked] = useState(false)
   const [ssoPrefillLoading, setSsoPrefillLoading] = useState(false)
-  const [step, setStep] = useState(STEP_DATA)
   /** Un campo solo muestra su error después de que el usuario lo tocó (o al intentar avanzar). */
   const [touched, setTouched] = useState<Partial<Record<RegisterFieldName, boolean>>>({})
 
@@ -127,7 +128,7 @@ export default function RegisterPage() {
   }
   const passwordRequired = !ssoRegistrationToken
   const fieldErrors = validateRegisterFields(fieldValues, { passwordRequired })
-  const dataStepComplete = isRegisterDataStepComplete(fieldValues, { passwordRequired })
+  const formComplete = isRegisterFormComplete(fieldValues, { passwordRequired })
 
   /** Error a mostrar: solo si el campo fue tocado, para no gritarle al usuario al entrar. */
   function fieldError(field: RegisterFieldName): string | undefined {
@@ -158,24 +159,19 @@ export default function RegisterPage() {
     globalThis.location.href = ssoRegistrationToken ? logoutUrl(target) : target
   }
 
-  function goToReviewStep() {
-    if (!dataStepComplete) {
-      // Al intentar avanzar se revelan todos los errores pendientes de una vez.
-      setTouched({
-        email: true,
-        password: true,
-        confirm: true,
-        nationalId: true,
-        firstName: true,
-        lastName: true,
-        phoneLocal: true,
-        birthdate: true,
-        role: true,
-      })
-      return
-    }
-    setError('')
-    setStep(STEP_REVIEW)
+  /** Al intentar enviar se revelan todos los errores pendientes de una vez. */
+  function revealAllErrors() {
+    setTouched({
+      email: true,
+      password: true,
+      confirm: true,
+      nationalId: true,
+      firstName: true,
+      lastName: true,
+      phoneLocal: true,
+      birthdate: true,
+      role: true,
+    })
   }
 
   function validate(): string | null {
@@ -195,7 +191,7 @@ export default function RegisterPage() {
 
   const strength = getPasswordStrength(password)
 
-  /** Crea la cuenta. Se dispara desde «Terminar registro» en el paso de revisión. */
+  /** Crea la cuenta. Se dispara desde «Crear cuenta», al enviar el formulario. */
   async function submitRegistration() {
     setError('')
     const v = validate()
@@ -293,13 +289,14 @@ export default function RegisterPage() {
             <p className="text-gray-600">Completa tus datos para registrarte</p>
           </div>
 
-          <RegisterStepper current={step} />
-
-          {step === STEP_DATA && (
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              goToReviewStep()
+              if (!formComplete) {
+                revealAllErrors()
+                return
+              }
+              void submitRegistration()
             }}
             className="space-y-6"
             noValidate
@@ -517,53 +514,37 @@ export default function RegisterPage() {
               </div>
             )}
 
+            <div className="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <p>
+                Tu cuenta queda pendiente hasta que administración revise tus datos y la apruebe.
+              </p>
+            </div>
+
             <div className="flex gap-4 pt-6 border-t border-gray-200">
-              <button type="submit" className="btn-primary flex-1 disabled:opacity-60" disabled={!dataStepComplete}>
-                Continuar
+              <button
+                type="submit"
+                className="btn-primary flex-1 justify-center disabled:opacity-60"
+                disabled={!formComplete || loading}
+              >
+                <PendingButtonContent pending={loading} pendingText="Creando cuenta…" idle="Crear cuenta" />
               </button>
-              <button type="button" onClick={cancelRegistration} className="btn-secondary flex-1">
+              <button
+                type="button"
+                onClick={cancelRegistration}
+                disabled={loading}
+                className="btn-secondary flex-1 disabled:opacity-60"
+              >
                 Cancelar
               </button>
             </div>
 
-            {!dataStepComplete && Object.keys(touched).length > 0 && (
+            {!formComplete && Object.keys(touched).length > 0 && (
               <p className="text-center text-sm text-gray-500">
-                Completá los campos marcados en rojo para continuar.
+                Completá los campos marcados en rojo para crear la cuenta.
               </p>
             )}
-
-            <div className="mt-6 pt-6 border-t border-gray-200 text-center">
-              <p className="text-sm text-gray-500">
-                Un administrador revisa tus datos y aprueba el alta antes de que puedas ingresar.
-              </p>
-            </div>
           </form>
-          )}
-
-          {step === STEP_REVIEW && (
-            <RegisterReview
-              data={{
-                firstName,
-                lastName,
-                nationalId,
-                birthdate,
-                email,
-                phone: phoneLocal ? `+598 ${phoneLocal}` : '',
-                roleLabel: role === 'TEACHER' ? 'Docente' : role === 'STAFF' ? 'Personal' : '—',
-              }}
-              canConfirm={dataStepComplete}
-              submitting={loading}
-              onBack={() => { setError(''); setStep(STEP_DATA) }}
-              onCancel={cancelRegistration}
-              onConfirm={() => { void submitRegistration() }}
-            />
-          )}
-
-          {step === STEP_REVIEW && error && (
-            <div role="alert" className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          )}
         </div>
       </div>
     </main>

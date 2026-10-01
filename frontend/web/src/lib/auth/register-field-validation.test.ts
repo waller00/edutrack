@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  isRegisterDataStepComplete,
+  isRegisterFormComplete,
   validateRegisterField,
   validateRegisterFields,
   type RegisterFieldValues,
@@ -25,7 +25,7 @@ function withField(overrides: Partial<RegisterFieldValues>): RegisterFieldValues
 describe('validateRegisterField', () => {
   it('acepta un formulario completo y válido', () => {
     expect(validateRegisterFields(VALID)).toEqual({})
-    expect(isRegisterDataStepComplete(VALID)).toBe(true)
+    expect(isRegisterFormComplete(VALID)).toBe(true)
   })
 
   it('marca obligatorios los campos vacíos', () => {
@@ -58,7 +58,7 @@ describe('validateRegisterField', () => {
 
     expect(errors.password).toBeUndefined()
     expect(errors.confirm).toBeUndefined()
-    expect(isRegisterDataStepComplete(values, { passwordRequired: false })).toBe(true)
+    expect(isRegisterFormComplete(values, { passwordRequired: false })).toBe(true)
   })
 
   it('valida el dígito verificador de la cédula', () => {

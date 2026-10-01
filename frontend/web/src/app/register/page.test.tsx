@@ -53,7 +53,7 @@ describe('RegisterPage', () => {
     await waitFor(() => expect(window.location.replace).toHaveBeenCalledWith('/'))
   })
 
-  it('muestra el paso de datos si no hay sesión', async () => {
+  it('muestra el formulario, en un solo paso, si no hay sesión', async () => {
     mockedApi
       .mockImplementationOnce(() => Promise.reject(new Error('401')))
       .mockResolvedValue({})
@@ -61,16 +61,17 @@ describe('RegisterPage', () => {
     render(<RegisterPage />)
 
     expect(await screen.findByText('Crear Cuenta')).toBeInTheDocument()
-    // Arranca en el paso 1 (Datos); el paso 2 es la revisión.
     expect(screen.getByRole('textbox', { name: /correo/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /continuar$/i })).toBeInTheDocument()
-    // Dos pasos: ya no hay verificación de identidad en línea.
-    expect(screen.getByText('Tus datos')).toBeInTheDocument()
-    expect(screen.getByText('Revisión')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /crear cuenta/i })).toBeInTheDocument()
+    // Ni revisión ni verificación: sin Didit, confirmar lo recién tipeado no aporta nada.
+    expect(screen.queryByText('Tus datos')).not.toBeInTheDocument()
+    expect(screen.queryByText('Revisión')).not.toBeInTheDocument()
     expect(screen.queryByText('Verificación')).not.toBeInTheDocument()
+    // El aviso de aprobación manual vivía en la revisión; ahora está en el formulario.
+    expect(screen.getByText(/queda pendiente hasta que administración/i)).toBeInTheDocument()
   })
 
-  it('revela los errores por campo al intentar continuar con el formulario vacío', async () => {
+  it('revela los errores por campo al intentar crear la cuenta con el formulario vacío', async () => {
     mockedApi
       .mockImplementationOnce(() => Promise.reject(new Error('401')))
       .mockResolvedValue({})
@@ -82,8 +83,9 @@ describe('RegisterPage', () => {
     expect(await screen.findByText(/el correo es obligatorio/i)).toBeInTheDocument()
     expect(screen.getByText(/la cédula es obligatoria/i)).toBeInTheDocument()
     expect(screen.getByText(/nombres es obligatorio/i)).toBeInTheDocument()
-    // Sigue en el paso 1: no avanza con datos incompletos.
-    expect(screen.getByRole('button', { name: /continuar$/i })).toBeDisabled()
+    // No crea nada con datos incompletos.
+    expect(screen.getByRole('button', { name: /crear cuenta/i })).toBeDisabled()
+    expect(mockedApi.mock.calls.some(([path]) => path === '/auth/register')).toBe(false)
   })
 
   it('valida en vivo mientras se escribe, sin esperar al envío', async () => {
@@ -171,7 +173,7 @@ describe('RegisterPage', () => {
     expect(sessionStorage.getItem('edutrack.login.autostarted')).toBeNull()
   })
 
-  it('datos → revisión → crea la cuenta sin prueba de vida', async () => {
+  it('crea la cuenta en un solo paso, sin prueba de vida ni revisión', async () => {
     mockedApi.mockImplementation((path) => {
       if (path === '/auth/me') return Promise.reject(new Error('401'))
       return Promise.resolve({})
@@ -190,14 +192,7 @@ describe('RegisterPage', () => {
     fireEvent.change(screen.getByTestId('birthdate-input'), { target: { value: '1990-01-15' } })
     fill('#register-role', 'TEACHER')
 
-    fireEvent.click(screen.getByRole('button', { name: /continuar$/i }))
-
-    // Revisión: el resumen de lo declarado y el aviso de aprobación manual.
-    expect(await screen.findByText('Revisá tus datos')).toBeInTheDocument()
-    expect(screen.getByText('15/01/1990')).toBeInTheDocument()
-    expect(screen.getByText(/queda pendiente hasta que administración/i)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /terminar registro/i }))
+    fireEvent.click(screen.getByRole('button', { name: /crear cuenta/i }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith('/auth/register', expect.objectContaining({ method: 'POST' })),
