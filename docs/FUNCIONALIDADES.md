@@ -99,8 +99,10 @@ En vistas de administración, el **año lectivo activo** filtra listados (asiste
 - Contraseña creada en **Keycloak** (`createKeycloakUser`).
 - **Verificación de email** (enlace/código).
 - **Cloudflare Turnstile** en registro cuando está configurado.
-- **Sin verificación de identidad en línea.** La prueba de vida con Didit se quitó: el registro son dos
-  pasos, **Datos → Revisión**, y la identidad la controla administración al aprobar la cuenta.
+- **Sin verificación de identidad en línea.** La prueba de vida con Didit se quitó, y con ella el paso
+  de revisión: existía para confirmar los datos que Didit leía del documento contra los declarados, y
+  sin esa lectura sólo repetía lo que el usuario acababa de escribir. El alta es **un formulario, un
+  envío**, y la identidad la controla administración al aprobar la cuenta.
 - Flujos UI: `/register` (`/register-step-by-step` redirige ahí), `/verify`, `/onboarding` (completar
   datos faltantes, p. ej. tras entrar con Google).
 - Tras registro: **pendiente de aprobación** (`isApproved: false`) hasta que un admin apruebe la cuenta.
@@ -111,10 +113,6 @@ En vistas de administración, el **año lectivo activo** filtra listados (asiste
 - Bloqueo/desbloqueo y reset de contraseña por administrador (Admin API Keycloak).
 - Onboarding y perfil (`/onboarding`, `/profile`).
 - Auditoría de acciones sensibles.
-
-### 4.4 Procesamiento de documento (DNI)
-
-- Ruta administrativa **entrenamiento/preprocesado DNI** (`/admin/train-dni`, API `dni-processor`) para flujos de captura de documento en registro.
 
 ---
 
@@ -654,7 +652,7 @@ importación es unidireccional: EduTrack es la fuente de verdad y **no** escribe
 `/forgot` y `/reset` redirigen al login de Keycloak (recupero gestionado en el IdP).
 
 ### Administración
-`/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/student-attendance`, `/admin/analytics`, `/admin/settings`, `/admin/profiles`, `/admin/audit`, `/admin/train-dni`, `/admin/test-preprocessing`
+`/admin/users`, `/admin/attendance`, `/admin/events`, `/admin/licenses`, `/admin/school-years`, `/admin/school-years/compare`, `/admin/courses`, `/admin/students`, `/admin/student-attendance`, `/admin/analytics`, `/admin/settings`, `/admin/profiles`, `/admin/audit`
 
 ### Personal (rutas legacy por rol)
 `/teacher/*`, `/staff/*` — equivalentes a módulos “mis …”
@@ -700,7 +698,6 @@ El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por ro
 | `analytics` | KPIs |
 | `in-app-notifications` | Notificaciones |
 | `web-push` | Push subscriptions |
-| `dni-processor` | Procesamiento documento |
 | `non-working-days` | Calendario |
 
 Todas las rutas protegidas validan sesión BFF (`authGuard` + cookie `sid`) y, donde aplica, permisos granulares.

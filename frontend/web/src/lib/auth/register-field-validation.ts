@@ -7,7 +7,7 @@ import {
 } from '@/lib/auth/register-form-validation'
 
 /**
- * Validación campo por campo del paso de datos, pensada para correr en cada tecla.
+ * Validación campo por campo del formulario de alta, pensada para correr en cada tecla.
  *
  * `validateRegisterForm` sigue siendo la validación de corte (devuelve un único error para
  * bloquear el envío); esto es su contraparte por campo, para mostrar el error al lado del
@@ -139,7 +139,7 @@ export function validateRegisterField(
   }
 }
 
-/** Todos los errores del paso de datos, por campo. */
+/** Todos los errores del formulario, por campo. */
 export function validateRegisterFields(
   values: RegisterFieldValues,
   options?: { passwordRequired?: boolean },
@@ -163,8 +163,8 @@ export function validateRegisterFields(
   return errors
 }
 
-/** `true` si el paso de datos está completo y puede avanzar a la verificación. */
-export function isRegisterDataStepComplete(
+/** `true` si el formulario está completo y se puede crear la cuenta. */
+export function isRegisterFormComplete(
   values: RegisterFieldValues,
   options?: { passwordRequired?: boolean },
 ): boolean {
