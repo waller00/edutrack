@@ -626,6 +626,34 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     expect(res.body.message).toMatch(/contraseña/i);
   });
 
+  it("POST /auth/register con Google acepta la contraseña vacía que manda el formulario", async () => {
+    // El alta con Google no muestra el campo de contraseña y el formulario envía "". Pedirla ahí
+    // deja al usuario trabado: el mensaje habla de un campo que no está en pantalla.
+    getSsoRegistrationMock.mockResolvedValue({
+      kcId: "kc-1",
+      email: "nuevo@example.com",
+      emailVerified: true,
+    });
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.create.mockResolvedValue({ id: "u-sso", email: "nuevo@example.com", username: "nuevo" });
+
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ email: "nuevo@example.com", password: "", ssoRegistrationToken: "x".repeat(30) }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ email: "nuevo@example.com" });
+    expect(prismaMock.user.create).toHaveBeenCalled();
+  });
+
+  it("POST /auth/register sin SSO sigue rechazando la contraseña vacía", async () => {
+    const res = await request(app())
+      .post("/auth/register")
+      .send(registerBody({ password: "" }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/contraseña/i);
+  });
+
   it("POST /auth/register rechaza email que no coincide con Google", async () => {
     getSsoRegistrationMock.mockResolvedValue({
       kcId: "kc-1",
