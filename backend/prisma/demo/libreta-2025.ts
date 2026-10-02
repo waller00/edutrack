@@ -214,18 +214,25 @@ async function seedRollCall(params: {
   roster: Alumno[]
   rand: Rand
   clasesPorLibreta: number
+  eventosUsados: Set<string>
 }) {
-  const { db, libreta, roster, rand, clasesPorLibreta } = params
+  const { db, libreta, roster, rand, clasesPorLibreta, eventosUsados } = params
+  // La clase se busca por el scope completo: dos libretas de la misma asignatura en orientaciones
+  // distintas son dos clases distintas, y una sesión de pase de lista es única por
+  // (evento, día). Sin la orientación, las dos libretas tomarían el mismo evento.
   const event = await db.event.findFirst({
     where: {
       schoolYearId: libreta.schoolYearId,
       courseOfferingId: libreta.courseOfferingId,
       subjectId: libreta.subjectId,
+      courseOrientationId: libreta.courseOrientationId,
+      orientationId: libreta.orientationId,
       type: 'CLASE',
     },
     select: { id: true, revisionOf: true, startDate: true, endDate: true, daysOfWeek: true, startTime: true, endTime: true },
   })
-  if (!event) return 0
+  if (!event || eventosUsados.has(event.id)) return 0
+  eventosUsados.add(event.id)
 
   let marcas = 0
   for (const ymd of occurrences(event, clasesPorLibreta)) {
@@ -297,11 +304,28 @@ export type DemoLibretaSummary = {
   marcasDeAsistencia: number
 }
 
+/**
+ * Deja el ciclo sin datos de libreta antes de recrearlos.
+ *
+ * El borrado del seed de demo no los toca —las libretas cuelgan del ciclo, que sobrevive—, así que
+ * sin esto una segunda corrida duplicaría evaluaciones y cierres.
+ */
+async function clearLibretaData(db: PrismaClient, schoolYearId: string) {
+  const books = await db.gradeBook.findMany({ where: { schoolYearId }, select: { id: true } })
+  const ids = books.map((b) => b.id)
+  if (ids.length > 0) {
+    await db.assessment.deleteMany({ where: { gradeBookId: { in: ids } } })
+    await db.gradeBookPeriod.deleteMany({ where: { gradeBookId: { in: ids } } })
+  }
+  await db.studentAttendanceSession.deleteMany({ where: { schoolYearId } })
+}
+
 export async function seedDemoLibreta2025(
   db: PrismaClient,
   options: { schoolYearId: string; clasesPorLibreta?: number },
 ): Promise<DemoLibretaSummary> {
   const { schoolYearId, clasesPorLibreta = 6 } = options
+  await clearLibretaData(db, schoolYearId)
 
   // Períodos de la planilla, escalas y tipos de actividad del ciclo.
   await seedAcademicConfig(db)
@@ -343,6 +367,7 @@ export async function seedDemoLibreta2025(
   }
 
   let semilla = 7
+  const eventosUsados = new Set<string>()
   for (const book of books) {
     const level = (book.courseOffering?.course?.level ?? 'EBI') as 'EBI' | 'EMS'
     const libreta: Libreta = { ...book, level }
@@ -370,7 +395,9 @@ export async function seedDemoLibreta2025(
     })
     summary.evaluaciones += tramos.length * 2
     summary.cierres += await seedClosures({ db, libreta, reuniones, roster, maxValue, rand })
-    summary.marcasDeAsistencia += await seedRollCall({ db, libreta, roster, rand, clasesPorLibreta })
+    summary.marcasDeAsistencia += await seedRollCall({
+      db, libreta, roster, rand, clasesPorLibreta, eventosUsados,
+    })
   }
 
   return summary
