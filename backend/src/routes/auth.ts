@@ -57,7 +57,10 @@ function readPerformanceIdentifier(req: any): string {
 
 const registerSchema = z.object({
   email: z.string().email(),
-  password: strongPasswordSchema.optional(),
+  // El alta con Google no muestra el campo de contraseña, y el formulario manda la cadena vacía.
+  // Sin esto, `strongPasswordSchema` la rechaza y el usuario recibe "la contraseña debe tener..."
+  // sobre un campo que no existe en pantalla.
+  password: z.preprocess((value) => (value === "" ? undefined : value), strongPasswordSchema.optional()),
   nationalId: z.string().min(6).max(20).optional(),
   firstName: z.string().min(1).max(80),
   lastName: z.string().min(1).max(80),

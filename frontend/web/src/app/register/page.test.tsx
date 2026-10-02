@@ -173,6 +173,46 @@ describe('RegisterPage', () => {
     expect(sessionStorage.getItem('edutrack.login.autostarted')).toBeNull()
   })
 
+  it('con Google no manda contraseña: ese campo no existe en pantalla', async () => {
+    const locationMock = { href: '', replace: vi.fn(), search: '?sso=token-google-registration-1' }
+    Object.defineProperty(window, 'location', { configurable: true, value: locationMock })
+    mockedApi.mockImplementation((path) => {
+      if (path === '/auth/me') return Promise.reject(new Error('401'))
+      if (String(path).startsWith('/auth/register/sso')) {
+        return Promise.resolve({
+          email: 'google@example.com',
+          firstName: 'Google',
+          lastName: 'User',
+          emailLocked: true,
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    const { container } = render(<RegisterPage />)
+    await screen.findByText(/El correo queda fijado por la cuenta de Google/i)
+
+    const fill = (selector: string, value: string) =>
+      fireEvent.change(container.querySelector(selector) as HTMLElement, { target: { value } })
+    fill('#register-national-id', '11111111')
+    fireEvent.change(screen.getByTestId('birthdate-input'), { target: { value: '1990-01-15' } })
+    fill('#register-role', 'TEACHER')
+
+    // No hay campos de contraseña en el alta con Google.
+    expect(container.querySelector('#register-password')).toBeNull()
+    expect(container.querySelector('#register-confirm')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /crear cuenta/i }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/auth/register', expect.objectContaining({ method: 'POST' })),
+    )
+    const call = mockedApi.mock.calls.find(([path]) => path === '/auth/register')
+    const body = JSON.parse(String((call?.[1] as RequestInit).body))
+    expect(body).not.toHaveProperty('password')
+    expect(body).toMatchObject({ ssoRegistrationToken: 'token-google-registration-1' })
+  })
+
   it('crea la cuenta en un solo paso, sin prueba de vida ni revisión', async () => {
     mockedApi.mockImplementation((path) => {
       if (path === '/auth/me') return Promise.reject(new Error('401'))
