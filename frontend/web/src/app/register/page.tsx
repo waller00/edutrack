@@ -200,7 +200,6 @@ export default function RegisterPage() {
     try {
       const payload: Record<string, unknown> = {
         email,
-        password,
         nationalId: onlyDigits(nationalId).length ? formatUruguayanCI(nationalId).replace(/\./g, '').replace('-', '') : undefined,
         firstName,
         lastName,
@@ -208,11 +207,10 @@ export default function RegisterPage() {
         birthdate: new Date(birthdate).toISOString(),
         role,
       }
-      if (!ssoRegistrationToken) {
-        payload.password = password
-      } else {
-        payload.ssoRegistrationToken = ssoRegistrationToken
-      }
+      // Con Google no hay campo de contraseña: la cuenta la crea Keycloak. Mandarla igual, aunque
+      // sea vacía, hacía que la API pidiera una contraseña que el usuario no tiene dónde escribir.
+      if (ssoRegistrationToken) payload.ssoRegistrationToken = ssoRegistrationToken
+      else payload.password = password
       await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
       setRegisteredWithSso(Boolean(ssoRegistrationToken))
       setOk(true)
