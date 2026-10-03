@@ -1,6 +1,6 @@
 'use client'
 
-import { Fingerprint, Loader2, RefreshCw, Save, Shield, SlidersHorizontal } from 'lucide-react'
+import { Loader2, RefreshCw, Save, Shield, SlidersHorizontal } from 'lucide-react'
 import type { Dispatch, SetStateAction } from 'react'
 
 /** Offset GMT en vivo de una zona IANA (refleja horario de verano). Ej: "GMT-03:00". */
@@ -17,8 +17,6 @@ function gmtOffsetLabel(tz: string): string {
 }
 
 export type OperationalSettingsData = {
-  diditConfigured: boolean
-  livenessCheckEnabled: boolean
   attendanceNoShowGraceMinutes: number
   attendanceLateToleranceMinutes: number
   attendanceEarlyExitToleranceMinutes: number
@@ -28,9 +26,12 @@ export type OperationalSettingsData = {
   biometricDuplicateWindowMinutes: number
   institutionTimezone: string
   institutionTimezoneOptions: ReadonlyArray<{ value: string; label: string }>
+  studentRollCallEditWindowHours: number
+  studentRollCallCopyPreviousEnabled: boolean
+  studentDailyAbsenceThresholdPercent: number
 }
 
-export type OperationalSettingsSection = 'system' | 'attendance' | 'identity'
+export type OperationalSettingsSection = 'system' | 'attendance'
 
 type Props = {
   section?: OperationalSettingsSection
@@ -79,11 +80,6 @@ export default function AdminOperationalSettingsPanel({
       title: 'Asistencia y registro horario',
       desc: 'Parámetros separados para evaluar entradas y salidas del personal.',
       Icon: SlidersHorizontal,
-    },
-    identity: {
-      title: 'Identidad y altas',
-      desc: 'Verificación Didit, prueba de vida y política de registro.',
-      Icon: Fingerprint,
     },
   }[section]
   const HeaderIcon = copy.Icon
@@ -238,6 +234,70 @@ export default function AdminOperationalSettingsPanel({
 
           <section className={`${shellCard} space-y-5 lg:col-span-2`}>
             <div className="border-b border-gray-100 pb-4">
+              <h3 className="text-sm font-semibold text-gray-900">Pase de lista estudiantil</h3>
+              <p className="text-xs text-gray-500">
+                Reglas del pase de lista que toman los docentes sobre sus clases. No afectan la asistencia del personal.
+              </p>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <label className="block space-y-2">
+                <span className={labelCls}>Ventana de edición del docente (horas)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={720}
+                  className="input-modern w-full text-sm tabular-nums"
+                  value={data.studentRollCallEditWindowHours}
+                  onChange={(e) =>
+                    setData((prev) => (prev ? { ...prev, studentRollCallEditWindowHours: Number(e.target.value) || 1 } : prev))
+                  }
+                />
+                <span className="block text-xs text-slate-500">
+                  Horas tras el fin de la clase en que el docente todavía puede corregir su planilla. Después solo
+                  administración, y el cambio queda en auditoría. Se aplica retroactivamente al cambiarla.
+                </span>
+              </label>
+              <label className="block space-y-2">
+                <span className={labelCls}>Umbral de falta diaria (%)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="input-modern w-full text-sm tabular-nums"
+                  value={data.studentDailyAbsenceThresholdPercent}
+                  onChange={(e) =>
+                    setData((prev) =>
+                      prev ? { ...prev, studentDailyAbsenceThresholdPercent: Number(e.target.value) || 1 } : prev,
+                    )
+                  }
+                />
+                <span className="block text-xs text-slate-500">
+                  Porcentaje de clases del día con ausencia a partir del cual el día cuenta como falta entera. Por
+                  debajo, y con al menos una ausencia, cuenta como media falta.
+                </span>
+              </label>
+            </div>
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                checked={data.studentRollCallCopyPreviousEnabled}
+                onChange={(e) =>
+                  setData((prev) => (prev ? { ...prev, studentRollCallCopyPreviousEnabled: e.target.checked } : prev))
+                }
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-gray-900">Sugerir copiar la hora anterior</span>
+                <span className="block text-xs text-slate-500">
+                  Cuando el mismo grupo ya tiene una lista tomada ese día, ofrecer precargarla. Siempre es una
+                  sugerencia editable que el docente debe confirmar.
+                </span>
+              </span>
+            </label>
+          </section>
+
+          <section className={`${shellCard} space-y-5 lg:col-span-2`}>
+            <div className="border-b border-gray-100 pb-4">
               <h3 className="text-sm font-semibold text-gray-900">Biométrico</h3>
               <p className="text-xs text-gray-500">Ventana para huellas repetidas: la entrada conserva la primera y la salida conserva la última.</p>
             </div>
@@ -254,35 +314,6 @@ export default function AdminOperationalSettingsPanel({
             </label>
           </section>
         </div>
-      )}
-
-      {section === 'identity' && (
-        <section className={`${shellCard} space-y-4`}>
-          <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-gray-100 bg-slate-50/40 px-4 py-3.5 transition hover:border-emerald-100 hover:bg-emerald-50/20 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-            <div className="min-w-0 pr-2">
-              <span className="text-sm font-medium text-gray-800">Preferencia “liveness”</span>
-              <p className="mt-0.5 text-xs text-gray-500">Histórico; no sustituye la configuración Didit del servidor.</p>
-            </div>
-            <input
-              type="checkbox"
-              className="h-4 w-4 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-              checked={data.livenessCheckEnabled}
-              onChange={(e) => setData((prev) => (prev ? { ...prev, livenessCheckEnabled: e.target.checked } : prev))}
-            />
-          </label>
-          <div className={`rounded-lg border px-4 py-3 text-sm ${data.diditConfigured ? 'border-emerald-100 bg-emerald-50/50' : 'border-amber-200 bg-amber-50/60'}`}>
-            <p className="font-medium text-gray-900">Estado en el servidor</p>
-            <p className={`mt-1 font-medium ${data.diditConfigured ? 'text-emerald-800' : 'text-amber-900'}`}>
-              {data.diditConfigured ? 'Credenciales Didit detectadas.' : 'Faltan credenciales Didit en el backend.'}
-            </p>
-          </div>
-          <p className="text-sm leading-relaxed text-gray-600">
-            En producción se exige prueba de vida en altas cuando corresponde. Configurá{' '}
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-gray-800">DIDIT_API_KEY</span> y{' '}
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-gray-800">DIDIT_WORKFLOW_ID</span>{' '}
-            en el servidor.
-          </p>
-        </section>
       )}
 
       {msg ? (

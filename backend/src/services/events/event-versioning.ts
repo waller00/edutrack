@@ -32,6 +32,47 @@ export function isEventStartInPast(startInstantUtc: Date, now = new Date()): boo
   return startInstantUtc.getTime() < now.getTime()
 }
 
+/** Día de la semana (0=domingo … 6=sábado) de un YMD interpretado en hora de Uruguay. */
+function weekdayFromYmdInUruguay(ymd: string): number {
+  return DateTime.fromISO(`${ymd}T12:00:00`, { zone: getAppTimezone() }).weekday % 7
+}
+
+/**
+ * ¿Una serie semanal con ancla `anchorYmd` (hora civil `startHh:startMm`) tiene al menos
+ * una ocurrencia cuyo inicio sea ahora-o-futuro?
+ *
+ * Permite crear repetitivos cuya primera ocurrencia ya pasó (p. ej. hoy a las 9:00 cuando
+ * ya son las 18:00): la serie simplemente arranca en la próxima ocurrencia válida
+ * (el siguiente día seleccionado). Solo se rechaza si TODOS los días seleccionados dentro
+ * del rango ya pasaron.
+ */
+export function hasUpcomingWeeklyOccurrence(params: {
+  anchorYmd: string
+  startHh: number
+  startMm: number
+  daysOfWeek: number[]
+  recurrenceEndYmd: string | null
+  now?: Date
+}): boolean {
+  const { anchorYmd, startHh, startMm, daysOfWeek, recurrenceEndYmd } = params
+  if (daysOfWeek.length === 0) return false
+  const now = params.now ?? new Date()
+  const todayYmd = todayUruguayYmd(now)
+  // La serie nunca arranca antes del ancla.
+  let cursor = anchorYmd > todayYmd ? anchorYmd : todayYmd
+  // 8 días: una semana completa + el “wraparound” al mismo día de la semana del ancla
+  // (si el único día seleccionado es hoy y su hora ya pasó, la próxima instancia es hoy+7).
+  for (let i = 0; i < 8; i++) {
+    if (recurrenceEndYmd && cursor > recurrenceEndYmd) return false
+    if (daysOfWeek.includes(weekdayFromYmdInUruguay(cursor))) {
+      const occStart = uruguayWallToUtc(cursor, startHh, startMm)
+      if (occStart.getTime() >= now.getTime()) return true
+    }
+    cursor = addDaysYmd(cursor, 1)
+  }
+  return false
+}
+
 /** true si el inicio cambió y el nuevo instante quedó en el pasado (edición). */
 export function isMovingEventStartToPast(
   existingStartInstantUtc: Date,

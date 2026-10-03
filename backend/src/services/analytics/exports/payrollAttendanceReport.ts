@@ -40,7 +40,14 @@ export type PayrollEventRow = {
   horaRealIn: string
   horaRealOut: string
   estado: string
+  /** Status crudo (`checkInStatusResolved`), para consumidores que agregan por estado. */
+  statusCode: string
+  /** `true` si la fila es cobertura de suplencia (horas del suplente). */
+  isCoverage: boolean
   minTarde: number
+  /** Horas nominales de la designación (ventana planificada). Base de liquidación del titular. */
+  horasPlan: number
+  /** Horas biométricas efectivas (intersección presencia∩plan). Control/auditoría, NO liquida. */
   horasTrab: number
   licencia: 'SI' | 'NO'
   observaciones: string
@@ -326,7 +333,10 @@ function toEventRow(it: ResolvedItem): PayrollEventRow {
     horaRealIn: presence ? fmtUyHm(it.actualInTime) : '',
     horaRealOut: presence ? fmtUyHm(it.actualOutTime) : '',
     estado,
+    statusCode: it.checkInStatusResolved,
+    isCoverage: Boolean(it.isCoverage),
     minTarde: lateMinutesOf(it),
+    horasPlan: roundTo(plannedMinutesOf(it.planned.plannedStartTime, it.planned.plannedEndTime) / 60),
     horasTrab: roundTo(it.durationMinutes / 60),
     licencia: it.isJustifiedAbsence ? 'SI' : 'NO',
     observaciones: sanitizeSingleLine(it.checkInNotes || it.checkOutNotes || '') || '-',
@@ -461,6 +471,7 @@ const DETAIL_HEADERS = [
   'Real Salida',
   'Estado',
   'Min Tarde',
+  'Horas Plan.',
   'Horas Trab.',
   'Licencia',
   'Observaciones',
@@ -548,6 +559,7 @@ export async function generatePayrollAttendanceXlsx(data: PayrollReportData): Pr
         r.horaRealOut,
         r.estado,
         r.minTarde,
+        r.horasPlan,
         r.horasTrab,
         r.licencia,
         r.observaciones,
@@ -626,7 +638,8 @@ export async function generatePayrollAttendancePdf(data: PayrollReportData): Pro
     { header: 'R.Sal', w: 34, get: (r) => r.horaRealOut },
     { header: 'Estado', w: 72, get: (r) => r.estado },
     { header: 'Tarde', w: 30, get: (r) => (r.minTarde ? String(r.minTarde) : '') },
-    { header: 'Horas', w: 34, get: (r) => (r.horasTrab ? String(r.horasTrab) : '') },
+    { header: 'H.Pl', w: 32, get: (r) => (r.horasPlan ? String(r.horasPlan) : '') },
+    { header: 'H.Re', w: 32, get: (r) => (r.horasTrab ? String(r.horasTrab) : '') },
     { header: 'Lic', w: 24, get: (r) => r.licencia },
     { header: 'Obs', w: 60, get: (r) => r.observaciones },
   ]
@@ -769,6 +782,7 @@ const CSV_COLUMNS = [
   'Real Salida',
   'Estado',
   'Min Tarde',
+  'Horas Plan',
   'Horas Trab',
   'Licencia',
   'Observaciones',
@@ -798,6 +812,7 @@ export function generatePayrollAttendanceCsv(data: PayrollReportData): string {
           r.horaRealOut,
           r.estado,
           r.minTarde,
+          r.horasPlan,
           r.horasTrab,
           r.licencia,
           r.observaciones,

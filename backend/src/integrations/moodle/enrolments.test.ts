@@ -4,7 +4,7 @@ const { moodleRestMock } = vi.hoisted(() => ({ moodleRestMock: vi.fn() }));
 
 vi.mock("./client.js", () => ({ moodleRest: moodleRestMock }));
 
-import { enrolUser, getEnrolledUserIds, unenrolUser } from "./enrolments.js";
+import { enrolUser, enrolUsersBatch, getEnrolledUserIds, unenrolUser } from "./enrolments.js";
 
 beforeEach(() => {
   moodleRestMock.mockReset();
@@ -45,6 +45,30 @@ describe("enrolUser", () => {
     });
 
     await expect(enrolUser(42, 100, 3)).resolves.toBeUndefined();
+  });
+});
+
+describe("enrolUsersBatch", () => {
+  it("inscribe varias parejas usuario↔curso en una sola llamada", async () => {
+    moodleRestMock.mockResolvedValue([]);
+    await enrolUsersBatch([
+      { moodleUserId: 42, moodleCourseId: 100, roleId: 5 },
+      { moodleUserId: 42, moodleCourseId: 101, roleId: 5 },
+    ]);
+    expect(moodleRestMock).toHaveBeenCalledTimes(1);
+    expect(moodleRestMock).toHaveBeenCalledWith("enrol_manual_enrol_users", {
+      "enrolments[0][roleid]": "5",
+      "enrolments[0][userid]": "42",
+      "enrolments[0][courseid]": "100",
+      "enrolments[1][roleid]": "5",
+      "enrolments[1][userid]": "42",
+      "enrolments[1][courseid]": "101",
+    });
+  });
+
+  it("no llama a Moodle si la lista está vacía", async () => {
+    await enrolUsersBatch([]);
+    expect(moodleRestMock).not.toHaveBeenCalled();
   });
 });
 

@@ -3,6 +3,8 @@
 import { api } from '@/lib/api/client'
 import { auditMetadataDisplay } from '@/lib/admin/audit-detail-es'
 import { countActiveAuditFilters, getAuditActionBadgeClass } from '@/lib/admin/audit-display'
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
+import DateField from '@/components/forms/DateField'
 import { ClipboardList, Filter, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -34,8 +36,7 @@ type ListResponse = {
 
 function formatWhen(iso: string) {
   try {
-    const d = new Date(iso)
-    return d.toLocaleString('es-UY', { dateStyle: 'short', timeStyle: 'medium' })
+    return formatDateTimeInUruguay(iso, { seconds: true })
   } catch {
     return iso
   }
@@ -247,26 +248,24 @@ export default function AdminAuditPanel({ compact = false }: { compact?: boolean
           </label>
           <label className="block space-y-2">
             <span className={labelCls}>Desde</span>
-            <input
-              type="date"
+            <DateField
               className="input-modern w-full text-sm"
               value={from}
-              onChange={(e) => {
+              onChange={(v) => {
                 setPage(1)
-                setFrom(e.target.value)
+                setFrom(v)
               }}
             />
             <span className="text-[11px] text-gray-400">Fecha local, inicio del día</span>
           </label>
           <label className="block space-y-2">
             <span className={labelCls}>Hasta</span>
-            <input
-              type="date"
+            <DateField
               className="input-modern w-full text-sm"
               value={to}
-              onChange={(e) => {
+              onChange={(v) => {
                 setPage(1)
-                setTo(e.target.value)
+                setTo(v)
               }}
             />
             <span className="text-[11px] text-gray-400">Fecha local, fin del día</span>

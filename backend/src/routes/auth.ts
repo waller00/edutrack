@@ -14,11 +14,8 @@ import {
   mapProfileUpdateError,
 } from "../auth/auth-profile-pure.js";
 import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-policy.js";
-import { isDiditConfigured, isLivenessRequiredForRegistration } from "../config/system-settings.js";
-import { syncLivenessSessionFromDiditApi, fetchDiditDecisionJson } from "../integrations/didit/sync-session.js";
-import { getDocumentExpiryValidationErrorFromDecision } from "../integrations/didit/register-verification-from-decision.js";
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
-import { createKeycloakUser, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
+import { createKeycloakUser, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
 import { newSessionId, saveSession } from "../auth/session-store.js";
 import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
@@ -60,14 +57,16 @@ function readPerformanceIdentifier(req: any): string {
 
 const registerSchema = z.object({
   email: z.string().email(),
-  password: strongPasswordSchema.optional(),
+  // El alta con Google no muestra el campo de contraseña, y el formulario manda la cadena vacía.
+  // Sin esto, `strongPasswordSchema` la rechaza y el usuario recibe "la contraseña debe tener..."
+  // sobre un campo que no existe en pantalla.
+  password: z.preprocess((value) => (value === "" ? undefined : value), strongPasswordSchema.optional()),
   nationalId: z.string().min(6).max(20).optional(),
   firstName: z.string().min(1).max(80),
   lastName: z.string().min(1).max(80),
   phone: z.string().min(7).max(20).optional(),
   birthdate: z.string().datetime().optional(),
   role: z.enum(["ADMIN", "STAFF", "TEACHER"]).optional(),
-  livenessToken: z.string().uuid().optional(),
   ssoRegistrationToken: z.string().min(20).max(128).optional(),
 });
 
@@ -124,6 +123,9 @@ async function enabledPermissionsForRole(roleCode: string) {
 }
 
 async function generateUniqueUsername(firstName: string, lastName: string, client: any = prisma) {
+  // Unicidad SOLO contra usuarios reales de la app. Un username que solo exista en Keycloak
+  // (cuenta huérfana) NO bloquea el nombre limpio: ese huérfano se borra antes de crear (ver
+  // freeKeycloakUsernameIfOrphan). Así "joaquin.waller" se reusa en vez de saltar a ".p".
   return generateUniqueUsernameWith(firstName, lastName, async (candidate) => {
     const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
     return Boolean(existing);
@@ -217,14 +219,6 @@ async function validateAndBuildProfileUpdate(data: {
 
   return update;
 }
-
-r.get("/registration-options", async (_req, res) => {
-  const livenessRequired = isLivenessRequiredForRegistration();
-  return res.json({
-    livenessCheckEnabled: livenessRequired,
-    diditConfigured: isDiditConfigured(),
-  });
-});
 
 r.get("/check-username", async (req, res) => {
   const u = String(req.query.u || "").trim();
@@ -328,7 +322,6 @@ r.post("/register", async (req, res) => {
     phone,
     birthdate,
     role,
-    livenessToken,
     ssoRegistrationToken,
   } = parsed.data;
 
@@ -347,48 +340,8 @@ r.post("/register", async (req, res) => {
     prisma.user.findUnique({ where: { email } }),
     nationalId ? prisma.user.findUnique({ where: { nationalId: onlyDigits(nationalId) } }) : Promise.resolve(null),
   ]);
-  const requireDidit = isLivenessRequiredForRegistration();
-  if (requireDidit && !isDiditConfigured()) {
-    return res.status(503).json({
-      message:
-        "El registro con verificación de identidad no está disponible: el servidor no tiene configurado Didit (DIDIT_API_KEY y DIDIT_WORKFLOW_ID).",
-    });
-  }
-  const livenessRequired = requireDidit;
-  let livenessRowId: string | null = null;
-  if (livenessRequired) {
-    if (!livenessToken) {
-      return res.status(400).json({ message: "Falta completar la prueba de vida (Didit)." });
-    }
-    let ls = await prisma.livenessSession.findFirst({
-      where: { OR: [{ id: livenessToken }, { diditSessionId: livenessToken }] },
-    });
-    if (ls && ls.status !== "APPROVED" && !ls.consumedAt && ls.diditSessionId) {
-      await syncLivenessSessionFromDiditApi(ls.id);
-      ls = await prisma.livenessSession.findUnique({ where: { id: ls.id } });
-    }
-    if (!ls || ls.status !== "APPROVED" || ls.consumedAt) {
-      return res.status(400).json({ message: "Prueba de vida no válida o no aprobada. Iniciá el proceso otra vez." });
-    }
-    if (ls.expiresAt < new Date()) {
-      return res.status(400).json({ message: "La prueba de vida venció. Iniciá una nueva sesión." });
-    }
-    const diditId = ls.diditSessionId?.trim();
-    if (!diditId) {
-      return res.status(400).json({ message: "Sesión Didit incompleta. Reiniciá la verificación." });
-    }
-    const decision = await fetchDiditDecisionJson(diditId);
-    if (!decision) {
-      return res.status(400).json({ message: "No se pudo validar el documento con Didit. Reintentá en un momento." });
-    }
-    const birthIso = birthdate ? String(birthdate).slice(0, 10) : "";
-    const expiryErr = getDocumentExpiryValidationErrorFromDecision(decision, birthIso);
-    if (expiryErr) {
-      return res.status(400).json({ message: expiryErr });
-    }
-    livenessRowId = ls.id;
-  }
-
+  // Sin prueba de vida: la identidad la controla administración, que aprueba cada cuenta nueva
+  // (se crea con `isApproved: false` y no puede entrar hasta entonces).
   const canCompleteSsoPlaceholder =
     Boolean(ssoProfile && byEmail && byEmail.isActive && !byEmail.isApproved);
   if (byEmail && !canCompleteSsoPlaceholder) return res.status(409).json({ message: "Correo ya registrado" });
@@ -415,9 +368,10 @@ r.post("/register", async (req, res) => {
     return res.status(400).json({ message: "Rol inválido." });
   }
 
-  const nowLv = livenessRequired && livenessRowId ? new Date() : null;
+  // El username se genera ANTES de la transacción: chequea unicidad contra la app y contra
+  // Keycloak (I/O de red), que no debe correr dentro de un $transaction.
+  const generatedUsername = byEmail?.username || (await generateUniqueUsername(firstName, lastName));
   const user = await prisma.$transaction(async (tx) => {
-    const generatedUsername = byEmail?.username || (await generateUniqueUsername(firstName, lastName, tx));
     const userData = {
       email,
       username: generatedUsername,
@@ -433,7 +387,6 @@ r.post("/register", async (req, res) => {
       approvedAt: null,
       isActive: true,
       emailVerifiedAt: ssoProfile?.emailVerified ? new Date() : null,
-      livenessVerifiedAt: nowLv,
     };
     const u = canCompleteSsoPlaceholder && byEmail
       ? await tx.user.update({
@@ -443,12 +396,6 @@ r.post("/register", async (req, res) => {
       : await tx.user.create({
         data: userData,
       });
-    if (livenessRequired && livenessRowId) {
-      await tx.livenessSession.update({
-        where: { id: livenessRowId },
-        data: { consumedAt: new Date() },
-      });
-    }
     return u;
   });
 
@@ -467,6 +414,11 @@ r.post("/register", async (req, res) => {
       });
       if (ssoRegistrationToken) await consumeSsoRegistration(ssoRegistrationToken);
     } else {
+      // Si el username quedó ocupado en Keycloak por una cuenta huérfana (sin usuario en la app),
+      // la borramos para usar el nombre limpio (no se crean ni se toleran huérfanos).
+      await freeKeycloakUsernameIfOrphan(user.username, async (mail) =>
+        Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
+      );
       await createKeycloakUser({
         email,
         username: user.username,
@@ -478,8 +430,20 @@ r.post("/register", async (req, res) => {
       });
     }
   } catch (e) {
+    // Atomicidad: si Keycloak falla y nosotros creamos el usuario (no era un placeholder SSO
+    // preexistente), lo borramos para no dejar una cuenta huérfana sin acceso.
+    if (!canCompleteSsoPlaceholder) {
+      await prisma.user
+        .delete({ where: { id: user.id } })
+        .catch((delErr) => console.error("[register] rollback usuario tras fallo Keycloak:", delErr));
+    }
+    const usernameTakenInKc = e instanceof Error && (e as { code?: string }).code === "KEYCLOAK_USERNAME_TAKEN";
     console.error("[register] keycloak create user:", e);
-    return res.status(502).json({ message: "No se pudo activar el acceso de la cuenta." });
+    return res.status(usernameTakenInKc ? 409 : 502).json({
+      message: usernameTakenInKc
+        ? "No pudimos generar tu acceso por un conflicto de nombre de usuario. Probá de nuevo o contactá al administrador."
+        : "No se pudo activar el acceso de la cuenta.",
+    });
   }
 
   // Correo de verificación: best-effort y en segundo plano. No bloquea la respuesta,

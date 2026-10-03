@@ -13,28 +13,11 @@ export function isMoodleSyncEnabledFromEnv(): boolean {
   return parseEnvBool('MOODLE_SYNC_ENABLED')
 }
 
-export function isDiditConfigured() {
-  const key = (process.env.DIDIT_API_KEY || '').trim()
-  const wid = (process.env.DIDIT_WORKFLOW_ID || '').trim()
-  return Boolean(key && wid)
-}
-
-/**
- * Política: el alta exige Didit/prueba de vida.
- * Bypass solo para desarrollo (`ALLOW_REGISTER_WITHOUT_DIDIT=true`) o ejecución bajo Vitest (`NODE_ENV=test`).
- */
-export function isLivenessRequiredForRegistration() {
-  if (process.env.NODE_ENV === 'test') return false
-  if ((process.env.ALLOW_REGISTER_WITHOUT_DIDIT || '').trim() === 'true') return false
-  return true
-}
-
 export async function getOrCreateSystemSettings() {
   const row = await prisma.systemSettings.upsert({
     where: { id: DEFAULT_ID },
     create: {
       id: DEFAULT_ID,
-      livenessCheckEnabled: false,
       attendanceNoShowGraceMinutes: 15,
       attendanceLateToleranceMinutes: 5,
       attendanceEarlyExitToleranceMinutes: 5,
@@ -46,6 +29,9 @@ export async function getOrCreateSystemSettings() {
       moodleReconcileIntervalMs: 900000,
       moodleSyncStudents: false,
       institutionTimezone: 'America/Montevideo',
+      studentRollCallEditWindowHours: 48,
+      studentRollCallCopyPreviousEnabled: true,
+      studentDailyAbsenceThresholdPercent: 50,
     } as any,
     update: {},
   })
@@ -78,5 +64,36 @@ export async function getAttendanceOperationalSettings() {
     monitorEnabled: row.attendanceMonitorEnabled !== false,
     monitorIntervalMs: Math.max(row.attendanceMonitorIntervalMs ?? 120000, 30000),
     biometricDuplicateWindowMinutes: Math.min(Math.max(settings.biometricDuplicateWindowMinutes ?? 5, 0), 120),
+  }
+}
+
+/**
+ * Configuración del pase de lista estudiantil.
+ *
+ * La ventana de edición se *calcula* (no se congela al tomar la lista), así que bajarla
+ * de 48 h a 24 h aplica retroactivamente: es la semántica esperada por dirección.
+ */
+export async function getStudentRollCallSettings() {
+  const row = (await getOrCreateSystemSettings()) as Record<string, unknown>
+  return {
+    editWindowHours: Math.min(Math.max(Number(row.studentRollCallEditWindowHours ?? 48), 1), 720),
+    copyPreviousEnabled: row.studentRollCallCopyPreviousEnabled !== false,
+    dailyAbsenceThresholdPercent: Math.min(
+      Math.max(Number(row.studentDailyAbsenceThresholdPercent ?? 50), 1),
+      100,
+    ),
+  }
+}
+
+/**
+ * Configuración de la libreta.
+ *
+ * Mismo criterio que el pase de lista: la ventana se calcula al leer y no se congela al calificar,
+ * de modo que acortarla aplica retroactivamente.
+ */
+export async function getGradeBookSettings() {
+  const row = (await getOrCreateSystemSettings()) as Record<string, unknown>
+  return {
+    editWindowDays: Math.min(Math.max(Number(row.gradebookEditWindowDays ?? 30), 1), 365),
   }
 }

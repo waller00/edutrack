@@ -5,6 +5,7 @@ import { Bell, CheckCheck, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import RoleGuard from '@/components/auth/RoleGuard'
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 
 type InAppItem = {
   id: string
@@ -91,11 +92,7 @@ export default function NotificationsPage() {
 
   const renderItem = (it: InAppItem) => {
     const isUnread = !it.readAt
-    const created = new Date(it.createdAt)
-    const dateStr = created.toLocaleString(undefined, {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    })
+    const dateStr = formatDateTimeInUruguay(it.createdAt)
     const isOpening = openingId === it.id
 
     return (

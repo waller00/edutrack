@@ -1,0 +1,1496 @@
+<title>EduTrack — Diccionario de defensa</title>
+<style>
+  :root {
+    --paper: #f1f4f2;
+    --raised: #ffffff;
+    --ink: #101a18;
+    --muted: #5b6b66;
+    --rule: #d6dedb;
+    --rule-strong: #b9c5c1;
+    --board: #0d564b;
+    --board-soft: #dfeae7;
+    --pen: #9e3a1e;
+    --pen-soft: #f7e7e1;
+    --amber: #7d6410;
+    --amber-soft: #f3ecd6;
+    --shadow: 0 1px 2px rgba(16, 26, 24, .06);
+
+    --f-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --f-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --f-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0e1413;
+      --raised: #151d1b;
+      --ink: #e4ebe8;
+      --muted: #93a39d;
+      --rule: #253130;
+      --rule-strong: #35443f;
+      --board: #5cc9b2;
+      --board-soft: #14302b;
+      --pen: #e8896f;
+      --pen-soft: #33201b;
+      --amber: #d5b45c;
+      --amber-soft: #2c2716;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #0e1413;
+    --raised: #151d1b;
+    --ink: #e4ebe8;
+    --muted: #93a39d;
+    --rule: #253130;
+    --rule-strong: #35443f;
+    --board: #5cc9b2;
+    --board-soft: #14302b;
+    --pen: #e8896f;
+    --pen-soft: #33201b;
+    --amber: #d5b45c;
+    --amber-soft: #2c2716;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  }
+
+  :root[data-theme="light"] {
+    --paper: #f1f4f2;
+    --raised: #ffffff;
+    --ink: #101a18;
+    --muted: #5b6b66;
+    --rule: #d6dedb;
+    --rule-strong: #b9c5c1;
+    --board: #0d564b;
+    --board-soft: #dfeae7;
+    --pen: #9e3a1e;
+    --pen-soft: #f7e7e1;
+    --amber: #7d6410;
+    --amber-soft: #f3ecd6;
+    --shadow: 0 1px 2px rgba(16, 26, 24, .06);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 clamp(1rem, 4vw, 2.5rem) 6rem;
+  }
+
+  /* ---------- cabecera ---------- */
+  .masthead {
+    border-bottom: 3px double var(--rule-strong);
+    padding: clamp(2rem, 6vw, 3.5rem) 0 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: .9rem;
+  }
+
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--board);
+  }
+
+  .masthead h1 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 6vw, 3.4rem);
+    line-height: 1.05;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+  }
+
+  .masthead p {
+    max-width: 62ch;
+    color: var(--muted);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem 1.4rem;
+    font-family: var(--f-mono);
+    font-size: .74rem;
+    color: var(--muted);
+    letter-spacing: .02em;
+  }
+
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- barra de búsqueda ---------- */
+  .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    padding: .75rem 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .6rem .9rem;
+  }
+
+  .search {
+    flex: 1 1 15rem;
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    background: var(--raised);
+    border: 1px solid var(--rule-strong);
+    border-radius: 2px;
+    padding: .5rem .7rem;
+    box-shadow: var(--shadow);
+  }
+
+  .search:focus-within { border-color: var(--board); }
+
+  .search input {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: .92rem;
+    outline: none;
+  }
+
+  .search svg { flex: none; color: var(--muted); }
+
+  .kbd {
+    font-family: var(--f-mono);
+    font-size: .68rem;
+    border: 1px solid var(--rule-strong);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: .05rem .3rem;
+    color: var(--muted);
+  }
+
+  .count {
+    font-family: var(--f-mono);
+    font-size: .74rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- cuerpo ---------- */
+  .body {
+    display: grid;
+    grid-template-columns: 13.5rem minmax(0, 1fr);
+    gap: clamp(1.5rem, 4vw, 3.5rem);
+    align-items: start;
+    padding-top: 2rem;
+  }
+
+  @media (max-width: 900px) {
+    .body { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  nav.index {
+    position: sticky;
+    top: 4.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: .1rem;
+    font-size: .85rem;
+  }
+
+  @media (max-width: 900px) {
+    nav.index {
+      position: static;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: .35rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--rule);
+    }
+    nav.index a { border-left: 0 !important; padding: .3rem .55rem !important; border: 1px solid var(--rule); border-radius: 2px; }
+  }
+
+  nav.index a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: .28rem 0 .28rem .7rem;
+    border-left: 2px solid var(--rule);
+    transition: color .12s, border-color .12s;
+  }
+
+  nav.index a:hover, nav.index a:focus-visible {
+    color: var(--ink);
+    border-left-color: var(--board);
+  }
+
+  nav .idx-head {
+    font-family: var(--f-mono);
+    font-size: .68rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-bottom: .5rem;
+  }
+
+  @media (max-width: 900px) { nav .idx-head { width: 100%; } }
+
+  main { display: flex; flex-direction: column; gap: 3.2rem; }
+
+  section > header {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+    padding-bottom: .9rem;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  section h2 {
+    font-family: var(--f-display);
+    font-size: clamp(1.35rem, 3vw, 1.75rem);
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+
+  section > header p {
+    color: var(--muted);
+    font-size: .9rem;
+    max-width: 68ch;
+  }
+
+  /* ---------- entradas ---------- */
+  .term {
+    display: grid;
+    grid-template-columns: 14rem minmax(0, 1fr);
+    gap: .4rem 1.6rem;
+    padding: 1.1rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  @media (max-width: 700px) {
+    .term { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+  }
+
+  .term .head { display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; }
+
+  .term .name {
+    font-family: var(--f-mono);
+    font-size: .88rem;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .chip {
+    font-family: var(--f-mono);
+    font-size: .64rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: .1rem .4rem;
+    border-radius: 2px;
+    background: var(--board-soft);
+    color: var(--board);
+    white-space: nowrap;
+  }
+
+  .chip.pen { background: var(--pen-soft); color: var(--pen); }
+  .chip.amber { background: var(--amber-soft); color: var(--amber); }
+
+  .term .def { display: flex; flex-direction: column; gap: .55rem; }
+  .term .def p { max-width: 72ch; }
+
+  .where {
+    font-family: var(--f-mono);
+    font-size: .74rem;
+    color: var(--muted);
+  }
+
+  .where::before { content: "▸ "; color: var(--rule-strong); }
+
+  .ask {
+    font-size: .88rem;
+    background: var(--raised);
+    border: 1px solid var(--rule);
+    border-top: 2px solid var(--pen);
+    padding: .6rem .75rem;
+    box-shadow: var(--shadow);
+  }
+
+  .ask b {
+    font-family: var(--f-mono);
+    font-size: .7rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pen);
+    display: block;
+    margin-bottom: .2rem;
+  }
+
+  code {
+    font-family: var(--f-mono);
+    font-size: .86em;
+    background: var(--board-soft);
+    color: var(--ink);
+    padding: .05em .3em;
+    border-radius: 2px;
+  }
+
+  .where code { background: transparent; padding: 0; }
+
+  em { color: var(--board); font-style: italic; }
+
+  /* ---------- preguntas ---------- */
+  .qa {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .qa details {
+    border-bottom: 1px solid var(--rule);
+    padding: .2rem 0;
+  }
+
+  .qa summary {
+    cursor: pointer;
+    padding: .75rem 0 .75rem 1.6rem;
+    position: relative;
+    font-weight: 600;
+    list-style: none;
+    text-wrap: balance;
+  }
+
+  .qa summary::-webkit-details-marker { display: none; }
+
+  .qa summary::before {
+    content: "?";
+    position: absolute;
+    left: 0;
+    top: .72rem;
+    font-family: var(--f-mono);
+    font-weight: 700;
+    color: var(--pen);
+  }
+
+  .qa summary:focus-visible { outline: 2px solid var(--board); outline-offset: 2px; }
+
+  .qa .answer {
+    padding: 0 0 1rem 1.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    color: var(--muted);
+  }
+
+  .qa .answer strong { color: var(--ink); }
+
+  .empty {
+    display: none;
+    padding: 3rem 0;
+    color: var(--muted);
+    font-family: var(--f-mono);
+    font-size: .85rem;
+  }
+
+  .empty.on { display: block; }
+
+  section.hidden, .term.hidden, nav.index a.hidden { display: none; }
+
+  a { color: var(--board); }
+
+  :focus-visible { outline: 2px solid var(--board); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="eyebrow">EduTrack · Proyecto final</span>
+    <h1>Diccionario de defensa</h1>
+    <p>Vocabulario del sistema y del código: qué es cada cosa, dónde vive en el repo y qué conviene contestar si el tribunal pregunta por ella. Ordenado por dominio, no alfabéticamente — así se defiende, por temas.</p>
+    <div class="meta">
+      <span><b>Stack</b> Next.js 14 · Express · Prisma · PostgreSQL · Keycloak · Redis</span>
+      <span><b>Entradas</b> <span id="total">0</span></span>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <label class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <input id="q" type="search" placeholder="Buscar término, archivo o concepto…" autocomplete="off" aria-label="Buscar en el diccionario">
+      <span class="kbd">/</span>
+    </label>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="body">
+
+    <nav class="index" aria-label="Índice de secciones">
+      <span class="idx-head">Índice</span>
+      <a href="#arquitectura">Arquitectura</a>
+      <a href="#identidad">Identidad y sesión</a>
+      <a href="#permisos">Roles y permisos</a>
+      <a href="#datos">Datos y Prisma</a>
+      <a href="#academico">Dominio académico</a>
+      <a href="#eventos">Eventos y recurrencia</a>
+      <a href="#asistencia">Asistencia</a>
+      <a href="#biometria">Biometría</a>
+      <a href="#licencias">Licencias y ausencias</a>
+      <a href="#moodle">Moodle</a>
+      <a href="#tiempo">Tiempo y zona horaria</a>
+      <a href="#calidad">Calidad y CI/CD</a>
+      <a href="#seguridad">Seguridad</a>
+      <a href="#preguntas">Preguntas probables</a>
+    </nav>
+
+    <main>
+
+      <!-- ============ ARQUITECTURA ============ -->
+      <section id="arquitectura">
+        <header>
+          <h2>Arquitectura y stack</h2>
+          <p>Las piezas y por qué están separadas. Si te preguntan "¿cómo está armado?", esta sección es el guion.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">Monorepo</span><span class="chip">Estructura</span></div>
+          <div class="def">
+            <p>Un solo repositorio con <code>backend/</code> (API Express) y <code>frontend/web/</code> (Next.js), más <code>keycloak/</code>, <code>docs/</code>, <code>scripts/</code> e infra en la raíz. Ventaja: un solo CI, un solo <code>docker-compose</code>, cambios de contrato front↔back en el mismo commit.</p>
+            <p class="where"><code>docs/ESTRUCTURA_PROYECTO.md</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Next.js App Router</span><span class="chip">Frontend</span></div>
+          <div class="def">
+            <p>Next.js 14 con enrutado por carpetas en <code>src/app/</code>. Cada rol tiene su árbol: <code>admin/</code>, <code>staff/</code>, <code>teacher/</code>, <code>student/</code>, más <code>login</code>, <code>register</code>, <code>profile</code>. Los layouts anidados aplican el guard de rol y el chrome (menú, notificaciones) sin repetirlo por página.</p>
+            <p class="where"><code>frontend/web/src/app/</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">API por dominio</span><span class="chip">Backend</span></div>
+          <div class="def">
+            <p>Un archivo de rutas por dominio en <code>backend/src/routes/</code> (<code>attendance.ts</code>, <code>events.ts</code>, <code>medical-leaves.ts</code>, <code>reports.ts</code>…). Las rutas validan y orquestan; la lógica de negocio vive en <code>services/</code> y la lógica pura testeable en módulos sin acceso a DB.</p>
+            <p class="ask"><b>Si preguntan por qué esa separación</b> Porque permite testear las reglas de negocio con Vitest sin levantar Postgres: <code>attendance-logic.ts</code>, <code>event-overlap.ts</code> o <code>coverage-spans.ts</code> son funciones puras que reciben datos y devuelven decisiones.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Docker Compose</span><span class="chip">Infra</span></div>
+          <div class="def">
+            <p>Dos composiciones: <code>docker-compose.yml</code> para desarrollo local (web, auth, postgres, redis, keycloak) y <code>docker-compose.cloud.yml</code> para el VPS. Moodle y el stack de monitoreo corren en sus propios compose para poder reiniciarse sin tocar la app.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">docker-entrypoint.sh</span><span class="chip">Infra</span></div>
+          <div class="def">
+            <p>Script que corre al arrancar el contenedor del backend: ejecuta <code>prisma db push --skip-generate</code> y recién ahí levanta el servidor. Por eso el deploy es "push a main y listo": el esquema se sincroniza solo.</p>
+            <p class="where"><code>backend/docker-entrypoint.sh</code></p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ IDENTIDAD ============ -->
+      <section id="identidad">
+        <header>
+          <h2>Identidad y sesión</h2>
+          <p>La parte que más se pregunta en una defensa, porque es donde se juega la seguridad.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">Keycloak</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>Servidor de identidad externo (IdP). EduTrack no guarda contraseñas: las valida Keycloak. Provee login, federación con Google, reset de contraseña, verificación de email y segundo factor. El realm se versiona como JSON en <code>keycloak/</code>, junto con el tema de login personalizado.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">OIDC</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>OpenID Connect: capa de identidad sobre OAuth 2.0. Se usa el flujo <em>Authorization Code</em>: el navegador va a Keycloak, vuelve con un <code>code</code>, y el backend lo canjea por tokens (<code>access</code>, <code>refresh</code>, <code>id_token</code>) contra el endpoint de token.</p>
+            <p class="where"><code>backend/src/auth/keycloak.ts</code> — <code>buildLoginUrl</code>, <code>exchangeCode</code>, <code>refreshTokens</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">BFF</span><span class="chip">Identidad</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p><em>Backend For Frontend</em>. Los tokens OIDC nunca llegan al navegador: se guardan en Redis del lado del servidor y el browser sólo recibe una cookie opaca <code>sid</code> (32 bytes aleatorios en hex). Cada request pasa por <code>authGuard</code>, que resuelve la sesión desde Redis.</p>
+            <p class="where"><code>backend/src/auth/session-store.ts</code></p>
+            <p class="ask"><b>Si preguntan por qué BFF y no JWT en localStorage</b> Porque un JWT en <code>localStorage</code> es robable por XSS y no se puede revocar antes de que expire. Con BFF, la cookie es opaca (no contiene información), es <code>httpOnly</code>, y borrar la clave de Redis mata la sesión al instante.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">BffSession</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>El objeto guardado en Redis bajo la clave <code>bff:sess:&lt;sid&gt;</code>: <code>userId</code>, <code>kcId</code>, <code>email</code>, <code>role</code>, los tokens y <code>accessTokenExpiresAt</code>. TTL configurable por <code>SESSION_TTL_DAYS</code> (7 por defecto).</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Índice inverso de sesiones</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>Además de la sesión, se guarda un set <code>bff:user-sess:&lt;userId&gt;</code> con todos los <code>sid</code> activos de esa persona. Sirve para que un admin pueda cerrar <em>todas</em> las sesiones de un usuario (por ejemplo al bloquear la cuenta) sin recorrer Redis entero.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">authGuard</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>Middleware de Express que autentica cada request. Lee la cookie <code>sid</code>, busca la sesión y —esto es lo importante— <strong>revalida la cuenta contra la base</strong>: <code>isActive</code>, <code>isApproved</code> y <code>lockUntil</code>. Una sesión válida en Redis no alcanza si el admin dio de baja o bloqueó al usuario después del login.</p>
+            <p class="where"><code>backend/src/middlewares/auth.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">SameSite</span><span class="chip">Identidad</span><span class="chip amber">Trampa</span></div>
+          <div class="def">
+            <p>Atributo de cookie que controla si viaja en pedidos cross-site. Con <code>Lax</code>, la cookie <code>sid</code> no acompaña a los <code>fetch</code> cross-origin — síntoma clásico: el login funciona en desktop y entra en loop en móvil/Safari. Se controla con <code>COOKIE_SAMESITE</code>.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">2FA / TOTP</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>Segundo factor por app autenticadora. Keycloak nunca expone el <code>secretData</code> de la credencial, así que EduTrack <strong>no puede validar el código por su cuenta</strong>: lo verifica pidiéndole a Keycloak un <em>direct grant</em> con el flujo <code>edutrack-direct-grant-otp</code> y el cliente <code>edutrack-otp-check</code>. Si Keycloak acepta el par contraseña+OTP, el código es correcto.</p>
+            <p class="where"><code>backend/src/auth/keycloak.ts</code> — <code>verifyKeycloakUserOtpCode</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Aprovisionamiento</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>Alta de usuarios en Keycloak desde EduTrack vía Admin REST API: se crea el usuario, se le asigna username determinístico y se dispara el mail de verificación o de definición de contraseña. También se libera el username si la cuenta quedó huérfana.</p>
+            <p class="where"><code>backend/src/auth/keycloak-provisioning.ts</code>, <code>backend/src/services/usernames.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">SSO con Google</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>Federación configurada en Keycloak. Al volver, EduTrack sincroniza la identidad local con la de Keycloak por email (<code>syncRegisteredSsoUser</code>) para no duplicar usuarios. El mail de vinculación lo manda Keycloak con <strong>su propia</strong> clave SMTP, distinta de la del backend.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Prueba de vida (Didit)</span><span class="chip">Identidad</span></div>
+          <div class="def">
+            <p>Verificación de identidad biométrica documental en el onboarding: se abre una <code>LivenessSession</code>, el proveedor Didit corre la prueba y notifica el resultado por webhook firmado.</p>
+            <p class="where"><code>backend/src/integrations/didit/</code>, modelo <code>LivenessSession</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">HMAC del webhook</span><span class="chip">Identidad</span><span class="chip pen">Seguridad</span></div>
+          <div class="def">
+            <p>El webhook de Didit se valida con HMAC-SHA256 sobre el <strong>cuerpo crudo</strong> (no el JSON parseado), comparando con <code>timingSafeEqual</code> para evitar ataques de temporización, y rechazando pedidos con más de 300 s de antigüedad (anti-replay).</p>
+            <p class="where"><code>backend/src/integrations/didit/signature.ts</code></p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ PERMISOS ============ -->
+      <section id="permisos">
+        <header>
+          <h2>Roles y permisos</h2>
+          <p>RBAC con catálogo de permisos configurable, no roles hardcodeados en el código.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">OrgRole</span><span class="chip">RBAC</span></div>
+          <div class="def">
+            <p>Rol de organización con un <code>code</code> estable (<code>ADMIN</code>, <code>TEACHER</code>, <code>STAFF</code>, <code>STUDENT</code>, o personalizados). <code>builtIn</code> marca los que no se pueden borrar; el resto los crea el administrador.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Permission</span><span class="chip">RBAC</span></div>
+          <div class="def">
+            <p>Catálogo de permisos atómicos identificados por <code>code</code> y agrupados por <code>module</code> + <code>action</code>. Es un catálogo del sistema: los roles no inventan permisos, los <em>habilitan</em>.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">RolePermission</span><span class="chip">RBAC</span></div>
+          <div class="def">
+            <p>Tabla puente rol↔permiso con clave compuesta <code>(roleId, permissionId)</code>. Guarda <code>enabled</code>, un <code>label</code> propio por rol (el mismo permiso se puede llamar distinto para docentes y para adscriptos) y el <code>scope</code>.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">PermissionScope</span><span class="chip">RBAC</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p><code>OWN</code> o <code>ALL</code>. Define el alcance de los datos: un docente con <code>attendance:read</code> en <code>OWN</code> ve sólo su asistencia; el mismo permiso en <code>ALL</code> ve la de todo el liceo. Es lo que evita tener que duplicar permisos "ver mis X" / "ver todos los X".</p>
+            <p class="where"><code>backend/src/middlewares/auth.ts</code> — <code>userPermissionScope</code>, <code>requirePermission</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">requireRole / requireAnyRole</span><span class="chip">RBAC</span></div>
+          <div class="def">
+            <p>Middlewares de guardia más gruesos, para rutas que son íntegramente de un rol (por ejemplo, todo el panel de administración). Se componen después de <code>authGuard</code>.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">AuditLog</span><span class="chip">RBAC</span><span class="chip pen">RF-11</span></div>
+          <div class="def">
+            <p>Registro <strong>append-only</strong> de acciones sensibles: logins exitosos y fallidos, altas/bajas de usuarios, cambios de licencia, ajustes manuales de asistencia, vinculaciones biométricas, envíos de notas a Moodle. La aplicación nunca hace <code>UPDATE</code> ni <code>DELETE</code> sobre esta tabla.</p>
+            <p class="where">enum <code>AuditAction</code> en <code>schema.prisma</code>, <code>backend/src/services/audit-log.ts</code></p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ DATOS ============ -->
+      <section id="datos">
+        <header>
+          <h2>Datos y Prisma</h2>
+          <p>Cómo se define y evoluciona el esquema. Ojo con la pregunta sobre migraciones.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">Prisma ORM</span><span class="chip">Datos</span></div>
+          <div class="def">
+            <p>ORM tipado para TypeScript. El <code>schema.prisma</code> (≈1.000 líneas) es la fuente de verdad: de ahí se genera el cliente tipado, de modo que un campo mal escrito es un error de compilación, no un error en runtime.</p>
+            <p class="where"><code>backend/prisma/schema.prisma</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">db push vs. migrate</span><span class="chip">Datos</span><span class="chip amber">Trampa</span></div>
+          <div class="def">
+            <p>El proyecto usa <code>prisma db push</code>, que compara el esquema con la base y aplica la diferencia, sin tabla <code>_prisma_migrations</code> ni historial de migraciones. La carpeta <code>prisma/migrations/</code> queda como documentación.</p>
+            <p class="ask"><b>Si preguntan por el riesgo</b> Es real y hay que admitirlo: <code>db push</code> corre con <code>--accept-data-loss</code>, así que renombrar una columna se traduce en DROP + ADD y pierde datos. La regla del proyecto es nunca renombrar: se usa <code>@map</code> para cambiar el nombre en Prisma manteniendo el de la columna física.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Singleton de Prisma</span><span class="chip">Datos</span></div>
+          <div class="def">
+            <p>Una sola instancia de <code>PrismaClient</code> exportada desde <code>db/prisma.ts</code>. Evita agotar el pool de conexiones de Postgres con hot-reload, y da un único punto de mock en los tests (<code>vi.mock('../db/prisma.js')</code>).</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">onDelete: Restrict / SetNull / Cascade</span><span class="chip">Datos</span></div>
+          <div class="def">
+            <p>Política de integridad referencial elegida por relación, y es una decisión de diseño defendible: <code>Cascade</code> cuando el hijo no tiene sentido sin el padre (asistencias de un usuario), <code>SetNull</code> cuando el dato histórico debe sobrevivir (un evento borrado no borra su asistencia), <code>Restrict</code> cuando borrar rompería trazabilidad (un ciclo lectivo con datos).</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Índices</span><span class="chip">Datos</span></div>
+          <div class="def">
+            <p><code>@@index</code> sobre las columnas por las que realmente se filtra: <code>Attendance</code> por <code>userId</code>, <code>date</code>, <code>eventId</code> y <code>schoolYearId</code>; <code>Event</code> por <code>startDate</code>, <code>revisionOf</code>, <code>effectiveFrom</code>. Y <code>@@unique</code> donde hay regla de negocio, por ejemplo <code>Substitution(eventId, date)</code>: una sola suplencia por ocurrencia.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Zod</span><span class="chip">Datos</span></div>
+          <div class="def">
+            <p>Validación de esquemas en el borde de la API. Prisma garantiza que lo que sale de la base tiene la forma correcta; Zod garantiza que lo que <em>entra</em> desde el cliente también.</p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ ACADÉMICO ============ -->
+      <section id="academico">
+        <header>
+          <h2>Dominio académico</h2>
+          <p>El modelo del liceo. Si confundís <code>Course</code> con <code>CourseOffering</code> en la defensa, se nota — esta es la parte que hay que tener firme.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">SchoolYear</span><span class="chip">Académico</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p>Ciclo lectivo. Es la <strong>segmentación global</strong> de todos los datos operativos: eventos, asistencias, inscripciones y reportes cuelgan de un ciclo. Tiene <code>status</code> (<code>SchoolYearStatus</code>) y hay uno activo por vez, que se resuelve con <code>getActiveSchoolYearId()</code>.</p>
+            <p class="ask"><b>Si preguntan para qué sirve</b> Para poder cerrar un año y empezar otro sin borrar nada: el histórico queda íntegro y consultable, y las pantallas filtran por ciclo.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Course</span><span class="chip">Académico</span></div>
+          <div class="def">
+            <p>El curso del catálogo, en abstracto: "1° de Bachillerato". No pertenece a un año ni tiene alumnos; describe un nivel (<code>AcademicLevel</code>) dentro de la estructura curricular.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">CourseOffering</span><span class="chip">Académico</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p>La <strong>instancia dictada</strong> de un curso en un ciclo lectivo: el grupo concreto ("1°A, 2026") al que se inscriben estudiantes y contra el que se agendan clases. La distinción <code>Course</code> (catálogo) / <code>CourseOffering</code> (oferta del año) es lo que permite reusar el plan de estudios año a año.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Orientation / CourseOrientation</span><span class="chip">Académico</span></div>
+          <div class="def">
+            <p><code>Orientation</code> es la orientación del catálogo (Científico, Humanístico…). <code>CourseOrientation</code> es esa orientación aterrizada en un curso/oferta concreto. Importa porque una misma asignatura puede dictarse distinta según la orientación, y en Moodle son cursos separados.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Subject</span><span class="chip">Académico</span></div>
+          <div class="def">
+            <p>Asignatura (Matemática, Historia). Se vincula a cursos mediante <code>SubjectCourseAssignment</code>, con un <code>SubjectAssociationType</code> que distingue si la asignatura es común al curso o específica de una orientación.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Student / StudentEnrollment</span><span class="chip">Académico</span></div>
+          <div class="def">
+            <p><code>Student</code> es la persona; <code>StudentEnrollment</code> es su inscripción a una oferta en un ciclo, con <code>StudentEnrollmentStatus</code>. Un mismo estudiante acumula una inscripción por año, lo que permite reconstruir su trayectoria.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">StudentTuitionYear / Month</span><span class="chip">Académico</span></div>
+          <div class="def">
+            <p>Control de cuotas: el año de matrícula y el detalle mensual de pagos del estudiante.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Cédula uruguaya</span><span class="chip">Académico</span></div>
+          <div class="def">
+            <p>Validación de CI con dígito verificador, pesos <code>[2,9,8,7,6,3,4]</code>, en una única implementación compartida por auth, admin y alta de estudiantes.</p>
+            <p class="where"><code>backend/src/identity/uruguay-ci.ts</code></p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ EVENTOS ============ -->
+      <section id="eventos">
+        <header>
+          <h2>Eventos y recurrencia</h2>
+          <p>El corazón algorítmico del sistema: cómo una definición semanal se convierte en clases concretas, y cómo se edita sin romper el pasado.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">Event</span><span class="chip">Eventos</span></div>
+          <div class="def">
+            <p>Toda actividad agendada: <code>CLASE</code>, <code>JORNADA_LABORAL</code>, <code>REUNION</code> y otros (<code>EventType</code>). Lleva creador (<code>userId</code>), asignado (<code>assignedUserId</code>, el docente), ciclo, y opcionalmente oferta, asignatura y orientación.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Ocurrencia</span><span class="chip">Eventos</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p>Una <em>instancia</em> concreta de un evento recurrente en un día dado. Las ocurrencias <strong>no se guardan en la base</strong>: se generan en memoria expandiendo la definición sobre un rango de fechas. Sólo se materializan filas cuando hay algo real que registrar (una asistencia, una suplencia).</p>
+            <p class="where"><code>backend/src/events/events-query.ts</code> — <code>generateRecurringInstances</code>, <code>expandRecurringEvent</code></p>
+            <p class="ask"><b>Si preguntan por qué no guardarlas</b> Porque una serie semanal de un año son ~40 filas por evento y multiplicarlo por todo el liceo explota la tabla; y peor, editar el horario obligaría a reescribirlas todas. Expandir es barato y siempre consistente con la definición vigente.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">daysOfWeek</span><span class="chip">Eventos</span></div>
+          <div class="def">
+            <p>Array de enteros (<code>0</code>=domingo … <code>6</code>=sábado) que define en qué días de la semana se repite el evento. Junto con <code>recurrenceType</code>, <code>recurrenceEnd</code> y <code>startDate</code> es toda la regla de recurrencia.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Versionado temporal</span><span class="chip">Eventos</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p>Al editar un campo sensible de una serie que <strong>ya tiene asistencias</strong>, no se sobrescribe: se hace un <em>split de vigencia</em>. La versión actual se cierra en la fecha de corte (<code>effectiveUntil</code>, <code>supersededById</code>) y se crea una versión nueva vigente desde el corte (<code>effectiveFrom</code>). Ambas comparten <code>revisionOf</code>, el id de la definición raíz.</p>
+            <p class="where"><code>backend/src/services/events/event-versioning.ts</code></p>
+            <p class="ask"><b>Si preguntan qué problema resuelve</b> Que cambiar el horario de una clase en junio no reescriba la historia de marzo. Las ocurrencias pasadas se siguen resolviendo contra la versión vieja, así que la asistencia histórica queda coherente con el horario que realmente regía ese día.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">effectiveFrom / effectiveUntil</span><span class="chip">Eventos</span></div>
+          <div class="def">
+            <p>Ventana de vigencia de una versión. <code>null</code> en <code>effectiveFrom</code> significa "desde siempre"; <code>null</code> en <code>effectiveUntil</code>, "sin fin". Al expandir ocurrencias se descartan las fechas fuera de la ventana.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Doble reserva (overlap)</span><span class="chip">Eventos</span></div>
+          <div class="def">
+            <p>Validación que impide asignar a un docente dos ocurrencias que se pisan en horario, y a un mismo grupo dos clases simultáneas. Compara series completas: cruza <code>daysOfWeek</code>, ventanas de vigencia y minutos del día, no sólo fechas sueltas.</p>
+            <p class="where"><code>backend/src/services/events/event-overlap.ts</code> — devuelve conflictos <code>TEACHER</code> o <code>GROUP</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Substitution</span><span class="chip">Eventos</span></div>
+          <div class="def">
+            <p>Suplencia: para una ocurrencia concreta (<code>eventId</code> + <code>date</code>, único), registra docente titular, suplente, horario, motivo y quién la creó. Afecta la asistencia esperada, la liquidación y el acceso al curso en Moodle.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">deriveOccurrenceStatus</span><span class="chip">Eventos</span></div>
+          <div class="def">
+            <p>Deriva el estado visible de una ocurrencia (por ejemplo, ya terminada vs. en curso vs. futura) a partir del estado base del evento y de los instantes de inicio/fin de esa ocurrencia.</p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ ASISTENCIA ============ -->
+      <section id="asistencia">
+        <header>
+          <h2>Asistencia y horas</h2>
+          <p>Cómo se decide si alguien estuvo presente y cuántas horas se le pagan.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">Attendance</span><span class="chip">Asistencia</span></div>
+          <div class="def">
+            <p>Una marca: <code>type</code> (<code>CHECK_IN</code>/<code>CHECK_OUT</code>), <code>status</code>, <code>date</code>, <code>time</code>, y opcionalmente el evento asociado. Puede venir del reloj biométrico o de una carga manual.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">date vs. time</span><span class="chip">Asistencia</span><span class="chip amber">Trampa</span></div>
+          <div class="def">
+            <p><code>date</code> es el <strong>día civil</strong> de la marca (medianoche de Uruguay guardada como instante UTC); <code>time</code> es el instante exacto. Para filtrar por día, mes o año hay que usar siempre <code>date</code>: en ausencias materializadas, <code>time</code> puede arrastrar la fecha de otra ocurrencia de la serie.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">AttendanceStatus</span><span class="chip">Asistencia</span></div>
+          <div class="def">
+            <p>Estados de entrada (<code>PRESENT</code>, <code>LATE</code>, <code>ABSENT_JUSTIFIED</code>, <code>ABSENT_NOT_JUSTIFIED</code>), de salida (<code>EXIT</code>, <code>EARLY_EXIT</code>) y operativos (<code>PENDING_REVIEW</code>, <code>SUBSTITUTED</code>, <code>SUSPENDED</code>, <code>FREE</code>, <code>OUT_OF_SCHEDULE</code>, <code>UNIDENTIFIED_PUNCH</code>).</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Tolerancia de llegada</span><span class="chip">Asistencia</span></div>
+          <div class="def">
+            <p>Minutos de gracia antes de marcar <code>LATE</code> (5 por defecto), configurable desde <code>SystemSettings</code>. La decisión es una función pura: recibe el instante real, el horario esperado y la tolerancia, y devuelve el estado.</p>
+            <p class="where"><code>backend/src/attendance/attendance-logic.ts</code> — <code>getAttendanceStatus</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Modelo de spans</span><span class="chip">Asistencia</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p>Fuente única de verdad de presencia, cobertura y horas. La jornada de un docente se reconstruye como intervalos <code>[CHECK_IN, CHECK_OUT]</code> del día, y <strong>cada clase se evalúa por separado contra todos los spans</strong>: está cubierta si se solapa con alguno.</p>
+            <p class="where"><code>backend/src/services/attendance/coverage-spans.ts</code></p>
+            <p class="ask"><b>Si preguntan qué mejora respecto al modelo anterior</b> El modelo de bloque asumía una jornada continua entre la primera entrada y la última salida, así que un docente presente de 8 a 9 y de 14 a 15 aparecía presente también a las 11. Con spans, esa clase del medio queda correctamente ausente.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Span abierto</span><span class="chip">Asistencia</span></div>
+          <div class="def">
+            <p>Entrada sin salida registrada. Se asume permanencia (<code>checkOut: null</code>) en lugar de descartar el span, porque olvidarse de marcar la salida es frecuente y penalizarlo sería injusto.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Horas efectivas</span><span class="chip">Asistencia</span></div>
+          <div class="def">
+            <p>Intersección entre el intervalo de la clase y el span de presencia, <em>clampeada</em> a la ventana planificada. Consecuencia buscada: las horas de espera entre clases no se pagan, y llegar antes tampoco suma horas.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Nominal − faltas</span><span class="chip">Asistencia</span><span class="chip pen">Liquidación</span></div>
+          <div class="def">
+            <p>Regla de liquidación del proyecto: al docente titular se le paga por <strong>horas planificadas según designación</strong>, no por la intersección biométrica. La hora efectiva es un control de gestión; las faltas se descuentan aparte, y las licencias se contabilizan por tipo.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">AttendanceIncident</span><span class="chip">Asistencia</span></div>
+          <div class="def">
+            <p>Anomalía detectada automáticamente (marca fuera de horario, sin evento asignado, huella no identificada…) con su <code>AttendanceIncidentType</code> y un <code>AttendanceIncidentStatus</code> para el circuito de resolución por parte de adscripción.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">AttendanceJustification</span><span class="chip">Asistencia</span></div>
+          <div class="def">
+            <p>Justificación cargada sobre una marca: <code>ABSENCE</code>, <code>LATE_ARRIVAL</code>, <code>EARLY_EXIT</code> u <code>OTHER</code>. Cambia el estado sin borrar el registro original — trazabilidad.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">NonWorkingDay</span><span class="chip">Asistencia</span></div>
+          <div class="def">
+            <p>Día no laborable (feriado, paro, receso). Se consulta antes de generar faltas o incidencias: nadie falta un día que el liceo no funciona.</p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ BIOMETRÍA ============ -->
+      <section id="biometria">
+        <header>
+          <h2>Biometría</h2>
+          <p>El reloj ZKTeco y cómo sus marcas se convierten en asistencia.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">ADMS / protocolo iclock</span><span class="chip">Biometría</span></div>
+          <div class="def">
+            <p>Protocolo <em>push</em> de los relojes ZKTeco: el dispositivo se conecta al servidor por HTTP y envía sus marcas. EduTrack expone los endpoints que el reloj espera (<code>/iclock/...</code>), así que no hace falta ir a buscar los datos ni abrir puertos hacia el reloj.</p>
+            <p class="where"><code>backend/src/routes/zkteco-iclock.ts</code>, <code>backend/src/routes/biometric-adms.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">ATTLOG</span><span class="chip">Biometría</span></div>
+          <div class="def">
+            <p>Formato del registro de marcas: líneas separadas por tabuladores con id de usuario del dispositivo, timestamp, <code>status</code> (0 = entrada, 1 = salida) y <code>verifyMode</code>. El parser acepta timestamp local o epoch, y descarta líneas malformadas sin abortar el lote.</p>
+            <p class="where"><code>backend/src/integrations/zkteco/iclock-parser.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">BiometricPunch</span><span class="chip">Biometría</span></div>
+          <div class="def">
+            <p>La marca cruda tal como llegó del reloj, guardada antes de interpretarla. Tiene <code>BiometricPunchProcessStatus</code>: <code>PENDING</code>, <code>PROCESSED</code>, <code>FAILED</code>, <code>DUPLICATE</code>, <code>LINK_CAPTURED</code>.</p>
+            <p class="ask"><b>Si preguntan por qué guardar la marca cruda</b> Para poder reprocesar. Si la regla de negocio cambia o hubo un bug al interpretar, el dato original sigue ahí; si sólo se guardara la asistencia derivada, el error sería irreversible.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">BiometricUserMapping</span><span class="chip">Biometría</span></div>
+          <div class="def">
+            <p>Puente entre el id de usuario <em>dentro del reloj</em> y el usuario de EduTrack. Sin este mapeo, la marca queda como <code>UNIDENTIFIED_PUNCH</code>.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">BiometricLinkRequest</span><span class="chip">Biometría</span></div>
+          <div class="def">
+            <p>Flujo de enrolamiento asistido: el admin abre una solicitud (<code>WAITING_PUNCH</code>), la persona apoya el dedo, el sistema captura esa marca (<code>PENDING_CONFIRM</code>) y el admin confirma la identidad (<code>CONFIRMED</code>). También expira o se cancela. Todo el circuito queda auditado.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Secreto del dispositivo</span><span class="chip">Biometría</span><span class="chip pen">Seguridad</span></div>
+          <div class="def">
+            <p>Cada <code>BiometricDevice</code> se autentica con un secreto que se guarda <strong>hasheado</strong> (SHA-256) y se compara con <code>timingSafeEqual</code>. El reloj es un dispositivo en la red del liceo: si alguien lo suplanta, podría inyectar asistencia falsa.</p>
+            <p class="where"><code>backend/src/services/biometric-ingest-core.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Ingesta</span><span class="chip">Biometría</span></div>
+          <div class="def">
+            <p>Pipeline de una marca: identificar al usuario → resolver el evento asignado cerca de ese instante → verificar licencias aprobadas y días no laborables → calcular el estado con la tolerancia vigente → persistir asistencia o abrir una incidencia. Es idempotente: la misma marca dos veces queda <code>DUPLICATE</code>.</p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ LICENCIAS ============ -->
+      <section id="licencias">
+        <header>
+          <h2>Licencias y ausencias</h2>
+          <p>Dos conceptos que en la defensa conviene distinguir con precisión.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">MedicalLeave</span><span class="chip">Licencias</span></div>
+          <div class="def">
+            <p>Licencia con tipo (<code>MedicalLeaveType</code>), rango de fechas y estado de aprobación (<code>MedicalLeaveStatus</code>). Los tipos se contabilizan por separado en los reportes porque no todos tienen el mismo tratamiento.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Reconciliación de licencias</span><span class="chip">Licencias</span></div>
+          <div class="def">
+            <p>Proceso que cruza licencias ↔ eventos ↔ asistencias. Reglas explícitas: <strong>no cancela eventos</strong>, marca o crea asistencia en <code>ABSENT_JUSTIFIED</code> cuando corresponde, y <strong>nunca sobrescribe un <code>PRESENT</code> o <code>LATE</code> sin dejar rastro</strong> — deja una nota de conflicto con prefijo <code>[LIC-AUTO]</code>.</p>
+            <p class="where"><code>backend/src/services/medicalLeaveReconciliation.ts</code></p>
+            <p class="ask"><b>Si preguntan por el caso raro</b> Docente con licencia que igual fue a dar clase y marcó. El sistema no borra la evidencia biométrica: conserva el <code>PRESENT</code> y anota el conflicto para que un humano decida.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Falta / ausencia virtual</span><span class="chip">Licencias</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p>Una falta <strong>no es una fila</strong>: es un estado derivado. Se calcula como "ocurrencia planificada sin marca que la cubra", expandiendo la recurrencia en TypeScript. Sólo se materializa como <code>Attendance</code> cuando un admin la confirma.</p>
+            <p class="ask"><b>Si preguntan por qué no se guardan las faltas</b> Porque una falta depende del horario vigente, de las licencias, de los feriados y de las suplencias — todos datos que pueden cambiar después. Guardarla la congelaría con información incompleta; derivarla la mantiene siempre correcta.</p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ MOODLE ============ -->
+      <section id="moodle">
+        <header>
+          <h2>Integración con Moodle</h2>
+          <p>Sincronización unidireccional EduTrack → Moodle. EduTrack es la fuente de verdad.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">Web Services de Moodle</span><span class="chip">Moodle</span></div>
+          <div class="def">
+            <p>API REST de Moodle, autenticada con un token (<code>MOODLE_WS_TOKEN</code>) asociado a un usuario de servicio. Si falta <code>MOODLE_BASE_URL</code> o el token, la integración queda <strong>inactiva sin romper la app</strong>.</p>
+            <p class="where"><code>backend/src/integrations/moodle/client.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">idnumber</span><span class="chip">Moodle</span><span class="chip pen">Clave</span></div>
+          <div class="def">
+            <p>Identificador externo estable que EduTrack le asigna a cada objeto Moodle (prefijo <code>et-subject-offering</code> + ciclo + oferta + asignatura + orientación). Es lo que hace la sincronización <strong>idempotente</strong>: si el curso ya existe se actualiza, no se duplica, aunque se recree el objeto en Moodle.</p>
+            <p class="where"><code>backend/src/integrations/moodle/scope.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Límite de 100 caracteres</span><span class="chip">Moodle</span><span class="chip amber">Trampa</span></div>
+          <div class="def">
+            <p><code>mdl_course.idnumber</code> es <code>varchar(100)</code>. El idnumber natural con orientación llega a ~142 caracteres y provoca <code>dmlwriteexception</code>. Solución: cuando supera el límite se reemplaza por una forma compacta derivada por hash de la clave completa — determinística, así que sigue siendo idempotente. Los idnumbers base (~93) quedan intactos y los cursos ya creados no se rompen.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Scope académico</span><span class="chip">Moodle</span></div>
+          <div class="def">
+            <p>Resolución del curso Moodle que le corresponde a un evento. Precedencia de orientación, de más específica a más general: <code>courseOrientationId</code> → <code>orientationId</code> → curso general de la asignatura. Así los permisos no se mezclan entre asignaturas ni entre orientaciones.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">MoodleEnrolmentMap</span><span class="chip">Moodle</span></div>
+          <div class="def">
+            <p>Registro local de cada matriculación que EduTrack otorgó, con su origen (<code>TEACHER_EVENT</code>, <code>SUBSTITUTE</code>, <code>STUDENT_ENROLLMENT</code>) y su ventana temporal. Clave lógica: <code>(sourceType, userId, moodleCourseId)</code>.</p>
+            <p class="ask"><b>Si preguntan por qué no consultar Moodle directamente</b> Porque haría falta saber <em>quién</em> otorgó cada acceso. Sin el mapa, revocar significaría desmatricular gente que un profesor inscribió a mano en Moodle. Con el mapa, sólo se revoca lo que EduTrack otorgó.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Matriculación con ventana</span><span class="chip">Moodle</span></div>
+          <div class="def">
+            <p>Se usa <code>manual_enrol_users</code> con <code>timestart</code>/<code>timeend</code>, de modo que el acceso del suplente vale sólo durante el período de la suplencia y caduca solo del lado de Moodle.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Reconciliación</span><span class="chip">Moodle</span></div>
+          <div class="def">
+            <p>Proceso completo: construye el <em>estado deseado</em> desde la base local (titulares + suplentes + estudiantes), lo compara con lo otorgado y aplica altas y revocaciones. Es convergente: correrlo dos veces seguidas no cambia nada la segunda vez.</p>
+            <p class="where"><code>backend/src/integrations/moodle/reconcile.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Outbox</span><span class="chip">Moodle</span><span class="chip pen">Patrón</span></div>
+          <div class="def">
+            <p>Patrón <em>transactional outbox</em>. Reemplaza el <code>void syncMoodleUser(...)</code> fire-and-forget, que perdía en silencio cualquier fallo transitorio. Ahora cada intención de sincronizar queda persistida en <code>MoodleSyncTask</code> y se reintenta con <strong>backoff exponencial</strong> (base 1 min, tope 6 h) hasta <code>maxAttempts</code>.</p>
+            <p class="where"><code>backend/src/integrations/moodle/outbox.ts</code></p>
+            <p class="ask"><b>Si preguntan qué pasa si Moodle está caído</b> Nada se pierde: las tareas quedan encoladas y se reintentan solas. Antes, una caída de diez minutos dejaba usuarios desincronizados para siempre.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Envío de calificaciones</span><span class="chip">Moodle</span></div>
+          <div class="def">
+            <p>Las notas cargadas en EduTrack se empujan al libro de calificaciones de Moodle, y la acción queda auditada como <code>MOODLE_GRADES_PUSHED</code>.</p>
+            <p class="where"><code>backend/src/integrations/moodle/grades.ts</code>, <code>backend/src/services/grades/gradeSheet.ts</code></p>
+          </div>
+        </article>
+      </section>
+
+
+      <!-- ============ TIEMPO ============ -->
+      <section id="tiempo">
+        <header>
+          <h2>Tiempo y zona horaria</h2>
+          <p>Transversal a todo el sistema, y una fuente de bugs sutiles que conviene poder explicar.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">UTC en la base</span><span class="chip">Tiempo</span><span class="chip pen">Regla</span></div>
+          <div class="def">
+            <p>Postgres guarda <strong>instantes UTC</strong>; la hora civil de Uruguay se calcula al leer y al escribir. La regla es no persistir nunca hora local.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Luxon</span><span class="chip">Tiempo</span></div>
+          <div class="def">
+            <p>Librería de fechas con soporte real de zonas horarias (IANA). Se usa en lugar del <code>Date</code> nativo, que no sabe convertir a una zona arbitraria de forma confiable.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">uruguayWallToUtc</span><span class="chip">Tiempo</span></div>
+          <div class="def">
+            <p>Convierte "YYYY-MM-DD + hora civil" al instante UTC que se persiste. Su par, <code>uruguayYmdEndOfDayToUtc</code>, da el fin inclusivo del día civil — el que se necesita para que "hasta el viernes" incluya el viernes entero.</p>
+            <p class="where"><code>backend/src/config/app-timezone.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Zona institucional</span><span class="chip">Tiempo</span></div>
+          <div class="def">
+            <p>La zona no está hardcodeada: se lee de <code>SystemSettings</code> y se cachea (<code>getAppTimezone()</code>). El default es <code>America/Montevideo</code>, pero el sistema no asume Uruguay a nivel de código.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">YMD</span><span class="chip">Tiempo</span></div>
+          <div class="def">
+            <p>Convención interna: las fechas sin hora circulan como string <code>"2026-05-08"</code> ya proyectado a la zona institucional, para evitar que un <code>Date</code> se corra de día al cruzar husos.</p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ CALIDAD ============ -->
+      <section id="calidad">
+        <header>
+          <h2>Calidad, CI/CD y observabilidad</h2>
+          <p>Cómo se sabe que funciona y cómo llega a producción.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">Vitest</span><span class="chip">Calidad</span></div>
+          <div class="def">
+            <p>Framework de tests unitarios de backend y frontend. Los mocks de módulos se declaran con <code>vi.hoisted()</code> al tope del archivo, porque <code>vi.mock</code> se eleva por encima de los imports.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Test de lógica pura</span><span class="chip">Calidad</span></div>
+          <div class="def">
+            <p>Estrategia central: las reglas difíciles (solapamientos, spans de cobertura, versionado, parser ATTLOG, recurrencia, cédula) están en funciones sin acceso a base, con su <code>.test.ts</code> al lado. Se testean con datos armados a mano y sin infraestructura.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">supertest</span><span class="chip">Calidad</span></div>
+          <div class="def">
+            <p>Levanta la app de Express en memoria para probar rutas de punta a punta (guards, códigos de estado, forma de la respuesta) sin abrir un puerto ni una base real.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Playwright</span><span class="chip">Calidad</span></div>
+          <div class="def">
+            <p>Tests end-to-end sobre el navegador real: recorren los flujos completos (login, alta de evento, registro de asistencia) contra la app levantada.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">SonarCloud / Quality Gate</span><span class="chip">Calidad</span></div>
+          <div class="def">
+            <p>Análisis estático sobre <code>backend/src</code> y <code>frontend/web/src</code>. La puerta de calidad exige <strong>≥80% de cobertura en código nuevo</strong> y <strong>cero issues Blocker/Critical</strong> en lo nuevo.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Complejidad cognitiva</span><span class="chip">Calidad</span></div>
+          <div class="def">
+            <p>Regla <code>typescript:S3776</code>: máximo 15 por función. Mide qué tan difícil es <em>entender</em> el código (anidamiento, saltos de flujo), no cuántos caminos tiene como la complejidad ciclomática. Es la razón por la que varias funciones grandes están partidas en helpers.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">GitHub Actions</span><span class="chip">CI/CD</span></div>
+          <div class="def">
+            <p>Cuatro workflows: <code>ci.yml</code> (typecheck + tests), <code>sonar.yml</code> (análisis), <code>e2e.yml</code> (Playwright) y <code>deploy.yml</code> (despliegue). Los tres primeros corren en cada push y PR a <code>main</code> y <code>develop</code>.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Despliegue continuo</span><span class="chip">CI/CD</span></div>
+          <div class="def">
+            <p>Push a <code>main</code> → el workflow entra por SSH al VPS, hace <code>docker compose pull</code> y <code>up</code>, y el entrypoint sincroniza el esquema al arrancar. Sin pasos manuales.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">develop / main</span><span class="chip">CI/CD</span></div>
+          <div class="def">
+            <p>Se trabaja en <code>develop</code> y se promueve a <code>main</code>, que es la rama que despliega. Consecuencia práctica: cualquier hotfix aplicado a mano en el servidor se pierde en el próximo deploy, así que tiene que volver al repo.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Sentry</span><span class="chip">Observabilidad</span></div>
+          <div class="def">
+            <p>Captura de errores y trazas en backend y frontend, con <em>profiling</em> en el backend. Es lo que avisa que algo se rompió en producción antes de que lo reporte un usuario.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Prometheus / Grafana / Loki</span><span class="chip">Observabilidad</span></div>
+          <div class="def">
+            <p>Métricas expuestas con <code>prom-client</code> (<code>edutrack_backend_http_requests_total</code>, histograma de duración con buckets de 10 ms a 10 s), agregadas en Grafana; Loki centraliza los logs.</p>
+            <p class="where"><code>backend/src/observability/metrics.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Readiness probe</span><span class="chip">Observabilidad</span></div>
+          <div class="def">
+            <p>Endpoint que verifica dependencias (base, Redis) antes de declarar el contenedor listo. Evita que el balanceador mande tráfico a una instancia que todavía no puede responder.</p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ SEGURIDAD ============ -->
+      <section id="seguridad">
+        <header>
+          <h2>Seguridad</h2>
+          <p>Controles concretos que se pueden señalar en el código.</p>
+        </header>
+
+        <article class="term">
+          <div class="head"><span class="name">Helmet</span><span class="chip">Seguridad</span></div>
+          <div class="def">
+            <p>Middleware que fija cabeceras de seguridad HTTP (CSP, <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, HSTS). Defensa de base contra XSS, clickjacking y sniffing de MIME.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Rate limiting</span><span class="chip">Seguridad</span></div>
+          <div class="def">
+            <p>Límite por <em>bucket</em> (por ejemplo <code>login</code>) con contador en Redis: máximo de pedidos por ventana de tiempo. Mitiga fuerza bruta contra credenciales.</p>
+            <p class="where"><code>backend/src/middlewares/rate-limit.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">argon2</span><span class="chip">Seguridad</span></div>
+          <div class="def">
+            <p>Función de hash de contraseñas resistente a GPU y ASIC, ganadora de la Password Hashing Competition. Se usa para los secretos que sí se guardan localmente; las contraseñas de usuario viven en Keycloak.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">timingSafeEqual</span><span class="chip">Seguridad</span></div>
+          <div class="def">
+            <p>Comparación de secretos en tiempo constante (firmas HMAC, secretos de dispositivo). Un <code>===</code> normal corta en el primer byte distinto y filtra información por el tiempo de respuesta.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">lockUntil</span><span class="chip">Seguridad</span></div>
+          <div class="def">
+            <p>Bloqueo temporal de cuenta. Se chequea en cada request desde <code>authGuard</code>, no sólo al iniciar sesión, así que bloquear a alguien tiene efecto inmediato sobre sus sesiones abiertas.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Política de contraseñas</span><span class="chip">Seguridad</span></div>
+          <div class="def">
+            <p>Reglas de complejidad validadas del lado servidor antes de aprovisionar en Keycloak, con sus tests.</p>
+            <p class="where"><code>backend/src/auth/password-policy.ts</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Cloudflare</span><span class="chip">Seguridad</span></div>
+          <div class="def">
+            <p>Proxy delante del VPS: termina TLS, oculta la IP de origen y agrega protección contra DDoS. Detalle a tener presente: la IP real del cliente llega en cabeceras, no en el socket.</p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Backup off-site</span><span class="chip">Continuidad</span></div>
+          <div class="def">
+            <p>Respaldo de PostgreSQL fuera del servidor, con procedimiento de restauración <strong>probado</strong> y documentado — un backup que nunca se restauró no es un backup.</p>
+            <p class="where"><code>docs/BACKUP_POSTGRES_OFFSITE.md</code>, <code>docs/TESTING_DB_RESTORE.md</code></p>
+          </div>
+        </article>
+
+        <article class="term">
+          <div class="head"><span class="name">Datos personales</span><span class="chip">Continuidad</span></div>
+          <div class="def">
+            <p>El sistema maneja datos sensibles de menores y datos biométricos. Hay política de privacidad documentada y el acceso está acotado por rol y por <code>PermissionScope</code>.</p>
+            <p class="where"><code>docs/POLITICA_PRIVACIDAD.md</code>, <code>docs/CIBERSEGURIDAD_CONTINUIDAD.md</code></p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ PREGUNTAS ============ -->
+      <section id="preguntas">
+        <header>
+          <h2>Preguntas probables</h2>
+          <p>Las que suele hacer un tribunal, con el ángulo de respuesta. Abrí cada una para ver el guion.</p>
+        </header>
+
+        <div class="qa">
+          <details>
+            <summary>¿Por qué Keycloak y no un login propio?</summary>
+            <div class="answer">
+              <p>Porque implementar bien OIDC, federación con Google, 2FA, reset de contraseña y verificación de email es un producto en sí mismo, y hacerlo mal es una vulnerabilidad. Delegando en un IdP maduro, <strong>EduTrack nunca almacena ni ve una contraseña</strong>.</p>
+              <p>El costo que asumimos: una pieza de infraestructura más que operar, y acoplamiento a su API de administración.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Dónde queda el token? ¿Qué pasa si me roban la cookie?</summary>
+            <div class="answer">
+              <p>Los tokens viven en Redis del lado servidor. La cookie es un identificador opaco de 32 bytes aleatorios, <code>httpOnly</code>, así que JavaScript no la lee.</p>
+              <p>Si aun así la roban: se invalida borrando la clave de Redis y la sesión muere al instante — con un JWT autocontenido habría que esperar a que expire. Además <code>authGuard</code> revalida el estado de la cuenta en cada request.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Por qué usan <code>db push</code> y no migraciones versionadas?</summary>
+            <div class="answer">
+              <p>Respuesta honesta: por velocidad de iteración en un equipo chico con un solo entorno productivo. El entrypoint sincroniza el esquema al desplegar y no hay que coordinar migraciones.</p>
+              <p><strong>Las limitaciones se asumen explícitamente</strong>: no hay rollback de esquema ni historial, y <code>db push</code> corre con <code>--accept-data-loss</code>. Por eso la regla del proyecto es no renombrar columnas nunca (se usa <code>@map</code>) y respaldar antes de desplegar cambios estructurales. Para un equipo más grande o varios entornos, <code>migrate</code> sería lo correcto.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Si un docente edita el horario de una clase, ¿qué pasa con la asistencia ya registrada?</summary>
+            <div class="answer">
+              <p>Nada: no se toca. Se hace un split de vigencia — la versión actual se cierra en la fecha de corte y nace una versión nueva desde ahí, ligadas por <code>revisionOf</code>.</p>
+              <p>Las ocurrencias anteriores al corte se siguen resolviendo contra la versión vieja, así que la asistencia histórica queda coherente con el horario que efectivamente regía ese día.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Cómo calculan si un docente estuvo presente en una clase?</summary>
+            <div class="answer">
+              <p>Se reconstruyen los <em>spans</em> de presencia del día como pares entrada–salida, y cada clase se evalúa <strong>por separado</strong> contra todos los spans: está cubierta si hay solapamiento.</p>
+              <p>Las horas se calculan como la intersección clase∩span acotada a la ventana planificada, así que la espera entre clases no se paga. El caso que motivó el diseño: presente 8–9, ausente 11–12, vuelve 14–15 — con un modelo de "primera entrada a última salida" ese hueco quedaba mal contado.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Por qué las faltas no son filas en la base?</summary>
+            <div class="answer">
+              <p>Porque una falta depende de datos que cambian después del hecho: el horario vigente, licencias que se cargan tarde, feriados, suplencias. Guardarla la congelaría con información incompleta.</p>
+              <p>Se deriva expandiendo las ocurrencias planificadas y restando las que tienen cobertura. Sólo se materializa como <code>Attendance</code> cuando un administrador la confirma, y ahí sí queda como registro formal.</p>
+            </div>
+          </details>
+
+
+          <details>
+            <summary>¿Qué pasa si Moodle se cae en medio de una sincronización?</summary>
+            <div class="answer">
+              <p>Nada se pierde. Cada intención de sincronizar se persiste como <code>MoodleSyncTask</code> (patrón outbox) y se reintenta con backoff exponencial, de 1 minuto hasta un tope de 6 horas.</p>
+              <p>Y como todas las operaciones son idempotentes gracias al <code>idnumber</code> estable, reintentar no duplica nada. Antes de esto había llamadas fire-and-forget que perdían los fallos en silencio.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Cómo evitan matricular o desmatricular gente por error en Moodle?</summary>
+            <div class="answer">
+              <p>Con <code>MoodleEnrolmentMap</code>: EduTrack anota localmente cada acceso que otorgó, con su origen y su ventana temporal.</p>
+              <p>Al revocar, sólo toca lo que figura en ese mapa. Si un profesor inscribió a alguien a mano directamente en Moodle, la reconciliación no lo pisa.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Cómo aseguran que las marcas biométricas son legítimas?</summary>
+            <div class="answer">
+              <p>Cada dispositivo se autentica con un secreto guardado hasheado (SHA-256) y comparado en tiempo constante. La marca cruda se persiste como <code>BiometricPunch</code> antes de interpretarse, así que siempre se puede auditar y reprocesar.</p>
+              <p>Las marcas sin mapeo de usuario no se descartan: quedan como <code>UNIDENTIFIED_PUNCH</code> y generan una incidencia para revisión humana.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Por qué guardan todo en UTC?</summary>
+            <div class="answer">
+              <p>Porque un instante es un instante; la hora civil es una <em>presentación</em> que depende de la zona y del horario de verano. Guardar hora local hace que un cambio de huso corrompa el histórico.</p>
+              <p>La conversión se centraliza en <code>app-timezone.ts</code> con Luxon, y la zona sale de <code>SystemSettings</code>, no está hardcodeada. La sutileza que suele preguntarse: <code>Attendance.date</code> es la medianoche civil como instante UTC, y es la columna correcta para filtrar por día.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Qué es lo más difícil que resolvieron?</summary>
+            <div class="answer">
+              <p>Buen candidato: <strong>editar una serie recurrente sin corromper el histórico</strong>. Es un problema de modelado temporal — hay dos ejes de tiempo, cuándo ocurre la clase y desde cuándo rige esa definición — y la solución (versionado por vigencia con <code>effectiveFrom</code>/<code>effectiveUntil</code> y <code>revisionOf</code>) es la misma familia de patrones que usan los sistemas de facturación con tarifas históricas.</p>
+              <p>Segundo candidato: el modelo de spans, porque obligó a reemplazar una abstracción ya construida y en uso al descubrir que el modelo de bloque daba mal un caso real.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Qué harían distinto si empezaran de nuevo?</summary>
+            <div class="answer">
+              <p>Tres respuestas defendibles: migraciones versionadas desde el día uno; el modelo de spans desde el principio en vez del de bloque; y el patrón outbox aplicado a todas las integraciones externas desde el arranque, en lugar de agregarlo después de perder sincronizaciones en silencio.</p>
+              <p>Es una pregunta sobre criterio, no sobre errores: conviene nombrar decisiones concretas y por qué la evidencia las cambió.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>¿Cómo escalaría el sistema?</summary>
+            <div class="answer">
+              <p>El backend es <em>stateless</em> — las sesiones están en Redis, no en memoria del proceso — así que se puede escalar horizontalmente detrás del proxy sin sesiones pegajosas.</p>
+              <p>Los cuellos de botella reales serían Postgres (mitigable con índices, ya presentes en las columnas de filtro, y réplicas de lectura para reportes) y la expansión de recurrencia en TypeScript, que es CPU del backend y se acota por rango de fechas consultado.</p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <p class="empty" id="empty">Sin resultados para esa búsqueda.</p>
+
+    </main>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var input = document.getElementById('q');
+    var count = document.getElementById('count');
+    var empty = document.getElementById('empty');
+    var terms = Array.prototype.slice.call(document.querySelectorAll('.term'));
+    var details = Array.prototype.slice.call(document.querySelectorAll('.qa details'));
+    var sections = Array.prototype.slice.call(document.querySelectorAll('main section'));
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav.index a'));
+    var entries = terms.concat(details);
+
+    document.getElementById('total').textContent = String(entries.length);
+
+    function norm(s) {
+      return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+
+    entries.forEach(function (el) { el.dataset.hay = norm(el.textContent || ''); });
+
+    function render() {
+      var q = norm(input.value.trim());
+      var shown = 0;
+
+      entries.forEach(function (el) {
+        var hit = !q || el.dataset.hay.indexOf(q) !== -1;
+        el.classList.toggle('hidden', !hit);
+        if (hit) shown++;
+      });
+
+      sections.forEach(function (sec) {
+        var any = sec.querySelector('.term:not(.hidden), details:not(.hidden)');
+        sec.classList.toggle('hidden', !!q && !any);
+        var link = links.find(function (a) { return a.getAttribute('href') === '#' + sec.id; });
+        if (link) link.classList.toggle('hidden', !!q && !any);
+      });
+
+      empty.classList.toggle('on', shown === 0);
+      count.textContent = q ? shown + ' de ' + entries.length : entries.length + ' entradas';
+    }
+
+    input.addEventListener('input', render);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === '/' && document.activeElement !== input) {
+        e.preventDefault();
+        input.focus();
+        input.select();
+      }
+      if (e.key === 'Escape' && document.activeElement === input) {
+        input.value = '';
+        render();
+        input.blur();
+      }
+    });
+
+    render();
+  })();
+</script>

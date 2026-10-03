@@ -55,7 +55,8 @@ describe('UserNav', () => {
     })
   })
 
-  it('shows auth links when there is no session', async () => {
+  it('shows auth links when there is no session on a public path', async () => {
+    mockUsePathname.mockReturnValue('/login')
     mockApiByUrl(new Error('unauthorized'))
 
     renderNav()
@@ -64,6 +65,24 @@ describe('UserNav', () => {
 
     expect(screen.queryByRole('button', { name: /volver/i })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Registrarse' })).toBeInTheDocument()
+  })
+
+  it('hides the public header on a protected path while the guard redirects', async () => {
+    mockUsePathname.mockReturnValue('/admin/attendance')
+    mockApiByUrl(new Error('unauthorized'))
+
+    render(
+      <AuthProvider>
+        <UserNav>
+          <div>placeholder del guard</div>
+        </UserNav>
+      </AuthProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByText('placeholder del guard')).toBeInTheDocument())
+
+    expect(screen.queryByRole('link', { name: 'Iniciar Sesión' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Registrarse' })).not.toBeInTheDocument()
   })
 
   it('no muestra barra de módulos; campana y menú de usuario para docente aprobado', async () => {

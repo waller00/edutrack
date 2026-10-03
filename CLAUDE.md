@@ -49,7 +49,6 @@ backend/                       # API Express + Prisma
     services/                  # Lógica de negocio
     integrations/
       moodle/                  # Sincronización EduTrack→Moodle
-      didit/                   # Prueba de vida (liveness)
       zkteco/                  # Biometría ZKTeco iclock
     auth/                      # Keycloak BFF, sesiones Redis
     db/                        # Prisma client singleton
@@ -100,6 +99,10 @@ docker compose up -d --build auth  # rebuild solo el backend
 - Esquema: `backend/prisma/schema.prisma`
 - Modelos principales: `User`, `SchoolYear`, `Course`, `CourseOffering`, `CourseOrientation`, `Subject`, `SubjectCourseAssignment`, `Student`, `StudentEnrollment`, `Event`, `Substitution`, `Attendance`, `MedicalLeave`, `MoodleObjectMap`, `MoodleEnrolmentMap`, `MoodleSyncTask`, `BiometricDevice`, `BiometricPunch`, `SystemSettings`
 
+> **Dos sistemas de asistencia distintos.** `Attendance` es del **personal** (`userId → User`, marcas biométricas). El pase de lista estudiantil vive en `StudentAttendanceSession` / `StudentAttendanceEntry` / `StudentAttendanceJustification`, con su propio enum `StudentAttendanceStatus`. No mezclarlos: una consulta sobre `Attendance.status` nunca debe contar alumnos.
+
+> **Las notas viven en `GradeBook*`, no en Moodle.** EduTrack es la fuente de verdad de las calificaciones; Moodle se **importa** y nunca se pisa. Los valores se guardan en centésimos como `Int` (un 8 es `800`), igual que `amountCents` — nunca `Float` ni `Decimal`.
+
 ---
 
 ## Integración Moodle
@@ -116,6 +119,91 @@ Módulo: `backend/src/integrations/moodle/`
 - `client.ts` — HTTP + variables de entorno Moodle
 
 Detalle completo: [docs/MOODLE_INTEGRACION.md](docs/MOODLE_INTEGRACION.md)
+
+---
+
+## Pase de lista estudiantil
+
+El docente marca la asistencia de sus estudiantes por **ocurrencia de clase**, identificada por
+`(eventId, día civil YYYY-MM-DD)` — nunca por el id compuesto `uuid_ymd` que produce la expansión
+de recurrencia.
+
+Módulo: `backend/src/services/student-attendance/`
+
+- `roster.ts` — cohorte del evento; misma precedencia que `moodle/scope.ts` (`courseOrientationId` > `orientationId` > tronco común)
+- `occurrence.ts` — valida que el día sea clase real; distingue *suspendida* de *inexistente*
+- `edit-window.ts` — ventana de edición del docente (`SystemSettings.studentRollCallEditWindowHours`, default 48 h)
+- `copy-previous.ts` — sugerencia de copiar la hora anterior del mismo grupo
+- `pending.ts` — listas sin pasar (se calculan; no hay filas PENDING pre-creadas)
+- `consolidation.ts` — faltas por día/asignatura, derivadas al leer
+- `roll-call.ts` / `justify.ts` — escritura y transición ABSENT → ABSENT_JUSTIFIED
+
+Rutas: `backend/src/routes/student-attendance.ts` (docente) y `admin-student-attendance.ts` (control).
+Frontend: `/me/roll-call` y `/admin/student-attendance`.
+
+> `occurrenceDate` **debe** calcularse con `uruguayWallToUtc(ymd, 0, 0)`, idéntico a lo que escribe
+> `resolveSubstitutionOccurrence` en `Substitution.date`. Si difieren, el suplente recibe un 403
+> silencioso. Nunca `new Date(ymd)`.
+
+Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 bis
+
+---
+
+## Libreta digital
+
+Módulo propio bajo `/libreta` (no cuelga de Académico). Una libreta es
+`(ciclo, oferta de curso, orientación opcional, asignatura)` — la misma clave que la integración
+Moodle deriva de un evento, así que `GradeBook.scopeKey` y el curso Moodle `SUBJECT_COURSE` son la
+misma cosa vista desde dos lados. Se generan solas a partir de los eventos de clase del horario: no
+hay tabla de asignación docente.
+
+Backend: `backend/src/services/gradebook/` (provisión, acceso, ventana de edición, calificación,
+cierre de período, importación Moodle, visado, notificaciones, analítica, exportaciones) y las rutas
+`gradebook.ts`, `admin-gradebook.ts`, `admin-academic-config.ts`, `admin-academic-analytics.ts`.
+
+Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) y
+`src/lib/libreta/` (menú de secciones y catálogo de distintivos).
+
+> El semáforo académico **nunca** puede ser sólo color (RNF 7.2): siempre lleva texto o icono
+> además. Los distintivos del alumno y el contador de faltas ya siguen esa regla.
+
+> **`gradebook.grade` y `gradebook.plan` son permisos distintos a propósito.** El primero cubre
+> evaluaciones, notas y juicios conceptuales; el segundo, planificación y desarrollo del curso.
+> Dirección tiene `plan` con alcance `all` y **no** tiene `grade`: así puede corregir la libreta de
+> un docente sin poder tocar una calificación. Con una sola llave esa mitad no se puede expresar.
+
+> **La nota oficial del período es R, no C.** C es la calificación del docente; R, la que queda
+> después de la reunión (`PeriodGrade.meetingValueHundredths`). Boletín, matriz, promedio, ficha e
+> indicadores leen R vía `officialPeriodValue` (`services/gradebook/period-closure.ts`); sin R, la
+> materia está pendiente. Los períodos siguen la planilla del liceo: `kind` DIAGNOSTICO / TRAMO /
+> ENTREGA, y sólo los TRAMO admiten evaluaciones. Las columnas Or/Otras/Ev muestran notas sueltas.
+
+> **La libreta del docente no promedia.** Es una decisión del liceo, no una omisión: la
+> calificación general del período la decide el docente. El promedio vive en la matriz
+> institucional (`transversalAverage`) y en la planilla de reunión, que es donde se usa para
+> escolaridad y abanderados.
+
+> **Las faltas se cuentan en centésimos y son globales.** `100` es una falta entera, `50` media.
+> La llegada tarde vale `50` en todos los niveles (es "la" media falta: el docente no elige otra).
+> Adscripción todavía puede graduar una ausencia al justificar. Y el conteo es del ciclo en todo el
+> liceo, no de la asignatura: filtrar por `subjectId` ahí es un bug, no una optimización.
+
+> **En ciclo básico (`AcademicLevel.EBI`) la falta es del día.** El día vale la peor de sus
+> marcas: `ABSENT` 100, `ABSENT_JUSTIFIED` 50, `LATE` 50. Dos tardes son 50, y tarde + ausencia
+> es 100, no 150. Ahí `absenceWeightHundredths` se ignora. Todo total pasa por
+> `absenceHundredthsFor` / `loadAbsenceTotals` (`services/student-attendance/`) con el nivel del
+> grupo; sumar `effectiveWeight` a mano rompe ciclo básico. La justificación por días
+> (`StudentAbsenceJustificationRange`) la aplica `saveRollCall` al pasar lista.
+
+> **"Reunión de boletín" es `isReportCardPeriod`** (`services/gradebook/period-closure.ts`):
+> reunión que pide C y juicio. EBI: 1.ª–4.ª Entrega; EMS: los semestres (son `TRAMO` con reunión,
+> así que filtrar por `kind === 'ENTREGA'` deja afuera a todo EMS). Control de libretas y Reportes
+> la usan; `assessmentPeriodsFor` da los tramos cuyas evaluaciones informa.
+
+> **Las adecuaciones guardan un enlace, nunca el informe.** Un informe psicológico de un menor es un
+> documento clínico, y la política de privacidad lo prohíbe (§4 bis).
+
+Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 
 ---
 

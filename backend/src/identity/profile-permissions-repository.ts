@@ -5,6 +5,7 @@ import {
   type ProfilePermissionRow,
   type ProfilePermissionsByCodeStore,
   type BuiltinProfileRole,
+  BUILTIN_PROFILE_ROLES,
   DEFAULT_PROFILE_PERMISSIONS,
   normalizePermissionId,
   REMOVED_PROFILE_PERMISSION_IDS,
@@ -50,11 +51,10 @@ export async function listPermissionCatalog() {
   }))
 }
 
-/** Upsert canónico solo para ADMIN / STAFF / TEACHER (por código de OrgRole). */
+/** Upsert canónico de la matriz de los roles built-in (por código de `OrgRole`). */
 export async function upsertCanonicalProfilePermissions(client: PrismaClient = prisma): Promise<void> {
   await ensureBuiltinOrgRoles()
-  const builtins: BuiltinProfileRole[] = ['ADMIN', 'STAFF', 'TEACHER']
-  for (const code of builtins) {
+  for (const code of BUILTIN_PROFILE_ROLES) {
     const org = await client.orgRole.findUnique({ where: { code } })
     if (!org) continue
     for (const p of DEFAULT_PROFILE_PERMISSIONS[code]) {
@@ -93,8 +93,7 @@ export async function upsertCanonicalProfilePermissions(client: PrismaClient = p
 
 async function ensureCanonicalProfilePermissionsPresent(client: PrismaClient = prisma): Promise<void> {
   await ensureBuiltinOrgRoles()
-  const builtins: BuiltinProfileRole[] = ['ADMIN', 'STAFF', 'TEACHER']
-  for (const code of builtins) {
+  for (const code of BUILTIN_PROFILE_ROLES) {
     const org = await client.orgRole.findUnique({ where: { code } })
     if (!org) continue
     for (const p of DEFAULT_PROFILE_PERMISSIONS[code]) {

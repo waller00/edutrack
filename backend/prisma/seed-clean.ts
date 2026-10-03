@@ -36,7 +36,6 @@ async function wipeOperationalData() {
   await prisma.biometricDevice.deleteMany()
   await prisma.webPushSubscription.deleteMany()
   await prisma.emailVerification.deleteMany()
-  await prisma.livenessSession.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.inAppNotification.deleteMany()
   await (prisma as any).teacherProfile?.deleteMany?.()

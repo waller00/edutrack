@@ -26,9 +26,6 @@
           "    ['exportId', 'exportId'],",
           "    ['token', 'lastToken'],",
           "    ['twoFactorToken', 'twoFactorToken'],",
-          "    ['sessionId', 'diditSessionId'],",
-          "    ['diditSessionId', 'diditSessionId'],",
-          "    ['verificationUrl', 'diditVerificationUrl'],",
           "    ['courseOfferingId', 'courseOfferingId']",
           "  ];",
           "  for (const [key, variable] of pairs) {",
@@ -66,7 +63,6 @@
     { "key": "resetToken", "value": "PEGAR_TOKEN_RESET" },
     { "key": "twoFactorCode", "value": "000000" },
     { "key": "twoFactorToken", "value": "" },
-    { "key": "diditSessionId", "value": "" },
     { "key": "schoolYearId", "value": "PEGAR_SCHOOL_YEAR_ID" },
     { "key": "targetSchoolYearId", "value": "PEGAR_TARGET_SCHOOL_YEAR_ID" },
     { "key": "runSchoolYearCode", "value": "2099" },
@@ -130,7 +126,6 @@
     {
       "name": "02 - Registro, Email y Contraseña",
       "item": [
-        { "name": "DEV-T7037 - API-REG-001 [Postman] Opciones de registro", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/registration-options" } },
         { "name": "DEV-T7038 - API-REG-002 [Postman] Consultar nombre de usuario disponible", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/auth/check-username?u={{newUsername}}" } },
         { "name": "DEV-T7039 - API-REG-003 [Postman] Registrar usuario válido", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "201,200" }], "url": "{{baseUrl}}/auth/register", "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{newUserEmail}}\",\n  \"username\": \"{{newUsername}}\",\n  \"password\": \"{{newPassword}}\",\n  \"firstName\": \"Postman\",\n  \"lastName\": \"Testing\",\n  \"phone\": \"099123456\",\n  \"birthdate\": \"2000-01-01T00:00:00.000Z\",\n  \"nationalId\": \"11111111\",\n  \"nationalIdDocumentExpiresAt\": \"2030-12-31\",\n  \"role\": \"STAFF\"\n}" } } },
         { "name": "DEV-T7040 - API-REG-004 [Postman] Registro con email duplicado", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "409" }], "url": "{{baseUrl}}/auth/register", "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{duplicateEmail}}\",\n  \"username\": \"dup{{$timestamp}}\",\n  \"password\": \"{{newPassword}}\",\n  \"firstName\": \"Email\",\n  \"lastName\": \"Duplicado\",\n  \"role\": \"STAFF\"\n}" } } },
@@ -154,14 +149,6 @@
       ]
     },
     {
-      "name": "04 - Didit",
-      "item": [
-        { "name": "DEV-T7053 - API-DIDIT-001 [Postman] Crear sesión Didit", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,503" }], "url": "{{baseUrl}}/auth/didit/liveness-session", "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{newUserEmail}}\"\n}" } } },
-        { "name": "DEV-T7054 - API-DIDIT-002 [Postman] Verificar campos Didit", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,400" }], "url": "{{baseUrl}}/auth/didit/register-field-verify", "body": { "mode": "raw", "raw": "{\n  \"livenessToken\": \"{{diditSessionId}}\",\n  \"email\": \"{{newUserEmail}}\",\n  \"firstName\": \"Postman\",\n  \"lastName\": \"Testing\"\n}" } } },
-        { "name": "DEV-T7055 - API-DIDIT-003 [Postman] Consultar estado Didit", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/auth/liveness/status?token={{diditSessionId}}" } }
-      ]
-    },
-    {
       "name": "05 - Administración, Usuarios, Perfiles y Configuración",
       "item": [
         { "name": "DEV-T7056 - API-USR-001 [Postman] Listar usuarios", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/users?page=1&pageSize=20" } },
@@ -174,8 +161,7 @@
         { "name": "DEV-T7063 - API-PERM-003 [Postman] Actualizar permisos de perfil", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200,404" }], "url": "{{baseUrl}}/admin/profiles/POSTMAN_ROLE/permissions", "body": { "mode": "raw", "raw": "{\n  \"permissions\": []\n}" } } },
         { "name": "DEV-T7064 - API-SET-001 [Postman] Consultar configuración", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/system-settings" } },
         { "name": "DEV-T7065 - API-SET-002 [Postman] Actualizar configuración", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/system-settings", "body": { "mode": "raw", "raw": "{\n  \"attendanceLateToleranceMinutes\": 5,\n  \"attendanceNoShowGraceMinutes\": 15,\n  \"attendanceMonitorEnabled\": true\n}" } } },
-        { "name": "DEV-T7066 - API-AUD-001 [Postman] Listar auditoría", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/audit-logs?page=1&pageSize=20" } },
-        { "name": "DEV-T7067 - API-QA-001 [Postman] Enviar pregunta al asistente", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/query-assistant", "body": { "mode": "raw", "raw": "{\n  \"question\": \"¿Cuántas asistencias tardías hubo este mes?\"\n}" } } }
+        { "name": "DEV-T7066 - API-AUD-001 [Postman] Listar auditoría", "request": { "method": "GET", "header": [{ "key": "X-Expected-Status", "value": "200" }], "url": "{{baseUrl}}/admin/audit-logs?page=1&pageSize=20" } }
       ]
     },
     {

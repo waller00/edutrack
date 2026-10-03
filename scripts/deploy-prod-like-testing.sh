@@ -1,12 +1,15 @@
 #!/bin/bash
-# Despliega en PRODUCCIÓN el mismo código y stack que TESTING (rama develop + docker-compose.cloud.yml).
+# Despliega en PRODUCCION el mismo codigo y stack que TESTING, pero con el
+# reverse proxy publico y puertos internos cerrados.
 # Ejecutar en el Droplet de producción como root: bash scripts/deploy-prod-like-testing.sh
 set -euo pipefail
 
 cd /root/edutrack
 
 PROD_HOST="${PROD_HOST:-165.22.34.95}"
-PROD_BASE="http://${PROD_HOST}.nip.io"
+PROD_BASE="${PROD_BASE:-https://edutrack-uy.com}"
+PROD_API_BASE="${PROD_API_BASE:-https://api.edutrack-uy.com}"
+PROD_AUTH_BASE="${PROD_AUTH_BASE:-https://auth.edutrack-uy.com}"
 
 echo "==> Backup .env"
 cp -a .env ".env.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
@@ -29,11 +32,14 @@ ensure_var REDIS_URL "redis://redis:6379"
 ensure_var PRISMA_DB_PUSH_FLAGS "--accept-data-loss"
 sed -i 's/^PRISMA_DB_PUSH_FLAGS=--force-reset/PRISMA_DB_PUSH_FLAGS=--accept-data-loss/' .env 2>/dev/null || true
 
-ensure_var FRONTEND_URL "${PROD_BASE}:3000"
-ensure_var NEXT_PUBLIC_API_URL "${PROD_BASE}:4000"
-ensure_var KEYCLOAK_ISSUER_URL "${PROD_BASE}:8089/realms/edutrack"
-ensure_var KEYCLOAK_REDIRECT_URI "${PROD_BASE}:4000/auth/callback"
-ensure_var KEYCLOAK_HOSTNAME "${PROD_BASE}:8089"
+ensure_var FRONTEND_URL "${PROD_BASE}"
+ensure_var NEXT_PUBLIC_API_URL "${PROD_API_BASE}"
+ensure_var KEYCLOAK_ISSUER_URL "${PROD_AUTH_BASE}/realms/edutrack"
+ensure_var KEYCLOAK_REDIRECT_URI "${PROD_API_BASE}/auth/callback"
+ensure_var KEYCLOAK_HOSTNAME "${PROD_AUTH_BASE}"
+ensure_var KEYCLOAK_INTERNAL_URL "http://keycloak:8080"
+ensure_var COOKIE_SECURE "true"
+ensure_var COOKIE_SAMESITE "lax"
 ensure_var KEYCLOAK_CLIENT_ID "edutrack-web"
 ensure_var KEYCLOAK_ADMIN_BASE_URL "http://keycloak:8080"
 ensure_var KEYCLOAK_ADMIN_REALM "edutrack"
@@ -81,16 +87,17 @@ compose() {
   fi
 }
 
-CF="-f docker-compose.cloud.yml"
+CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml"
 
 echo "==> Moodle (si aún no está levantado)"
 if compose -f docker-compose.moodle.yml ps 2>/dev/null | grep -q "Up"; then
   echo "Moodle ya en ejecución."
 else
-  compose -f docker-compose.moodle.yml up -d || echo "AVISO: revisá docker-compose.moodle.yml (primera instalación ~5–8 min)."
+  compose -f docker-compose.moodle.yml -f docker-compose.close-ports.moodle.prod.yml up -d || echo "AVISO: revisá docker-compose.moodle.yml (primera instalación ~5–8 min)."
 fi
 
 echo "==> Build y up (pg + redis + keycloak + auth + web)"
+bash scripts/validate-production-routes.sh --production
 compose $CF down || true
 compose $CF build --no-cache web
 compose $CF build auth
@@ -105,10 +112,10 @@ echo "==> Estado"
 compose $CF ps
 echo ""
 echo "Health API:"
-curl -sf http://127.0.0.1:4000/health || echo "(auth aún no responde — revisá logs)"
+compose $CF exec -T auth node -e "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" || echo "(auth aún no responde — revisá logs)"
 echo ""
-echo "Keycloak (puerto 8089):"
-curl -sf -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:8089/ || true
+echo "Keycloak interno:"
+compose $CF exec -T reverse-proxy wget -q -T 5 -O /dev/null http://keycloak:8080/health/ready && echo "OK keycloak:8080 interno" || true
 echo ""
 echo "Listo. Revisá: compose $CF logs --tail=40 auth keycloak"
 echo "Si login falla: alineá KEYCLOAK_* y FRONTEND_URL con la URL pública real (Cloudflare/dominio)."

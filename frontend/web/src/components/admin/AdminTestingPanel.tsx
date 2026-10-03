@@ -3,6 +3,7 @@
 import * as Sentry from '@sentry/nextjs'
 import { api } from '@/lib/api/client'
 import { getRoleLabel } from '@/lib/roles/display'
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 import { AlertTriangle, Bug, Loader2, LogIn, LogOut, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -120,7 +121,7 @@ export default function AdminTestingPanel() {
       })
       setMsg(
         `${res.message}${res.deviceUserId ? ` · PIN ${res.deviceUserId}` : ''}${
-          res.occurredAt ? ` · ${new Date(res.occurredAt).toLocaleString('es-UY')}` : ''
+          res.occurredAt ? ` · ${formatDateTimeInUruguay(res.occurredAt, { seconds: true })}` : ''
         }`,
       )
       await load()

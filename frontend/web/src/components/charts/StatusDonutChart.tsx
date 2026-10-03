@@ -13,7 +13,6 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   LATE: { label: 'Tarde', color: '#f59e0b' },
   ABSENT_NOT_JUSTIFIED: { label: 'Ausente no justificado', color: '#dc2626' },
   ABSENT_JUSTIFIED: { label: 'Ausente justificado', color: '#94a3b8' },
-  SUBSTITUTED: { label: 'Suplido', color: '#6366f1' },
 }
 
 /** Dona de distribución de estados de entrada sobre el total planificado. */

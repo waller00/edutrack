@@ -8,6 +8,7 @@ import { scanAndCreateTeacherNoShowIncidents } from "./services/attendance-incid
 import {
   getAttendanceOperationalSettings,
   getMoodleOperationalSettings,
+  parseEnvBool,
 } from "./config/system-settings.js";
 import { refreshInstitutionTimezoneCache } from "./config/institution-timezone.js";
 import {
@@ -17,6 +18,7 @@ import {
   releaseStaleLocks,
 } from "./integrations/moodle/index.js";
 import { startMetricsServer } from "./observability/metrics.js";
+import { scanStudentAlerts } from "./services/student-reports/alerts-scan.js";
 
 // API principal (4000) y puerto ADMS ZKTeco (8081, mismo proceso HTTP)
 const port = Number(process.env.PORT || 4000);
@@ -66,10 +68,22 @@ const attendanceMonitorInterval = setInterval(() => {
 }, monitorTickMs);
 attendanceMonitorInterval.unref?.();
 
-// --- Integración Moodle: outbox (reintentos) + reconciliación periódica ---
+// --- Alertas de estudiantes (bajó de boletín, faltas seguidas, 18/25 faltas) ---
+// Cada hora, sobre el ciclo activo. El pase de lista además pide un escaneo al guardar
+// (`scheduleStudentAlertScan`), así que el aviso de faltas no espera a la vuelta del reloj.
+const studentAlertsIntervalMs = 60 * 60 * 1000;
+const studentAlertsInterval = setInterval(() => {
+  scanStudentAlerts().catch((error) => {
+    console.error("student alerts tick:", error);
+  });
+}, studentAlertsIntervalMs);
+studentAlertsInterval.unref?.();
+
+// --- Integración Moodle: outbox (reintentos) + reconciliación opcional ---
 // Mismo patrón que el monitor de asistencia: un tick frecuente, gateado por SystemSettings.
 let lastReconcileAt = 0;
 const moodleTickMs = 30000;
+const moodleAutoReconcileEnabled = parseEnvBool("MOODLE_AUTO_RECONCILE_ENABLED");
 const moodleSyncInterval = setInterval(() => {
   void (async () => {
     if (!isMoodleIntegrationEnabled()) return;
@@ -81,6 +95,8 @@ const moodleSyncInterval = setInterval(() => {
     await processOutboxOnce(20);
 
     // 2) Reconciliación completa según intervalo (cursos + inscripciones + reparación de drift).
+    // Es pesada y puede depender de cursos todavía no preparados en Moodle; queda como opt-in.
+    if (!moodleAutoReconcileEnabled) return;
     const now = Date.now();
     if (now - lastReconcileAt < settings.reconcileIntervalMs) return;
     lastReconcileAt = now;
@@ -88,7 +104,8 @@ const moodleSyncInterval = setInterval(() => {
     console.log(
       `[moodle] reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} ` +
         `suplentes=${summary.substituteEnrolments} revocados=${summary.substituteRevocations} ` +
-        `estudiantes=${summary.studentEnrolments} errores=${summary.errors}`,
+        `estudiantes=${summary.studentEnrolments} sin-cuenta=${summary.studentsWithoutAccount} ` +
+        `errores=${summary.errors}`,
     );
   })().catch((error) => {
     console.error("moodle sync tick:", error);

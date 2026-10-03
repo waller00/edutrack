@@ -7,6 +7,7 @@ const {
   ensureSubjectCourseMock,
   ensureStudentMock,
   enrolUserMock,
+  enrolUsersBatchMock,
   unenrolUserMock,
   syncUserMock,
   upsertEnrolmentMapMock,
@@ -20,6 +21,7 @@ const {
   ensureSubjectCourseMock: vi.fn(),
   ensureStudentMock: vi.fn(),
   enrolUserMock: vi.fn(),
+  enrolUsersBatchMock: vi.fn(),
   unenrolUserMock: vi.fn(),
   syncUserMock: vi.fn(),
   upsertEnrolmentMapMock: vi.fn(),
@@ -48,7 +50,11 @@ vi.mock("./courses.js", () => ({
   ensureSubjectCourse: ensureSubjectCourseMock,
   ensureStudentMoodleUser: ensureStudentMock,
 }));
-vi.mock("./enrolments.js", () => ({ enrolUser: enrolUserMock, unenrolUser: unenrolUserMock }));
+vi.mock("./enrolments.js", () => ({
+  enrolUser: enrolUserMock,
+  enrolUsersBatch: enrolUsersBatchMock,
+  unenrolUser: unenrolUserMock,
+}));
 vi.mock("./enrolment-map.js", () => ({
   upsertEnrolmentMap: upsertEnrolmentMapMock,
   listActiveEnrolments: listActiveEnrolmentsMock,
@@ -125,6 +131,7 @@ beforeEach(() => {
   ensureCourseMock.mockReset().mockResolvedValue(999);
   ensureStudentMock.mockReset().mockResolvedValue(7000);
   enrolUserMock.mockReset().mockResolvedValue(undefined);
+  enrolUsersBatchMock.mockReset().mockResolvedValue(undefined);
   unenrolUserMock.mockReset().mockResolvedValue(undefined);
   syncUserMock.mockReset().mockResolvedValue(null);
   upsertEnrolmentMapMock.mockReset().mockResolvedValue(undefined);
@@ -373,7 +380,7 @@ describe("reconcileMoodle: resiliencia y estudiantes", () => {
         orientation: { name: "Científico" },
         courseOrientation: { orientation: { name: "Científico" } },
         courseOffering: offering,
-        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: null, username: null },
+        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: "ana@test.com", username: "ana.diaz" },
       },
     ]);
     prismaMock.subjectCourseAssignment.findMany.mockResolvedValue([
@@ -404,12 +411,44 @@ describe("reconcileMoodle: resiliencia y estudiantes", () => {
       }),
     );
     expect(ensureCourseMock).not.toHaveBeenCalled();
-    expect(enrolUserMock).toHaveBeenCalledWith(7000, courseIdFor("et-subject-offering-off1-mat"), 5);
-    expect(enrolUserMock).toHaveBeenCalledWith(7000, courseIdFor("et-subject-offering-off1-bio-corientation-co1"), 5);
+    // Inscribe todas las asignaturas del alumno en UNA sola llamada en lote (no una por curso).
+    expect(enrolUsersBatchMock).toHaveBeenCalledTimes(1);
+    expect(enrolUsersBatchMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { moodleUserId: 7000, moodleCourseId: courseIdFor("et-subject-offering-off1-mat"), roleId: 5 },
+        { moodleUserId: 7000, moodleCourseId: courseIdFor("et-subject-offering-off1-bio-corientation-co1"), roleId: 5 },
+      ]),
+    );
+    expect(enrolUserMock).not.toHaveBeenCalled();
     expect(upsertEnrolmentMapMock).toHaveBeenCalledWith(
       expect.objectContaining({ sourceType: "STUDENT_ENROLLMENT", sourceId: "en1" }),
     );
     expect(summary.studentEnrolments).toBe(2);
+  })
+
+  it("si la inscripción en lote falla, cae a inscribir curso por curso (sin perder estudiantes)", async () => {
+    enrolUsersBatchMock.mockRejectedValue(new Error("MOODLE_HTTP_500"));
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([
+      {
+        id: "en1",
+        orientationId: "ori1",
+        courseOrientationId: "co1",
+        orientation: { name: "Científico" },
+        courseOrientation: { orientation: { name: "Científico" } },
+        courseOffering: offering,
+        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: "ana@test.com", username: "ana.diaz" },
+      },
+    ]);
+    prismaMock.subjectCourseAssignment.findMany.mockResolvedValue([
+      { subjectId: "mat", orientationId: null, schoolYearId: null, subject: { id: "mat", name: "Matemática" } },
+      { subjectId: "bio", orientationId: "ori1", schoolYearId: "sy1", subject: { id: "bio", name: "Biología" } },
+    ]);
+    const summary = await reconcileMoodle({ syncStudents: true });
+    // Falla el lote → reintenta uno por uno con enrolUser, sin contar el alumno como error.
+    expect(enrolUserMock).toHaveBeenCalledWith(7000, courseIdFor("et-subject-offering-off1-mat"), 5);
+    expect(enrolUserMock).toHaveBeenCalledWith(7000, courseIdFor("et-subject-offering-off1-bio-corientation-co1"), 5);
+    expect(summary.studentEnrolments).toBe(2);
+    expect(summary.errors).toBe(0);
   });
 
   it("con syncStudents revoca asignaturas que ya no corresponden al estudiante", async () => {
@@ -442,7 +481,7 @@ describe("reconcileMoodle: resiliencia y estudiantes", () => {
         orientation: null,
         courseOrientation: null,
         courseOffering: offering,
-        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: null, username: null },
+        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: "ana@test.com", username: "ana.diaz" },
       },
     ]);
     ensureStudentMock.mockRejectedValue(new Error("MOODLE_HTTP_503"));
@@ -468,6 +507,67 @@ describe("reconcileMoodle: resiliencia y estudiantes", () => {
     );
     const summary = await reconcileMoodle({ syncStudents: true });
     expect(summary.errors).toBe(1);
+    expect(unenrolUserMock).not.toHaveBeenCalled();
+    expect(markRevokedMock).not.toHaveBeenCalled();
+  });
+
+  it("saltea al estudiante sin email o usuario en vez de crearle un espejo nologin", async () => {
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([
+      {
+        id: "en1",
+        orientationId: null,
+        courseOrientationId: null,
+        orientation: null,
+        courseOrientation: null,
+        courseOffering: offering,
+        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: null, username: null },
+      },
+    ]);
+
+    const summary = await reconcileMoodle({ syncStudents: true });
+
+    // La cuenta se crea desde el botón de la ficha, no en la sincronización masiva.
+    expect(ensureStudentMock).not.toHaveBeenCalled();
+    expect(summary.studentsWithoutAccount).toBe(1);
+    expect(summary.errors).toBe(0);
+  });
+
+  it("NO revoca las inscripciones del estudiante salteado por no tener cuenta", async () => {
+    // La trampa: `desiredKeys` se llena dentro del try. Si el salteo no se registra aparte, el
+    // bucle de revocación desmatricula al alumno de todos sus cursos y arrastra notas y entregas.
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([
+      {
+        id: "en1",
+        orientationId: null,
+        courseOrientationId: null,
+        orientation: null,
+        courseOrientation: null,
+        courseOffering: offering,
+        student: { id: "s1", firstName: "Ana", lastName: "Díaz", email: null, username: null },
+      },
+    ]);
+    listActiveEnrolmentsMock.mockImplementation((src: string) =>
+      Promise.resolve(
+        src === "STUDENT_ENROLLMENT"
+          ? [
+              {
+                id: "map-s1",
+                userId: "s1",
+                moodleUserId: 7000,
+                moodleCourseId: 1234,
+                roleId: 5,
+                sourceType: "STUDENT_ENROLLMENT",
+                sourceId: "en1",
+                startsAt: null,
+                endsAt: null,
+              },
+            ]
+          : [],
+      ),
+    );
+
+    await reconcileMoodle({ syncStudents: true });
+
     expect(unenrolUserMock).not.toHaveBeenCalled();
     expect(markRevokedMock).not.toHaveBeenCalled();
   });

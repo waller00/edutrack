@@ -60,6 +60,32 @@ describe('computeTopRiskPeople', () => {
     expect(top[1]!.riskScore).toBe(1)
   })
 
+  it('cuenta el SUBSTITUTED del titular como ausencia (justificada/no según licencia)', () => {
+    const base = planned({ plannedInstanceId: 'x', eventId: 'ev', plannedDate: '2026-05-01' })
+    const rows: ResolvedAttendanceByInstance[] = [
+      resolved({
+        planned: { ...base, plannedInstanceId: 'sin-lic', userIdRequired: 'robert' },
+        userDisplayName: 'Robert',
+        checkInStatusResolved: 'SUBSTITUTED',
+        isJustifiedAbsence: false,
+      }),
+      resolved({
+        planned: { ...base, plannedInstanceId: 'con-lic', userIdRequired: 'gabriela' },
+        userDisplayName: 'Gabriela',
+        checkInStatusResolved: 'SUBSTITUTED',
+        isJustifiedAbsence: true,
+      }),
+    ]
+    const top = computeTopRiskPeople(rows)
+    const robert = top.find((p) => p.userId === 'robert')!
+    const gabriela = top.find((p) => p.userId === 'gabriela')!
+    expect(robert.absentNotJustifiedCount).toBe(1)
+    expect(robert.riskScore).toBe(2)
+    expect(gabriela.absentJustifiedCount).toBe(1)
+    expect(gabriela.absentNotJustifiedCount).toBe(0)
+    expect(gabriela.riskScore).toBe(0)
+  })
+
   it('orden estable por segundo criterio (ausentes no justificados)', () => {
     const base = planned({ plannedInstanceId: 'x', eventId: 'ev', plannedDate: '2026-05-01' })
     const rows: ResolvedAttendanceByInstance[] = [

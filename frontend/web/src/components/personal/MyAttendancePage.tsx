@@ -7,7 +7,8 @@ import { api } from '@/lib/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import MyAttendanceMarkingPanel from '@/components/personal/MyAttendanceMarkingPanel'
 import AttendanceHeatmap from '@/components/admin/AttendanceHeatmap'
-import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
+import { getTodayYmdInUruguay, formatDateInUruguay } from '@/lib/forms/datetime-uy'
+import DateField from '@/components/forms/DateField'
 import type { AttendanceSummaryResponse, AttendanceSummaryPerson } from '@/lib/attendance/summary'
 import {
   getDefaultAttendanceStartDate,
@@ -155,21 +156,19 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label htmlFor="my-attendance-start-date" className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-            <input
+            <DateField
               id="my-attendance-start-date"
-              type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={setStartDate}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
           </div>
           <div>
             <label htmlFor="my-attendance-end-date" className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-            <input
+            <DateField
               id="my-attendance-end-date"
-              type="date"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={setEndDate}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
           </div>
@@ -207,7 +206,7 @@ export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } 
                   {attendances.map((attendance) => (
                     <tr key={attendance.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(attendance.date).toLocaleDateString('es-ES')}
+                        {formatDateInUruguay(attendance.date)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {new Date(attendance.time).toLocaleTimeString('es-ES', {

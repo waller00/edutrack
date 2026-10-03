@@ -1,17 +1,9 @@
 import {
   getRegisterBirthdateValidationError,
-  getRegisterNationalIdDocumentExpiresAtValidationError,
-  getRegisterDniProcessingErrorMessage,
   getRegisterIdentityValidationError,
-  getRegisterVerificationFieldLabel,
-  getRegisterVerificationMessageClass,
-  getRegisterVerificationMessageIcon,
   isValidRegisterEmail,
-  isWarningRegisterVerificationMessage,
-  getRegisterDocumentExpiryVerificationError,
-  validateRegisterDniUploadInput,
+  resolveRegisterUsernameStatus,
   validateRegisterForm,
-  type RegisterVerificationResults,
 } from '@/lib/auth/register-form-validation'
 
 const validCi = '1.111.111-1'
@@ -25,17 +17,6 @@ const baseForm = {
   role: 'TEACHER' as const,
   phoneLocal: '',
   birthdate: '1990-01-15',
-  livenessCheckEnabled: true,
-  livenessApproved: true,
-  identityVerificationMethod: 'didit' as const,
-  verificationResults: {
-    verifiedFields: 5,
-    totalFields: 5,
-    verification: {
-      a: { provided: '', message: '✓' },
-      nationalIdDocumentExpiresAt: { provided: '', extracted: '2030-06-01', message: '✓' },
-    },
-  } satisfies RegisterVerificationResults,
 }
 
 describe('isValidRegisterEmail', () => {
@@ -50,74 +31,11 @@ describe('isValidRegisterEmail', () => {
   })
 })
 
-describe('icons y clases verificación', () => {
-  it('iconos', () => {
-    expect(getRegisterVerificationMessageIcon('✓')).toBe('✅')
-    expect(getRegisterVerificationMessageIcon('✗')).toBe('❌')
-    expect(getRegisterVerificationMessageIcon('⚠️')).toBe('⚠️')
-    expect(getRegisterVerificationMessageIcon('?')).toBe('❓')
-  })
-  it('clases', () => {
-    expect(getRegisterVerificationMessageClass('✓')).toContain('green')
-    expect(getRegisterVerificationMessageClass('✗')).toContain('red')
-    expect(getRegisterVerificationMessageClass('⚠️')).toContain('orange')
-    expect(getRegisterVerificationMessageClass('x')).toContain('yellow')
-  })
-  it('labels', () => {
-    expect(getRegisterVerificationFieldLabel('lastName')).toBe('Apellidos')
-    expect(getRegisterVerificationFieldLabel('nationalIdDocumentExpiresAt')).toBe('Vencimiento del DNI')
-  })
-  it('warning message', () => {
-    expect(isWarningRegisterVerificationMessage({ provided: '', message: '⚠️ Faltan apellidos' })).toBe(true)
-    expect(isWarningRegisterVerificationMessage({ provided: '', message: '✓' })).toBe(false)
-  })
-})
-
-describe('getRegisterDniProcessingErrorMessage', () => {
-  it('códigos', () => {
-    expect(getRegisterDniProcessingErrorMessage({ message: '400' })).toContain('Formato')
-    expect(getRegisterDniProcessingErrorMessage({ message: '500' })).toContain('servidor')
-    expect(getRegisterDniProcessingErrorMessage({ message: 'x' })).toContain('manualmente')
-  })
-})
-
-describe('validateRegisterDniUploadInput', () => {
-  const img = new File(['x'], 'p.png', { type: 'image/png' })
-  Object.defineProperty(img, 'size', { value: 1000 })
-
-  it('missing file', () => {
-    expect(
-      validateRegisterDniUploadInput({
-        firstName: 'a',
-        lastName: 'b',
-        nationalId: '1',
-        birthdate: '2000-01-01',
-      }),
-    ).toBe('missing-file')
-  })
-  it('no imagen', () => {
-    const t = new File(['x'], 'a.txt', { type: 'text/plain' })
-    Object.defineProperty(t, 'size', { value: 10 })
-    expect(
-      validateRegisterDniUploadInput({
-        file: t,
-        firstName: 'a',
-        lastName: 'b',
-        nationalId: '1',
-        birthdate: '2000-01-01',
-      }),
-    ).toContain('imagen')
-  })
-  it('ok', () => {
-    expect(
-      validateRegisterDniUploadInput({
-        file: img,
-        firstName: 'a',
-        lastName: 'b',
-        nationalId: validCi,
-        birthdate: '2000-01-01',
-      }),
-    ).toBeNull()
+describe('resolveRegisterUsernameStatus', () => {
+  it('inválido, tomado o libre', () => {
+    expect(resolveRegisterUsernameStatus(false, true)).toBe('invalid')
+    expect(resolveRegisterUsernameStatus(true, false)).toBe('taken')
+    expect(resolveRegisterUsernameStatus(true, true)).toBe('ok')
   })
 })
 
@@ -148,52 +66,8 @@ describe('getRegisterIdentityValidationError', () => {
   })
 })
 
-describe('getRegisterDocumentExpiryVerificationError', () => {
-  it('vacío o vencido', () => {
-    expect(getRegisterDocumentExpiryVerificationError(null)).toContain('verificación de identidad')
-    expect(
-      getRegisterDocumentExpiryVerificationError({
-        verifiedFields: 1,
-        totalFields: 1,
-        verification: {
-          nationalIdDocumentExpiresAt: {
-            provided: '',
-            extracted: '2000-01-01',
-            message: '✗ Documento vencido',
-          },
-        },
-      }),
-    ).toContain('vencido')
-  })
-  it('vigente', () => {
-    expect(
-      getRegisterDocumentExpiryVerificationError({
-        verifiedFields: 1,
-        totalFields: 1,
-        verification: {
-          nationalIdDocumentExpiresAt: {
-            provided: '',
-            extracted: '2099-01-15',
-            message: '✓',
-          },
-        },
-      }),
-    ).toBeNull()
-  })
-})
-
-describe('getRegisterNationalIdDocumentExpiresAtValidationError', () => {
-  it('vacío e inválido', () => {
-    expect(getRegisterNationalIdDocumentExpiresAtValidationError('')).toContain('vencimiento')
-    expect(getRegisterNationalIdDocumentExpiresAtValidationError('2145-01-01')).toContain('rango')
-  })
-  it('válido', () => {
-    expect(getRegisterNationalIdDocumentExpiresAtValidationError('2030-01-15')).toBeNull()
-  })
-})
-
 describe('validateRegisterForm', () => {
-  it('formulario completo válido', () => {
+  it('formulario completo válido, sin ninguna verificación en línea', () => {
     expect(validateRegisterForm(baseForm)).toBeNull()
   })
   it('correo y contraseña', () => {
@@ -202,8 +76,11 @@ describe('validateRegisterForm', () => {
     expect(validateRegisterForm({ ...baseForm, password: `Aa1${'x'.repeat(62)}` })).toContain('64')
     expect(validateRegisterForm({ ...baseForm, confirm: 'Xyz78901' })).toContain('coinciden')
   })
-  it('sin DNI verificado', () => {
-    expect(validateRegisterForm({ ...baseForm, verificationResults: null })).toContain('identidad')
+  it('con Google no pide contraseña', () => {
+    expect(validateRegisterForm({ ...baseForm, password: '', confirm: '', passwordRequired: false })).toBeNull()
+  })
+  it('cédula inválida', () => {
+    expect(validateRegisterForm({ ...baseForm, nationalId: '1.111.111-2' })).toContain('Cédula')
   })
   it('celular', () => {
     expect(validateRegisterForm({ ...baseForm, phoneLocal: '12' })).toContain('Celular')
@@ -211,32 +88,7 @@ describe('validateRegisterForm', () => {
   it('teléfono no puede ser una cédula válida', () => {
     expect(validateRegisterForm({ ...baseForm, phoneLocal: '41234563' })).toContain('cédula')
   })
-  it('sin vencimiento capturado por verificación', () => {
-    expect(
-      validateRegisterForm({
-        ...baseForm,
-        verificationResults: {
-          verifiedFields: 4,
-          totalFields: 5,
-          verification: { a: { provided: '', message: '✓' } },
-        },
-      }),
-    ).toContain('verificación de identidad')
-  })
-  it('liveness exigida', () => {
-    expect(
-      validateRegisterForm({ ...baseForm, livenessApproved: false }),
-    ).toContain('verificación')
-    expect(
-      validateRegisterForm({ ...baseForm, identityVerificationMethod: null }),
-    ).toContain('proceso')
-    expect(
-      validateRegisterForm({ ...baseForm, identityVerificationMethod: undefined }),
-    ).toContain('identidad')
-  })
-  it('sin verificación configurada', () => {
-    expect(
-      validateRegisterForm({ ...baseForm, livenessCheckEnabled: false }),
-    ).toContain('no está disponible')
+  it('fecha de nacimiento', () => {
+    expect(validateRegisterForm({ ...baseForm, birthdate: '' })).toBeTruthy()
   })
 })

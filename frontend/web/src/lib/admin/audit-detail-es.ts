@@ -1,6 +1,7 @@
 /**
  * Textos legibles para la columna "Detalle" de auditoría (personal administrativo no técnico).
  */
+import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 
 const LOGIN_FAILURE_REASONS: Record<string, string> = {
   UNKNOWN_IDENTIFIER_OR_NO_PASSWORD: 'Usuario o contraseña incorrectos.',
@@ -25,6 +26,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 }
 
 const SYSTEM_SETTINGS_LABELS: Record<string, string> = {
+  // Ajuste de Didit, ya retirado: la etiqueta queda para leer auditorías viejas.
   livenessCheckEnabled: 'verificación de vida en altas',
   attendanceNoShowGraceMinutes: 'tolerancia de no-show docente',
   attendanceLateToleranceMinutes: 'tolerancia de llegada tarde',
@@ -75,7 +77,7 @@ function formatWhenShort(iso: string): string {
   try {
     const d = new Date(iso)
     if (Number.isNaN(d.getTime())) return iso
-    return d.toLocaleString('es-UY', { dateStyle: 'short', timeStyle: 'short' })
+    return formatDateTimeInUruguay(d)
   } catch {
     return iso
   }

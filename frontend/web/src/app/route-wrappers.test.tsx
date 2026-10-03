@@ -55,12 +55,10 @@ describe('wrapper pages', () => {
     expect(routerReplaceMock).toHaveBeenCalledTimes(2)
   })
 
-  it('renders the guarded student attendance info page', () => {
+  it('redirects the legacy student attendance route to /me/roll-call', async () => {
     render(<StudentAttendance />)
 
-    expect(screen.getByTestId('guard')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Asistencia estudiantil' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Mis asistencias' })).toHaveAttribute('href', '/me/attendance')
+    await waitFor(() => expect(routerReplaceMock).toHaveBeenCalledWith('/me/roll-call'))
   })
 
   it('redirects the legacy register route to the unified register page', async () => {

@@ -2,8 +2,6 @@ import "dotenv/config";
 /** En Windows, `fetch`/undici a veces eligiendo IPv6 mal enrutado; priorizamos IPv4 (misma API que curl). */
 import dns from "node:dns";
 import express from "express";
-import diditWebhookHandler from "./routes/didit-webhook.js";
-import diditLivenessRoutes from "./routes/didit-liveness.js";
 import * as Sentry from "@sentry/node";
 import cors from "cors";
 import type { CorsOptions } from "cors";
@@ -16,6 +14,7 @@ import { rateLimit } from "./middlewares/rate-limit.js";
 import adminRoutes from "./routes/admin.js";
 import adminTestingRoutes from "./routes/admin-testing.js";
 import attendanceRoutes from "./routes/attendance.js";
+import studentAttendanceRoutes from "./routes/student-attendance.js";
 import eventsRoutes from "./routes/events.js";
 import coursesRoutes from "./routes/courses.js";
 import medicalLeavesRoutes from "./routes/medical-leaves.js";
@@ -30,6 +29,7 @@ import biometricLinkRoutes from "./routes/biometric-link.js";
 import zktecoIclockRoutes from "./routes/zkteco-iclock.js";
 import attendanceIncidentsRoutes from "./routes/attendance-incidents.js";
 import substitutionsRoutes from "./routes/substitutions.js";
+import gradebookRoutes from "./routes/gradebook.js";
 import { httpMetricsMiddleware } from "./observability/metrics.js";
 import { checkReadiness } from "./observability/readiness.js";
 
@@ -144,12 +144,6 @@ app.use((req, _res, next) => {
   next();
 });
 app.use("/iclock", iclockTextParser, zktecoIclockRoutes);
-// Webhook Didit: cuerpo raw para validar HMAC
-app.post(
-  "/webhooks/didit",
-  express.raw({ type: "application/json", limit: "2mb" }),
-  diditWebhookHandler,
-);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
@@ -157,10 +151,10 @@ app.use(cookieParser());
 app.use("/auth/login", rateLimit({ bucket: "login", max: 10, windowSeconds: 60 }));
 app.use("/auth", keycloakAuthRoutes);
 app.use("/auth", authRoutes);
-app.use("/auth", diditLivenessRoutes);
 app.use("/admin", adminRoutes);
 app.use("/admin/testing", adminTestingRoutes);
 app.use("/attendance", attendanceRoutes);
+app.use("/student-attendance", studentAttendanceRoutes);
 app.use("/events", eventsRoutes);
 app.use("/courses", coursesRoutes);
 app.use("/medical-leaves", medicalLeavesRoutes);
@@ -174,6 +168,7 @@ app.use("/biometric", biometricLinkRoutes);
 app.use("/biometric", biometricAdmsRoutes);
 app.use("/attendance-incidents", attendanceIncidentsRoutes);
 app.use("/substitutions", substitutionsRoutes);
+app.use("/gradebook", gradebookRoutes);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/ready", async (_req, res) => {

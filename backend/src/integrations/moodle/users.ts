@@ -4,7 +4,7 @@ import {
   isMoodleIntegrationEnabled,
   moodleRest,
   moodleUserAuthMethod,
-  moodleUserLang,
+  moodleUserLangParam,
 } from "./client.js";
 
 export type MoodleSyncUserInput = {
@@ -108,6 +108,9 @@ export async function syncMoodleUser(user: MoodleSyncUserInput): Promise<number 
   const generatedSecret = randomMoodlePassword();
 
   const auth = moodleUserAuthMethod();
+  // Nota: `core_user_create_users` NO acepta la key `confirmed` (rechaza con
+  // "Unexpected keys (confirmed) detected"); los usuarios creados por el WS ya quedan
+  // confirmados por defecto, así que no hay que enviarla.
   const params: Record<string, string> = {
     "users[0][username]": username,
     ["users[0][create" + "pass" + "word]"]: "0",
@@ -118,13 +121,8 @@ export async function syncMoodleUser(user: MoodleSyncUserInput): Promise<number 
     "users[0][auth]": auth,
     "users[0][idnumber]": user.id,
     "users[0][maildisplay]": "0",
-    "users[0][lang]": moodleUserLang(),
+    ...moodleUserLangParam("users[0]"),
   };
-
-  // OAuth2: la identidad ya está verificada en Keycloak/EduTrack; no pedir re-confirmación en Moodle.
-  if (auth === "oauth2") {
-    params["users[0][confirmed]"] = "1";
-  }
 
   const created = await moodleRest("core_user_create_users", params);
   const newId = firstMoodleId(created);

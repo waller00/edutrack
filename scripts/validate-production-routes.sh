@@ -215,7 +215,11 @@ if [ -n "$COOKIE_DOMAIN" ]; then
 fi
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-  rendered="$(docker compose --env-file "$ENV_FILE" -f "$ROOT/docker-compose.cloud.yml" config 2>/dev/null || true)"
+  compose_files=(-f "$ROOT/docker-compose.cloud.yml")
+  if [ "$PRODUCTION" -eq 1 ]; then
+    compose_files+=(-f "$ROOT/docker-compose.proxy.yml" -f "$ROOT/docker-compose.close-ports.prod.yml")
+  fi
+  rendered="$(docker compose --env-file "$ENV_FILE" "${compose_files[@]}" config 2>/dev/null || true)"
   if [ -n "$rendered" ]; then
     route_lines="$(printf '%s' "$rendered" | grep -E 'FRONTEND_URL|NEXT_PUBLIC_API_URL|KEYCLOAK_ISSUER_URL|KEYCLOAK_REDIRECT_URI|GOOGLE_CALLBACK_URL|KEYCLOAK_INTERNAL_URL' || true)"
     printf '%s' "$route_lines" | grep -E '(%7D|%7d|%7B|%7b|\})' >/dev/null && \
@@ -226,6 +230,25 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
       fail "docker compose config no renderiza FRONTEND_URL como $FRONTEND_URL"
     printf '%s' "$rendered" | grep -F "KEYCLOAK_ISSUER_URL: $ISSUER_URL" >/dev/null || \
       fail "docker compose config no renderiza KEYCLOAK_ISSUER_URL como $ISSUER_URL"
+    if [ "$PRODUCTION" -eq 1 ]; then
+      for service in web auth keycloak; do
+        if printf '%s' "$rendered" | awk -v service="$service" '
+          $0 ~ "^  " service ":" { in_service=1; next }
+          in_service && $0 ~ "^  [A-Za-z0-9_-]+:" { in_service=0 }
+          in_service && $0 ~ "published:" { found=1 }
+          END { exit(found ? 0 : 1) }
+        '; then
+          fail "produccion no debe publicar puertos directos del servicio $service; usa docker-compose.close-ports.prod.yml"
+        fi
+      done
+      printf '%s' "$rendered" | awk '
+        /^  reverse-proxy:/ { in_service=1; next }
+        in_service && /^  [A-Za-z0-9_-]+:/ { in_service=0 }
+        in_service && /published: "80"/ { p80=1 }
+        in_service && /published: "443"/ { p443=1 }
+        END { exit(p80 && p443 ? 0 : 1) }
+      ' || fail "produccion debe publicar 80/443 solo desde reverse-proxy"
+    fi
   else
     warn "no pude renderizar docker compose config; salteo esa validacion"
   fi

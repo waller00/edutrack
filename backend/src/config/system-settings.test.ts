@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getAttendanceOperationalSettings,
   getMoodleOperationalSettings,
-  isDiditConfigured,
-  isLivenessRequiredForRegistration,
 } from './system-settings.js'
 import { prisma } from '../db/prisma.js'
 
@@ -18,32 +16,6 @@ vi.mock('../db/prisma.js', () => ({
 describe('system-settings', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
-  })
-
-  it('detecta Didit configurado solo cuando key y workflow tienen valor', () => {
-    vi.stubEnv('DIDIT_API_KEY', ' api-key ')
-    vi.stubEnv('DIDIT_WORKFLOW_ID', ' workflow-id ')
-    expect(isDiditConfigured()).toBe(true)
-
-    vi.stubEnv('DIDIT_WORKFLOW_ID', ' ')
-    expect(isDiditConfigured()).toBe(false)
-
-    vi.stubEnv('DIDIT_API_KEY', '')
-    vi.stubEnv('DIDIT_WORKFLOW_ID', 'workflow-id')
-    expect(isDiditConfigured()).toBe(false)
-  })
-
-  it('exige prueba de vida salvo en test o bypass explícito', () => {
-    vi.stubEnv('NODE_ENV', 'production')
-    vi.stubEnv('ALLOW_REGISTER_WITHOUT_DIDIT', 'false')
-    expect(isLivenessRequiredForRegistration()).toBe(true)
-
-    vi.stubEnv('ALLOW_REGISTER_WITHOUT_DIDIT', 'true')
-    expect(isLivenessRequiredForRegistration()).toBe(false)
-
-    vi.stubEnv('NODE_ENV', 'test')
-    vi.stubEnv('ALLOW_REGISTER_WITHOUT_DIDIT', 'false')
-    expect(isLivenessRequiredForRegistration()).toBe(false)
   })
 
   it('normaliza flags operativos de Moodle desde la fila global', async () => {
