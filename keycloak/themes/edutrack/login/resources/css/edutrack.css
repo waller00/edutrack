@@ -516,6 +516,12 @@ a[id^="social-"]:hover {
   font-weight: 500 !important;
 }
 
+/* En la entrega inicial de códigos, las acciones de imprimir/descargar/copiar
+   ya comunican cómo guardarlos. Evitamos repetirlo en un bloque de advertencia. */
+.et-recovery-codes-setup-screen .pf-v5-c-alert.pf-m-warning {
+  display: none !important;
+}
+
 /* ── 18. Pantallas de 2FA / TOTP ─────────────────────────────────────────── */
 ol#kc-totp-settings {
   padding-left: 1.25rem;

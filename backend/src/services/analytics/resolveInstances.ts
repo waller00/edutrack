@@ -140,10 +140,19 @@ export async function resolveAttendanceAndJustification(params: {
   const checkOutByPlannedId = new Map<string, AttendanceRow[]>()
   const spansByUserDate = buildPresenceSpans(attendances)
 
+  // Match por (usuario, evento, fecha): una clase suplida tiene dos instancias para el
+  // mismo evento/fecha (titular y suplente), así que cada marca debe ir a la instancia de
+  // su propio usuario, no a la primera que coincida por evento+fecha.
+  const instanceByUserEventDate = new Map<string, PlannedInstance>()
+  for (const i of instances) {
+    if (i.userIdRequired) instanceByUserEventDate.set(`${i.userIdRequired}|${i.eventId}|${i.plannedDate}`, i)
+  }
+
   for (const att of attendances) {
     if (!att.eventId) continue
-    const plannedId = `${att.eventId}_${toYmdUtc(att.date)}`
-    if (!instanceByPlannedId.has(plannedId)) continue
+    const inst = instanceByUserEventDate.get(`${att.userId}|${att.eventId}|${toYmdUtc(att.date)}`)
+    if (!inst) continue
+    const plannedId = inst.plannedInstanceId
     if (att.type === 'CHECK_IN') {
       if (!checkInByPlannedId.has(plannedId)) checkInByPlannedId.set(plannedId, [])
       checkInByPlannedId.get(plannedId)!.push(att as AttendanceRow)
