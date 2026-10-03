@@ -41,6 +41,43 @@ function setup(over: Record<string, unknown> = {}, formOver: Partial<StudentForm
 
 const VALID = { firstName: 'Ana', lastName: 'Díaz', documentId: '51234561' }
 
+describe('foco al escribir', () => {
+  it('no devuelve el cursor al primer campo cuando el padre vuelve a renderizar', () => {
+    // El padre pasa `onClose={() => setModal(null)}`: una función nueva en cada render. Si el
+    // efecto que enfoca el primer campo depende de esa identidad, cada tecla devuelve el cursor
+    // a "Nombre" y la ficha se vuelve imposible de completar.
+    const { rerender } = setup()
+    const apellido = document.getElementById('st-lastName') as HTMLInputElement
+    apellido.focus()
+    expect(document.activeElement).toBe(apellido)
+
+    rerender(
+      <StudentFormModal
+        mode="create"
+        form={form({ lastName: 'D' })}
+        courses={[{ id: 'c1', name: 'Primero', code: '1' }]}
+        orientations={[]}
+        saving={false}
+        moodlePending={false}
+        message=""
+        onPatch={onPatch}
+        onUsernameEdit={vi.fn()}
+        onMoodleAction={onMoodleAction}
+        onSave={onSave}
+        onClose={() => undefined}
+      />,
+    )
+
+    expect(document.activeElement).toBe(apellido)
+    expect(document.activeElement).not.toBe(document.getElementById('st-firstName'))
+  })
+
+  it('al abrirse sí enfoca el primer campo', () => {
+    setup()
+    expect(document.activeElement).toBe(document.getElementById('st-firstName'))
+  })
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
