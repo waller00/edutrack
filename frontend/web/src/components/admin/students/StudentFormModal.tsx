@@ -65,8 +65,13 @@ export default function StudentFormModal({
   const [contactOpen, setContactOpen] = useState(false)
   const [error, setError] = useState<StudentFormError | null>(null)
 
+  // Sólo al montar. Si el foco se reclamara en cada render, cada tecla devolvería el cursor al
+  // primer campo: el padre recrea `onClose` al teclear, y este efecto colgaba de esa identidad.
   useEffect(() => {
     firstFieldRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
       if (e.key !== 'Tab' || !panelRef.current) return

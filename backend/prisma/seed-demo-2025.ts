@@ -27,6 +27,7 @@ import { runBootstrap } from './seed-bootstrap.js'
 import { seedTeachers } from './seed-teachers.js'
 import { getAppTimezone, uruguayWallToUtc } from '../src/config/app-timezone.js'
 import { generateUniqueUsername } from '../src/services/usernames.js'
+import { seedDemoLibreta2025 } from './demo/libreta-2025.js'
 
 const prisma = new PrismaClient()
 
@@ -343,7 +344,10 @@ async function seedStudents() {
   for (const plan of plans) {
     for (let i = 0; i < plan.count; i += 1) {
       const firstName = STUDENT_FIRST_NAMES[index % STUDENT_FIRST_NAMES.length]
-      const lastName = `${STUDENT_LAST_NAMES[index % STUDENT_LAST_NAMES.length]} ${STUDENT_LAST_NAMES[(index * 7 + 3) % STUDENT_LAST_NAMES.length]}`
+      // El primer apellido avanza recién cuando se agota la vuelta de nombres: así el par
+      // (nombre, apellido) no se repite hasta los 600 alumnos. Tomando los dos con `index % n`,
+      // el nombre completo volvía a salir cada 60 y la lista quedaba con todos los nombres dobles.
+      const lastName = `${STUDENT_LAST_NAMES[Math.floor(index / STUDENT_FIRST_NAMES.length) % STUDENT_LAST_NAMES.length]} ${STUDENT_LAST_NAMES[(index * 7 + 3) % STUDENT_LAST_NAMES.length]}`
       const documentId = buildValidCi(3_100_000 + index * 37)
       // Mismo formato `nombre.apellido` que usa el alta real de estudiantes: es la cuenta con la
       // que el alumno entra a Moodle (ver scripts/provision-demo-moodle-students.ts).
@@ -894,6 +898,12 @@ async function main() {
   await seedMedicalLeaves(teachers)
   await seedEvents(admin, teachers, staffUsers)
   await seedAttendances({ teachers, device: biometric.device, mappings: biometric.mappings })
+
+  // Libreta y pase de lista: sin esto, el módulo que más cambió queda vacío en la demo.
+  console.log('[demo] Libreta digital y pase de lista del ciclo...')
+  const schoolYearRow = await prisma.schoolYear.findUniqueOrThrow({ where: { code: YEAR }, select: { id: true } })
+  const libreta = await seedDemoLibreta2025(prisma, { schoolYearId: schoolYearRow.id })
+
   await seedAudit(admin)
 
   await prisma.systemSettings.update({
@@ -927,6 +937,12 @@ async function main() {
   console.log(`[demo] Estudiantes: ${counts[1]} | Matriculas: ${counts[2]}`)
   console.log(`[demo] Eventos: ${counts[3]} | Asistencias (pares de presentes): ${counts[4]} | Suplencias: ${counts[5]}`)
   console.log(`[demo] Licencias: ${counts[6]} | Punches biometricos: ${counts[7]}`)
+  console.log(
+    `[demo] Libretas: ${libreta.libretas} | Evaluaciones: ${libreta.evaluaciones} | Notas: ${libreta.notas}`,
+  )
+  console.log(
+    `[demo] Cierres con C y R: ${libreta.cierres} | Marcas de pase de lista: ${libreta.marcasDeAsistencia}`,
+  )
   console.log(`[demo] Clave staff seed: ${STAFF_INITIAL_PASSWORD}`)
 }
 

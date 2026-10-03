@@ -484,7 +484,10 @@ async function seedStudents() {
   for (const plan of plans) {
     for (let i = 0; i < plan.count; i += 1) {
       const firstName = STUDENT_FIRST_NAMES[index % STUDENT_FIRST_NAMES.length]
-      const lastName = `${STUDENT_LAST_NAMES[index % STUDENT_LAST_NAMES.length]} ${STUDENT_LAST_NAMES[(index * 7 + 3) % STUDENT_LAST_NAMES.length]}`
+      // El primer apellido avanza recién cuando se agota la vuelta de nombres: así el par
+      // (nombre, apellido) no se repite hasta los 600 alumnos. Tomando los dos con `index % n`,
+      // el nombre completo volvía a salir cada 60 y la lista quedaba con todos los nombres dobles.
+      const lastName = `${STUDENT_LAST_NAMES[Math.floor(index / STUDENT_FIRST_NAMES.length) % STUDENT_LAST_NAMES.length]} ${STUDENT_LAST_NAMES[(index * 7 + 3) % STUDENT_LAST_NAMES.length]}`
       const documentId = buildValidCi(3_100_000 + index * 37)
       const student = await prisma.student.create({
         data: {
