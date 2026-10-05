@@ -200,6 +200,23 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > así que filtrar por `kind === 'ENTREGA'` deja afuera a todo EMS). Control de libretas y Reportes
 > la usan; `assessmentPeriodsFor` da los tramos cuyas evaluaciones informa.
 
+> **Un ciclo lectivo nuevo nace con su libreta parametrizada.** El alta
+> (`POST /admin/school-years`) hereda los períodos del ciclo origen corriendo las fechas al año
+> nuevo (`services/academic-config/period-inheritance.ts`); si el origen no tiene ese nivel
+> configurado, se siembra la plantilla DGES. El respaldo es **por nivel**: un origen con sólo EBI no
+> puede dejar a EMS sin períodos. Un ciclo creado antes de esto se arregla desde
+> `/libreta/configuracion` con «Heredar períodos», no por consola.
+
+> **Las libretas sí se generan solas: al guardar un evento de clase.** El disparador es
+> `services/gradebook/provision-trigger.ts`, enganchado en el alta, la edición, la cancelación, la
+> baja y la importación de eventos. Corre después de responder y un fallo no rompe el guardado del
+> evento. Las excepciones de ocurrencia (`parentEventId`) no disparan: no aportan scope.
+> `npm run seed:academic-config` queda sólo para el bootstrap de una instalación nueva.
+
+> **La parametrización académica vive en `src/`, y `prisma/` la importa** — nunca al revés, porque
+> `dist/` se compila sólo desde `src/` (`tsconfig.json` → `rootDir: "src"`). Por eso
+> `prisma/data/academic-config-dges.ts` pasó a ser `src/services/academic-config/dges-defaults.ts`.
+
 > **Las adecuaciones guardan un enlace, nunca el informe.** Un informe psicológico de un menor es un
 > documento clínico, y la política de privacidad lo prohíbe (§4 bis).
 

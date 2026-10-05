@@ -199,3 +199,70 @@ describe('SchoolYearsPage · wizard de inicio (asignación de estudiantes)', () 
     expect(destination).toHaveValue('c2')
   })
 })
+
+describe('SchoolYearsPage · alta con herencia de la libreta', () => {
+  beforeEach(() => {
+    mockedUseCtx.mockReset()
+    mockedApi.mockReset()
+    // Sin ciclo activo el alta está habilitada y el acordeón se abre solo.
+    mockedUseCtx.mockReturnValue(ctx({ activeId: null }))
+  })
+
+  const periodsSummary = {
+    schoolYearCode: 2027,
+    sourceSchoolYearCode: 2026,
+    created: 16,
+    existing: 0,
+    byLevel: {
+      EBI: { origin: 'SOURCE_YEAR', created: 12, existing: 0 },
+      EMS: { origin: 'SOURCE_YEAR', created: 4, existing: 0 },
+    },
+  }
+
+  it('sugiere el año siguiente y el ciclo anterior como origen', async () => {
+    render(<SchoolYearsPage />)
+
+    await waitFor(() => expect(screen.getByDisplayValue('2027')).toBeInTheDocument())
+    expect(screen.getByDisplayValue('Ciclo lectivo 2027')).toBeInTheDocument()
+    const source = screen.getByLabelText('Ciclo origen de la libreta') as HTMLSelectElement
+    expect(source.value).toBe('y1')
+    expect(screen.getByRole('checkbox', { name: /Heredar los períodos de la libreta/ })).toBeChecked()
+  })
+
+  it('crea el ciclo heredando y cuenta los períodos en el mensaje', async () => {
+    mockedApi.mockResolvedValue({ code: 2027, label: 'Ciclo lectivo 2027', academicPeriods: periodsSummary } as never)
+    render(<SchoolYearsPage />)
+    await waitFor(() => expect(screen.getByDisplayValue('2027')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /Crear ciclo/ }))
+
+    await waitFor(() => expect(mockedApi).toHaveBeenCalled())
+    const [path, init] = mockedApi.mock.calls[0]
+    expect(path).toBe('/admin/school-years')
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      code: 2027,
+      status: 'PLANNED',
+      inheritAcademicPeriods: true,
+      sourceSchoolYearId: 'y1',
+    })
+    expect(await screen.findByText(/Se cargaron 16 períodos del ciclo 2026/)).toBeInTheDocument()
+  })
+
+  it('al desmarcar la casilla no manda el ciclo origen', async () => {
+    mockedApi.mockResolvedValue({ code: 2027, label: 'Ciclo lectivo 2027', academicPeriods: null } as never)
+    render(<SchoolYearsPage />)
+    await waitFor(() => expect(screen.getByDisplayValue('2027')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Heredar los períodos de la libreta/ }))
+    expect(screen.getByLabelText('Ciclo origen de la libreta')).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /Crear ciclo/ }))
+
+    await waitFor(() => expect(mockedApi).toHaveBeenCalled())
+    const body = JSON.parse(String(mockedApi.mock.calls[0][1]?.body))
+    expect(body.inheritAcademicPeriods).toBe(false)
+    expect(body).not.toHaveProperty('sourceSchoolYearId')
+    expect(await screen.findByText(/Sin parametrización de libreta/)).toBeInTheDocument()
+  })
+})
+

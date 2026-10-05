@@ -27,6 +27,14 @@ import {
   type StartPlanStudent,
   type TargetOption,
 } from '@/lib/admin/school-year-start'
+import {
+  createSourceOptions,
+  createYearMessage,
+  createYearPayload,
+  defaultCreateDraft,
+  validateCreateDraft,
+  type CreateYearResponse,
+} from '@/lib/admin/school-year-create'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
@@ -241,6 +249,8 @@ export default function AdminSchoolYearsPage() {
   const [createCode, setCreateCode] = useState('')
   const [createLabel, setCreateLabel] = useState('')
   const [createStart, setCreateStart] = useState('')
+  const [createSourceId, setCreateSourceId] = useState('')
+  const [createInheritPeriods, setCreateInheritPeriods] = useState(true)
   const [creating, setCreating] = useState(false)
 
   const [editing, setEditing] = useState<SchoolYearApiRow | null>(null)
@@ -326,6 +336,17 @@ export default function AdminSchoolYearsPage() {
   useEffect(() => {
     if (!loading && canCreateSchoolYear) setCreateOpen(true)
   }, [canCreateSchoolYear, loading])
+
+  // Sugerencias para el formulario vacío. Sólo si no hay nada escrito: no se le pisa lo tipeado.
+  useEffect(() => {
+    if (loading || years.length === 0) return
+    const draft = defaultCreateDraft(years, new Date().getFullYear() + 1)
+    setCreateCode((current) => current || draft.code)
+    setCreateLabel((current) => current || draft.label)
+    setCreateSourceId((current) => current || draft.sourceSchoolYearId)
+  }, [loading, years])
+
+  const createSourceChoices = useMemo(() => createSourceOptions(years), [years])
 
   const clearFlash = useCallback(() => {
     setMsg('')
@@ -654,21 +675,25 @@ export default function AdminSchoolYearsPage() {
       setErr('Ya hay un ciclo lectivo activo. Cerralo manualmente antes de crear otro.')
       return
     }
-    const code = Number.parseInt(createCode, 10)
-    if (!createLabel.trim() || Number.isNaN(code)) {
-      setErr('Completá el código (año) y la etiqueta.')
+    const draft = {
+      code: createCode,
+      label: createLabel,
+      startsOn: createStart,
+      sourceSchoolYearId: createSourceId,
+      inheritPeriods: createInheritPeriods,
+    }
+    const invalid = validateCreateDraft(draft)
+    if (invalid) {
+      setErr(invalid)
       return
     }
     setCreating(true)
     try {
-      const body: Record<string, unknown> = {
-        code,
-        label: createLabel.trim(),
-        status: 'PLANNED',
-      }
-      if (createStart) body.startsOn = new Date(`${createStart}T00:00:00.000Z`).toISOString()
-      await api('/admin/school-years', { method: 'POST', body: JSON.stringify(body) })
-      setMsg('Ciclo creado en estado planificado.')
+      const created = await api<CreateYearResponse>('/admin/school-years', {
+        method: 'POST',
+        body: JSON.stringify(createYearPayload(draft)),
+      })
+      setMsg(createYearMessage(created))
       setCreateCode('')
       setCreateLabel('')
       setCreateStart('')
@@ -947,6 +972,44 @@ export default function AdminSchoolYearsPage() {
                   <DateField className="input-field text-sm" value={createStart} onChange={setCreateStart} />
                 </div>
               </div>
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <label className="flex items-start gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                    checked={createInheritPeriods}
+                    onChange={(e) => setCreateInheritPeriods(e.target.checked)}
+                  />
+                  <span>
+                    Heredar los períodos de la libreta
+                    <span className="mt-0.5 block text-xs text-gray-500">
+                      Copia el calendario de la libreta del ciclo origen corriendo las fechas al año nuevo. No copia
+                      ofertas de curso, asignaturas ni horario: eso se define al iniciar el ciclo.
+                    </span>
+                  </span>
+                </label>
+                <div className="mt-3 sm:max-w-xs">
+                  <label className="mb-1 block text-xs font-medium text-gray-600" htmlFor="create-source-year">
+                    Ciclo origen de la libreta
+                  </label>
+                  <select
+                    id="create-source-year"
+                    className="input-field text-sm"
+                    value={createSourceId}
+                    onChange={(e) => setCreateSourceId(e.target.value)}
+                    disabled={!createInheritPeriods || createSourceChoices.length === 0}
+                  >
+                    <option value="">Plantilla reglamentaria</option>
+                    {createSourceChoices.map((choice) => (
+                      <option key={choice.value} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={creating} onClick={() => void submitCreate()}>
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
                 Crear ciclo

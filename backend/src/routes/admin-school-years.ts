@@ -14,6 +14,9 @@ import {
   historicalSummary,
   unarchiveSchoolYearGradeBooks,
 } from '../services/gradebook/archive.js'
+import { inheritAcademicPeriods } from '../services/academic-config/period-inheritance.js'
+import { AcademicConfigError } from '../services/academic-config/validation.js'
+import { scheduleGradeBookProvision } from '../services/gradebook/provision-trigger.js'
 
 const r = Router()
 
@@ -407,6 +410,10 @@ const createSchema = z.object({
   startsOn: z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().min(4).max(40).optional()),
   endsOn: z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().min(4).max(40).optional()),
   status: z.enum(['PLANNED', 'ACTIVE', 'CLOSED']).optional(),
+  /** Ciclo del que se copia el calendario de la libreta. Sin él se siembra la plantilla. */
+  sourceSchoolYearId: z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().uuid().optional()),
+  /** El ciclo nuevo hereda la parametrización de la libreta. Ofertas y horario no: eso es el wizard. */
+  inheritAcademicPeriods: z.boolean().optional().default(true),
 })
 
 r.post('/', async (req, res) => {
@@ -417,7 +424,8 @@ r.post('/', async (req, res) => {
       detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · '),
     })
   }
-  const { code, label, startsOn, endsOn, status } = parsed.data
+  const { code, label, startsOn, endsOn, status, sourceSchoolYearId } = parsed.data
+  const inheritPeriods = parsed.data.inheritAcademicPeriods
   try {
     if (status === 'ACTIVE') {
       return res.status(400).json({ message: 'Para activar un ciclo usá POST /:id/activate' })
@@ -426,17 +434,31 @@ r.post('/', async (req, res) => {
     const startsAt = parseSchoolYearDate(startsOn)
     const endsAt = parseSchoolYearDate(endsOn)
     assertValidSchoolYearDates(startsAt, endsAt)
-    const row = await prisma.schoolYear.create({
-      data: {
-        code,
-        label,
-        startsOn: startsAt,
-        endsOn: endsAt,
-        status: status ?? 'PLANNED',
-      },
+    // En una transacción: un ciclo creado sin los períodos de su libreta no se puede usar, y hasta
+    // ahora quedaba así (el docente abría la libreta y no veía nada).
+    const created = await prisma.$transaction(async (tx) => {
+      const row = await tx.schoolYear.create({
+        data: {
+          code,
+          label,
+          startsOn: startsAt,
+          endsOn: endsAt,
+          status: status ?? 'PLANNED',
+        },
+      })
+      const academicPeriods = inheritPeriods
+        ? await inheritAcademicPeriods({ targetSchoolYearId: row.id, sourceSchoolYearId }, tx)
+        : null
+      return { row, academicPeriods }
     })
-    return res.status(201).json(serializeYear({ ...row, coursesCount: 0 }))
+    return res.status(201).json({
+      ...serializeYear({ ...created.row, coursesCount: 0 }),
+      academicPeriods: created.academicPeriods,
+    })
   } catch (e: unknown) {
+    if (e instanceof AcademicConfigError) {
+      return res.status(e.httpStatus).json({ message: e.message, code: e.code })
+    }
     const codeP = (e as { code?: string }).code
     if (codeP === 'P2002') {
       return res.status(409).json({ message: 'Ya existe un ciclo con ese código (año)' })
@@ -769,12 +791,31 @@ r.post('/:id/start', async (req, res) => {
         }
       }
 
+      // Un ciclo que arranca nunca puede quedar sin la parametrización de su libreta. Es
+      // idempotente: si el alta ya la heredó, acá no crea nada.
+      const periods = await inheritAcademicPeriods(
+        { targetSchoolYearId: id, sourceSchoolYearId: parsed.data.sourceSchoolYearId ?? null },
+        tx,
+      )
+
       const updated = await tx.schoolYear.update({
         where: { id },
         data: { status: 'ACTIVE' },
       })
-      return { updated, moved, closed, courses: uniqueCourseIds.length, orientations: orientationSelections.length, subjectsCopied }
+      return {
+        updated,
+        moved,
+        closed,
+        courses: uniqueCourseIds.length,
+        orientations: orientationSelections.length,
+        subjectsCopied,
+        periods,
+      }
     })
+
+    // Fuera de la transacción: el ciclo puede tener horario ya cargado, y las libretas se derivan
+    // de él. Un fallo acá no debe deshacer la apertura del ciclo.
+    scheduleGradeBookProvision([result.updated.id])
 
     const full = await prisma.schoolYear.findUniqueOrThrow({ where: { id: result.updated.id } })
     return res.json({
@@ -784,6 +825,7 @@ r.post('/:id/start', async (req, res) => {
       movedStudents: result.moved,
       closedStudents: result.closed,
       subjectsCopied: result.subjectsCopied,
+      academicPeriods: result.periods,
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

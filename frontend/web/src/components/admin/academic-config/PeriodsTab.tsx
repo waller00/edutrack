@@ -1,13 +1,21 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { CalendarRange, Loader2, Pencil, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CalendarRange, CopyPlus, Loader2, Pencil, Plus, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
 import PeriodFormModal, { periodPayload, type PeriodDraft } from './PeriodFormModal'
 import UsageNote from './UsageNote'
+import {
+  defaultInheritSourceId,
+  describeInheritance,
+  describeProvision,
+  inheritSourceOptions,
+  type PeriodInheritanceSummary,
+  type ProvisionSummary,
+} from '@/lib/admin/period-inheritance'
 import {
   LEVEL_LABELS,
   LEVEL_SHORT_LABELS,
@@ -131,8 +139,8 @@ function LevelSection({
 
       {periods.length === 0 ? (
         <p className="px-4 py-6 text-sm text-gray-500">
-          Este nivel no tiene períodos en el ciclo seleccionado. Corré <code>npm run seed:academic-config</code> para
-          cargar los reglamentarios.
+          Este nivel no tiene períodos en el ciclo seleccionado. Usá «Heredar períodos» para traerlos del ciclo
+          anterior o de la plantilla reglamentaria.
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -180,6 +188,7 @@ export default function PeriodsTab({ onError }: Props) {
   // `schoolYearScopedQuery` y no `schoolYearQuery`: un período pertenece a UN ciclo, así que
   // "ver todos los ciclos" no tiene sentido acá y mezclaría calendarios de años distintos.
   const schoolYearQuery = schoolYear?.schoolYearScopedQuery ?? ''
+  const years = useMemo(() => schoolYear?.years ?? [], [schoolYear?.years])
   const [periods, setPeriods] = useState<AcademicPeriod[]>([])
   const [schoolYearId, setSchoolYearId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -187,6 +196,9 @@ export default function PeriodsTab({ onError }: Props) {
   const [deactivating, setDeactivating] = useState<AcademicPeriod | null>(null)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [notice, setNotice] = useState('')
+  const [inheritSourceId, setInheritSourceId] = useState('')
+  const [running, setRunning] = useState<'inherit' | 'provision' | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -224,6 +236,44 @@ export default function PeriodsTab({ onError }: Props) {
     }
   }
 
+  /**
+   * Trae al ciclo la parametrización del ciclo origen. Es el reemplazo del `npm run
+   * seed:academic-config` por consola, que es lo único que había para un ciclo sin períodos.
+   */
+  async function inherit() {
+    setNotice('')
+    setRunning('inherit')
+    try {
+      const res = await api<{ data: PeriodInheritanceSummary }>('/admin/academic-config/periods/inherit', {
+        method: 'POST',
+        body: JSON.stringify({ schoolYearId, sourceSchoolYearId: inheritSourceId || undefined }),
+      })
+      setNotice(describeInheritance(res.data))
+      await load()
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'No se pudieron heredar los períodos')
+    } finally {
+      setRunning(null)
+    }
+  }
+
+  /** Genera las libretas del ciclo a partir del horario ya cargado. Idempotente. */
+  async function provision() {
+    setNotice('')
+    setRunning('provision')
+    try {
+      const res = await api<{ data: ProvisionSummary }>(
+        withSchoolYear('/admin/academic-config/gradebooks/provision', schoolYearQuery),
+        { method: 'POST' },
+      )
+      setNotice(describeProvision(res.data))
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'No se pudieron generar las libretas')
+    } finally {
+      setRunning(null)
+    }
+  }
+
   async function deactivate() {
     if (!deactivating) return
     setSaving(true)
@@ -242,6 +292,11 @@ export default function PeriodsTab({ onError }: Props) {
     void load()
   }, [load])
 
+  // Sugerencia de ciclo origen, sin pisar lo que el usuario haya elegido.
+  useEffect(() => {
+    setInheritSourceId((current) => current || defaultInheritSourceId(years, schoolYearId))
+  }, [years, schoolYearId])
+
   if (loading) {
     return (
       <p className="flex items-center gap-2 py-8 text-sm text-gray-500">
@@ -258,6 +313,64 @@ export default function PeriodsTab({ onError }: Props) {
         Los períodos se administran por ciclo lectivo y nivel: EBI y EMS tienen calendarios distintos.
         Un período con calificación o juicio conceptual obligatorio no deja cerrar la libreta hasta completarlos.
       </p>
+
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3">
+        <div className="min-w-[10rem]">
+          <label className="mb-1 block text-xs font-medium text-gray-600" htmlFor="inherit-source-year">
+            Heredar desde
+          </label>
+          <select
+            id="inherit-source-year"
+            className="input-field text-sm"
+            value={inheritSourceId}
+            onChange={(e) => setInheritSourceId(e.target.value)}
+            disabled={running !== null}
+          >
+            <option value="">Plantilla reglamentaria</option>
+            {inheritSourceOptions(years, schoolYearId).map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary inline-flex items-center gap-2"
+          onClick={() => void inherit()}
+          disabled={running !== null || !schoolYearId}
+        >
+          {running === 'inherit' ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <CopyPlus className="h-4 w-4" aria-hidden />
+          )}
+          Heredar períodos
+        </button>
+        <button
+          type="button"
+          className="btn-secondary inline-flex items-center gap-2"
+          onClick={() => void provision()}
+          disabled={running !== null || !schoolYearId}
+        >
+          {running === 'provision' ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Sparkles className="h-4 w-4" aria-hidden />
+          )}
+          Generar libretas
+        </button>
+        <p className="w-full text-xs text-gray-500 sm:w-auto sm:flex-1">
+          Heredar copia el calendario del ciclo elegido corriendo las fechas. Generar libretas las deriva del horario
+          cargado; las dos acciones se pueden repetir sin duplicar nada.
+        </p>
+      </div>
+
+      {notice && (
+        <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {notice}
+        </p>
+      )}
 
       {LEVELS.map((level) => (
         <LevelSection

@@ -29,6 +29,17 @@ const { prismaMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
+// El disparador de libretas se mockea entero: acá se verifica el cableado de la ruta, y la decisión
+// de qué ciclo reprovisionar tiene sus propios tests en `provision-trigger.test.ts`.
+const { provisionTrigger } = vi.hoisted(() => ({
+  provisionTrigger: {
+    affectsGradeBooks: vi.fn(() => true),
+    provisionTargetsForSave: vi.fn(() => ["sy-default"]),
+    provisionTargetsForBatch: vi.fn(() => ["sy-default"]),
+    scheduleGradeBookProvision: vi.fn(),
+  },
+}));
+vi.mock("../services/gradebook/provision-trigger.js", () => provisionTrigger);
 vi.mock("../services/school-year-service.js", () => ({
   getActiveSchoolYearId: vi.fn().mockResolvedValue("sy-default"),
   resolveSchoolYearIdForList: vi.fn().mockResolvedValue("sy-default"),
@@ -1664,5 +1675,70 @@ describe("events routes (prisma mock)", () => {
         .set("Authorization", `Bearer ${adminTok2()}`);
       expect(res.status).toBe(404);
     });
+  });
+
+  describe("generación de libretas al tocar el horario", () => {
+    const adminTok = () => signAccessToken({ sub: "adm", email: "a@a.com", role: "ADMIN" });
+
+    it("POST /events dispara la provisión con el evento creado", async () => {
+      prismaMock.event.create.mockResolvedValue({
+        id: "ev-clase",
+        title: "Clase test",
+        type: "CLASE",
+        userId: "adm",
+        assignedUserId: null,
+        schoolYearId: "sy-default",
+        courseOfferingId: "off-1",
+        subjectId: "sub-1",
+        parentEventId: null,
+        user: {},
+        assignedUser: null,
+      });
+
+      const res = await request(app())
+        .post("/events")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send(minimalEvent);
+
+      expect(res.status).toBe(200);
+      expect(provisionTrigger.provisionTargetsForSave).toHaveBeenCalledWith(
+        null,
+        expect.objectContaining({ id: "ev-clase", type: "CLASE" }),
+      );
+      expect(provisionTrigger.scheduleGradeBookProvision).toHaveBeenCalledWith(["sy-default"]);
+    });
+
+    it("suspender una ocurrencia no dispara nada: la excepción no cambia ninguna libreta", async () => {
+      prismaMock.event.findUnique.mockResolvedValue({
+        id: "ev-rec",
+        title: "Clase semanal",
+        type: "CLASE",
+        userId: "adm",
+        assignedUserId: null,
+        status: "SCHEDULED",
+        description: null,
+        startDate: new Date("2099-06-15T13:00:00.000Z"),
+        endDate: null,
+        startTime: new Date("2099-06-15T13:00:00.000Z"),
+        endTime: new Date("2099-06-15T14:00:00.000Z"),
+        isRecurring: true,
+        recurrenceType: "DAILY",
+        daysOfWeek: [] as number[],
+        recurrenceEnd: new Date("2099-12-31T00:00:00.000Z"),
+        effectiveFrom: null,
+        effectiveUntil: null,
+      });
+      (prismaMock.event as any).findFirst = vi.fn().mockResolvedValue(null);
+      prismaMock.event.create.mockResolvedValue({ id: "child-1" });
+
+      const res = await request(app())
+        .post("/events/ev-rec/occurrences/2099-06-20/cancel")
+        .set("Authorization", `Bearer ${adminTok()}`)
+        .send({ reason: "Feriado" });
+
+      expect(res.status).toBe(200);
+      expect(provisionTrigger.scheduleGradeBookProvision).not.toHaveBeenCalled();
+    });
+
   });
 });
