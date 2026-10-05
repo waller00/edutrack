@@ -8,7 +8,14 @@ const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     gradingScale: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     gradingScaleLevel: { deleteMany: vi.fn(), createMany: vi.fn() },
-    academicPeriod: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    academicPeriod: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      createMany: vi.fn(),
+    },
+    schoolYear: { findUnique: vi.fn() },
     activityType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     assessment: { groupBy: vi.fn() },
     gradeBookPeriod: { groupBy: vi.fn() },
@@ -558,5 +565,68 @@ describe("contadores de uso en los GET", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data[0].usage).toEqual({ assessments: 7 });
+  });
+});
+
+describe("POST /periods/inherit", () => {
+  const SOURCE_ID = "44444444-4444-4444-8444-444444444444";
+
+  beforeEach(() => {
+    prismaMock.schoolYear.findUnique.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.id === SOURCE_ID ? { id: SOURCE_ID, code: 2025 } : { id: "sy-1", code: 2026 },
+      ),
+    );
+    prismaMock.academicPeriod.findMany.mockResolvedValue([]);
+    prismaMock.academicPeriod.createMany.mockResolvedValue({ count: 16 });
+  });
+
+  it("hereda al ciclo que el front está mirando y devuelve el resumen", async () => {
+    const res = await request(app())
+      .post("/admin/academic-config/periods/inherit")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ sourceSchoolYearId: SOURCE_ID });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.schoolYearId).toBe("sy-1");
+    expect(res.body.data.sourceSchoolYearCode).toBe(2025);
+    expect(res.body.data.created).toBeGreaterThan(0);
+    expect(prismaMock.academicPeriod.createMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("sin ciclo origen siembra la plantilla reglamentaria", async () => {
+    const res = await request(app())
+      .post("/admin/academic-config/periods/inherit")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({});
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.sourceSchoolYearId).toBeNull();
+    expect(res.body.data.byLevel.EBI.origin).toBe("TEMPLATE");
+  });
+
+  it("devuelve 404 si el ciclo origen no existe", async () => {
+    prismaMock.schoolYear.findUnique.mockImplementation(({ where }: any) =>
+      Promise.resolve(where.id === "sy-1" ? { id: "sy-1", code: 2026 } : null),
+    );
+
+    const res = await request(app())
+      .post("/admin/academic-config/periods/inherit")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ sourceSchoolYearId: SOURCE_ID });
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe("SOURCE_SCHOOL_YEAR_NOT_FOUND");
+  });
+
+  it("rechaza a un docente", async () => {
+    const res = await request(app())
+      .post("/admin/academic-config/periods/inherit")
+      .set("Authorization", `Bearer ${tok("TEACHER", "teacher-1")}`)
+      .send({});
+
+    expect(res.status).toBe(403);
+    expect(prismaMock.academicPeriod.createMany).not.toHaveBeenCalled();
   });
 });

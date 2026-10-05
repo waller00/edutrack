@@ -1,9 +1,12 @@
 /**
  * Parametrización académica inicial: períodos reglamentarios, escalas y tipos de actividad.
  *
- * Es **dato semilla, no reglamento congelado**: todo esto se edita desde `/admin/academic-config`
+ * Es **dato semilla, no reglamento congelado**: todo esto se edita desde `/libreta/configuracion`
  * sin tocar el código. Se siembra para que el sistema arranque usable y para dejar documentada la
  * forma que espera el módulo de libreta.
+ *
+ * Es el respaldo, no la fuente habitual: un ciclo nuevo hereda los períodos del ciclo anterior
+ * (`period-inheritance.ts`) y sólo cae acá cuando no hay de dónde copiar.
  */
 import type { AcademicLevel, AcademicPeriodKind, ActivityCategory } from "@prisma/client";
 
@@ -24,7 +27,7 @@ export type PeriodSeed = {
   isMeeting?: boolean;
   /** Nombre del texto del período ("Informe de actuación", "Diagnóstico"…). */
   judgementLabel?: string | null;
-  /** Meses a sumar al año del ciclo (APE de febrero cierra en el año siguiente). */
+  /** Años a sumar al código del ciclo (el APE de febrero cae en el año civil siguiente). */
   yearOffset?: number;
 };
 

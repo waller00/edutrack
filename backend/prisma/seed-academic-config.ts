@@ -8,76 +8,26 @@
  * Idempotente por `(schoolYearId, level, code)` en períodos y por `code` en escalas y tipos.
  * Reejecutar actualiza nombres y ventanas sin duplicar ni pisar lo que Dirección haya editado en
  * los campos que el seed no gobierna.
+ *
+ * Los períodos los planifica y escribe `src/services/academic-config/period-inheritance.ts`, que es
+ * el mismo servicio que usa el alta de un ciclo: acá queda el bootstrap de una instalación nueva
+ * (escalas y tipos de actividad, que son globales), no una segunda implementación de la misma cosa.
  */
 import "dotenv/config";
-import type { AcademicLevel, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../src/db/prisma.js";
 import {
   GLOBAL_ACTIVITY_TYPES,
   GRADING_SCALES,
-  PERIODS_BY_LEVEL,
-  type PeriodSeed,
-} from "./data/academic-config-dges.js";
+} from "../src/services/academic-config/dges-defaults.js";
+import { inheritAcademicPeriods } from "../src/services/academic-config/period-inheritance.js";
 
-const LEVELS: readonly AcademicLevel[] = ["EBI", "EMS"];
+// `periodDate` y `periodShape` se mudaron al servicio; se re-exportan porque `remap-ebi-periods.ts`
+// los importa desde acá para imponer la forma de los períodos que ya existían.
+export { periodDate, periodShape } from "../src/services/academic-config/period-plan.js";
 
 /** Cliente o transacción: `remap-ebi-periods.ts` siembra dentro de una transacción. */
 type Db = Prisma.TransactionClient;
-
-/**
- * `MM-DD` + año del ciclo → instante UTC al mediodía.
- *
- * Mediodía y no medianoche: la fecha se muestra como día civil uruguayo (UTC-3) y un
- * `T00:00:00Z` se lee como el día anterior. Mismo criterio que `seed-academic-catalog.ts`.
- */
-export function periodDate(schoolYearCode: number, monthDay: string | null, yearOffset = 0): Date | null {
-  if (!monthDay) return null;
-  return new Date(`${schoolYearCode + yearOffset}-${monthDay}T12:00:00.000Z`);
-}
-
-/**
- * Lo que define la forma y las exigencias de un período en la libreta. El seed lo escribe al
- * crear; `remap-ebi-periods.ts` lo impone una vez sobre los períodos que ya existían.
- */
-export function periodShape(period: PeriodSeed) {
-  return {
-    kind: period.kind ?? "TRAMO",
-    requiresConceptualJudgement: period.requiresConceptualJudgement,
-    requiresGeneralGrade: period.requiresGeneralGrade,
-    isMeeting: period.isMeeting ?? false,
-    judgementLabel: period.judgementLabel ?? null,
-  } as const;
-}
-
-async function upsertPeriods(db: Db, schoolYearId: string, schoolYearCode: number) {
-  let count = 0;
-  for (const level of LEVELS) {
-    for (const period of PERIODS_BY_LEVEL[level] as readonly PeriodSeed[]) {
-      const offset = period.yearOffset ?? 0;
-      await db.academicPeriod.upsert({
-        where: {
-          schoolYearId_level_code: { schoolYearId, level, code: period.code },
-        },
-        create: {
-          schoolYearId,
-          level,
-          code: period.code,
-          name: period.name,
-          sortOrder: period.sortOrder,
-          startsOn: periodDate(schoolYearCode, period.startsOn, offset),
-          endsOn: periodDate(schoolYearCode, period.endsOn, offset),
-          closesOn: periodDate(schoolYearCode, period.closesOn, offset),
-          ...periodShape(period),
-        },
-        // No se pisa `isActive` ni las fechas: si Dirección ajustó el calendario del año,
-        // reejecutar el seed no debe deshacerlo. Sólo se corrigen nombre y orden.
-        update: { name: period.name, sortOrder: period.sortOrder },
-      });
-      count++;
-    }
-  }
-  return count;
-}
 
 async function upsertScales(db: Db) {
   for (const scale of GRADING_SCALES) {
@@ -155,7 +105,13 @@ export async function seedAcademicConfig(db: Db = prisma) {
   const schoolYears = await db.schoolYear.findMany({ select: { id: true, code: true } });
   let periods = 0;
   for (const year of schoolYears) {
-    periods += await upsertPeriods(db, year.id, year.code);
+    // Sin ciclo origen: la plantilla reglamentaria. `REFRESH_LABELS` mantiene el contrato de arriba
+    // (corrige nombre y orden de los que ya estaban, sin tocar fechas ni `isActive`).
+    const summary = await inheritAcademicPeriods(
+      { targetSchoolYearId: year.id, onExisting: "REFRESH_LABELS" },
+      db,
+    );
+    periods += summary.created + summary.existing;
   }
 
   return { scales, activityTypes, periods, schoolYears: schoolYears.length };
