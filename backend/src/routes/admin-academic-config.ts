@@ -5,6 +5,7 @@ import { prisma } from '../db/prisma.js'
 import { recordAuditEvent } from '../services/audit-log.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { provisionGradeBooks } from '../services/gradebook/provision.js'
+import { inheritAcademicPeriods } from '../services/academic-config/period-inheritance.js'
 import {
   AcademicConfigError,
   assertLevelsCoverScale,
@@ -380,6 +381,48 @@ function assertPeriodWindow(startsOn: Date | null, endsOn: Date | null, closesOn
     throw new AcademicConfigError(400, 'PERIOD_CLOSES_BEFORE_END', 'El cierre no puede ser anterior al fin del período.')
   }
 }
+
+const periodInheritSchema = z.object({
+  schoolYearId: z.string().uuid().optional(),
+  sourceSchoolYearId: z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().uuid().optional()),
+})
+
+/**
+ * Hereda la parametrización de la libreta a un ciclo que ya existe (§8.3).
+ *
+ * Existe porque un ciclo creado antes de que el alta heredara los períodos queda inusable —el
+ * docente abre la libreta y no hay períodos que mostrar— y la única salida era entrar por consola
+ * al servidor a correr `npm run seed:academic-config`. Esto es ese arreglo, desde la pantalla.
+ *
+ * Cuelga de `academic-config.manage` y no de `school-years.manage` porque el botón vive en la
+ * configuración de la libreta: un perfil que tenga esa pantalla sin la gestión de ciclos no debe
+ * encontrarse con un botón que responde 403.
+ */
+r.post('/periods/inherit', async (req: any, res) => {
+  const parsed = periodInheritSchema.safeParse(req.body ?? {})
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  try {
+    const schoolYearId =
+      parsed.data.schoolYearId ??
+      (await resolveSchoolYearIdForList(prisma, {
+        role: req.user?.role,
+        requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
+      }))
+    if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
+
+    const summary = await prisma.$transaction((tx) =>
+      inheritAcademicPeriods(
+        { targetSchoolYearId: schoolYearId, sourceSchoolYearId: parsed.data.sourceSchoolYearId ?? null },
+        tx,
+      ),
+    )
+    audit(req, AuditAction.ACADEMIC_CONFIG_CREATED, 'AcademicPeriod', schoolYearId, summary)
+    return res.status(201).json({ data: summary })
+  } catch (error) {
+    return handleError(res, 'POST /periods/inherit', error)
+  }
+})
 
 r.post('/periods', async (req: any, res) => {
   const parsed = periodSchema.safeParse(req.body)

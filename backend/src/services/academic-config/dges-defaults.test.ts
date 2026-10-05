@@ -4,9 +4,9 @@ import {
   GLOBAL_ACTIVITY_TYPES,
   GRADING_SCALES,
   RETIRED_EBI_PERIOD_CODES,
-} from './academic-config-dges.js'
+} from './dges-defaults.js'
 
-describe('academic-config-dges · períodos EBI', () => {
+describe('dges-defaults · períodos EBI', () => {
   it('sigue el orden de los bloques de la planilla del liceo', () => {
     expect(EBI_PERIODS.map((p) => p.code)).toEqual([
       'MODULO_INTRODUCTORIO',
@@ -61,7 +61,7 @@ describe('academic-config-dges · períodos EBI', () => {
   })
 })
 
-describe('academic-config-dges · escala 1 a 10', () => {
+describe('dges-defaults · escala 1 a 10', () => {
   const scale = GRADING_SCALES.find((s) => s.code === 'NUMERICA_1_10')!
 
   it('tiene los seis tramos de la planilla, contiguos de 1 a 10', () => {
@@ -86,7 +86,7 @@ describe('academic-config-dges · escala 1 a 10', () => {
   })
 })
 
-describe('academic-config-dges · tipos de actividad', () => {
+describe('dges-defaults · tipos de actividad', () => {
   it('ubica cada tipo en una columna de la planilla', () => {
     const byCode = Object.fromEntries(GLOBAL_ACTIVITY_TYPES.map((t) => [t.code, t.category]))
     expect(byCode).toMatchObject({

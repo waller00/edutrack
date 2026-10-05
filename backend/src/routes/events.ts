@@ -24,6 +24,11 @@ import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.
 import { AuditAction } from '@prisma/client';
 import { recordAuditEvent } from '../services/audit-log.js';
 import {
+  provisionTargetsForBatch,
+  provisionTargetsForSave,
+  scheduleGradeBookProvision,
+} from '../services/gradebook/provision-trigger.js';
+import {
   getActiveSchoolYearId,
   resolveSchoolYearIdForList,
   assertCourseOfferedInSchoolYear as assertCourseOfferedInSchoolYearShared,
@@ -643,6 +648,7 @@ r.post('/import', authGuard, requirePermission('events.create', 'all'), async (r
     for (const item of prepared) {
       if (item.data.assignedUserId) void ensureMoodleUserById(item.data.assignedUserId)
     }
+    scheduleGradeBookProvision(provisionTargetsForBatch(prepared.map((item) => item.data)))
 
     res.status(201).json({ ok: true, createdCount: created.length, errors: [] })
   } catch (error) {
@@ -953,6 +959,8 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
     if (assigneeId) {
       void ensureMoodleUserById(assigneeId);
     }
+    // Cargar una clase en el horario es lo que hace nacer la libreta del docente (RF-020).
+    scheduleGradeBookProvision(provisionTargetsForSave(null, event));
 
     const mapped = mapNestedEventUsers(event as unknown as Record<string, unknown>);
     res.json(monthlyWarning ? { ...mapped, warning: monthlyWarning } : mapped);
@@ -1360,6 +1368,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
         daysOfWeek: true,
         status: true,
         revisionOf: true,
+        parentEventId: true,
         effectiveFrom: true,
       }
     });
@@ -1707,6 +1716,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       if (newVersion.assignedUserId) {
         void ensureMoodleUserById(newVersion.assignedUserId)
       }
+      scheduleGradeBookProvision(provisionTargetsForSave(existingEvent, newVersion))
 
       recordAuditEvent({
         action: AuditAction.EVENT_CREATED,
@@ -1746,6 +1756,8 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
     if (parsed.data.assignedUserId !== undefined && parsed.data.assignedUserId !== null) {
       void ensureMoodleUserById(parsed.data.assignedUserId);
     }
+    // Cambiar de docente, de asignatura o de grupo mueve el titular de la libreta.
+    scheduleGradeBookProvision(provisionTargetsForSave(existingEvent, event));
 
     res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
@@ -1801,6 +1813,10 @@ r.put('/:id/cancel', authGuard, requirePermission('events.cancel'), async (req, 
       }
     });
 
+    // Suspender la clase también cambia la libreta: el titular vigente pasa a ser el del evento
+    // que queda en pie.
+    scheduleGradeBookProvision(provisionTargetsForSave(null, event));
+
     res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
     console.error('Error cancelando evento:', error);
@@ -1817,7 +1833,17 @@ r.delete('/:id', authGuard, requirePermission('events.delete', 'all'), async (re
 
     const existingEvent = await (prisma.event as any).findUnique({
       where: { id },
-      select: { id: true, title: true, status: true, description: true },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        description: true,
+        type: true,
+        schoolYearId: true,
+        courseOfferingId: true,
+        subjectId: true,
+        parentEventId: true,
+      },
     });
     if (!existingEvent) return res.status(404).json({ message: 'Evento no encontrado' });
 
@@ -1844,6 +1870,8 @@ r.delete('/:id', authGuard, requirePermission('events.delete', 'all'), async (re
         softDeleted: true,
       },
     });
+
+    scheduleGradeBookProvision(provisionTargetsForSave(existingEvent, null));
 
     res.json({ message: 'Evento eliminado correctamente', softDeleted: true });
   } catch (error: any) {
@@ -1917,6 +1945,9 @@ async function loadOccurrenceContext(
 }
 
 // Suspender una sola ocurrencia (excepción CANCELLED).
+//
+// Las rutas de ocurrencia no provisionan libretas: las excepciones llevan `parentEventId` y
+// `loadClassEvents` las excluye, así que no cambian el scope ni el titular de ninguna libreta.
 r.post('/:id/occurrences/:ymd/cancel', authGuard, requirePermission('events.cancel'), async (req, res) => {
   try {
     const ctx = await loadOccurrenceContext(req, res, 'events.cancel');

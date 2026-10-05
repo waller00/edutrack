@@ -20,7 +20,7 @@
 import "dotenv/config";
 import type { AcademicLevel, Prisma } from "@prisma/client";
 import { prisma } from "../src/db/prisma.js";
-import { EBI_PERIODS, EMS_PERIODS, RETIRED_EBI_PERIOD_CODES } from "./data/academic-config-dges.js";
+import { EBI_PERIODS, EMS_PERIODS, RETIRED_EBI_PERIOD_CODES } from "../src/services/academic-config/dges-defaults.js";
 import {
   isEmptyPlan,
   planEbiRemap,

@@ -321,10 +321,22 @@ entienden solos.
   EduTrack el "grupo" es el curso más su orientación —no hay grupos paralelos—, así que esa clave
   coincide exactamente con la que la integración Moodle deriva de un evento: la libreta y su curso
   Moodle `SUBJECT_COURSE` son la misma cosa vista desde dos lados (`GradeBook.scopeKey`).
-- **Generación automática:** las libretas se derivan de los eventos de clase del ciclo
-  (`POST /admin/academic-config/gradebooks/provision`). No hay tabla de asignación docente: quién
-  dicta qué sólo existe en el horario. Es idempotente y respeta la oferta del ciclo (un curso no
-  ofertado no genera libretas).
+- **Generación automática:** las libretas se derivan de los eventos de clase del ciclo. No hay
+  tabla de asignación docente: quién dicta qué sólo existe en el horario. Se provisionan **al
+  guardar el horario** —alta, edición, cancelación, baja e importación de un evento de clase
+  disparan la generación— y también a mano desde «Generar libretas» en Libreta → Configuración o
+  `POST /admin/academic-config/gradebooks/provision`. Es idempotente y respeta la oferta del ciclo
+  (un curso no ofertado no genera libretas). Suspender una clase también reprovisiona: el titular
+  vigente del grupo pasa a ser el del evento que queda en pie.
+- **Parametrización al abrir un ciclo:** crear un ciclo lectivo hereda los períodos del ciclo
+  origen que se elija, corriendo las tres ventanas (inicio, fin y cierre) al año nuevo y
+  conservando lo que Dirección haya editado: nombre, orden, tipo, exigencias de C y de juicio, el
+  nombre del informe y hasta los períodos desactivados. El desplazamiento de año se deriva de cada
+  fecha, así que un período que vivía en el año civil siguiente (el APE de febrero) sigue ahí. Si
+  el ciclo origen no tiene períodos de un nivel, **ese nivel** se siembra con la plantilla
+  reglamentaria. Iniciar el ciclo vuelve a correr la herencia, que es idempotente, de modo que un
+  ciclo abierto no puede quedar sin calendario de libreta. Para un ciclo ya creado está
+  `POST /admin/academic-config/periods/inherit`, con su botón «Heredar períodos».
 - **Acceso:** el titular y el suplente que cubrió alguna de sus clases. Adscripción, Dirección e
   Inspección leen todas las del centro pero **no** califican: leer y escribir son permisos
   distintos (`gradebook.read` vs `gradebook.grade`).
