@@ -16,6 +16,7 @@ const {
   getOrgRoleIdMock,
   saveSessionMock,
   newSessionIdMock,
+  getSessionMock,
 } = vi.hoisted(() => ({
   prismaMock: {
     user: {
@@ -34,6 +35,7 @@ const {
     $transaction: vi.fn(),
     emailVerification: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
@@ -48,6 +50,7 @@ const {
   getOrgRoleIdMock: vi.fn().mockResolvedValue("mock-org-role-id"),
   saveSessionMock: vi.fn().mockResolvedValue(undefined),
   newSessionIdMock: vi.fn().mockReturnValue("perf-sid-1"),
+  getSessionMock: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
@@ -62,7 +65,11 @@ vi.mock("../auth/sso-registration.js", () => ({
   getSsoRegistration: getSsoRegistrationMock,
   consumeSsoRegistration: consumeSsoRegistrationMock,
 }));
-vi.mock("../auth/session-store.js", () => ({ newSessionId: newSessionIdMock, saveSession: saveSessionMock }));
+vi.mock("../auth/session-store.js", () => ({
+  newSessionId: newSessionIdMock,
+  saveSession: saveSessionMock,
+  getSession: getSessionMock,
+}));
 vi.mock("../identity/org-role-service.js", () => ({
   normalizeOrgRoleCode: (raw: string) => raw.trim().toUpperCase(),
   getOrgRoleIdByCodeOrThrow: getOrgRoleIdMock,
@@ -98,6 +105,9 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     getOrgRoleIdMock.mockResolvedValue("mock-org-role-id");
     saveSessionMock.mockResolvedValue(undefined);
     newSessionIdMock.mockReturnValue("perf-sid-1");
+    getSessionMock.mockResolvedValue(null);
+    prismaMock.emailVerification.findFirst.mockResolvedValue(null);
+    prismaMock.emailVerification.create.mockResolvedValue({});
     prismaMock.$transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {
         return (arg as (tx: { user: typeof prismaMock.user }) => Promise<unknown>)({ user: prismaMock.user });
@@ -681,6 +691,10 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     const data = prismaMock.user.create.mock.calls[0][0].data;
     expect(data.isApproved).toBe(false);
     expect(data).not.toHaveProperty("livenessVerifiedAt");
+    // Primero verificar el correo: el registro manda el enlace y la pantalla ofrece reenviarlo.
+    expect(res.body.emailVerificationRequired).toBe(true);
+    await vi.waitFor(() => expect(sendMailMock).toHaveBeenCalled());
+    expect(prismaMock.emailVerification.findFirst).not.toHaveBeenCalled();
   });
 
   // --- Perfil: cédula y rol ---
@@ -799,6 +813,84 @@ describe("auth routes (cuenta + registro, Keycloak)", () => {
     const res = await request(app()).post("/auth/verify/resend").set(authHeader());
     expect(res.status).toBe(200);
     expect(prismaMock.emailVerification.create).not.toHaveBeenCalled();
+  });
+
+  // --- verify/request: reenvío sin estar aprobado (la cuenta recién registrada) ---
+  const pendingUser = {
+    id: "u-pend",
+    email: "nuevo@example.com",
+    emailVerifiedAt: null,
+    isApproved: false,
+    isActive: true,
+  };
+
+  it("POST /auth/verify/request reenvía por email a una cuenta sin verificar", async () => {
+    prismaMock.user.findFirst.mockResolvedValue(pendingUser);
+    const res = await request(app()).post("/auth/verify/request").send({ email: "Nuevo@Example.com " });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, cooldownSeconds: 60 });
+    expect(prismaMock.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { email: { equals: "Nuevo@Example.com", mode: "insensitive" } } }),
+    );
+    expect(prismaMock.emailVerification.create).toHaveBeenCalled();
+    const mail = sendMailMock.mock.calls[0][0];
+    expect(mail.to).toBe("nuevo@example.com");
+    expect(mail.subject).toBe("Verificá tu correo en EduTrack");
+    expect(mail.html).toMatch(/administración revisa tu cuenta/);
+  });
+
+  it("POST /auth/verify/request usa la sesión de una cuenta todavía sin aprobar", async () => {
+    getSessionMock.mockResolvedValue({ userId: "u-pend" });
+    prismaMock.user.findUnique.mockResolvedValue(pendingUser);
+    const res = await request(app()).post("/auth/verify/request").set("Cookie", "sid=s-1").send({});
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "u-pend" } }));
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("POST /auth/verify/request responde igual si el correo no existe (no revela cuentas)", async () => {
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    const res = await request(app()).post("/auth/verify/request").send({ email: "nadie@example.com" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, cooldownSeconds: 60 });
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/verify/request no reenvía a una cuenta ya verificada ni a una dada de baja", async () => {
+    prismaMock.user.findFirst.mockResolvedValueOnce({ ...pendingUser, emailVerifiedAt: new Date() });
+    await request(app()).post("/auth/verify/request").send({ email: "nuevo@example.com" });
+    prismaMock.user.findFirst.mockResolvedValueOnce({ ...pendingUser, isActive: false });
+    await request(app()).post("/auth/verify/request").send({ email: "nuevo@example.com" });
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/verify/request respeta la espera entre envíos", async () => {
+    prismaMock.user.findFirst.mockResolvedValue(pendingUser);
+    prismaMock.emailVerification.findFirst.mockResolvedValue({ createdAt: new Date(Date.now() - 10_000) });
+    const res = await request(app()).post("/auth/verify/request").send({ email: "nuevo@example.com" });
+    expect(res.status).toBe(200);
+    expect(prismaMock.emailVerification.create).not.toHaveBeenCalled();
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/verify/request con email inválido responde ok sin buscar", async () => {
+    const res = await request(app()).post("/auth/verify/request").send({ email: "no-es-mail" });
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("POST /auth/verify avisa que falta la aprobación", async () => {
+    prismaMock.emailVerification.findUnique.mockResolvedValue({
+      token: "12345678901234567890123456789012",
+      userId: "u1",
+      usedAt: null,
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    prismaMock.user.update.mockResolvedValue({ isApproved: false });
+    const res = await request(app()).post("/auth/verify").send({ token: "12345678901234567890123456789012" });
+    expect(res.body).toEqual({ ok: true, pendingApproval: true });
   });
 
   it("GET /auth/register/sso devuelve 404 si el token no existe", async () => {

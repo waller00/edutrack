@@ -580,6 +580,50 @@ describe("admin routes (prisma mock)", () => {
     );
   });
 
+  it("PUT /admin/users/:id no aprueba una cuenta con el correo sin verificar", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      orgRole: { code: "TEACHER" },
+      isApproved: false,
+      emailVerifiedAt: null,
+    });
+    const res = await request(app()).put("/admin/users/u1").set(adminHdr()).send({ isApproved: true });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/no verificó su correo/i);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
+  it("PUT /admin/users/:id aprueba si en la misma edición marca el correo como verificado", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      orgRole: { code: "TEACHER" },
+      email: "t@e.com",
+      isApproved: false,
+      emailVerifiedAt: null,
+    });
+    prismaMock.user.update.mockResolvedValue({});
+    const res = await request(app())
+      .put("/admin/users/u1")
+      .set(adminHdr())
+      .send({ isApproved: true, emailVerified: true });
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isApproved: true, emailVerifiedAt: expect.any(Date) }) }),
+    );
+  });
+
+  it("PUT /admin/users/:id aprueba una cuenta con el correo verificado", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      orgRole: { code: "TEACHER" },
+      isApproved: false,
+      emailVerifiedAt: new Date("2026-10-01T00:00:00.000Z"),
+    });
+    prismaMock.user.update.mockResolvedValue({});
+    const res = await request(app()).put("/admin/users/u1").set(adminHdr()).send({ isApproved: true });
+    expect(res.status).toBe(200);
+  });
+
   it("PUT /admin/users/:id actualiza aprobación e inactividad", async () => {
     prismaMock.user.update.mockResolvedValue({});
     const res = await request(app())
@@ -1206,7 +1250,7 @@ describe("admin routes (prisma mock)", () => {
 
     it("aprueba a un usuario pendiente y dispara alta en Moodle", async () => {
       prismaMock.user.findUnique.mockResolvedValue(
-        fullUser({ isApproved: false, approvedAt: null }),
+        fullUser({ isApproved: false, approvedAt: null, emailVerifiedAt: new Date("2026-10-01T00:00:00.000Z") }),
       );
       prismaMock.user.update.mockResolvedValue({ id: "u1" });
       const res = await request(app())

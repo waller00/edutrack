@@ -20,6 +20,8 @@ import {
 import FormField, { fieldInputClass } from '@/components/forms/FormField'
 import { Clock } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
+import { RegistrationNextSteps } from '@/components/auth/RegistrationNextSteps'
+import { ResendVerificationEmail } from '@/components/auth/ResendVerificationEmail'
 
 /**
  * Alta en **un solo paso**: se completan los datos y se crea la cuenta.
@@ -54,7 +56,8 @@ export default function RegisterPage() {
   const [role, setRole] = useState<RegisterRole>('')
   const [error, setError] = useState('')
   const [ok, setOk] = useState(false)
-  const [registeredWithSso, setRegisteredWithSso] = useState(false)
+  const [needsEmailVerification, setNeedsEmailVerification] = useState(true)
+  const [registeredEmail, setRegisteredEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [sessionGate, setSessionGate] = useState(true)
   const [ssoRegistrationToken, setSsoRegistrationToken] = useState<string | null>(null)
@@ -211,8 +214,13 @@ export default function RegisterPage() {
       // sea vacía, hacía que la API pidiera una contraseña que el usuario no tiene dónde escribir.
       if (ssoRegistrationToken) payload.ssoRegistrationToken = ssoRegistrationToken
       else payload.password = password
-      await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
-      setRegisteredWithSso(Boolean(ssoRegistrationToken))
+      const res = await api<{ email?: string; emailVerificationRequired?: boolean }>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      // Con Google el correo ya viene verificado; si la API no lo dice, se asume que hace falta.
+      setNeedsEmailVerification(res?.emailVerificationRequired ?? !ssoRegistrationToken)
+      setRegisteredEmail(res?.email || email)
       setOk(true)
     } catch (e: unknown) {
       const err = e as { status?: number; message?: string; data?: { message?: string } }
@@ -247,12 +255,21 @@ export default function RegisterPage() {
               <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <img src="/logo.svg" alt="EduTrack" className="w-10 h-10" />
               </div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Registro Exitoso</h1>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                {needsEmailVerification ? 'Revisá tu correo' : 'Registro enviado'}
+              </h1>
               <p className="text-gray-600">
-                {registeredWithSso
-                  ? 'Tu registro con Google quedó enviado. Espera la aprobación de un administrador para habilitar el acceso completo.'
-                  : 'Revisa tu correo y espera la aprobación de un administrador para habilitar el acceso completo.'}
+                {needsEmailVerification
+                  ? 'Tu cuenta quedó creada. Antes de que administración pueda aprobarla, tenés que verificar tu correo.'
+                  : 'Tu cuenta quedó creada y tu correo ya está verificado con Google. Falta que administración la apruebe.'}
               </p>
+            </div>
+            <div className="mb-6 space-y-4">
+              <RegistrationNextSteps
+                stage={needsEmailVerification ? 'verify' : 'approval'}
+                email={registeredEmail}
+              />
+              {needsEmailVerification && <ResendVerificationEmail email={registeredEmail} justSent />}
             </div>
             <a
               href="/"

@@ -4,6 +4,21 @@ import { useRouter } from 'next/navigation'
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { loginUrl, logoutUrl } from '@/lib/auth/urls'
+import { RegistrationNextSteps } from '@/components/auth/RegistrationNextSteps'
+import { ResendVerificationEmail } from '@/components/auth/ResendVerificationEmail'
+
+/** Motivo del 403 de `/auth/me` (ver `blockedAccountBody` en el backend). */
+type BlockedAccount = { code?: 'EMAIL_NOT_VERIFIED' | 'PENDING_APPROVAL' | 'ACCOUNT_INACTIVE'; email?: string }
+
+function blockedAccountFrom(err: unknown): BlockedAccount {
+  const data = typeof err === 'object' && err !== null ? (err as { data?: unknown }).data : undefined
+  if (!data || typeof data !== 'object') return {}
+  const { code, email } = data as Record<string, unknown>
+  return {
+    code: code === 'EMAIL_NOT_VERIFIED' || code === 'PENDING_APPROVAL' || code === 'ACCOUNT_INACTIVE' ? code : undefined,
+    email: typeof email === 'string' ? email : undefined,
+  }
+}
 
 function safeReturnTo(value: string | null): string {
   return value && value.startsWith('/') && !value.startsWith('//') ? value : '/'
@@ -19,6 +34,7 @@ function loginHeading(state: {
   loggedOut: boolean
   externalError: string
   autoLoginBlocked: boolean
+  blocked: BlockedAccount
 }): LoginHeading {
   if (state.registrationCancelled) {
     return {
@@ -30,6 +46,18 @@ function loginHeading(state: {
     return { title: 'Sesión cerrada', description: 'Podés volver a ingresar cuando lo necesites.' }
   }
   if (state.externalError === 'account') {
+    if (state.blocked.code === 'EMAIL_NOT_VERIFIED') {
+      return {
+        title: 'Verificá tu correo',
+        description: 'Tu cuenta todavía no está habilitada: primero tenés que confirmar tu correo con el enlace que te mandamos.',
+      }
+    }
+    if (state.blocked.code === 'PENDING_APPROVAL') {
+      return {
+        title: 'Tu cuenta espera aprobación',
+        description: 'Ya verificaste tu correo. Ahora administración tiene que aprobar tu cuenta; cuando lo haga, vas a poder ingresar.',
+      }
+    }
     return {
       title: 'Cuenta no habilitada',
       description: 'Tu cuenta está pendiente de aprobación o fue inhabilitada. Contactá a un administrador.',
@@ -41,6 +69,14 @@ function loginHeading(state: {
       ? 'No pudimos confirmar la sesión en este navegador.'
       : 'El ingreso venció o fue interrumpido antes de completarse.',
   }
+}
+
+/** En qué paso del alta está una cuenta nueva que todavía no puede entrar. */
+function pendingStageFor(externalError: string, blocked: BlockedAccount): 'verify' | 'approval' | null {
+  if (externalError !== 'account') return null
+  if (blocked.code === 'EMAIL_NOT_VERIFIED') return 'verify'
+  if (blocked.code === 'PENDING_APPROVAL') return 'approval'
+  return null
 }
 
 function wasAutoLoginStarted(): boolean {
@@ -74,6 +110,7 @@ export default function LoginPage() {
   const [autoLoginBlocked, setAutoLoginBlocked] = useState(false)
   const [sessionPending, setSessionPending] = useState(true)
   const [registrationCancelled, setRegistrationCancelled] = useState(false)
+  const [blocked, setBlocked] = useState<BlockedAccount>({})
 
   useEffect(() => {
     const params = new URLSearchParams(globalThis.location.search)
@@ -102,6 +139,7 @@ export default function LoginPage() {
           : undefined
         if (status === 403) {
           setExternalError('account')
+          setBlocked(blockedAccountFrom(err))
           setSessionPending(false)
           return
         }
@@ -123,7 +161,8 @@ export default function LoginPage() {
     }
   }, [router])
 
-  const heading = loginHeading({ registrationCancelled, loggedOut, externalError, autoLoginBlocked })
+  const heading = loginHeading({ registrationCancelled, loggedOut, externalError, autoLoginBlocked, blocked })
+  const pendingStage = pendingStageFor(externalError, blocked)
 
   if (sessionPending) {
     return (
@@ -157,6 +196,12 @@ export default function LoginPage() {
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
               <p className="text-sm text-red-700">Volvé a intentar. Si el problema continúa, contactá al soporte de EduTrack.</p>
+            </div>
+          )}
+          {pendingStage && (
+            <div className="mb-6 space-y-4">
+              <RegistrationNextSteps stage={pendingStage} email={blocked.email} />
+              {pendingStage === 'verify' && <ResendVerificationEmail useSession />}
             </div>
           )}
           {autoLoginBlocked && !externalError && !loggedOut && (

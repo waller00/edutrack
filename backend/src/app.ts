@@ -149,6 +149,9 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
 
 app.use("/auth/login", rateLimit({ bucket: "login", max: 10, windowSeconds: 60 }));
+// Público (sin sesión): cada pedido puede mandar un correo, así que se acota por IP además de la
+// espera por usuario que aplica la ruta.
+app.use("/auth/verify/request", rateLimit({ bucket: "verify-request", max: 5, windowSeconds: 600 }));
 app.use("/auth", keycloakAuthRoutes);
 app.use("/auth", authRoutes);
 app.use("/admin", adminRoutes);

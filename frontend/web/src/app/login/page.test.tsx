@@ -2,14 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import LoginPage from './page'
 
-const replaceMock = vi.fn()
+const { replaceMock, routerMock } = vi.hoisted(() => {
+  const replace = vi.fn()
+  return { replaceMock: replace, routerMock: { replace } }
+})
 
 vi.mock('@/lib/api/client', () => ({
   api: vi.fn(),
 }))
 
+// Estable como el de Next: el efecto de la página depende de `router`, y un objeto nuevo por
+// render lo re-ejecuta y pisa el estado que dejó la primera respuesta de `/auth/me`.
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: replaceMock }),
+  useRouter: () => routerMock,
 }))
 
 import { api } from '@/lib/api/client'
@@ -101,5 +106,37 @@ describe('LoginPage (Keycloak)', () => {
 
     expect(await screen.findByRole('heading', { name: /Cuenta no habilitada/i })).toBeInTheDocument()
     expect(locationMock.href).toBe('')
+  })
+
+  function blockedError(code: string, email = 'nuevo@example.com') {
+    const err = new Error('Correo sin verificar') as Error & { status?: number; data?: unknown }
+    err.status = 403
+    err.data = { message: 'Correo sin verificar', code, email }
+    return err
+  }
+
+  it('si falta verificar el correo lo dice y ofrece reenviarlo con la sesión', async () => {
+    vi.mocked(api).mockRejectedValueOnce(blockedError('EMAIL_NOT_VERIFIED'))
+    Object.defineProperty(window, 'location', { configurable: true, value: { href: '', search: '' } })
+
+    render(<LoginPage />)
+
+    expect(await screen.findByRole('heading', { name: 'Verificá tu correo' })).toBeInTheDocument()
+    expect(screen.getByText(/te mandamos un enlace a nuevo@example\.com/i)).toBeInTheDocument()
+    vi.mocked(api).mockResolvedValueOnce({ ok: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Reenviar correo' }))
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith('/auth/verify/request', { method: 'POST', body: JSON.stringify({}) }),
+    )
+  })
+
+  it('con el correo verificado dice que falta la aprobación, sin ofrecer reenvío', async () => {
+    vi.mocked(api).mockRejectedValueOnce(blockedError('PENDING_APPROVAL'))
+    Object.defineProperty(window, 'location', { configurable: true, value: { href: '', search: '' } })
+
+    render(<LoginPage />)
+
+    expect(await screen.findByRole('heading', { name: 'Tu cuenta espera aprobación' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Reenviar/ })).not.toBeInTheDocument()
   })
 })

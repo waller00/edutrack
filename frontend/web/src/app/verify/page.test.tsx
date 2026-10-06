@@ -34,6 +34,16 @@ describe('VerifyPage', () => {
     })
   })
 
+  it('explica que después de verificar falta la aprobación', async () => {
+    window.history.pushState({}, '', '/verify?token=abc123')
+    vi.mocked(api).mockResolvedValueOnce({ ok: true, pendingApproval: true })
+
+    render(<VerifyPage />)
+
+    expect(await screen.findByText(/administración tiene que aprobar tu cuenta/i)).toBeInTheDocument()
+    expect(screen.getByText(/Aprobación de administración/)).toBeInTheDocument()
+  })
+
   it('shows an error when verification fails', async () => {
     window.history.pushState({}, '', '/verify?token=abc123')
     vi.mocked(api).mockRejectedValueOnce(new Error('expired'))
@@ -43,5 +53,14 @@ describe('VerifyPage', () => {
     await waitFor(() =>
       expect(screen.getByText('Enlace inválido o expirado')).toBeInTheDocument()
     )
+  })
+
+  it('con el enlace vencido permite pedir uno nuevo escribiendo el correo', async () => {
+    window.history.pushState({}, '', '/verify')
+
+    render(<VerifyPage />)
+
+    expect(await screen.findByLabelText('Correo con el que te registraste')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reenviar correo' })).toBeEnabled()
   })
 })
