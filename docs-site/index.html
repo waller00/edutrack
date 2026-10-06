@@ -322,7 +322,7 @@
           <tr><td><code>events/</code></td><td>Lógica <strong>pura</strong> de consulta de eventos: expansión de recurrencia, estado derivado de ocurrencias, filtros.</td><td><code>events-query.ts</code></td></tr>
           <tr><td><code>identity/</code></td><td>Roles organizacionales, matriz de permisos por rol y validación de la cédula uruguaya.</td><td><code>org-role-service.ts</code>, <code>profile-permissions-*.ts</code>, <code>uruguay-ci.ts</code></td></tr>
           <tr><td><code>middlewares/</code></td><td>Cadena de autorización (<code>authGuard</code> → <code>requireRole</code> → <code>requirePermission</code>) y rate-limit sobre Redis.</td><td><code>auth.ts</code>, <code>rate-limit.ts</code></td></tr>
-          <tr><td><code>notifications/</code></td><td>Correo saliente (SMTP/SendGrid) y el email de bienvenida del estudiante a Moodle.</td><td><code>email.ts</code>, <code>student-welcome.ts</code></td></tr>
+          <tr><td><code>notifications/</code></td><td>Correo saliente (API de Brevo o SMTP) y el email de bienvenida del estudiante a Moodle.</td><td><code>email.ts</code>, <code>student-welcome.ts</code></td></tr>
           <tr><td><code>config/</code></td><td>Zona horaria institucional (conversión hora civil↔UTC) y la fila única <code>SystemSettings</code> con vistas tipadas.</td><td><code>app-timezone.ts</code>, <code>system-settings.ts</code></td></tr>
           <tr><td><code>observability/</code></td><td>Métricas Prometheus (middleware HTTP) y readiness real de DB/Redis para <code>/ready</code>.</td><td><code>metrics.ts</code>, <code>readiness.ts</code></td></tr>
           <tr><td><code>db/</code></td><td>Singletons de Prisma y Redis (una sola conexión por proceso).</td><td><code>prisma.ts</code></td></tr>

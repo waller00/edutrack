@@ -116,13 +116,14 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
       # Correo (recuperación de contraseña, verificación): definir en .env del servidor
+      # Con BREVO_API_KEY se envía por la API HTTPS de Brevo (443; el SMTP 587 suele estar bloqueado
+      # en Droplets). SMTP_FROM es el remitente y debe estar verificado en Brevo. Sin la clave, SMTP_*.
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-2525}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
-      # SendGrid: en muchos Droplets el SMTP 587 está bloqueado; con host smtp.sendgrid.net + user apikey el backend usa la API HTTPS (443).
-      SENDGRID_HTTP_API: ${SENDGRID_HTTP_API:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
