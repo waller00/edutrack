@@ -75,6 +75,35 @@ describe("authGuard (sesión BFF + estado de cuenta)", () => {
     expect(res.status).toBe(403);
   });
 
+  it("403 dice que falta verificar el correo (paso previo a la aprobación)", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      isActive: true,
+      isApproved: false,
+      emailVerifiedAt: null,
+      lockUntil: null,
+    });
+    const res = await request(app()).get("/protegido").set("Cookie", "sid=sid-1");
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ message: "Correo sin verificar", code: "EMAIL_NOT_VERIFIED", email: "u@e.com" });
+  });
+
+  it("403 con el correo verificado dice que falta la aprobación", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      isActive: true,
+      isApproved: false,
+      emailVerifiedAt: new Date(),
+      lockUntil: null,
+    });
+    const res = await request(app()).get("/protegido").set("Cookie", "sid=sid-1");
+    expect(res.body.code).toBe("PENDING_APPROVAL");
+  });
+
+  it("403 de cuenta dada de baja no expone el correo", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ isActive: false, isApproved: false, emailVerifiedAt: null });
+    const res = await request(app()).get("/protegido").set("Cookie", "sid=sid-1");
+    expect(res.body).toEqual({ message: "Cuenta inhabilitada", code: "ACCOUNT_INACTIVE" });
+  });
+
   it("403 si la cuenta está bloqueada (lockUntil futuro)", async () => {
     prismaMock.user.findUnique.mockResolvedValue({
       isActive: true,

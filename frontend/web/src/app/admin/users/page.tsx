@@ -51,7 +51,9 @@ const ICON_ACTION_BTN =
 
 /** Filtros rápidos: cada chip aplica un parche sobre los filtros y recarga. */
 const QUICK_FILTERS: { key: string; label: string; patch: Partial<AdminUsersListFilters> }[] = [
-  { key: 'approved', label: 'Pendientes de aprobación', patch: { approved: 'false' } },
+  // Una cuenta nueva llega a aprobación recién con el correo verificado; las que todavía no lo
+  // verificaron están en "Sin verificar".
+  { key: 'approved', label: 'Pendientes de aprobación', patch: { approved: 'false', verified: 'true' } },
   { key: 'verified', label: 'Sin verificar', patch: { verified: 'false' } },
   { key: 'locked', label: 'Bloqueados', patch: { locked: 'true' } },
   { key: 'active', label: 'De baja', patch: { active: 'false' } },
@@ -323,14 +325,20 @@ export default function AdminUsersPage() {
       ? `${ICON_ACTION_BTN} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-400`
       : `${ICON_ACTION_BTN} border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100 focus:ring-amber-300`
     const locked = isAccountLocked(u.lockUntil)
+    // Se aprueba recién con el correo verificado (el backend también lo exige).
+    const awaitingVerification = !u.isApproved && !u.emailVerifiedAt
+    let approvalTitle = 'Aprobar'
+    if (u.isApproved) approvalTitle = 'Volver a pendiente'
+    else if (awaitingVerification) approvalTitle = 'Esperando que verifique su correo'
 
     return (
       <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 xl:flex-nowrap xl:justify-end">
         <button
           type="button"
           onClick={() => toggleApproval(u)}
-          className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-          title={u.isApproved ? 'Volver a pendiente' : 'Aprobar'}
+          disabled={awaitingVerification}
+          className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
+          title={approvalTitle}
         >
           {u.isApproved ? 'Pendiente' : 'Aprobar'}
         </button>

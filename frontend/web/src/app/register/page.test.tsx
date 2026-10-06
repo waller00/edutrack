@@ -248,7 +248,10 @@ describe('RegisterPage', () => {
     const body = JSON.parse(String((call?.[1] as RequestInit).body))
     expect(body).toMatchObject({ email: 'juan@example.com', firstName: 'Juan', role: 'TEACHER' })
     expect(body).not.toHaveProperty('livenessToken')
-    expect(await screen.findByText('Registro Exitoso')).toBeInTheDocument()
+    // Primero hay que verificar el correo; recién después viene la aprobación.
+    expect(await screen.findByRole('heading', { name: 'Revisá tu correo' })).toBeInTheDocument()
+    expect(screen.getByText(/te mandamos un enlace a juan@example\.com/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Reenviar en \d+ s/ })).toBeDisabled()
     expect(mockedApi.mock.calls.some(([path]) => /didit|liveness|registration-options/.test(String(path)))).toBe(false)
   })
 })

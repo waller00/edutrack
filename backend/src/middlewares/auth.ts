@@ -2,6 +2,17 @@ import { Request, Response, NextFunction } from "express";
 import { prisma } from "../db/prisma.js";
 import { getSession } from "../auth/session-store.js";
 
+/**
+ * Por qué una cuenta no puede entrar. Una cuenta nueva pasa por dos pasos en orden —verificar el
+ * correo y después la aprobación de administración— y la pantalla de ingreso tiene que decir en
+ * cuál está (y ofrecer el reenvío del correo), no un "inhabilitada" genérico.
+ */
+function blockedAccountBody(account: { isActive: boolean; emailVerifiedAt: Date | null }, email: string) {
+  if (!account.isActive) return { message: "Cuenta inhabilitada", code: "ACCOUNT_INACTIVE" };
+  if (!account.emailVerifiedAt) return { message: "Correo sin verificar", code: "EMAIL_NOT_VERIFIED", email };
+  return { message: "Cuenta pendiente de aprobación", code: "PENDING_APPROVAL", email };
+}
+
 export async function authGuard(req: Request, res: Response, next: NextFunction) {
   const sid = (req as any).cookies?.sid as string | undefined;
   if (sid) {
@@ -13,11 +24,11 @@ export async function authGuard(req: Request, res: Response, next: NextFunction)
       // dejado pendiente o bloqueado por un admin después de iniciar sesión.
       const account = await prisma.user.findUnique({
         where: { id: session.userId },
-        select: { isActive: true, isApproved: true, lockUntil: true },
+        select: { isActive: true, isApproved: true, emailVerifiedAt: true, lockUntil: true },
       });
       if (!account) return res.status(401).json({ message: "No autorizado" });
       if (!account.isActive || !account.isApproved) {
-        return res.status(403).json({ message: "Cuenta inhabilitada" });
+        return res.status(403).json(blockedAccountBody(account, session.email));
       }
       if (account.lockUntil && account.lockUntil.getTime() > Date.now()) {
         return res.status(403).json({ message: "Cuenta bloqueada" });

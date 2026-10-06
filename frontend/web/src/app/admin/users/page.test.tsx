@@ -183,7 +183,7 @@ describe('AdminUsersPage', () => {
     )
   })
 
-  it('chip "Pendientes de aprobación" aplica el filtro approved=false', async () => {
+  it('chip "Pendientes de aprobación" muestra sólo las cuentas con el correo verificado', async () => {
     mockedApi
       .mockResolvedValueOnce(orgRoles)
       .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [row] })
@@ -197,7 +197,27 @@ describe('AdminUsersPage', () => {
     await waitFor(() => {
       const last = mockedApi.mock.calls.at(-1)?.[0] as string
       expect(last).toContain('approved=false')
+      expect(last).toContain('verified=true')
     })
+  })
+
+  it('no deja aprobar una cuenta que todavía no verificó el correo', async () => {
+    mockedApi
+      .mockResolvedValueOnce(orgRoles)
+      .mockResolvedValueOnce({
+        total: 1,
+        page: 1,
+        pageSize: 20,
+        data: [{ ...row, isApproved: false, emailVerifiedAt: null }],
+      })
+
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+
+    const approve = within(screen.getByRole('table')).getByTitle('Esperando que verifique su correo')
+    expect(approve).toBeDisabled()
+    fireEvent.click(approve)
+    expect(mockedApi).not.toHaveBeenCalledWith(`/admin/users/${row.id}`, expect.anything())
   })
 
   it('muestra el banner de feedback al restablecer contraseña', async () => {

@@ -755,6 +755,17 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
   })
   if (!beforeSnapshot) return res.status(404).json({ message: 'Usuario no encontrado' })
 
+  // Una cuenta nueva se aprueba recién con el correo verificado. Administración puede destrabarla
+  // marcando el correo como verificado en la misma edición; sólo mira la transición, para no
+  // impedir editar cuentas que ya estaban aprobadas sin verificar.
+  const verifiedAfter = 'emailVerifiedAt' in data ? data.emailVerifiedAt : beforeSnapshot.emailVerifiedAt
+  if (data.isApproved === true && !beforeSnapshot.isApproved && !verifiedAfter) {
+    return res.status(409).json({
+      message:
+        'Todavía no verificó su correo. Esperá a que abra el enlace que le mandamos, o marcá el correo como verificado si lo confirmaste por otro medio.',
+    })
+  }
+
   const fieldsChangedSemantic = computeAuditUserFieldsChanged(beforeSnapshot, data)
   if (Object.keys(data).length > 0 && fieldsChangedSemantic.length === 0) {
     return res.json({ ok: true })

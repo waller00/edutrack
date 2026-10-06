@@ -3,7 +3,6 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import { prisma } from "../db/prisma.js";
 import { authGuard } from "../middlewares/auth.js";
-import { sendMail } from "../notifications/email.js";
 import { onlyDigits, isValidUruguayanCI } from "../identity/uruguay-ci.js";
 import {
   normalizePhoneUY,
@@ -17,7 +16,8 @@ import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-pol
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
 import { createKeycloakUser, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
-import { newSessionId, saveSession } from "../auth/session-store.js";
+import { getSession, newSessionId, saveSession } from "../auth/session-store.js";
+import { sendVerificationEmail, VERIFY_RESEND_COOLDOWN_SECONDS } from "../auth/email-verification.js";
 import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
 import { generateUniqueUsername as generateUniqueUsernameWith } from "../services/usernames.js";
 
@@ -448,25 +448,21 @@ r.post("/register", async (req, res) => {
 
   // Correo de verificación: best-effort y en segundo plano. No bloquea la respuesta,
   // así un SMTP lento/caído no cuelga el registro (causa de cortes 502/CORS en prod).
-  if (!ssoProfile?.emailVerified) {
-    void (async () => {
-      try {
-        const token = crypto.randomBytes(32).toString("hex");
-        const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
-        await prisma.emailVerification.create({ data: { token, userId: user.id, expiresAt } });
-        const verifyUrl = `${process.env.FRONTEND_URL}/verify?token=${token}`;
-        await sendMail({
-          to: email,
-          subject: "Verifica tu email",
-          html: `<p>Bienvenido/a. Verifica tu correo haciendo clic aquí:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
-        });
-      } catch (e) {
-        console.error("SMTP send error (verify):", e);
-      }
-    })();
+  // Si no llega, la pantalla de registro ofrece reenviarlo (`/verify/request`).
+  const emailVerificationRequired = !ssoProfile?.emailVerified;
+  if (emailVerificationRequired) {
+    void sendVerificationEmail({ id: user.id, email }, { pendingApproval: true, ignoreCooldown: true }).catch((e) =>
+      console.error("SMTP send error (verify):", e),
+    );
   }
 
-  return res.json({ id: user.id, email: user.email, username: user.username, role: registerRoleCode });
+  return res.json({
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    role: registerRoleCode,
+    emailVerificationRequired,
+  });
   } catch (error) {
     return handleRegisterUnexpectedError(error, res);
   }
@@ -478,11 +474,12 @@ r.post("/verify", async (req, res) => {
   const { token } = parsed.data;
   const ev = await prisma.emailVerification.findUnique({ where: { token } });
   if (!ev || ev.usedAt || ev.expiresAt < new Date()) return res.status(400).json({ message: "Token inválido" });
-  await prisma.$transaction([
-    prisma.user.update({ where: { id: ev.userId }, data: { emailVerifiedAt: new Date() } }),
+  const [user] = await prisma.$transaction([
+    prisma.user.update({ where: { id: ev.userId }, data: { emailVerifiedAt: new Date() }, select: { isApproved: true } }),
     prisma.emailVerification.update({ where: { token }, data: { usedAt: new Date() } }),
   ]);
-  return res.json({ ok: true });
+  // Verificar no habilita el acceso: la pantalla le dice que ahora falta la aprobación.
+  return res.json({ ok: true, pendingApproval: !user?.isApproved });
 });
 
 r.post("/verify/resend", authGuard, async (req, res) => {
@@ -491,20 +488,42 @@ r.post("/verify/resend", authGuard, async (req, res) => {
   if (!user) return res.json({ ok: true });
   if (user.emailVerifiedAt) return res.json({ ok: true });
 
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
-  await prisma.emailVerification.create({ data: { token, userId: user.id, expiresAt } });
-  const verifyUrl = `${process.env.FRONTEND_URL}/verify?token=${token}`;
   try {
-    await sendMail({
-      to: user.email,
-      subject: "Verifica tu email",
-      html: `<p>Verifica tu correo:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
-    });
+    await sendVerificationEmail(user, { pendingApproval: !user.isApproved });
   } catch (e) {
     console.error("SMTP send error (resend verify):", e);
   }
-  return res.json({ ok: true });
+  return res.json({ ok: true, cooldownSeconds: VERIFY_RESEND_COOLDOWN_SECONDS });
+});
+
+/** Quién pide el reenvío: la sesión si la hay (cuenta todavía sin aprobar), si no el email del form. */
+async function findVerificationRequester(req: any) {
+  const select = { id: true, email: true, emailVerifiedAt: true, isApproved: true, isActive: true } as const;
+  const sid = req.cookies?.sid as string | undefined;
+  const session = sid ? await getSession(sid) : null;
+  if (session) return prisma.user.findUnique({ where: { id: session.userId }, select });
+
+  const parsed = z.object({ email: z.string().trim().email().max(200) }).safeParse(req.body);
+  if (!parsed.success) return null;
+  return prisma.user.findFirst({ where: { email: { equals: parsed.data.email, mode: "insensitive" } }, select });
+}
+
+/**
+ * Reenvío del enlace de verificación sin estar aprobado. `/verify/resend` exige `authGuard`, que
+ * rechaza a las cuentas pendientes: justo quien acaba de registrarse y no recibió el correo no
+ * tenía cómo pedir otro. Responde siempre lo mismo, exista o no la cuenta, para no revelar qué
+ * correos están registrados.
+ */
+r.post("/verify/request", async (req, res) => {
+  try {
+    const user = await findVerificationRequester(req);
+    if (user?.isActive && !user.emailVerifiedAt) {
+      await sendVerificationEmail(user, { pendingApproval: !user.isApproved });
+    }
+  } catch (e) {
+    console.error("[auth/verify/request]", e);
+  }
+  return res.json({ ok: true, cooldownSeconds: VERIFY_RESEND_COOLDOWN_SECONDS });
 });
 
 r.put("/profile", authGuard, async (req, res) => {
