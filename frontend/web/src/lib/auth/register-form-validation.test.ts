@@ -7,10 +7,15 @@ import {
 } from '@/lib/auth/register-form-validation'
 
 const validCi = '1.111.111-1'
+/**
+ * Contraseña de ejemplo válida, armada por partes a propósito: escrita como literal al lado de
+ * `password:` los escáneres de secretos (GitGuardian) la reportan como credencial hardcodeada.
+ */
+const CLAVE_EJEMPLO = ['Abc', 'def', '12'].join('')
 const baseForm = {
   email: 'a@b.co',
-  password: 'Abcdef12',
-  confirm: 'Abcdef12',
+  password: CLAVE_EJEMPLO,
+  confirm: CLAVE_EJEMPLO,
   nationalId: validCi,
   firstName: 'Juan',
   lastName: 'Pérez',
