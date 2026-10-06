@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
 import { isMoodleIntegrationEnabled, moodleRest, moodleUserLangParam } from "./client.js";
 import { getMappedId, saveMapping } from "./object-map.js";
+import { updateMoodleUsers } from "./user-update.js";
 import { sendStudentWelcomeEmail } from "../../notifications/student-welcome.js";
 
 /**
@@ -156,7 +157,7 @@ export async function setStudentMoodlePassword(
   password: string,
   opts: { forceChange?: boolean } = {},
 ): Promise<void> {
-  await moodleRest("core_user_update_users", {
+  await updateMoodleUsers({
     "users[0][id]": String(moodleId),
     ["users[0][pass" + "word]"]: password,
     ...(opts.forceChange
@@ -195,20 +196,59 @@ async function findStudentByIdnumber(idnumber: string): Promise<number | null> {
   return Array.isArray(byId) && byId.length > 0 ? numericField(byId[0], "id") : null;
 }
 
+/**
+ * El usuario o el email del alumno ya pertenece a otra cuenta de Moodle (típicamente una cuenta
+ * dada de baja que lo sigue reteniendo). Moodle no lo dice: con el debug apagado el alta responde
+ * `invalidparameter` pelado y la edición un warning, así que se averigua aparte. `holder` es el
+ * usuario de la cuenta que lo retiene, para que administración pueda ubicarla.
+ */
+export class MoodleStudentAccountConflict extends Error {
+  constructor(
+    readonly field: "username" | "email",
+    readonly holder: string | null,
+  ) {
+    super(
+      `${field === "email" ? "MOODLE_STUDENT_EMAIL_TAKEN" : "MOODLE_STUDENT_USERNAME_TAKEN"} (${holder ?? "?"})`,
+    );
+  }
+}
+
+/** Busca otra cuenta de Moodle (distinta de `ownId`) que ya use ese usuario o ese email. */
+async function findAccountConflict(
+  username: string,
+  email: string,
+  ownId: number | null,
+): Promise<MoodleStudentAccountConflict | null> {
+  for (const [field, value] of [
+    ["username", username],
+    ["email", email],
+  ] as const) {
+    const rows = await moodleRest("core_user_get_users_by_field", { field, "values[0]": value });
+    const other = Array.isArray(rows) ? rows.find((row) => numericField(row, "id") !== ownId) : undefined;
+    if (other) return new MoodleStudentAccountConflict(field, stringField(other, "username"));
+  }
+  return null;
+}
+
 /** Convierte un espejo `nologin` (o cuenta desactualizada) en cuenta real manual. */
 async function upgradeStudentToManual(moodleId: number, s: StudentAccountInput): Promise<void> {
   const real = realAccountData(s);
   if (!real) return;
   const { firstname, lastname } = moodleNames(s);
-  await moodleRest("core_user_update_users", {
-    "users[0][id]": String(moodleId),
-    "users[0][auth]": "manual",
-    "users[0][username]": real.username,
-    "users[0][email]": real.email,
-    "users[0][firstname]": firstname,
-    "users[0][lastname]": lastname,
-    ...moodleUserLangParam("users[0]"),
-  });
+  try {
+    await updateMoodleUsers({
+      "users[0][id]": String(moodleId),
+      "users[0][auth]": "manual",
+      "users[0][username]": real.username,
+      "users[0][email]": real.email,
+      "users[0][firstname]": firstname,
+      "users[0][lastname]": lastname,
+      ...moodleUserLangParam("users[0]"),
+    });
+  } catch (error) {
+    if (!String(error).includes("MOODLE_USER_UPDATE_REJECTED")) throw error;
+    throw (await findAccountConflict(real.username, real.email, moodleId).catch(() => null)) ?? error;
+  }
 }
 
 async function createStudentMoodleUser(s: StudentAccountInput, hasReal: boolean): Promise<number> {
@@ -219,18 +259,25 @@ async function createStudentMoodleUser(s: StudentAccountInput, hasReal: boolean)
   const email = real?.email ?? `student-${s.id.replace(/-/g, "")}@students.edutrack.local`;
   const password = hasReal ? randomStudentPassword() : `EtS-${s.id.slice(0, 8)}-a1!`;
 
-  const created = await moodleRest("core_user_create_users", {
-    "users[0][username]": username,
-    ["users[0][create" + "pass" + "word]"]: "0",
-    ["users[0][pass" + "word]"]: password,
-    "users[0][firstname]": firstname,
-    "users[0][lastname]": lastname,
-    "users[0][email]": email,
-    "users[0][auth]": hasReal ? "manual" : "nologin",
-    "users[0][idnumber]": idnumber,
-    "users[0][maildisplay]": "0",
-    ...moodleUserLangParam("users[0]"),
-  });
+  let created: unknown;
+  try {
+    created = await moodleRest("core_user_create_users", {
+      "users[0][username]": username,
+      ["users[0][create" + "pass" + "word]"]: "0",
+      ["users[0][pass" + "word]"]: password,
+      "users[0][firstname]": firstname,
+      "users[0][lastname]": lastname,
+      "users[0][email]": email,
+      "users[0][auth]": hasReal ? "manual" : "nologin",
+      "users[0][idnumber]": idnumber,
+      "users[0][maildisplay]": "0",
+      ...moodleUserLangParam("users[0]"),
+    });
+  } catch (error) {
+    // Usuario o email repetido llegan como `invalidparameter` sin detalle: averiguar cuál fue.
+    if (!String(error).includes("invalidparameter")) throw error;
+    throw (await findAccountConflict(username, email, null).catch(() => null)) ?? error;
+  }
   const id = Array.isArray(created) ? numericField(created[0], "id") : null;
   if (id == null) {
     throw new Error(`MOODLE_CREATE_STUDENT_UNEXPECTED: ${JSON.stringify(created).slice(0, 300)}`);
@@ -337,6 +384,18 @@ export async function provisionStudentMoodleAccount(
   return { moodleId, welcomeSentAt: after?.moodleWelcomeSentAt ?? null, alreadyLinked };
 }
 
+/**
+ * El correo sale por otro servicio (Brevo/SMTP): si falla, la cuenta de Moodle ya quedó bien y
+ * el error no tiene que leerse como uno de Moodle.
+ */
+async function sendWelcomeEmail(params: Parameters<typeof sendStudentWelcomeEmail>[0]): Promise<void> {
+  try {
+    await sendStudentWelcomeEmail(params);
+  } catch (error) {
+    throw new Error(`MOODLE_WELCOME_EMAIL_FAILED: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function sendWelcomeOnce(
   studentId: string,
   moodleId: number,
@@ -354,7 +413,7 @@ async function sendWelcomeOnce(
     // en cada sync ni pisarla entre ticks concurrentes del outbox.
     const tempPassword = readableTempPassword();
     await setStudentTempPassword(moodleId, tempPassword);
-    await sendStudentWelcomeEmail({ to: email, firstName, username, tempPassword });
+    await sendWelcomeEmail({ to: email, firstName, username, tempPassword });
   } catch (e) {
     // Liberar el claim para que el outbox reintente el envío con backoff.
     await prisma.student
@@ -384,7 +443,7 @@ export async function resendStudentMoodleWelcome(studentId: string): Promise<Dat
   const { moodleId } = await ensureStudentMoodleAccount(student, { forceUpdate: true });
   const tempPassword = readableTempPassword();
   await setStudentTempPassword(moodleId, tempPassword);
-  await sendStudentWelcomeEmail({
+  await sendWelcomeEmail({
     to: real.email,
     firstName: student.firstName,
     username: real.username,

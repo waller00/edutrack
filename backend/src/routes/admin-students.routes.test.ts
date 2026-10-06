@@ -327,6 +327,43 @@ describe("POST /:id/moodle-account", () => {
     expect(res.status).toBe(404);
   });
 
+  it("409 con la cuenta que retiene el email si ya lo usa otra cuenta de Moodle", async () => {
+    provisionMock.mockRejectedValue(
+      Object.assign(new Error("MOODLE_STUDENT_EMAIL_TAKEN (baja-demo-1546)"), { holder: "baja-demo-1546" }),
+    );
+
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/moodle-account`)
+      .set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/Ese email ya lo usa otra cuenta de Moodle \(baja-demo-1546\)/);
+  });
+
+  it("409 si el usuario ya existe en Moodle", async () => {
+    provisionMock.mockRejectedValue(new Error("MOODLE_STUDENT_USERNAME_TAKEN (?)"));
+
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/moodle-account`)
+      .set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/^Ese usuario ya lo usa otra cuenta de Moodle\./);
+  });
+
+  it("502 que distingue la falla del correo de una de Moodle", async () => {
+    provisionMock.mockRejectedValue(
+      new Error('MOODLE_WELCOME_EMAIL_FAILED: Brevo API 400: {"code":"invalid_parameter","message":"sender is not valid"}'),
+    );
+
+    const res = await request(app())
+      .post(`/admin/students/${STUDENT_ID}/moodle-account`)
+      .set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(502);
+    expect(res.body.message).toMatch(/no se pudo enviar el correo de acceso/);
+  });
+
   it("un docente no puede provisionar cuentas", async () => {
     const res = await request(app())
       .post(`/admin/students/${STUDENT_ID}/moodle-account`)

@@ -1438,7 +1438,19 @@ function moodleActionErrorResponse(error: unknown, res: Response, logLabel: stri
   if (code === 'MOODLE_NOT_CONFIGURED') {
     return res.status(503).json({ message: 'La integración con Moodle no está disponible' })
   }
+  if (code.startsWith('MOODLE_STUDENT_EMAIL_TAKEN') || code.startsWith('MOODLE_STUDENT_USERNAME_TAKEN')) {
+    const holder = (error as { holder?: string | null }).holder
+    const what = code.startsWith('MOODLE_STUDENT_EMAIL_TAKEN') ? 'Ese email' : 'Ese usuario'
+    return res.status(409).json({
+      message: `${what} ya lo usa otra cuenta de Moodle${holder ? ` (${holder})` : ''}. Cambialo en la ficha del estudiante o liberalo en Moodle.`,
+    })
+  }
   console.error(logLabel, error)
+  if (code.startsWith('MOODLE_WELCOME_EMAIL_FAILED')) {
+    return res.status(502).json({
+      message: 'La cuenta de Moodle está creada, pero no se pudo enviar el correo de acceso. Revisá el servicio de correo y reenviá la bienvenida.',
+    })
+  }
   return res.status(502).json({ message: 'No se pudo completar la operación en Moodle' })
 }
 
