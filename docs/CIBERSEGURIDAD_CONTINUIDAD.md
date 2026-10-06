@@ -17,7 +17,7 @@ La arquitectura actual incluye:
 - Base de datos PostgreSQL administrada por Prisma.
 - Contenedores Docker mediante `docker-compose.yml` y `docker-compose.cloud.yml`.
 - Despliegue cloud en Droplet Ubuntu con Docker Compose.
-- Integraciones externas: Google (vía Keycloak), SMTP/SendGrid, Web Push y APIs de IA opcionales.
+- Integraciones externas: Google (vía Keycloak), Brevo/SMTP, Web Push y APIs de IA opcionales.
 - Scripts de exportación, importación y restauración de base de datos.
 - Análisis de seguridad en CI con Trivy.
 
@@ -68,7 +68,7 @@ El sistema debe mantenerse operativo y recuperable. Controles existentes:
 | Autorizacion | Roles y permisos | `OrgRole`, `Permission`, `RolePermission` |
 | Datos personales | Validacion de cedula e identidad | Digito verificador de la CI + aprobacion manual |
 | Auditoria | Registro de acciones criticas | Modelo `AuditLog` |
-| Notificaciones | In-app, email y web push | PostgreSQL, SMTP/SendGrid, VAPID |
+| Notificaciones | In-app, email y web push | PostgreSQL, Brevo/SMTP, VAPID |
 | Seguridad HTTP | Headers y CORS | Helmet, CORS configurable |
 | Dependencias | Escaneo de vulnerabilidades | GitHub Actions + Trivy |
 | Backups | Exportacion/importacion de DB | Scripts en `scripts/` |
@@ -231,7 +231,7 @@ RTO esperado: 2 a 4 horas si el backup externo y secretos estan disponibles.
 
 Si una integracion externa falla, EduTrack deberia mantener el mayor nivel de operacion posible:
 
-- Si SMTP/SendGrid falla: mantener notificaciones in-app y registrar error de envio.
+- Si Brevo/SMTP falla: mantener notificaciones in-app y registrar error de envio.
 - Si Web Push falla: no bloquear operaciones principales.
 - Si la terminal biometrica falla: permitir carga administrativa de asistencia con auditoria.
 

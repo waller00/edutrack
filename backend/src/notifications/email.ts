@@ -17,12 +17,12 @@ function resolveDefaultFromAddress() {
 }
 const smtpFrom = process.env.SMTP_FROM || resolveDefaultFromAddress();
 
-/** SendGrid SMTP (587) suele estar bloqueado en Droplets (p. ej. DO); la API v3 va por HTTPS 443. */
-function shouldUseSendGridHttpApi(): boolean {
-  if (process.env.SENDGRID_HTTP_API === "0" || process.env.SENDGRID_HTTP_API === "false") return false;
-  const host = (process.env.SMTP_HOST || "").trim().toLowerCase();
-  const user = (process.env.SMTP_USER || "").trim().toLowerCase();
-  return host === "smtp.sendgrid.net" && user === "apikey" && Boolean((process.env.SMTP_PASS || "").trim());
+/**
+ * Con `BREVO_API_KEY` el correo sale por la API transaccional de Brevo (HTTPS 443): el SMTP (587)
+ * suele estar bloqueado en Droplets (p. ej. DO). Sin la clave se usa el SMTP genérico de abajo.
+ */
+function brevoApiKey(): string | null {
+  return (process.env.BREVO_API_KEY || "").trim() || null;
 }
 
 function parseFromHeader(from: string): { email: string; name?: string } {
@@ -42,34 +42,32 @@ function parseFromHeader(from: string): { email: string; name?: string } {
   return { email: t };
 }
 
-async function sendMailSendGridApi(options: { to: string; subject: string; html: string; text?: string }) {
-  const apiKey = (process.env.SMTP_PASS || "").trim();
-  const from = parseFromHeader(smtpFrom);
-  const content: { type: string; value: string }[] = [];
-  if (options.text) content.push({ type: "text/plain", value: options.text });
-  content.push({ type: "text/html", value: options.html });
+async function sendMailBrevoApi(
+  apiKey: string,
+  options: { to: string; subject: string; html: string; text?: string },
+) {
+  const sender = parseFromHeader(smtpFrom);
 
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
-    signal: AbortSignal.timeout(Number(process.env.SENDGRID_HTTP_TIMEOUT_MS || 10000)),
+    signal: AbortSignal.timeout(Number(process.env.BREVO_HTTP_TIMEOUT_MS || 10000)),
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      "api-key": apiKey,
       "Content-Type": "application/json",
+      Accept: "application/json",
     },
     body: JSON.stringify({
-      personalizations: [{ to: [{ email: options.to }] }],
-      from: {
-        email: from.email,
-        ...(from.name ? { name: from.name } : {}),
-      },
+      sender,
+      to: [{ email: options.to }],
       subject: options.subject,
-      content,
+      htmlContent: options.html,
+      ...(options.text ? { textContent: options.text } : {}),
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`SendGrid API ${res.status}: ${body.slice(0, 400)}`);
+    throw new Error(`Brevo API ${res.status}: ${body.slice(0, 400)}`);
   }
 }
 
@@ -87,8 +85,9 @@ const transporter = nodemailer.createTransport({
 });
 
 export async function sendMail(options: { to: string; subject: string; html: string; text?: string }) {
-  if (shouldUseSendGridHttpApi()) {
-    await sendMailSendGridApi(options);
+  const apiKey = brevoApiKey();
+  if (apiKey) {
+    await sendMailBrevoApi(apiKey, options);
     return;
   }
   await transporter.sendMail({ from: smtpFrom, ...options });
