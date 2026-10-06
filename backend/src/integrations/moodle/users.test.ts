@@ -87,6 +87,20 @@ describe("syncMoodleUser", () => {
     });
   });
 
+  it("si Moodle rechaza el vínculo con un warning, falla y no lo persiste", async () => {
+    // `core_user_update_users` responde 200 con `warnings` cuando no aplica el cambio.
+    moodleRestMock.mockImplementation(async (fn: string, params: Record<string, string>) => {
+      if (fn === "core_user_get_users_by_field" && params.field === "email") return [{ id: 77 }];
+      if (fn === "core_user_update_users") {
+        return { warnings: [{ item: "user", itemid: 77, warningcode: "invaliduserid", message: "Invalid user ID" }] };
+      }
+      return [];
+    });
+
+    await expect(syncMoodleUser(baseUser)).rejects.toThrow(/MOODLE_USER_UPDATE_REJECTED: \[invaliduserid\]/);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
   it("si no existe, crea el usuario espejo y persiste el nuevo id", async () => {
     moodleRestMock.mockImplementation(async (fn: string) => {
       if (fn === "core_user_get_users_by_field") return [];

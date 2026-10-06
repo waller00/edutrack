@@ -121,6 +121,78 @@ describe("ensureStudentMoodleAccount", () => {
   });
 });
 
+describe("conflictos de usuario/email con otra cuenta de Moodle", () => {
+  const invalidParameter = new Error(
+    'MOODLE_EXCEPTION [core_user_create_users]: invalidparameter {"errorcode":"invalidparameter"}',
+  );
+
+  /** Moodle con `holders[field]` reteniendo ese dato; la creación falla como lo hace con debug apagado. */
+  function moodleWith(holders: Partial<Record<"username" | "email" | "idnumber", unknown[]>>) {
+    moodleRestMock.mockImplementation(async (fn: string, params: Record<string, string>) => {
+      if (fn === "core_user_get_users_by_field") return holders[params.field as "email"] ?? [];
+      if (fn === "core_user_create_users") throw invalidParameter;
+      return [];
+    });
+  }
+
+  it("al crear, informa que el email lo retiene otra cuenta y cuál es", async () => {
+    moodleWith({ email: [{ id: 1546, username: "baja-demo-1546" }] });
+    const error = await ensureStudentMoodleAccount(realStudent).catch((e) => e);
+    expect(error.message).toMatch(/^MOODLE_STUDENT_EMAIL_TAKEN/);
+    expect(error.holder).toBe("baja-demo-1546");
+    expect(prismaMock.moodleObjectMap.upsert).not.toHaveBeenCalled();
+  });
+
+  it("al crear, informa que el usuario ya existe", async () => {
+    moodleWith({ username: [{ id: 12, username: "ana.diaz" }] });
+    await expect(ensureStudentMoodleAccount(realStudent)).rejects.toThrow(/^MOODLE_STUDENT_USERNAME_TAKEN/);
+  });
+
+  it("si no encuentra quién lo retiene, relanza el error original de Moodle", async () => {
+    moodleWith({});
+    await expect(ensureStudentMoodleAccount(realStudent)).rejects.toBe(invalidParameter);
+  });
+
+  it("un error de transporte no dispara la búsqueda de conflictos", async () => {
+    moodleRestMock.mockImplementation(async (fn: string) => {
+      if (fn === "core_user_create_users") throw new Error("MOODLE_TIMEOUT");
+      return [];
+    });
+    await expect(ensureStudentMoodleAccount(realStudent)).rejects.toThrow("MOODLE_TIMEOUT");
+    // Sólo la búsqueda por idnumber previa al alta.
+    expect(moodleRestMock.mock.calls.filter((c) => c[0] === "core_user_get_users_by_field")).toHaveLength(1);
+  });
+
+  it("al editar, un warning de email duplicado se vuelve conflicto (ignorando la propia cuenta)", async () => {
+    prismaMock.moodleObjectMap.findUnique.mockResolvedValue({ moodleId: 1865 });
+    moodleRestMock.mockImplementation(async (fn: string, params: Record<string, string>) => {
+      if (fn === "core_user_update_users") {
+        return { warnings: [{ warningcode: "useremailduplicate", message: "Duplicate email address" }] };
+      }
+      if (fn === "core_user_get_users_by_field" && params.field === "username") {
+        return [{ id: 1865, username: "ana.diaz" }];
+      }
+      if (fn === "core_user_get_users_by_field" && params.field === "email") {
+        return [{ id: 1546, username: "baja-demo-1546" }];
+      }
+      return [];
+    });
+    const error = await ensureStudentMoodleAccount(realStudent, { forceUpdate: true }).catch((e) => e);
+    expect(error.message).toMatch(/^MOODLE_STUDENT_EMAIL_TAKEN/);
+    expect(error.holder).toBe("baja-demo-1546");
+  });
+
+  it("al editar, un warning sin conflicto identificable falla igual (ya no se da por bueno)", async () => {
+    prismaMock.moodleObjectMap.findUnique.mockResolvedValue({ moodleId: 70 });
+    restByFunction({
+      core_user_update_users: { warnings: [{ warningcode: "usernotupdateddeleted", message: "User is a deleted user" }] },
+    });
+    await expect(ensureStudentMoodleAccount(realStudent, { forceUpdate: true })).rejects.toThrow(
+      /MOODLE_USER_UPDATE_REJECTED: \[usernotupdateddeleted\]/,
+    );
+  });
+});
+
 describe("getStudentMoodleVerifications", () => {
   it("consulta varios idnumber en una llamada y marca verificado tras el primer acceso", async () => {
     restByFunction({
@@ -307,9 +379,11 @@ describe("provisionStudentMoodleAccount", () => {
     expect(result.moodleId).toBe(90);
   });
 
-  it("si falla el envío libera el claim y relanza", async () => {
+  it("si falla el envío libera el claim y relanza como error de correo, no de Moodle", async () => {
     sendWelcomeMock.mockRejectedValue(new Error("SMTP down"));
-    await expect(provisionStudentMoodleAccount("s1-uuid")).rejects.toThrow("SMTP down");
+    await expect(provisionStudentMoodleAccount("s1-uuid")).rejects.toThrow(
+      "MOODLE_WELCOME_EMAIL_FAILED: SMTP down",
+    );
     const revert = prismaMock.student.updateMany.mock.calls[1][0];
     expect(revert.where).toEqual({ id: "s1-uuid" });
     expect(revert.data.moodleWelcomeSentAt).toBeNull();

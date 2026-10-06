@@ -6,6 +6,7 @@ import {
   moodleUserAuthMethod,
   moodleUserLangParam,
 } from "./client.js";
+import { updateMoodleUsers } from "./user-update.js";
 
 export type MoodleSyncUserInput = {
   id: string;
@@ -94,7 +95,7 @@ export async function syncMoodleUser(user: MoodleSyncUserInput): Promise<number 
   // 2) Existe por email (p. ej. cuenta creada al entrar con OAuth): vincular sin duplicar.
   const byEmail = await getUserIdByField("email", email);
   if (byEmail != null) {
-    await moodleRest("core_user_update_users", {
+    await updateMoodleUsers({
       "users[0][id]": String(byEmail),
       "users[0][idnumber]": user.id,
     });
