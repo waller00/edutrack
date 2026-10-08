@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Pencil, Plus, Ruler } from 'lucide-react'
+import { BookLock, Loader2, Pencil, Plus, Ruler } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
 import ScaleFormModal, { scalePayload } from './ScaleFormModal'
@@ -70,6 +70,16 @@ function ScaleCard({
 
       {scale.description && <p className="mt-2 text-sm text-gray-600">{scale.description}</p>}
 
+      {scale.gradebookRole && (
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-sky-800">
+          <BookLock className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            La libreta la usa para {scale.gradebookRole}: no se puede desactivar.
+            {!scale.isActive && ' Quedó desactivada de antes: editala para activarla.'}
+          </span>
+        </p>
+      )}
+
       {scale.gaps.length > 0 && (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <span aria-hidden>▲ </span>
@@ -92,7 +102,7 @@ function ScaleCard({
           <Pencil className="h-3.5 w-3.5" aria-hidden />
           Editar
         </button>
-        {scale.isActive && (
+        {scale.isActive && !scale.gradebookRole && (
           <button type="button" onClick={onDeactivate} className="text-red-600 hover:underline">
             Desactivar
           </button>

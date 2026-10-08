@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, BookLock, Plus, Trash2 } from 'lucide-react'
 import ConfigModal from './ConfigModal'
 import { Check, Field, inputClass } from './fields'
 import {
@@ -99,6 +99,7 @@ export default function ScaleFormModal({ scale, saving, error, onSave, onClose }
   const [localError, setLocalError] = useState<string | null>(null)
 
   const usedIn = scale?.usage.assessments ?? 0
+  const gradebookRole = scale?.gradebookRole ?? null
 
   function patch<K extends keyof ScaleDraft>(key: K, value: ScaleDraft[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }))
@@ -112,7 +113,7 @@ export default function ScaleFormModal({ scale, saving, error, onSave, onClose }
   }
 
   function submit() {
-    const problem = validateScale(draft, isEdit)
+    const problem = validateScale(draft, isEdit, gradebookRole)
     setLocalError(problem)
     if (!problem) onSave(draft)
   }
@@ -125,6 +126,16 @@ export default function ScaleFormModal({ scale, saving, error, onSave, onClose }
       onSubmit={submit}
       onClose={onClose}
     >
+      {gradebookRole && (
+        <p className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+          <BookLock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>
+            La libreta usa esta escala para {gradebookRole}. Se pueden cambiar el nombre, los tramos y sus descriptores,
+            pero no desactivarla ni dejarla sin mínimo, máximo o tramos.
+          </span>
+        </p>
+      )}
+
       {usedIn > 0 && (
         <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
@@ -224,7 +235,8 @@ export default function ScaleFormModal({ scale, saving, error, onSave, onClose }
         )}
       </section>
 
-      {isEdit && (
+      {/* Una escala de la libreta sólo muestra "Activa" si quedó desactivada de antes, para reactivarla. */}
+      {isEdit && !(gradebookRole && scale.isActive) && (
         <Check
           id="scale-active"
           label="Activa"

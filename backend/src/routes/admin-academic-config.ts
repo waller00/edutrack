@@ -6,8 +6,10 @@ import { recordAuditEvent } from '../services/audit-log.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { provisionGradeBooks } from '../services/gradebook/provision.js'
 import { ALERT_RULE_LIMITS, loadAlertRules, type AlertRuleType } from '../services/gradebook/alert-rules.js'
+import { gradebookScaleRole } from '../services/gradebook/period-scale.js'
 import {
   AcademicConfigError,
+  assertGradebookScaleKept,
   assertLevelsCoverScale,
   findScaleGaps,
 } from '../services/academic-config/validation.js'
@@ -214,6 +216,8 @@ r.get('/scales', async (req, res) => {
       data: scales.map((scale) => ({
         ...withScaleGaps(scale),
         usage: { assessments: byScale.get(scale.id) ?? 0 },
+        // La UI no ofrece desactivarla y explica por qué.
+        gradebookRole: gradebookScaleRole(scale.code),
       })),
     })
   } catch (error) {
@@ -269,6 +273,11 @@ r.patch('/scales/:id', async (req: any, res) => {
       maxValueHundredths: d.maxValueHundredths === undefined ? current.maxValueHundredths : d.maxValueHundredths,
     }
     assertLevelsCoverScale(levels ?? current.levels, range)
+    assertGradebookScaleKept(gradebookScaleRole(current.code), {
+      ...range,
+      isActive: d.isActive ?? current.isActive,
+      levelCount: (levels ?? current.levels).length,
+    })
 
     const fields = {
       ...(d.name === undefined ? {} : { name: d.name }),
@@ -301,17 +310,26 @@ r.patch('/scales/:id', async (req: any, res) => {
 
 r.delete('/scales/:id', async (req: any, res) => {
   try {
-    const updated = await prisma.gradingScale.update({
+    const current = await prisma.gradingScale.findUnique({
       where: { id: req.params.id },
+      select: { id: true, code: true, minValueHundredths: true, maxValueHundredths: true, _count: { select: { levels: true } } },
+    })
+    if (!current) return res.status(404).json({ message: 'Escala no encontrada' })
+    assertGradebookScaleKept(gradebookScaleRole(current.code), {
+      minValueHundredths: current.minValueHundredths,
+      maxValueHundredths: current.maxValueHundredths,
+      isActive: false,
+      levelCount: current._count.levels,
+    })
+
+    const updated = await prisma.gradingScale.update({
+      where: { id: current.id },
       data: { isActive: false },
       select: { id: true, code: true },
     })
     audit(req, AuditAction.ACADEMIC_CONFIG_DEACTIVATED, 'GradingScale', updated.id, { code: updated.code })
     res.json({ ok: true, deactivated: true })
   } catch (error) {
-    if ((error as { code?: string })?.code === 'P2025') {
-      return res.status(404).json({ message: 'Escala no encontrada' })
-    }
     handleError(res, 'DELETE /scales/:id', error)
   }
 })

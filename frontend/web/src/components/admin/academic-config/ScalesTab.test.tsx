@@ -13,6 +13,7 @@ function scale(over: Partial<GradingScale> = {}): GradingScale {
     minValueHundredths: 100, maxValueHundredths: 1000, decimals: 0,
     description: null, isActive: true, sortOrder: 0, gaps: [],
     usage: { assessments: 0 },
+    gradebookRole: null,
     levels: [
       {
         id: 'l-1', code: 'INSUF', label: 'Insuficiente', descriptor: 'No alcanza.',
@@ -129,6 +130,40 @@ describe('<ScalesTab />', () => {
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     expect(mockedApi.mock.calls[1][0]).toBe('/admin/academic-config/scales/s-1')
     expect(mockedApi.mock.calls[1][1]?.method).toBe('DELETE')
+  })
+
+  it('una escala de la libreta dice para qué se usa y no ofrece desactivarla', async () => {
+    mockedApi.mockResolvedValue({ data: [scale({ code: 'NUMERICA_1_10', gradebookRole: 'C y R de ciclo básico' })] })
+
+    render(<ScalesTab onError={onError} />)
+
+    expect(await screen.findByText(/La libreta la usa para C y R de ciclo básico/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Desactivar' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Editar/ }))
+    expect(within(screen.getByRole('dialog')).getByText(/no desactivarla/)).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: /^Activa/ })).not.toBeInTheDocument()
+  })
+
+  it('si ya estaba desactivada, deja activarla desde el formulario', async () => {
+    mockedApi.mockResolvedValue({
+      data: [scale({ code: 'CONDUCTA', gradebookRole: 'la conducta', isActive: false })],
+    })
+
+    render(<ScalesTab onError={onError} />)
+
+    expect(await screen.findByText(/Quedó desactivada de antes/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Editar/ }))
+
+    // Guardarla desactivada no llega al backend.
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('la conducta: dejala activa')
+    expect(mockedApi).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Activa/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(String(mockedApi.mock.calls[1][1]?.body))).toMatchObject({ isActive: true })
   })
 
   it('muestra el error del backend sin cerrar el formulario', async () => {

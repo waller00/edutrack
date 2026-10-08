@@ -34,6 +34,11 @@ export type GradingScale = {
   gaps: ScaleGap[]
   /** Cuántas evaluaciones vivas la usan. Reescribir sus tramos re-clasifica esas notas. */
   usage: { assessments: number }
+  /**
+   * Para qué la usa la libreta ("C y R de ciclo básico", "la conducta"…), o `null`. Una escala
+   * con rol no se desactiva ni se queda sin rango o sin tramos: el backend lo rechaza.
+   */
+  gradebookRole: string | null
 }
 
 export type AcademicPeriod = {

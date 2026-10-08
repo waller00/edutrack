@@ -246,6 +246,13 @@ describe("escalas", () => {
   });
 
   it("DELETE desactiva en vez de borrar", async () => {
+    prismaMock.gradingScale.findUnique.mockResolvedValue({
+      id: SCALE_ID,
+      code: "X",
+      minValueHundredths: 100,
+      maxValueHundredths: 1000,
+      _count: { levels: 2 },
+    });
     prismaMock.gradingScale.update.mockResolvedValue({ id: SCALE_ID, code: "X" });
     const res = await request(app())
       .delete(`/admin/academic-config/scales/${SCALE_ID}`)
@@ -256,6 +263,119 @@ describe("escalas", () => {
     expect(prismaMock.gradingScale.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { isActive: false } }),
     );
+  });
+
+  it("404 al desactivar una escala inexistente", async () => {
+    prismaMock.gradingScale.findUnique.mockResolvedValue(null);
+    const res = await request(app())
+      .delete(`/admin/academic-config/scales/${SCALE_ID}`)
+      .set("Authorization", `Bearer ${tok()}`);
+    expect(res.status).toBe(404);
+    expect(prismaMock.gradingScale.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("escalas que usa la libreta", () => {
+  const PERIOD_SCALE = {
+    id: SCALE_ID,
+    code: "NUMERICA_1_12",
+    isActive: true,
+    minValueHundredths: 100,
+    maxValueHundredths: 1200,
+    levels: NUMERIC_LEVELS,
+  };
+
+  it("el listado dice para qué usa la libreta cada una", async () => {
+    prismaMock.gradingScale.findMany.mockResolvedValue([
+      { ...PERIOD_SCALE, code: "NUMERICA_1_10" },
+      { ...PERIOD_SCALE, code: "CONDUCTA" },
+      { ...PERIOD_SCALE, code: "OTRA" },
+    ]);
+
+    const res = await request(app())
+      .get("/admin/academic-config/scales")
+      .set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.body.data.map((s: { gradebookRole: string | null }) => s.gradebookRole)).toEqual([
+      "C y R de ciclo básico",
+      "la conducta",
+      null,
+    ]);
+  });
+
+  it("no se desactiva por DELETE: antes la libreta pasaba en silencio a otra escala", async () => {
+    prismaMock.gradingScale.findUnique.mockResolvedValue({
+      ...PERIOD_SCALE,
+      code: "CONDUCTA",
+      _count: { levels: 4 },
+    });
+
+    const res = await request(app())
+      .delete(`/admin/academic-config/scales/${SCALE_ID}`)
+      .set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("GRADEBOOK_SCALE_REQUIRED");
+    expect(res.body.message).toContain("la conducta");
+    expect(prismaMock.gradingScale.update).not.toHaveBeenCalled();
+  });
+
+  it("tampoco se desactiva al editarla", async () => {
+    prismaMock.gradingScale.findUnique.mockResolvedValue(PERIOD_SCALE);
+
+    const res = await request(app())
+      .patch(`/admin/academic-config/scales/${SCALE_ID}`)
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ isActive: false });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("GRADEBOOK_SCALE_REQUIRED");
+    expect(prismaMock.gradingScale.update).not.toHaveBeenCalled();
+  });
+
+  it("no se queda sin rango ni sin tramos", async () => {
+    prismaMock.gradingScale.findUnique.mockResolvedValue(PERIOD_SCALE);
+
+    const sinRango = await request(app())
+      .patch(`/admin/academic-config/scales/${SCALE_ID}`)
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ maxValueHundredths: null });
+    expect(sinRango.status).toBe(400);
+    expect(sinRango.body.code).toBe("GRADEBOOK_SCALE_NEEDS_RANGE");
+
+    const sinTramos = await request(app())
+      .patch(`/admin/academic-config/scales/${SCALE_ID}`)
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ levels: [] });
+    expect(sinTramos.status).toBe(400);
+    expect(sinTramos.body.code).toBe("GRADEBOOK_SCALE_NEEDS_LEVELS");
+
+    expect(prismaMock.gradingScale.update).not.toHaveBeenCalled();
+  });
+
+  it("si ya estaba desactivada, editarla y activarla vale", async () => {
+    prismaMock.gradingScale.findUnique.mockResolvedValue({ ...PERIOD_SCALE, isActive: false });
+    prismaMock.gradingScale.update.mockResolvedValue({ ...PERIOD_SCALE, isActive: true });
+
+    const res = await request(app())
+      .patch(`/admin/academic-config/scales/${SCALE_ID}`)
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ name: "Numérica 1 a 12", isActive: true });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.gradingScale.update.mock.calls[0][0].data).toMatchObject({ isActive: true });
+  });
+
+  it("una escala cualquiera se sigue pudiendo desactivar al editarla", async () => {
+    prismaMock.gradingScale.findUnique.mockResolvedValue({ ...PERIOD_SCALE, code: "OTRA" });
+    prismaMock.gradingScale.update.mockResolvedValue({ ...PERIOD_SCALE, code: "OTRA", isActive: false });
+
+    const res = await request(app())
+      .patch(`/admin/academic-config/scales/${SCALE_ID}`)
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ isActive: false });
+
+    expect(res.status).toBe(200);
   });
 });
 

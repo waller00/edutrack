@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AcademicConfigError,
+  assertGradebookScaleKept,
   assertLevelsCoverScale,
   findScaleGaps,
   hasLevelFor,
@@ -85,5 +86,38 @@ describe("hasLevelFor", () => {
   it("responde por valor concreto", () => {
     expect(hasLevelFor(700, OK)).toBe(true);
     expect(hasLevelFor(50, OK)).toBe(false);
+  });
+});
+
+describe("assertGradebookScaleKept", () => {
+  const KEPT = { ...SCALE, isActive: true, levelCount: 3 };
+
+  function codeOf(fn: () => void): string | null {
+    try {
+      fn();
+      return null;
+    } catch (error) {
+      return (error as AcademicConfigError).code;
+    }
+  }
+
+  it("una escala que la libreta no usa se puede dejar como sea", () => {
+    expect(() =>
+      assertGradebookScaleKept(null, { minValueHundredths: null, maxValueHundredths: null, isActive: false, levelCount: 0 }),
+    ).not.toThrow();
+  });
+
+  it("la de la libreta sigue activa, con rango y con tramos", () => {
+    const role = "C y R de ciclo básico";
+    expect(() => assertGradebookScaleKept(role, KEPT)).not.toThrow();
+    expect(codeOf(() => assertGradebookScaleKept(role, { ...KEPT, isActive: false }))).toBe("GRADEBOOK_SCALE_REQUIRED");
+    expect(codeOf(() => assertGradebookScaleKept(role, { ...KEPT, minValueHundredths: null }))).toBe(
+      "GRADEBOOK_SCALE_NEEDS_RANGE",
+    );
+    expect(codeOf(() => assertGradebookScaleKept(role, { ...KEPT, levelCount: 0 }))).toBe("GRADEBOOK_SCALE_NEEDS_LEVELS");
+  });
+
+  it("el mensaje dice para qué la usa la libreta", () => {
+    expect(() => assertGradebookScaleKept("la conducta", { ...KEPT, isActive: false })).toThrow(/la conducta/);
   });
 });
