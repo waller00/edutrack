@@ -13,7 +13,6 @@ import {
   effectiveWeight,
   formatAbsenceUnits,
   isBasicCycle,
-  isValidAbsenceWeight,
 } from '../services/student-attendance/absence-weight.js'
 import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
 import {
@@ -35,7 +34,8 @@ import {
 import { resolveMoodleAcademicScope } from '../integrations/moodle/scope.js'
 import { AuditAction } from '@prisma/client'
 import { clientIpFromRequest, recordAuditEvent, recordAuditEventNow } from '../services/audit-log.js'
-import { getGradeBookSettings } from '../config/system-settings.js'
+import { getGradeBookSettings, getStudentRollCallSettings } from '../config/system-settings.js'
+import { isWithinEditWindow, resolveRollCallPermissions } from '../services/student-attendance/edit-window.js'
 import { GRADE_BLOCK_MESSAGES, resolveGradeEditPermissions } from '../services/gradebook/edit-window.js'
 import { GradingError, saveGrades } from '../services/gradebook/grading.js'
 import ExcelJS from 'exceljs'
@@ -129,17 +129,15 @@ function absenceMarkLabel(status: string, weight: number, basicCycle: boolean): 
 }
 
 /**
- * Peso a guardar de una marca de la planilla diaria. El docente ya no elige "media falta": una
- * ausencia sin peso explícito viaja como `undefined`, que en `saveRollCall` significa "no pisar"
- * — así una ausencia que adscripción graduó a media no vuelve a valer una entera por un reguardado.
- * En ciclo básico el peso lo fija la regla del día y no se guarda ninguno.
+ * Peso a guardar de una marca de la planilla diaria. El docente no elige "media falta": graduar
+ * una ausencia es de adscripción al justificar. Una ausencia viaja siempre como `undefined`, que en
+ * `saveRollCall` significa "no pisar" — así una ausencia que adscripción graduó a media no vuelve a
+ * valer una entera por un reguardado. Antes la API aceptaba un peso del docente aunque la pantalla
+ * no lo ofreciera. En ciclo básico el peso lo fija la regla del día y no se guarda ninguno.
  */
-function dayMarkWeight(
-  entry: { status?: string; absenceWeightHundredths?: number | null },
-  level: string | null,
-): number | null | undefined {
+function dayMarkWeight(entry: { status?: string }, level: string | null): null | undefined {
   if (entry.status !== 'ABSENT' || isBasicCycle(level)) return null
-  return entry.absenceWeightHundredths ?? undefined
+  return undefined
 }
 
 /** Encabezado de la libreta (RF-021). */
@@ -353,7 +351,8 @@ r.get('/:id', requirePermission('gradebook.read'), async (req: any, res) => {
 
     return res.json({
       ...serializeHeader(row),
-      access: { level: access.level, canGrade: access.canGrade },
+      // `canPlan` aparte de `canGrade`: Dirección planifica y corrige el desarrollo sin calificar.
+      access: { level: access.level, canGrade: access.canGrade, canPlan: access.canPlan },
       studentCount: students.length,
       students: students.map((student) => {
         const totals = absencesByStudent.get(student.studentId)
@@ -408,6 +407,34 @@ function scopeOfRow(row: NonNullable<GradeBookRow>) {
 }
 
 /**
+ * ¿Se puede pasar lista ese día desde la libreta? Las mismas reglas que `/me/roll-call`: la
+ * ventana del docente (`studentRollCallEditWindowHours`, desde la clase o desde que pasó lista),
+ * la planilla cerrada por administración, y administración (`student-attendance.take` con alcance
+ * total) sin ventana pero auditada. Antes la libreta dejaba editar cualquier día pasado sin rastro.
+ */
+async function libretaRollCallPermissions(
+  req: any,
+  access: { level: string },
+  target: { endAt: Date },
+  session: { takenAt?: Date | null; lockedAt?: Date | null } | null,
+) {
+  const userId = req.user?.id ?? req.user?.sub
+  const [scope, settings] = await Promise.all([
+    userPermissionScope(userId, 'student-attendance.take', req.user?.role),
+    getStudentRollCallSettings(),
+  ])
+  const permissions = resolveRollCallPermissions({
+    scope: scope === 'all' ? 'all' : 'own',
+    isAssignedTeacher: access.level === 'OWNER' || access.level === 'SUBSTITUTE',
+    occurrenceEndAt: target.endAt,
+    takenAt: session?.takenAt ?? null,
+    lockedAt: session?.lockedAt ?? null,
+    windowHours: settings.editWindowHours,
+  })
+  return { ...permissions, outsideWindow: !isWithinEditWindow(permissions.editableUntil, null) }
+}
+
+/**
  * Planilla diaria de inasistencias de la libreta (estilo Libro del Profesor).
  * Sin ocurrencia de clase → `hasClass: false` (UI: “Lunes S/H”) pero `canMark` si hay evento ancla.
  */
@@ -453,7 +480,9 @@ r.get('/:id/absences/day', requirePermission('gradebook.read'), async (req: any,
     >()
     const eventId = markTarget?.event.id ?? null
     const hasClass = day.kind === 'class'
-    const canMark = Boolean(markTarget)
+    let canMark = false
+    let markBlockedReason: string | null = null
+    let editableUntil: string | null = null
     let noClassReason: string | null = null
 
     if (day.kind === 'non_working') {
@@ -464,6 +493,10 @@ r.get('/:id/absences/day', requirePermission('gradebook.read'), async (req: any,
 
     if (markTarget) {
       const session = await findSession(markTarget.event.id, ymd)
+      const permissions = await libretaRollCallPermissions(req, ctx.access, markTarget, session)
+      canMark = permissions.canEdit
+      markBlockedReason = permissions.blockedReason
+      editableUntil = permissions.editableUntil.toISOString()
       for (const entry of session?.entries ?? []) {
         dayByStudent.set(entry.studentId, {
           status: entry.status,
@@ -477,6 +510,9 @@ r.get('/:id/absences/day', requirePermission('gradebook.read'), async (req: any,
       date: ymd,
       hasClass,
       canMark,
+      /** Por qué no se puede marcar aunque haya clase: `WINDOW_EXPIRED`, `LOCKED` o `NOT_ASSIGNED`. */
+      markBlockedReason,
+      editableUntil,
       noClassReason,
       eventId,
       canGrade: ctx.access.canGrade,
@@ -514,18 +550,6 @@ r.put('/:id/absences/day', requirePermission('gradebook.grade'), async (req: any
       return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
     }
 
-    for (const entry of parsed.data.entries) {
-      if (entry.status === 'ABSENT') {
-        const weight = entry.absenceWeightHundredths ?? 100
-        if (!isValidAbsenceWeight(weight)) {
-          return res.status(400).json({
-            message: 'La falta sólo admite peso 1 (100) o 0,5 (50).',
-            code: 'INVALID_ABSENCE_WEIGHT',
-          })
-        }
-      }
-    }
-
     const ymd = parsed.data.date
     const day = await resolveGradeBookDayOccurrence(scopeOfRow(ctx.row), ymd)
     if (day.kind === 'non_working') {
@@ -539,6 +563,23 @@ r.put('/:id/absences/day', requirePermission('gradebook.grade'), async (req: any
       return res.status(409).json({
         message: 'No hay clase ni horario de esta libreta para marcar ese día.',
         code: 'NO_OCCURRENCE',
+      })
+    }
+
+    const permissions = await libretaRollCallPermissions(
+      req,
+      ctx.access,
+      markTarget,
+      await findSession(markTarget.event.id, ymd),
+    )
+    if (!permissions.canEdit) {
+      return res.status(409).json({
+        message:
+          permissions.blockedReason === 'LOCKED'
+            ? 'La planilla fue cerrada por administración.'
+            : 'Se venció el plazo para editar esta lista. Pedile el cambio a administración.',
+        code: permissions.blockedReason,
+        editableUntil: permissions.editableUntil,
       })
     }
 
@@ -569,8 +610,9 @@ r.put('/:id/absences/day', requirePermission('gradebook.grade'), async (req: any
       })),
       source: 'MANUAL',
       actorUserId: req.user?.id ?? req.user?.sub,
-      actedAsAdmin: false,
-      outsideWindow: false,
+      // Fuera de plazo sólo llega administración, y esa escritura queda auditada.
+      actedAsAdmin: permissions.outsideWindow,
+      outsideWindow: permissions.outsideWindow,
       req,
     })
 
@@ -3226,16 +3268,53 @@ const developmentSchema = z.object({
   attachments: z.string().trim().max(2000).nullish(),
 })
 
+/**
+ * Planificación y desarrollo se escriben con `gradebook.plan`, no con `grade`: Dirección corrige
+ * la libreta de un docente sin poder tocar una nota. El `canEdit` que ve la pantalla sale de ahí;
+ * antes salía de `canGrade` y a Dirección le mostraba todo bloqueado.
+ *
+ * El ciclo cerrado se responde antes que el permiso: sin esto, una libreta archivada decía "no
+ * sos docente de esta libreta" en vez de "el ciclo está cerrado".
+ */
+function planWriteBlock(ctx: { row: { status: string }; access: { canPlan: boolean } }, res: any): boolean {
+  if (ctx.row.status === 'ARCHIVED') {
+    res.status(409).json({ message: GRADE_BLOCK_MESSAGES.ARCHIVED, code: 'SCHOOL_YEAR_CLOSED' })
+    return true
+  }
+  if (!ctx.access.canPlan) {
+    res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
+    return true
+  }
+  return false
+}
+
+/** ¿Escribe alguien que no es el docente? Eso es una corrección y queda auditada. */
+function isSupervisorWrite(access: { level: string }): boolean {
+  return access.level !== 'OWNER' && access.level !== 'SUBSTITUTE'
+}
+
 /** La planificación se crea al vuelo la primera vez que alguien la abre. */
 r.get('/:id/planning', requirePermission('gradebook.read'), async (req: any, res) => {
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
 
-    const planning = await prisma.gradeBookPlanning.findUnique({ where: { gradeBookId: ctx.row.id } })
+    const planning = await prisma.gradeBookPlanning.findUnique({
+      where: { gradeBookId: ctx.row.id },
+      include: { updatedBy: { select: { name: true } } },
+    })
     return res.json({
-      data: planning ?? { gradeBookId: ctx.row.id, formative: null, replanning: null, attachments: null },
-      canEdit: ctx.access.canGrade,
+      data: planning
+        ? {
+            gradeBookId: planning.gradeBookId,
+            formative: planning.formative,
+            replanning: planning.replanning,
+            attachments: planning.attachments,
+            updatedAt: planning.updatedAt.toISOString(),
+            updatedByName: planning.updatedBy?.name ?? null,
+          }
+        : { gradeBookId: ctx.row.id, formative: null, replanning: null, attachments: null, updatedAt: null, updatedByName: null },
+      canEdit: ctx.access.canPlan,
     })
   } catch (error) {
     console.error('[gradebook] planning:', error)
@@ -3250,25 +3329,31 @@ r.put('/:id/planning', requirePermission('gradebook.plan'), async (req: any, res
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canPlan) {
-      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
-    }
-    if (ctx.row.status === 'ARCHIVED') {
-      return res.status(409).json({ message: GRADE_BLOCK_MESSAGES.ARCHIVED, code: 'SCHOOL_YEAR_CLOSED' })
-    }
+    if (planWriteBlock(ctx, res)) return
 
     const d = parsed.data
+    const actorUserId = req.user?.id ?? req.user?.sub
     const data = {
       formative: d.formative ?? null,
       replanning: d.replanning ?? null,
       attachments: d.attachments ?? null,
-      updatedByUserId: req.user?.id ?? req.user?.sub,
+      updatedByUserId: actorUserId,
     }
     const saved = await prisma.gradeBookPlanning.upsert({
       where: { gradeBookId: ctx.row.id },
       update: data,
       create: { gradeBookId: ctx.row.id, ...data },
     })
+    if (isSupervisorWrite(ctx.access)) {
+      recordAuditEvent({
+        action: AuditAction.GRADEBOOK_PLANNING_UPDATED,
+        actorUserId: actorUserId ?? null,
+        req,
+        entityType: 'GradeBook',
+        entityId: ctx.row.id,
+        metadata: { gradeBookId: ctx.row.id } as never,
+      })
+    }
     return res.json({ data: saved })
   } catch (error) {
     console.error('[gradebook] planning save:', error)
@@ -3308,7 +3393,7 @@ r.get('/:id/development', requirePermission('gradebook.read'), async (req: any, 
         hoursTaught: totals._sum.hoursTaught ?? 0,
         hoursNotTaught: totals._sum.hoursNotTaught ?? 0,
       },
-      canEdit: ctx.access.canGrade && ctx.row.status === 'ACTIVE',
+      canEdit: ctx.access.canPlan,
     })
   } catch (error) {
     console.error('[gradebook] development:', error)
@@ -3327,12 +3412,7 @@ r.post('/:id/development', requirePermission('gradebook.plan'), async (req: any,
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canPlan) {
-      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
-    }
-    if (ctx.row.status === 'ARCHIVED') {
-      return res.status(409).json({ message: GRADE_BLOCK_MESSAGES.ARCHIVED, code: 'SCHOOL_YEAR_CLOSED' })
-    }
+    if (planWriteBlock(ctx, res)) return
 
     const d = parsed.data
     const created = await prisma.courseDevelopmentEntry.create({
@@ -3353,18 +3433,78 @@ r.post('/:id/development', requirePermission('gradebook.plan'), async (req: any,
   }
 })
 
+/** Lo que queda en la auditoría de un registro de clase: alcanza para saber qué se tocó. */
+function developmentSnapshot(entry: { date: Date; hoursTaught: number; hoursNotTaught: number; description: string }) {
+  return {
+    date: entry.date.toISOString().slice(0, 10),
+    hoursTaught: entry.hoursTaught,
+    hoursNotTaught: entry.hoursNotTaught,
+    description: entry.description,
+  }
+}
+
+/** Corrige un registro de clase. Antes había que borrarlo y volver a cargarlo. */
+r.patch('/:id/development/:entryId', requirePermission('gradebook.plan'), async (req: any, res) => {
+  const parsed = developmentSchema.partial().safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    if (planWriteBlock(ctx, res)) return
+
+    const current = await prisma.courseDevelopmentEntry.findFirst({
+      where: { id: req.params.entryId, gradeBookId: ctx.row.id },
+    })
+    if (!current) return res.status(404).json({ message: 'Registro no encontrado' })
+
+    const d = parsed.data
+    const updated = await prisma.courseDevelopmentEntry.update({
+      where: { id: current.id },
+      data: {
+        ...(d.date === undefined ? {} : { date: parseYmd(d.date) }),
+        ...(d.hoursTaught === undefined ? {} : { hoursTaught: d.hoursTaught }),
+        ...(d.hoursNotTaught === undefined ? {} : { hoursNotTaught: d.hoursNotTaught }),
+        ...(d.description === undefined ? {} : { description: d.description }),
+        ...(d.attachments === undefined ? {} : { attachments: d.attachments ?? null }),
+      },
+    })
+    recordAuditEvent({
+      action: AuditAction.GRADEBOOK_DEVELOPMENT_UPDATED,
+      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      req,
+      entityType: 'CourseDevelopmentEntry',
+      entityId: current.id,
+      metadata: { gradeBookId: ctx.row.id, before: developmentSnapshot(current), after: developmentSnapshot(updated) } as never,
+    })
+    return res.json({ data: { ...updated, date: updated.date.toISOString().slice(0, 10) } })
+  } catch (error) {
+    console.error('[gradebook] development update:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
 r.delete('/:id/development/:entryId', requirePermission('gradebook.plan'), async (req: any, res) => {
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
-    if (!ctx.access.canPlan) {
-      return res.status(403).json({ message: GRADE_BLOCK_MESSAGES.NOT_ASSIGNED, code: 'NOT_ASSIGNED' })
-    }
+    if (planWriteBlock(ctx, res)) return
 
-    const deleted = await prisma.courseDevelopmentEntry.deleteMany({
+    const current = await prisma.courseDevelopmentEntry.findFirst({
       where: { id: req.params.entryId, gradeBookId: ctx.row.id },
     })
-    if (deleted.count === 0) return res.status(404).json({ message: 'Registro no encontrado' })
+    if (!current) return res.status(404).json({ message: 'Registro no encontrado' })
+
+    await prisma.courseDevelopmentEntry.delete({ where: { id: current.id } })
+    // Lo borrado se puede reconstruir desde la auditoría: es el cuaderno del docente.
+    await recordAuditEventNow({
+      action: AuditAction.GRADEBOOK_DEVELOPMENT_DELETED,
+      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      req,
+      entityType: 'CourseDevelopmentEntry',
+      entityId: current.id,
+      metadata: { gradeBookId: ctx.row.id, entry: developmentSnapshot(current) } as never,
+    })
     return res.json({ ok: true })
   } catch (error) {
     console.error('[gradebook] development delete:', error)

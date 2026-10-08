@@ -41,7 +41,8 @@ export type RosterStudent = {
 }
 
 export type GradeBookDetail = GradeBookHeader & {
-  access: { level: GradeBookAccessLevel; canGrade: boolean }
+  /** `canPlan` va aparte: Dirección planifica y corrige el desarrollo sin poder calificar. */
+  access: { level: GradeBookAccessLevel; canGrade: boolean; canPlan?: boolean }
   studentCount: number
   students: RosterStudent[]
 }
@@ -62,6 +63,8 @@ export type AbsenceDayBoard = {
   hasClass: boolean
   /** Permite marcar aunque el día sea S/H (hay evento ancla del scope). */
   canMark: boolean
+  /** Por qué no se puede marcar aunque haya clase: `WINDOW_EXPIRED`, `LOCKED` o `NOT_ASSIGNED`. */
+  markBlockedReason?: string | null
   noClassReason: string | null
   eventId: string | null
   canGrade: boolean

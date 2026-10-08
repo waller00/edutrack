@@ -52,6 +52,10 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   MOODLE_GRADES_IMPORTED: "Notas importadas desde Moodle",
   GRADEBOOK_OBSERVED: "Libreta observada",
   GRADEBOOK_ENDORSED: "Libreta visada",
+  GRADEBOOK_COMPLETION_REQUESTED: "Aviso de libreta incompleta",
+  GRADEBOOK_PLANNING_UPDATED: "Planificación de libreta corregida",
+  GRADEBOOK_DEVELOPMENT_UPDATED: "Registro de clase corregido",
+  GRADEBOOK_DEVELOPMENT_DELETED: "Registro de clase borrado",
 };
 
 export function parseAuditActionFilter(raw: string | undefined): AuditAction | undefined {

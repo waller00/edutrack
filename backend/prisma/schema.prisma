@@ -80,6 +80,10 @@ enum AuditAction {
   GRADEBOOK_OBSERVED
   GRADEBOOK_ENDORSED
   GRADEBOOK_COMPLETION_REQUESTED
+  /// Alguien que no es el titular (Dirección) cambió la planificación del docente.
+  GRADEBOOK_PLANNING_UPDATED
+  GRADEBOOK_DEVELOPMENT_UPDATED
+  GRADEBOOK_DEVELOPMENT_DELETED
 }
 
 /// Rol de organización (`code` estable para JWT / guards; ej. ADMIN, TEACHER, CUSTOM_1).

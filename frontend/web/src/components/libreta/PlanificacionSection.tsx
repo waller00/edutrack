@@ -4,11 +4,25 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Save } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useLibreta } from '@/contexts/LibretaContext'
+import { useUnsavedChangesWarning } from '@/lib/hooks/useUnsavedChangesWarning'
 
 type Planning = {
   formative: string | null
   replanning: string | null
   attachments: string | null
+}
+
+type Stamp = { updatedAt: string | null; updatedByName: string | null }
+
+/** "Modificada por Ana G el 02/05/26, 12:00": quién la tocó por última vez, también si fue Dirección. */
+export function planningStamp(stamp: Stamp): string | null {
+  if (!stamp.updatedAt) return null
+  const when = new Intl.DateTimeFormat('es-UY', {
+    timeZone: 'America/Montevideo',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(stamp.updatedAt))
+  return stamp.updatedByName ? `Modificada por ${stamp.updatedByName} el ${when}` : `Modificada el ${when}`
 }
 
 /**
@@ -21,20 +35,31 @@ type Planning = {
 export default function PlanificacionSection() {
   const { gradeBookId } = useLibreta()
   const [planning, setPlanning] = useState<Planning>({ formative: '', replanning: '', attachments: '' })
+  const [saved, setSaved] = useState<Planning>(planning)
+  const [stamp, setStamp] = useState<Stamp>({ updatedAt: null, updatedByName: null })
   const [canEdit, setCanEdit] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
 
+  // Son textos largos: perderlos por cambiar de sección o cerrar la pestaña duele.
+  const dirty = (['formative', 'replanning', 'attachments'] as const).some(
+    (key) => (planning[key] ?? '') !== (saved[key] ?? ''),
+  )
+  useUnsavedChangesWarning(dirty)
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api<{ data: Planning; canEdit: boolean }>(`/gradebook/${gradeBookId}/planning`)
-      setPlanning({
+      const res = await api<{ data: Planning & Stamp; canEdit: boolean }>(`/gradebook/${gradeBookId}/planning`)
+      const loaded = {
         formative: res.data.formative ?? '',
         replanning: res.data.replanning ?? '',
         attachments: res.data.attachments ?? '',
-      })
+      }
+      setPlanning(loaded)
+      setSaved(loaded)
+      setStamp({ updatedAt: res.data.updatedAt ?? null, updatedByName: res.data.updatedByName ?? null })
       setCanEdit(res.canEdit)
     } catch (err) {
       setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo cargar la planificación' })
@@ -47,12 +72,24 @@ export default function PlanificacionSection() {
     void load()
   }, [load])
 
+  /** Sólo la marca de quién la modificó: recargar todo haría parpadear la pantalla. No es crítica. */
+  async function refreshStamp() {
+    try {
+      const res = await api<{ data?: Stamp }>(`/gradebook/${gradeBookId}/planning`)
+      if (res?.data) setStamp({ updatedAt: res.data.updatedAt ?? null, updatedByName: res.data.updatedByName ?? null })
+    } catch {
+      /* la planificación ya quedó guardada; la marca se actualiza la próxima vez que se abra */
+    }
+  }
+
   async function save() {
     setSaving(true)
     setMessage(null)
     try {
       await api(`/gradebook/${gradeBookId}/planning`, { method: 'PUT', body: JSON.stringify(planning) })
+      setSaved(planning)
       setMessage({ kind: 'ok', text: 'Planificación guardada.' })
+      void refreshStamp()
     } catch (err) {
       setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo guardar' })
     } finally {
@@ -82,8 +119,12 @@ export default function PlanificacionSection() {
     },
   ]
 
+  const lastChange = planningStamp(stamp)
+
   return (
     <div className="space-y-4">
+      {lastChange && <p className="text-xs text-gray-500">{lastChange}</p>}
+
       {message && (
         <p
           role={message.kind === 'error' ? 'alert' : 'status'}
@@ -127,7 +168,7 @@ export default function PlanificacionSection() {
         <button
           type="button"
           onClick={() => void save()}
-          disabled={saving}
+          disabled={saving || !dirty}
           className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
