@@ -160,8 +160,16 @@ describe("syncMoodleUserById", () => {
     expect(await syncMoodleUserById("missing")).toBeNull();
   });
 
+  it("no crea la cuenta Moodle de un usuario sin aprobar o dado de baja", async () => {
+    for (const flags of [{ isApproved: false, isActive: true }, { isApproved: true, isActive: false }]) {
+      prismaMock.user.findUnique.mockResolvedValue({ ...baseUser, ...flags });
+      expect(await syncMoodleUserById(baseUser.id)).toBeNull();
+    }
+    expect(moodleRestMock).not.toHaveBeenCalled();
+  });
+
   it("resuelve el usuario local y delega en syncMoodleUser", async () => {
-    prismaMock.user.findUnique.mockResolvedValue(baseUser);
+    prismaMock.user.findUnique.mockResolvedValue({ ...baseUser, isApproved: true, isActive: true });
     moodleRestMock.mockImplementation(async (fn: string, params: Record<string, string>) => {
       if (fn === "core_user_get_users_by_field" && params.field === "idnumber") return [{ id: 12 }];
       return [];

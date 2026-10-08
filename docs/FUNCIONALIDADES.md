@@ -123,7 +123,13 @@ En vistas de administración, el **año lectivo activo** filtra listados (asiste
 - Listado con filtros (rol, estado aprobación, activo/inactivo, búsqueda).
 - Creación y edición de usuarios del personal.
 - Asignación de rol/perfil organizacional.
-- Aprobación de registros pendientes → dispara **sincronización Moodle** si la integración está activa.
+- Aprobación de registros pendientes (exige el correo verificado) → le llega un **correo de cuenta
+  aprobada** y dispara la **sincronización Moodle** si la integración está activa. Una cuenta sin
+  aprobar o dada de baja nunca se crea en Moodle, aunque ya tenga eventos asignados.
+- **Rechazo** de una solicitud (`POST /admin/users/:id/reject`, motivo opcional): borra la cuenta, el
+  acceso de Keycloak y las sesiones, y avisa por correo si la dirección estaba verificada. Sólo para
+  cuentas sin aprobar y sin actividad (eventos, asistencias, licencias, libretas, suplencias, pases de
+  lista ni cuenta Moodle); una cuenta con historia se da de baja.
 - Desactivación, bloqueo, reset de contraseña.
 - Vinculación con datos de contacto y documento.
 - Notificaciones al usuario ante cambios relevantes.

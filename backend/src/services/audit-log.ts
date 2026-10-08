@@ -14,6 +14,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   USER_CREATED_BY_ADMIN: "Usuario creado por administración",
   USER_UPDATED_BY_ADMIN: "Usuario actualizado por administración",
   USER_DELETED_BY_ADMIN: "Usuario eliminado por administración",
+  USER_REJECTED_BY_ADMIN: "Solicitud de cuenta rechazada por administración",
   USER_ACCOUNT_LOCK_TOGGLED: "Bloqueo o desbloqueo de cuenta",
   ADMIN_PASSWORD_RESET_ISSUED: "Token de restablecimiento de contraseña emitido",
   MEDICAL_LEAVE_CREATED: "Licencia / permiso registrado",

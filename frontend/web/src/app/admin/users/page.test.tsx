@@ -122,6 +122,57 @@ describe('AdminUsersPage', () => {
     await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(`/admin/users/${row.id}`, expect.any(Object)))
   })
 
+  it('rechaza una solicitud pendiente con motivo y avisa que se mandó el correo', async () => {
+    const pendingRow = { ...row, isApproved: false }
+    const promptMock = vi.fn((_message: string): string | null => '  No trabaja en el liceo  ')
+    vi.stubGlobal('prompt', promptMock)
+    mockedApi
+      .mockResolvedValueOnce(orgRoles)
+      .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [pendingRow] })
+      .mockResolvedValueOnce({ ok: true, notified: true })
+      .mockResolvedValueOnce({ total: 0, page: 1, pageSize: 20, data: [] })
+
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rechazar' }))
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(`/admin/users/${row.id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'No trabaja en el liceo' }),
+      }),
+    )
+    expect(promptMock.mock.calls[0][0]).toMatch(/Le va a llegar un correo/)
+    expect(await screen.findByText(/Se le avisó por correo/)).toBeInTheDocument()
+  })
+
+  it('al rechazar sin correo verificado lo aclara y cancelar no hace nada', async () => {
+    const unverified = { ...row, isApproved: false, emailVerifiedAt: null }
+    const promptMock = vi.fn((_message: string): string | null => null)
+    vi.stubGlobal('prompt', promptMock)
+    mockedApi
+      .mockResolvedValueOnce(orgRoles)
+      .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [unverified] })
+
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rechazar' }))
+
+    expect(promptMock.mock.calls[0][0]).toMatch(/No se le manda correo/)
+    expect(mockedApi).not.toHaveBeenCalledWith(`/admin/users/${row.id}/reject`, expect.any(Object))
+  })
+
+  it('no muestra Rechazar a una cuenta aprobada', async () => {
+    mockedApi.mockResolvedValueOnce(orgRoles).mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [row] })
+
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+
+    expect(within(screen.getByRole('table')).queryByRole('button', { name: 'Rechazar' })).toBeNull()
+  })
+
   it('no guarda edición con usuario inválido', async () => {
     mockedApi
       .mockResolvedValueOnce(orgRoles)

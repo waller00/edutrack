@@ -277,10 +277,39 @@ export default function AdminUsersPage() {
 
   async function toggleApproval(u: AdminUserRow) {
     const next = !u.isApproved
-    if (!confirm(next ? '¿Aprobar usuario?' : '¿Marcar como pendiente de aprobación?')) return
+    if (!confirm(next ? '¿Aprobar usuario? Le va a llegar un correo avisándole.' : '¿Marcar como pendiente de aprobación?')) return
     try {
       await api(`/admin/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ isApproved: next }) })
       setNotice({ tone: 'success', text: next ? `${displayUserName(u)} fue aprobado.` : `${displayUserName(u)} quedó pendiente de aprobación.` })
+      await load(filters)
+    } catch (e: unknown) {
+      setNotice({ tone: 'error', text: getAdminUserSaveErrorMessage(e) })
+    }
+  }
+
+  // Rechazar borra la solicitud (cuenta, acceso y sesiones) y le avisa a la persona si verificó el
+  // correo. El backend lo permite sólo a cuentas sin aprobar y sin actividad.
+  async function rejectUser(u: AdminUserRow) {
+    const name = displayUserName(u)
+    const notice = u.emailVerifiedAt
+      ? 'Le va a llegar un correo avisándole.'
+      : 'No se le manda correo: todavía no verificó la dirección.'
+    const reason = prompt(
+      `¿Rechazar la solicitud de ${name}?\n\n` +
+        `Se borran su cuenta y los datos que cargó al registrarse. ${notice}\n\n` +
+        'Motivo (opcional, se incluye en el correo):',
+      '',
+    )
+    if (reason === null) return
+    try {
+      const res = await api<{ ok: boolean; notified: boolean }>(`/admin/users/${u.id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() || undefined }),
+      })
+      let text = `Se rechazó la solicitud de ${name} y se borraron sus datos.`
+      if (res.notified) text += ' Se le avisó por correo.'
+      else if (u.emailVerifiedAt) text += ' No se pudo enviar el correo de aviso.'
+      setNotice({ tone: res.notified || !u.emailVerifiedAt ? 'success' : 'error', text })
       await load(filters)
     } catch (e: unknown) {
       setNotice({ tone: 'error', text: getAdminUserSaveErrorMessage(e) })
@@ -342,6 +371,16 @@ export default function AdminUsersPage() {
         >
           {u.isApproved ? 'Pendiente' : 'Aprobar'}
         </button>
+        {!u.isApproved && (
+          <button
+            type="button"
+            onClick={() => void rejectUser(u)}
+            className="shrink-0 rounded-lg border border-red-300 bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 shadow-sm hover:border-red-400 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
+            title="Rechazar la solicitud: borra la cuenta y le avisa por correo"
+          >
+            Rechazar
+          </button>
+        )}
         <button
           type="button"
           onClick={() => toggleActive(u)}

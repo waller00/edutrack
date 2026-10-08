@@ -103,6 +103,17 @@ type User = {
   username?: string
   email: string
   role: string
+  isApproved?: boolean
+  isActive?: boolean
+}
+
+/**
+ * A quién se le puede asignar un evento o una suplencia: cuentas aprobadas y activas. Una cuenta
+ * pendiente todavía no confirmó su correo o no la aprobaron, y no debe quedar dada de alta en Moodle
+ * por tener una clase. Los filtros de la lista siguen mostrando a todos, para encontrar eventos viejos.
+ */
+function isAssignableUser(user: User): boolean {
+  return user.isApproved !== false && user.isActive !== false
 }
 
 type EventImportError = { row: number; message: string }
@@ -1913,7 +1924,7 @@ export default function AdminEvents() {
         {substitutionEvent ? (
           <SubstitutionModal
             event={substitutionEvent}
-            teachers={users.filter((u) => u.role === 'TEACHER' || u.role === 'STAFF')}
+            teachers={users.filter((u) => isAssignableUser(u) && (u.role === 'TEACHER' || u.role === 'STAFF'))}
             initialDate={substitutionInitialDate}
             onClose={() => {
               setSubstitutionEvent(null)
@@ -2066,7 +2077,7 @@ export default function AdminEvents() {
                   >
                     <option value="">Sin asignar</option>
                     {users
-                      .filter(user => !selectedRole || user.role === selectedRole)
+                      .filter(user => isAssignableUser(user) && (!selectedRole || user.role === selectedRole))
                       .map(user => (
                         <option key={user.id} value={user.id}>{user.username || user.name} ({getRoleLabel(user.role)})</option>
                       ))}
@@ -2424,11 +2435,13 @@ export default function AdminEvents() {
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   >
                     <option value="">Sin asignar</option>
-                    {users.map(user => (
-                      <option key={user.id} value={user.id}>
-                        {user.username || user.name} ({getRoleLabel(user.role)})
-                      </option>
-                    ))}
+                    {users
+                      .filter(user => isAssignableUser(user) || user.id === editingEvent.assignedUserId)
+                      .map(user => (
+                        <option key={user.id} value={user.id}>
+                          {user.username || user.name} ({getRoleLabel(user.role)})
+                        </option>
+                      ))}
                   </select>
                 </div>
 
