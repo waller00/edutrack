@@ -89,8 +89,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Mis Libretas', href: '/libreta', permission: 'gradebook.read', permissionScope: 'own' },
       { label: 'Inasistencias de Libreta', href: '/libreta/inasistencias', permission: 'gradebook.read', permissionScope: 'own' },
       { label: 'Evaluaciones', href: '/libreta/evaluaciones', permission: 'gradebook.read', permissionScope: 'own' },
-      { label: 'Cerrar Prom. por Alumno', href: '/libreta/cierre-alumno', permission: 'gradebook.close', permissionScope: 'own' },
-      { label: 'Cerrar Prom. por Libreta', href: '/libreta/cierre-libreta', permission: 'gradebook.close', permissionScope: 'own' },
+      // Una sola entrada: "por alumno" y "por libreta" abrían la misma pantalla, que ya cierra de las dos formas.
+      { label: 'Cierre de períodos', href: '/libreta/cierre-alumno', permission: 'gradebook.close', permissionScope: 'own' },
       // Supervisión: adscripción, dirección e inspección.
       { label: 'Control de libretas', href: '/libreta/control', permission: 'gradebook.review', permissionScope: 'all' },
       { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
@@ -139,7 +139,7 @@ function isPublicPath(pathname: string) {
 function itemIcon(label: string) {
   if (/pase de lista/i.test(label)) return ClipboardList
   if (/reportes/i.test(label)) return BellRing
-  if (/libreta|evaluacion|cerrar prom|visado|reunión|reunion/i.test(label)) return BookOpen
+  if (/libreta|evaluacion|cierre de per|visado|reunión|reunion/i.test(label)) return BookOpen
   if (/curso/i.test(label)) return BookOpen
   if (/estudiante/i.test(label)) return GraduationCap
   if (/mensualidad/i.test(label)) return Receipt

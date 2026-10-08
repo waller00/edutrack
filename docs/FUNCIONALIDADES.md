@@ -321,7 +321,8 @@ entienden solos.
 **Pantallas de supervisión:** `/libreta/reunion` (matriz del grupo), `/libreta/control`, `/libreta/visado`,
 `/libreta/indicadores`, `/libreta/estudiante/[id]` (ficha) y `/libreta/configuracion`
 (parametrización académica). Entradas globales de trabajo: `/libreta/inasistencias`,
-`/libreta/evaluaciones`, `/libreta/cierre-alumno` y `/libreta/cierre-libreta`.
+`/libreta/evaluaciones` y `/libreta/cierre-alumno` (*Cierre de períodos*: C, R e informe alumno por
+alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma pantalla y redirige).
 
 - **Unidad:** una libreta es `(ciclo, oferta de curso, orientación opcional, asignatura)`. En
   EduTrack el "grupo" es el curso más su orientación —no hay grupos paralelos—, así que esa clave
@@ -478,9 +479,12 @@ adscripción, dirección, inspección y administración.
   contracara exacta del roster; quedarse sólo con las de la orientación dejaría media matriz vacía.
 - **Promedio transversal (RF-061):** indicador automático, derivado al leer y nunca persistido. Una
   asignatura pendiente no lo arrastra: "todavía no tiene nota" no es "sacó poco".
-- **Ficha académica (RF-031):** trayectoria por ciclo, histórico por materia y período, y evolución
-  por asignatura. Un período sin datos se conserva como hueco; borrarlo haría que dos períodos
-  separados parecieran consecutivos.
+- **Ficha académica (RF-031):** trayectoria por ciclo —con el estado de la matrícula, las faltas
+  del ciclo y la conducta institucional de cada reunión—, histórico por materia y período,
+  evolución por asignatura, los juicios conceptuales de cada período y las decisiones de la reunión
+  sobre el estudiante. Con `gradebook.export` descarga el boletín de cada reunión de boletín. Un
+  período sin datos se conserva como hueco; borrarlo haría que dos períodos separados parecieran
+  consecutivos.
 - **Riesgo (§5.7):** se marca al estudiante con N o más asignaturas en tramo de alerta. El umbral
   es la regla *Asignaturas en alerta* del ciclo (3 por defecto), la misma que usan los indicadores,
   así "en alerta" significa lo mismo en la reunión y en Inteligencia académica. El descenso
@@ -721,8 +725,8 @@ Docente — `/libreta`, `/libreta/[id]` y sus secciones. Dentro de la libreta ha
 grupo** que conserva la sección abierta: el docente entra una vez y cambia de grupo sin salir.
 `/libreta/[id]/{planificacion,desarrollo,evaluaciones,inasistencias,cierre,visados,mensajes}`.
 
-Trabajo transversal — `/libreta/inasistencias`, `/libreta/evaluaciones`, `/libreta/cierre-alumno`,
-`/libreta/cierre-libreta`.
+Trabajo transversal — `/libreta/inasistencias`, `/libreta/evaluaciones` y `/libreta/cierre-alumno`
+(`/libreta/cierre-libreta` redirige ahí).
 
 Supervisión y parametrización — `/libreta/reunion`, `/libreta/control`, `/libreta/visado`,
 `/libreta/indicadores`, `/libreta/estudiante/[id]`, `/libreta/configuracion`.

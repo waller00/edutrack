@@ -261,10 +261,15 @@ describe('GET /students/:studentId', () => {
     expect(res.status).toBe(404)
   })
 
+  beforeEach(() => {
+    prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+  })
+
   it('arma trayectoria, histórico y evolución por ciclo', async () => {
     prismaMock.student.findUnique.mockResolvedValue({ id: STUDENT_ID, firstName: 'Ana', lastName: 'B', documentId: null, email: null })
     prismaMock.studentEnrollment.findMany.mockResolvedValue([
-      { schoolYear: { code: 2026, label: '2026' }, courseOffering: { course: { name: '3 EMS' } }, orientation: null, courseOrientation: { orientation: { name: 'Cs. de la Vida' } }, enrollmentStatus: 'ACTIVE' },
+      { schoolYearId: 'sy-1', schoolYear: { id: 'sy-1', code: 2026, label: '2026' }, courseOffering: { course: { name: '3 EMS', level: 'EMS' } }, orientation: null, courseOrientation: { orientation: { name: 'Cs. de la Vida' } }, enrollmentStatus: 'ACTIVE' },
     ])
     const gradeBook = {
       subject: { name: 'Matemática' },
@@ -287,6 +292,45 @@ describe('GET /students/:studentId', () => {
     expect(res.body.evolutionByYear[0].schoolYearCode).toBe(2026)
     // 9 → 7 → 5 es un descenso sostenido (§5.7).
     expect(res.body.evolutionByYear[0].subjects[0].sustainedDecline).toBe(true)
+  })
+
+  it('suma faltas, conducta, decisiones y las reuniones con boletín de cada año', async () => {
+    prismaMock.student.findUnique.mockResolvedValue({ id: STUDENT_ID, firstName: 'Ana', lastName: 'B', documentId: null, email: null })
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([
+      { schoolYearId: 'sy-1', schoolYear: { id: 'sy-1', code: 2026, label: '2026' }, courseOffering: { course: { name: '3 EMS', level: 'EMS' } }, orientation: null, courseOrientation: null, enrollmentStatus: 'ACTIVE' },
+    ])
+    prismaMock.periodGrade.findMany.mockResolvedValue([])
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
+      { studentId: STUDENT_ID, status: 'ABSENT', absenceWeightHundredths: null, session: { occurrenceYmd: '2026-05-04' } },
+      { studentId: STUDENT_ID, status: 'ABSENT_JUSTIFIED', absenceWeightHundredths: null, session: { occurrenceYmd: '2026-05-05' } },
+    ])
+    prismaMock.studentConductRecord.findMany.mockResolvedValue([
+      { periodId: 'p-2', valueHundredths: 900, period: { name: '2.º semestre', sortOrder: 20, schoolYearId: 'sy-1' } },
+      { periodId: 'p-1', valueHundredths: 300, period: { name: '1.er semestre', sortOrder: 10, schoolYearId: 'sy-1' } },
+      { periodId: 'p-x', valueHundredths: 300, period: { name: 'De otro año', sortOrder: 10, schoolYearId: 'sy-0' } },
+    ])
+    prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([
+      { id: 'd-1', decision: 'Se cita a la familia.', createdAt: new Date('2026-06-10T12:00:00Z'), period: { name: '1.er semestre', schoolYearId: 'sy-1' }, createdBy: { name: 'Laura' } },
+    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: 'p-1', name: '1.er semestre', level: 'EMS', schoolYearId: 'sy-1', isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: true },
+      { id: 'p-feb', name: 'Febrero', level: 'EMS', schoolYearId: 'sy-1', isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: false },
+      { id: 'p-ebi', name: '1.ª Entrega', level: 'EBI', schoolYearId: 'sy-1', isMeeting: true, requiresGeneralGrade: true, requiresConceptualJudgement: true },
+    ])
+
+    const res = await request(app())
+      .get(`/admin/gradebook/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    const year = res.body.enrollments[0]
+    expect(year.schoolYearId).toBe('sy-1')
+    expect(year.absences).toEqual({ absenceHundredths: 200, justified: 1 })
+    // En orden de la planilla y sólo los del año.
+    expect(year.conduct.map((c: any) => c.periodName)).toEqual(['1.er semestre', '2.º semestre'])
+    expect(year.conduct[0].label).toBe('Insuficiente')
+    // Boletín sólo de las reuniones de boletín de su nivel: sin febrero ni las de EBI.
+    expect(year.reportCardPeriods).toEqual([{ id: 'p-1', name: '1.er semestre' }])
+    expect(res.body.decisions[0]).toMatchObject({ decision: 'Se cita a la familia.', periodName: '1.er semestre', createdByName: 'Laura' })
   })
 })
 

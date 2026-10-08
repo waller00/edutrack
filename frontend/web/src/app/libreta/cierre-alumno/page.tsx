@@ -7,7 +7,11 @@ export default function Page() {
   return (
     <RoleGuard permission="gradebook.read">
       <main className="responsive-page max-w-[1200px]">
-        <ElegirLibreta section="cierre" title="Cerrar Prom. por Alumno" hint="Calificación general y juicio conceptual, estudiante por estudiante." />
+        <ElegirLibreta
+          section="cierre"
+          title="Cierre de períodos"
+          hint="Calificación (C), nota de reunión (R) e informe alumno por alumno, y el cierre de cada entrega."
+        />
       </main>
     </RoleGuard>
   )
