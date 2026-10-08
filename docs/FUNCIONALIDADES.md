@@ -405,13 +405,21 @@ entienden solos.
 - **Conducta, dos veces.** Cada docente pone la de su asignatura junto a la nota del período
   (`PeriodGrade.conductValueHundredths`), y adscripción pone una institucional por estudiante y
   período (`StudentConductRecord`). La reunión las ve juntas. Usa su propia escala (`CONDUCTA`),
-  porque no se mide como el rendimiento.
+  porque no se mide como el rendimiento, y las etiquetas salen de esa escala (no de una tabla en el
+  código): un cambio en Configuración llega a la reunión y al boletín. Adscripción y Dirección
+  (`gradebook.review`) cargan la institucional en la columna Conducta de la matriz de reunión; el
+  servidor sólo acepta valores de la escala y un período del ciclo indicado.
 - **Reunión (`/libreta/reunion`):** la matriz del grupo con rendimiento, conducta e inasistencias en
   la misma fila, el promedio con **un decimal** —hace falta para escolaridad y abanderados— y el
   registro de decisiones sobre `TeacherMeetingRecord`.
 - **Boletín (`GET /admin/gradebook/report-card/:studentId?periodId=`):** PDF por estudiante y
   período con nota y juicio de **todas** sus asignaturas, conducta, promedio e inasistencias. Es la
   única salida transversal: el resto de las exportaciones son por libreta, o sea de una materia.
+  El grupo sale de la matrícula del **ciclo del período** (la activa, o la última de ese año si el
+  estudiante ya se fue), no de la de hoy, y un período de otro nivel responde `LEVEL_MISMATCH`.
+  **Boletines del grupo** (`GET /admin/gradebook/report-cards`): un solo PDF, una hoja por
+  estudiante, para imprimir la entrega. Los dos se descargan desde la matriz de reunión en las
+  reuniones de boletín, con `gradebook.export`.
 - **Control de libretas (`/libreta/control`):** antes de cada reunión de boletín (cada ~2 meses)
   administración revisa que cada docente esté al día y, si no, le avisa por notificación interna.
   - El desplegable lista sólo **reuniones de boletín**, separadas por nivel: EBI 1.ª a 4.ª Entrega,

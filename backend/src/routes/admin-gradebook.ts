@@ -4,12 +4,12 @@ import { prisma } from '../db/prisma.js'
 import { attachmentDisposition } from '../services/exports/content-disposition.js'
 import { requirePermission } from '../middlewares/auth.js'
 import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
-import { buildReportCard } from '../services/gradebook/report-card.js'
+import { loadReportCards } from '../services/gradebook/report-card-loader.js'
 import { completionRequestBody } from '../services/gradebook/completeness.js'
-import { periodScaleFor } from '../services/gradebook/period-scale.js'
+import { conductOptions, conductScale, isConductValue, periodScaleFor } from '../services/gradebook/period-scale.js'
 import { loadPeriodCompleteness } from '../services/gradebook/completeness-loader.js'
 import { completionRequestNotification } from '../services/gradebook/notifications.js'
-import { generateReportCardPdf } from '../services/gradebook/exports/reportCardPdf.js'
+import { generateReportCardPdf, generateReportCardsPdf } from '../services/gradebook/exports/reportCardPdf.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
 import { AuditAction, type Prisma } from '@prisma/client'
@@ -209,12 +209,13 @@ r.get('/group-matrix', async (req: any, res) => {
     // La reunión mira tres cosas juntas: rendimiento, conducta e inasistencias. Las dos últimas no
     // viven en la libreta —son del estudiante, no de la materia— así que se traen acá.
     const studentIds = students.map((s) => s.studentId)
-    const [conductRows, absenceByStudent] = await Promise.all([
+    const [conductRows, absenceByStudent, conduct] = await Promise.all([
       (prisma as any).studentConductRecord.findMany({
         where: { periodId: parsed.data.periodId, studentId: { in: studentIds } },
         select: { studentId: true, valueHundredths: true },
       }),
       loadAbsenceTotals(studentIds, offering.schoolYear.id, offering.course?.level),
+      conductScale(),
     ])
     const conductByStudent = new Map<string, number | null>(
       conductRows.map((row: any) => [row.studentId, row.valueHundredths ?? null]),
@@ -276,6 +277,8 @@ r.get('/group-matrix', async (req: any, res) => {
       averageDecimals: 1,
       /** Asignaturas en alerta que marcan al estudiante; `null` si la regla está apagada. */
       alertSubjectsThreshold: Number.isFinite(riskThreshold) ? riskThreshold : null,
+      /** Tramos de la escala de conducta: rotulan la columna y son las opciones al cargarla. */
+      conductLevels: conductOptions(conduct?.levels ?? []),
     })
   } catch (error) {
     console.error('[admin-gradebook] group-matrix:', error)
@@ -548,11 +551,44 @@ r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review
 // ─── Boletín ────────────────────────────────────────────────────────────────
 
 /**
+ * Matrícula del estudiante en el ciclo del período. Primero la activa; si ya no lo está (se fue,
+ * egresó), la más reciente de ese año: el boletín de un período pasado sigue siendo suyo.
+ */
+async function enrollmentForYear(studentId: string, schoolYearId: string) {
+  const rows = await prisma.studentEnrollment.findMany({
+    where: { studentId, schoolYearId },
+    select: {
+      enrollmentStatus: true,
+      courseOfferingId: true,
+      courseOrientationId: true,
+      orientationId: true,
+      courseOffering: { select: { course: { select: { level: true } } } },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+  return rows.find((row) => row.enrollmentStatus === 'ACTIVE') ?? rows[0] ?? null
+}
+
+async function reportCardPeriod(periodId: string) {
+  return prisma.academicPeriod.findUnique({
+    where: { id: periodId },
+    select: { id: true, name: true, schoolYearId: true, level: true },
+  })
+}
+
+function sendPdf(res: any, pdf: Buffer, filename: string) {
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', attachmentDisposition(filename))
+  return res.send(pdf)
+}
+
+/**
  * Boletín del estudiante para un período: todas sus asignaturas en un solo documento.
  *
  * Es la única salida transversal del sistema — el resto de las exportaciones son por libreta, o
  * sea de una materia sola. Reúne lo que el liceo pidió que llegue a la familia: nota y juicio de
- * cada asignatura, conducta, promedio e inasistencias, con el encabezado del estudiante.
+ * cada asignatura, conducta, promedio e inasistencias, con el encabezado del estudiante. El grupo
+ * sale de la matrícula del ciclo del período, no de la de hoy.
  */
 r.get('/report-card/:studentId', requirePermission('gradebook.export'), async (req: any, res) => {
   const periodId = typeof req.query.periodId === 'string' ? req.query.periodId : null
@@ -565,89 +601,85 @@ r.get('/report-card/:studentId', requirePermission('gradebook.export'), async (r
     })
     if (!student) return res.status(404).json({ message: 'Estudiante no encontrado' })
 
-    const enrollment = await prisma.studentEnrollment.findFirst({
-      where: { studentId: student.id, enrollmentStatus: 'ACTIVE' },
-      include: {
-        schoolYear: { select: { id: true, label: true } },
-        courseOffering: { include: { course: { select: { name: true, level: true } } } },
-        courseOrientation: { include: { orientation: { select: { name: true } } } },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-    if (!enrollment?.courseOffering) {
-      return res.status(409).json({ message: 'El estudiante no tiene matrícula activa', code: 'NO_ENROLLMENT' })
+    const period = await reportCardPeriod(periodId)
+    if (!period) return res.status(404).json({ message: 'Período no encontrado' })
+
+    const enrollment = await enrollmentForYear(student.id, period.schoolYearId)
+    if (!enrollment) {
+      return res.status(409).json({ message: 'El estudiante no estaba matriculado en ese ciclo', code: 'NO_ENROLLMENT' })
+    }
+    if (enrollment.courseOffering?.course?.level && enrollment.courseOffering.course.level !== period.level) {
+      return res.status(409).json({ message: 'El período no es del nivel del estudiante', code: 'LEVEL_MISMATCH' })
     }
 
-    const books = await prisma.gradeBook.findMany({
-      where: { courseOfferingId: enrollment.courseOfferingId },
-      include: { subject: { select: { name: true, sortOrder: true } }, teacher: { select: { name: true } } },
-    })
-    const relevant = gradeBooksForGroup(books as any, {
-      courseOfferingId: enrollment.courseOfferingId,
-      courseOrientationId: enrollment.courseOrientationId,
-      orientationId: enrollment.orientationId,
-    })
-    relevant.sort((a: any, b: any) => (a.subject?.sortOrder ?? 0) - (b.subject?.sortOrder ?? 0))
-
-    const [states, scale, conduct, attendance] = await Promise.all([
-      prisma.gradeBookPeriod.findMany({
-        where: { periodId, gradeBookId: { in: relevant.map((b: any) => b.id) } },
-        include: { grades: { where: { studentId: student.id } } },
-      }),
-      periodScaleFor(enrollment.courseOffering.course?.level),
-      (prisma as any).studentConductRecord.findUnique({
-        where: { studentId_periodId: { studentId: student.id, periodId } },
-        select: { valueHundredths: true },
-      }),
-      loadAbsenceTotals([student.id], enrollment.schoolYearId, enrollment.courseOffering.course?.level),
-    ])
-
-    const levels = scale?.levels ?? []
-    const stateByBook = new Map(states.map((st) => [st.gradeBookId, st]))
-    const period = await prisma.academicPeriod.findUnique({ where: { id: periodId }, select: { name: true } })
-
-    const card = buildReportCard({
-      student: {
-        firstName: student.firstName,
-        lastName: student.lastName,
-        documentId: student.documentId,
-        birthDate: student.birthDate,
-      },
+    const { cards, decimals } = await loadReportCards({
       group: {
-        courseName: enrollment.courseOffering.course.name,
-        orientationName: enrollment.courseOrientation?.orientation.name ?? null,
-        schoolYearLabel: enrollment.schoolYear?.label ?? '',
+        schoolYearId: period.schoolYearId,
+        courseOfferingId: enrollment.courseOfferingId,
+        courseOrientationId: enrollment.courseOrientationId,
+        orientationId: enrollment.orientationId,
       },
-      period: { name: period?.name ?? '' },
-      subjects: relevant.map((book: any) => {
-        const grade = stateByBook.get(book.id)?.grades?.[0]
-        // Al boletín va siempre R: sin reunión, la materia figura pendiente.
-        const value = officialPeriodValue(grade)
-        return {
-          subjectName: book.subject?.name ?? '—',
-          teacherName: book.teacher?.name ?? null,
-          valueHundredths: value,
-          descriptor: describeCell(value, levels)?.label ?? null,
-          conceptualJudgement: grade?.conceptualJudgement ?? null,
-          conductValueHundredths: grade?.conductValueHundredths ?? null,
-        }
-      }),
-      conductValueHundredths: conduct?.valueHundredths ?? null,
-      attendance: {
-        absenceHundredths: attendance.get(student.id)?.absenceHundredths ?? 0,
-        justifiedCount: attendance.get(student.id)?.justified ?? 0,
-      },
+      period,
+      students: [student],
     })
-
-    const pdf = await generateReportCardPdf(card, scale?.decimals ?? 1)
-    res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader(
-      'Content-Disposition',
-      attachmentDisposition(`boletin-${student.lastName}-${student.firstName}.pdf`),
-    )
-    return res.send(pdf)
+    const pdf = await generateReportCardPdf(cards[0], decimals)
+    return sendPdf(res, pdf, `boletin-${student.lastName}-${student.firstName}.pdf`)
   } catch (error) {
     console.error('[admin-gradebook] report-card:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+const groupReportCardsSchema = z.object({
+  courseOfferingId: z.string().uuid(),
+  courseOrientationId: z.string().uuid().optional(),
+  periodId: z.string().uuid(),
+})
+
+/**
+ * Boletines de todo un grupo en un solo PDF, cada uno en su hoja: es lo que se imprime para la
+ * entrega a las familias. Los estudiantes son los matriculados hoy en el grupo.
+ */
+r.get('/report-cards', requirePermission('gradebook.export'), async (req: any, res) => {
+  const parsed = groupReportCardsSchema.safeParse(req.query)
+  if (!parsed.success) return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+
+  try {
+    const { courseOfferingId, courseOrientationId, periodId } = parsed.data
+    const [period, offering] = await Promise.all([
+      reportCardPeriod(periodId),
+      prisma.courseOffering.findUnique({
+        where: { id: courseOfferingId },
+        select: { schoolYearId: true, course: { select: { name: true, level: true } } },
+      }),
+    ])
+    if (!period || !offering) return res.status(404).json({ message: 'Grupo o período no encontrado' })
+    if (offering.schoolYearId !== period.schoolYearId || offering.course?.level !== period.level) {
+      return res.status(409).json({ message: 'El período no corresponde a ese grupo', code: 'PERIOD_MISMATCH' })
+    }
+
+    const group = { schoolYearId: period.schoolYearId, courseOfferingId, courseOrientationId: courseOrientationId ?? null, orientationId: null }
+    const roster = await loadRosterForScope(group)
+    if (roster.length === 0) return res.status(404).json({ message: 'El grupo no tiene estudiantes matriculados', code: 'EMPTY_GROUP' })
+
+    const birthDates = await prisma.student.findMany({
+      where: { id: { in: roster.map((s) => s.studentId) } },
+      select: { id: true, birthDate: true },
+    })
+    const birthById = new Map(birthDates.map((row) => [row.id, row.birthDate]))
+    const students = roster.map((s) => ({
+      id: s.studentId,
+      firstName: s.firstName,
+      lastName: s.lastName,
+      documentId: s.documentId,
+      birthDate: birthById.get(s.studentId) ?? null,
+    }))
+
+    const { cards, decimals } = await loadReportCards({ group, period, students })
+    const pdf = await generateReportCardsPdf(cards, decimals)
+    return sendPdf(res, pdf, `boletines-${offering.course?.name ?? 'grupo'}-${period.name}.pdf`)
+  } catch (error) {
+    console.error('[admin-gradebook] report-cards:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -696,6 +728,17 @@ r.put('/conduct', requirePermission('gradebook.review', 'all'), async (req: any,
   }
   try {
     const d = parsed.data
+    const [period, conduct] = await Promise.all([
+      prisma.academicPeriod.findFirst({ where: { id: d.periodId, schoolYearId: d.schoolYearId }, select: { id: true } }),
+      conductScale(),
+    ])
+    if (!period) return res.status(404).json({ message: 'El período no es de ese ciclo', code: 'PERIOD_NOT_FOUND' })
+    // Sólo valores de la escala: una conducta "250" no tiene texto y el boletín la mostraría como número.
+    const levels = conduct?.levels ?? []
+    if (levels.length > 0 && d.entries.some((entry) => !isConductValue(entry.valueHundredths, levels))) {
+      return res.status(400).json({ message: 'La conducta tiene que ser un valor de la escala.', code: 'CONDUCT_OUT_OF_SCALE' })
+    }
+
     const userId = req.user?.id ?? req.user?.sub ?? null
     await prisma.$transaction(
       d.entries.map((entry) =>
