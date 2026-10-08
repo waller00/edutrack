@@ -16,6 +16,8 @@ export type ReportCardSubject = {
   descriptor: string | null
   conceptualJudgement: string | null
   conductValueHundredths: number | null
+  /** Texto de la conducta según la escala `CONDUCTA`. */
+  conductLabel?: string | null
 }
 
 export type ReportCardInput = {
@@ -30,6 +32,7 @@ export type ReportCardInput = {
   subjects: readonly ReportCardSubject[]
   /** Conducta institucional del período, la que pone adscripción. */
   conductValueHundredths: number | null
+  conductLabel?: string | null
   attendance: { absenceHundredths: number; justifiedCount: number }
 }
 

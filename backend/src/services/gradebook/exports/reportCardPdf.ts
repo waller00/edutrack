@@ -12,16 +12,10 @@ import { formatAbsenceUnits } from '../../student-attendance/absence-weight.js'
  * recorre todas las asignaturas del grupo.
  */
 
-const CONDUCT_LABELS: Record<number, string> = {
-  100: 'Mala',
-  200: 'Regular',
-  300: 'Buena',
-  400: 'Muy buena',
-}
-
-function conductText(value: number | null): string {
-  if (value == null) return '—'
-  return CONDUCT_LABELS[value] ?? String(value / 100)
+/** La etiqueta viene resuelta con la escala `CONDUCTA`; sin ella, el número. */
+function conductText(label: string | null | undefined, value: number | null): string {
+  if (label) return label
+  return value == null ? '—' : String(value / 100).replace('.', ',')
 }
 
 function header(doc: PDFKit.PDFDocument, card: ReportCard) {
@@ -61,7 +55,7 @@ function subjectRows(doc: PDFKit.PDFDocument, card: ReportCard, decimals: number
       .text(
         `   ${subject.valueHundredths == null ? 'Pendiente de reunión' : formatAverage(subject.valueHundredths, decimals)}` +
           `${subject.descriptor ? ` · ${subject.descriptor}` : ''}` +
-          `${subject.conductValueHundredths != null ? ` · Conducta: ${conductText(subject.conductValueHundredths)}` : ''}`,
+          `${subject.conductValueHundredths != null ? ` · Conducta: ${conductText(subject.conductLabel, subject.conductValueHundredths)}` : ''}`,
       )
     if (subject.conceptualJudgement) {
       doc.fontSize(9).font('Helvetica-Oblique').fillColor('#374151').text(subject.conceptualJudgement, { indent: 16 })
@@ -87,14 +81,34 @@ function summary(doc: PDFKit.PDFDocument, card: ReportCard, decimals: number) {
       )
     doc.fillColor('#000000').fontSize(10)
   }
-  doc.text(`Conducta: ${conductText(card.conductValueHundredths)}`)
+  doc.text(`Conducta: ${conductText(card.conductLabel, card.conductValueHundredths)}`)
   doc.text(
     `Inasistencias: ${formatAbsenceUnits(card.attendance.absenceHundredths)}` +
       `${card.attendance.justifiedCount > 0 ? ` (${card.attendance.justifiedCount} justificadas)` : ''}`,
   )
 }
 
-export function generateReportCardPdf(card: ReportCard, decimals = 1): Promise<Buffer> {
+function reportCardPage(doc: PDFKit.PDFDocument, card: ReportCard, decimals: number) {
+  header(doc, card)
+  subjectRows(doc, card, decimals)
+  summary(doc, card, decimals)
+
+  doc
+    .moveDown(1)
+    .fontSize(8)
+    .fillColor('#6B7280')
+    .text(
+      'El promedio es un indicador automático calculado sobre las calificaciones del período; ' +
+        'no sustituye las decisiones de la reunión de profesores.',
+    )
+  doc.fillColor('#000000')
+}
+
+/**
+ * Varios boletines en un solo PDF, cada uno desde una hoja nueva: es como se imprimen los de un
+ * grupo para la entrega a las familias.
+ */
+export function generateReportCardsPdf(cards: readonly ReportCard[], decimals = 1): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 48 })
     const chunks: Buffer[] = []
@@ -102,19 +116,15 @@ export function generateReportCardPdf(card: ReportCard, decimals = 1): Promise<B
     doc.on('end', () => resolve(Buffer.concat(chunks)))
     doc.on('error', reject)
 
-    header(doc, card)
-    subjectRows(doc, card, decimals)
-    summary(doc, card, decimals)
-
-    doc
-      .moveDown(1)
-      .fontSize(8)
-      .fillColor('#6B7280')
-      .text(
-        'El promedio es un indicador automático calculado sobre las calificaciones del período; ' +
-          'no sustituye las decisiones de la reunión de profesores.',
-      )
+    cards.forEach((card, index) => {
+      if (index > 0) doc.addPage()
+      reportCardPage(doc, card, decimals)
+    })
 
     doc.end()
   })
+}
+
+export function generateReportCardPdf(card: ReportCard, decimals = 1): Promise<Buffer> {
+  return generateReportCardsPdf([card], decimals)
 }

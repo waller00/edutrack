@@ -2,27 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Loader2 } from 'lucide-react'
+import { FileText, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
+import { downloadFile } from '@/lib/api/download'
+import { useOptionalAuth } from '@/contexts/AuthContext'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
+import { hasPermission } from '@/lib/auth/permissions'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import { levelStyle } from '@/lib/academic-config/level-tokens'
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
 import MeetingDecisions from './MeetingDecisions'
-
-/** Etiquetas de la escala de conducta sembrada. Texto además del valor, nunca sólo un número. */
-const CONDUCT_LABELS: Record<number, string> = {
-  100: 'Mala',
-  200: 'Regular',
-  300: 'Buena',
-  400: 'Muy buena',
-}
-
-function conductLabel(value: number | null | undefined): string {
-  if (value == null) return '—'
-  return CONDUCT_LABELS[value] ?? String(value / 100)
-}
 
 type Group = {
   courseOfferingId: string
@@ -33,7 +23,14 @@ type Group = {
   level?: 'EBI' | 'EMS' | null
 }
 
-type Period = { id: string; name: string; level?: 'EBI' | 'EMS' | null }
+type Period = {
+  id: string
+  name: string
+  level?: 'EBI' | 'EMS' | null
+  isMeeting?: boolean
+  requiresGeneralGrade?: boolean
+  requiresConceptualJudgement?: boolean
+}
 
 type Descriptor = { label: string; descriptor: string | null; colorToken: string | null; iconToken: string | null; isAlert: boolean } | null
 
@@ -64,13 +61,19 @@ type Row = {
   atRisk: boolean
 }
 
+type ConductOption = { valueHundredths: number; label: string }
+
 type Matrix = {
-  group: { courseName: string; schoolYear: { label: string } }
+  group: { courseName: string; schoolYear: { id?: string; label: string } }
   subjects: Array<{ gradeBookId: string; name: string; teacher: string | null; periodStatus: string | null }>
   students: Row[]
   averageLabel: string
   /** Decimales del promedio. El liceo lo pide con al menos uno: escolaridad y abanderados. */
   averageDecimals?: number
+  /** Asignaturas en alerta que marcan al estudiante; `null` si la regla está apagada. */
+  alertSubjectsThreshold?: number | null
+  /** Tramos de la escala de conducta: rotulan la columna y son las opciones al cargarla. */
+  conductLevels?: ConductOption[]
 }
 
 function groupKey(g: Group) {
@@ -79,6 +82,23 @@ function groupKey(g: Group) {
 
 function groupLabel(g: Group) {
   return g.orientationName ? `${g.courseName} — ${g.orientationName}` : g.courseName
+}
+
+/** Reunión de boletín: pide C y juicio. Es la que tiene boletín para la familia. */
+export function isReportCardPeriod(p: Period | undefined): boolean {
+  return Boolean(p?.isMeeting && p.requiresGeneralGrade && p.requiresConceptualJudgement)
+}
+
+/** Texto de la conducta con la escala; nunca sólo un número suelto ni un color. */
+export function conductText(value: number | null | undefined, levels: readonly ConductOption[]): string {
+  if (value == null) return '—'
+  return levels.find((l) => l.valueHundredths === value)?.label ?? String(value / 100).replace('.', ',')
+}
+
+export function reportCardsPath(group: Group, periodId: string): string {
+  const params = new URLSearchParams({ courseOfferingId: group.courseOfferingId, periodId })
+  if (group.courseOrientationId) params.set('courseOrientationId', group.courseOrientationId)
+  return `/admin/gradebook/report-cards?${params}`
 }
 
 /**
@@ -113,7 +133,93 @@ function MatrixCell({ cell, decimals }: { cell: Cell; decimals: number }) {
   )
 }
 
+function ConductCell({
+  row,
+  levels,
+  editable,
+  onChange,
+}: {
+  row: Row
+  levels: readonly ConductOption[]
+  editable: boolean
+  onChange: (value: number | null) => void
+}) {
+  if (!editable || levels.length === 0) return <>{conductText(row.conductValueHundredths, levels)}</>
+  return (
+    <select
+      aria-label={`Conducta de ${row.lastName}, ${row.firstName}`}
+      value={row.conductValueHundredths ?? ''}
+      onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+      className="rounded border border-gray-300 px-1 py-0.5 text-xs"
+    >
+      <option value="">—</option>
+      {levels.map((level) => (
+        <option key={level.valueHundredths} value={level.valueHundredths}>
+          {level.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function StudentCell({
+  row,
+  reportCard,
+  busy,
+  onReportCard,
+}: {
+  row: Row
+  /** ¿Se ofrece el boletín? Sólo en reuniones de boletín y con permiso para exportar. */
+  reportCard: boolean
+  /** Descarga en curso: la de este alumno muestra el spinner y las demás quedan en espera. */
+  busy: string | null
+  onReportCard: () => void
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Link href={`/libreta/estudiante/${row.studentId}`} className="text-emerald-700 hover:underline">
+        {row.lastName}, {row.firstName}
+      </Link>
+      {reportCard && (
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={onReportCard}
+          aria-label={`Boletín de ${row.lastName}, ${row.firstName}`}
+          title="Descargar el boletín"
+          className="text-gray-400 hover:text-emerald-700 disabled:opacity-40"
+        >
+          {busy === row.studentId ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : (
+            <FileText className="h-3.5 w-3.5" aria-hidden />
+          )}
+        </button>
+      )}
+    </span>
+  )
+}
+
+function AlertCell({ row }: { row: Row }) {
+  return (
+    <>
+      {row.atRisk ? (
+        <span className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-800">
+          <span aria-hidden>▲ </span>
+          {row.alertCount} en alerta
+        </span>
+      ) : (
+        <span className="text-gray-500">{row.alertCount}</span>
+      )}
+      {row.pendingCount > 0 && <span className="ml-1 text-gray-500">· {row.pendingCount} pend.</span>}
+    </>
+  )
+}
+
 export default function GroupMatrix({ projection = false }: { projection?: boolean }) {
+  const auth = useOptionalAuth()
+  const canExport = hasPermission(auth?.me, 'gradebook.export')
+  const canEditConduct = hasPermission(auth?.me, 'gradebook.review', 'all')
   const schoolYear = useOptionalAdminSchoolYear()
   const query = schoolYear?.schoolYearScopedQuery ?? ''
   const [groups, setGroups] = useState<Group[]>([])
@@ -122,6 +228,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   const [periodId, setPeriodId] = useState('')
   const [matrix, setMatrix] = useState<Matrix | null>(null)
   const [loading, setLoading] = useState(true)
+  const [downloading, setDownloading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -159,12 +266,44 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
 
   // Sólo las reuniones del nivel del grupo: un período EMS sobre un grupo EBI da una matriz vacía.
   const visiblePeriods = periods.filter((p) => !group?.level || !p.level || p.level === group.level)
+  const period = periods.find((p) => p.id === periodId)
+  const offersReportCards = canExport && isReportCardPeriod(period)
 
   function selectGroup(next: Group | null) {
     setGroup(next)
     setMatrix(null)
     const current = periods.find((p) => p.id === periodId)
     if (next?.level && current?.level && current.level !== next.level) setPeriodId('')
+  }
+
+  async function download(key: string, path: string, fallbackName: string) {
+    setDownloading(key)
+    setError(null)
+    try {
+      await downloadFile(path, fallbackName)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo descargar')
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  async function saveConduct(studentId: string, value: number | null) {
+    const schoolYearId = matrix?.group.schoolYear.id
+    if (!matrix || !schoolYearId) return
+    setMatrix({
+      ...matrix,
+      students: matrix.students.map((row) => (row.studentId === studentId ? { ...row, conductValueHundredths: value } : row)),
+    })
+    try {
+      await api('/admin/gradebook/conduct', {
+        method: 'PUT',
+        body: JSON.stringify({ schoolYearId, periodId, entries: [{ studentId, valueHundredths: value }] }),
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar la conducta')
+      void loadMatrix()
+    }
   }
 
   if (loading) {
@@ -175,6 +314,8 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
       </p>
     )
   }
+
+  const conductLevels = matrix?.conductLevels ?? []
 
   return (
     <div className="space-y-4">
@@ -205,6 +346,17 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
             ))}
           </select>
         </label>
+        {matrix && group && offersReportCards && (
+          <button
+            type="button"
+            disabled={downloading !== null}
+            onClick={() => void download('group', reportCardsPath(group, periodId), 'boletines.pdf')}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {downloading === 'group' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <FileText className="h-4 w-4" aria-hidden />}
+            Boletines del grupo
+          </button>
+        )}
       </div>
 
       {error && (
@@ -243,9 +395,18 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                 {matrix.students.map((row) => (
                   <tr key={row.studentId} className={row.atRisk ? 'bg-red-50/40' : undefined}>
                     <td className="sticky left-0 bg-inherit px-3 py-1.5">
-                      <Link href={`/libreta/estudiante/${row.studentId}`} className="text-emerald-700 hover:underline">
-                        {row.lastName}, {row.firstName}
-                      </Link>
+                      <StudentCell
+                        row={row}
+                        reportCard={offersReportCards}
+                        busy={downloading}
+                        onReportCard={() =>
+                          void download(
+                            row.studentId,
+                            `/admin/gradebook/report-card/${row.studentId}?periodId=${periodId}`,
+                            'boletin.pdf',
+                          )
+                        }
+                      />
                     </td>
                     {row.cells.map((cell) => (
                       <td key={cell.gradeBookId} className="px-2 py-1.5">
@@ -256,23 +417,18 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                       {formatHundredths(row.averageHundredths, matrix.averageDecimals ?? 1)}
                     </td>
                     <td className="px-2 py-1.5 text-gray-700">
-                      {conductLabel(row.conductValueHundredths)}
+                      <ConductCell
+                        row={row}
+                        levels={conductLevels}
+                        editable={canEditConduct}
+                        onChange={(value) => void saveConduct(row.studentId, value)}
+                      />
                     </td>
                     <td className="px-2 py-1.5 text-gray-700">
                       {formatAbsenceUnits(row.absenceHundredths ?? 0)}
                     </td>
                     <td className="px-2 py-1.5 text-xs">
-                      {row.atRisk ? (
-                        <span className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-800">
-                          <span aria-hidden>▲ </span>
-                          {row.alertCount} en alerta
-                        </span>
-                      ) : (
-                        <span className="text-gray-500">{row.alertCount}</span>
-                      )}
-                      {row.pendingCount > 0 && (
-                        <span className="ml-1 text-gray-500">· {row.pendingCount} pend.</span>
-                      )}
+                      <AlertCell row={row} />
                     </td>
                   </tr>
                 ))}
@@ -284,6 +440,8 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
             <strong>{matrix.averageLabel}.</strong> Se calcula con la nota de reunión (R); una celda con{' '}
             <span className="rounded border border-dashed border-gray-300 px-1">C</span> es la propuesta del
             docente y todavía no cuenta. No sustituye las decisiones pedagógicas de la reunión de profesores.
+            {matrix.alertSubjectsThreshold != null &&
+              ` En alerta: ${matrix.alertSubjectsThreshold} o más asignaturas en el tramo de alerta.`}{' '}
             Las alertas son informativas y no generan por sí solas decisiones administrativas.
           </p>
 

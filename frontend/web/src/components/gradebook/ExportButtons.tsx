@@ -2,15 +2,14 @@
 
 import { useState } from 'react'
 import { Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
-import { apiBaseUrl } from '@/lib/api/client'
+import { downloadFile } from '@/lib/api/download'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
 
 /**
  * Descargas de la libreta (RF-120).
  *
- * Va por `fetch` + blob y no por un `<a href>` directo porque la API vive en otro origen y la
- * sesión viaja en una cookie: un enlace plano no la mandaría y la descarga daría 401.
+ * La descarga va por `downloadFile` (fetch + blob con la cookie de sesión).
  *
  * Sólo se ofrece con `gradebook.export`: sin él (inspección, por ejemplo) el servidor responde
  * 403 y el botón no hacía más que dar error.
@@ -24,21 +23,7 @@ export default function ExportButtons({ gradeBookId }: { gradeBookId: string }) 
     setBusy(kind)
     setError(null)
     try {
-      const res = await fetch(`${apiBaseUrl()}/gradebook/${gradeBookId}/exports/${kind}`, {
-        credentials: 'include',
-        cache: 'no-store',
-      })
-      if (!res.ok) throw new Error(`No se pudo generar la exportación (${res.status})`)
-
-      const blob = await res.blob()
-      const disposition = res.headers.get('Content-Disposition') ?? ''
-      const match = /filename="([^"]+)"/.exec(disposition)
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = match?.[1] ?? `libreta.${kind}`
-      link.click()
-      URL.revokeObjectURL(url)
+      await downloadFile(`/gradebook/${gradeBookId}/exports/${kind}`, `libreta.${kind}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo descargar')
     } finally {
