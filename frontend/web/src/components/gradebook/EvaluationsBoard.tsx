@@ -45,6 +45,7 @@ import MoodleImportPanel from './MoodleImportPanel'
 import AssessmentsPanel from './AssessmentsPanel'
 import PeriodBlock, { type BlockLevel, type PeriodGradePatch } from './PeriodBlock'
 import GradeSelect from './GradeSelect'
+import StudentHistory from './StudentHistory'
 
 type Period = LibretaPeriod
 type Scale = GradeRange & { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number; levels?: BlockLevel[] }
@@ -664,6 +665,8 @@ function StudentDetailPanel({
           </table>
         )}
       </div>
+
+      <StudentHistory gradeBookId={gradeBookId} studentId={student.studentId} />
     </div>
   )
 }

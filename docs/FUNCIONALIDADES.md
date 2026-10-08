@@ -394,7 +394,13 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
   bachillerato que se crearon con la escala 1–10.
 - **Historial (§6.2):** toda escritura que cambie una nota ya cargada deja una fila en
   `GradeRevision` con valor anterior, nuevo, autor, origen y motivo. Reenviar el mismo valor no
-  escribe ni audita. La primera carga no genera revisión.
+  escribe ni audita. La primera carga no genera revisión. **Borrar una nota** también deja su fila
+  ("Nota borrada"), y el historial sobrevive al borrado (`onDelete: SetNull`, con `assessmentId` y
+  `studentId`); antes se iba en cascada con la nota. **C, R, conducta e informe** tienen su propio
+  historial (`PeriodGradeRevision`): corregir un dato que ya estaba deja lo anterior y lo nuevo, y
+  el origen distingue al docente de una corrección de administración. Los dos cierres validan todo
+  antes de escribir y escriben en una transacción. Se consulta en *Historial de cambios*, en el
+  detalle del alumno en Calificaciones y en el cierre por alumno (`GET /gradebook/:id/history`).
 - **Ventana de edición:** el docente edita durante `gradebookEditWindowDays` (30 por defecto) desde
   la fecha de la evaluación. Después sólo `gradebook.manage`, y esa escritura se audita esperando
   el write y se marca con origen `ADMIN_CORRECTION`.
@@ -569,7 +575,9 @@ adscripción, dirección, inspección y administración.
 - **Registro de acceso (RF-100):** cada apertura de una libreta deja usuario, rol, fecha e IP en
   `GradeBookAccessLog`. Es tabla aparte de `AuditLog` a propósito —alto volumen y retención
   distinta—; mezclarlas sepultaría la auditoría real bajo las consultas. Se escribe
-  *fire-and-forget*: si falla, la lectura responde igual.
+  *fire-and-forget*: si falla, la lectura responde igual. Supervisión lo consulta en el detalle de
+  cada fila de la grilla de visado, *Accesos a la libreta*
+  (`GET /admin/gradebook/gradebooks/:gradeBookId/access-log`, las últimas 100).
 
 ### Exportaciones (RF-120)
 

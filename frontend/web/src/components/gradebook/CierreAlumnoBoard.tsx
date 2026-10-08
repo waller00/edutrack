@@ -38,6 +38,7 @@ import MeetingPeriodsBar from './MeetingPeriodsBar'
 import GradeSelect from './GradeSelect'
 import ConductSelect, { conductText, type ConductOption } from './ConductSelect'
 import CierreGrupoTable from './CierreGrupoTable'
+import StudentHistory from './StudentHistory'
 import { confirmDiscard, useUnsavedChangesWarning } from '@/lib/hooks/useUnsavedChangesWarning'
 
 type ClosurePeriod = {
@@ -867,6 +868,12 @@ export default function CierreAlumnoBoard({
                       boletín y la reunión usan R. El <strong>juicio de reunión</strong> lo carga administración en
                       la matriz de reunión; acá se consulta.
                     </p>
+                  </div>
+                )}
+
+                {isFocus && sheet && (
+                  <div className="mt-3">
+                    <StudentHistory key={student.studentId} gradeBookId={gradeBookId} studentId={student.studentId} />
                   </div>
                 )}
               </li>

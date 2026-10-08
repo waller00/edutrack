@@ -940,6 +940,34 @@ r.get('/endorsements/:gradeBookPeriodId', async (req: any, res) => {
   }
 })
 
+/**
+ * Quién abrió la libreta y cuándo (RF-100). Se escribía en cada apertura y no había dónde
+ * leerlo. Las últimas 100, de la más nueva a la más vieja; queda en supervisión por el montaje
+ * (`gradebook.read` de alcance total).
+ */
+r.get('/gradebooks/:gradeBookId/access-log', async (req: any, res) => {
+  try {
+    const rows = await prisma.gradeBookAccessLog.findMany({
+      where: { gradeBookId: req.params.gradeBookId },
+      include: { user: { select: { name: true } } },
+      orderBy: { occurredAt: 'desc' },
+      take: 100,
+    })
+    return res.json({
+      data: rows.map((row) => ({
+        id: row.id,
+        userName: row.user?.name ?? null,
+        roleCode: row.roleCode,
+        ip: row.ip,
+        occurredAt: row.occurredAt.toISOString(),
+      })),
+    })
+  } catch (error) {
+    console.error('[admin-gradebook] access log:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
 const ENDORSEMENT_TARGET_INCLUDE = {
   endorsements: { orderBy: { occurredAt: 'asc' as const } },
   period: { select: { code: true, name: true } },

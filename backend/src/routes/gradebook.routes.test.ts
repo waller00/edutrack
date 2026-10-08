@@ -11,13 +11,15 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     assessment: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     gradeBookPeriod: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     periodGrade: { findMany: vi.fn(), upsert: vi.fn() },
+    periodGradeRevision: { create: vi.fn(), findMany: vi.fn() },
+    gradeRevision: { create: vi.fn(), findMany: vi.fn() },
     gradeBookPlanning: { findUnique: vi.fn(), upsert: vi.fn() },
     student: { findUnique: vi.fn(), findMany: vi.fn() },
     studentAccommodation: { updateMany: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     courseDevelopmentEntry: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn(), aggregate: vi.fn() },
     gradeBookMessage: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     gradeBookAccessLog: { create: vi.fn() },
-    assessmentGrade: { findMany: vi.fn() },
+    assessmentGrade: { findMany: vi.fn(), findUnique: vi.fn(), delete: vi.fn(), count: vi.fn() },
     studentAttendanceEntry: { groupBy: vi.fn(), findMany: vi.fn() },
     studentPhoto: { findMany: vi.fn(), findUnique: vi.fn() },
     inAppNotification: { createMany: vi.fn() },
@@ -126,6 +128,8 @@ beforeEach(() => {
   // El registro de acceso (RF-100) y los avisos son fire-and-forget: el mock igual tiene que
   // devolver una promesa, porque el código encadena `.catch()` para no tumbar la lectura.
   prismaMock.gradeBookAccessLog.create.mockResolvedValue({ id: 'log-1' })
+  // Las transacciones interactivas corren el callback sobre el mismo mock.
+  prismaMock.$transaction.mockImplementation(async (arg: any) => (typeof arg === 'function' ? arg(prismaMock) : arg))
   prismaMock.studentAttendanceEntry.groupBy.mockResolvedValue([])
   prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([])
   prismaMock.studentPhoto.findMany.mockResolvedValue([])
@@ -710,7 +714,8 @@ function readyForClosure(over: { state?: any; saved?: any[] } = {}) {
   rosterMock.mockResolvedValue([
     { studentId: STUDENT_A, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'Benítez', documentId: null },
   ])
-  prismaMock.$transaction.mockResolvedValue([])
+  // El cierre escribe en una transacción interactiva: el callback corre sobre el mismo mock.
+  prismaMock.$transaction.mockImplementation(async (arg: any) => (typeof arg === 'function' ? arg(prismaMock) : arg))
   vi.setSystemTime(new Date('2026-05-20T12:00:00.000Z'))
 }
 
@@ -1967,6 +1972,135 @@ describe('cierre por alumno', () => {
     expect(res.status).toBe(409)
     expect(res.body.code).toBe('PERIOD_NOT_ENABLED')
     expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
+  })
+
+  it('PUT /students/:id/closure no graba nada si un período está cerrado, aunque otro esté abierto', async () => {
+    const CLOSED_ID = '44444444-4444-4444-8444-444444444444'
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([{ studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: '1' }])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: PERIOD_ID, code: 'MAY', name: 'Mayo', startsOn: new Date('2026-03-01T12:00:00.000Z') },
+      { id: CLOSED_ID, code: 'JUN', name: 'Junio', startsOn: new Date('2026-03-01T12:00:00.000Z') },
+    ])
+    prismaMock.gradeBookPeriod.findUnique
+      .mockResolvedValueOnce({ id: 'gbp-1', status: 'OPEN' })
+      .mockResolvedValueOnce({ id: 'gbp-2', status: 'CLOSED' })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/students/${SID}/closure`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ entries: [{ periodId: PERIOD_ID, valueHundredths: 800 }, { periodId: CLOSED_ID, valueHundredths: 900 }] })
+
+    expect(res.status).toBe(409)
+    // Antes Mayo ya quedaba grabado cuando Junio daba el error.
+    expect(prismaMock.periodGrade.upsert).not.toHaveBeenCalled()
+  })
+
+  it('PUT /students/:id/closure deja historial al corregir la R', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([{ studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: '1' }])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: PERIOD_ID, code: 'MAY', name: 'Mayo', startsOn: new Date('2026-03-01T12:00:00.000Z') },
+    ])
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({ id: 'gbp-1', status: 'OPEN' })
+    prismaMock.periodGrade.findMany.mockResolvedValue([
+      { studentId: SID, valueHundredths: 800, meetingValueHundredths: 900, conductValueHundredths: null, conceptualJudgement: null },
+    ])
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/students/${SID}/closure`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ entries: [{ periodId: PERIOD_ID, meetingValueHundredths: 700 }] })
+
+    expect(res.body.revisions).toBe(1)
+    expect(prismaMock.periodGradeRevision.create.mock.calls[0][0].data).toMatchObject({
+      gradeBookPeriodId: 'gbp-1',
+      studentId: SID,
+      origin: 'TEACHER',
+      previousMeetingValueHundredths: 900,
+      newMeetingValueHundredths: 700,
+      changedByUserId: 'teacher-1',
+    })
+  })
+})
+
+describe('historial de notas', () => {
+  const SID = '22222222-2222-4222-8222-222222222222'
+
+  it('borrar una nota deja la revisión antes de borrarla', async () => {
+    readyForAssessments()
+    prismaMock.gradeBookPeriod.findUnique.mockResolvedValue({ status: 'OPEN' })
+    prismaMock.assessmentGrade.findUnique.mockResolvedValue({ id: 'ag-1', valueHundredths: 700, scaleLevelId: null, isAbsent: false })
+    prismaMock.assessmentGrade.count.mockResolvedValue(0)
+
+    const res = await request(app())
+      .delete(`/gradebook/${GB_ID}/assessments/${ASSESSMENT_ID}/grades/${SID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(prismaMock.gradeRevision.create.mock.calls[0][0].data).toMatchObject({
+      assessmentGradeId: 'ag-1',
+      assessmentId: ASSESSMENT_ID,
+      studentId: SID,
+      previousValueHundredths: 700,
+      newValueHundredths: null,
+      reason: 'Nota borrada',
+    })
+    expect(prismaMock.gradeRevision.create.mock.invocationCallOrder[0]).toBeLessThan(
+      prismaMock.assessmentGrade.delete.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('GET /:id/history junta las correcciones de notas y de C y R del alumno', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.assessment.findMany.mockResolvedValue([
+      { id: 'a-1', title: 'Escrito 1', date: new Date('2026-04-10T12:00:00.000Z'), deletedAt: null },
+    ])
+    prismaMock.gradeRevision.findMany.mockResolvedValue([
+      {
+        id: 'r-1',
+        assessmentId: 'a-1',
+        assessmentGradeId: null,
+        assessmentGrade: null,
+        previousValueHundredths: 700,
+        newValueHundredths: null,
+        previousIsAbsent: false,
+        newIsAbsent: false,
+        reason: 'Nota borrada',
+        origin: 'TEACHER',
+        changedBy: { name: 'Ana G' },
+        changedAt: new Date('2026-04-12T15:00:00.000Z'),
+      },
+    ])
+    prismaMock.periodGradeRevision.findMany.mockResolvedValue([
+      {
+        id: 'p-1',
+        gradeBookPeriod: { period: { name: '1.ª Entrega' } },
+        previousMeetingValueHundredths: 900,
+        newMeetingValueHundredths: 700,
+        judgementChanged: false,
+        origin: 'TEACHER',
+        changedBy: { name: 'Ana G' },
+        changedAt: new Date('2026-05-02T15:00:00.000Z'),
+      },
+    ])
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/history?studentId=${SID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.grades[0]).toMatchObject({ assessmentTitle: 'Escrito 1', deleted: true, changedByName: 'Ana G' })
+    expect(res.body.periods[0]).toMatchObject({ periodName: '1.ª Entrega', newMeetingValueHundredths: 700 })
+    // Sólo de esta libreta: las evaluaciones se buscan por la libreta, también las dadas de baja.
+    expect(prismaMock.assessment.findMany.mock.calls[0][0].where).toEqual({ gradeBookId: GB_ID })
+  })
+
+  it('GET /:id/history pide el alumno', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    const res = await request(app()).get(`/gradebook/${GB_ID}/history`).set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('STUDENT_REQUIRED')
   })
 })
 
