@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import MeetingDecisions from './MeetingDecisions'
+import MeetingDecisions, { currentDecisionIds, meetingRecordsPath } from './MeetingDecisions'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
+
+const { authState } = vi.hoisted(() => ({ authState: { me: null as unknown } }))
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => authState }))
 
 const STUDENTS = [
   { studentId: 's1', firstName: 'Ana', lastName: 'Díaz' },
@@ -20,6 +23,7 @@ function setup(rows: unknown[] = []) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  authState.me = { permissions: [{ id: 'gradebook.review', scope: 'all' }] }
 })
 
 describe('<MeetingDecisions />', () => {
@@ -105,5 +109,44 @@ describe('<MeetingDecisions />', () => {
     fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Período cerrado')
+  })
+
+  it('pide las decisiones del grupo con su orientación', async () => {
+    mockedApi.mockResolvedValue({ data: [] })
+    render(<MeetingDecisions courseOfferingId="off-1" courseOrientationId="co-1" periodId="p-1" students={STUDENTS} />)
+    await screen.findByText(/no se registró ninguna decisión/)
+    expect(mockedApi).toHaveBeenCalledWith('/admin/gradebook/meeting-records?courseOfferingId=off-1&periodId=p-1&courseOrientationId=co-1')
+  })
+
+  it('marca cuál decisión es la vigente: la más reciente de cada alumno', async () => {
+    setup([
+      { id: 'nueva', decision: 'Se cita a la familia.', createdAt: '2026-06-12T12:00:00.000Z', student: { id: 's1', firstName: 'Ana', lastName: 'Díaz' }, createdBy: null },
+      { id: 'vieja', decision: 'Continúa con apoyo.', createdAt: '2026-06-10T12:00:00.000Z', student: { id: 's1', firstName: 'Ana', lastName: 'Díaz' }, createdBy: null },
+    ])
+    const nueva = (await screen.findByText('Se cita a la familia.')).closest('li')!
+    expect(within(nueva).getByText(/Vigente/)).toBeInTheDocument()
+    expect(within(screen.getByText('Continúa con apoyo.').closest('li')!).getByText(/Reemplazada/)).toBeInTheDocument()
+  })
+
+  it('sin permiso de control lee pero no registra', async () => {
+    authState.me = { permissions: [{ id: 'gradebook.read', scope: 'all' }, { id: 'gradebook.inspect', scope: 'all' }] }
+    setup()
+    expect(await screen.findByText(/las registran adscripción y dirección/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Guardar juicio/ })).toBeNull()
+  })
+})
+
+describe('auxiliares de decisiones', () => {
+  it('la vigente es la más reciente por alumno y la del grupo aparte', () => {
+    const rows = [
+      { id: 'g1', decision: 'a', createdAt: '2026-06-01', student: null, createdBy: null },
+      { id: 'g2', decision: 'b', createdAt: '2026-06-05', student: null, createdBy: null },
+      { id: 'a1', decision: 'c', createdAt: '2026-06-02', student: { id: 's1', firstName: 'A', lastName: 'B' }, createdBy: null },
+    ]
+    expect([...currentDecisionIds(rows)].sort()).toEqual(['a1', 'g2'])
+  })
+
+  it('la ruta lleva la orientación sólo si la hay', () => {
+    expect(meetingRecordsPath('off-1', null, 'p-1')).toBe('/admin/gradebook/meeting-records?courseOfferingId=off-1&periodId=p-1')
   })
 })

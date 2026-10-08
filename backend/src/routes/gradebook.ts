@@ -1923,6 +1923,17 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
     }
 
     const level = (ctx.row as any).courseOffering?.course?.level ?? null
+    // La orientación del alumno, no la de la libreta: una libreta de tronco común la cursan alumnos
+    // de varias orientaciones, y la decisión "de todo el grupo" es la de SU grupo.
+    const enrollment = await prisma.studentEnrollment.findFirst({
+      where: {
+        studentId: student.studentId,
+        schoolYearId: ctx.row.schoolYearId,
+        courseOfferingId: ctx.row.courseOfferingId,
+        enrollmentStatus: 'ACTIVE',
+      },
+      select: { courseOrientationId: true },
+    })
     const [periods, states, photo, assessments, meetings] = await Promise.all([
       prisma.academicPeriod.findMany({
         where: { schoolYearId: ctx.row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
@@ -1951,7 +1962,10 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
       prisma.teacherMeetingRecord.findMany({
         where: {
           courseOfferingId: ctx.row.courseOfferingId,
-          OR: [{ studentId: student.studentId }, { studentId: null }],
+          OR: [
+            { studentId: student.studentId },
+            { studentId: null, courseOrientationId: enrollment?.courseOrientationId ?? null },
+          ],
         },
         select: {
           periodId: true,

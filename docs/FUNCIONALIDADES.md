@@ -411,7 +411,14 @@ entienden solos.
   servidor sólo acepta valores de la escala y un período del ciclo indicado.
 - **Reunión (`/libreta/reunion`):** la matriz del grupo con rendimiento, conducta e inasistencias en
   la misma fila, el promedio con **un decimal** —hace falta para escolaridad y abanderados— y el
-  registro de decisiones sobre `TeacherMeetingRecord`.
+  registro de decisiones sobre `TeacherMeetingRecord`. Grupo y período quedan en la URL
+  (`?grupo=&periodo=`): la ficha del alumno vuelve a la misma reunión y el enlace se puede
+  compartir.
+- **Decisiones de reunión:** son del grupo **con su orientación**; antes las de 5.º Científico
+  aparecían en 5.º Humanístico, también en el "Juicio Reu." del docente, que ahora toma la decisión
+  del alumno o la del grupo de *su* orientación. Las registran adscripción y dirección
+  (`gradebook.review`); el resto las lee. Una decisión nueva sucede a la anterior sin borrarla, y
+  la pantalla marca cuál está vigente (la que ve el docente).
 - **Boletín (`GET /admin/gradebook/report-card/:studentId?periodId=`):** PDF por estudiante y
   período con nota y juicio de **todas** sus asignaturas, conducta, promedio e inasistencias. Es la
   única salida transversal: el resto de las exportaciones son por libreta, o sea de una materia.

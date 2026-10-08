@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { FileText, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { downloadFile } from '@/lib/api/download'
@@ -164,11 +165,14 @@ function ConductCell({
 
 function StudentCell({
   row,
+  backTo,
   reportCard,
   busy,
   onReportCard,
 }: {
   row: Row
+  /** Esta reunión con su grupo y período: la ficha vuelve acá sin hacer elegir todo de nuevo. */
+  backTo: string
   /** ¿Se ofrece el boletín? Sólo en reuniones de boletín y con permiso para exportar. */
   reportCard: boolean
   /** Descarga en curso: la de este alumno muestra el spinner y las demás quedan en espera. */
@@ -177,7 +181,10 @@ function StudentCell({
 }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <Link href={`/libreta/estudiante/${row.studentId}`} className="text-emerald-700 hover:underline">
+      <Link
+        href={`/libreta/estudiante/${row.studentId}?volver=${encodeURIComponent(backTo)}`}
+        className="text-emerald-700 hover:underline"
+      >
         {row.lastName}, {row.firstName}
       </Link>
       {reportCard && (
@@ -216,7 +223,20 @@ function AlertCell({ row }: { row: Row }) {
   )
 }
 
+/** La reunión con su grupo y período en la URL: se puede volver, recargar o compartir el enlace. */
+export function meetingUrl(pathname: string, group: Group | null, periodId: string): string {
+  const params = new URLSearchParams()
+  if (group) params.set('grupo', groupKey(group))
+  if (periodId) params.set('periodo', periodId)
+  const qs = params.toString()
+  return qs ? `${pathname}?${qs}` : pathname
+}
+
 export default function GroupMatrix({ projection = false }: { projection?: boolean }) {
+  const router = useRouter()
+  const pathname = usePathname() ?? '/libreta/reunion'
+  const searchParams = useSearchParams()
+  const fromUrl = useRef({ grupo: searchParams?.get('grupo') ?? '', periodo: searchParams?.get('periodo') ?? '' })
   const auth = useOptionalAuth()
   const canExport = hasPermission(auth?.me, 'gradebook.export')
   const canEditConduct = hasPermission(auth?.me, 'gradebook.review', 'all')
@@ -240,6 +260,10 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
         ])
         setGroups(g.data)
         setPeriods(p.data)
+        // Lo que venía en la URL (al volver de la ficha, o un enlace compartido).
+        const initialGroup = g.data.find((x) => groupKey(x) === fromUrl.current.grupo) ?? null
+        if (initialGroup) setGroup(initialGroup)
+        if (p.data.some((x) => x.id === fromUrl.current.periodo)) setPeriodId(fromUrl.current.periodo)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'No se pudieron cargar los grupos')
       } finally {
@@ -263,6 +287,14 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
   useEffect(() => {
     void loadMatrix()
   }, [loadMatrix])
+
+  const here = meetingUrl(pathname, group, periodId)
+  const currentQuery = searchParams?.toString() ?? ''
+  useEffect(() => {
+    if (loading) return
+    const current = currentQuery ? `${pathname}?${currentQuery}` : pathname
+    if (here !== current) router.replace(here, { scroll: false })
+  }, [here, currentQuery, pathname, loading, router])
 
   // Sólo las reuniones del nivel del grupo: un período EMS sobre un grupo EBI da una matriz vacía.
   const visiblePeriods = periods.filter((p) => !group?.level || !p.level || p.level === group.level)
@@ -397,6 +429,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                     <td className="sticky left-0 bg-inherit px-3 py-1.5">
                       <StudentCell
                         row={row}
+                        backTo={here}
                         reportCard={offersReportCards}
                         busy={downloading}
                         onReportCard={() =>

@@ -8,8 +8,16 @@ vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 vi.mock('@/lib/api/download', () => ({ downloadFile: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('./MeetingDecisions', () => ({ default: () => <p>decisiones</p> }))
 
-const { authState } = vi.hoisted(() => ({ authState: { me: null as unknown } }))
+const { authState, nav } = vi.hoisted(() => ({
+  authState: { me: null as unknown },
+  nav: { replace: vi.fn(), search: '' },
+}))
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => authState }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: nav.replace }),
+  usePathname: () => '/libreta/reunion',
+  useSearchParams: () => new URLSearchParams(nav.search),
+}))
 
 const mockedApi = vi.mocked(api)
 const mockedDownload = vi.mocked(downloadFile)
@@ -77,7 +85,26 @@ describe('<GroupMatrix />', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authState.me = grant('gradebook.read')
+    nav.search = ''
     respond()
+  })
+
+  it('deja grupo y período en la URL, y la ficha vuelve a esta misma reunión', async () => {
+    await openMatrix()
+    const here = '/libreta/reunion?grupo=off-1%3A%3Aco-1&periodo=p-1'
+    await waitFor(() => expect(nav.replace).toHaveBeenLastCalledWith(here, { scroll: false }))
+    expect(screen.getByRole('link', { name: 'Díaz, Ana' })).toHaveAttribute(
+      'href',
+      `/libreta/estudiante/st-1?volver=${encodeURIComponent(here)}`,
+    )
+  })
+
+  it('arranca con el grupo y el período que trae la URL', async () => {
+    nav.search = 'grupo=off-1%3A%3Aco-1&periodo=p-1'
+    render(<GroupMatrix />)
+    expect(await screen.findByText('Díaz, Ana')).toBeInTheDocument()
+    expect(screen.getByLabelText('Grupo')).toHaveValue('off-1::co-1')
+    expect(screen.getByLabelText('Período')).toHaveValue('p-1')
   })
 
   it('pide la matriz del grupo con su orientación', async () => {
