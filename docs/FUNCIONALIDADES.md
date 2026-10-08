@@ -437,7 +437,15 @@ entienden solos.
     para cada alumno del grupo, está la **calificación del período (C)** y el **juicio** cuando el
     período los pide. La **R no se exige**: se pone en la reunión misma.
   - El texto del aviso lo arma el backend con el mismo cálculo que ve la pantalla; queda en la
-    auditoría (`GRADEBOOK_COMPLETION_REQUESTED`).
+    auditoría (`GRADEBOOK_COMPLETION_REQUESTED`), y de ahí sale el "Avisado el…" de cada libreta,
+    que sobrevive a recargar la pantalla.
+  - **Después de la reunión** la misma pantalla mira lo que queda de ella: la **R** de cada alumno
+    y el **período cerrado**, que es lo que habilita el visado. El aviso de esa etapa dice qué falta
+    para cerrar.
+  - **Avisar a todos** (`POST /admin/gradebook/completeness/request-all`): un solo aviso por docente
+    con todas sus libretas pendientes, no uno por materia.
+  - Cada libreta se nombra con la orientación del grupo, y el roster se consulta una vez por grupo
+    y no una por libreta.
 - **Hoja del estudiante (`GET /gradebook/:id/students/:studentId`):** dentro de la libreta, el
   docente abre a cualquier estudiante de **su** grupo y ve foto, nacimiento, de dónde vino el pase o
   cómo promovió el año anterior, si está derivado a APE, las materias que arrastra y las

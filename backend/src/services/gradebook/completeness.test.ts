@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   completionRequestBody,
   countMissingAssessmentGrades,
+  isStageComplete,
+  missingAfterMeeting,
   sortByUrgency,
+  stageDetail,
   summarize,
   type GradeBookCompleteness,
 } from './completeness.js'
@@ -130,5 +133,29 @@ describe('completionRequestBody', () => {
 
   it('completa, lo dice', () => {
     expect(completionRequestBody(summarize(row()), 'Mayo')).toBe('Mayo: la libreta está completa.')
+  })
+})
+
+describe('después de la reunión', () => {
+  it('lo que falta es la R de cada alumno y cerrar el período', () => {
+    const summary = summarize(row({ meetingGradedCount: 18 }))
+    expect(summary.missingMeetingGrades).toBe(2)
+    expect(missingAfterMeeting(summary)).toEqual(['2 sin nota de reunión (R)', 'falta cerrar el período'])
+    expect(completionRequestBody(summary, '1.ª Entrega', 'after')).toBe(
+      '1.ª Entrega: 2 sin nota de reunión (R) y falta cerrar el período.',
+    )
+  })
+
+  it('una reunión sin C (APE) no pide R', () => {
+    expect(summarize(row({ requiresGrade: false, meetingGradedCount: 0 })).missingMeetingGrades).toBe(0)
+  })
+
+  it('está al día recién cuando cerró el período', () => {
+    const open = summarize(row({ meetingGradedCount: 20 }))
+    const closed = summarize(row({ meetingGradedCount: 20, periodStatus: 'CLOSED' }))
+    expect(isStageComplete(open, 'before')).toBe(true)
+    expect(isStageComplete(open, 'after')).toBe(false)
+    expect(isStageComplete(closed, 'after')).toBe(true)
+    expect(stageDetail(closed, 'after')).toBe('la libreta está cerrada')
   })
 })

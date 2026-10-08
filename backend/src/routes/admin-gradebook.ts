@@ -5,10 +5,10 @@ import { attachmentDisposition } from '../services/exports/content-disposition.j
 import { requirePermission } from '../middlewares/auth.js'
 import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
 import { loadReportCards } from '../services/gradebook/report-card-loader.js'
-import { completionRequestBody } from '../services/gradebook/completeness.js'
+import { completionRequestBody, isStageComplete, stageDetail } from '../services/gradebook/completeness.js'
 import { conductOptions, conductScale, isConductValue, periodScaleFor } from '../services/gradebook/period-scale.js'
 import { loadPeriodCompleteness } from '../services/gradebook/completeness-loader.js'
-import { completionRequestNotification } from '../services/gradebook/notifications.js'
+import { completionDigestNotification, completionRequestNotification } from '../services/gradebook/notifications.js'
 import { generateReportCardPdf, generateReportCardsPdf } from '../services/gradebook/exports/reportCardPdf.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
@@ -502,14 +502,25 @@ r.get('/completeness', requirePermission('gradebook.review', 'all'), async (req:
   }
 })
 
+const completionRequestSchema = z.object({
+  periodId: z.string().uuid(),
+  /** Antes de la reunión: evaluaciones, C y juicio. Después: R y cierre del período. */
+  stage: z.enum(['before', 'after']).default('before'),
+})
+
+function groupLabel(row: { courseName: string; orientationName?: string | null; subjectName: string }) {
+  return `${row.courseName}${row.orientationName ? ` ${row.orientationName}` : ''} · ${row.subjectName}`
+}
+
 /**
- * Avisa al docente, por notificación interna, qué le falta en una libreta para la reunión.
- * El texto lo arma el backend con el mismo cálculo que ve administración: así el aviso no puede
- * decir algo distinto de la pantalla.
+ * Avisa al docente, por notificación interna, qué le falta en una libreta para la reunión —o,
+ * después de ella, qué le falta para cerrar—. El texto lo arma el backend con el mismo cálculo
+ * que ve administración: así el aviso no puede decir algo distinto de la pantalla.
  */
 r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review', 'all'), async (req: any, res) => {
-  const periodId = typeof req.body?.periodId === 'string' ? req.body.periodId : null
-  if (!periodId) return res.status(400).json({ message: 'Falta el período' })
+  const parsed = completionRequestSchema.safeParse(req.body ?? {})
+  if (!parsed.success) return res.status(400).json({ message: 'Falta el período' })
+  const { periodId, stage } = parsed.data
 
   try {
     const book = await prisma.gradeBook.findUnique({
@@ -527,12 +538,13 @@ r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review
     if (!row) {
       return res.status(409).json({ message: 'La libreta no corresponde a esa reunión', code: 'LEVEL_MISMATCH' })
     }
-    if (row.complete) {
-      return res.status(409).json({ message: 'La libreta ya está completa', code: 'ALREADY_COMPLETE' })
+    if (isStageComplete(row, stage)) {
+      const message = stage === 'after' ? 'La libreta ya cerró el período' : 'La libreta ya está completa'
+      return res.status(409).json({ message, code: 'ALREADY_COMPLETE' })
     }
 
     const actorUserId = req.user?.id ?? req.user?.sub ?? null
-    const detail = completionRequestBody(row, result.period.name)
+    const detail = completionRequestBody(row, result.period.name, stage)
     const sent = await notifyGradeBook(
       await resolveGradeBookRecipients(book.id, actorUserId),
       completionRequestNotification({
@@ -540,6 +552,7 @@ r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review
         detail,
         gradeBookId: book.id,
         periodId,
+        stage,
       }),
     )
     await recordAuditEventNow({
@@ -548,11 +561,68 @@ r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review
       req,
       entityType: 'GradeBook',
       entityId: book.id,
-      metadata: { periodId, detail, notified: sent },
+      metadata: { periodId, stage, detail, notified: sent },
     })
     return res.json({ ok: true, notified: sent, detail })
   } catch (error) {
     console.error('[admin-gradebook] completeness request:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * "Avisar a todos": un aviso por docente con todas sus libretas pendientes de la reunión, en vez
+ * de una notificación por materia. Cada libreta avisada queda en la auditoría como si se hubiera
+ * avisado de a una, así la pantalla muestra "Avisado el…" igual.
+ */
+r.post('/completeness/request-all', requirePermission('gradebook.review', 'all'), async (req: any, res) => {
+  const parsed = completionRequestSchema.safeParse(req.body ?? {})
+  if (!parsed.success) return res.status(400).json({ message: 'Falta el período' })
+  const { periodId, stage } = parsed.data
+
+  try {
+    const result = await loadPeriodCompleteness(periodId)
+    if (!result) return res.status(404).json({ message: 'Período no encontrado' })
+
+    const actorUserId = req.user?.id ?? req.user?.sub ?? null
+    const pending = result.rows.filter((row) => !isStageComplete(row, stage))
+    const byTeacher = new Map<string, typeof pending>()
+    for (const row of pending) {
+      // Sin titular no hay a quién; y nadie necesita que le avisen lo que le falta a sí mismo.
+      if (!row.teacherUserId || row.teacherUserId === actorUserId) continue
+      byTeacher.set(row.teacherUserId, [...(byTeacher.get(row.teacherUserId) ?? []), row])
+    }
+
+    let gradeBooks = 0
+    for (const [teacherUserId, rows] of byTeacher) {
+      const sent = await notifyGradeBook(
+        [{ userId: teacherUserId }],
+        completionDigestNotification({
+          periodName: result.period.name,
+          stage,
+          items: rows.map((row) => ({ label: groupLabel(row), detail: stageDetail(row, stage) })),
+        }),
+      )
+      for (const row of rows) {
+        await recordAuditEventNow({
+          action: AuditAction.GRADEBOOK_COMPLETION_REQUESTED,
+          actorUserId,
+          req,
+          entityType: 'GradeBook',
+          entityId: row.gradeBookId,
+          metadata: { periodId, stage, detail: completionRequestBody(row, result.period.name, stage), notified: sent, bulk: true },
+        })
+      }
+      gradeBooks += rows.length
+    }
+
+    return res.json({
+      teachers: byTeacher.size,
+      gradeBooks,
+      withoutTeacher: pending.filter((row) => !row.teacherUserId).length,
+    })
+  } catch (error) {
+    console.error('[admin-gradebook] completeness request-all:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

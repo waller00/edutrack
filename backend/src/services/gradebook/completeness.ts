@@ -16,6 +16,8 @@ export type GradeBookCompleteness = {
   gradeBookId: string
   subjectName: string
   courseName: string
+  /** Orientación del grupo: sin ella, dos libretas "5.º · Matemática" se ven iguales. */
+  orientationName?: string | null
   teacherUserId: string | null
   teacherName: string | null
   periodStatus: 'OPEN' | 'CLOSED' | 'REOPENED' | null
@@ -35,11 +37,17 @@ export type GradeBookCompleteness = {
   assessmentCount: number
   /** Notas de evaluación sin cargar: por cada evaluación, alumnos del roster sin nota ni "no rindió". */
   missingAssessmentGrades: number
+  /** Último aviso al docente por esta reunión, en cada etapa (ISO). */
+  lastRequestedAt?: { before: string | null; after: string | null }
 }
 
 export type CompletenessSummary = GradeBookCompleteness & {
   missingGrades: number
   missingJudgements: number
+  /** Después de la reunión: alumnos sin R, si el período pide calificación. */
+  missingMeetingGrades: number
+  /** Después de la reunión: la libreta ya cerró el período. */
+  closed: boolean
   /** Se esperaban evaluaciones y no hay ninguna. */
   hasNoAssessments: boolean
   /** ¿Está lista para la reunión? Cerrada también cuenta como completa. */
@@ -85,6 +93,8 @@ export function summarize(row: GradeBookCompleteness): CompletenessSummary {
     ...row,
     missingGrades,
     missingJudgements,
+    missingMeetingGrades: row.requiresGrade ? Math.max(0, row.rosterSize - row.meetingGradedCount) : 0,
+    closed: row.periodStatus === 'CLOSED',
     missingAssessmentGrades: missingAssessments,
     hasNoAssessments,
     complete:
@@ -112,8 +122,22 @@ function plural(n: number, singular: string, pluralForm: string): string {
   return `${n} ${n === 1 ? singular : pluralForm}`
 }
 
-/** Texto del aviso que le llega al docente. Dice qué falta, no "revisá tu libreta". */
-export function completionRequestBody(row: CompletenessSummary, periodName: string): string {
+/**
+ * Las dos etapas del control. **Antes** de la reunión se mira lo que el docente lleva (evaluaciones,
+ * C y juicio); **después**, lo que queda de la reunión: la R de cada alumno y el cierre del período.
+ */
+export type CompletenessStage = 'before' | 'after'
+
+export function isStageComplete(row: CompletenessSummary, stage: CompletenessStage): boolean {
+  return stage === 'after' ? row.closed : row.complete
+}
+
+function joinParts(parts: readonly string[]): string {
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}` : parts[0]
+}
+
+/** Qué le falta antes de la reunión, en partes: "no hay evaluaciones", "3 sin juicio conceptual". */
+export function missingBeforeMeeting(row: CompletenessSummary): string[] {
   const faltantes: string[] = []
   if (row.hasNoAssessments) {
     faltantes.push('no hay evaluaciones cargadas')
@@ -126,7 +150,25 @@ export function completionRequestBody(row: CompletenessSummary, periodName: stri
   if (row.missingJudgements > 0) {
     faltantes.push(`${row.missingJudgements} sin juicio conceptual`)
   }
-  if (faltantes.length === 0) return `${periodName}: la libreta está completa.`
-  const list = faltantes.length > 1 ? `${faltantes.slice(0, -1).join(', ')} y ${faltantes.at(-1)}` : faltantes[0]
-  return `${periodName}: ${list}.`
+  return faltantes
+}
+
+/** Qué le falta después de la reunión: la R de cada alumno y cerrar el período. */
+export function missingAfterMeeting(row: CompletenessSummary): string[] {
+  const faltantes: string[] = []
+  if (row.missingMeetingGrades > 0) faltantes.push(`${row.missingMeetingGrades} sin nota de reunión (R)`)
+  if (!row.closed) faltantes.push('falta cerrar el período')
+  return faltantes
+}
+
+/** Lo que falta en la etapa, sin el nombre del período: va dentro de un aviso que agrupa libretas. */
+export function stageDetail(row: CompletenessSummary, stage: CompletenessStage): string {
+  const parts = stage === 'after' ? missingAfterMeeting(row) : missingBeforeMeeting(row)
+  if (parts.length === 0) return stage === 'after' ? 'la libreta está cerrada' : 'la libreta está completa'
+  return joinParts(parts)
+}
+
+/** Texto del aviso que le llega al docente. Dice qué falta, no "revisá tu libreta". */
+export function completionRequestBody(row: CompletenessSummary, periodName: string, stage: CompletenessStage = 'before'): string {
+  return `${periodName}: ${stageDetail(row, stage)}.`
 }

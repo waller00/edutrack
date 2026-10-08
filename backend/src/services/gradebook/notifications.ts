@@ -144,11 +144,35 @@ export function completionRequestNotification(params: {
   detail: string
   gradeBookId: string
   periodId?: string
+  /** Después de la reunión lo que falta es la R y cerrar, no completar. */
+  stage?: 'before' | 'after'
 }): GradeBookNotification {
   return {
     type: 'GRADEBOOK_PERIOD_CLOSING',
-    title: `Falta completar ${params.subjectName}`,
+    title: `${params.stage === 'after' ? 'Falta cerrar' : 'Falta completar'} ${params.subjectName}`,
     body: params.detail,
     actionUrl: `/libreta/${params.gradeBookId}/cierre${params.periodId ? `?periodId=${params.periodId}` : ''}`,
+  }
+}
+
+/**
+ * Un solo aviso por docente con todas sus libretas pendientes: "avisar a todos" no puede llenarle
+ * la campana con una notificación por materia.
+ */
+export function completionDigestNotification(params: {
+  periodName: string
+  stage: 'before' | 'after'
+  items: ReadonlyArray<{ label: string; detail: string }>
+}): GradeBookNotification {
+  const count = params.items.length
+  const libretas = count === 1 ? '1 libreta' : `${count} libretas`
+  return {
+    type: 'GRADEBOOK_PERIOD_CLOSING',
+    title:
+      params.stage === 'after'
+        ? `${params.periodName}: falta cerrar ${libretas}`
+        : `${params.periodName}: falta completar ${libretas}`,
+    body: excerpt(params.items.map((item) => `${item.label}: ${item.detail}`).join(' · '), 900),
+    actionUrl: '/libreta',
   }
 }
