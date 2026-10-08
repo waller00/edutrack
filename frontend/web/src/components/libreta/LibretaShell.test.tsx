@@ -11,7 +11,8 @@ vi.mock('./GroupSwitcher', () => ({ default: () => <div>selector de grupo</div> 
 const mockedApi = vi.mocked(api)
 
 const pathname = vi.fn(() => '/libreta/gb-1/planificacion')
-vi.mock('next/navigation', () => ({ usePathname: () => pathname() }))
+const push = vi.fn()
+vi.mock('next/navigation', () => ({ usePathname: () => pathname(), useRouter: () => ({ push }) }))
 
 const DETAIL = {
   id: 'gb-1',
@@ -127,8 +128,11 @@ describe('<LibretaShell />', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Contraer menú del Libro del Profesor/ }))
 
+    const nav = screen.getByRole('navigation', { name: 'Secciones de la libreta' })
     expect(screen.queryByText('Menú Libro del Profesor')).not.toBeInTheDocument()
-    expect(screen.queryByText('Planificación')).not.toBeInTheDocument()
+    expect(within(nav).queryByText('Planificación')).not.toBeInTheDocument()
+    // Contraído no queda vacío: la abreviatura sigue llevando a la sección.
+    expect(within(nav).getByRole('link', { name: 'Planificación' })).toHaveTextContent('Plan')
     expect(screen.getByRole('button', { name: /Expandir menú del Libro del Profesor/ })).toHaveAttribute(
       'aria-expanded',
       'false',
@@ -137,6 +141,18 @@ describe('<LibretaShell />', () => {
     fireEvent.click(screen.getByRole('button', { name: /Expandir menú del Libro del Profesor/ }))
 
     expect(screen.getByText('Menú Libro del Profesor')).toBeInTheDocument()
-    expect(screen.getByText('Planificación')).toBeInTheDocument()
+    expect(within(nav).getByText('Planificación')).toBeInTheDocument()
+  })
+
+  it('en el celular, un selector lleva a cada sección', async () => {
+    mockedApi.mockResolvedValue(DETAIL)
+    const { fireEvent } = await import('@testing-library/react')
+
+    renderShell()
+    const select = await screen.findByLabelText('Sección de la libreta')
+    expect(select).toHaveValue('planificacion')
+
+    fireEvent.change(select, { target: { value: 'cierre' } })
+    expect(push).toHaveBeenCalledWith('/libreta/gb-1/cierre')
   })
 })

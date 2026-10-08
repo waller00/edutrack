@@ -9,8 +9,8 @@ import {
   Loader2,
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
-import { apiBlob } from '@/lib/api/binary'
 import { useLibreta } from '@/contexts/LibretaContext'
+import { useStudentPhoto } from '@/lib/hooks/useStudentPhoto'
 import { studentFullName } from '@/lib/gradebook/labels'
 import type { AbsenceDayBoard, AbsenceDayStudent, GradeBookHeader } from '@/lib/gradebook/types'
 import {
@@ -33,29 +33,7 @@ function StudentAvatar({
   gradeBookId: string
   student: Pick<AbsenceDayStudent, 'studentId' | 'hasPhoto' | 'firstName' | 'lastName'>
 }) {
-  const [url, setUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!student.hasPhoto) {
-      setUrl(null)
-      return
-    }
-    let revoked: string | null = null
-    let cancelled = false
-    void apiBlob(`/gradebook/${gradeBookId}/students/${student.studentId}/photo`)
-      .then((blob) => {
-        if (cancelled || !blob) return
-        revoked = URL.createObjectURL(blob)
-        setUrl(revoked)
-      })
-      .catch(() => {
-        if (!cancelled) setUrl(null)
-      })
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [gradeBookId, student.studentId, student.hasPhoto])
+  const url = useStudentPhoto(gradeBookId, student.studentId, student.hasPhoto)
 
   if (url) {
     return (

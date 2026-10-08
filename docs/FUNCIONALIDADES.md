@@ -316,7 +316,8 @@ pantalla con paneles apilados.
 `/libreta/[id]`, que abre el Libro del Profesor con sus siete secciones:
 `planificacion`, `desarrollo`, `evaluaciones`, `inasistencias`, `cierre`, `visados` y `mensajes`.
 Cada sección lleva en el menú una línea que explica para qué sirve: "Precierre" o "Visados" no se
-entienden solos.
+entienden solos. Contraído, el menú muestra la abreviatura de cada sección; en el celular las
+secciones se eligen de un selector, para no empujar el contenido una pantalla hacia abajo.
 
 **Pantallas de supervisión:** `/libreta/reunion` (matriz del grupo), `/libreta/control`, `/libreta/visado`,
 `/libreta/indicadores`, `/libreta/estudiante/[id]` (ficha) y `/libreta/configuracion`

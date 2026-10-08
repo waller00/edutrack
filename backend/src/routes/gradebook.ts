@@ -3217,40 +3217,6 @@ r.get('/:id/exports/students/:studentId/xlsx', requirePermission('gradebook.read
   }
 })
 
-/**
- * Foto del alumno para docentes de la libreta (misma imagen que carga administración).
- * No usa `/admin/students/:id/photo` porque exige `students.manage`.
- */
-r.get('/:id/students/:studentId/photo', requirePermission('gradebook.read'), async (req: any, res) => {
-  try {
-    const ctx = await loadContext(req, res)
-    if (!ctx) return
-
-    const studentId = String(req.params.studentId || '')
-    const roster = await loadRosterForScope({
-      schoolYearId: ctx.row.schoolYearId,
-      courseOfferingId: ctx.row.courseOfferingId,
-      orientationId: ctx.row.orientationId,
-      courseOrientationId: ctx.row.courseOrientationId,
-    })
-    if (!roster.some((s) => s.studentId === studentId)) {
-      return res.status(404).json({ message: 'El estudiante no está en esta libreta.' })
-    }
-
-    const photo = await prisma.studentPhoto.findUnique({ where: { studentId } })
-    if (!photo) return res.status(404).json({ message: 'El estudiante no tiene foto' })
-
-    const etag = photoETag(photo.updatedAt, photo.byteSize)
-    if (req.headers['if-none-match'] === etag) return res.status(304).end()
-    res.setHeader('ETag', etag)
-    res.setHeader('Cache-Control', 'private, max-age=300')
-    res.setHeader('Content-Type', photo.mimeType)
-    return res.send(photo.bytes)
-  } catch (error) {
-    console.error('[gradebook] student photo:', error)
-    return res.status(500).json({ message: 'Error interno del servidor' })
-  }
-})
 
 // ─── Libro del Profesor: planificación y desarrollo del curso ───────────────
 

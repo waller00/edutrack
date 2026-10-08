@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
-import { apiBlob } from '@/lib/api/binary'
+import { useStudentPhoto } from '@/lib/hooks/useStudentPhoto'
 import { activityCategory } from '@/lib/gradebook/activity-category'
 import {
   blockCategories,
@@ -130,29 +130,7 @@ function StudentAvatar({
   gradeBookId: string
   student: Pick<RosterStudent, 'studentId' | 'firstName' | 'lastName'> & { hasPhoto?: boolean }
 }) {
-  const [url, setUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!student.hasPhoto) {
-      setUrl(null)
-      return
-    }
-    let revoked: string | null = null
-    let cancelled = false
-    void apiBlob(`/gradebook/${gradeBookId}/students/${student.studentId}/photo`)
-      .then((blob) => {
-        if (cancelled || !blob) return
-        revoked = URL.createObjectURL(blob)
-        setUrl(revoked)
-      })
-      .catch(() => {
-        if (!cancelled) setUrl(null)
-      })
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [gradeBookId, student.studentId, student.hasPhoto])
+  const url = useStudentPhoto(gradeBookId, student.studentId, student.hasPhoto)
 
   if (url) {
     return (
@@ -319,7 +297,6 @@ export default function CierreAlumnoBoard({
   const [printBusy, setPrintBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [infoModal, setInfoModal] = useState<InfoModal>(null)
   const [meetingModal, setMeetingModal] = useState<MeetingModal>(null)
 
@@ -385,29 +362,8 @@ export default function CierreAlumnoBoard({
     if (focusIndex >= students.length) setFocusIndex(Math.max(0, students.length - 1))
   }, [students.length, focusIndex])
 
-  useEffect(() => {
-    const hasPhoto = sheet?.student.hasPhoto ?? selected?.hasPhoto
-    const studentId = selected?.studentId
-    if (!hasPhoto || !studentId) {
-      setPhotoUrl(null)
-      return
-    }
-    let revoked: string | null = null
-    let cancelled = false
-    void apiBlob(`/gradebook/${gradeBookId}/students/${studentId}/photo`)
-      .then((blob) => {
-        if (cancelled || !blob) return
-        revoked = URL.createObjectURL(blob)
-        setPhotoUrl(revoked)
-      })
-      .catch(() => {
-        if (!cancelled) setPhotoUrl(null)
-      })
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [gradeBookId, selected?.studentId, sheet?.student.hasPhoto, selected?.hasPhoto])
+  // La misma foto que la tarjeta, para imprimir: el hook la pide una sola vez.
+  const photoUrl = useStudentPhoto(gradeBookId, selected?.studentId, sheet?.student.hasPhoto ?? selected?.hasPhoto)
 
   const dirty = useMemo(() => {
     if (!sheet) return false
