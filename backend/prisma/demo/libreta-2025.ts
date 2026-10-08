@@ -359,7 +359,7 @@ export async function seedDemoLibreta2025(
   ])
 
   const summary: DemoLibretaSummary = {
-    libretas: provision.created + provision.updated,
+    libretas: provision.created + provision.updated + provision.unchanged,
     evaluaciones: 0,
     notas: 0,
     cierres: 0,

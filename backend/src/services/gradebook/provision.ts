@@ -16,7 +16,10 @@ import { resolveMoodleAcademicScope } from '../../integrations/moodle/scope.js'
 export type ProvisionSummary = {
   schoolYearId: string
   created: number
+  /** Libretas que cambiaron de titular. */
   updated: number
+  /** Libretas que ya existían y siguen igual. */
+  unchanged: number
   /** Eventos de clase que no pudieron mapearse (sin asignatura o sin oferta). */
   skippedEvents: number
   /** Scopes descartados porque el curso no está ofertado ese ciclo. */
@@ -177,9 +180,17 @@ export async function provisionGradeBooks(
     schoolYearId,
     created: 0,
     updated: 0,
+    unchanged: 0,
     skippedEvents: skipped,
     skippedNotOffered: 0,
   }
+
+  // Las libretas que ya existen, en una sola consulta: corre cada hora y no puede ir de a una.
+  const existingRows = await db.gradeBook.findMany({
+    where: { schoolYearId },
+    select: { id: true, scopeKey: true, teacherUserId: true },
+  })
+  const existingByScope = new Map(existingRows.map((row) => [row.scopeKey, row]))
 
   for (const group of groups.values()) {
     if (!offered.has(group.courseOfferingId)) {
@@ -187,12 +198,13 @@ export async function provisionGradeBooks(
       continue
     }
 
-    const existing = await db.gradeBook.findUnique({
-      where: { scopeKey: group.scopeKey },
-      select: { id: true },
-    })
+    const existing = existingByScope.get(group.scopeKey)
 
     if (existing) {
+      if (existing.teacherUserId === group.teacherUserId) {
+        summary.unchanged++
+        continue
+      }
       await db.gradeBook.update({
         where: { id: existing.id },
         // Sólo el titular se refresca. El resto de la identidad está en `scopeKey` y no cambia,

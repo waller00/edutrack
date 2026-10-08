@@ -36,6 +36,7 @@ import {
   type Section,
 } from '../services/gradebook/endorsement.js'
 import { ENDORSEMENT_ROW_INCLUDE, serializeEndorsementRow } from '../services/gradebook/endorsement-view.js'
+import { alertRulesForYear, alertSubjectsThreshold } from '../services/gradebook/alert-rules.js'
 import {
   buildMatrixRow,
   buildSubjectEvolution,
@@ -189,7 +190,7 @@ r.get('/group-matrix', async (req: any, res) => {
       (a: any, b: any) => a.subject.sortOrder - b.subject.sortOrder || a.subject.name.localeCompare(b.subject.name, 'es'),
     ) as any[]
 
-    const [students, states, scale] = await Promise.all([
+    const [students, states, scale, rules] = await Promise.all([
       loadRosterForScope({ schoolYearId: offering.schoolYearId, ...scope }),
       prisma.gradeBookPeriod.findMany({
         where: { periodId: parsed.data.periodId, gradeBookId: { in: books.map((b) => b.id) } },
@@ -197,7 +198,10 @@ r.get('/group-matrix', async (req: any, res) => {
       }),
       // Los descriptores salen de la escala del nivel: es con la que se ponen C y R.
       periodScaleFor(offering.course?.level),
+      // El mismo umbral que los indicadores: "en alerta" tiene que significar lo mismo en los dos.
+      alertRulesForYear(offering.schoolYearId),
     ])
+    const riskThreshold = alertSubjectsThreshold(rules)
 
     const levels = scale?.levels ?? []
     const stateByBook = new Map(states.map((s) => [s.gradeBookId, s]))
@@ -241,7 +245,7 @@ r.get('/group-matrix', async (req: any, res) => {
       })
       return {
         ...row,
-        atRisk: isAtRisk(row),
+        atRisk: isAtRisk(row, { alertSubjectsThreshold: riskThreshold }),
         /** Conducta institucional del período: la pone adscripción, no el docente. */
         conductValueHundredths: conductByStudent.get(student.studentId) ?? null,
         /** Faltas del ciclo en todo el liceo, en centésimos (150 = una falta y media). */
@@ -270,6 +274,8 @@ r.get('/group-matrix', async (req: any, res) => {
        * para elegir abanderados, donde un entero no alcanza para desempatar.
        */
       averageDecimals: 1,
+      /** Asignaturas en alerta que marcan al estudiante; `null` si la regla está apagada. */
+      alertSubjectsThreshold: Number.isFinite(riskThreshold) ? riskThreshold : null,
     })
   } catch (error) {
     console.error('[admin-gradebook] group-matrix:', error)

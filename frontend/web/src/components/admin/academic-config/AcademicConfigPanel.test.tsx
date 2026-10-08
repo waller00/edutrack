@@ -12,6 +12,8 @@ vi.mock('./PeriodsTab', () => ({
 }))
 vi.mock('./ScalesTab', () => ({ default: () => <p>panel de escalas</p> }))
 vi.mock('./ActivityTypesTab', () => ({ default: () => <p>panel de tipos</p> }))
+vi.mock('./AlertRulesTab', () => ({ default: () => <p>panel de alertas</p> }))
+vi.mock('./GradeBooksTab', () => ({ default: () => <p>panel de libretas</p> }))
 
 describe('<AcademicConfigPanel />', () => {
   beforeEach(() => {
@@ -35,6 +37,12 @@ describe('<AcademicConfigPanel />', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Tipos de actividad' }))
     expect(screen.getByText('panel de tipos')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Alertas' }))
+    expect(screen.getByText('panel de alertas')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Libretas' }))
+    expect(screen.getByText('panel de libretas')).toBeInTheDocument()
   })
 
   it('muestra el error que reporta la pestaña', () => {

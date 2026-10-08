@@ -16,6 +16,7 @@ const { prismaMock, rosterMock, scopeMock } = vi.hoisted(() => ({
     academicPeriod: { findMany: vi.fn() },
     gradeBookPeriod: { findMany: vi.fn(), findUnique: vi.fn() },
     endorsement: { create: vi.fn() },
+    academicAlertRule: { findMany: vi.fn() },
     inAppNotification: { createMany: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
     teacherMeetingRecord: { findMany: vi.fn(), create: vi.fn() },
@@ -90,6 +91,7 @@ beforeEach(() => {
   // `resolveGradeBookRecipients` busca al titular para avisarle del visado.
   prismaMock.gradeBook.findUnique.mockResolvedValue({ teacherUserId: 't-1' })
   prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
+  prismaMock.academicAlertRule.findMany.mockResolvedValue([])
   rosterMock.mockResolvedValue([])
 })
 
@@ -176,6 +178,45 @@ describe('GET /group-matrix', () => {
     expect(row.alertCount).toBe(1)
     expect(row.cells[0].descriptor.label).toBe('Insuficiente')
     expect(row.cells[0].periodStatus).toBe('CLOSED')
+  })
+
+  it('marca en alerta con el umbral configurado del ciclo, no con un número fijo', async () => {
+    prismaMock.gradeBook.findMany.mockResolvedValue([book({ id: 'gb-1' })])
+    rosterMock.mockResolvedValue([
+      { studentId: STUDENT_ID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      { gradeBookId: 'gb-1', status: 'CLOSED', grades: [{ studentId: STUDENT_ID, valueHundredths: 300, meetingValueHundredths: 300 }] },
+    ])
+
+    // Por defecto hacen falta 3 asignaturas en alerta: con una sola, no.
+    const byDefault = await request(app()).get(url).set('Authorization', `Bearer ${tok()}`)
+    expect(byDefault.body.students[0].atRisk).toBe(false)
+    expect(byDefault.body.alertSubjectsThreshold).toBe(3)
+
+    prismaMock.academicAlertRule.findMany.mockResolvedValue([
+      { type: 'ALERT_SUBJECTS', schoolYearId: 'sy-1', threshold: 1, isActive: true },
+    ])
+    const configured = await request(app()).get(url).set('Authorization', `Bearer ${tok()}`)
+    expect(configured.body.students[0].atRisk).toBe(true)
+    expect(configured.body.alertSubjectsThreshold).toBe(1)
+  })
+
+  it('con la regla apagada nadie queda marcado', async () => {
+    prismaMock.gradeBook.findMany.mockResolvedValue([book({ id: 'gb-1' })])
+    rosterMock.mockResolvedValue([
+      { studentId: STUDENT_ID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      { gradeBookId: 'gb-1', status: 'CLOSED', grades: [{ studentId: STUDENT_ID, valueHundredths: 300, meetingValueHundredths: 300 }] },
+    ])
+    prismaMock.academicAlertRule.findMany.mockResolvedValue([
+      { type: 'ALERT_SUBJECTS', schoolYearId: null, threshold: 1, isActive: false },
+    ])
+
+    const res = await request(app()).get(url).set('Authorization', `Bearer ${tok()}`)
+    expect(res.body.students[0].atRisk).toBe(false)
+    expect(res.body.alertSubjectsThreshold).toBeNull()
   })
 
   it('sin R la materia queda pendiente: la C se muestra como propuesta y no promedia', async () => {

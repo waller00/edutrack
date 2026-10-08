@@ -4,11 +4,15 @@ import { useCallback, useState } from 'react'
 import PeriodsTab from './PeriodsTab'
 import ScalesTab from './ScalesTab'
 import ActivityTypesTab from './ActivityTypesTab'
+import AlertRulesTab from './AlertRulesTab'
+import GradeBooksTab from './GradeBooksTab'
 
 const TABS = [
   { id: 'periods', label: 'Períodos' },
   { id: 'scales', label: 'Escalas' },
   { id: 'activity-types', label: 'Tipos de actividad' },
+  { id: 'alerts', label: 'Alertas' },
+  { id: 'gradebooks', label: 'Libretas' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -60,6 +64,8 @@ export default function AcademicConfigPanel() {
         {tab === 'periods' && <PeriodsTab onError={onError} />}
         {tab === 'scales' && <ScalesTab onError={onError} />}
         {tab === 'activity-types' && <ActivityTypesTab onError={onError} />}
+        {tab === 'alerts' && <AlertRulesTab onError={onError} />}
+        {tab === 'gradebooks' && <GradeBooksTab onError={onError} />}
       </div>
     </div>
   )
