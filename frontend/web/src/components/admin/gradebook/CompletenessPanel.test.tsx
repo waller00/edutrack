@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import CompletenessPanel from './CompletenessPanel'
+import CompletenessPanel, { bulkNoticeText, isDone, rowLabel } from './CompletenessPanel'
 import { api } from '@/lib/api/client'
 import type { ReportCardPeriod } from '@/lib/gradebook/report-card-periods'
 
@@ -39,6 +39,7 @@ function row(over: Record<string, unknown> = {}) {
 
 function respond(rows: unknown[], notified = 1) {
   mockedApi.mockImplementation((path: string, init?: RequestInit) => {
+    if (String(path).endsWith('/request-all')) return Promise.resolve({ teachers: 2, gradeBooks: 3, withoutTeacher: 1 } as never)
     if (init?.method === 'POST') return Promise.resolve({ ok: true, notified } as never)
     if (String(path).includes('/completeness')) return Promise.resolve({ period: { name: '1.ª Entrega' }, data: rows } as never)
     return Promise.resolve(PERIODS as never)
@@ -114,7 +115,7 @@ describe('<CompletenessPanel />', () => {
     await waitFor(() => {
       const post = mockedApi.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
       expect(String(post?.[0])).toBe('/admin/gradebook/completeness/gb-1/request')
-      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({ periodId: 'e1' })
+      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({ periodId: 'e1', stage: 'before' })
     })
     expect(await screen.findByText('Avisado')).toBeInTheDocument()
   })
@@ -152,5 +153,65 @@ describe('<CompletenessPanel />', () => {
     await pickPeriod()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Sin permiso')
+  })
+
+  it('nombra la libreta con la orientación del grupo', async () => {
+    respond([row({ courseName: '5.º', orientationName: 'Científico' })])
+    render(<CompletenessPanel />)
+    await pickPeriod()
+    expect(await screen.findByText('5.º — Científico · Matemática')).toBeInTheDocument()
+  })
+
+  it('después de la reunión mira la R y el cierre, y avisa con esa etapa', async () => {
+    respond([row({ complete: true, missingMeetingGrades: 3, periodStatus: 'OPEN' })])
+    render(<CompletenessPanel />)
+    await pickPeriod()
+    await screen.findByText(/Todas las libretas están al día/)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Después de la reunión' }))
+
+    expect(await screen.findByText('Faltan 3')).toBeInTheDocument()
+    expect(screen.getByText('Abierto')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Avisar al docente/ }))
+    await waitFor(() => {
+      const post = mockedApi.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({ periodId: 'e1', stage: 'after' })
+    })
+  })
+
+  it('muestra cuándo se avisó por última vez', async () => {
+    respond([row({ lastRequestedAt: { before: '2026-06-10T15:00:00.000Z', after: null } })])
+    render(<CompletenessPanel />)
+    await pickPeriod()
+    expect(await screen.findByText('Avisado el 10/06/2026')).toBeInTheDocument()
+  })
+
+  it('avisa a todos de una vez y dice a cuántos docentes', async () => {
+    respond([row(), row({ gradeBookId: 'gb-2', subjectName: 'Historia' })])
+    render(<CompletenessPanel />)
+    await pickPeriod()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Avisar a todos (2)' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Se avisó a 2 docentes por 3 libretas')
+    const post = mockedApi.mock.calls.find(([path]) => String(path).endsWith('/request-all'))
+    expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({ periodId: 'e1', stage: 'before' })
+  })
+})
+
+describe('auxiliares del control', () => {
+  it('cada etapa tiene su "al día"', () => {
+    const r = row({ complete: true, periodStatus: 'OPEN' }) as never
+    expect(isDone(r, 'before')).toBe(true)
+    expect(isDone(r, 'after')).toBe(false)
+  })
+
+  it('el nombre sin orientación no deja un guion suelto', () => {
+    expect(rowLabel({ courseName: '1.º', orientationName: null, subjectName: 'Matemática' })).toBe('1.º · Matemática')
+  })
+
+  it('el resultado del aviso masivo en singular y sin titulares', () => {
+    expect(bulkNoticeText({ teachers: 1, gradeBooks: 1, withoutTeacher: 0 })).toBe('Se avisó a 1 docente por 1 libreta, un aviso por docente.')
+    expect(bulkNoticeText({ teachers: 0, gradeBooks: 0, withoutTeacher: 2 })).toContain('no tienen titular')
   })
 })

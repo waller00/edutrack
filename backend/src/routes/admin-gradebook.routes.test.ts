@@ -18,6 +18,7 @@ const { prismaMock, rosterMock, scopeMock } = vi.hoisted(() => ({
     gradeBookPeriod: { findMany: vi.fn(), findUnique: vi.fn() },
     endorsement: { create: vi.fn() },
     academicAlertRule: { findMany: vi.fn() },
+    auditLog: { findMany: vi.fn() },
     inAppNotification: { createMany: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
     teacherMeetingRecord: { findMany: vi.fn(), create: vi.fn() },
@@ -93,6 +94,7 @@ beforeEach(() => {
   prismaMock.gradeBook.findUnique.mockResolvedValue({ teacherUserId: 't-1' })
   prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
   prismaMock.academicAlertRule.findMany.mockResolvedValue([])
+  prismaMock.auditLog.findMany.mockResolvedValue([])
   rosterMock.mockResolvedValue([])
 })
 
@@ -1122,6 +1124,96 @@ describe('control de libretas antes de la reunión', () => {
       .post('/admin/gradebook/completeness/gb-1/request')
       .set('Authorization', `Bearer ${tok()}`)
       .send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('nombra la libreta con su orientación y pide el roster una vez por grupo', async () => {
+    prismaMock.gradeBook.findMany.mockResolvedValue([
+      gradedBook({ id: 'gb-1', courseOrientation: { orientation: { name: 'Científico' } } }),
+      gradedBook({ id: 'gb-2', courseOrientation: { orientation: { name: 'Científico' } } }),
+    ])
+    const res = await request(app()).get(`/admin/gradebook/completeness?periodId=${P_ID}`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.data[0].orientationName).toBe('Científico')
+    // Las dos libretas son del mismo grupo: el roster se consulta una sola vez.
+    expect(rosterMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('recuerda cuándo se avisó, por etapa, aunque se recargue la pantalla', async () => {
+    prismaMock.auditLog.findMany.mockResolvedValue([
+      { entityId: 'gb-1', occurredAt: new Date('2026-06-12T15:00:00Z'), metadata: { periodId: P_ID, stage: 'after' } },
+      { entityId: 'gb-1', occurredAt: new Date('2026-06-10T15:00:00Z'), metadata: { periodId: P_ID } },
+      { entityId: 'gb-1', occurredAt: new Date('2026-06-09T15:00:00Z'), metadata: { periodId: P_ID, stage: 'before' } },
+    ])
+    const res = await request(app()).get(`/admin/gradebook/completeness?periodId=${P_ID}`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.data[0].lastRequestedAt).toEqual({
+      before: '2026-06-10T15:00:00.000Z',
+      after: '2026-06-12T15:00:00.000Z',
+    })
+    expect(prismaMock.auditLog.findMany.mock.calls[0][0].where).toMatchObject({
+      action: 'GRADEBOOK_COMPLETION_REQUESTED',
+      entityType: 'GradeBook',
+      entityId: { in: ['gb-1'] },
+      metadata: { path: ['periodId'], equals: P_ID },
+    })
+  })
+
+  it('después de la reunión avisa lo que falta para cerrar: la R y el cierre', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue({ id: 'gb-1', teacherUserId: 'u-1', subject: { name: 'Matemática' } })
+    prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 1 })
+
+    const res = await request(app())
+      .post('/admin/gradebook/completeness/gb-1/request')
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ periodId: P_ID, stage: 'after' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.detail).toBe('1.ª Entrega: 2 sin nota de reunión (R) y falta cerrar el período.')
+    expect(prismaMock.inAppNotification.createMany.mock.calls[0][0].data[0].title).toBe('Falta cerrar Matemática')
+  })
+
+  it('después de la reunión, una libreta cerrada ya no se avisa', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue({ id: 'gb-1', teacherUserId: 'u-1', subject: { name: 'Matemática' } })
+    prismaMock.gradeBook.findMany.mockResolvedValue([gradedBook({ periods: [{ status: 'CLOSED', grades: [] }] })])
+    const res = await request(app())
+      .post('/admin/gradebook/completeness/gb-1/request')
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ periodId: P_ID, stage: 'after' })
+    expect(res.status).toBe(409)
+  })
+
+  it('avisar a todos manda un aviso por docente, con todas sus libretas', async () => {
+    prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 1 })
+    prismaMock.gradeBook.findMany.mockResolvedValue([
+      gradedBook({ id: 'gb-mat', subject: { name: 'Matemática' } }),
+      gradedBook({ id: 'gb-fis', subject: { name: 'Física' } }),
+      gradedBook({ id: 'gb-his', subject: { name: 'Historia' }, teacherUserId: 'u-2', teacher: { id: 'u-2', name: 'Beto' } }),
+      gradedBook({ id: 'gb-sin', subject: { name: 'Dibujo' }, teacherUserId: null, teacher: null }),
+    ])
+
+    const res = await request(app())
+      .post('/admin/gradebook/completeness/request-all')
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ periodId: P_ID })
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ teachers: 2, gradeBooks: 3, withoutTeacher: 1 })
+    const notices = prismaMock.inAppNotification.createMany.mock.calls.map((call: any[]) => call[0].data[0])
+    expect(notices).toHaveLength(2)
+    const ana = notices.find((n: any) => n.userId === 'u-1')
+    expect(ana.title).toBe('1.ª Entrega: falta completar 2 libretas')
+    expect(ana.body).toContain('Matemática')
+    expect(ana.body).toContain('Física')
+    // Cada libreta avisada queda en la auditoría, para que la pantalla muestre "Avisado el…".
+    expect(prismaMock.$executeRaw).toHaveBeenCalledTimes(3)
+  })
+
+  it('avisar a todos exige el período', async () => {
+    const res = await request(app())
+      .post('/admin/gradebook/completeness/request-all')
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ stage: 'after' })
     expect(res.status).toBe(400)
   })
 })
