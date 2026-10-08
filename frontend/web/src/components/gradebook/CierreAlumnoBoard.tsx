@@ -476,7 +476,7 @@ export default function CierreAlumnoBoard({
       <MeetingPeriodsBar
         gradeBookId={gradeBookId}
         canClose={detail.access.canGrade}
-        onClosed={() => void loadStudent()}
+        onChanged={() => void loadStudent()}
       />
 
       <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-100/80 px-3 py-2 text-sm">

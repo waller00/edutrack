@@ -432,7 +432,10 @@ entienden solos.
   podría cambiar una nota parcial después del cierre y el cierre dejaría de significar algo.
 - **Reapertura:** sólo `gradebook.manage`, con motivo obligatorio y auditoría garantizada. **No
   borra el cierre previo** (`closedAt` y `closedByUserId` se conservan): es lo que permitirá que un
-  visado hecho sobre el cierre anterior siga existiendo (RF-083).
+  visado hecho sobre el cierre anterior siga existiendo (RF-083). Se hace desde la grilla de visado
+  o desde la barra de reuniones del cierre. Reabrir una **entrega reabre también los tramos** que su
+  cierre congeló (si no, sus notas de evaluación seguirían bloqueadas para todos), y el docente
+  recibe un aviso (`GRADEBOOK_PERIOD_REOPENED`) con el motivo.
 - **Importación desde Moodle (§11 ter · Moodle):** previsualizar y confirmar. Idempotente por
   `(libreta, ítem de Moodle)`, convierte proporcionalmente a la escala elegida y **nunca toca un
   período cerrado**. Detalle en `docs/MOODLE_INTEGRACION.md`.
@@ -479,8 +482,20 @@ adscripción, dirección, inspección y administración.
   tiene `gradebook.endorse`**. Sin esa regla, como el estado vigente es la última fila, una
   observación de Inspección —o de Adscripción— revertiría de hecho el visado sin tener la
   atribución para hacerlo. Es lo que cumple la nota funcional del pliego.
+- **Circuito de corrección:** se observa una sección → administración reabre el período → el
+  docente corrige y vuelve a cerrar (la grilla marca "volvió a cerrarse tras la observación") →
+  adscripción o dirección la **da por corregida** → Dirección visa. Cada fila de la grilla se abre
+  para observar por sección, dar por corregido, reabrir y ver el historial; los botones aparecen
+  sólo para quien tiene la atribución.
+- **Visado en lote:** con una reunión elegida, Dirección visa de una vez lo que está cerrado y sin
+  observaciones (`POST /admin/gradebook/endorsements/bulk`). Cada libreta pasa por las mismas
+  reglas, auditoría y aviso que de a una; lo que no está listo queda afuera con su motivo.
+- **El docente ve su visado** en la sección Visados de la libreta (`GET /gradebook/:id/endorsements`),
+  incluidas las observaciones de un período reabierto para corregir. Antes leía la grilla de
+  supervisión, que exige alcance total, y veía todo "Pendiente".
 - **Antigüedad del pendiente** en la grilla, para priorizar (§5.9), junto con la marca de cierre
-  fuera de plazo.
+  fuera de plazo. La grilla filtra por reunión y por grupo (orientación más tronco común), sin tope
+  de filas.
 - El rol del actor se **congela** en cada evento: si mañana cambia de rol, el historial sigue
   diciendo con qué atribución se visó.
 
