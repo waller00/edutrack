@@ -548,7 +548,7 @@ r.post('/completeness/:gradeBookId/request', requirePermission('gradebook.review
  * sea de una materia sola. Reúne lo que el liceo pidió que llegue a la familia: nota y juicio de
  * cada asignatura, conducta, promedio e inasistencias, con el encabezado del estudiante.
  */
-r.get('/report-card/:studentId', requirePermission('exports.create'), async (req: any, res) => {
+r.get('/report-card/:studentId', requirePermission('gradebook.export'), async (req: any, res) => {
   const periodId = typeof req.query.periodId === 'string' ? req.query.periodId : null
   if (!periodId) return res.status(400).json({ message: 'Falta el período' })
 

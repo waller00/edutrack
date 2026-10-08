@@ -184,3 +184,19 @@ describe('inasistencias: adscripción justifica, el docente no', () => {
     expect(withManage).toEqual(['ADMIN'])
   })
 })
+
+describe('exportar libretas y boletines', () => {
+  it('supervisión exporta todas, cada docente las suyas, inspección no exporta', () => {
+    expect(scopeOf('ADMIN', 'gradebook.export')).toBe('all')
+    expect(scopeOf('DIRECCION', 'gradebook.export')).toBe('all')
+    expect(scopeOf('ADSCRIPTO', 'gradebook.export')).toBe('all')
+    expect(scopeOf('TEACHER', 'gradebook.export')).toBe('own')
+    expect(scopeOf('STAFF', 'gradebook.export')).toBe('own')
+    expect(scopeOf('INSPECCION', 'gradebook.export')).toBeNull()
+  })
+
+  it('nadie fuera de administración recibe exports.create: abre la nómina y la asistencia del personal', () => {
+    const withGeneralExports = ALL_ROLES.filter((role) => scopeOf(role, 'exports.create') !== null)
+    expect(withGeneralExports).toEqual(['ADMIN'])
+  })
+})

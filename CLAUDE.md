@@ -172,6 +172,11 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > Dirección tiene `plan` con alcance `all` y **no** tiene `grade`: así puede corregir la libreta de
 > un docente sin poder tocar una calificación. Con una sola llave esa mitad no se puede expresar.
 
+> **Exportar libretas y boletines es `gradebook.export`, no `exports.create`.** `exports.create`
+> con alcance `all` abre también `/exports`: asistencia del personal y novedades de sueldos. Sólo
+> administración lo tiene; Dirección y Adscripción exportan libretas con `gradebook.export` (`all`)
+> y cada docente las suyas (`own`, acotado por `loadContext`).
+
 > **La nota oficial del período es R, no C.** C es la calificación del docente; R, la que queda
 > después de la reunión (`PeriodGrade.meetingValueHundredths`). Boletín, matriz, promedio, ficha e
 > indicadores leen R vía `officialPeriodValue` (`services/gradebook/period-closure.ts`); sin R, la

@@ -517,7 +517,11 @@ adscripción, dirección, inspección y administración.
 
 ### Exportaciones (RF-120)
 
-Desde `/libreta/[id]`, con permiso `exports.create`.
+Desde `/libreta/[id]`, con permiso `gradebook.export`: Dirección, Adscripción y administración
+exportan cualquier libreta, cada docente las suyas, e Inspección no exporta (no se le muestra el
+botón). El boletín (`/admin/gradebook/report-card/:studentId`) usa el mismo permiso. No es
+`exports.create` a propósito: ese abre también las exportaciones generales, con la asistencia del
+personal y las novedades de sueldos.
 
 - **Excel**: una hoja de calificaciones —una columna por evaluación— más una hoja de cierre por
   período, con calificación, descriptor y juicio conceptual. Sirve de archivo del año entero.

@@ -78,6 +78,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
     perm('gradebook.inspect', 'Libreta', 'inspect', 'Consultar libretas y registrar visitas de inspección', true, 'all'),
     perm('gradebook.manage', 'Libreta', 'manage', 'Corregir y reabrir fuera de plazo', true, 'all'),
+    perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
     perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),
     perm('student-reports.read', 'Reportes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
     perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de clases', true, 'all'),
@@ -100,6 +101,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en mis libretas', true, 'own'),
     perm('gradebook.plan', 'Libreta', 'plan', 'Planificar mis libretas', true, 'own'),
     perm('gradebook.close', 'Libreta', 'close', 'Cerrar los períodos de mis libretas', true, 'own'),
+    perm('gradebook.export', 'Libreta', 'export', 'Exportar mis libretas', true, 'own'),
   ],
   STAFF: [
     perm('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
@@ -113,6 +115,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en mis libretas', true, 'own'),
     perm('gradebook.plan', 'Libreta', 'plan', 'Planificar mis libretas', true, 'own'),
     perm('gradebook.close', 'Libreta', 'close', 'Cerrar los períodos de mis libretas', true, 'own'),
+    perm('gradebook.export', 'Libreta', 'export', 'Exportar mis libretas', true, 'own'),
   ],
   // Adscripto: controla el avance de las libretas y observa, pero NO visa. Es personal del
   // liceo, así que conserva la línea base "propia" (sus asistencias, eventos y licencias).
@@ -124,6 +127,9 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas del centro', true, 'all'),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
+    // Libretas y boletines van con un permiso propio y no con `exports.create`: ese, con alcance
+    // all, abre también `/exports`, donde están la asistencia del personal y las novedades de sueldos.
+    perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
     // Justificar es trabajo de adscripción, no del docente. Se le da el permiso acotado y no
     // `student-attendance.manage`, que además habilita reabrir listas ya cerradas.
     perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista del centro', true, 'all'),
@@ -147,6 +153,7 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas del centro', true, 'all'),
     perm('gradebook.plan', 'Libreta', 'plan', 'Editar planificación y desarrollo del curso', true, 'all'),
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
+    perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
     perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),
     // En ciclo básico dirección también justifica faltas, previa o posteriormente. Igual que
