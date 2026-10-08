@@ -2728,21 +2728,6 @@ function metaOf(row: any): GradeBookMeta {
   }
 }
 
-/** Escala vigente de la libreta, para los decimales y los descriptores. */
-async function scaleForGradeBook(gradeBookId: string) {
-  const assessment = await prisma.assessment.findFirst({
-    where: { gradeBookId, deletedAt: null },
-    include: { gradingScale: { include: { levels: { orderBy: { sortOrder: 'asc' } } } } },
-    orderBy: { createdAt: 'desc' },
-  })
-  if (assessment) return assessment.gradingScale
-  return prisma.gradingScale.findFirst({
-    where: { isActive: true },
-    include: { levels: { orderBy: { sortOrder: 'asc' } } },
-    orderBy: { sortOrder: 'asc' },
-  })
-}
-
 function sendBuffer(res: any, buffer: Buffer, filename: string, contentType: string) {
   res.setHeader('Content-Type', contentType)
   res.setHeader('Content-Disposition', attachmentDisposition(filename))
@@ -2759,7 +2744,8 @@ r.get('/:id/exports/xlsx', requirePermission('gradebook.export'), async (req: an
 
     const { row } = ctx
     const meta = metaOf(row)
-    const scale = await scaleForGradeBook(row.id)
+    // C y R se describen con la escala del nivel, no con la de alguna evaluación.
+    const scale = await loadPeriodScale(row)
     const decimals = scale?.decimals ?? 0
 
     const level = row.courseOffering?.course?.level ?? null
@@ -2909,7 +2895,7 @@ r.get('/:id/exports/pdf', requirePermission('gradebook.export'), async (req: any
     const ctx = await loadContext(req, res)
     if (!ctx) return
 
-    const scale = await scaleForGradeBook(ctx.row.id)
+    const scale = await loadPeriodScale(ctx.row)
     const students = await buildPdfStudents(ctx.row, scale?.levels ?? [])
     const meta = metaOf(ctx.row)
 
@@ -2932,7 +2918,7 @@ r.get('/:id/exports/students/:studentId/pdf', requirePermission('gradebook.expor
     const ctx = await loadContext(req, res)
     if (!ctx) return
 
-    const scale = await scaleForGradeBook(ctx.row.id)
+    const scale = await loadPeriodScale(ctx.row)
     const students = await buildPdfStudents(ctx.row, scale?.levels ?? [], req.params.studentId)
     if (students.length === 0) {
       return res.status(404).json({ message: 'El estudiante no tiene cierres en esta libreta.' })

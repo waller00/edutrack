@@ -89,6 +89,38 @@ export function assertLevelsCoverScale(levels: readonly ScaleLevelInput[], scale
   assertWithinScale(sorted, scale);
 }
 
+export type GradebookScaleState = ScaleRange & { isActive: boolean; levelCount: number };
+
+/**
+ * Una escala que la libreta busca por código (`role` dice para qué) tiene que seguir activa, con
+ * rango y con tramos. Desactivada, la libreta caía en silencio en otra escala; sin rango, C y R
+ * dejan de validarse; sin tramos, no hay descriptor, "nota baja" ni opciones de conducta.
+ */
+export function assertGradebookScaleKept(role: string | null, next: GradebookScaleState): void {
+  if (!role) return;
+  if (!next.isActive) {
+    throw new AcademicConfigError(
+      409,
+      "GRADEBOOK_SCALE_REQUIRED",
+      `La libreta usa esta escala para ${role}: no se puede desactivar.`,
+    );
+  }
+  if (next.minValueHundredths == null || next.maxValueHundredths == null) {
+    throw new AcademicConfigError(
+      400,
+      "GRADEBOOK_SCALE_NEEDS_RANGE",
+      `La libreta usa esta escala para ${role}: necesita mínimo y máximo para validar las notas.`,
+    );
+  }
+  if (next.levelCount === 0) {
+    throw new AcademicConfigError(
+      400,
+      "GRADEBOOK_SCALE_NEEDS_LEVELS",
+      `La libreta usa esta escala para ${role}: necesita al menos un tramo.`,
+    );
+  }
+}
+
 /** Tramos de valor que ninguna fila cubre, para avisar en la UI sin bloquear el guardado. */
 export function findScaleGaps(
   levels: readonly ScaleLevelInput[],

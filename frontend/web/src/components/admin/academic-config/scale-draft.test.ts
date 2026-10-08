@@ -26,6 +26,7 @@ const SCALE: GradingScale = {
   minValueHundredths: 100, maxValueHundredths: 1000, decimals: 0,
   description: 'Del 1 al 10', isActive: true, sortOrder: 0, gaps: [],
   usage: { assessments: 4 },
+  gradebookRole: null,
   levels: [
     {
       id: 'l-1', code: 'INSUF', label: 'Insuficiente', descriptor: 'No alcanza.',
@@ -101,6 +102,16 @@ describe('validateScale', () => {
   it('una escala ordinal sin tramos no tiene sentido: el tramo ES la nota', () => {
     expect(validateScale(draft({ kind: 'ORDINAL', levels: [] }), false)).toMatch(/al menos un tramo/i)
     expect(validateScale(draft({ kind: 'NUMERIC', levels: [] }), false)).toBeNull()
+  })
+
+  it('una escala de la libreta sigue activa, con rango y con tramos', () => {
+    const role = 'C y R de ciclo básico'
+    expect(validateScale(draft({ levels: [level()] }), true, role)).toBeNull()
+    expect(validateScale(draft({ levels: [level()], isActive: false }), true, role)).toMatch(/C y R de ciclo básico: dejala activa/)
+    expect(validateScale(draft({ levels: [level()], max: '' }), true, role)).toMatch(/mínimo y el máximo/)
+    expect(validateScale(draft({ levels: [] }), true, role)).toMatch(/al menos un tramo/)
+    // Sin rol, la misma escala se puede desactivar.
+    expect(validateScale(draft({ levels: [level()], isActive: false }), true)).toBeNull()
   })
 })
 

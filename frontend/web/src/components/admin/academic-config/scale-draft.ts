@@ -58,11 +58,23 @@ export function draftFromScale(scale: GradingScale | null): ScaleDraft {
   }
 }
 
+/** Lo mismo que `assertGradebookScaleKept` del backend, para una escala que usa la libreta. */
+function gradebookScaleProblem(draft: ScaleDraft, gradebookRole: string | null): string | null {
+  if (!gradebookRole) return null
+  const prefix = `La libreta usa esta escala para ${gradebookRole}`
+  if (!draft.isActive) return `${prefix}: dejala activa.`
+  if (parseToHundredths(draft.min) == null || parseToHundredths(draft.max) == null) {
+    return `${prefix}: completá el mínimo y el máximo.`
+  }
+  if (draft.levels.length === 0) return `${prefix}: necesita al menos un tramo.`
+  return null
+}
+
 /**
  * Valida lo mismo que `assertLevelsCoverScale` del backend, para señalar el tramo exacto en vez
  * de devolver un error genérico. No sustituye al servidor: es la primera barrera, no la única.
  */
-export function validateScale(draft: ScaleDraft, isEdit: boolean): string | null {
+export function validateScale(draft: ScaleDraft, isEdit: boolean, gradebookRole: string | null = null): string | null {
   if (!isEdit && !/^[A-Z0-9_]+$/.test(draft.code)) {
     return 'El código va en mayúsculas, números y guion bajo (por ejemplo, NUM_1_10).'
   }
@@ -92,7 +104,7 @@ export function validateScale(draft: ScaleDraft, isEdit: boolean): string | null
   if (draft.kind === 'ORDINAL' && draft.levels.length === 0) {
     return 'Una escala ordinal necesita al menos un tramo: el tramo ES la calificación.'
   }
-  return null
+  return gradebookScaleProblem(draft, gradebookRole)
 }
 
 /** Devuelve las posiciones (1-based) del primer par de tramos que se solapan. */

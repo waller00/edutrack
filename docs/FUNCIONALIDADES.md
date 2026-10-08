@@ -373,6 +373,11 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
 - **Parametrización (RF-044, RF-050, RF-041):** escalas con sus tramos y descriptores, períodos por
   ciclo **y nivel** —EBI y EMS tienen calendarios distintos— y tipos de actividad. Todo se edita
   desde administración, sin tocar código.
+- **Escalas que la libreta busca por código:** `NUMERICA_1_10` y `NUMERICA_1_12` (C y R de cada
+  nivel) y `CONDUCTA`. Configuración no deja desactivarlas ni dejarlas sin mínimo, máximo o tramos
+  (`GRADEBOOK_SCALE_REQUIRED`, `_NEEDS_RANGE`, `_NEEDS_LEVELS`), y lo dice en la tarjeta de cada
+  una. Antes, desactivar una hacía que la libreta pasara en silencio a la primera escala activa.
+  Igual se leen aunque estén inactivas, por si alguna quedó así de antes.
 - **Calificaciones:** los valores se guardan en **centésimos** (`8` → `800`), como `amountCents`,
   para que la comparación contra umbrales sea exacta. El tramo de la escala se deriva del valor;
   el descriptor no se persiste.
@@ -559,6 +564,8 @@ personal y las novedades de sueldos.
   período, con calificación, descriptor y juicio conceptual. Sirve de archivo del año entero.
 - **PDF de la libreta** y **informe individual** por estudiante, con sus períodos cerrados, el
   descriptor y el estado de visado.
+- El descriptor de C y R sale de la escala del nivel, la misma con la que se califican, y no de
+  la escala de alguna evaluación de la libreta.
 - Los valores van al Excel como **número**, no como texto: una planilla de notas se ordena y se
   promedia, y una columna de strings lo impide. El formato de celda respeta los decimales de la
   escala. El *ausente* se distingue del *sin calificar*: uno dice "Ausente", el otro queda vacío.
@@ -569,16 +576,31 @@ personal y las novedades de sueldos.
 
 ### Backoffice de inteligencia académica (§5, RF-200)
 
-**Pantalla:** `/libreta/indicadores`, permiso `academic-analytics.read` de alcance ALL.
+**Pantalla:** `/libreta/indicadores`, permiso `academic-analytics.read` de alcance ALL. Filtros de
+nivel, reunión y grupo.
 
 - **Tres bloques** como pide el pliego: *Estudiantes* (total, evaluados, sin evaluaciones, en
   alerta, con mejora, con descenso), *Rendimiento* (promedio, mediana, distribución por tramo) y
   *Gestión de libretas* (completas, incompletas, cierres y visados pendientes, % visadas, cierres
   fuera de plazo).
+- **Por nivel, nunca mezclados.** Ciclo básico califica de 1 a 10 y bachillerato de 1 a 12: un
+  promedio que junta las dos escalas no dice nada. Los tramos y las alertas salen de la escala de C
+  y R del nivel (`periodScaleFor`). Si no se elige nivel y los datos tienen uno solo, se usa ese;
+  con los dos, la API responde 400 `LEVEL_REQUIRED` con los niveles para elegir.
+- **Contra una reunión:** la elegida o la última que ya tiene alguna R (`referencePeriod`).
+  Promedio, mediana, distribución, materias en alerta y gestión son de esa reunión; antes se
+  mezclaban todas las del año, del diagnóstico a febrero. Se mide sobre R, la nota oficial. La
+  pantalla dice contra qué reunión y qué escala está midiendo.
+- **Con mejora / en descenso** compara, punta a punta, el promedio de las materias del alumno en
+  cada reunión hasta la de referencia. Antes la serie guardaba por reunión la nota de una materia
+  cualquiera, y comparaba Matemática de una entrega con Dibujo de otra.
+- **Con un grupo elegido** cuentan sus libretas más las de tronco común, como en la reunión, y sólo
+  sus alumnos: una libreta de tronco común trae a todo el curso.
 - **Promedio y mediana van juntos, no uno en lugar del otro:** una distribución con pocos
   resultados muy bajos mueve el promedio y no la mediana, y esa diferencia es la señal.
-- **Comparativas** por asignatura, curso y ciclo lectivo, con el porcentaje de resultados en tramo
-  de alerta (§5.3 a §5.5).
+- **Comparativas** por asignatura, curso y ciclo lectivo, siempre dentro de un nivel, con el
+  porcentaje de resultados en tramo de alerta (§5.3 a §5.5). Entre años se compara la misma
+  reunión por código y nivel: la "1.ª Entrega" de cada ciclo es otro período.
 - **Umbrales configurables (§5.7)** en `AcademicAlertRule`, desde *Configuración de libreta →
   Alertas*, con **vigencia por ciclo (RF-200)**: la regla del año pisa a la general y la general al
   valor por defecto, así una comparativa histórica se evalúa con el umbral que regía entonces y no

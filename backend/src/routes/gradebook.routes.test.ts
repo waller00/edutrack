@@ -1204,8 +1204,7 @@ describe('exportFilename', () => {
 describe('exportaciones de la libreta', () => {
   beforeEach(() => {
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
-    prismaMock.assessment.findFirst.mockResolvedValue(null)
-    prismaMock.gradingScale.findFirst.mockResolvedValue({ decimals: 0, levels: [] })
+    prismaMock.gradingScale.findUnique.mockResolvedValue({ decimals: 0, levels: [] })
     prismaMock.assessment.findMany.mockResolvedValue([])
     prismaMock.assessmentGrade.findMany.mockResolvedValue([])
     prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
@@ -1268,6 +1267,20 @@ describe('exportaciones de la libreta', () => {
     expect(res.headers['content-disposition']).toContain('benitez-ana')
   })
 
+  it('describe R con la escala del nivel, no con la de alguna evaluación', async () => {
+    for (const path of ['xlsx', 'pdf']) {
+      prismaMock.gradingScale.findUnique.mockClear()
+      const res = await request(app())
+        .get(`/gradebook/${GB_ID}/exports/${path}`)
+        .set('Authorization', `Bearer ${tok()}`)
+
+      expect(res.status).toBe(200)
+      // ROW es de bachillerato: 1–12, aunque haya una escala activa de 1–10 antes.
+      expect(prismaMock.gradingScale.findUnique.mock.calls[0][0].where).toEqual({ code: 'NUMERICA_1_12' })
+    }
+    expect(prismaMock.gradingScale.findFirst).not.toHaveBeenCalled()
+  })
+
   it('quien no accede a la libreta tampoco la exporta', async () => {
     accessMock.mockResolvedValue({ level: 'NONE', canRead: false, canGrade: false })
     const res = await request(app())
@@ -1316,8 +1329,7 @@ describe('ciclo archivado (RF-110, RF-111)', () => {
 
   it('la exportación sigue disponible: consultar el histórico incluye poder imprimirlo', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue(ARCHIVED)
-    prismaMock.assessment.findFirst.mockResolvedValue(null)
-    prismaMock.gradingScale.findFirst.mockResolvedValue({ decimals: 0, levels: [] })
+    prismaMock.gradingScale.findUnique.mockResolvedValue({ decimals: 0, levels: [] })
     prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
     rosterMock.mockResolvedValue([])
 
