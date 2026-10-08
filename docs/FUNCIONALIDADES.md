@@ -381,6 +381,17 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
 - **Calificaciones:** los valores se guardan en **centésimos** (`8` → `800`), como `amountCents`,
   para que la comparación contra umbrales sea exacta. El tramo de la escala se deriva del valor;
   el descriptor no se persiste.
+- **Se califica con la escala del nivel:** 1 a 10 en ciclo básico y 1 a 12 en bachillerato. Notas,
+  C y R ofrecen el rango que manda el backend (`periodScale` en `GET /gradebook/:id/options`, `scale`
+  en el cierre); antes el selector era 1–10 fijo y en bachillerato no se podía poner 11 ni 12. Una
+  nota fuera del rango se ofrece igual, para que tocar el selector no la borre.
+- **Notas sueltas y evaluaciones del grupo** (`Assessment.scope`): la carta del alumno crea notas
+  sueltas (`INDIVIDUAL`, un oral o una participación) y la planilla *Evaluación del grupo* crea un
+  escrito o una prueba para todos (`GROUP`). Desde la carta, la nota de una evaluación del grupo se
+  edita sola: título, fecha y período son de la evaluación y no se tocan desde un alumno. Las dos
+  admiten "no rindió". `npm run seed:fix-gradebook-assessments` (dry-run; `-- --apply`) marca como
+  sueltas las notas de la carta cargadas antes, y pasa a 1–12 las evaluaciones manuales de
+  bachillerato que se crearon con la escala 1–10.
 - **Historial (§6.2):** toda escritura que cambie una nota ya cargada deja una fila en
   `GradeRevision` con valor anterior, nuevo, autor, origen y motivo. Reenviar el mismo valor no
   escribe ni audita. La primera carga no genera revisión.
@@ -439,9 +450,11 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
     EMS 1.er y 2.º semestre (`isReportCardPeriod`: reunión que pide C y juicio; quedan afuera
     exámenes y APE). Se preselecciona la próxima.
   - Sólo aparecen las libretas del nivel de la reunión.
-  - "Al día" = las **evaluaciones** de los tramos que informa la reunión tienen nota (o "no rindió")
-    para cada alumno del grupo, está la **calificación del período (C)** y el **juicio** cuando el
-    período los pide. La **R no se exige**: se pone en la reunión misma.
+  - "Al día" = en los tramos que informa la reunión **cada evaluación del grupo** tiene nota (o "no
+    rindió") de cada alumno y, si el tramo sólo tiene notas sueltas, **cada alumno tiene al menos
+    una**; además está la **calificación del período (C)** y el **juicio** cuando el período los
+    pide. La **R no se exige**: se pone en la reunión misma. Una nota suelta no se cruza contra el
+    grupo: antes cada nota cargada desde la carta sumaba "29 notas sin cargar".
   - El texto del aviso lo arma el backend con el mismo cálculo que ve la pantalla; queda en la
     auditoría (`GRADEBOOK_COMPLETION_REQUESTED`), y de ahí sale el "Avisado el…" de cada libreta,
     que sobrevive a recargar la pantalla.

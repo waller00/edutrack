@@ -980,6 +980,14 @@ const assessmentSchema = z.object({
 
 const assessmentUpdateSchema = assessmentSchema.partial()
 
+/**
+ * Al crear se dice de quién es: la carta del alumno crea notas sueltas (`INDIVIDUAL`), la planilla
+ * evaluaciones del grupo. No se cambia después: el control cuenta distinto unas y otras.
+ */
+const assessmentCreateSchema = assessmentSchema.extend({
+  scope: z.enum(['GROUP', 'INDIVIDUAL']).default('GROUP'),
+})
+
 const gradeEntrySchema = z.object({
   studentId: z.string().uuid(),
   valueHundredths: z.number().int().nullish(),
@@ -1027,6 +1035,7 @@ function serializeAssessment(row: any) {
       : null,
     notes: row.notes,
     source: row.source,
+    scope: row.scope ?? 'GROUP',
     gradedCount: row._count?.grades ?? 0,
   }
 }
@@ -1075,6 +1084,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
           periodId: true,
           date: true,
           title: true,
+          scope: true,
           activityType: { select: { id: true, code: true, name: true, category: true } },
           gradingScale: {
             select: { id: true, name: true, kind: true, decimals: true, minValueHundredths: true, maxValueHundredths: true },
@@ -1145,6 +1155,7 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
         period: row.period,
         date: row.date.toISOString().slice(0, 10),
         title: row.title,
+        scope: row.scope,
         activityType: row.activityType,
         gradingScale: row.gradingScale,
       })),
@@ -1194,7 +1205,7 @@ async function assertPeriodFitsGradeBook(periodId: string, row: any): Promise<Pe
 }
 
 r.post('/:id/assessments', requirePermission('gradebook.grade'), async (req: any, res) => {
-  const parsed = assessmentSchema.safeParse(req.body)
+  const parsed = assessmentCreateSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
 
   try {
@@ -1218,6 +1229,7 @@ r.post('/:id/assessments', requirePermission('gradebook.grade'), async (req: any
         activityTypeId: d.activityTypeId ?? null,
         gradingScaleId: d.gradingScaleId,
         notes: d.notes ?? null,
+        scope: d.scope ?? 'GROUP',
         createdByUserId: req.user?.id ?? req.user?.sub,
       },
       include: ASSESSMENT_INCLUDE,

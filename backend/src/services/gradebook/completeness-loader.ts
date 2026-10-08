@@ -1,7 +1,13 @@
 import { AuditAction } from '@prisma/client'
 import { prisma } from '../../db/prisma.js'
 import { loadRosterForScope, type RosterStudent } from '../student-attendance/roster.js'
-import { countMissingAssessmentGrades, sortByUrgency, summarize, type CompletenessSummary } from './completeness.js'
+import {
+  countMissingAssessmentGrades,
+  countStudentsWithoutGrades,
+  sortByUrgency,
+  summarize,
+  type CompletenessSummary,
+} from './completeness.js'
 import { assessmentPeriodsFor } from './period-closure.js'
 
 export type CompletenessPeriod = {
@@ -110,7 +116,10 @@ export async function loadPeriodCompleteness(
       periods: { where: { periodId }, include: { grades: true } },
       assessments: {
         where: { periodId: { in: assessmentPeriodIds }, deletedAt: null },
-        select: { grades: { select: { studentId: true, valueHundredths: true, scaleLevelId: true, isAbsent: true } } },
+        select: {
+          scope: true,
+          grades: { select: { studentId: true, valueHundredths: true, scaleLevelId: true, isAbsent: true } },
+        },
       },
     },
   })
@@ -146,6 +155,7 @@ export async function loadPeriodCompleteness(
       expectsAssessments: assessmentPeriodIds.length > 0,
       assessmentCount: book.assessments.length,
       missingAssessmentGrades: countMissingAssessmentGrades(book.assessments, rosterIds),
+      studentsWithoutGrades: countStudentsWithoutGrades(book.assessments, rosterIds),
       lastRequestedAt: requests.get(book.id) ?? { before: null, after: null },
     })
   })

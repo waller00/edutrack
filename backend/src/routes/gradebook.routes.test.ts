@@ -455,6 +455,17 @@ describe('POST /:id/assessments', () => {
     expect(prismaMock.assessment.create.mock.calls[0][0].data.date.toISOString()).toBe('2026-05-10T12:00:00.000Z')
   })
 
+  it('es del grupo salvo que la carta diga que es una nota suelta', async () => {
+    await request(app()).post(`/gradebook/${GB_ID}/assessments`).set('Authorization', `Bearer ${tok()}`).send(body)
+    await request(app())
+      .post(`/gradebook/${GB_ID}/assessments`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ ...body, scope: 'INDIVIDUAL' })
+
+    expect(prismaMock.assessment.create.mock.calls[0][0].data.scope).toBe('GROUP')
+    expect(prismaMock.assessment.create.mock.calls[1][0].data.scope).toBe('INDIVIDUAL')
+  })
+
   it('rechaza un período de otro ciclo lectivo', async () => {
     prismaMock.academicPeriod.findUnique.mockResolvedValue({ schoolYearId: 'otro', level: 'EMS', isActive: true })
 

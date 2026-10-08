@@ -183,6 +183,11 @@ Frontend: `src/app/libreta/` con `LibretaShell` (marco tipo Libro del Profesor) 
 > materia está pendiente. Los períodos siguen la planilla del liceo: `kind` DIAGNOSTICO / TRAMO /
 > ENTREGA, y sólo los TRAMO admiten evaluaciones. Las columnas Or/Otras/Ev muestran notas sueltas.
 
+> **Se califica con la escala del nivel, nunca con un rango fijo.** EBI es 1–10 y EMS 1–12: el
+> front toma el rango de `periodScale` (`GET /gradebook/:id/options`) vía `lib/gradebook/grade-scale.ts`.
+> Las notas que crea la carta del alumno son `Assessment.scope = INDIVIDUAL`: el control de libretas
+> no las cruza contra el grupo (sólo las `GROUP`), y desde la carta no se edita una evaluación del grupo.
+
 > **La libreta del docente no promedia.** Es una decisión del liceo, no una omisión: la
 > calificación general del período la decide el docente. El promedio vive en la matriz
 > institucional (`transversalAverage`) y en la planilla de reunión, que es donde se usa para
