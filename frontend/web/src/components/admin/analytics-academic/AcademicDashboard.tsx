@@ -10,7 +10,27 @@ import { formatHundredths } from '@/lib/academic-config/grade-value'
 
 type Bucket = { levelId: string; label: string; colorToken: string | null; isAlert: boolean; count: number; percentage: number }
 
+type Level = 'EBI' | 'EMS'
+type Period = { id: string; name: string; level?: Level | null }
+
+export const LEVEL_LABELS: Record<Level, string> = { EBI: 'Ciclo básico', EMS: 'Bachillerato' }
+
+/** Niveles que tienen reuniones en el ciclo; sin datos, los dos. */
+export function availableLevels(periods: readonly Period[]): Level[] {
+  const found = (['EBI', 'EMS'] as const).filter((level) => periods.some((p) => p.level === level))
+  return found.length > 0 ? [...found] : ['EBI', 'EMS']
+}
+
+export function dashboardQuery(level: Level, periodId: string): string {
+  const params = new URLSearchParams({ level })
+  if (periodId) params.set('periodId', periodId)
+  return params.toString()
+}
+
 type Dashboard = {
+  level?: Level | null
+  scale?: { name: string } | null
+  referencePeriod?: { id: string; name: string } | null
   students: { total: number; evaluated: number; withoutAssessments: number; atRisk: number; improved: number; declined: number }
   performance: { averageHundredths: number | null; medianHundredths: number | null; distribution: Bucket[]; gradedCount: number }
   management: {
@@ -50,16 +70,32 @@ export default function AcademicDashboard() {
   const [data, setData] = useState<Dashboard | null>(null)
   const [comparison, setComparison] = useState<ComparisonRow[]>([])
   const [dimension, setDimension] = useState<'SUBJECT' | 'COURSE' | 'YEAR'>('SUBJECT')
+  const [periods, setPeriods] = useState<Period[]>([])
+  const [level, setLevel] = useState<Level | null>(null)
+  const [periodId, setPeriodId] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const yearIds = (schoolYear?.years ?? []).map((y) => y.id).join(',')
+
+  // Los niveles y reuniones del ciclo: ciclo básico (1 a 10) y bachillerato (1 a 12) se miran por separado.
+  useEffect(() => {
+    api<{ data: Period[] }>(withSchoolYear('/admin/gradebook/periods', query))
+      .then((res) => setPeriods(res.data))
+      .catch(() => setPeriods([]))
+  }, [query])
+
+  const levels = availableLevels(periods)
+  const activeLevel = level ?? levels[0]
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      const filters = dashboardQuery(activeLevel, periodId)
+      const years = dimension === 'YEAR' && yearIds ? `&schoolYearIds=${yearIds}` : ''
       const [dashboard, comp] = await Promise.all([
-        api<Dashboard>(withSchoolYear('/admin/academic-analytics/dashboard', query)),
+        api<Dashboard>(withSchoolYear(`/admin/academic-analytics/dashboard?${filters}`, query)),
         api<{ data: ComparisonRow[] }>(
-          withSchoolYear(`/admin/academic-analytics/comparison?dimension=${dimension}`, query),
+          withSchoolYear(`/admin/academic-analytics/comparison?dimension=${dimension}&${filters}${years}`, query),
         ),
       ])
       setData(dashboard)
@@ -69,7 +105,7 @@ export default function AcademicDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [query, dimension])
+  }, [query, dimension, activeLevel, periodId, yearIds])
 
   useEffect(() => {
     void load()
@@ -93,9 +129,46 @@ export default function AcademicDashboard() {
   }
 
   const { students, performance, management } = data
+  const levelPeriods = periods.filter((p) => !p.level || p.level === activeLevel)
+  const reference = data.referencePeriod?.name
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+        <div role="radiogroup" aria-label="Nivel" className="flex overflow-hidden rounded-lg border border-gray-300 text-sm">
+          {levels.map((item) => (
+            <button
+              key={item}
+              type="button"
+              role="radio"
+              aria-checked={activeLevel === item}
+              onClick={() => {
+                setLevel(item)
+                setPeriodId('')
+              }}
+              className={`px-3 py-1.5 ${activeLevel === item ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              {LEVEL_LABELS[item]}
+            </button>
+          ))}
+        </div>
+        <label className="text-sm">
+          <span className="mb-1 block text-xs text-gray-600">Reunión</span>
+          <select className="select-field" value={periodId} onChange={(e) => setPeriodId(e.target.value)}>
+            <option value="">La última con notas</option>
+            {levelPeriods.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-xs text-gray-600">
+          {reference ? `Notas de reunión (R) de ${reference}` : 'Todavía no hay notas de reunión'}
+          {data.scale?.name ? ` · ${data.scale.name}` : ''}
+        </p>
+      </div>
+
       <section>
         <h2 className="mb-2 text-sm font-semibold text-gray-900">Estudiantes</h2>
         <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">

@@ -3,6 +3,11 @@ import {
   buildComparison,
   distributionByLevel,
   managementBlock,
+  managementStates,
+  referencePeriod,
+  studentSnapshots,
+  valuesAt,
+  type AnalyticsState,
   maxDrop,
   mean,
   median,
@@ -225,5 +230,57 @@ describe('buildComparison', () => {
   it('un grupo sin notas no rompe ni inventa un 0%', () => {
     const rows = buildComparison([{ key: 'x', label: 'X', values: [], studentCount: 5 }], LEVELS)
     expect(rows[0]).toMatchObject({ averageHundredths: null, alertPercentage: 0, gradedCount: 0 })
+  })
+})
+
+describe('instantánea por reunión', () => {
+  const P1 = { id: 'p-1', name: '1.ª Entrega', sortOrder: 10 }
+  const P2 = { id: 'p-2', name: '2.ª Entrega', sortOrder: 20 }
+  const state = (gradeBookId: string, period: typeof P1, grades: Array<[string, number | null]>): AnalyticsState => ({
+    gradeBookId,
+    status: 'CLOSED',
+    closedLate: false,
+    endorsed: false,
+    period,
+    grades: grades.map(([studentId, value]) => ({ studentId, lastName: studentId, firstName: studentId, value })),
+  })
+
+  it('la reunión de referencia es la elegida o la última con notas', () => {
+    const states = [state('gb', P1, [['a', 700]]), state('gb', P2, [['a', null]])]
+    expect(referencePeriod(states)).toEqual(P1)
+    expect(referencePeriod(states, 'p-2')).toEqual(P2)
+    expect(referencePeriod(states, 'p-x')).toBeNull()
+    // Sin ninguna nota, la última que exista.
+    expect(referencePeriod([state('gb', P1, [['a', null]]), state('gb', P2, [])])).toEqual(P2)
+    expect(referencePeriod([])).toBeNull()
+  })
+
+  it('la serie es el promedio por reunión, hasta la de referencia', () => {
+    const states = [
+      state('mat', P1, [['a', 400]]),
+      state('art', P1, [['a', 1000]]),
+      state('mat', P2, [['a', 800]]),
+    ]
+    const [only] = studentSnapshots({
+      states,
+      subjectOf: new Map([['mat', 's-mat'], ['art', 's-art']]),
+      reference: P1,
+      assessmentsOf: (books) => books.size,
+    })
+    expect(only.periodValues).toEqual([700])
+    expect([...only.subjectValues].sort((x, y) => (x ?? 0) - (y ?? 0))).toEqual([400, 1000])
+    expect(only.assessmentCount).toBe(2)
+  })
+
+  it('las notas, y el estado de gestión, son los de la reunión de referencia', () => {
+    const states = [state('mat', P1, [['a', 400], ['b', null]]), state('mat', P2, [['a', 900]])]
+    expect(valuesAt(states, P1)).toEqual([400])
+    expect(valuesAt(states, null)).toEqual([])
+    expect(
+      managementStates({ gradeBookIds: ['mat', 'sin-estado'], states, reference: P1, rosterSizeOf: () => 2 }),
+    ).toEqual([
+      { gradeBookId: 'mat', gradedStudents: 1, rosterSize: 2, periodStatus: 'CLOSED', endorsed: false, closedLate: false },
+      { gradeBookId: 'sin-estado', gradedStudents: 0, rosterSize: 2, periodStatus: null, endorsed: false, closedLate: false },
+    ])
   })
 })
