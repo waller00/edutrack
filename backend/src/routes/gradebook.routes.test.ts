@@ -2000,3 +2000,124 @@ describe('planilla del liceo: tramos y entregas', () => {
     ])
   })
 })
+
+describe('reabrir una entrega', () => {
+  const closed = { id: 'gbp-1', status: 'CLOSED', closedAt: new Date('2026-06-01T12:00:00Z'), closedLate: false, reopenedAt: null, reopenReason: null }
+
+  it('reabre también los tramos que su cierre congeló y le avisa al docente', async () => {
+    readyForClosure({ state: closed })
+    prismaMock.academicPeriod.findFirst.mockResolvedValue({ ...PERIOD, kind: 'ENTREGA', sortOrder: 30, code: 'E1', name: '1.ª Entrega' })
+    prismaMock.academicPeriod.findMany.mockResolvedValue([
+      { id: 'tramo-1', code: 'MAR-ABR', kind: 'TRAMO', sortOrder: 10 },
+      { id: 'tramo-2', code: 'MAY', kind: 'TRAMO', sortOrder: 20 },
+      { id: PERIOD_ID, code: 'E1', kind: 'ENTREGA', sortOrder: 30 },
+    ])
+    // Sólo el primer tramo seguía cerrado: el otro ya se había reabierto antes.
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([{ id: 'gbp-t1', periodId: 'tramo-1' }])
+    prismaMock.gradeBookPeriod.update.mockResolvedValue({})
+    prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 1 })
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/reopen`)
+      .set('Authorization', `Bearer ${tok('ADMIN', 'a-1')}`)
+      .send({ reason: 'Adscripción observó el juicio de Benítez' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.coveredPeriodCodes).toEqual(['MAR-ABR'])
+    expect(prismaMock.gradeBookPeriod.findMany.mock.calls[0][0].where).toMatchObject({
+      gradeBookId: GB_ID,
+      periodId: { in: ['tramo-1', 'tramo-2'] },
+      status: 'CLOSED',
+    })
+    const updated = prismaMock.gradeBookPeriod.update.mock.calls.map((call: any[]) => [call[0].where.id, call[0].data.status])
+    expect(updated).toEqual([
+      ['gbp-1', 'REOPENED'],
+      ['gbp-t1', 'REOPENED'],
+    ])
+    const notice = prismaMock.inAppNotification.createMany.mock.calls[0][0].data[0]
+    expect(notice).toMatchObject({ userId: 'teacher-1', type: 'GRADEBOOK_PERIOD_REOPENED' })
+    expect(notice.body).toContain('Adscripción observó el juicio de Benítez')
+  })
+
+  it('un tramo o una reunión sin tramos no toca otros períodos', async () => {
+    readyForClosure({ state: closed })
+    prismaMock.gradeBookPeriod.update.mockResolvedValue({})
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/reopen`)
+      .set('Authorization', `Bearer ${tok('ADMIN', 'a-1')}`)
+      .send({ reason: 'error de carga detectado por dirección' })
+
+    expect(res.body.coveredPeriodCodes).toEqual([])
+    expect(prismaMock.academicPeriod.findMany).not.toHaveBeenCalled()
+    expect(prismaMock.gradeBookPeriod.update).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('GET /:id/endorsements (visado visto desde la libreta)', () => {
+  function endorsedRow(over: any = {}) {
+    return {
+      id: 'gbp-1',
+      gradeBookId: GB_ID,
+      status: 'REOPENED',
+      closedAt: new Date('2026-06-01T12:00:00Z'),
+      closedLate: false,
+      updatedAt: new Date('2026-06-03T12:00:00Z'),
+      reopenReason: 'Corregir el juicio',
+      period: { id: PERIOD_ID, code: 'E1', name: '1.ª Entrega', sortOrder: 30 },
+      gradeBook: {
+        subject: { id: 'sub-1', name: 'Matemática' },
+        teacher: { id: 'teacher-1', name: 'Ana G' },
+        courseOffering: { course: { name: '3 EMS' } },
+        courseOrientation: null,
+      },
+      endorsements: [
+        {
+          section: 'JUDGEMENTS',
+          status: 'OBSERVED',
+          occurredAt: new Date('2026-06-02T12:00:00Z'),
+          observations: 'Falta el juicio de Benítez.',
+          actorRoleCode: 'ADSCRIPTO',
+          actor: { name: 'Laura Adscripta' },
+        },
+      ],
+      ...over,
+    }
+  }
+
+  it('el docente ve lo que le observaron, aunque el período esté reabierto para corregir', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([endorsedRow()])
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/endorsements`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(prismaMock.gradeBookPeriod.findMany.mock.calls[0][0].where).toEqual({
+      gradeBookId: GB_ID,
+      period: { isMeeting: true },
+    })
+    const row = res.body.data[0]
+    expect(row.periodStatus).toBe('REOPENED')
+    expect(row.reopenReason).toBe('Corregir el juicio')
+    expect(row.sections.find((s: any) => s.section === 'JUDGEMENTS')).toMatchObject({
+      status: 'OBSERVED',
+      observations: 'Falta el juicio de Benítez.',
+    })
+    expect(row.history[0]).toMatchObject({ section: 'JUDGEMENTS', status: 'OBSERVED', actorName: 'Laura Adscripta' })
+  })
+
+  it('el motivo de reapertura sólo viaja mientras el período sigue reabierto', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([endorsedRow({ status: 'CLOSED' })])
+    const res = await request(app()).get(`/gradebook/${GB_ID}/endorsements`).set('Authorization', `Bearer ${tok()}`)
+    expect(res.body.data[0].reopenReason).toBeNull()
+  })
+
+  it('403 si no es su libreta', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    accessMock.mockResolvedValue({ level: 'NONE', canRead: false, canGrade: false })
+    const res = await request(app()).get(`/gradebook/${GB_ID}/endorsements`).set('Authorization', `Bearer ${tok()}`)
+    expect(res.status).toBe(403)
+    expect(prismaMock.gradeBookPeriod.findMany).not.toHaveBeenCalled()
+  })
+})

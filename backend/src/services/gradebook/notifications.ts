@@ -88,6 +88,24 @@ export function observationNotification(params: {
   }
 }
 
+/**
+ * Administración reabrió un período cerrado. Es lo que habilita al docente a corregir lo que le
+ * observaron: sin el aviso, la libreta queda abierta y nadie se entera.
+ */
+export function reopenedNotification(params: {
+  subjectName: string
+  periodName: string
+  reason: string
+  gradeBookId: string
+}): GradeBookNotification {
+  return {
+    type: 'GRADEBOOK_PERIOD_REOPENED',
+    title: `Se reabrió ${params.subjectName} · ${params.periodName}`,
+    body: `Podés corregir y volver a cerrar. Motivo: ${excerpt(params.reason)}`,
+    actionUrl: `/libreta/${params.gradeBookId}/visados`,
+  }
+}
+
 export function endorsedNotification(params: {
   subjectName: string
   periodName: string

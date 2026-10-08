@@ -12,7 +12,7 @@ import { completionRequestNotification } from '../services/gradebook/notificatio
 import { generateReportCardPdf } from '../services/gradebook/exports/reportCardPdf.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
-import { AuditAction } from '@prisma/client'
+import { AuditAction, type Prisma } from '@prisma/client'
 import { recordAuditEventNow } from '../services/audit-log.js'
 import {
   endorsedNotification,
@@ -31,10 +31,11 @@ import {
   currentStates,
   EndorsementError,
   MANDATORY_SECTIONS,
-  pendingAgeDays,
   statusOf,
+  type ActorScopes,
   type Section,
 } from '../services/gradebook/endorsement.js'
+import { ENDORSEMENT_ROW_INCLUDE, serializeEndorsementRow } from '../services/gradebook/endorsement-view.js'
 import {
   buildMatrixRow,
   buildSubjectEvolution,
@@ -440,8 +441,10 @@ const endorsementSchema = z.object({
   observations: z.string().trim().max(2000).nullish(),
 })
 
+type Actor = { userId: string; scopes: ActorScopes }
+
 /** Atribuciones de quien pide, para decidir qué transiciones puede registrar. */
-async function endorsementScopes(req: any) {
+async function endorsementScopes(req: any): Promise<Actor> {
   const userId = req.user?.id ?? req.user?.sub
   const [review, endorse, inspect] = await Promise.all([
     userPermissionScope(userId, 'gradebook.review', req.user?.role),
@@ -454,65 +457,6 @@ async function endorsementScopes(req: any) {
   }
 }
 
-const GRADEBOOK_PERIOD_INCLUDE = {
-  endorsements: { orderBy: { occurredAt: 'asc' as const } },
-  period: { select: { id: true, code: true, name: true, sortOrder: true } },
-  gradeBook: {
-    include: {
-      subject: { select: { id: true, name: true } },
-      teacher: { select: { id: true, name: true } },
-      courseOffering: { include: { course: { select: { name: true } } } },
-      courseOrientation: { include: { orientation: { select: { name: true } } } },
-    },
-  },
-}
-
-type EndorsementDetail = {
-  section: Section
-  status: 'PENDING' | 'OBSERVED' | 'CORRECTED' | 'ENDORSED'
-  occurredAt: Date
-  observations: string | null
-  actorRoleCode: string
-}
-
-function serializeEndorsementRow(row: any, now: Date) {
-  // `row` es `any` (viene de un include de Prisma), así que se fija el genérico a mano: si no,
-  // `currentStates` infiere el tipo base y se pierden `observations` y `actorRoleCode`.
-  const states = currentStates<EndorsementDetail>(row.endorsements as EndorsementDetail[])
-  const sections = (['GRADES', 'CLOSURE', 'JUDGEMENTS', 'ALL'] as Section[]).map((section) => {
-    const current = states.get(section)
-    return {
-      section,
-      status: statusOf(states, section),
-      occurredAt: current?.occurredAt ?? null,
-      observations: current?.observations ?? null,
-      actorRoleCode: current?.actorRoleCode ?? null,
-    }
-  })
-  const lastChange = row.endorsements.at(-1)?.occurredAt ?? row.closedAt ?? row.updatedAt
-
-  return {
-    gradeBookPeriodId: row.id,
-    gradeBookId: row.gradeBookId,
-    periodStatus: row.status,
-    closedAt: row.closedAt,
-    closedLate: row.closedLate,
-    period: row.period,
-    subject: row.gradeBook.subject,
-    teacher: row.gradeBook.teacher,
-    courseName: row.gradeBook.courseOffering.course.name,
-    orientationName: row.gradeBook.courseOrientation?.orientation.name ?? null,
-    sections,
-    overallStatus: statusOf(states, 'ALL'),
-    lastChangeAt: lastChange,
-    /** Antigüedad del pendiente, para priorizar en la grilla (§5.9). */
-    pendingAgeDays: statusOf(states, 'ALL') === 'ENDORSED' ? null : pendingAgeDays(lastChange, now),
-    blockingSections: blockingSections(states),
-    canFinalize: canFinalize(states),
-  }
-}
-
-/** Grilla de visado (RF-080): qué libretas y períodos esperan revisión. */
 // ─── Control de adscripción ─────────────────────────────────────────────────
 
 /**
@@ -774,39 +718,59 @@ r.put('/conduct', requirePermission('gradebook.review', 'all'), async (req: any,
   }
 })
 
+const queryString = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
+
+/**
+ * Grilla de visado (RF-080): qué libretas y períodos esperan revisión.
+ *
+ * Sin tope de filas: un `take` antes de filtrar las pendientes dejaba afuera justo las más nuevas
+ * en cuanto el ciclo juntaba más períodos cerrados que el tope. Con un grupo elegido se ven sus
+ * libretas más las de tronco común, igual que en la matriz de reunión.
+ */
 r.get('/endorsements', async (req: any, res) => {
   try {
     const schoolYearId = await resolveSchoolYearIdForList(prisma, {
       role: req.user?.role,
-      requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
+      requestedSchoolYearId: queryString(req.query.schoolYearId),
     })
     if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
 
+    const periodId = queryString(req.query.periodId)
+    const courseOfferingId = queryString(req.query.courseOfferingId)
+    const courseOrientationId = queryString(req.query.courseOrientationId)
+
     const rows = await prisma.gradeBookPeriod.findMany({
       where: {
-        gradeBook: { schoolYearId },
+        gradeBook: { schoolYearId, ...(courseOfferingId ? { courseOfferingId } : {}) },
         // Sólo lo cerrado llega a la grilla: un período abierto no tiene nada firme que visar. Y
         // sólo lo que tiene reunión: los tramos se cierran junto con su entrega y no se visan.
         status: 'CLOSED',
         period: { isMeeting: true },
-        ...(typeof req.query.periodId === 'string' ? { periodId: req.query.periodId } : {}),
-        ...(typeof req.query.courseOfferingId === 'string'
-          ? { gradeBook: { schoolYearId, courseOfferingId: req.query.courseOfferingId } }
-          : {}),
+        ...(periodId ? { periodId } : {}),
       },
-      include: GRADEBOOK_PERIOD_INCLUDE,
+      include: ENDORSEMENT_ROW_INCLUDE,
       orderBy: [{ closedAt: 'asc' }],
-      take: 500,
     })
+
+    const inGroup =
+      courseOfferingId && courseOrientationId
+        ? new Set(
+            gradeBooksForGroup(rows.map((row) => row.gradeBook) as never[], {
+              courseOfferingId,
+              courseOrientationId,
+              orientationId: null,
+            }).map((book: any) => book.id),
+          )
+        : null
 
     const now = new Date()
-    const data = rows.map((row) => serializeEndorsementRow(row, now))
     const pendingOnly = req.query.pending === 'true'
+    const data = rows
+      .filter((row) => !inGroup || inGroup.has(row.gradeBookId))
+      .map((row) => serializeEndorsementRow(row, now))
+      .filter((row) => !pendingOnly || row.overallStatus !== 'ENDORSED')
 
-    return res.json({
-      schoolYearId,
-      data: pendingOnly ? data.filter((row) => row.overallStatus !== 'ENDORSED') : data,
-    })
+    return res.json({ schoolYearId, data })
   } catch (error) {
     console.error('[admin-gradebook] endorsements:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -819,7 +783,7 @@ r.get('/endorsements/:gradeBookPeriodId', async (req: any, res) => {
     const row = await prisma.gradeBookPeriod.findUnique({
       where: { id: req.params.gradeBookPeriodId },
       include: {
-        ...GRADEBOOK_PERIOD_INCLUDE,
+        ...ENDORSEMENT_ROW_INCLUDE,
         endorsements: {
           orderBy: { occurredAt: 'asc' as const },
           include: { actor: { select: { id: true, name: true } } },
@@ -838,6 +802,115 @@ r.get('/endorsements/:gradeBookPeriodId', async (req: any, res) => {
   }
 })
 
+const ENDORSEMENT_TARGET_INCLUDE = {
+  endorsements: { orderBy: { occurredAt: 'asc' as const } },
+  period: { select: { code: true, name: true } },
+  gradeBook: { select: { id: true, status: true, subject: { select: { name: true } } } },
+}
+
+type EndorsementTarget = Prisma.GradeBookPeriodGetPayload<{ include: typeof ENDORSEMENT_TARGET_INCLUDE }>
+
+/** El docente se entera de que le observaron o visaron la libreta sin tener que entrar a mirar (RF-091). */
+async function notifyEndorsement(
+  row: EndorsementTarget,
+  actorUserId: string,
+  section: Section,
+  status: string,
+  observations: string,
+) {
+  const subjectName = row.gradeBook.subject.name
+  const recipients = await resolveGradeBookRecipients(row.gradeBook.id, actorUserId)
+  if (status === 'ENDORSED') {
+    await notifyGradeBook(
+      recipients,
+      endorsedNotification({ subjectName, periodName: row.period.name, gradeBookId: row.gradeBook.id }),
+    )
+  } else if (status === 'OBSERVED') {
+    await notifyGradeBook(
+      recipients,
+      observationNotification({
+        subjectName,
+        periodName: row.period.name,
+        sectionLabel: SECTION_LABELS[section],
+        observations,
+        gradeBookId: row.gradeBook.id,
+      }),
+    )
+  }
+}
+
+/**
+ * Valida y registra un acto de visado. Lanza `EndorsementError` si no corresponde.
+ *
+ * Es el mismo camino de a uno y en lote: visar en lote no puede saltearse ninguna regla.
+ */
+async function registerEndorsement(params: {
+  req: any
+  row: EndorsementTarget
+  actor: Actor
+  section: Section
+  status: 'OBSERVED' | 'CORRECTED' | 'ENDORSED'
+  observations?: string | null
+}) {
+  const { req, row, actor, section, status } = params
+
+  // RF-110/111: un ciclo pasado a histórico es de sólo lectura, también para el visado. Si hay
+  // que visar algo de un año cerrado, hay que reabrir el ciclo — y eso queda auditado.
+  if (row.gradeBook.status === 'ARCHIVED') {
+    throw new EndorsementError(409, 'SCHOOL_YEAR_CLOSED', 'El ciclo lectivo está cerrado: la libreta es de sólo lectura.')
+  }
+
+  assertPeriodClosed(row.status as never)
+
+  const states = currentStates(row.endorsements)
+  assertCanTransition({ currentStatus: statusOf(states, section), nextStatus: status, scopes: actor.scopes })
+
+  // RF-082: el visado del período exige que ninguna sección obligatoria quede observada.
+  if (section === 'ALL' && status === 'ENDORSED' && !canFinalize(states)) {
+    throw new EndorsementError(
+      409,
+      'SECTIONS_OBSERVED',
+      'Hay secciones observadas sin corregir: no se puede visar el período.',
+      { blockingSections: blockingSections(states), mandatory: MANDATORY_SECTIONS },
+    )
+  }
+
+  const observations = (params.observations ?? '').trim()
+  if (status === 'OBSERVED' && !observations) {
+    throw new EndorsementError(400, 'OBSERVATION_REQUIRED', 'Una observación necesita decir qué corregir.')
+  }
+
+  const created = await prisma.endorsement.create({
+    data: {
+      gradeBookPeriodId: row.id,
+      section,
+      status,
+      actorUserId: actor.userId,
+      // Se congela el rol: si mañana cambia, el evento sigue diciendo con qué atribución se visó.
+      actorRoleCode: String(req.user?.role ?? ''),
+      observations: observations || null,
+    },
+  })
+
+  // Observar y visar son actos reglamentarios: la trazabilidad se espera, no se dispara y olvida.
+  await recordAuditEventNow({
+    action: status === 'ENDORSED' ? AuditAction.GRADEBOOK_ENDORSED : AuditAction.GRADEBOOK_OBSERVED,
+    actorUserId: actor.userId ?? null,
+    req,
+    entityType: 'GradeBookPeriod',
+    entityId: row.id,
+    metadata: { section, status, periodCode: row.period.code } as never,
+  })
+
+  // El aviso nunca puede hacer fallar el acto de visado, que ya quedó firme.
+  await notifyEndorsement(row, actor.userId, section, status, observations)
+  return created
+}
+
+function endorsementErrorResponse(res: any, error: EndorsementError) {
+  return res.status(error.httpStatus).json({ message: error.message, code: error.code, detail: error.details })
+}
+
 r.post('/endorsements', async (req: any, res) => {
   const parsed = endorsementSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
@@ -846,97 +919,84 @@ r.post('/endorsements', async (req: any, res) => {
     const d = parsed.data
     const row = await prisma.gradeBookPeriod.findUnique({
       where: { id: d.gradeBookPeriodId },
-      include: {
-        endorsements: { orderBy: { occurredAt: 'asc' } },
-        period: { select: { code: true, name: true } },
-        gradeBook: { select: { id: true, status: true, subject: { select: { name: true } } } },
-      },
+      include: ENDORSEMENT_TARGET_INCLUDE,
     })
     if (!row) return res.status(404).json({ message: 'Período de libreta no encontrado' })
 
-    // RF-110/111: un ciclo pasado a histórico es de sólo lectura, también para el visado. Si hay
-    // que visar algo de un año cerrado, hay que reabrir el ciclo — y eso queda auditado.
-    if (row.gradeBook.status === 'ARCHIVED') {
-      return res.status(409).json({
-        message: 'El ciclo lectivo está cerrado: la libreta es de sólo lectura.',
-        code: 'SCHOOL_YEAR_CLOSED',
-      })
-    }
-
-    assertPeriodClosed(row.status as never)
-
-    const { userId, scopes } = await endorsementScopes(req)
-    const states = currentStates(row.endorsements)
-    assertCanTransition({
-      currentStatus: statusOf(states, d.section),
-      nextStatus: d.status,
-      scopes,
-    })
-
-    // RF-082: el visado del período exige que ninguna sección obligatoria quede observada.
-    if (d.section === 'ALL' && d.status === 'ENDORSED' && !canFinalize(states)) {
-      return res.status(409).json({
-        message: 'Hay secciones observadas sin corregir: no se puede visar el período.',
-        code: 'SECTIONS_OBSERVED',
-        detail: { blockingSections: blockingSections(states), mandatory: MANDATORY_SECTIONS },
-      })
-    }
-
-    if (d.status === 'OBSERVED' && !(d.observations ?? '').trim()) {
-      return res.status(400).json({
-        message: 'Una observación necesita decir qué corregir.',
-        code: 'OBSERVATION_REQUIRED',
-      })
-    }
-
-    const created = await prisma.endorsement.create({
-      data: {
-        gradeBookPeriodId: row.id,
-        section: d.section,
-        status: d.status,
-        actorUserId: userId,
-        // Se congela el rol: si mañana cambia, el evento sigue diciendo con qué atribución se visó.
-        actorRoleCode: String(req.user?.role ?? ''),
-        observations: d.observations ?? null,
-      },
-    })
-
-    // Observar y visar son actos reglamentarios: la trazabilidad se espera, no se dispara y olvida.
-    await recordAuditEventNow({
-      action: d.status === 'ENDORSED' ? AuditAction.GRADEBOOK_ENDORSED : AuditAction.GRADEBOOK_OBSERVED,
-      actorUserId: userId ?? null,
+    const created = await registerEndorsement({
       req,
-      entityType: 'GradeBookPeriod',
-      entityId: row.id,
-      metadata: { section: d.section, status: d.status, periodCode: row.period.code } as never,
+      row,
+      actor: await endorsementScopes(req),
+      section: d.section,
+      status: d.status,
+      observations: d.observations,
     })
-
-    // RF-091: el docente se entera de que le observaron o visaron la libreta sin tener que
-    // entrar a mirar. El aviso nunca puede hacer fallar el acto de visado, que ya quedó firme.
-    const subjectName = row.gradeBook.subject.name
-    const recipients = await resolveGradeBookRecipients(row.gradeBook.id, userId)
-    if (d.status === 'ENDORSED') {
-      await notifyGradeBook(recipients, endorsedNotification({
-        subjectName,
-        periodName: row.period.name,
-        gradeBookId: row.gradeBook.id,
-      }))
-    } else if (d.status === 'OBSERVED') {
-      await notifyGradeBook(recipients, observationNotification({
-        subjectName,
-        periodName: row.period.name,
-        sectionLabel: SECTION_LABELS[d.section],
-        observations: d.observations ?? '',
-        gradeBookId: row.gradeBook.id,
-      }))
-    }
-
     return res.status(201).json({ data: created })
   } catch (error) {
-    if (error instanceof EndorsementError) {
-      return res.status(error.httpStatus).json({ message: error.message, code: error.code, detail: error.details })
-    }
+    if (error instanceof EndorsementError) return endorsementErrorResponse(res, error)
     console.error('[admin-gradebook] endorsement create:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+const bulkEndorsementSchema = z.object({
+  gradeBookPeriodIds: z.array(z.string().uuid()).min(1).max(300),
+})
+
+/** Por qué una fila del lote no se visa. `null` si está lista. */
+function bulkSkipCode(row: EndorsementTarget | undefined): string | null {
+  if (!row) return 'NOT_FOUND'
+  if (row.gradeBook.status === 'ARCHIVED') return 'SCHOOL_YEAR_CLOSED'
+  if (row.status !== 'CLOSED') return 'PERIOD_NOT_CLOSED'
+  const states = currentStates(row.endorsements)
+  if (statusOf(states, 'ALL') === 'ENDORSED') return 'ALREADY_ENDORSED'
+  if (!canFinalize(states)) return 'SECTIONS_OBSERVED'
+  return null
+}
+
+/**
+ * Visado en lote: Dirección visa de una vez lo que ya está listo (cerrado y sin observaciones).
+ * Lo que no está listo queda afuera con su motivo; cada libreta se visa, audita y avisa igual que
+ * de a una.
+ */
+r.post('/endorsements/bulk', async (req: any, res) => {
+  const parsed = bulkEndorsementSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  try {
+    const actor = await endorsementScopes(req)
+    if (!actor.scopes.canEndorse) {
+      return res.status(403).json({ message: 'Sólo Dirección puede visar una libreta.', code: 'CANNOT_ENDORSE' })
+    }
+
+    const ids = [...new Set(parsed.data.gradeBookPeriodIds)]
+    const rows = await prisma.gradeBookPeriod.findMany({
+      where: { id: { in: ids } },
+      include: ENDORSEMENT_TARGET_INCLUDE,
+    })
+    const byId = new Map(rows.map((row) => [row.id, row]))
+
+    let endorsed = 0
+    const skipped: Array<{ gradeBookPeriodId: string; code: string }> = []
+    for (const id of ids) {
+      const row = byId.get(id)
+      const code = bulkSkipCode(row)
+      if (code || !row) {
+        skipped.push({ gradeBookPeriodId: id, code: code ?? 'NOT_FOUND' })
+        continue
+      }
+      try {
+        await registerEndorsement({ req, row, actor, section: 'ALL', status: 'ENDORSED' })
+        endorsed++
+      } catch (error) {
+        if (!(error instanceof EndorsementError)) throw error
+        skipped.push({ gradeBookPeriodId: id, code: error.code })
+      }
+    }
+
+    return res.json({ endorsed, skipped })
+  } catch (error) {
+    console.error('[admin-gradebook] endorsement bulk:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

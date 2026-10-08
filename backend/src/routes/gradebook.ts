@@ -50,8 +50,10 @@ import { generateGradeBookPdf, generateStudentReportPdf } from '../services/grad
 import {
   messageNotification,
   notifyGradeBook,
+  reopenedNotification,
   resolveGradeBookRecipients,
 } from '../services/gradebook/notifications.js'
+import { ENDORSEMENT_ROW_INCLUDE, serializeEndorsementRow } from '../services/gradebook/endorsement-view.js'
 import {
   buildImportPlan,
   buildImportPreview,
@@ -2210,29 +2212,63 @@ r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), asy
   }
 })
 
+/** Tramos que informa la entrega del contexto, en orden; vacío si el período no es una entrega. */
+async function coveredTramos(ctx: any): Promise<Array<{ id: string; code: string }>> {
+  if (ctx.period.kind !== 'ENTREGA') return []
+  const siblings = await prisma.academicPeriod.findMany({
+    where: { schoolYearId: ctx.period.schoolYearId, level: ctx.period.level, isActive: true },
+    select: { id: true, code: true, kind: true, sortOrder: true },
+  })
+  return periodsCoveredBy(ctx.period, siblings).map((id) => ({
+    id,
+    code: siblings.find((p) => p.id === id)?.code ?? id,
+  }))
+}
+
 /**
  * Cerrar una entrega congela también los tramos que informa (Marzo‑Abril para la 1.ª, etc.): sus
  * notas sueltas y su C/R ya se llevaron a la reunión. Los tramos no exigen nada para cerrar, así
  * que no hay bloqueos que chequear. Devuelve los códigos cerrados.
  */
 async function closeCoveredTramos(ctx: any, closure: { closedByUserId: string | undefined; closedAt: Date }) {
-  if (ctx.period.kind !== 'ENTREGA') return []
-  const siblings = await prisma.academicPeriod.findMany({
-    where: { schoolYearId: ctx.period.schoolYearId, level: ctx.period.level, isActive: true },
-    select: { id: true, code: true, kind: true, sortOrder: true },
-  })
-  const coveredIds = periodsCoveredBy(ctx.period, siblings)
   const closedCodes: string[] = []
-  for (const periodId of coveredIds) {
-    const state = await ensureGradeBookPeriod(ctx.row.id, periodId)
+  for (const tramo of await coveredTramos(ctx)) {
+    const state = await ensureGradeBookPeriod(ctx.row.id, tramo.id)
     if (state.status === 'CLOSED') continue
     await prisma.gradeBookPeriod.update({
       where: { id: state.id },
       data: { status: 'CLOSED', closedByUserId: closure.closedByUserId, closedAt: closure.closedAt, closedLate: false },
     })
-    closedCodes.push(siblings.find((p) => p.id === periodId)?.code ?? periodId)
+    closedCodes.push(tramo.code)
   }
   return closedCodes
+}
+
+/**
+ * Reabrir una entrega reabre también los tramos que su cierre congeló. Si no, las notas de
+ * evaluación de esos tramos seguirían bloqueadas para todos y lo observado no se podría corregir.
+ * Es la contracara de `closeCoveredTramos`: volver a cerrar la entrega los vuelve a cerrar.
+ */
+async function reopenCoveredTramos(ctx: any, reopening: { userId: string | undefined; at: Date; reason: string }) {
+  const tramos = await coveredTramos(ctx)
+  if (tramos.length === 0) return []
+  const closed = await prisma.gradeBookPeriod.findMany({
+    where: { gradeBookId: ctx.row.id, periodId: { in: tramos.map((t) => t.id) }, status: 'CLOSED' },
+    select: { id: true, periodId: true },
+  })
+  for (const state of closed) {
+    await prisma.gradeBookPeriod.update({
+      where: { id: state.id },
+      data: {
+        status: 'REOPENED',
+        reopenedByUserId: reopening.userId,
+        reopenedAt: reopening.at,
+        reopenReason: reopening.reason,
+      },
+    })
+  }
+  const reopenedIds = new Set(closed.map((state) => state.periodId))
+  return tramos.filter((t) => reopenedIds.has(t.id)).map((t) => t.code)
 }
 
 /**
@@ -2259,19 +2295,21 @@ r.post('/:id/periods/:periodId/reopen', requirePermission('gradebook.manage', 'a
     }
 
     const now = new Date()
+    const userId = req.user?.id ?? req.user?.sub
     await prisma.gradeBookPeriod.update({
       where: { id: ctx.state.id },
       data: {
         status: 'REOPENED',
-        reopenedByUserId: req.user?.id ?? req.user?.sub,
+        reopenedByUserId: userId,
         reopenedAt: now,
         reopenReason: parsed.data.reason,
       },
     })
+    const coveredCodes = await reopenCoveredTramos(ctx, { userId, at: now, reason: parsed.data.reason })
 
     await recordAuditEventNow({
       action: AuditAction.GRADE_PERIOD_REOPENED,
-      actorUserId: req.user?.id ?? req.user?.sub ?? null,
+      actorUserId: userId ?? null,
       req,
       entityType: 'GradeBookPeriod',
       entityId: ctx.state.id,
@@ -2280,12 +2318,69 @@ r.post('/:id/periods/:periodId/reopen', requirePermission('gradebook.manage', 'a
         periodCode: ctx.period.code,
         reason: parsed.data.reason,
         previousClosedAt: ctx.state.closedAt,
+        coveredPeriodCodes: coveredCodes,
       } as never,
     })
 
-    return res.json({ ok: true, reopenedAt: now.toISOString() })
+    // Sin el aviso el docente no sabe que puede corregir: la libreta queda abierta y nadie se entera.
+    await notifyGradeBook(
+      await resolveGradeBookRecipients(ctx.row.id, userId ?? null),
+      reopenedNotification({
+        subjectName: ctx.row.subject?.name ?? 'la libreta',
+        periodName: ctx.period.name,
+        reason: parsed.data.reason,
+        gradeBookId: ctx.row.id,
+      }),
+    )
+
+    return res.json({ ok: true, reopenedAt: now.toISOString(), coveredPeriodCodes: coveredCodes })
   } catch (error) {
     console.error('[gradebook] period reopen:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Visado de esta libreta, visto desde ella (RF-091).
+ *
+ * El docente no tiene la grilla de supervisión (`/admin/gradebook/endorsements` exige alcance
+ * total): sin esto su sección Visados mostraba todo "Pendiente" aunque le hubieran observado algo.
+ * Trae las reuniones en cualquier estado, porque un período reabierto para corregir tiene que
+ * seguir mostrando qué se observó.
+ */
+r.get('/:id/endorsements', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+
+    const rows = await prisma.gradeBookPeriod.findMany({
+      where: { gradeBookId: ctx.row.id, period: { isMeeting: true } },
+      include: {
+        ...ENDORSEMENT_ROW_INCLUDE,
+        endorsements: {
+          orderBy: { occurredAt: 'asc' as const },
+          include: { actor: { select: { name: true } } },
+        },
+      },
+      orderBy: { period: { sortOrder: 'asc' } },
+    })
+
+    const now = new Date()
+    return res.json({
+      data: rows.map((row) => ({
+        ...serializeEndorsementRow(row, now),
+        reopenReason: row.status === 'REOPENED' ? row.reopenReason : null,
+        history: row.endorsements.map((entry) => ({
+          section: entry.section,
+          status: entry.status,
+          occurredAt: entry.occurredAt,
+          observations: entry.observations,
+          actorName: entry.actor?.name ?? null,
+        })),
+      })),
+    })
+  } catch (error) {
+    console.error('[gradebook] endorsements:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

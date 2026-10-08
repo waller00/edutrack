@@ -78,3 +78,11 @@ export function useAuth(): AuthContextValue {
   if (!ctx) throw new Error('useAuth debe usarse dentro de <AuthProvider>')
   return ctx
 }
+
+/**
+ * Como `useAuth`, pero sin exigir el provider: devuelve `null` fuera de él. Es para componentes
+ * que sólo muestran u ocultan una acción según un permiso; sin sesión conocida, la ocultan.
+ */
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext)
+}

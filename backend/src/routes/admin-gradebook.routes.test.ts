@@ -936,3 +936,125 @@ describe('control de libretas antes de la reunión', () => {
     expect(res.status).toBe(400)
   })
 })
+
+describe('GET /endorsements — filtros y avance', () => {
+  it('no corta filas antes de filtrar las pendientes: las más nuevas no se pierden', async () => {
+    await request(app()).get('/admin/gradebook/endorsements?pending=true').set('Authorization', `Bearer ${tok()}`)
+    expect(prismaMock.gradeBookPeriod.findMany.mock.calls[0][0].take).toBeUndefined()
+  })
+
+  it('con un grupo elegido trae sus libretas y las de tronco común, no las de otra orientación', async () => {
+    const OTHER_CO = '66666666-6666-4666-8666-666666666666'
+    const inBook = (id: string, courseOrientationId: string | null) => ({
+      ...gbpRow().gradeBook,
+      id,
+      courseOfferingId: OFFERING_ID,
+      courseOrientationId,
+      orientationId: null,
+    })
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      gbpRow([], { id: 'p-propia', gradeBookId: 'gb-co', gradeBook: inBook('gb-co', CO_ID) }),
+      gbpRow([], { id: 'p-comun', gradeBookId: 'gb-comun', gradeBook: inBook('gb-comun', null) }),
+      gbpRow([], { id: 'p-otra', gradeBookId: 'gb-otra', gradeBook: inBook('gb-otra', OTHER_CO) }),
+    ])
+
+    const res = await request(app())
+      .get(`/admin/gradebook/endorsements?courseOfferingId=${OFFERING_ID}&courseOrientationId=${CO_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body.data.map((row: any) => row.gradeBookPeriodId).sort()).toEqual(['p-comun', 'p-propia'])
+    expect(prismaMock.gradeBookPeriod.findMany.mock.calls[0][0].where.gradeBook).toEqual({
+      schoolYearId: 'sy-1',
+      courseOfferingId: OFFERING_ID,
+    })
+  })
+
+  it('marca el período que volvió a cerrarse después de la observación', async () => {
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      gbpRow([endorsement('JUDGEMENTS', 'OBSERVED', '2026-06-02T12:00:00Z', { observations: 'Falta el juicio.' })], {
+        closedAt: new Date('2026-06-05T12:00:00Z'),
+      }),
+    ])
+    const res = await request(app()).get('/admin/gradebook/endorsements').set('Authorization', `Bearer ${tok()}`)
+    expect(res.body.data[0].reclosedAfterObservation).toBe(true)
+  })
+})
+
+describe('POST /endorsements/bulk', () => {
+  const READY = '77777777-7777-4777-8777-777777777777'
+  const OBSERVED = '88888888-8888-4888-8888-888888888888'
+  const DONE = '99999999-9999-4999-8999-999999999999'
+  const MISSING = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+
+  function actingAs(granted: string[]) {
+    scopeMock.mockImplementation(async (_u: string, code: string) => (granted.includes(code) ? 'all' : null))
+  }
+
+  beforeEach(() => {
+    prismaMock.endorsement.create.mockResolvedValue({ id: 'e-1' })
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      gbpRow([], { id: READY }),
+      gbpRow([endorsement('CLOSURE', 'OBSERVED', '2026-06-02T12:00:00Z')], { id: OBSERVED }),
+      gbpRow([endorsement('ALL', 'ENDORSED', '2026-06-03T12:00:00Z')], { id: DONE }),
+    ])
+  })
+
+  it('visa lo que está listo y deja afuera, con su motivo, lo que no', async () => {
+    const res = await request(app())
+      .post('/admin/gradebook/endorsements/bulk')
+      .set('Authorization', `Bearer ${tok('ADMIN', 'd-1')}`)
+      .send({ gradeBookPeriodIds: [READY, OBSERVED, DONE, MISSING] })
+
+    expect(res.status).toBe(200)
+    expect(res.body.endorsed).toBe(1)
+    expect(res.body.skipped).toEqual([
+      { gradeBookPeriodId: OBSERVED, code: 'SECTIONS_OBSERVED' },
+      { gradeBookPeriodId: DONE, code: 'ALREADY_ENDORSED' },
+      { gradeBookPeriodId: MISSING, code: 'NOT_FOUND' },
+    ])
+    expect(prismaMock.endorsement.create).toHaveBeenCalledTimes(1)
+    expect(prismaMock.endorsement.create.mock.calls[0][0].data).toMatchObject({
+      gradeBookPeriodId: READY,
+      section: 'ALL',
+      status: 'ENDORSED',
+    })
+    // Cada libreta visada en lote se audita y se avisa igual que de a una.
+    expect(prismaMock.$executeRaw).toHaveBeenCalled()
+    expect(prismaMock.inAppNotification.createMany.mock.calls[0][0].data[0]).toMatchObject({ type: 'GRADEBOOK_ENDORSED' })
+  })
+
+  it('un período abierto o de un ciclo archivado no se visa', async () => {
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
+      gbpRow([], { id: READY, status: 'REOPENED' }),
+      gbpRow([], { id: OBSERVED, gradeBook: { ...gbpRow().gradeBook, status: 'ARCHIVED' } }),
+    ])
+    const res = await request(app())
+      .post('/admin/gradebook/endorsements/bulk')
+      .set('Authorization', `Bearer ${tok('ADMIN', 'd-1')}`)
+      .send({ gradeBookPeriodIds: [READY, OBSERVED] })
+
+    expect(res.body.endorsed).toBe(0)
+    expect(res.body.skipped.map((s: any) => s.code)).toEqual(['PERIOD_NOT_CLOSED', 'SCHOOL_YEAR_CLOSED'])
+    expect(prismaMock.endorsement.create).not.toHaveBeenCalled()
+  })
+
+  it('adscripción no visa en lote', async () => {
+    actingAs(['gradebook.review'])
+    const res = await request(app())
+      .post('/admin/gradebook/endorsements/bulk')
+      .set('Authorization', `Bearer ${tok('ADMIN', 'ads-1')}`)
+      .send({ gradeBookPeriodIds: [READY] })
+
+    expect(res.status).toBe(403)
+    expect(res.body.code).toBe('CANNOT_ENDORSE')
+    expect(prismaMock.endorsement.create).not.toHaveBeenCalled()
+  })
+
+  it('400 sin períodos', async () => {
+    const res = await request(app())
+      .post('/admin/gradebook/endorsements/bulk')
+      .set('Authorization', `Bearer ${tok('ADMIN', 'd-1')}`)
+      .send({ gradeBookPeriodIds: [] })
+    expect(res.status).toBe(400)
+  })
+})

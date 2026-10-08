@@ -24,6 +24,8 @@ enum InAppNotificationType {
   GRADEBOOK_MESSAGE
   /// El período está por cerrar y la libreta todavía tiene pendientes.
   GRADEBOOK_PERIOD_CLOSING
+  /// Administración reabrió un período cerrado para que el docente corrija.
+  GRADEBOOK_PERIOD_REOPENED
   /// Alerta de un estudiante (bajó de boletín, faltas seguidas, 18/25 faltas).
   STUDENT_ALERT
 }
