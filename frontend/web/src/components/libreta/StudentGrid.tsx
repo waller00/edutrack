@@ -1,9 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { CalendarX2, Clock } from 'lucide-react'
-import { apiBlob } from '@/lib/api/binary'
+import { useStudentPhoto } from '@/lib/hooks/useStudentPhoto'
 import { absenceTone } from '@/lib/libreta/badges'
 import { studentFullName } from '@/lib/gradebook/labels'
 import type { RosterStudent } from '@/lib/gradebook/types'
@@ -21,29 +20,7 @@ function StudentAvatar({
   gradeBookId: string
   student: RosterStudent
 }) {
-  const [url, setUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!student.hasPhoto) {
-      setUrl(null)
-      return
-    }
-    let revoked: string | null = null
-    let cancelled = false
-    void apiBlob(`/gradebook/${gradeBookId}/students/${student.studentId}/photo`)
-      .then((blob) => {
-        if (cancelled || !blob) return
-        revoked = URL.createObjectURL(blob)
-        setUrl(revoked)
-      })
-      .catch(() => {
-        if (!cancelled) setUrl(null)
-      })
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [gradeBookId, student.studentId, student.hasPhoto])
+  const url = useStudentPhoto(gradeBookId, student.studentId, student.hasPhoto)
 
   if (url) {
     return (

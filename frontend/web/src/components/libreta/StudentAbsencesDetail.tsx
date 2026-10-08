@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, FileSpreadsheet, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
-import { apiBlob } from '@/lib/api/binary'
 import { studentFullName } from '@/lib/gradebook/labels'
 import type { GradeBookDetail, StudentAbsencesHistory } from '@/lib/gradebook/types'
-import { formatYmdDisplay, buildAbsencesExportRows } from '@/lib/libreta/absence-day'
+import { formatYmdDisplay, buildAbsencesExportRows, todayYmdUruguay } from '@/lib/libreta/absence-day'
+import { useStudentPhoto } from '@/lib/hooks/useStudentPhoto'
 
 type Props = {
   gradeBookId: string
@@ -29,10 +29,10 @@ function downloadCsv(filename: string, rows: string[][]) {
 
 export default function StudentAbsencesDetail({ gradeBookId, studentId, detail, onBack }: Props) {
   const [from, setFrom] = useState(() => `${detail.schoolYear.code}-01-01`)
-  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10))
+  // Día civil de Uruguay: `toISOString()` da el día siguiente después de las 21 h.
+  const [to, setTo] = useState(todayYmdUruguay)
   const [typeFilter, setTypeFilter] = useState<'all' | 'ABSENT' | 'LATE'>('all')
   const [history, setHistory] = useState<StudentAbsencesHistory | null>(null)
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,27 +59,7 @@ export default function StudentAbsencesDetail({ gradeBookId, studentId, detail, 
     void load()
   }, [load])
 
-  useEffect(() => {
-    if (!history?.student.hasPhoto) {
-      setPhotoUrl(null)
-      return
-    }
-    let revoked: string | null = null
-    let cancelled = false
-    void apiBlob(`/gradebook/${gradeBookId}/students/${studentId}/photo`)
-      .then((blob) => {
-        if (cancelled || !blob) return
-        revoked = URL.createObjectURL(blob)
-        setPhotoUrl(revoked)
-      })
-      .catch(() => {
-        if (!cancelled) setPhotoUrl(null)
-      })
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [gradeBookId, studentId, history?.student.hasPhoto])
+  const photoUrl = useStudentPhoto(gradeBookId, studentId, history?.student.hasPhoto)
 
   const filteredSubjects = useMemo(() => {
     if (!history) return []

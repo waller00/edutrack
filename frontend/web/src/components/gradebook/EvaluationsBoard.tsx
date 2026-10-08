@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api/client'
-import { apiBlob } from '@/lib/api/binary'
+import { useStudentPhoto } from '@/lib/hooks/useStudentPhoto'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import {
   ACTIVITY_CATEGORY_ORDER,
@@ -671,39 +671,8 @@ function StudentDetailPanel({
   )
 }
 
-function StudentPhoto({
-  gradeBookId,
-  studentId,
-  hasPhoto,
-}: {
-  gradeBookId: string
-  studentId: string
-  hasPhoto?: boolean
-}) {
-  const [url, setUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!hasPhoto) {
-      setUrl(null)
-      return
-    }
-    let revoked: string | null = null
-    let cancelled = false
-    void apiBlob(`/gradebook/${gradeBookId}/students/${studentId}/photo`)
-      .then((blob) => {
-        if (cancelled || !blob) return
-        revoked = URL.createObjectURL(blob)
-        setUrl(revoked)
-      })
-      .catch(() => {
-        if (!cancelled) setUrl(null)
-      })
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [gradeBookId, studentId, hasPhoto])
-
+/** La foto de la tarjeta; la misma URL sirve para imprimir, así se pide una sola vez. */
+function StudentPhoto({ url }: { url: string | null }) {
   if (!url) {
     return (
       <div
@@ -772,27 +741,7 @@ function StudentCard({
 }) {
   const [exportBusy, setExportBusy] = useState<'print' | 'xlsx' | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!student.hasPhoto) {
-      setPhotoUrl(null)
-      return
-    }
-    let revoked: string | null = null
-    let cancelled = false
-    void apiBlob(`/gradebook/${gradeBookId}/students/${student.studentId}/photo`)
-      .then((blob) => {
-        if (cancelled || !blob) return
-        revoked = URL.createObjectURL(blob)
-        setPhotoUrl(revoked)
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [gradeBookId, student.studentId, student.hasPhoto])
+  const photoUrl = useStudentPhoto(gradeBookId, student.studentId, student.hasPhoto)
 
   async function handlePrint() {
     setExportBusy('print')
@@ -843,11 +792,7 @@ function StudentCard({
   return (
     <li className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-wrap items-start gap-3">
-        <StudentPhoto
-          gradeBookId={gradeBookId}
-          studentId={student.studentId}
-          hasPhoto={student.hasPhoto}
-        />
+        <StudentPhoto url={photoUrl} />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">

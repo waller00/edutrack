@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useLibreta } from '@/contexts/LibretaContext'
-import { LIBRETA_SECTIONS, sectionHref } from '@/lib/libreta/menu'
+import { LIBRETA_SECTIONS, sectionHref, type LibretaSectionId } from '@/lib/libreta/menu'
 import { libretaCode } from './MisLibretas'
 import GroupSwitcher from './GroupSwitcher'
 
@@ -22,6 +22,7 @@ const MENU_COLLAPSED_KEY = 'edutrack.libreta.menuCollapsed'
 export default function LibretaShell({ children }: { children: React.ReactNode }) {
   const { gradeBookId, detail, loading, error } = useLibreta()
   const pathname = usePathname()
+  const router = useRouter()
   // `/libreta/<id>/<sección>` → la sección, o null en la portada. Se conserva al cambiar de grupo.
   const openSection = pathname.split('/')[3] ?? null
   const [menuCollapsed, setMenuCollapsed] = useState(false)
@@ -101,10 +102,28 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
         </p>
       )}
 
+      {/* En el celular, las siete secciones con su explicación empujaban el contenido una pantalla
+          entera hacia abajo: un selector ocupa una línea. */}
+      <label className="block lg:hidden">
+        <span className="sr-only">Sección de la libreta</span>
+        <select
+          value={openSection ?? ''}
+          onChange={(e) => router.push(e.target.value ? sectionHref(gradeBookId, e.target.value as LibretaSectionId) : `/libreta/${gradeBookId}`)}
+          className="w-full rounded border border-gray-300 bg-white px-2 py-2 text-sm"
+        >
+          <option value="">Lista del grupo</option>
+          {LIBRETA_SECTIONS.map((section) => (
+            <option key={section.id} value={section.id}>
+              {section.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <div className="flex flex-col gap-4 lg:flex-row">
         <nav
           aria-label="Secciones de la libreta"
-          className={`transition-[width] ${menuCollapsed ? 'lg:w-12 lg:shrink-0' : 'lg:w-72 lg:shrink-0'}`}
+          className={`hidden transition-[width] lg:block ${menuCollapsed ? 'lg:w-12 lg:shrink-0' : 'lg:w-72 lg:shrink-0'}`}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             {!menuCollapsed && (
@@ -126,6 +145,31 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
               )}
             </button>
           </div>
+
+          {menuCollapsed && (
+            // Contraído no queda vacío: la abreviatura sigue llevando a cada sección.
+            <ul id="libreta-menu-sections" className="space-y-0.5">
+              {LIBRETA_SECTIONS.map((section) => {
+                const href = sectionHref(gradeBookId, section.id)
+                const active = pathname === href
+                return (
+                  <li key={section.id}>
+                    <Link
+                      href={href}
+                      aria-current={active ? 'page' : undefined}
+                      aria-label={section.label}
+                      title={section.label}
+                      className={`block rounded px-1 py-2 text-center text-[11px] font-semibold ${
+                        active ? 'bg-amber-50 text-amber-900 ring-1 ring-amber-200' : 'text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {section.abbr}
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
 
           {!menuCollapsed && (
             <ul id="libreta-menu-sections" className="space-y-0.5">

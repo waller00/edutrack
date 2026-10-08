@@ -6,6 +6,7 @@ import { Bell, Check, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
+import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import {
   groupByLevel,
   LEVEL_LABEL,
@@ -221,8 +222,8 @@ export default function CompletenessPanel() {
       .then((res) => {
         setPeriods(res.data)
         // La reunión que viene es la que se revisa casi siempre: se preselecciona.
-        const today = new Date().toISOString().slice(0, 10)
-        setPeriodId((current) => current || nextMeeting(res.data, today)?.id || '')
+        // Día civil de Uruguay: `toISOString()` da el día siguiente después de las 21 h.
+        setPeriodId((current) => current || nextMeeting(res.data, todayYmdUruguay())?.id || '')
       })
       .catch(() => setError('No se pudieron cargar las reuniones'))
   }, [query])
