@@ -221,6 +221,8 @@ export async function saveGrades(
       await tx.gradeRevision.create({
         data: {
           assessmentGradeId: current.id,
+          assessmentId: params.assessmentId,
+          studentId: entry.studentId,
           previousValueHundredths: current.valueHundredths,
           newValueHundredths: data.valueHundredths,
           previousScaleLevelId: current.scaleLevelId,

@@ -16,6 +16,7 @@ const { prismaMock, rosterMock, scopeMock } = vi.hoisted(() => ({
     periodGrade: { findMany: vi.fn() },
     academicPeriod: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
     gradeBookPeriod: { findMany: vi.fn(), findUnique: vi.fn() },
+    gradeBookAccessLog: { findMany: vi.fn() },
     endorsement: { create: vi.fn() },
     academicAlertRule: { findMany: vi.fn() },
     auditLog: { findMany: vi.fn() },
@@ -1381,5 +1382,38 @@ describe('POST /endorsements/bulk', () => {
       .set('Authorization', `Bearer ${tok('ADMIN', 'd-1')}`)
       .send({ gradeBookPeriodIds: [] })
     expect(res.status).toBe(400)
+  })
+})
+
+describe('registro de accesos a la libreta (RF-100)', () => {
+  it('lista quién la abrió, de la más nueva a la más vieja', async () => {
+    prismaMock.gradeBookAccessLog.findMany.mockResolvedValue([
+      { id: 'l-1', user: { name: 'Ana G' }, roleCode: 'TEACHER', ip: '10.0.0.1', occurredAt: new Date('2026-05-10T15:00:00.000Z') },
+    ])
+
+    const res = await request(app())
+      .get('/admin/gradebook/gradebooks/gb-1/access-log')
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data[0]).toEqual({
+      id: 'l-1',
+      userName: 'Ana G',
+      roleCode: 'TEACHER',
+      ip: '10.0.0.1',
+      occurredAt: '2026-05-10T15:00:00.000Z',
+    })
+    expect(prismaMock.gradeBookAccessLog.findMany.mock.calls[0][0]).toMatchObject({
+      where: { gradeBookId: 'gb-1' },
+      orderBy: { occurredAt: 'desc' },
+    })
+  })
+
+  it('un docente no lo ve: es de supervisión', async () => {
+    scopeMock.mockResolvedValue('own')
+    const res = await request(app())
+      .get('/admin/gradebook/gradebooks/gb-1/access-log')
+      .set('Authorization', `Bearer ${tok('TEACHER', 't-1')}`)
+    expect(res.status).toBe(403)
   })
 })

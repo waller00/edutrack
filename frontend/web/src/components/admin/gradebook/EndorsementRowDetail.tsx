@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import EndorsementBadge from '@/components/gradebook/EndorsementBadge'
+import GradeBookAccessLog from './GradeBookAccessLog'
 import {
   canActOnSection,
   ENDORSEMENT_SECTION_LABELS,
@@ -273,6 +274,10 @@ export default function EndorsementRowDetail({
       <div className="border-t border-gray-200 pt-2">
         <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Historial</h4>
         <HistoryList history={history} />
+      </div>
+
+      <div className="border-t border-gray-200 pt-2">
+        <GradeBookAccessLog gradeBookId={row.gradeBookId} />
       </div>
     </div>
   )

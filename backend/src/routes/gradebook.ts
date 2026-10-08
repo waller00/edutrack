@@ -55,6 +55,7 @@ import {
 } from '../services/gradebook/notifications.js'
 import { ENDORSEMENT_ROW_INCLUDE, serializeEndorsementRow } from '../services/gradebook/endorsement-view.js'
 import { conductOptions, conductScale, isConductValue } from '../services/gradebook/period-scale.js'
+import { writePeriodGrades } from '../services/gradebook/period-grade-history.js'
 import {
   buildImportPlan,
   buildImportPreview,
@@ -71,7 +72,6 @@ import {
   isLateClosure,
   isOutOfScale,
   isPeriodCalendarOpen,
-  periodGradePatch,
   periodsCoveredBy,
   periodWriteBlock,
 } from '../services/gradebook/period-closure.js'
@@ -1370,6 +1370,9 @@ r.delete('/:id/assessments/:assessmentId', requirePermission('gradebook.grade'),
   }
 })
 
+/** Motivo de la revisión que deja el borrado de una nota; el historial lo rotula "borrada". */
+const GRADE_DELETED_REASON = 'Nota borrada'
+
 /**
  * Quita la calificación de un alumno en una evaluación (vista carta / detalle).
  * Si no quedan notas, da de baja lógica la evaluación.
@@ -1389,20 +1392,34 @@ r.delete(
       const studentId = String(req.params.studentId || '')
       const existing = await prisma.assessmentGrade.findUnique({
         where: { assessmentId_studentId: { assessmentId: ctx.assessment.id, studentId } },
-        select: { id: true },
+        select: { id: true, valueHundredths: true, scaleLevelId: true, isAbsent: true },
       })
       if (!existing) return res.status(404).json({ message: 'Calificación no encontrada' })
 
-      await prisma.assessmentGrade.delete({ where: { id: existing.id } })
-      const remaining = await prisma.assessmentGrade.count({ where: { assessmentId: ctx.assessment.id } })
-      let assessmentDeleted = false
-      if (remaining === 0) {
-        await prisma.assessment.update({
-          where: { id: ctx.assessment.id },
-          data: { deletedAt: new Date() },
+      // El borrado queda en el historial: la revisión sobrevive a la nota (§6.2).
+      const assessmentDeleted = await prisma.$transaction(async (tx) => {
+        await tx.gradeRevision.create({
+          data: {
+            assessmentGradeId: existing.id,
+            assessmentId: ctx.assessment.id,
+            studentId,
+            previousValueHundredths: existing.valueHundredths,
+            newValueHundredths: null,
+            previousScaleLevelId: existing.scaleLevelId,
+            newScaleLevelId: null,
+            previousIsAbsent: existing.isAbsent,
+            newIsAbsent: false,
+            reason: GRADE_DELETED_REASON,
+            origin: ctx.permissions.outsideWindow ? 'ADMIN_CORRECTION' : 'TEACHER',
+            changedByUserId: ctx.userId ?? null,
+          },
         })
-        assessmentDeleted = true
-      }
+        await tx.assessmentGrade.delete({ where: { id: existing.id } })
+        const remaining = await tx.assessmentGrade.count({ where: { assessmentId: ctx.assessment.id } })
+        if (remaining > 0) return false
+        await tx.assessment.update({ where: { id: ctx.assessment.id }, data: { deletedAt: new Date() } })
+        return true
+      })
 
       await auditGradeWrite(req, true, {
         action: assessmentDeleted ? AuditAction.ASSESSMENT_DELETED : AuditAction.ASSESSMENT_UPDATED,
@@ -1411,6 +1428,8 @@ r.delete(
           gradeBookId: ctx.row.id,
           studentId,
           gradeRemoved: true,
+          previousValueHundredths: existing.valueHundredths,
+          previousIsAbsent: existing.isAbsent,
           assessmentDeleted,
         },
       })
@@ -1763,6 +1782,11 @@ async function loadPeriodScale(row: any) {
   return scale ?? null
 }
 
+/** Quién corrige C o R: el titular o su suplente es el docente; cualquier otro, una corrección. */
+function periodGradeOrigin(access: { level: string }): 'TEACHER' | 'ADMIN_CORRECTION' {
+  return access.level === 'OWNER' || access.level === 'SUBSTITUTE' ? 'TEACHER' : 'ADMIN_CORRECTION'
+}
+
 /**
  * Conducta de la asignatura fuera de la escala `CONDUCTA`: devuelve el mensaje, o null. Sin escala
  * sembrada no se puede validar y se rechaza cualquier valor: la reunión y el boletín no sabrían
@@ -1924,29 +1948,16 @@ r.put('/:id/periods/:periodId/grades', requirePermission('gradebook.grade'), asy
       })
     }
 
-    const userId = req.user?.id ?? req.user?.sub
-    await prisma.$transaction(
-      entries.map((entry) => {
-        const student: any = rosterById.get(entry.studentId)
-        // Parcial: guardar sólo R no borra la C que ya estaba.
-        const data = { ...periodGradePatch(entry), updatedByUserId: userId }
-        return prisma.periodGrade.upsert({
-          where: { gradeBookPeriodId_studentId: { gradeBookPeriodId: ctx.state.id, studentId: entry.studentId } },
-          update: data,
-          create: {
-            gradeBookPeriodId: ctx.state.id,
-            studentId: entry.studentId,
-            // Snapshot de identidad, igual que en las calificaciones parciales.
-            studentLastName: student.lastName,
-            studentFirstName: student.firstName,
-            studentDocumentId: student.documentId,
-            ...data,
-          },
-        })
+    const revisions = await prisma.$transaction((tx) =>
+      writePeriodGrades(tx, {
+        gradeBookPeriodId: ctx.state.id,
+        rows: entries.map((entry) => ({ student: rosterById.get(entry.studentId) as any, entry })),
+        actorUserId: req.user?.id ?? req.user?.sub ?? null,
+        origin: periodGradeOrigin(ctx.access),
       }),
     )
 
-    return res.json({ ok: true, saved: entries.length })
+    return res.json({ ok: true, saved: entries.length, revisions })
   } catch (error) {
     console.error('[gradebook] period grades save:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -2189,9 +2200,10 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
     const conductError = await conductValuesOutOfScale(parsed.data.entries)
     if (conductError) return res.status(400).json({ message: conductError, code: 'CONDUCT_OUT_OF_SCALE' })
 
+    // Primero se valida todo y recién después se escribe: antes, si el segundo período estaba
+    // cerrado, el primero ya había quedado grabado y la respuesta era un error.
     const todayYmd = todayUruguayYmd()
-    const userId = req.user?.id ?? req.user?.sub
-    let saved = 0
+    const writes: Array<{ stateId: string; entry: (typeof parsed.data.entries)[number] }> = []
     for (const entry of parsed.data.entries) {
       const academic = periodById.get(entry.periodId)!
       const state = await ensureGradeBookPeriod(ctx.row.id, entry.periodId)
@@ -2211,23 +2223,25 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
           detail: { periodId: entry.periodId },
         })
       }
-      const data = { ...periodGradePatch(entry), updatedByUserId: userId }
-      await prisma.periodGrade.upsert({
-        where: { gradeBookPeriodId_studentId: { gradeBookPeriodId: state.id, studentId: student.studentId } },
-        update: data,
-        create: {
-          gradeBookPeriodId: state.id,
-          studentId: student.studentId,
-          studentLastName: student.lastName,
-          studentFirstName: student.firstName,
-          studentDocumentId: student.documentId,
-          ...data,
-        },
-      })
-      saved += 1
+      writes.push({ stateId: state.id, entry })
     }
 
-    return res.json({ ok: true, saved })
+    const actorUserId = req.user?.id ?? req.user?.sub ?? null
+    const origin = periodGradeOrigin(ctx.access)
+    const revisions = await prisma.$transaction(async (tx) => {
+      let count = 0
+      for (const write of writes) {
+        count += await writePeriodGrades(tx, {
+          gradeBookPeriodId: write.stateId,
+          rows: [{ student, entry: write.entry }],
+          actorUserId,
+          origin,
+        })
+      }
+      return count
+    })
+
+    return res.json({ ok: true, saved: writes.length, revisions })
   } catch (error) {
     console.error('[gradebook] student closure put:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
@@ -2457,6 +2471,94 @@ r.get('/:id/endorsements', requirePermission('gradebook.read'), async (req: any,
     })
   } catch (error) {
     console.error('[gradebook] endorsements:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Historial de un alumno en esta libreta (§6.2): las correcciones de sus notas y de su C, R,
+ * conducta e informe, con quién, cuándo y desde dónde. Lo lee quien puede leer la libreta.
+ *
+ * Incluye las evaluaciones dadas de baja: borrar una nota no borra lo que pasó con ella.
+ */
+r.get('/:id/history', requirePermission('gradebook.read'), async (req: any, res) => {
+  try {
+    const ctx = await loadContext(req, res)
+    if (!ctx) return
+    const studentId = typeof req.query.studentId === 'string' ? req.query.studentId : ''
+    if (!z.string().uuid().safeParse(studentId).success) {
+      return res.status(400).json({ message: 'Falta el alumno.', code: 'STUDENT_REQUIRED' })
+    }
+
+    const assessments = await prisma.assessment.findMany({
+      where: { gradeBookId: ctx.row.id },
+      select: { id: true, title: true, date: true, deletedAt: true },
+    })
+    const assessmentById = new Map(assessments.map((a) => [a.id, a]))
+    const ids = [...assessmentById.keys()]
+    const [gradeRevisions, periodRevisions] = await Promise.all([
+      ids.length === 0
+        ? Promise.resolve([])
+        : prisma.gradeRevision.findMany({
+            where: {
+              OR: [
+                { assessmentId: { in: ids }, studentId },
+                // Filas de antes de `assessmentId`: se ubican por la nota, que todavía existe.
+                { assessmentId: null, assessmentGrade: { assessmentId: { in: ids }, studentId } },
+              ],
+            },
+            include: { changedBy: { select: { name: true } }, assessmentGrade: { select: { assessmentId: true } } },
+            orderBy: { changedAt: 'desc' },
+            take: 200,
+          }),
+      prisma.periodGradeRevision.findMany({
+        where: { studentId, gradeBookPeriod: { gradeBookId: ctx.row.id } },
+        include: {
+          changedBy: { select: { name: true } },
+          gradeBookPeriod: { select: { period: { select: { name: true } } } },
+        },
+        orderBy: { changedAt: 'desc' },
+        take: 200,
+      }),
+    ])
+
+    return res.json({
+      grades: gradeRevisions.map((rev) => {
+        const assessment = assessmentById.get(rev.assessmentId ?? rev.assessmentGrade?.assessmentId ?? '')
+        return {
+          id: rev.id,
+          assessmentTitle: assessment?.title ?? null,
+          assessmentDate: assessment ? assessment.date.toISOString().slice(0, 10) : null,
+          previousValueHundredths: rev.previousValueHundredths,
+          newValueHundredths: rev.newValueHundredths,
+          previousIsAbsent: rev.previousIsAbsent,
+          newIsAbsent: rev.newIsAbsent,
+          deleted: rev.reason === GRADE_DELETED_REASON,
+          reason: rev.reason,
+          origin: rev.origin,
+          changedByName: rev.changedBy?.name ?? null,
+          changedAt: rev.changedAt.toISOString(),
+        }
+      }),
+      periods: periodRevisions.map((rev) => ({
+        id: rev.id,
+        periodName: rev.gradeBookPeriod.period.name,
+        previousValueHundredths: rev.previousValueHundredths,
+        newValueHundredths: rev.newValueHundredths,
+        previousMeetingValueHundredths: rev.previousMeetingValueHundredths,
+        newMeetingValueHundredths: rev.newMeetingValueHundredths,
+        previousConductValueHundredths: rev.previousConductValueHundredths,
+        newConductValueHundredths: rev.newConductValueHundredths,
+        judgementChanged: rev.judgementChanged,
+        previousJudgement: rev.previousJudgement,
+        newJudgement: rev.newJudgement,
+        origin: rev.origin,
+        changedByName: rev.changedBy?.name ?? null,
+        changedAt: rev.changedAt.toISOString(),
+      })),
+    })
+  } catch (error) {
+    console.error('[gradebook] history:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

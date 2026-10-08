@@ -144,6 +144,7 @@ model User {
   assessmentsCreated                     Assessment[]                     @relation("AssessmentCreatedBy")
   assessmentGradesGiven                  AssessmentGrade[]                @relation("AssessmentGradeGradedBy")
   gradeRevisions                         GradeRevision[]                  @relation("GradeRevisionChangedBy")
+  periodGradeRevisions                   PeriodGradeRevision[]            @relation("PeriodGradeRevisionChangedBy")
   gradeBookPeriodsClosed                 GradeBookPeriod[]                @relation("GradeBookPeriodClosedBy")
   gradeBookPeriodsReopened               GradeBookPeriod[]                @relation("GradeBookPeriodReopenedBy")
   periodGradesUpdated                    PeriodGrade[]                    @relation("PeriodGradeUpdatedBy")
@@ -1885,10 +1886,17 @@ enum GradeRevisionOrigin {
 /// Espeja `StudentAttendanceJustification`: el estado vigente vive en `AssessmentGrade` y cada
 /// fila de acá registra una transición con su autor y su motivo. Es lo que impide "sobrescribir
 /// silenciosamente información académica".
+///
+/// Sobrevive al borrado de la nota: `assessmentGradeId` queda en null y la fila sigue ubicada por
+/// `assessmentId` y `studentId`. Antes el borrado arrastraba el historial en cascada.
 model GradeRevision {
-  id                String          @id @default(uuid())
-  assessmentGradeId String
-  assessmentGrade   AssessmentGrade @relation(fields: [assessmentGradeId], references: [id], onDelete: Cascade)
+  id                String           @id @default(uuid())
+  assessmentGradeId String?
+  assessmentGrade   AssessmentGrade? @relation(fields: [assessmentGradeId], references: [id], onDelete: SetNull)
+  /// Evaluación y alumno de la nota: lo que identifica la fila cuando la nota ya no existe.
+  /// Nulos sólo en filas anteriores a este campo.
+  assessmentId      String?
+  studentId         String?
 
   previousValueHundredths Int?
   newValueHundredths      Int?
@@ -1904,6 +1912,37 @@ model GradeRevision {
   changedAt       DateTime            @default(now())
 
   @@index([assessmentGradeId, changedAt])
+  @@index([assessmentId, studentId, changedAt])
+  @@index([changedByUserId])
+}
+
+/// Historial de C, R, conducta e informe de un alumno en un período (§6.2).
+///
+/// La R es la nota oficial: cambiarla sin dejar rastro es justo lo que §6.2 prohíbe. Una fila por
+/// guardado que cambie algo, con lo anterior y lo nuevo de cada campo.
+model PeriodGradeRevision {
+  id                String          @id @default(uuid())
+  gradeBookPeriodId String
+  gradeBookPeriod   GradeBookPeriod @relation(fields: [gradeBookPeriodId], references: [id], onDelete: Cascade)
+  studentId         String
+
+  previousValueHundredths        Int?
+  newValueHundredths             Int?
+  previousMeetingValueHundredths Int?
+  newMeetingValueHundredths      Int?
+  previousConductValueHundredths Int?
+  newConductValueHundredths      Int?
+  /// El informe cambió. Se guarda el texto: es lo que lee la familia en el boletín.
+  judgementChanged               Boolean @default(false)
+  previousJudgement              String? @db.Text
+  newJudgement                   String? @db.Text
+
+  origin          GradeRevisionOrigin
+  changedByUserId String?
+  changedBy       User?               @relation("PeriodGradeRevisionChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  changedAt       DateTime            @default(now())
+
+  @@index([gradeBookPeriodId, studentId, changedAt])
   @@index([changedByUserId])
 }
 
@@ -1942,6 +1981,7 @@ model GradeBookPeriod {
   reopenReason     String?   @db.Text
 
   grades       PeriodGrade[]
+  revisions    PeriodGradeRevision[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   endorsements Endorsement[]
