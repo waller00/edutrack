@@ -305,3 +305,122 @@ export function buildComparison(
     }
   })
 }
+
+// ─── Instantánea por reunión ────────────────────────────────────────────────
+
+export type AnalyticsPeriod = { id: string; name: string; sortOrder: number }
+
+/** Un período de una libreta, ya con la nota oficial (R) resuelta. */
+export type AnalyticsState = {
+  gradeBookId: string
+  status: 'OPEN' | 'CLOSED' | 'REOPENED'
+  closedLate: boolean
+  endorsed: boolean
+  period: AnalyticsPeriod
+  grades: ReadonlyArray<{ studentId: string; lastName: string; firstName: string; value: number | null }>
+}
+
+/**
+ * Reunión de referencia: la elegida, o la última que ya tiene alguna nota de reunión.
+ *
+ * Sin una reunión de referencia los indicadores mezclaban todas las del año (el promedio juntaba
+ * el diagnóstico con febrero) y "materias en alerta" tomaba la nota de una reunión cualquiera.
+ */
+export function referencePeriod(states: readonly AnalyticsState[], periodId?: string | null): AnalyticsPeriod | null {
+  const periods = new Map(states.map((state) => [state.period.id, state.period]))
+  if (periodId) return periods.get(periodId) ?? null
+  const graded = states.filter((state) => state.grades.some((g) => g.value != null)).map((state) => state.period)
+  const pool = graded.length > 0 ? graded : [...periods.values()]
+  return pool.reduce<AnalyticsPeriod | null>((best, p) => (!best || p.sortOrder > best.sortOrder ? p : best), null)
+}
+
+type StudentAccumulator = {
+  lastName: string
+  firstName: string
+  gradeBooks: Set<string>
+  bySubject: Map<string, number | null>
+  byPeriod: Map<string, { sortOrder: number; values: number[] }>
+}
+
+/**
+ * Una fila por estudiante: su nota en cada asignatura en la reunión de referencia, y la serie de su
+ * **promedio por reunión** hasta esa reunión.
+ *
+ * La serie antes guardaba, por reunión, la nota de la última materia que se recorría: "mejoró" o
+ * "bajó" comparaba Matemática de una entrega con Dibujo de otra. El promedio de sus materias en
+ * cada reunión sí dice si el estudiante subió o bajó.
+ */
+export function studentSnapshots(params: {
+  states: readonly AnalyticsState[]
+  subjectOf: ReadonlyMap<string, string>
+  reference: AnalyticsPeriod | null
+  assessmentsOf: (gradeBookIds: ReadonlySet<string>) => number
+}): StudentSnapshot[] {
+  const { states, subjectOf, reference } = params
+  const students = new Map<string, StudentAccumulator>()
+
+  for (const state of states) {
+    // La serie llega hasta la reunión de referencia: lo posterior todavía no "pasó" para ella.
+    if (reference && state.period.sortOrder > reference.sortOrder) continue
+    const subjectId = subjectOf.get(state.gradeBookId)
+    const atReference = reference != null && state.period.id === reference.id
+    for (const grade of state.grades) {
+      const acc = students.get(grade.studentId) ?? {
+        lastName: grade.lastName,
+        firstName: grade.firstName,
+        gradeBooks: new Set<string>(),
+        bySubject: new Map<string, number | null>(),
+        byPeriod: new Map<string, { sortOrder: number; values: number[] }>(),
+      }
+      acc.gradeBooks.add(state.gradeBookId)
+      if (atReference && subjectId) acc.bySubject.set(subjectId, grade.value)
+      if (grade.value != null) {
+        const bucket = acc.byPeriod.get(state.period.id) ?? { sortOrder: state.period.sortOrder, values: [] }
+        bucket.values.push(grade.value)
+        acc.byPeriod.set(state.period.id, bucket)
+      }
+      students.set(grade.studentId, acc)
+    }
+  }
+
+  return [...students.entries()].map(([studentId, acc]) => ({
+    studentId,
+    lastName: acc.lastName,
+    firstName: acc.firstName,
+    subjectValues: [...acc.bySubject.values()],
+    periodValues: [...acc.byPeriod.values()].sort((a, b) => a.sortOrder - b.sortOrder).map((bucket) => mean(bucket.values)),
+    assessmentCount: params.assessmentsOf(acc.gradeBooks),
+  }))
+}
+
+/** Las notas de la reunión de referencia, para promedio, mediana y distribución. */
+export function valuesAt(states: readonly AnalyticsState[], reference: AnalyticsPeriod | null): number[] {
+  if (!reference) return []
+  return states
+    .filter((state) => state.period.id === reference.id)
+    .flatMap((state) => state.grades.map((g) => g.value))
+    .filter((value): value is number => value != null)
+}
+
+/** Estado de cada libreta en la reunión de referencia, para los indicadores de gestión. */
+export function managementStates(params: {
+  gradeBookIds: readonly string[]
+  states: readonly AnalyticsState[]
+  reference: AnalyticsPeriod | null
+  rosterSizeOf: (gradeBookId: string) => number
+}): GradeBookState[] {
+  const atReference = new Map(
+    params.states.filter((state) => state.period.id === params.reference?.id).map((state) => [state.gradeBookId, state]),
+  )
+  return params.gradeBookIds.map((gradeBookId) => {
+    const state = atReference.get(gradeBookId)
+    return {
+      gradeBookId,
+      gradedStudents: state?.grades.filter((g) => g.value != null).length ?? 0,
+      rosterSize: params.rosterSizeOf(gradeBookId),
+      periodStatus: state?.status ?? null,
+      endorsed: state?.endorsed ?? false,
+      closedLate: state?.closedLate ?? false,
+    }
+  })
+}
