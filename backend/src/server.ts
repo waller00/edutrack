@@ -19,6 +19,11 @@ import {
 } from "./integrations/moodle/index.js";
 import { startMetricsServer } from "./observability/metrics.js";
 import { scanStudentAlerts } from "./services/student-reports/alerts-scan.js";
+import {
+  GRADEBOOK_PROVISION_INTERVAL_MS,
+  provisionActiveSchoolYear,
+  provisionLogLine,
+} from "./services/gradebook/provision-scheduler.js";
 
 // API principal (4000) y puerto ADMS ZKTeco (8081, mismo proceso HTTP)
 const port = Number(process.env.PORT || 4000);
@@ -78,6 +83,24 @@ const studentAlertsInterval = setInterval(() => {
   });
 }, studentAlertsIntervalMs);
 studentAlertsInterval.unref?.();
+
+// --- Libretas: se generan solas a partir del horario (RF-020) ---
+// Cada hora sobre el ciclo activo, y una vez al minuto de arrancar para que un deploy no espere
+// una hora. Es idempotente: sólo crea las que faltan y actualiza el titular si cambió.
+function runGradeBookProvision() {
+  provisionActiveSchoolYear()
+    .then((summary) => {
+      const line = provisionLogLine(summary);
+      if (line) console.log(line);
+    })
+    .catch((error) => {
+      console.error("gradebook provision tick:", error);
+    });
+}
+const gradeBookProvisionInterval = setInterval(runGradeBookProvision, GRADEBOOK_PROVISION_INTERVAL_MS);
+gradeBookProvisionInterval.unref?.();
+const gradeBookProvisionWarmup = setTimeout(runGradeBookProvision, 60_000);
+gradeBookProvisionWarmup.unref?.();
 
 // --- Integración Moodle: outbox (reintentos) + reconciliación opcional ---
 // Mismo patrón que el monitor de asistencia: un tick frecuente, gateado por SystemSettings.

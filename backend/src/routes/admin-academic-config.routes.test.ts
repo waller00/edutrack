@@ -12,6 +12,7 @@ const { prismaMock } = vi.hoisted(() => ({
     activityType: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     assessment: { groupBy: vi.fn() },
     gradeBookPeriod: { groupBy: vi.fn() },
+    academicAlertRule: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -558,5 +559,84 @@ describe("contadores de uso en los GET", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data[0].usage).toEqual({ assessments: 7 });
+  });
+});
+
+describe("alertas académicas (§5.7)", () => {
+  beforeEach(() => {
+    prismaMock.academicAlertRule.findMany.mockResolvedValue([]);
+    prismaMock.academicAlertRule.findFirst.mockResolvedValue(null);
+    prismaMock.academicAlertRule.create.mockResolvedValue({ id: "r-1" });
+    prismaMock.academicAlertRule.update.mockResolvedValue({ id: "r-1" });
+    prismaMock.auditLog.create.mockResolvedValue({ id: "a-1" });
+  });
+
+  it("muestra la regla vigente del ciclo y de dónde sale", async () => {
+    prismaMock.academicAlertRule.findMany.mockResolvedValue([
+      { type: "ALERT_SUBJECTS", schoolYearId: null, threshold: 4, isActive: true },
+    ]);
+    const res = await request(app()).get("/admin/academic-config/alert-rules").set("Authorization", `Bearer ${tok()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.schoolYearId).toBe("sy-1");
+    expect(res.body.data).toEqual([
+      { type: "ALERT_SUBJECTS", threshold: 4, isActive: true, source: "GENERAL" },
+      { type: "SCORE_DROP", threshold: 200, isActive: false, source: "DEFAULT" },
+      { type: "NO_ASSESSMENTS", threshold: 0, isActive: false, source: "DEFAULT" },
+    ]);
+  });
+
+  it("guarda la regla para el ciclo, no la general: el pasado no cambia solo", async () => {
+    const res = await request(app())
+      .put("/admin/academic-config/alert-rules")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ type: "SCORE_DROP", threshold: 250, isActive: true });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.academicAlertRule.findFirst.mock.calls[0][0].where).toEqual({ type: "SCORE_DROP", schoolYearId: "sy-1" });
+    expect(prismaMock.academicAlertRule.create.mock.calls[0][0].data).toEqual({
+      type: "SCORE_DROP",
+      schoolYearId: "sy-1",
+      threshold: 250,
+      isActive: true,
+    });
+  });
+
+  it("actualiza la del ciclo en vez de duplicarla", async () => {
+    prismaMock.academicAlertRule.findFirst.mockResolvedValue({ id: "r-9" });
+    await request(app())
+      .put("/admin/academic-config/alert-rules")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ type: "ALERT_SUBJECTS", threshold: 2, isActive: false });
+
+    expect(prismaMock.academicAlertRule.create).not.toHaveBeenCalled();
+    expect(prismaMock.academicAlertRule.update.mock.calls[0][0]).toEqual({
+      where: { id: "r-9" },
+      data: { threshold: 2, isActive: false },
+    });
+  });
+
+  it("rechaza un umbral fuera de rango con el mensaje en la unidad del tipo", async () => {
+    const drop = await request(app())
+      .put("/admin/academic-config/alert-rules")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ type: "SCORE_DROP", threshold: 5, isActive: true });
+    expect(drop.status).toBe(400);
+    expect(drop.body.message).toContain("puntos");
+
+    const subjects = await request(app())
+      .put("/admin/academic-config/alert-rules")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ type: "ALERT_SUBJECTS", threshold: 0, isActive: true });
+    expect(subjects.status).toBe(400);
+    expect(subjects.body.code).toBe("THRESHOLD_OUT_OF_RANGE");
+  });
+
+  it("sin evaluaciones no tiene umbral: se guarda en cero", async () => {
+    await request(app())
+      .put("/admin/academic-config/alert-rules")
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ type: "NO_ASSESSMENTS", threshold: 7, isActive: true });
+    expect(prismaMock.academicAlertRule.create.mock.calls[0][0].data.threshold).toBe(0);
   });
 });

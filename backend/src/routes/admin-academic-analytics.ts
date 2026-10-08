@@ -4,13 +4,13 @@ import { prisma } from '../db/prisma.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { loadRosterForScope } from '../services/student-attendance/roster.js'
 import { officialPeriodValue } from '../services/gradebook/period-closure.js'
+import { alertRulesForYear } from '../services/gradebook/alert-rules.js'
 import {
   buildComparison,
   managementBlock,
   performanceBlock,
   studentsBlock,
   triggeredAlerts,
-  type AlertRule,
   type GradeBookState,
   type LevelRow,
   type StudentSnapshot,
@@ -34,23 +34,6 @@ const filtersSchema = z.object({
   courseOrientationId: z.string().uuid().optional(),
   subjectId: z.string().uuid().optional(),
 })
-
-/** Umbrales vigentes para un ciclo (RF-200): los propios del año, o los generales. */
-export async function alertRulesForYear(schoolYearId: string): Promise<AlertRule[]> {
-  const rows = await prisma.academicAlertRule.findMany({
-    where: { isActive: true, OR: [{ schoolYearId }, { schoolYearId: null }] },
-  })
-  // La regla específica del ciclo pisa a la general: así una comparativa histórica se evalúa con
-  // el umbral que regía ese año y no cambia sola cuando alguien mueve el actual.
-  const byType = new Map<string, AlertRule>()
-  for (const row of rows) {
-    const current = byType.get(row.type)
-    if (!current || row.schoolYearId === schoolYearId) {
-      byType.set(row.type, { type: row.type as AlertRule['type'], threshold: row.threshold })
-    }
-  }
-  return [...byType.values()]
-}
 
 /** Escala de referencia para los tramos. */
 async function referenceLevels(): Promise<LevelRow[]> {
@@ -362,52 +345,6 @@ r.get('/risk-matrix', async (req: any, res) => {
     return res.json({ subjects, students, levels })
   } catch (error) {
     console.error('[academic-analytics] risk-matrix:', error)
-    return res.status(500).json({ message: 'Error interno del servidor' })
-  }
-})
-
-const ruleSchema = z.object({
-  type: z.enum(['ALERT_SUBJECTS', 'SCORE_DROP', 'NO_ASSESSMENTS']),
-  schoolYearId: z.string().uuid().nullish(),
-  threshold: z.number().int().min(0),
-  isActive: z.boolean().optional(),
-})
-
-/** Umbrales de alerta (§5.7): configurables, nunca programados de forma rígida. */
-r.get('/alert-rules', async (_req, res) => {
-  try {
-    const rules = await prisma.academicAlertRule.findMany({
-      include: { schoolYear: { select: { code: true, label: true } } },
-      orderBy: [{ type: 'asc' }, { schoolYearId: 'asc' }],
-    })
-    return res.json({ data: rules })
-  } catch (error) {
-    console.error('[academic-analytics] alert rules:', error)
-    return res.status(500).json({ message: 'Error interno del servidor' })
-  }
-})
-
-r.put('/alert-rules', async (req: any, res) => {
-  const parsed = ruleSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
-
-  try {
-    const d = parsed.data
-    const schoolYearId = d.schoolYearId ?? null
-    const existing = await prisma.academicAlertRule.findFirst({ where: { type: d.type, schoolYearId } })
-
-    const saved = existing
-      ? await prisma.academicAlertRule.update({
-          where: { id: existing.id },
-          data: { threshold: d.threshold, ...(d.isActive === undefined ? {} : { isActive: d.isActive }) },
-        })
-      : await prisma.academicAlertRule.create({
-          data: { type: d.type, schoolYearId, threshold: d.threshold, isActive: d.isActive ?? true },
-        })
-
-    return res.json({ data: saved })
-  } catch (error) {
-    console.error('[academic-analytics] alert rule save:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

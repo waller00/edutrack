@@ -22,7 +22,7 @@ vi.mock('../services/school-year-service.js', () => ({
 }))
 vi.mock('../services/student-attendance/roster.js', () => ({ loadRosterForScope: rosterMock }))
 
-import adminAcademicAnalyticsRoutes, { alertRulesForYear } from './admin-academic-analytics.js'
+import adminAcademicAnalyticsRoutes from './admin-academic-analytics.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
 
 function app() {
@@ -72,24 +72,6 @@ describe('permisos', () => {
 
   it('sin sesión responde 401', async () => {
     expect((await request(app()).get('/admin/academic-analytics/dashboard')).status).toBe(401)
-  })
-})
-
-describe('alertRulesForYear (RF-200)', () => {
-  it('la regla del ciclo pisa a la general', async () => {
-    // Una comparativa histórica no puede cambiar sola cuando alguien mueve el umbral actual.
-    prismaMock.academicAlertRule.findMany.mockResolvedValue([
-      { type: 'ALERT_SUBJECTS', schoolYearId: null, threshold: 3 },
-      { type: 'ALERT_SUBJECTS', schoolYearId: 'sy-2026', threshold: 2 },
-    ])
-    expect(await alertRulesForYear('sy-2026')).toEqual([{ type: 'ALERT_SUBJECTS', threshold: 2 }])
-  })
-
-  it('sin regla propia usa la general', async () => {
-    prismaMock.academicAlertRule.findMany.mockResolvedValue([
-      { type: 'ALERT_SUBJECTS', schoolYearId: null, threshold: 3 },
-    ])
-    expect(await alertRulesForYear('sy-2025')).toEqual([{ type: 'ALERT_SUBJECTS', threshold: 3 }])
   })
 })
 
@@ -205,7 +187,7 @@ describe('GET /comparison', () => {
 describe('GET /risk-matrix', () => {
   it('arma la matriz Estudiantes × Materias con las alertas disparadas', async () => {
     prismaMock.academicAlertRule.findMany.mockResolvedValue([
-      { type: 'ALERT_SUBJECTS', schoolYearId: null, threshold: 1 },
+      { type: 'ALERT_SUBJECTS', schoolYearId: null, threshold: 1, isActive: true },
     ])
     prismaMock.gradeBook.findMany.mockResolvedValue([BOOK])
     prismaMock.gradeBookPeriod.findMany.mockResolvedValue([
@@ -226,45 +208,5 @@ describe('GET /risk-matrix', () => {
     expect(res.body.subjects).toEqual([{ id: 's-1', name: 'Matemática' }])
     expect(res.body.students[0].cells).toEqual([300])
     expect(res.body.students[0].alerts).toContainEqual({ type: 'ALERT_SUBJECTS', detail: 1 })
-  })
-})
-
-describe('umbrales configurables (§5.7)', () => {
-  it('crea el umbral si no existe', async () => {
-    prismaMock.academicAlertRule.findFirst.mockResolvedValue(null)
-    prismaMock.academicAlertRule.create.mockResolvedValue({ id: 'r-1' })
-
-    const res = await request(app())
-      .put('/admin/academic-analytics/alert-rules')
-      .set('Authorization', `Bearer ${tok()}`)
-      .send({ type: 'ALERT_SUBJECTS', threshold: 2 })
-
-    expect(res.status).toBe(200)
-    expect(prismaMock.academicAlertRule.create.mock.calls[0][0].data).toMatchObject({
-      type: 'ALERT_SUBJECTS',
-      threshold: 2,
-      schoolYearId: null,
-    })
-  })
-
-  it('actualiza el existente en vez de duplicarlo', async () => {
-    prismaMock.academicAlertRule.findFirst.mockResolvedValue({ id: 'r-1' })
-    prismaMock.academicAlertRule.update.mockResolvedValue({ id: 'r-1' })
-
-    await request(app())
-      .put('/admin/academic-analytics/alert-rules')
-      .set('Authorization', `Bearer ${tok()}`)
-      .send({ type: 'ALERT_SUBJECTS', threshold: 4 })
-
-    expect(prismaMock.academicAlertRule.create).not.toHaveBeenCalled()
-    expect(prismaMock.academicAlertRule.update.mock.calls[0][0].data.threshold).toBe(4)
-  })
-
-  it('rechaza un umbral negativo', async () => {
-    const res = await request(app())
-      .put('/admin/academic-analytics/alert-rules')
-      .set('Authorization', `Bearer ${tok()}`)
-      .send({ type: 'SCORE_DROP', threshold: -1 })
-    expect(res.status).toBe(400)
   })
 })

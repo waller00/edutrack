@@ -5,7 +5,7 @@ const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     event: { findMany: vi.fn() },
     courseOffering: { findMany: vi.fn() },
-    gradeBook: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    gradeBook: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
   },
 }))
 
@@ -92,7 +92,7 @@ describe('provisionGradeBooks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     prismaMock.courseOffering.findMany.mockResolvedValue([{ id: OFFERING }])
-    prismaMock.gradeBook.findUnique.mockResolvedValue(null)
+    prismaMock.gradeBook.findMany.mockResolvedValue([])
     prismaMock.gradeBook.create.mockResolvedValue({ id: 'gb-1' })
     prismaMock.gradeBook.update.mockResolvedValue({ id: 'gb-1' })
   })
@@ -110,20 +110,33 @@ describe('provisionGradeBooks', () => {
     })
   })
 
-  it('es idempotente: si ya existe actualiza el titular y no duplica', async () => {
+  const SCOPE_KEY = `et-subject-offering-${OFFERING}-${SUBJECT}`
+
+  it('es idempotente: si ya existe con otro titular lo actualiza y no duplica', async () => {
     prismaMock.event.findMany.mockResolvedValue([ev()])
-    prismaMock.gradeBook.findUnique.mockResolvedValue({ id: 'gb-1' })
+    prismaMock.gradeBook.findMany.mockResolvedValue([{ id: 'gb-1', scopeKey: SCOPE_KEY, teacherUserId: 'teacher-0' }])
 
     const summary = await provisionGradeBooks(SY, prismaMock as any)
 
-    expect(summary).toMatchObject({ created: 0, updated: 1 })
+    expect(summary).toMatchObject({ created: 0, updated: 1, unchanged: 0 })
     expect(prismaMock.gradeBook.create).not.toHaveBeenCalled()
     expect(prismaMock.gradeBook.update.mock.calls[0][0].data).toEqual({ teacherUserId: 'teacher-1' })
   })
 
+  it('una libreta que sigue igual no se reescribe: corre cada hora', async () => {
+    prismaMock.event.findMany.mockResolvedValue([ev()])
+    prismaMock.gradeBook.findMany.mockResolvedValue([{ id: 'gb-1', scopeKey: SCOPE_KEY, teacherUserId: 'teacher-1' }])
+
+    const summary = await provisionGradeBooks(SY, prismaMock as any)
+
+    expect(summary).toMatchObject({ created: 0, updated: 0, unchanged: 1 })
+    expect(prismaMock.gradeBook.update).not.toHaveBeenCalled()
+    expect(prismaMock.gradeBook.findMany.mock.calls[0][0].where).toEqual({ schoolYearId: SY })
+  })
+
   it('al actualizar no toca el status: no revive una libreta archivada', async () => {
     prismaMock.event.findMany.mockResolvedValue([ev()])
-    prismaMock.gradeBook.findUnique.mockResolvedValue({ id: 'gb-1' })
+    prismaMock.gradeBook.findMany.mockResolvedValue([{ id: 'gb-1', scopeKey: SCOPE_KEY, teacherUserId: null }])
     await provisionGradeBooks(SY, prismaMock as any)
     expect(prismaMock.gradeBook.update.mock.calls[0][0].data).not.toHaveProperty('status')
   })

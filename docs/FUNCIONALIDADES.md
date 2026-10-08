@@ -327,10 +327,13 @@ entienden solos.
   EduTrack el "grupo" es el curso más su orientación —no hay grupos paralelos—, así que esa clave
   coincide exactamente con la que la integración Moodle deriva de un evento: la libreta y su curso
   Moodle `SUBJECT_COURSE` son la misma cosa vista desde dos lados (`GradeBook.scopeKey`).
-- **Generación automática:** las libretas se derivan de los eventos de clase del ciclo
+- **Generación automática:** las libretas se derivan de los eventos de clase del ciclo. Corre
+  sola cada hora sobre el ciclo activo (y al minuto de arrancar el servidor), y administración
+  puede correrla en *Configuración de libreta → Libretas* después de cargar el horario
   (`POST /admin/academic-config/gradebooks/provision`). No hay tabla de asignación docente: quién
-  dicta qué sólo existe en el horario. Es idempotente y respeta la oferta del ciclo (un curso no
-  ofertado no genera libretas).
+  dicta qué sólo existe en el horario. Es idempotente, sólo reescribe el titular si cambió, no
+  revive libretas archivadas y respeta la oferta del ciclo (un curso no ofertado no genera
+  libretas). El resumen avisa las clases sin asignatura o curso, que no generan libreta.
 - **Acceso:** el titular y el suplente que cubrió alguna de sus clases. Adscripción, Dirección e
   Inspección leen todas las del centro pero **no** califican: leer y escribir son permisos
   distintos (`gradebook.read` vs `gradebook.grade`).
@@ -455,8 +458,10 @@ adscripción, dirección, inspección y administración.
 - **Ficha académica (RF-031):** trayectoria por ciclo, histórico por materia y período, y evolución
   por asignatura. Un período sin datos se conserva como hueco; borrarlo haría que dos períodos
   separados parecieran consecutivos.
-- **Riesgo (§5.7):** se marca al estudiante con N o más asignaturas en tramo de alerta (umbral
-  configurable, 3 por defecto) y el descenso sostenido exige **tres** bajas consecutivas: dos
+- **Riesgo (§5.7):** se marca al estudiante con N o más asignaturas en tramo de alerta. El umbral
+  es la regla *Asignaturas en alerta* del ciclo (3 por defecto), la misma que usan los indicadores,
+  así "en alerta" significa lo mismo en la reunión y en Inteligencia académica. El descenso
+  sostenido exige **tres** bajas consecutivas: dos
   puntos son ruido, no tendencia. Las alertas son informativas y no generan por sí solas
   decisiones administrativas, promociones ni sanciones.
 - **Reunión de profesores (RF-070):** la misma matriz en tamaño de proyección, más
@@ -547,9 +552,12 @@ personal y las novedades de sueldos.
   resultados muy bajos mueve el promedio y no la mediana, y esa diferencia es la señal.
 - **Comparativas** por asignatura, curso y ciclo lectivo, con el porcentaje de resultados en tramo
   de alerta (§5.3 a §5.5).
-- **Umbrales configurables (§5.7)** en `AcademicAlertRule`, con **vigencia por ciclo (RF-200)**: la
-  regla del año pisa a la general, así una comparativa histórica se evalúa con el umbral que regía
-  entonces y no cambia sola cuando alguien mueve el actual.
+- **Umbrales configurables (§5.7)** en `AcademicAlertRule`, desde *Configuración de libreta →
+  Alertas*, con **vigencia por ciclo (RF-200)**: la regla del año pisa a la general y la general al
+  valor por defecto, así una comparativa histórica se evalúa con el umbral que regía entonces y no
+  cambia sola cuando alguien mueve el actual. Una regla apagada en un ciclo también pisa: no deja
+  que se cuele la general. Sin reglas cargadas rige *Asignaturas en alerta* con 3 (lo que usó
+  siempre la matriz de reunión); *Caída del promedio* y *Sin evaluaciones* arrancan apagadas.
 - **Sin repositorio analítico aparte.** A escala de un liceo la separación que sugiere §5.10 no
   compensa, y un agregado persistido se desactualiza sin que nadie se entere: todo se deriva al
   leer del mismo esquema transaccional.

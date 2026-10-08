@@ -5,6 +5,7 @@ import { prisma } from '../db/prisma.js'
 import { recordAuditEvent } from '../services/audit-log.js'
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { provisionGradeBooks } from '../services/gradebook/provision.js'
+import { ALERT_RULE_LIMITS, loadAlertRules, type AlertRuleType } from '../services/gradebook/alert-rules.js'
 import {
   AcademicConfigError,
   assertLevelsCoverScale,
@@ -594,6 +595,76 @@ r.post('/gradebooks/provision', async (req: any, res) => {
     return res.json({ data: summary })
   } catch (error) {
     return handleError(res, 'POST /gradebooks/provision', error)
+  }
+})
+
+// ─── Alertas académicas ─────────────────────────────────────────────────────
+
+const alertRuleSchema = z.object({
+  type: z.enum(['ALERT_SUBJECTS', 'SCORE_DROP', 'NO_ASSESSMENTS']),
+  threshold: z.number().int(),
+  isActive: z.boolean(),
+})
+
+function requestedSchoolYear(req: any) {
+  return resolveSchoolYearIdForList(prisma, {
+    role: req.user?.role,
+    requestedSchoolYearId: req.query.schoolYearId ? String(req.query.schoolYearId) : undefined,
+  })
+}
+
+/** El rango en la unidad que ve la persona: asignaturas, o puntos para la caída. */
+function thresholdRangeMessage(type: AlertRuleType): string {
+  const { min, max } = ALERT_RULE_LIMITS[type]
+  if (type === 'SCORE_DROP') return `La caída tiene que estar entre ${min / 100} y ${max / 100} puntos.`
+  return `El umbral tiene que estar entre ${min} y ${max} asignaturas.`
+}
+
+/**
+ * Umbrales de alerta del ciclo (§5.7). Se editan por ciclo: la regla del año pisa a la general y
+ * al valor por defecto, así que mover el umbral de este año no cambia cómo se leen los anteriores.
+ * Los usan la matriz de reunión y los indicadores.
+ */
+r.get('/alert-rules', async (req: any, res) => {
+  try {
+    const schoolYearId = await requestedSchoolYear(req)
+    if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
+    return res.json({ schoolYearId, data: await loadAlertRules(schoolYearId), limits: ALERT_RULE_LIMITS })
+  } catch (error) {
+    return handleError(res, 'GET /alert-rules', error)
+  }
+})
+
+r.put('/alert-rules', async (req: any, res) => {
+  const parsed = alertRuleSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
+
+  const { type, isActive } = parsed.data
+  // "Sin evaluaciones" no tiene umbral: se dispara con cero.
+  const threshold = type === 'NO_ASSESSMENTS' ? 0 : parsed.data.threshold
+  const limits = ALERT_RULE_LIMITS[type]
+  if (threshold < limits.min || threshold > limits.max) {
+    return res.status(400).json({ message: thresholdRangeMessage(type), code: 'THRESHOLD_OUT_OF_RANGE' })
+  }
+
+  try {
+    const schoolYearId = await requestedSchoolYear(req)
+    if (!schoolYearId) return res.status(400).json({ message: 'No hay ciclo lectivo activo' })
+
+    const existing = await prisma.academicAlertRule.findFirst({ where: { type, schoolYearId } })
+    const saved = existing
+      ? await prisma.academicAlertRule.update({ where: { id: existing.id }, data: { threshold, isActive } })
+      : await prisma.academicAlertRule.create({ data: { type, schoolYearId, threshold, isActive } })
+
+    audit(req, AuditAction.ACADEMIC_CONFIG_UPDATED, 'AcademicAlertRule', saved.id, {
+      type,
+      threshold,
+      isActive,
+      schoolYearId,
+    })
+    return res.json({ schoolYearId, data: await loadAlertRules(schoolYearId), limits: ALERT_RULE_LIMITS })
+  } catch (error) {
+    return handleError(res, 'PUT /alert-rules', error)
   }
 })
 

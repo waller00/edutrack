@@ -9,7 +9,8 @@ export default function Page() {
         <header className="border-b border-gray-200 pb-2">
           <h1 className="text-lg font-bold uppercase tracking-wide text-slate-700">Configuración de libreta</h1>
           <p className="text-sm text-gray-600">
-            Períodos, escalas de evaluación y tipos de actividad. Se cambian acá, sin tocar el código.
+            Períodos, escalas, tipos de actividad, umbrales de alerta y generación de libretas. Se
+            cambian acá, sin tocar el código.
           </p>
         </header>
         <AcademicConfigPanel />
