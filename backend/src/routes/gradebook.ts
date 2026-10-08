@@ -54,7 +54,7 @@ import {
   resolveGradeBookRecipients,
 } from '../services/gradebook/notifications.js'
 import { ENDORSEMENT_ROW_INCLUDE, serializeEndorsementRow } from '../services/gradebook/endorsement-view.js'
-import { conductOptions, conductScale } from '../services/gradebook/period-scale.js'
+import { conductOptions, conductScale, isConductValue } from '../services/gradebook/period-scale.js'
 import {
   buildImportPlan,
   buildImportPreview,
@@ -1725,8 +1725,9 @@ async function loadClosureContext(req: any, res: any) {
   const ctx = await loadContext(req, res)
   if (!ctx) return null
 
+  const level = ctx.row.courseOffering?.course?.level ?? null
   const period = await prisma.academicPeriod.findFirst({
-    where: { id: req.params.periodId, schoolYearId: ctx.row.schoolYearId, isActive: true },
+    where: { id: req.params.periodId, schoolYearId: ctx.row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
   })
   if (!period) {
     res.status(404).json({ message: 'Período no encontrado en este ciclo' })
@@ -1760,6 +1761,23 @@ async function loadPeriodScale(row: any) {
     include: { levels: { orderBy: { sortOrder: 'asc' } } },
   })
   return scale ?? null
+}
+
+/**
+ * Conducta de la asignatura fuera de la escala `CONDUCTA`: devuelve el mensaje, o null. Sin escala
+ * sembrada no se puede validar y se rechaza cualquier valor: la reunión y el boletín no sabrían
+ * rotularlo.
+ */
+async function conductValuesOutOfScale(
+  entries: ReadonlyArray<{ conductValueHundredths?: number | null }>,
+): Promise<string | null> {
+  const values = entries.map((e) => e.conductValueHundredths).filter((v): v is number => v != null)
+  if (values.length === 0) return null
+  const scale = await conductScale()
+  const levels = scale?.levels ?? []
+  return values.every((value) => isConductValue(value, levels))
+    ? null
+    : 'La conducta tiene que ser uno de los valores de la escala de conducta.'
 }
 
 /** C o R fuera de la escala: devuelve el mensaje, o null si todo está en rango. */
@@ -1853,7 +1871,14 @@ r.get('/:id/periods/:periodId', requirePermission('gradebook.read'), async (req:
         reopenedAt: ctx.state.reopenedAt,
         reopenReason: ctx.state.reopenReason,
       },
-      canEdit: ctx.access.canGrade && ctx.state.status !== 'CLOSED',
+      // Las mismas reglas que el cierre por alumno: período abierto, ciclo vivo y ya habilitado.
+      canEdit: canEditStudentClosurePeriod({
+        canGrade: ctx.access.canGrade,
+        periodStatus: ctx.state.status,
+        gradeBookStatus: ctx.row.status,
+        startsOn: ctx.period.startsOn,
+        todayYmd: todayUruguayYmd(),
+      }),
       blockers: closureBlockers(rows, rules),
       students: rows,
     })
@@ -1880,10 +1905,16 @@ r.put('/:id/periods/:periodId/grades', requirePermission('gradebook.grade'), asy
       return res.status(409).json({ message: GRADE_BLOCK_MESSAGES[code], code })
     }
 
+    if (!isPeriodCalendarOpen({ startsOn: ctx.period.startsOn, todayYmd: todayUruguayYmd() })) {
+      return res.status(409).json({ message: 'Este período todavía no está habilitado para carga.', code: 'PERIOD_NOT_ENABLED' })
+    }
+
     const rosterById = new Map(ctx.students.map((s: any) => [s.studentId, s]))
     const entries = parsed.data.entries ?? []
     const rangeError = periodValuesOutOfScale(entries, ctx.scale)
     if (rangeError) return res.status(400).json({ message: rangeError, code: 'VALUE_OUT_OF_SCALE' })
+    const conductError = await conductValuesOutOfScale(entries)
+    if (conductError) return res.status(400).json({ message: conductError, code: 'CONDUCT_OUT_OF_SCALE' })
     const strangers = entries.filter((e) => !rosterById.has(e.studentId)).map((e) => e.studentId)
     if (strangers.length > 0) {
       return res.status(409).json({
@@ -2002,7 +2033,7 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
     ])
 
     const stateByPeriod = new Map(states.map((row) => [row.periodId, row]))
-    const scale = await loadPeriodScale(ctx.row)
+    const [scale, conduct] = await Promise.all([loadPeriodScale(ctx.row), conductScale()])
     const levels = scale?.levels ?? assessments.find((a) => a.gradingScale?.levels?.length)?.gradingScale?.levels ?? []
     const countByPeriod = new Map<string, number>()
     for (const assessment of assessments) {
@@ -2040,6 +2071,7 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
       canGrade: ctx.access.canGrade,
       // La escala del nivel: el selector de C y R ofrece su rango (1–12 en bachillerato).
       scale,
+      conduct: conduct ? conductOptions(conduct.levels) : [],
       periods: periods.map((period) => {
         const state = stateByPeriod.get(period.id)
         const saved = state?.grades[0] ?? null
@@ -2073,6 +2105,7 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
           valueHundredths: value,
           meetingValueHundredths: meetingValue,
           conceptualJudgement: saved?.conceptualJudgement ?? null,
+          conductValueHundredths: saved?.conductValueHundredths ?? null,
           descriptor: describeValue(value, levels as never),
           meetingDescriptor: describeValue(meetingValue, levels as never),
           /** Texto de la reunión de profesores (si administración lo cargó). */
@@ -2099,6 +2132,8 @@ const studentClosureSaveSchema = z.object({
         /** R: la nota que queda después de la reunión. */
         meetingValueHundredths: z.number().int().nullish(),
         conceptualJudgement: z.string().trim().max(2000).nullish(),
+        /** Conducta en esta asignatura, sobre la escala `CONDUCTA`. */
+        conductValueHundredths: z.number().int().nullish(),
       }),
     )
     .min(1)
@@ -2151,6 +2186,8 @@ r.put('/:id/students/:studentId/closure', requirePermission('gradebook.grade'), 
     }
     const rangeError = periodValuesOutOfScale(parsed.data.entries, await loadPeriodScale(ctx.row))
     if (rangeError) return res.status(400).json({ message: rangeError, code: 'VALUE_OUT_OF_SCALE' })
+    const conductError = await conductValuesOutOfScale(parsed.data.entries)
+    if (conductError) return res.status(400).json({ message: conductError, code: 'CONDUCT_OUT_OF_SCALE' })
 
     const todayYmd = todayUruguayYmd()
     const userId = req.user?.id ?? req.user?.sub

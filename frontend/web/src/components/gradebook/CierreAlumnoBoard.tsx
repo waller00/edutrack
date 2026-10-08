@@ -36,6 +36,9 @@ import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/grad
 import PeriodBlock, { type BlockGrade, type BlockLevel } from './PeriodBlock'
 import MeetingPeriodsBar from './MeetingPeriodsBar'
 import GradeSelect from './GradeSelect'
+import ConductSelect, { conductText, type ConductOption } from './ConductSelect'
+import CierreGrupoTable from './CierreGrupoTable'
+import { confirmDiscard, useUnsavedChangesWarning } from '@/lib/hooks/useUnsavedChangesWarning'
 
 type ClosurePeriod = {
   periodId: string
@@ -54,6 +57,8 @@ type ClosurePeriod = {
   /** R: la nota que queda después de la reunión. */
   meetingValueHundredths?: number | null
   conceptualJudgement: string | null
+  /** Conducta en esta asignatura (escala `CONDUCTA`), en los períodos con reunión. */
+  conductValueHundredths?: number | null
   descriptor: {
     label: string
     colorToken: string | null
@@ -74,6 +79,8 @@ type ClosureSheet = {
   canGrade: boolean
   /** Escala del nivel: rango de C y R y tramos para el color. */
   scale?: (GradeRange & { decimals: number; levels: BlockLevel[] }) | null
+  /** Opciones de la escala de conducta, una por tramo. */
+  conduct?: ConductOption[]
   periods: ClosurePeriod[]
 }
 
@@ -93,11 +100,14 @@ type BoardGrade = {
 }
 type BoardResponse = { assessments: BoardAssessment[]; grades: BoardGrade[] }
 
-/** Borrador por período: C, R y el texto. */
-type Draft = Record<string, { grade: string; meeting: string; judgement: string }>
+/** Borrador por período: C, R, el texto y la conducta (centésimos en texto, `''` sin dato). */
+type Draft = Record<string, { grade: string; meeting: string; judgement: string; conduct: string }>
 
 type InfoModal = { title: string; body: string } | null
 type MeetingModal = { periodName: string; text: string; meta: string | null } | null
+type Mode = 'alumno' | 'grupo'
+
+const DISCARD_MESSAGE = 'Hay cambios sin guardar en este cierre. ¿Descartarlos?'
 
 function buildDraft(periods: ClosurePeriod[]): Draft {
   const draft: Draft = {}
@@ -106,6 +116,7 @@ function buildDraft(periods: ClosurePeriod[]): Draft {
       grade: gradeSelectFromHundredths(period.valueHundredths),
       meeting: gradeSelectFromHundredths(period.meetingValueHundredths),
       judgement: period.conceptualJudgement ?? '',
+      conduct: period.conductValueHundredths == null ? '' : String(period.conductValueHundredths),
     }
   }
   return draft
@@ -182,14 +193,51 @@ function periodBlockGrades(grades: BoardGrade[], assessments: BoardAssessment[],
 /** ¿Qué cambió en el borrador de un período? Sólo eso se manda: el guardado es parcial. */
 function draftPatch(period: ClosurePeriod, d: Draft[string] | undefined) {
   if (!d) return null
-  const patch: { valueHundredths?: number | null; meetingValueHundredths?: number | null; conceptualJudgement?: string | null } = {}
+  const patch: {
+    valueHundredths?: number | null
+    meetingValueHundredths?: number | null
+    conceptualJudgement?: string | null
+    conductValueHundredths?: number | null
+  } = {}
   const grade = gradeSelectToHundredths(d.grade)
   const meeting = gradeSelectToHundredths(d.meeting)
   const judgement = d.judgement.trim() || null
+  const conduct = d.conduct === '' ? null : Number(d.conduct)
   if (grade !== (period.valueHundredths ?? null)) patch.valueHundredths = grade
   if (meeting !== (period.meetingValueHundredths ?? null)) patch.meetingValueHundredths = meeting
   if (judgement !== (period.conceptualJudgement ?? null)) patch.conceptualJudgement = judgement
+  if (conduct !== (period.conductValueHundredths ?? null)) patch.conductValueHundredths = conduct
   return Object.keys(patch).length > 0 ? patch : null
+}
+
+/**
+ * Conducta en la asignatura: sólo en los períodos con reunión, que es donde se lleva al boletín.
+ * Fuera de la reunión no aplica; con el período cerrado se lee.
+ */
+function ConductCell({
+  period,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  period: ClosurePeriod
+  value: string
+  options: readonly ConductOption[]
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  if (!period.isMeeting) return <span className="text-slate-300">—</span>
+  if (!period.canEdit) return <span className="text-sm text-slate-700">{conductText(value === '' ? null : Number(value), options)}</span>
+  return (
+    <ConductSelect
+      value={value}
+      options={options}
+      onChange={onChange}
+      disabled={disabled}
+      aria-label={`Conducta de ${period.name}`}
+    />
+  )
 }
 
 /** Qué le falta al período para cerrar, según su configuración: C, R (si lleva reunión) y el texto. */
@@ -258,7 +306,8 @@ export default function CierreAlumnoBoard({
   const router = useRouter()
   const students = detail.students
   const [focusIndex, setFocusIndex] = useState(0)
-  const [showAll, setShowAll] = useState(false)
+  const [mode, setMode] = useState<Mode>('alumno')
+  const [groupDirty, setGroupDirty] = useState(false)
   const [mine, setMine] = useState<GradeBookHeader[]>([])
   const [sheet, setSheet] = useState<ClosureSheet | null>(null)
   const [board, setBoard] = useState<BoardResponse | null>(null)
@@ -286,6 +335,21 @@ export default function CierreAlumnoBoard({
     }
   }, [])
 
+  // Las notas de toda la libreta se piden una vez, no cada vez que se cambia de alumno.
+  useEffect(() => {
+    let cancelled = false
+    void api<BoardResponse>(`/gradebook/${gradeBookId}/grades-board`)
+      .then((res) => {
+        if (!cancelled) setBoard(res)
+      })
+      .catch(() => {
+        if (!cancelled) setBoard(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [gradeBookId])
+
   const loadStudent = useCallback(async () => {
     if (!selected) {
       setSheet(null)
@@ -295,12 +359,8 @@ export default function CierreAlumnoBoard({
     }
     setLoading(true)
     try {
-      const [closure, gradesBoard] = await Promise.all([
-        api<ClosureSheet>(`/gradebook/${gradeBookId}/students/${selected.studentId}/closure`),
-        api<BoardResponse>(`/gradebook/${gradeBookId}/grades-board`),
-      ])
+      const closure = await api<ClosureSheet>(`/gradebook/${gradeBookId}/students/${selected.studentId}/closure`)
       setSheet(closure)
-      setBoard(gradesBoard)
       setDraft(buildDraft(closure.periods))
       setError(null)
       setOkMsg(null)
@@ -353,7 +413,17 @@ export default function CierreAlumnoBoard({
     return sheet.periods.some((period) => draftPatch(period, draft[period.periodId]) != null)
   }, [sheet, draft])
 
-  const visibleStudents = showAll ? students : selected ? [selected] : []
+  // Antes cambiar de alumno o de libreta tiraba lo cargado sin avisar.
+  useUnsavedChangesWarning(dirty)
+  const unsaved = mode === 'grupo' ? groupDirty : dirty
+
+  function selectStudent(studentId: string) {
+    const idx = students.findIndex((s) => s.studentId === studentId)
+    if (idx < 0 || idx === focusIndex || !confirmDiscard(dirty, DISCARD_MESSAGE)) return
+    setFocusIndex(idx)
+  }
+
+  const visibleStudents = selected ? [selected] : []
 
   const studentGrades = useMemo(() => {
     if (!board || !selected) return []
@@ -459,7 +529,8 @@ export default function CierreAlumnoBoard({
           value={gradeBookId}
           onChange={(e) => {
             const next = e.target.value
-            if (next && next !== gradeBookId) router.push(`/libreta/${next}/cierre`)
+            if (!next || next === gradeBookId || !confirmDiscard(unsaved, DISCARD_MESSAGE)) return
+            router.push(`/libreta/${next}/cierre`)
           }}
           className="min-w-[12rem] rounded border border-slate-300 bg-white px-2 py-1.5"
           aria-label="Seleccionar libreta"
@@ -472,34 +543,36 @@ export default function CierreAlumnoBoard({
         </select>
 
         <select
-          value={showAll ? 'all' : 'one'}
-          onChange={(e) => setShowAll(e.target.value === 'all')}
+          value={mode}
+          onChange={(e) => {
+            if (!confirmDiscard(unsaved, DISCARD_MESSAGE)) return
+            setMode(e.target.value as Mode)
+            setGroupDirty(false)
+          }}
           className="rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Modo de alumnos"
+          aria-label="Forma de cerrar"
         >
-          <option value="all">Todos los alumnos</option>
-          <option value="one">Un alumno</option>
+          <option value="alumno">Por alumno</option>
+          <option value="grupo">Todo el grupo, por período</option>
         </select>
 
-        <select
-          value={selected?.studentId ?? ''}
-          onChange={(e) => {
-            const idx = students.findIndex((s) => s.studentId === e.target.value)
-            if (idx >= 0) {
-              setFocusIndex(idx)
-              setShowAll(false)
-            }
-          }}
-          className="min-w-[14rem] flex-1 rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Seleccionar alumno"
-        >
-          {students.map((s) => (
-            <option key={s.studentId} value={s.studentId}>
-              {s.lastName.toUpperCase()} {s.firstName.toUpperCase()}
-            </option>
-          ))}
-        </select>
+        {mode === 'alumno' && (
+          <select
+            value={selected?.studentId ?? ''}
+            onChange={(e) => selectStudent(e.target.value)}
+            className="min-w-[14rem] flex-1 rounded border border-slate-300 bg-white px-2 py-1.5"
+            aria-label="Seleccionar alumno"
+          >
+            {students.map((s) => (
+              <option key={s.studentId} value={s.studentId}>
+                {s.lastName.toUpperCase()} {s.firstName.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
+
+      {mode === 'grupo' && <CierreGrupoTable gradeBookId={gradeBookId} onDirtyChange={setGroupDirty} />}
 
       {error && (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
@@ -508,12 +581,13 @@ export default function CierreAlumnoBoard({
         <p role="status" className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">{okMsg}</p>
       )}
 
-      {loading && !sheet ? (
+      {mode === 'alumno' && loading && !sheet && (
         <p className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Cargando cierre…
         </p>
-      ) : (
+      )}
+      {mode === 'alumno' && !(loading && !sheet) && (
         <ul className="space-y-4">
           {visibleStudents.map((student, visIdx) => {
             const index = students.findIndex((s) => s.studentId === student.studentId)
@@ -627,6 +701,9 @@ export default function CierreAlumnoBoard({
                               R
                             </th>
                             <th scope="col" className="px-3 py-2 text-left font-medium">Informe / juicio</th>
+                            <th scope="col" className="px-3 py-2 text-left font-medium" title="Conducta en la asignatura, en los períodos con reunión">
+                              Conducta
+                            </th>
                             <th scope="col" className="px-3 py-2 text-center font-medium">Juicio Reu.</th>
                             <th scope="col" className="px-3 py-2 text-center font-medium">Info.</th>
                           </tr>
@@ -703,6 +780,20 @@ export default function CierreAlumnoBoard({
                                     </p>
                                   )}
                                 </td>
+                                <td className="px-3 py-2">
+                                  <ConductCell
+                                    period={period}
+                                    value={d.conduct}
+                                    options={sheet.conduct ?? []}
+                                    disabled={saving}
+                                    onChange={(value) =>
+                                      setDraft((prev) => ({
+                                        ...prev,
+                                        [period.periodId]: { ...d, ...prev[period.periodId], conduct: value },
+                                      }))
+                                    }
+                                  />
+                                </td>
                                 <td className="px-3 py-2 text-center">
                                   {hasMeeting ? (
                                     <button
@@ -778,29 +869,13 @@ export default function CierreAlumnoBoard({
                     </p>
                   </div>
                 )}
-
-                {!isFocus && showAll && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const idx = students.findIndex((s) => s.studentId === student.studentId)
-                      if (idx >= 0) {
-                        setFocusIndex(idx)
-                        setShowAll(false)
-                      }
-                    }}
-                    className="mt-2 text-sm font-medium text-sky-800 hover:underline"
-                  >
-                    Abrir cierre de este alumno
-                  </button>
-                )}
               </li>
             )
           })}
         </ul>
       )}
 
-      {sheet?.canGrade && (
+      {mode === 'alumno' && sheet?.canGrade && (
         <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
           <button
             type="button"
