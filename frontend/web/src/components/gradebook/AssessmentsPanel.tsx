@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ClipboardList, Loader2, Plus } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { gradablePeriods, type LibretaPeriod } from '@/lib/gradebook/period-blocks'
+import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import GradeSheet from './GradeSheet'
 import MoodleImportPanel from './MoodleImportPanel'
 
@@ -22,13 +23,18 @@ type Assessment = {
   gradedCount: number
 }
 
-type Options = { periods: Period[]; scales: Scale[]; activityTypes: ActivityType[] }
+type Options = {
+  periods: Period[]
+  scales: Scale[]
+  activityTypes: ActivityType[]
+  /** Escala del nivel de la libreta (1–10 o 1–12). */
+  periodScale?: Scale | null
+}
 
-function pickNumeric1to10ScaleId(scales: Scale[]): string {
-  const named = scales.find((s) => /1\s*a\s*10/i.test(s.name))
-  if (named) return named.id
-  const numeric = scales.find((s) => s.kind === 'NUMERIC')
-  return numeric?.id ?? scales[0]?.id ?? ''
+/** La escala del nivel; sólo si no está sembrada, la primera numérica activa. */
+function levelScaleId(options: Options): string {
+  const fallback = options.scales.find((s) => s.kind === 'NUMERIC') ?? options.scales[0]
+  return options.periodScale?.id ?? fallback?.id ?? ''
 }
 
 function NewAssessmentForm({
@@ -41,10 +47,11 @@ function NewAssessmentForm({
   busy: boolean
 }) {
   const [title, setTitle] = useState('')
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  // Día civil de Uruguay: `toISOString()` da el día siguiente después de las 21 h.
+  const [date, setDate] = useState(todayYmdUruguay)
   const [periodId, setPeriodId] = useState('')
   const [activityTypeId, setActivityTypeId] = useState('')
-  const gradingScaleId = pickNumeric1to10ScaleId(options.scales)
+  const gradingScaleId = levelScaleId(options)
 
   const canSubmit = title.trim() !== '' && periodId !== '' && gradingScaleId !== '' && !busy
 
@@ -201,6 +208,7 @@ export default function AssessmentsPanel({
           gradeBookId={gradeBookId}
           periods={gradablePeriods(options.periods)}
           scales={options.scales}
+          defaultScaleId={options.periodScale?.id}
           onImported={() => void load()}
         />
       )}

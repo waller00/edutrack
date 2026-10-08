@@ -24,16 +24,18 @@ import {
   type PeriodKind,
 } from '@/lib/gradebook/period-blocks'
 import {
-  GRADE_1_TO_10,
+  formatGrade,
   gradeSelectFromHundredths,
   gradeSelectToHundredths,
-} from '@/lib/gradebook/grade-1-10'
+  type GradeRange,
+} from '@/lib/gradebook/grade-scale'
 import { printStudentClosure } from '@/lib/gradebook/student-closure-export'
 import { formatClosureStamp, periodInfoMessage } from '@/lib/gradebook/period-info'
 import { libretaCode } from '@/components/libreta/MisLibretas'
 import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/gradebook/types'
-import PeriodBlock, { type BlockGrade } from './PeriodBlock'
+import PeriodBlock, { type BlockGrade, type BlockLevel } from './PeriodBlock'
 import MeetingPeriodsBar from './MeetingPeriodsBar'
+import GradeSelect from './GradeSelect'
 
 type ClosurePeriod = {
   periodId: string
@@ -70,6 +72,8 @@ type ClosurePeriod = {
 type ClosureSheet = {
   student: RosterStudent & { hasPhoto?: boolean }
   canGrade: boolean
+  /** Escala del nivel: rango de C y R y tramos para el color. */
+  scale?: (GradeRange & { decimals: number; levels: BlockLevel[] }) | null
   periods: ClosurePeriod[]
 }
 
@@ -105,36 +109,6 @@ function buildDraft(periods: ClosurePeriod[]): Draft {
     }
   }
   return draft
-}
-
-function Grade1to10Select({
-  value,
-  onChange,
-  disabled,
-  'aria-label': ariaLabel,
-}: {
-  value: string
-  onChange: (value: string) => void
-  disabled?: boolean
-  'aria-label'?: string
-}) {
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-      aria-label={ariaLabel}
-      className="w-16 rounded border border-amber-200 bg-amber-50 px-1.5 py-1 text-sm tabular-nums disabled:opacity-50"
-    >
-      <option value="">—</option>
-      {GRADE_1_TO_10.map((n) => (
-        <option key={n} value={String(n)}>
-          {n}
-        </option>
-      ))}
-      <option value="NA">N/A</option>
-    </select>
-  )
 }
 
 function StudentAvatar({
@@ -608,8 +582,8 @@ export default function CierreAlumnoBoard({
                           meetingValueHundredths: period.meetingValueHundredths ?? null,
                           conceptualJudgement: period.conceptualJudgement,
                         }}
-                        levels={[]}
-                        decimals={0}
+                        levels={sheet?.scale?.levels ?? []}
+                        decimals={sheet?.scale?.decimals ?? 0}
                         status={period.status}
                         editable={false}
                       />
@@ -680,8 +654,10 @@ export default function CierreAlumnoBoard({
                                   return (
                                     <td key={field} className="px-3 py-2">
                                       {hasGrades && period.canEdit ? (
-                                        <Grade1to10Select
+                                        <GradeSelect
                                           value={d[field]}
+                                          scale={sheet.scale}
+                                          className="w-16 rounded border border-amber-200 bg-amber-50 px-1.5 py-1 text-sm tabular-nums disabled:opacity-50"
                                           disabled={saving}
                                           onChange={(value) =>
                                             setDraft((prev) => ({
@@ -696,7 +672,7 @@ export default function CierreAlumnoBoard({
                                           className="inline-block min-w-[2.5rem] tabular-nums text-sm text-slate-700"
                                           aria-label={label}
                                         >
-                                          {(hasGrades && d[field]) || '—'}
+                                          {hasGrades ? formatGrade(gradeSelectToHundredths(d[field])) : '—'}
                                         </span>
                                       )}
                                     </td>

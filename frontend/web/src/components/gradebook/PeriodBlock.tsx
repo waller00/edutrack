@@ -9,7 +9,7 @@ import {
   ACTIVITY_CATEGORY_TITLE,
   type ActivityCategory,
 } from '@/lib/gradebook/activity-category'
-import { GRADE_1_TO_10, gradeSelectFromHundredths, gradeSelectToHundredths } from '@/lib/gradebook/grade-1-10'
+import { gradeSelectFromHundredths, gradeSelectToHundredths, type GradeRange } from '@/lib/gradebook/grade-scale'
 import {
   blockCategories,
   gradesByCategory,
@@ -19,6 +19,7 @@ import {
   type PeriodGradeValues,
 } from '@/lib/gradebook/period-blocks'
 import { gradeTooltipLine } from '@/lib/gradebook/student-evaluation-export'
+import GradeSelect from './GradeSelect'
 
 /**
  * Un bloque de la carta del alumno, con la forma de la planilla del liceo:
@@ -57,6 +58,8 @@ type BlockProps = {
   saved: PeriodGradeValues | null
   levels: readonly BlockLevel[]
   decimals: number
+  /** Escala del nivel: el rango que ofrecen C y R (1–12 en bachillerato). */
+  scale?: GradeRange | null
   /** El docente puede escribir: tiene la libreta y el período está abierto y habilitado. */
   editable: boolean
   status?: Status
@@ -129,13 +132,14 @@ function GradeChips({
   )
 }
 
-/** C o R: selector 1–10 editable en la misma carta, o el valor con su tramo si no se puede editar. */
+/** C o R: selector con la escala del nivel en la misma carta, o el valor con su tramo si no se edita. */
 function PeriodGradeCell({
   label,
   title,
   value,
   levels,
   decimals,
+  scale,
   editable,
   onChange,
 }: {
@@ -144,6 +148,7 @@ function PeriodGradeCell({
   value: number | null
   levels: readonly BlockLevel[]
   decimals: number
+  scale: GradeRange | null | undefined
   editable: boolean
   onChange: (value: number | null) => Promise<void>
 }) {
@@ -167,24 +172,17 @@ function PeriodGradeCell({
       </p>
       {editable ? (
         <span className="inline-flex items-center gap-0.5">
-          <select
+          <GradeSelect
             value={gradeSelectFromHundredths(value)}
+            scale={scale}
             disabled={busy}
-            onChange={(e) => void handleChange(e.target.value)}
+            onChange={(next) => void handleChange(next)}
             aria-label={title}
             title={level?.label}
             className={`w-12 rounded border px-0.5 py-0.5 text-center tabular-nums disabled:opacity-50 ${
               style?.badgeClass ?? 'border-amber-200 bg-amber-50'
             }`}
-          >
-            <option value="">—</option>
-            {GRADE_1_TO_10.map((n) => (
-              <option key={n} value={String(n)}>
-                {n}
-              </option>
-            ))}
-            <option value="NA">N/A</option>
-          </select>
+          />
           {busy ? (
             <Loader2 className="h-3 w-3 animate-spin text-slate-400" aria-hidden />
           ) : (
@@ -303,9 +301,10 @@ function CAndR({
   saved,
   levels,
   decimals,
+  scale,
   editable,
   save,
-}: Pick<BlockProps, 'period' | 'saved' | 'levels' | 'decimals' | 'editable'> & {
+}: Pick<BlockProps, 'period' | 'saved' | 'levels' | 'decimals' | 'scale' | 'editable'> & {
   save: (patch: PeriodGradePatch) => Promise<void>
 }) {
   return (
@@ -316,6 +315,7 @@ function CAndR({
         value={saved?.valueHundredths ?? null}
         levels={levels}
         decimals={decimals}
+        scale={scale}
         editable={editable}
         onChange={(value) => save({ valueHundredths: value })}
       />
@@ -325,6 +325,7 @@ function CAndR({
         value={saved?.meetingValueHundredths ?? null}
         levels={levels}
         decimals={decimals}
+        scale={scale}
         editable={editable}
         onChange={(value) => save({ meetingValueHundredths: value })}
       />
