@@ -384,11 +384,19 @@ const meetingSchema = z.object({
   decision: z.string().trim().min(3).max(2000),
 })
 
-/** Decisiones de la reunión de profesores (RF-070). */
+/**
+ * Decisiones de la reunión de profesores (RF-070).
+ *
+ * El grupo es oferta **más orientación**: sin filtrar la orientación, las decisiones de
+ * "5.º Científico" aparecían en la reunión de "5.º Humanístico" del mismo curso.
+ */
 r.get('/meeting-records', async (req: any, res) => {
   try {
     const where: Record<string, unknown> = {}
-    if (typeof req.query.courseOfferingId === 'string') where.courseOfferingId = req.query.courseOfferingId
+    if (typeof req.query.courseOfferingId === 'string') {
+      where.courseOfferingId = req.query.courseOfferingId
+      where.courseOrientationId = typeof req.query.courseOrientationId === 'string' ? req.query.courseOrientationId : null
+    }
     if (typeof req.query.periodId === 'string') where.periodId = req.query.periodId
 
     const records = await prisma.teacherMeetingRecord.findMany({
@@ -407,7 +415,8 @@ r.get('/meeting-records', async (req: any, res) => {
   }
 })
 
-r.post('/meeting-records', async (req: any, res) => {
+// Registrar decisiones es de quien conduce la reunión (adscripción, dirección); leerlas, de todos.
+r.post('/meeting-records', requirePermission('gradebook.review', 'all'), async (req: any, res) => {
   const parsed = meetingSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors })
 

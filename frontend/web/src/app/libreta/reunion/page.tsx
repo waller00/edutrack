@@ -1,4 +1,5 @@
 'use client'
+import { Suspense } from 'react'
 import RoleGuard from '@/components/auth/RoleGuard'
 import GroupMatrix from '@/components/admin/gradebook/GroupMatrix'
 
@@ -14,7 +15,10 @@ export default function Page() {
             abajo, en el panel «Juicio / decisiones de la reunión» — no hace falta abrir la ficha del alumno.
           </p>
         </header>
-        <GroupMatrix projection />
+        {/* GroupMatrix guarda grupo y período en la URL: useSearchParams necesita un Suspense para prerenderizar. */}
+        <Suspense fallback={null}>
+          <GroupMatrix projection />
+        </Suspense>
       </main>
     </RoleGuard>
   )

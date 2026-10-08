@@ -27,6 +27,7 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     activityType: { findMany: vi.fn() },
     auditLog: { create: vi.fn() },
     teacherMeetingRecord: { findMany: vi.fn() },
+    studentEnrollment: { findFirst: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
   },
   saveGradesMock: vi.fn(),
@@ -132,6 +133,7 @@ beforeEach(() => {
   prismaMock.student.findMany.mockResolvedValue([])
   prismaMock.studentAccommodation.updateMany.mockResolvedValue({ count: 0 })
   prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
+  prismaMock.studentEnrollment.findFirst.mockResolvedValue(null)
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
   dayOccurrenceMock.mockResolvedValue({ kind: 'no_class' })
   findSessionMock.mockResolvedValue(null)
@@ -1777,6 +1779,27 @@ describe('cierre por alumno', () => {
       meetingJudgement: null,
     })
     expect(res.body.periods[0]).toHaveProperty('closedAt')
+  })
+
+  it('GET /students/:id/closure: el juicio de grupo es el de la orientación del alumno', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+    prismaMock.gradeBookPeriod.findMany.mockResolvedValue([])
+    prismaMock.assessment.findMany.mockResolvedValue([])
+    prismaMock.studentEnrollment.findFirst.mockResolvedValue({ courseOrientationId: 'co-cientifico' })
+
+    await request(app())
+      .get(`/gradebook/${GB_ID}/students/${SID}/closure`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    // Una libreta de tronco común la cursan varias orientaciones: "todo el grupo" es el del alumno.
+    expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[0][0].where).toEqual({
+      courseOfferingId: 'off-1',
+      OR: [{ studentId: SID }, { studentId: null, courseOrientationId: 'co-cientifico' }],
+    })
   })
 
   it('GET /students/:id/closure marca canEdit=false si el período no empezó', async () => {

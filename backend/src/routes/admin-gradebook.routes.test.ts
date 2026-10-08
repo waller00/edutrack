@@ -323,6 +323,28 @@ describe('reunión de profesores', () => {
       .send({ courseOfferingId: OFFERING_ID, periodId: PERIOD_ID, decision: '' })
     expect(res.status).toBe(400)
   })
+
+  it('las decisiones son del grupo con su orientación: no se mezclan entre orientaciones', async () => {
+    prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
+    await request(app())
+      .get(`/admin/gradebook/meeting-records?courseOfferingId=${OFFERING_ID}&courseOrientationId=${CO_ID}&periodId=${PERIOD_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[0][0].where).toEqual({
+      courseOfferingId: OFFERING_ID,
+      courseOrientationId: CO_ID,
+      periodId: PERIOD_ID,
+    })
+  })
+
+  it('un curso sin orientaciones sólo trae las decisiones sin orientación', async () => {
+    prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
+    await request(app())
+      .get(`/admin/gradebook/meeting-records?courseOfferingId=${OFFERING_ID}&periodId=${PERIOD_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(prismaMock.teacherMeetingRecord.findMany.mock.calls[0][0].where.courseOrientationId).toBeNull()
+  })
 })
 
 describe('GET /periods', () => {
