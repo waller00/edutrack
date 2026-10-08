@@ -31,6 +31,7 @@ import {
   type StoredPeriodGrade,
 } from '@/lib/gradebook/period-blocks'
 import { gradeBookTitle, studentFullName } from '@/lib/gradebook/labels'
+import { gradeSelectFromHundredths, gradeSelectToHundredths, type GradeRange } from '@/lib/gradebook/grade-scale'
 import { todayYmdUruguay as todayYmd } from '@/lib/libreta/absence-day'
 import {
   downloadStudentEvaluationsXlsx,
@@ -43,11 +44,18 @@ import StudentSheet from '@/components/libreta/StudentSheet'
 import MoodleImportPanel from './MoodleImportPanel'
 import AssessmentsPanel from './AssessmentsPanel'
 import PeriodBlock, { type BlockLevel, type PeriodGradePatch } from './PeriodBlock'
+import GradeSelect from './GradeSelect'
 
 type Period = LibretaPeriod
-type Scale = { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number; levels?: BlockLevel[] }
+type Scale = GradeRange & { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number; levels?: BlockLevel[] }
 type ActivityType = { id: string; code: string; name: string; scope: 'GLOBAL' | 'TEACHER'; category?: string | null }
-type Options = { periods: Period[]; scales: Scale[]; activityTypes: ActivityType[] }
+type Options = {
+  periods: Period[]
+  scales: Scale[]
+  activityTypes: ActivityType[]
+  /** Escala del nivel (1–10 o 1–12): con ella se ponen las notas nuevas, C y R. */
+  periodScale?: Scale | null
+}
 
 /** Desde qué celda se abrió la carga: la planilla se llena clickeando en la columna. */
 type AddPreset = { periodId?: string; category?: ActivityCategory }
@@ -78,58 +86,12 @@ function ActivityTypeOptions({ activityTypes }: { activityTypes: ActivityType[] 
   )
 }
 
-/** Escala fija de la libreta docente: siempre 1–10 (más N/A). */
-const GRADE_1_TO_10 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const
-
-function pickNumeric1to10ScaleId(scales: Scale[]): string {
-  const named = scales.find((s) => /1\s*a\s*10/i.test(s.name))
-  if (named) return named.id
-  const numeric = scales.find((s) => s.kind === 'NUMERIC')
-  return numeric?.id ?? scales[0]?.id ?? ''
-}
-
-function gradeSelectFromHundredths(hundredths: number | null | undefined): string {
-  if (hundredths == null) return 'NA'
-  const n = Math.round(hundredths / 100)
-  if (n >= 1 && n <= 10) return String(n)
-  return 'NA'
-}
-
-function gradeSelectToHundredths(value: string): number | null {
-  if (!value || value === 'NA') return null
-  const n = Number(value)
-  if (!Number.isInteger(n) || n < 1 || n > 10) return null
-  return n * 100
-}
-
-function Grade1to10Select({
-  value,
-  onChange,
-  disabled,
-  className = 'max-w-[8rem] rounded border border-gray-300 bg-amber-50 px-2 py-1.5',
-}: {
-  value: string
-  onChange: (value: string) => void
-  disabled?: boolean
-  className?: string
-}) {
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-      className={className}
-      aria-label="Calificación"
-    >
-      <option value="">—</option>
-      {GRADE_1_TO_10.map((n) => (
-        <option key={n} value={String(n)}>
-          {n}
-        </option>
-      ))}
-      <option value="NA">N/A</option>
-    </select>
-  )
+/**
+ * Escala con la que se ponen las notas nuevas: la del nivel de la libreta. Sólo si el backend no
+ * la tiene sembrada cae en la primera numérica activa.
+ */
+function levelScaleOf(options: Options): Scale | null {
+  return options.periodScale ?? options.scales.find((s) => s.kind === 'NUMERIC') ?? options.scales[0] ?? null
 }
 
 type BoardAssessment = {
@@ -139,7 +101,7 @@ type BoardAssessment = {
   date: string
   title: string
   activityType: { id: string; code: string; name: string; category?: string | null } | null
-  gradingScale: { id: string; name: string; kind: string; decimals: number } | null
+  gradingScale: (Partial<GradeRange> & { id: string; name: string; kind: string; decimals: number }) | null
 }
 
 type BoardGrade = {
@@ -184,7 +146,8 @@ function AddGradeForm({
   onCancel: () => void
   onSaved: () => Promise<void>
 }) {
-  const gradingScaleId = pickNumeric1to10ScaleId(options.scales)
+  const scale = levelScaleOf(options)
+  const gradingScaleId = scale?.id ?? ''
   // Las notas sueltas sólo van en los tramos; las entregas llevan C, R e informe.
   const tramos = gradablePeriods(options.periods)
   const [activityTypeId, setActivityTypeId] = useState(() => firstTypeOf(options.activityTypes, preset.category))
@@ -300,7 +263,13 @@ function AddGradeForm({
 
       <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
         <span className="text-gray-600">Calificación</span>
-        <Grade1to10Select value={gradeSelect} onChange={setGradeSelect} disabled={saving} />
+        <GradeSelect
+          value={gradeSelect}
+          scale={scale}
+          onChange={setGradeSelect}
+          disabled={saving}
+          className="max-w-[8rem] rounded border border-gray-300 bg-amber-50 px-2 py-1.5"
+        />
       </label>
 
       <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr]">
@@ -347,8 +316,14 @@ function EditGradeForm({
   onCancel: () => void
   onSaved: () => Promise<void>
 }) {
-  const gradingScaleId =
-    row.assessment.gradingScale?.id ?? pickNumeric1to10ScaleId(options.scales)
+  // La nota se edita con la escala de SU evaluación: es contra la que valida el backend.
+  const scale: GradeRange | null = row.assessment.gradingScale
+    ? {
+        minValueHundredths: row.assessment.gradingScale.minValueHundredths ?? null,
+        maxValueHundredths: row.assessment.gradingScale.maxValueHundredths ?? null,
+      }
+    : levelScaleOf(options)
+  const gradingScaleId = row.assessment.gradingScale?.id ?? levelScaleOf(options)?.id ?? ''
   const [activityTypeId, setActivityTypeId] = useState(row.assessment.activityType?.id ?? options.activityTypes[0]?.id ?? '')
   const [periodId, setPeriodId] = useState(row.assessment.periodId)
   const [date, setDate] = useState(row.assessment.date)
@@ -421,8 +396,9 @@ function EditGradeForm({
         </label>
         <label className="text-sm">
           <span className="mb-1 block text-xs text-gray-600">Calificación</span>
-          <Grade1to10Select
+          <GradeSelect
             value={gradeSelect}
+            scale={scale}
             onChange={setGradeSelect}
             disabled={saving}
             className="w-full rounded border border-gray-300 bg-amber-50 px-2 py-1.5"
@@ -706,6 +682,7 @@ function StudentCard({
   periodStates,
   levels,
   decimals,
+  scale,
   canGrade,
   options,
   gradeBookId,
@@ -728,6 +705,7 @@ function StudentCard({
   periodStates: Map<string, PeriodState>
   levels: BlockLevel[]
   decimals: number
+  scale: GradeRange | null
   canGrade: boolean
   options: Options | null
   gradeBookId: string
@@ -913,6 +891,7 @@ function StudentCard({
                 saved={periodGrades.find((g) => g.periodId === period.id) ?? null}
                 levels={levels}
                 decimals={decimals}
+                scale={scale}
                 status={state?.status}
                 editable={canGrade && (state?.canEdit ?? false)}
                 onSave={(patch) => onSavePeriodGrade(period.id, patch)}
@@ -1044,13 +1023,11 @@ export default function EvaluationsBoard({
   }, [board, assessmentById])
 
   const periods = options?.periods ?? []
-  const decimals = options?.scales[0]?.decimals ?? 0
+  const levelScale = options ? levelScaleOf(options) : null
+  const decimals = levelScale?.decimals ?? 0
   const students = detail.students
-  // Colores y símbolos por tramo: los de la escala con la que se califica, nunca un umbral fijo.
-  const levels = useMemo(() => {
-    const scales = options?.scales ?? []
-    return scales.find((s) => s.id === pickNumeric1to10ScaleId(scales))?.levels ?? []
-  }, [options])
+  // Colores y símbolos por tramo: los de la escala del nivel, nunca un umbral fijo.
+  const levels = levelScale?.levels ?? []
   const periodStates = useMemo(
     () => new Map((board?.periodStates ?? []).map((state) => [state.periodId, state])),
     [board],
@@ -1243,6 +1220,7 @@ export default function EvaluationsBoard({
                 periodStates={periodStates}
                 levels={levels}
                 decimals={decimals}
+                scale={levelScale}
                 canGrade={detail.access.canGrade}
                 options={options}
                 gradeBookId={gradeBookId}
@@ -1281,6 +1259,7 @@ export default function EvaluationsBoard({
               gradeBookId={gradeBookId}
               periods={gradablePeriods(options.periods)}
               scales={options.scales}
+              defaultScaleId={options.periodScale?.id}
               onImported={() => void load()}
             />
           </div>

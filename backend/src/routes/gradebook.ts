@@ -54,6 +54,7 @@ import {
   resolveGradeBookRecipients,
 } from '../services/gradebook/notifications.js'
 import { ENDORSEMENT_ROW_INCLUDE, serializeEndorsementRow } from '../services/gradebook/endorsement-view.js'
+import { conductOptions, conductScale } from '../services/gradebook/period-scale.js'
 import {
   buildImportPlan,
   buildImportPreview,
@@ -1075,7 +1076,9 @@ r.get('/:id/grades-board', requirePermission('gradebook.read'), async (req: any,
           date: true,
           title: true,
           activityType: { select: { id: true, code: true, name: true, category: true } },
-          gradingScale: { select: { id: true, name: true, kind: true, decimals: true } },
+          gradingScale: {
+            select: { id: true, name: true, kind: true, decimals: true, minValueHundredths: true, maxValueHundredths: true },
+          },
           period: { select: { id: true, name: true, code: true, sortOrder: true } },
         },
         orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
@@ -1540,6 +1543,10 @@ r.put('/:id/assessments/:assessmentId/grades', requirePermission('gradebook.grad
  * Opciones para armar una evaluación: períodos del ciclo y nivel de la libreta, escalas activas y
  * tipos de actividad disponibles.
  *
+ * `periodScale` es la escala del nivel (1–10 en ciclo básico, 1–12 en bachillerato): con ella se
+ * ponen C, R y las notas nuevas. Antes el cliente buscaba una escala llamada "1 a 10" y en
+ * bachillerato no se podía poner 11 ni 12. `conduct` trae las opciones de la escala de conducta.
+ *
  * Existe porque el docente **no** puede pegarle a `/admin/academic-config` (eso exige
  * `academic-config.manage`). Acá todo viene ya acotado a la libreta, así que no hace falta que el
  * cliente filtre ni que se le abra la parametrización entera.
@@ -1552,7 +1559,7 @@ r.get('/:id/options', requirePermission('gradebook.read'), async (req: any, res)
     const level = (ctx.row as any).courseOffering?.course?.level ?? null
     const userId = req.user?.id ?? req.user?.sub
 
-    const [periods, scales, activityTypes] = await Promise.all([
+    const [periods, scales, activityTypes, periodScale, conduct] = await Promise.all([
       prisma.academicPeriod.findMany({
         where: { schoolYearId: ctx.row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
         orderBy: { sortOrder: 'asc' },
@@ -1583,6 +1590,8 @@ r.get('/:id/options', requirePermission('gradebook.read'), async (req: any, res)
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         select: { id: true, code: true, name: true, scope: true, category: true },
       }),
+      loadPeriodScale(ctx.row),
+      conductScale(),
     ])
 
     return res.json({
@@ -1593,6 +1602,8 @@ r.get('/:id/options', requirePermission('gradebook.read'), async (req: any, res)
       })),
       scales,
       activityTypes,
+      periodScale,
+      conduct: conduct ? conductOptions(conduct.levels) : [],
     })
   } catch (error) {
     console.error('[gradebook] options:', error)
@@ -2015,6 +2026,8 @@ r.get('/:id/students/:studentId/closure', requirePermission('gradebook.read'), a
         hasPhoto: Boolean(photo),
       },
       canGrade: ctx.access.canGrade,
+      // La escala del nivel: el selector de C y R ofrece su rango (1–12 en bachillerato).
+      scale,
       periods: periods.map((period) => {
         const state = stateByPeriod.get(period.id)
         const saved = state?.grades[0] ?? null

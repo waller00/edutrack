@@ -647,6 +647,31 @@ describe('GET /:id/options', () => {
       { scope: 'TEACHER', ownerUserId: 'teacher-1' },
     ])
   })
+
+  it('manda la escala del nivel y las opciones de conducta', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    prismaMock.academicPeriod.findMany.mockResolvedValue([])
+    prismaMock.gradingScale.findMany.mockResolvedValue([])
+    prismaMock.activityType.findMany.mockResolvedValue([])
+    prismaMock.gradingScale.findUnique.mockResolvedValue({ id: 'sc-12', code: 'NUMERICA_1_12', maxValueHundredths: 1200, levels: [] })
+    prismaMock.gradingScale.findFirst.mockResolvedValue({
+      code: 'CONDUCTA',
+      levels: [
+        { minValueHundredths: 100, maxValueHundredths: 100, label: 'Mala' },
+        { minValueHundredths: 400, maxValueHundredths: 400, label: 'Muy buena' },
+      ],
+    })
+
+    const res = await request(app()).get(`/gradebook/${GB_ID}/options`).set('Authorization', `Bearer ${tok()}`)
+
+    // ROW es de bachillerato: con esta escala el docente puede poner 11 y 12.
+    expect(prismaMock.gradingScale.findUnique.mock.calls[0][0].where).toEqual({ code: 'NUMERICA_1_12' })
+    expect(res.body.periodScale).toMatchObject({ id: 'sc-12', maxValueHundredths: 1200 })
+    expect(res.body.conduct).toEqual([
+      { valueHundredths: 100, label: 'Mala' },
+      { valueHundredths: 400, label: 'Muy buena' },
+    ])
+  })
 })
 
 // ─── Cierre de período ──────────────────────────────────────────────────────

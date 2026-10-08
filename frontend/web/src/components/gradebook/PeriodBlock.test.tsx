@@ -131,6 +131,26 @@ describe('<PeriodBlock /> entrega', () => {
     expect(onSave).toHaveBeenCalledWith({ conceptualJudgement: 'Avanza con autonomía.' })
   })
 
+  it('en bachillerato C y R ofrecen 11 y 12', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    render(
+      <PeriodBlock
+        period={ENTREGA}
+        grades={[]}
+        saved={{ valueHundredths: 1100, meetingValueHundredths: null, conceptualJudgement: null }}
+        levels={LEVELS}
+        decimals={0}
+        scale={{ minValueHundredths: 100, maxValueHundredths: 1200 }}
+        editable
+        onSave={onSave}
+      />,
+    )
+    // Antes una C de 11 se leía vacía: tocar el selector la borraba.
+    expect(screen.getByLabelText('C: calificación de 1.ª Entrega')).toHaveValue('11')
+    await userEvent.selectOptions(screen.getByLabelText('R: nota de reunión de 1.ª Entrega'), '12')
+    expect(onSave).toHaveBeenCalledWith({ meetingValueHundredths: 1200 })
+  })
+
   it('si guardar falla, lo dice en el bloque', async () => {
     const onSave = vi.fn().mockRejectedValue(new Error('El período está cerrado.'))
     render(

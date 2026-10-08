@@ -123,6 +123,53 @@ describe('<CierreAlumnoBoard />', () => {
     })
   })
 
+  it('en bachillerato ofrece 11 y 12, y una R de 11 no se borra al guardar otra cosa', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (String(path).includes('/mine')) return { data: [] }
+      if (String(path).includes('/grades-board')) return { assessments: [], grades: [] }
+      if (String(path).includes('/closure')) {
+        return {
+          student: detail().students[0],
+          canGrade: true,
+          scale: { minValueHundredths: 100, maxValueHundredths: 1200, decimals: 0, levels: [] },
+          periods: [
+            {
+              periodId: 'p-1',
+              code: 'ENTREGA_1',
+              name: '1.ª Entrega',
+              status: 'OPEN',
+              canEdit: true,
+              requiresGeneralGrade: true,
+              requiresConceptualJudgement: false,
+              assessmentCount: 0,
+              valueHundredths: 1000,
+              meetingValueHundredths: 1100,
+              conceptualJudgement: null,
+              descriptor: null,
+            },
+          ],
+        }
+      }
+      return {}
+    })
+    const user = userEvent.setup()
+    render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    await waitFor(() => expect(screen.getByLabelText('R de 1.ª Entrega')).toHaveValue('11'))
+
+    await user.selectOptions(screen.getByLabelText('C de 1.ª Entrega'), '12')
+    await user.click(screen.getByRole('button', { name: /Guardar/i }))
+
+    await waitFor(() => {
+      const call = apiMock.mock.calls.find(([path, init]) =>
+        String(path).endsWith('/closure') && (init as RequestInit | undefined)?.method === 'PUT',
+      )
+      // Sólo la C: antes la R de 11 se leía vacía y viajaba como null.
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
+        entries: [{ periodId: 'p-1', valueHundredths: 1200 }],
+      })
+    })
+  })
+
   it('no muestra combo ni textarea en períodos no habilitados', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (String(path).includes('/mine')) return { data: [] }

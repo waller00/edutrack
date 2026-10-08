@@ -33,18 +33,21 @@ export default function MoodleImportPanel({
   gradeBookId,
   periods,
   scales,
+  defaultScaleId = '',
   onImported,
 }: {
   gradeBookId: string
   periods: Option[]
   scales: Option[]
+  /** La escala del nivel de la libreta, preelegida: importar en 1–10 a bachillerato es un error. */
+  defaultScaleId?: string
   onImported: () => void
 }) {
   const [preview, setPreview] = useState<Preview | null>(null)
   const [unavailable, setUnavailable] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [periodId, setPeriodId] = useState('')
-  const [scaleId, setScaleId] = useState('')
+  const [scaleId, setScaleId] = useState(defaultScaleId)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
