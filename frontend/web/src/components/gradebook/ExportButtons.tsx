@@ -3,14 +3,20 @@
 import { useState } from 'react'
 import { Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
 import { apiBaseUrl } from '@/lib/api/client'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 
 /**
  * Descargas de la libreta (RF-120).
  *
  * Va por `fetch` + blob y no por un `<a href>` directo porque la API vive en otro origen y la
  * sesión viaja en una cookie: un enlace plano no la mandaría y la descarga daría 401.
+ *
+ * Sólo se ofrece con `gradebook.export`: sin él (inspección, por ejemplo) el servidor responde
+ * 403 y el botón no hacía más que dar error.
  */
 export default function ExportButtons({ gradeBookId }: { gradeBookId: string }) {
+  const auth = useOptionalAuth()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,6 +45,8 @@ export default function ExportButtons({ gradeBookId }: { gradeBookId: string }) 
       setBusy(null)
     }
   }
+
+  if (!hasPermission(auth?.me, 'gradebook.export')) return null
 
   return (
     <div className="space-y-2">

@@ -2738,7 +2738,7 @@ function sendBuffer(res: any, buffer: Buffer, filename: string, contentType: str
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 /** Excel de calificaciones y de cierre de la libreta (RF-120). */
-r.get('/:id/exports/xlsx', requirePermission('exports.create'), async (req: any, res) => {
+r.get('/:id/exports/xlsx', requirePermission('gradebook.export'), async (req: any, res) => {
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
@@ -2890,7 +2890,7 @@ async function buildPdfStudents(row: any, levels: readonly any[], studentId?: st
 }
 
 /** PDF de la libreta completa (RF-120). */
-r.get('/:id/exports/pdf', requirePermission('exports.create'), async (req: any, res) => {
+r.get('/:id/exports/pdf', requirePermission('gradebook.export'), async (req: any, res) => {
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return
@@ -2913,7 +2913,7 @@ r.get('/:id/exports/pdf', requirePermission('exports.create'), async (req: any, 
 })
 
 /** Informe individual de un estudiante (RF-120). */
-r.get('/:id/exports/students/:studentId/pdf', requirePermission('exports.create'), async (req: any, res) => {
+r.get('/:id/exports/students/:studentId/pdf', requirePermission('gradebook.export'), async (req: any, res) => {
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return

@@ -4,10 +4,14 @@ import ExportButtons from './ExportButtons'
 
 vi.mock('@/lib/api/client', () => ({ apiBaseUrl: () => 'http://api.test' }))
 
+const { authState } = vi.hoisted(() => ({ authState: { me: null as unknown } }))
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => authState }))
+
 const clickSpy = vi.fn()
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  authState.me = { permissions: [{ id: 'gradebook.export', scope: 'own' }] }
   clickSpy.mockReset()
   globalThis.URL.createObjectURL = vi.fn(() => 'blob:x')
   globalThis.URL.revokeObjectURL = vi.fn()
@@ -29,6 +33,12 @@ function mockFetch(ok = true, filename = 'matematica-3-ems.xlsx') {
 }
 
 describe('ExportButtons', () => {
+  it('sin gradebook.export no se ofrece: el servidor respondería 403', () => {
+    authState.me = { permissions: [{ id: 'gradebook.read', scope: 'all' }] }
+    const { container } = render(<ExportButtons gradeBookId="gb-1" />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('manda la cookie de sesión: la API vive en otro origen', async () => {
     const fetchMock = mockFetch()
     render(<ExportButtons gradeBookId="gb-1" />)
