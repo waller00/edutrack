@@ -1786,6 +1786,14 @@ enum AssessmentSource {
   MOODLE_IMPORT
 }
 
+/// De quién es la evaluación. El control de libretas sólo exige nota de todo el grupo en las GROUP.
+enum AssessmentScope {
+  /// Escrito, prueba o trabajo de todo el grupo: cada alumno tiene que tener nota o "no rindió".
+  GROUP
+  /// Nota suelta de un alumno (un oral, una participación), cargada desde su carta.
+  INDIVIDUAL
+}
+
 /// Evaluación de una libreta dentro de un período (RF-040).
 model Assessment {
   id                String            @id @default(uuid())
@@ -1805,6 +1813,7 @@ model Assessment {
   gradingScale      GradingScale      @relation(fields: [gradingScaleId], references: [id], onDelete: Restrict)
   notes             String?           @db.Text
   source            AssessmentSource  @default(MANUAL)
+  scope             AssessmentScope   @default(GROUP)
   /// Ítem de calificación de Moodle del que salió, cuando `source = MOODLE_IMPORT`.
   moodleGradeItemId Int?
   createdByUserId   String?

@@ -28,8 +28,10 @@ type Row = {
   expectsAssessments: boolean
   assessmentCount: number
   hasNoAssessments: boolean
-  /** Notas de evaluación sin cargar (alumno × evaluación). */
+  /** Notas sin cargar en las evaluaciones del grupo (alumno × evaluación). */
   missingAssessmentGrades: number
+  /** Con sólo notas sueltas: alumnos que no tienen ninguna en el tramo. */
+  studentsWithoutGrades?: number
   requiresGrade: boolean
   missingGrades: number
   requiresJudgement: boolean
@@ -81,6 +83,14 @@ function AssessmentsCell({ row }: { row: Row }) {
     return (
       <span className="text-amber-800">
         {row.assessmentCount} cargadas · faltan {row.missingAssessmentGrades} notas
+      </span>
+    )
+  }
+  const withoutGrades = row.studentsWithoutGrades ?? 0
+  if (withoutGrades > 0) {
+    return (
+      <span className="text-amber-800">
+        {row.assessmentCount} cargadas · {withoutGrades} {withoutGrades === 1 ? 'alumno sin notas' : 'alumnos sin notas'}
       </span>
     )
   }

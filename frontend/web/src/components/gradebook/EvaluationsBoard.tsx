@@ -94,12 +94,38 @@ function levelScaleOf(options: Options): Scale | null {
   return options.periodScale ?? options.scales.find((s) => s.kind === 'NUMERIC') ?? options.scales[0] ?? null
 }
 
+/** "No rindió": se distingue de "sin nota" y el control lo cuenta como cargado. */
+function AbsentCheck({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean
+  onChange: (value: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <label className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 rounded border-gray-300"
+      />
+      No rindió
+    </label>
+  )
+}
+
 type BoardAssessment = {
   id: string
   periodId: string
   period: Period | null
   date: string
   title: string
+  /** `INDIVIDUAL`: nota suelta de un alumno, creada desde su carta. */
+  scope?: 'GROUP' | 'INDIVIDUAL'
   activityType: { id: string; code: string; name: string; category?: string | null } | null
   gradingScale: (Partial<GradeRange> & { id: string; name: string; kind: string; decimals: number }) | null
 }
@@ -156,6 +182,7 @@ function AddGradeForm({
   )
   const [date, setDate] = useState(todayYmd)
   const [gradeSelect, setGradeSelect] = useState('')
+  const [absent, setAbsent] = useState(false)
   const [comment, setComment] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -166,11 +193,11 @@ function AddGradeForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!canSubmit) return
-    const valueHundredths = gradeSelectToHundredths(gradeSelect)
     setSaving(true)
     setError(null)
     try {
       const title = comment.trim() || `${activity?.name ?? 'Evaluación'} — ${date}`
+      // Nota suelta de este alumno: el control no la cruza contra el grupo entero.
       const created = await api<{ data: { id: string } }>(`/gradebook/${gradeBookId}/assessments`, {
         method: 'POST',
         body: JSON.stringify({
@@ -178,6 +205,7 @@ function AddGradeForm({
           date,
           periodId,
           gradingScaleId,
+          scope: 'INDIVIDUAL',
           ...(activityTypeId ? { activityTypeId } : {}),
         }),
       })
@@ -187,8 +215,8 @@ function AddGradeForm({
           entries: [
             {
               studentId: student.studentId,
-              valueHundredths,
-              isAbsent: false,
+              valueHundredths: absent ? null : gradeSelectToHundredths(gradeSelect),
+              isAbsent: absent,
               comment: comment.trim() || null,
             },
           ],
@@ -261,16 +289,19 @@ function AddGradeForm({
         />
       </label>
 
-      <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
-        <span className="text-gray-600">Calificación</span>
-        <GradeSelect
-          value={gradeSelect}
-          scale={scale}
-          onChange={setGradeSelect}
-          disabled={saving}
-          className="max-w-[8rem] rounded border border-gray-300 bg-amber-50 px-2 py-1.5"
-        />
-      </label>
+      <div className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr] sm:items-center">
+        <span className="text-gray-600" aria-hidden>Calificación</span>
+        <span className="flex flex-wrap items-center gap-3">
+          <GradeSelect
+            value={gradeSelect}
+            scale={scale}
+            onChange={setGradeSelect}
+            disabled={saving || absent}
+            className="max-w-[8rem] rounded border border-gray-300 bg-amber-50 px-2 py-1.5 disabled:opacity-50"
+          />
+          <AbsentCheck checked={absent} onChange={setAbsent} disabled={saving} />
+        </span>
+      </div>
 
       <label className="grid gap-1 text-sm sm:grid-cols-[8rem_1fr]">
         <span className="text-gray-600">Comentario</span>
@@ -324,11 +355,15 @@ function EditGradeForm({
       }
     : levelScaleOf(options)
   const gradingScaleId = row.assessment.gradingScale?.id ?? levelScaleOf(options)?.id ?? ''
+  // Una nota suelta es del alumno: se edita entera. De una evaluación del grupo sólo se toca la
+  // nota de este alumno; cambiarle título, fecha o período desde acá lo cambiaba para todos.
+  const individual = row.assessment.scope === 'INDIVIDUAL'
   const [activityTypeId, setActivityTypeId] = useState(row.assessment.activityType?.id ?? options.activityTypes[0]?.id ?? '')
   const [periodId, setPeriodId] = useState(row.assessment.periodId)
   const [date, setDate] = useState(row.assessment.date)
   const [gradeSelect, setGradeSelect] = useState(gradeSelectFromHundredths(row.valueHundredths))
-  const [comment, setComment] = useState(row.comment || row.assessment.title)
+  const [absent, setAbsent] = useState(row.isAbsent)
+  const [comment, setComment] = useState(row.comment || (individual ? row.assessment.title : ''))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -337,28 +372,29 @@ function EditGradeForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!canSubmit) return
-    const valueHundredths = gradeSelectToHundredths(gradeSelect)
     setSaving(true)
     setError(null)
     try {
-      await api(`/gradebook/${gradeBookId}/assessments/${row.assessmentId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          title: comment.trim() || row.assessment.title,
-          date,
-          periodId,
-          gradingScaleId,
-          activityTypeId: activityTypeId || null,
-        }),
-      })
+      if (individual) {
+        await api(`/gradebook/${gradeBookId}/assessments/${row.assessmentId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            title: comment.trim() || row.assessment.title,
+            date,
+            periodId,
+            gradingScaleId,
+            activityTypeId: activityTypeId || null,
+          }),
+        })
+      }
       await api(`/gradebook/${gradeBookId}/assessments/${row.assessmentId}/grades`, {
         method: 'PUT',
         body: JSON.stringify({
           entries: [
             {
               studentId: student.studentId,
-              valueHundredths,
-              isAbsent: false,
+              valueHundredths: absent ? null : gradeSelectToHundredths(gradeSelect),
+              isAbsent: absent,
               comment: comment.trim() || null,
             },
           ],
@@ -375,35 +411,48 @@ function EditGradeForm({
   return (
     <form className="space-y-3 rounded-lg border border-sky-200 bg-sky-50/50 p-3" onSubmit={(e) => void handleSubmit(e)}>
       <h4 className="text-sm font-semibold text-sky-900">Editar calificación — {studentFullName(student)}</h4>
+      {!individual && (
+        <p className="text-xs text-slate-600">
+          {row.assessment.title} · {row.assessment.date}: es una evaluación del grupo, así que acá se cambia sólo
+          la nota de este alumno.
+        </p>
+      )}
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="text-sm">
-          <span className="mb-1 block text-xs text-gray-600">Tipo</span>
-          <select value={activityTypeId} onChange={(e) => setActivityTypeId(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5">
-            <ActivityTypeOptions activityTypes={options.activityTypes} />
-          </select>
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs text-gray-600">Período</span>
-          <select value={periodId} onChange={(e) => setPeriodId(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5">
-            {gradablePeriods(options.periods).map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs text-gray-600">Fecha</span>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5" />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs text-gray-600">Calificación</span>
-          <GradeSelect
-            value={gradeSelect}
-            scale={scale}
-            onChange={setGradeSelect}
-            disabled={saving}
-            className="w-full rounded border border-gray-300 bg-amber-50 px-2 py-1.5"
-          />
-        </label>
+        {individual && (
+          <>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-gray-600">Tipo</span>
+              <select value={activityTypeId} onChange={(e) => setActivityTypeId(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5">
+                <ActivityTypeOptions activityTypes={options.activityTypes} />
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-gray-600">Período</span>
+              <select value={periodId} onChange={(e) => setPeriodId(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5">
+                {gradablePeriods(options.periods).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-gray-600">Fecha</span>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5" />
+            </label>
+          </>
+        )}
+        <div className="text-sm">
+          <span className="mb-1 block text-xs text-gray-600" aria-hidden>Calificación</span>
+          <span className="flex flex-wrap items-center gap-3">
+            <GradeSelect
+              value={gradeSelect}
+              scale={scale}
+              onChange={setGradeSelect}
+              disabled={saving || absent}
+              className="w-full max-w-[10rem] rounded border border-gray-300 bg-amber-50 px-2 py-1.5 disabled:opacity-50"
+            />
+            <AbsentCheck checked={absent} onChange={setAbsent} disabled={saving} />
+          </span>
+        </div>
         <label className="text-sm sm:col-span-2">
           <span className="mb-1 block text-xs text-gray-600">Comentario</span>
           <input value={comment} onChange={(e) => setComment(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5" />
@@ -960,7 +1009,7 @@ export default function EvaluationsBoard({
   const [showAll, setShowAll] = useState(() => !alumnoParam)
   const [adding, setAdding] = useState<{ studentId: string; preset: AddPreset } | null>(null)
   const [detailStudentIds, setDetailStudentIds] = useState<Set<string>>(() => new Set())
-  const [showLegacy, setShowLegacy] = useState(false)
+  const [showGroupSheet, setShowGroupSheet] = useState(false)
   const [sheetStudent, setSheetStudent] = useState<{
     studentId: string
     focus: StudentBadgeFocus
@@ -1190,6 +1239,29 @@ export default function EvaluationsBoard({
         </button>
       </div>
 
+      {/* Un escrito o una prueba se carga para todo el grupo en una planilla; la carta queda para
+          las notas sueltas de cada alumno. Antes esta planilla estaba al final, como "avanzada". */}
+      <details
+        className="rounded-lg border border-teal-200 bg-white p-3"
+        open={showGroupSheet}
+        onToggle={(e) => setShowGroupSheet((e.target as HTMLDetailsElement).open)}
+      >
+        <summary className="cursor-pointer text-sm font-semibold text-teal-800">
+          Evaluación del grupo: escrito, prueba o trabajo para todos
+        </summary>
+        <p className="mt-1 text-xs text-slate-500">
+          Creala una vez y cargá la nota de cada alumno en la planilla, con el teclado. El control de
+          libretas exige nota (o &quot;no rindió&quot;) de todo el grupo en estas evaluaciones.
+        </p>
+        <div className="mt-3">
+          <AssessmentsPanel
+            gradeBookId={gradeBookId}
+            canGrade={detail.access.canGrade}
+            onChanged={() => void load()}
+          />
+        </div>
+      </details>
+
       <button
         type="button"
         onClick={toggleDetailAll}
@@ -1266,18 +1338,6 @@ export default function EvaluationsBoard({
         </details>
       )}
 
-      <details
-        className="rounded-lg border border-slate-200 bg-white p-3"
-        open={showLegacy}
-        onToggle={(e) => setShowLegacy((e.target as HTMLDetailsElement).open)}
-      >
-        <summary className="cursor-pointer text-sm font-medium text-slate-700">
-          Vista planilla por evaluación (avanzada)
-        </summary>
-        <div className="mt-3">
-          <AssessmentsPanel gradeBookId={gradeBookId} canGrade={detail.access.canGrade} />
-        </div>
-      </details>
     </section>
   )
 }

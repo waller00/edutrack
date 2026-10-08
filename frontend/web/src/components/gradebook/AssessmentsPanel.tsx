@@ -6,7 +6,6 @@ import { api } from '@/lib/api/client'
 import { gradablePeriods, type LibretaPeriod } from '@/lib/gradebook/period-blocks'
 import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import GradeSheet from './GradeSheet'
-import MoodleImportPanel from './MoodleImportPanel'
 
 type Period = LibretaPeriod
 type Scale = { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number }
@@ -21,6 +20,8 @@ type Assessment = {
   activityType: { id: string; name: string } | null
   gradingScale: Scale | null
   gradedCount: number
+  /** Las notas sueltas de la carta no se listan acá: esta planilla es la del grupo. */
+  scope?: 'GROUP' | 'INDIVIDUAL'
 }
 
 type Options = {
@@ -131,9 +132,12 @@ function NewAssessmentForm({
 export default function AssessmentsPanel({
   gradeBookId,
   canGrade,
+  onChanged,
 }: {
   gradeBookId: string
   canGrade: boolean
+  /** Se creó una evaluación o se guardaron notas: las cartas tienen que recargarse. */
+  onChanged?: () => void
 }) {
   const [assessments, setAssessments] = useState<Assessment[]>([])
   const [options, setOptions] = useState<Options | null>(null)
@@ -149,7 +153,7 @@ export default function AssessmentsPanel({
         api<{ data: Assessment[] }>(`/gradebook/${gradeBookId}/assessments`),
         api<Options>(`/gradebook/${gradeBookId}/options`),
       ])
-      setAssessments(list.data)
+      setAssessments(list.data.filter((a) => a.scope !== 'INDIVIDUAL'))
       setOptions(opts)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudieron cargar las evaluaciones')
@@ -172,6 +176,7 @@ export default function AssessmentsPanel({
       })
       setSelected(res.data.id)
       await load()
+      onChanged?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo crear la evaluación')
     } finally {
@@ -203,19 +208,9 @@ export default function AssessmentsPanel({
 
       {canGrade && options && <NewAssessmentForm options={options} onCreate={create} busy={busy} />}
 
-      {canGrade && options && (
-        <MoodleImportPanel
-          gradeBookId={gradeBookId}
-          periods={gradablePeriods(options.periods)}
-          scales={options.scales}
-          defaultScaleId={options.periodScale?.id}
-          onImported={() => void load()}
-        />
-      )}
-
       {assessments.length === 0 ? (
         <p className="rounded-xl border border-gray-200 bg-white px-4 py-5 text-sm text-gray-500">
-          Todavía no hay evaluaciones en esta libreta.
+          Todavía no hay evaluaciones del grupo en esta libreta.
         </p>
       ) : (
         <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
@@ -235,7 +230,14 @@ export default function AssessmentsPanel({
               </button>
               {selected === a.id && (
                 <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-3">
-                  <GradeSheet gradeBookId={gradeBookId} assessmentId={a.id} />
+                  <GradeSheet
+                    gradeBookId={gradeBookId}
+                    assessmentId={a.id}
+                    onSaved={() => {
+                      void load()
+                      onChanged?.()
+                    }}
+                  />
                 </div>
               )}
             </li>

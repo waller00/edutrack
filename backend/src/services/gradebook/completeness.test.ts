@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   completionRequestBody,
   countMissingAssessmentGrades,
+  countStudentsWithoutGrades,
   isStageComplete,
   missingAfterMeeting,
   sortByUrgency,
@@ -91,6 +92,55 @@ describe('countMissingAssessmentGrades', () => {
   it('una fila sin valor no cuenta, y un alumno dado de baja no tapa a uno del grupo', () => {
     const grades = [grade('a', { valueHundredths: null }), grade('baja'), grade('b'), grade('c')]
     expect(countMissingAssessmentGrades([{ grades }], roster)).toBe(1)
+  })
+
+  it('una nota suelta no se cruza contra todo el grupo', () => {
+    // Antes cada nota cargada desde la carta sumaba "2 notas sin cargar" con un grupo de 3.
+    const sueltas = ['a', 'b', 'c'].map((id) => ({ scope: 'INDIVIDUAL' as const, grades: [grade(id)] }))
+    expect(countMissingAssessmentGrades(sueltas, roster)).toBe(0)
+  })
+})
+
+describe('countStudentsWithoutGrades', () => {
+  const roster = new Set(['a', 'b', 'c'])
+  const grade = (studentId: string, over: Partial<{ valueHundredths: number | null; isAbsent: boolean }> = {}) => ({
+    studentId,
+    valueHundredths: 700,
+    isAbsent: false,
+    ...over,
+  })
+
+  it('con sólo notas sueltas, cuenta los alumnos que no tienen ninguna', () => {
+    const assessments = [
+      { scope: 'INDIVIDUAL' as const, grades: [grade('a')] },
+      { scope: 'INDIVIDUAL' as const, grades: [grade('b', { valueHundredths: null, isAbsent: true })] },
+    ]
+    expect(countStudentsWithoutGrades(assessments, roster)).toBe(1)
+  })
+
+  it('una fila vacía o de un alumno dado de baja no cuenta', () => {
+    const assessments = [{ scope: 'INDIVIDUAL' as const, grades: [grade('a', { valueHundredths: null }), grade('baja')] }]
+    expect(countStudentsWithoutGrades(assessments, roster)).toBe(3)
+  })
+
+  it('con una evaluación del grupo no suma: el alumno sin notas ya falta en ella', () => {
+    const assessments = [{ grades: [grade('a')] }, { scope: 'INDIVIDUAL' as const, grades: [grade('b')] }]
+    expect(countStudentsWithoutGrades(assessments, roster)).toBe(0)
+    expect(countMissingAssessmentGrades(assessments, roster)).toBe(2)
+  })
+})
+
+describe('alumnos sin notas en el control', () => {
+  it('lo dejan incompleto y el aviso lo dice', () => {
+    const s = summarize(row({ studentsWithoutGrades: 2 }))
+    expect(s.complete).toBe(false)
+    expect(completionRequestBody(s, 'Mayo')).toBe('Mayo: 2 alumnos sin notas en el tramo.')
+  })
+
+  it('sin evaluaciones no los cuenta aparte: ya se avisa eso', () => {
+    const s = summarize(row({ assessmentCount: 0, studentsWithoutGrades: 20 }))
+    expect(s.studentsWithoutGrades).toBe(0)
+    expect(completionRequestBody(s, 'Mayo')).toBe('Mayo: no hay evaluaciones cargadas.')
   })
 })
 

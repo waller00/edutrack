@@ -85,6 +85,14 @@ describe('<CompletenessPanel />', () => {
     expect(screen.getByText('Ana Benítez')).toBeInTheDocument()
   })
 
+  it('con sólo notas sueltas, dice cuántos alumnos no tienen ninguna', async () => {
+    respond([row({ studentsWithoutGrades: 2, complete: false })])
+    render(<CompletenessPanel />)
+    await pickPeriod()
+
+    expect(await screen.findByText('3 cargadas · 2 alumnos sin notas')).toBeInTheDocument()
+  })
+
   it('marca la libreta sin evaluaciones', async () => {
     respond([row({ hasNoAssessments: true, assessmentCount: 0, missingGrades: 0 })])
     render(<CompletenessPanel />)

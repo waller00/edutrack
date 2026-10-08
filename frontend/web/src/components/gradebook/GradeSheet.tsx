@@ -50,9 +50,12 @@ const BLOCK_MESSAGES: Record<string, string> = {
 export default function GradeSheet({
   gradeBookId,
   assessmentId,
+  onSaved,
 }: {
   gradeBookId: string
   assessmentId: string
+  /** Avisa que se guardó, para que las cartas de los alumnos muestren las notas nuevas. */
+  onSaved?: () => void
 }) {
   const [data, setData] = useState<SheetResponse | null>(null)
   const [draft, setDraft] = useState<SheetDraft | null>(null)
@@ -116,6 +119,7 @@ export default function GradeSheet({
         text: `Guardado: ${res.data.created} nueva(s), ${res.data.updated} modificada(s).`,
       })
       await load()
+      onSaved?.()
     } catch (err) {
       setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo guardar' })
     } finally {
