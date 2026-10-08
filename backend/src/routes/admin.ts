@@ -35,6 +35,7 @@ import {
   recordAuditEvent,
 } from '../services/audit-log.js'
 import { ensureMoodleUserById } from '../services/moodle.js'
+import { sendApprovalEmail, sendRejectionEmail } from '../notifications/account-decision.js'
 import {
   getMoodleHealthStatus,
   isMoodleIntegrationEnabled,
@@ -809,6 +810,9 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
     parsed.data.isApproved === true
   ) {
     void ensureMoodleUserById(id)
+    void sendApprovalEmail({ email: beforeSnapshot.email, firstName: beforeSnapshot.firstName }).catch((error) =>
+      console.warn('[admin] correo de aprobación no enviado:', error),
+    )
   }
   res.json({ ok: true })
 })
@@ -865,6 +869,92 @@ r.delete('/users/:id', requirePermission('users.update', 'all'), async (req, res
   })
 
   res.json({ ok: true })
+})
+
+// Rechazar una solicitud de cuenta: le avisa a la persona y borra lo que cargó al registrarse.
+// Sólo para cuentas sin aprobar y sin actividad. `approvedAt` no alcanza para saber si alguna vez
+// se aprobó (volver a pendiente lo limpia), así que se mira que no haya nada que perder; una cuenta
+// con historia se da de baja. El aviso sale sólo con el correo verificado: si no, no sabemos si esa
+// dirección es de quien se registró.
+r.post('/users/:id/reject', requirePermission('users.update', 'all'), async (req, res) => {
+  const id = req.params.id
+  const parsed = z.object({ reason: z.string().trim().max(500).optional() }).safeParse(req.body ?? {})
+  if (!parsed.success) return res.status(400).json({ message: firstZodIssueMessage(parsed.error) })
+
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      isApproved: true,
+      emailVerifiedAt: true,
+      moodleUserId: true,
+      ...selectOrgRoleCode,
+      _count: {
+        select: {
+          events: true,
+          assignedEvents: true,
+          attendances: true,
+          medicalLeaves: true,
+          gradeBooks: true,
+          substitutionsAsOriginal: true,
+          substitutionsAsSubstitute: true,
+          studentRollCallsTaken: true,
+        },
+      },
+    },
+  })
+  if (!target) return res.status(404).json({ message: 'Usuario no encontrado' })
+  if ((target.orgRole?.code ?? '') === 'ADMIN') {
+    return res.status(403).json({ message: 'No se puede rechazar al usuario administrador.' })
+  }
+  if (target.isApproved) {
+    return res.status(409).json({ message: 'La cuenta ya está aprobada. Para quitarle el acceso, dala de baja.' })
+  }
+  const hasActivity = target.moodleUserId != null || Object.values(target._count).some((n) => n > 0)
+  if (hasActivity) {
+    return res.status(409).json({
+      message: 'La cuenta ya tiene actividad registrada y no se puede rechazar. Dala de baja en su lugar.',
+    })
+  }
+
+  try {
+    await prisma.user.delete({ where: { id } })
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return res.status(409).json({
+        message: 'La cuenta ya tiene actividad registrada y no se puede rechazar. Dala de baja en su lugar.',
+      })
+    }
+    throw error
+  }
+
+  void deleteSessionsForUser(id)
+  void deleteKeycloakUserByEmail(target.email).catch((error) =>
+    console.warn('[admin] keycloak delete user skipped:', error),
+  )
+
+  let notified = false
+  if (target.emailVerifiedAt) {
+    try {
+      await sendRejectionEmail({ email: target.email, firstName: target.firstName, reason: parsed.data.reason })
+      notified = true
+    } catch (error) {
+      console.warn('[admin] correo de rechazo no enviado:', error)
+    }
+  }
+
+  recordAuditEvent({
+    action: AuditAction.USER_REJECTED_BY_ADMIN,
+    actorUserId: (req as any).user?.id ?? null,
+    req,
+    entityType: 'User',
+    entityId: id,
+    metadata: { email: target.email, notified },
+  })
+
+  res.json({ ok: true, notified })
 })
 
 r.put('/users/:id/lock', requirePermission('users.security', 'all'), async (req, res) => {

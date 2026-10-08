@@ -8,7 +8,17 @@ import { computeCICheckDigit } from "../identity/uruguay-ci.js";
 import type { BuiltinProfileRole } from "../identity/profile-permissions-defaults.js";
 import { DEFAULT_PROFILE_PERMISSIONS } from "../identity/profile-permissions-defaults.js";
 
-const { prismaMock, triggerKeycloakPasswordResetMock, createKeycloakUserMock, syncKeycloakUserIdentityByEmailMock, deleteKeycloakUserByEmailMock } = vi.hoisted(() => ({
+const {
+  prismaMock,
+  triggerKeycloakPasswordResetMock,
+  createKeycloakUserMock,
+  syncKeycloakUserIdentityByEmailMock,
+  deleteKeycloakUserByEmailMock,
+  sendApprovalEmailMock,
+  sendRejectionEmailMock,
+} = vi.hoisted(() => ({
+  sendApprovalEmailMock: vi.fn().mockResolvedValue(undefined),
+  sendRejectionEmailMock: vi.fn().mockResolvedValue(undefined),
   triggerKeycloakPasswordResetMock: vi.fn().mockResolvedValue(undefined),
   createKeycloakUserMock: vi.fn().mockResolvedValue("kc-id-1"),
   syncKeycloakUserIdentityByEmailMock: vi.fn().mockResolvedValue(undefined),
@@ -115,6 +125,10 @@ vi.mock("../auth/keycloak.js", () => ({
   deleteKeycloakUserByEmail: deleteKeycloakUserByEmailMock,
   freeKeycloakUsernameIfOrphan: vi.fn().mockResolvedValue(false),
 }));
+vi.mock("../notifications/account-decision.js", () => ({
+  sendApprovalEmail: sendApprovalEmailMock,
+  sendRejectionEmail: sendRejectionEmailMock,
+}));
 vi.mock("@prisma/client", () => ({
   Prisma: {
     PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
@@ -135,6 +149,7 @@ vi.mock("@prisma/client", () => ({
     USER_CREATED_BY_ADMIN: "USER_CREATED_BY_ADMIN",
     USER_UPDATED_BY_ADMIN: "USER_UPDATED_BY_ADMIN",
     USER_DELETED_BY_ADMIN: "USER_DELETED_BY_ADMIN",
+    USER_REJECTED_BY_ADMIN: "USER_REJECTED_BY_ADMIN",
     USER_ACCOUNT_LOCK_TOGGLED: "USER_ACCOUNT_LOCK_TOGGLED",
     ADMIN_PASSWORD_RESET_ISSUED: "ADMIN_PASSWORD_RESET_ISSUED",
     SYSTEM_SETTINGS_UPDATED: "SYSTEM_SETTINGS_UPDATED",
@@ -616,12 +631,22 @@ describe("admin routes (prisma mock)", () => {
     prismaMock.user.findUnique.mockResolvedValue({
       id: "u1",
       orgRole: { code: "TEACHER" },
+      email: "t@e.com",
+      firstName: "Ana",
       isApproved: false,
       emailVerifiedAt: new Date("2026-10-01T00:00:00.000Z"),
     });
     prismaMock.user.update.mockResolvedValue({});
     const res = await request(app()).put("/admin/users/u1").set(adminHdr()).send({ isApproved: true });
     expect(res.status).toBe(200);
+    expect(sendApprovalEmailMock).toHaveBeenCalledWith({ email: "t@e.com", firstName: "Ana" });
+  });
+
+  it("PUT /admin/users/:id no manda el correo de aprobación si ya estaba aprobada", async () => {
+    prismaMock.user.update.mockResolvedValue({});
+    const res = await request(app()).put("/admin/users/u1").set(adminHdr()).send({ isApproved: true, firstName: "Otra" });
+    expect(res.status).toBe(200);
+    expect(sendApprovalEmailMock).not.toHaveBeenCalled();
   });
 
   it("PUT /admin/users/:id actualiza aprobación e inactividad", async () => {
@@ -709,6 +734,113 @@ describe("admin routes (prisma mock)", () => {
     const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
     expect(res.status).toBe(409);
     expect(res.body.message).toMatch(/registros asociados/i);
+  });
+
+  describe("POST /admin/users/:id/reject", () => {
+    const noActivity = {
+      events: 0,
+      assignedEvents: 0,
+      attendances: 0,
+      medicalLeaves: 0,
+      gradeBooks: 0,
+      substitutionsAsOriginal: 0,
+      substitutionsAsSubstitute: 0,
+      studentRollCallsTaken: 0,
+    };
+    const pending = (over: Record<string, unknown> = {}) => ({
+      id: "u1",
+      email: "u1@a.com",
+      firstName: "Ana",
+      isApproved: false,
+      emailVerifiedAt: new Date("2026-10-01T00:00:00.000Z"),
+      moodleUserId: null,
+      orgRole: { code: "TEACHER" },
+      _count: noActivity,
+      ...over,
+    });
+
+    it("borra la cuenta y su acceso, y avisa con el motivo", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(pending());
+      prismaMock.user.delete.mockResolvedValue({ id: "u1" });
+      const res = await request(app())
+        .post("/admin/users/u1/reject")
+        .set(adminHdr())
+        .send({ reason: "  No trabaja en el liceo  " });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ ok: true, notified: true });
+      expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "u1" } });
+      expect(deleteKeycloakUserByEmailMock).toHaveBeenCalledWith("u1@a.com");
+      expect(sendRejectionEmailMock).toHaveBeenCalledWith({
+        email: "u1@a.com",
+        firstName: "Ana",
+        reason: "No trabaja en el liceo",
+      });
+      expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: "USER_REJECTED_BY_ADMIN", entityId: "u1" }),
+        }),
+      );
+    });
+
+    it("no avisa a un correo sin verificar, pero igual borra", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(pending({ emailVerifiedAt: null }));
+      prismaMock.user.delete.mockResolvedValue({ id: "u1" });
+      const res = await request(app()).post("/admin/users/u1/reject").set(adminHdr()).send({});
+      expect(res.status).toBe(200);
+      expect(res.body.notified).toBe(false);
+      expect(prismaMock.user.delete).toHaveBeenCalled();
+      expect(sendRejectionEmailMock).not.toHaveBeenCalled();
+    });
+
+    it("si el correo falla, la cuenta queda borrada igual y lo informa", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(pending());
+      prismaMock.user.delete.mockResolvedValue({ id: "u1" });
+      sendRejectionEmailMock.mockRejectedValueOnce(new Error("Brevo 500"));
+      const res = await request(app()).post("/admin/users/u1/reject").set(adminHdr()).send({});
+      expect(res.status).toBe(200);
+      expect(res.body.notified).toBe(false);
+    });
+
+    it("404 si no existe", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+      const res = await request(app()).post("/admin/users/x/reject").set(adminHdr()).send({});
+      expect(res.status).toBe(404);
+    });
+
+    it("403 con el administrador", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(pending({ orgRole: { code: "ADMIN" } }));
+      const res = await request(app()).post("/admin/users/u1/reject").set(adminHdr()).send({});
+      expect(res.status).toBe(403);
+      expect(prismaMock.user.delete).not.toHaveBeenCalled();
+    });
+
+    it("409 si la cuenta ya está aprobada", async () => {
+      prismaMock.user.findUnique.mockResolvedValue(pending({ isApproved: true }));
+      const res = await request(app()).post("/admin/users/u1/reject").set(adminHdr()).send({});
+      expect(res.status).toBe(409);
+      expect(res.body.message).toMatch(/dala de baja/i);
+      expect(prismaMock.user.delete).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["eventos asignados", { _count: { ...noActivity, assignedEvents: 2 } }],
+      ["cuenta Moodle", { moodleUserId: 77 }],
+    ])("409 si ya tiene actividad (%s)", async (_label, over) => {
+      prismaMock.user.findUnique.mockResolvedValue(pending(over));
+      const res = await request(app()).post("/admin/users/u1/reject").set(adminHdr()).send({});
+      expect(res.status).toBe(409);
+      expect(res.body.message).toMatch(/actividad/i);
+      expect(prismaMock.user.delete).not.toHaveBeenCalled();
+      expect(sendRejectionEmailMock).not.toHaveBeenCalled();
+    });
+
+    it("400 si el motivo es demasiado largo", async () => {
+      const res = await request(app())
+        .post("/admin/users/u1/reject")
+        .set(adminHdr())
+        .send({ reason: "x".repeat(501) });
+      expect(res.status).toBe(400);
+    });
   });
 
   it("PUT /admin/users/:id/lock", async () => {

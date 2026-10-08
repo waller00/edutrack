@@ -147,8 +147,11 @@ export async function syncMoodleUserById(userId: string): Promise<number | null>
   if (!isMoodleIntegrationEnabled()) return null;
   const u = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, firstName: true, lastName: true, name: true },
+    select: { id: true, email: true, firstName: true, lastName: true, name: true, isApproved: true, isActive: true },
   });
-  if (!u) return null;
-  return syncMoodleUser(u);
+  // Una cuenta sin aprobar no llega a Moodle aunque ya tenga eventos asignados: la aprobación
+  // exige el correo verificado, y una solicitud rechazada se borra sin dejar rastro en Moodle.
+  if (!u?.isApproved || !u.isActive) return null;
+  const { isApproved: _approved, isActive: _active, ...user } = u;
+  return syncMoodleUser(user);
 }
