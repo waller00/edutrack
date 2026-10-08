@@ -406,7 +406,11 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
   conceptual de cada estudiante y cierra el período. El cierre **valida contra la configuración
   del período**: si exige calificación o juicio, no cierra hasta completarlos, y devuelve la lista
   entera de lo que falta para que la UI la marque de una vez. Se registra si el cierre quedó fuera
-  del plazo del período (§5.9).
+  del plazo del período (§5.9). La sección Cierre se usa **por alumno** (la carta con todas sus
+  notas) o para **todo el grupo en un período** (una tabla con C, R, informe y conducta,
+  `GET`/`PUT /gradebook/:id/periods/:periodId[/grades]`), y avisa antes de descartar cambios sin
+  guardar al cambiar de alumno, de período o de libreta. Las dos formas siguen las mismas reglas:
+  período del nivel de la libreta, abierto y ya habilitado (`PERIOD_NOT_ENABLED`).
 - **La libreta del docente no promedia.** El liceo fue explícito: la calificación general del
   período la decide el docente. Al cerrar se muestra cuántas notas cargó —para ver a quién le
   falta—, no un promedio. El indicador automático de RF-061 vive donde se usa de verdad: la matriz
@@ -420,7 +424,9 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
   automática y por día (§11 bis): libreta, planilla de reunión y boletín suman los días, y el
   detalle del alumno muestra cuánto aportó cada uno. Ahí también justifica dirección.
 - **Conducta, dos veces.** Cada docente pone la de su asignatura junto a la nota del período
-  (`PeriodGrade.conductValueHundredths`), y adscripción pone una institucional por estudiante y
+  (`PeriodGrade.conductValueHundredths`), en la sección Cierre de los períodos con reunión —por
+  alumno o en la tabla del grupo—; el servidor sólo acepta valores de la escala
+  (`CONDUCT_OUT_OF_SCALE`). Adscripción pone una institucional por estudiante y
   período (`StudentConductRecord`). La reunión las ve juntas. Usa su propia escala (`CONDUCTA`),
   porque no se mide como el rendimiento, y las etiquetas salen de esa escala (no de una tabla en el
   código): un cambio en Configuración llega a la reunión y al boletín. Adscripción y Dirección

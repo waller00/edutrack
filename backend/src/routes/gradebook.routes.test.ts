@@ -869,6 +869,44 @@ describe('PUT /:id/periods/:periodId/grades', () => {
     expect(res.status).toBe(409)
     expect(res.body.code).toBe('STUDENT_NOT_IN_ROSTER')
   })
+
+  it('la conducta tiene que ser un valor de la escala de conducta', async () => {
+    readyForClosure()
+    prismaMock.gradingScale.findFirst.mockResolvedValue({
+      code: 'CONDUCTA',
+      levels: [{ minValueHundredths: 300, maxValueHundredths: 300, label: 'Buena' }],
+    })
+    const put = (conductValueHundredths: number) =>
+      request(app())
+        .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
+        .set('Authorization', `Bearer ${tok()}`)
+        .send({ entries: [{ studentId: STUDENT_A, conductValueHundredths }] })
+
+    const wrong = await put(250)
+    expect(wrong.status).toBe(400)
+    expect(wrong.body.code).toBe('CONDUCT_OUT_OF_SCALE')
+
+    expect((await put(300)).status).toBe(200)
+    expect(prismaMock.periodGrade.upsert.mock.calls[0][0].update).toMatchObject({ conductValueHundredths: 300 })
+  })
+
+  it('no escribe en un período que todavía no empezó, igual que el cierre por alumno', async () => {
+    readyForClosure()
+    prismaMock.academicPeriod.findFirst.mockResolvedValue({ ...PERIOD, startsOn: new Date('2026-09-01T12:00:00.000Z') })
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/grades`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ entries: COMPLETE })
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('PERIOD_NOT_ENABLED')
+  })
+
+  it('sólo busca períodos del nivel de la libreta', async () => {
+    readyForClosure()
+    await request(app()).get(`/gradebook/${GB_ID}/periods/${PERIOD_ID}`).set('Authorization', `Bearer ${tok()}`)
+    expect(prismaMock.academicPeriod.findFirst.mock.calls[0][0].where).toMatchObject({ level: 'EMS' })
+  })
 })
 
 describe('POST /:id/periods/:periodId/reopen', () => {

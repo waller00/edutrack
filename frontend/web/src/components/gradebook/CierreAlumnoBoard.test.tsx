@@ -170,6 +170,81 @@ describe('<CierreAlumnoBoard />', () => {
     })
   })
 
+  it('no cambia de alumno con cambios sin guardar si no se confirma', async () => {
+    const twoStudents = {
+      ...detail(),
+      studentCount: 2,
+      students: [
+        ...detail().students,
+        { studentId: 's2', studentEnrollmentId: 'e2', firstName: 'Luis', lastName: 'Díaz', documentId: null, hasPhoto: false },
+      ],
+    }
+    const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    render(<CierreAlumnoBoard gradeBookId="gb-1" detail={twoStudents} />)
+    await waitFor(() => expect(screen.getByLabelText('C de Marzo – Abril')).toBeInTheDocument())
+
+    await user.selectOptions(screen.getByLabelText('C de Marzo – Abril'), '9')
+    await user.selectOptions(screen.getByLabelText('Seleccionar alumno'), 's2')
+
+    expect(confirm).toHaveBeenCalled()
+    expect(screen.getByLabelText('Seleccionar alumno')).toHaveValue('s1')
+    expect(screen.getByLabelText('C de Marzo – Abril')).toHaveValue('9')
+    // Las notas de la libreta se piden una sola vez.
+    expect(apiMock.mock.calls.filter(([path]) => String(path).includes('/grades-board'))).toHaveLength(1)
+    confirm.mockRestore()
+  })
+
+  it('en un período con reunión carga la conducta de la asignatura', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (String(path).includes('/mine')) return { data: [] }
+      if (String(path).includes('/grades-board')) return { assessments: [], grades: [] }
+      if (String(path).includes('/closure')) {
+        return {
+          student: detail().students[0],
+          canGrade: true,
+          conduct: [
+            { valueHundredths: 300, label: 'Buena' },
+            { valueHundredths: 400, label: 'Muy buena' },
+          ],
+          periods: [
+            {
+              periodId: 'p-1',
+              code: 'ENTREGA_1',
+              name: '1.ª Entrega',
+              status: 'OPEN',
+              canEdit: true,
+              isMeeting: true,
+              requiresGeneralGrade: true,
+              requiresConceptualJudgement: false,
+              assessmentCount: 0,
+              valueHundredths: 800,
+              conceptualJudgement: null,
+              conductValueHundredths: null,
+              descriptor: null,
+            },
+          ],
+        }
+      }
+      return {}
+    })
+    const user = userEvent.setup()
+    render(<CierreAlumnoBoard gradeBookId="gb-1" detail={detail()} />)
+    await waitFor(() => expect(screen.getByLabelText('Conducta de 1.ª Entrega')).toBeInTheDocument())
+
+    await user.selectOptions(screen.getByLabelText('Conducta de 1.ª Entrega'), 'Buena')
+    await user.click(screen.getByRole('button', { name: /Guardar/i }))
+
+    await waitFor(() => {
+      const call = apiMock.mock.calls.find(([path, init]) =>
+        String(path).endsWith('/closure') && (init as RequestInit | undefined)?.method === 'PUT',
+      )
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
+        entries: [{ periodId: 'p-1', conductValueHundredths: 300 }],
+      })
+    })
+  })
+
   it('no muestra combo ni textarea en períodos no habilitados', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (String(path).includes('/mine')) return { data: [] }
