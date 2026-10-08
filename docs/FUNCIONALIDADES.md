@@ -342,6 +342,15 @@ alumno y el cierre de cada entrega; `/libreta/cierre-libreta` era la misma panta
   notas y juicios conceptuales; `gradebook.plan`, la planificación y el desarrollo del curso.
   Dirección tiene `plan` con alcance ALL y no tiene `grade`, así que corrige la libreta de un
   docente sin poder tocar una calificación ni un juicio — que es exactamente lo que pide el liceo.
+  Las pantallas lo respetan (`access.canPlan` en `GET /gradebook/:id`): antes mostraban la
+  planificación y el desarrollo bloqueados a Dirección porque miraban `canGrade`. La corrección de
+  Dirección queda en la auditoría (`GRADEBOOK_PLANNING_UPDATED`) y la planificación muestra quién la
+  modificó por última vez. Un registro del desarrollo se corrige en la misma fila
+  (`PATCH /gradebook/:id/development/:entryId`); corregirlo y borrarlo quedan auditados.
+- **Pasar lista desde la libreta** (Inasistencias, `PUT /gradebook/:id/absences/day`) sigue las
+  mismas reglas que `/me/roll-call`: ventana de edición del docente, planilla cerrada por
+  administración y administración fuera de plazo auditada. El docente no gradúa la falta (eso es de
+  adscripción al justificar) y un re-marcado no pisa la graduación que haya hecho.
 - **Estructura de la planilla del liceo.** La carta del alumno reproduce los bloques de la planilla
   que el liceo usaba en Excel (`docs/Prototipo Libreta.xlsx`), para no cambiarle la operativa al
   docente. Cada período tiene un **tipo** (`AcademicPeriod.kind`):

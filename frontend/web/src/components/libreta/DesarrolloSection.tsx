@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Trash2 } from 'lucide-react'
+import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useLibreta } from '@/contexts/LibretaContext'
+import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 
 type Entry = {
   id: string
@@ -25,6 +26,84 @@ function formatDay(ymd: string): string {
   return `${d}/${m}/${y.slice(2)}`
 }
 
+type EntryDraft = Pick<Entry, 'date' | 'hoursTaught' | 'hoursNotTaught' | 'description'>
+
+/** Una clase registrada; con el lápiz se corrige en la misma fila, sin borrarla y volver a cargarla. */
+function EntryRow({
+  entry,
+  canEdit,
+  busy,
+  onSave,
+  onRemove,
+}: {
+  entry: Entry
+  canEdit: boolean
+  busy: boolean
+  onSave: (draft: EntryDraft) => Promise<boolean>
+  onRemove: () => void
+}) {
+  const [draft, setDraft] = useState<EntryDraft | null>(null)
+  const day = formatDay(entry.date)
+
+  if (draft) {
+    const input = 'rounded border border-gray-300 px-2 py-1 text-sm'
+    return (
+      <tr className="bg-amber-50/40">
+        <td className="px-3 py-1.5">
+          <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} aria-label="Fecha" className={input} />
+        </td>
+        <td className="px-3 py-1.5">
+          <input type="number" min={0} max={24} value={draft.hoursTaught} onChange={(e) => setDraft({ ...draft, hoursTaught: Number(e.target.value) })} aria-label="Hs. dictadas" className={`w-16 ${input}`} />
+        </td>
+        <td className="px-3 py-1.5">
+          <input type="number" min={0} max={24} value={draft.hoursNotTaught} onChange={(e) => setDraft({ ...draft, hoursNotTaught: Number(e.target.value) })} aria-label="Hs. no dictadas" className={`w-16 ${input}`} />
+        </td>
+        <td className="px-3 py-1.5">
+          <input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} aria-label="¿Qué se trabajó en clase?" className={`w-full ${input}`} />
+        </td>
+        <td className="whitespace-nowrap px-3 py-1.5 text-sm">
+          <button
+            type="button"
+            disabled={busy || draft.description.trim() === ''}
+            onClick={() => void onSave(draft).then((ok) => ok && setDraft(null))}
+            className="font-medium text-emerald-700 hover:underline disabled:opacity-50"
+          >
+            Guardar
+          </button>{' '}
+          <button type="button" onClick={() => setDraft(null)} className="text-gray-600 hover:underline">
+            Cancelar
+          </button>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr>
+      <td className="whitespace-nowrap px-3 py-1.5 text-gray-700">{day}</td>
+      <td className="px-3 py-1.5 text-gray-700">{entry.hoursTaught}</td>
+      <td className="px-3 py-1.5 text-gray-700">{entry.hoursNotTaught}</td>
+      <td className="px-3 py-1.5 text-gray-900">{entry.description}</td>
+      {canEdit && (
+        <td className="whitespace-nowrap px-3 py-1.5">
+          <button
+            type="button"
+            onClick={() => setDraft({ date: entry.date, hoursTaught: entry.hoursTaught, hoursNotTaught: entry.hoursNotTaught, description: entry.description })}
+            disabled={busy}
+            aria-label={`Corregir la clase del ${day}`}
+            className="mr-2 text-sky-700 hover:text-sky-900 disabled:opacity-50"
+          >
+            <Pencil className="h-4 w-4" aria-hidden />
+          </button>
+          <button type="button" onClick={onRemove} disabled={busy} aria-label={`Borrar la clase del ${day}`} className="text-red-600 hover:text-red-800 disabled:opacity-50">
+            <Trash2 className="h-4 w-4" aria-hidden />
+          </button>
+        </td>
+      )}
+    </tr>
+  )
+}
+
 /**
  * Desarrollo del curso: el registro clase a clase.
  *
@@ -40,7 +119,8 @@ export default function DesarrolloSection() {
   const [filters, setFilters] = useState({ from: '', to: '', q: '' })
   const [applied, setApplied] = useState(filters)
   const [form, setForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
+    // Día civil de Uruguay: `toISOString()` da el día siguiente después de las 21 h.
+    date: todayYmdUruguay(),
     hoursTaught: 2,
     hoursNotTaught: 0,
     description: '',
@@ -81,13 +161,30 @@ export default function DesarrolloSection() {
     }
   }
 
-  async function removeEntry(id: string) {
+  async function removeEntry(entry: Entry) {
+    if (!globalThis.confirm(`¿Borrar la clase del ${formatDay(entry.date)}?`)) return
     setBusy(true)
     try {
-      await api(`/gradebook/${gradeBookId}/development/${id}`, { method: 'DELETE' })
+      await api(`/gradebook/${gradeBookId}/development/${entry.id}`, { method: 'DELETE' })
       await load()
     } catch (err) {
       setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo borrar' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function updateEntry(id: string, draft: EntryDraft): Promise<boolean> {
+    setBusy(true)
+    setMessage(null)
+    try {
+      await api(`/gradebook/${gradeBookId}/development/${id}`, { method: 'PATCH', body: JSON.stringify(draft) })
+      setMessage({ kind: 'ok', text: 'Clase corregida.' })
+      await load()
+      return true
+    } catch (err) {
+      setMessage({ kind: 'error', text: err instanceof Error ? err.message : 'No se pudo corregir' })
+      return false
     } finally {
       setBusy(false)
     }
@@ -184,19 +281,14 @@ export default function DesarrolloSection() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {state!.data.map((entry) => (
-                <tr key={entry.id}>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-gray-700">{formatDay(entry.date)}</td>
-                  <td className="px-3 py-1.5 text-gray-700">{entry.hoursTaught}</td>
-                  <td className="px-3 py-1.5 text-gray-700">{entry.hoursNotTaught}</td>
-                  <td className="px-3 py-1.5 text-gray-900">{entry.description}</td>
-                  {canEdit && (
-                    <td className="px-3 py-1.5">
-                      <button type="button" onClick={() => void removeEntry(entry.id)} disabled={busy} aria-label={`Borrar la clase del ${formatDay(entry.date)}`} className="text-red-600 hover:text-red-800 disabled:opacity-50">
-                        <Trash2 className="h-4 w-4" aria-hidden />
-                      </button>
-                    </td>
-                  )}
-                </tr>
+                <EntryRow
+                  key={entry.id}
+                  entry={entry}
+                  canEdit={canEdit}
+                  busy={busy}
+                  onSave={(draft) => updateEntry(entry.id, draft)}
+                  onRemove={() => void removeEntry(entry)}
+                />
               ))}
             </tbody>
           </table>

@@ -106,17 +106,40 @@ describe('<DesarrolloSection />', () => {
     expect(String(mockedApi.mock.calls[2][0])).toBe('/gradebook/gb-1/development?')
   })
 
-  it('borra una clase identificándola por su fecha', async () => {
+  it('borra una clase identificándola por su fecha, después de confirmar', async () => {
+    mockedApi.mockResolvedValue(LOADED)
+    const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+
+    render(<DesarrolloSection />)
+    await screen.findByText('Ley de Coulomb.')
+
+    // Sin confirmar no se borra nada.
+    fireEvent.click(screen.getByRole('button', { name: 'Borrar la clase del 12/05/26' }))
+    expect(mockedApi).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Borrar la clase del 12/05/26' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
+    expect(mockedApi.mock.calls[1][0]).toBe('/gradebook/gb-1/development/ent-1')
+    expect(mockedApi.mock.calls[1][1]?.method).toBe('DELETE')
+    confirm.mockRestore()
+  })
+
+  it('corrige una clase en la misma fila, con PATCH', async () => {
     mockedApi.mockResolvedValue(LOADED)
 
     render(<DesarrolloSection />)
     await screen.findByText('Ley de Coulomb.')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Borrar la clase del 12/05/26' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir la clase del 12/05/26' }))
+    fireEvent.change(screen.getByLabelText('¿Qué se trabajó en clase?', { selector: 'tr input' }), {
+      target: { value: 'Ley de Coulomb y campo eléctrico.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
-    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
-    expect(mockedApi.mock.calls[1][0]).toBe('/gradebook/gb-1/development/ent-1')
-    expect(mockedApi.mock.calls[1][1]?.method).toBe('DELETE')
+    await waitFor(() => expect(mockedApi.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true))
+    const [path, init] = mockedApi.mock.calls.find(([, i]) => i?.method === 'PATCH')!
+    expect(path).toBe('/gradebook/gb-1/development/ent-1')
+    expect(JSON.parse(String(init?.body))).toMatchObject({ description: 'Ley de Coulomb y campo eléctrico.' })
   })
 
   it('sin permiso de edición no ofrece alta ni borrado', async () => {

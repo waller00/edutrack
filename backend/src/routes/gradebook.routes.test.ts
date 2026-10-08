@@ -69,6 +69,7 @@ vi.mock('../services/student-attendance/roll-call.js', async () => {
 })
 vi.mock('../config/system-settings.js', () => ({
   getGradeBookSettings: vi.fn().mockResolvedValue({ editWindowDays: 30 }),
+  getStudentRollCallSettings: vi.fn().mockResolvedValue({ editWindowHours: 48 }),
 }))
 vi.mock('../services/gradebook/moodle-import.js', async () => {
   const actual = await vi.importActual<any>('../services/gradebook/moodle-import.js')
@@ -1501,6 +1502,38 @@ describe('dirección: edita la libreta salvo calificaciones y juicios', () => {
     expect(prismaMock.assessment.create).not.toHaveBeenCalled()
   })
 
+  it('la pantalla le muestra la planificación y el desarrollo editables (antes miraba canGrade)', async () => {
+    asDireccion()
+    prismaMock.gradeBookPlanning.findUnique.mockResolvedValue({
+      gradeBookId: GB_ID,
+      formative: 'Unidad 1',
+      replanning: null,
+      attachments: null,
+      updatedAt: new Date('2026-05-02T15:00:00.000Z'),
+      updatedBy: { name: 'Ana G' },
+    })
+    prismaMock.courseDevelopmentEntry.findMany.mockResolvedValue([])
+    prismaMock.courseDevelopmentEntry.aggregate.mockResolvedValue({ _sum: { hoursTaught: 0, hoursNotTaught: 0 } })
+
+    const planning = await request(app()).get(`/gradebook/${GB_ID}/planning`).set('Authorization', `Bearer ${tok()}`)
+    const development = await request(app()).get(`/gradebook/${GB_ID}/development`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(planning.body.canEdit).toBe(true)
+    expect(planning.body.data).toMatchObject({ updatedByName: 'Ana G', updatedAt: '2026-05-02T15:00:00.000Z' })
+    expect(development.body.canEdit).toBe(true)
+  })
+
+  it('su corrección de la planificación queda auditada', async () => {
+    asDireccion()
+    prismaMock.gradeBookPlanning.upsert.mockResolvedValue({ gradeBookId: GB_ID })
+
+    await request(app()).put(`/gradebook/${GB_ID}/planning`).set('Authorization', `Bearer ${tok()}`).send({ formative: 'Ajuste' })
+
+    await vi.waitFor(() =>
+      expect(prismaMock.auditLog.create.mock.calls.some(([arg]) => arg.data.action === 'GRADEBOOK_PLANNING_UPDATED')).toBe(true),
+    )
+  })
+
   it('el docente sigue pudiendo las dos cosas', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
     accessMock.mockResolvedValue({ level: 'OWNER', canRead: true, canGrade: true, canPlan: true })
@@ -1512,6 +1545,67 @@ describe('dirección: edita la libreta salvo calificaciones y juicios', () => {
       .send({ formative: 'Unidad 1' })
 
     expect(res.status).toBe(200)
+    // El titular escribiendo su planificación no es una corrección: no se audita.
+    expect(prismaMock.auditLog.create.mock.calls.some(([arg]) => arg.data.action === 'GRADEBOOK_PLANNING_UPDATED')).toBe(false)
+  })
+})
+
+describe('desarrollo del curso', () => {
+  const ENTRY = {
+    id: 'dev-1',
+    gradeBookId: GB_ID,
+    date: new Date('2026-05-12T12:00:00Z'),
+    hoursTaught: 2,
+    hoursNotTaught: 0,
+    description: 'Revisión',
+    attachments: null,
+  }
+
+  beforeEach(() => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    accessMock.mockResolvedValue({ level: 'OWNER', canRead: true, canGrade: true, canPlan: true })
+  })
+
+  it('un registro se corrige sin borrarlo, y queda auditado', async () => {
+    ;(prismaMock.courseDevelopmentEntry as any).findFirst = vi.fn().mockResolvedValue(ENTRY)
+    ;(prismaMock.courseDevelopmentEntry as any).update = vi.fn().mockResolvedValue({ ...ENTRY, hoursTaught: 3 })
+
+    const res = await request(app())
+      .patch(`/gradebook/${GB_ID}/development/dev-1`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ hoursTaught: 3 })
+
+    expect(res.status).toBe(200)
+    expect((prismaMock.courseDevelopmentEntry as any).update.mock.calls[0][0]).toEqual({
+      where: { id: 'dev-1' },
+      data: { hoursTaught: 3 },
+    })
+    await vi.waitFor(() =>
+      expect(prismaMock.auditLog.create.mock.calls.some(([arg]) => arg.data.action === 'GRADEBOOK_DEVELOPMENT_UPDATED')).toBe(true),
+    )
+  })
+
+  it('borrar queda auditado con lo que se borró', async () => {
+    ;(prismaMock.courseDevelopmentEntry as any).findFirst = vi.fn().mockResolvedValue(ENTRY)
+    ;(prismaMock.courseDevelopmentEntry as any).delete = vi.fn().mockResolvedValue(ENTRY)
+
+    const res = await request(app()).delete(`/gradebook/${GB_ID}/development/dev-1`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    // Auditoría garantizada (se espera el INSERT): los valores del SQL llevan la acción y lo borrado.
+    const values = prismaMock.$executeRaw.mock.calls.flatMap(([, ...rest]) => rest)
+    expect(values).toContain('GRADEBOOK_DEVELOPMENT_DELETED')
+    expect(values.some((v) => typeof v === 'string' && v.includes('"description":"Revisión"'))).toBe(true)
+  })
+
+  it('con el ciclo cerrado dice eso, no "no sos docente"', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue({ ...ROW, status: 'ARCHIVED' })
+    accessMock.mockResolvedValue({ level: 'OWNER', canRead: true, canGrade: false, canPlan: false })
+
+    const res = await request(app()).delete(`/gradebook/${GB_ID}/development/dev-1`).set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('SCHOOL_YEAR_CLOSED')
   })
 })
 
@@ -1706,6 +1800,11 @@ describe('hoja del estudiante dentro de la libreta', () => {
 describe('inasistencias diarias de la libreta', () => {
   const SID = '22222222-2222-4222-8222-222222222222'
 
+  beforeEach(() => {
+    // Dentro de la ventana de 48 h de una clase del 14/9.
+    vi.setSystemTime(new Date('2026-09-14T18:00:00.000Z'))
+  })
+
   it('GET /absences/day sin clase marca hasClass false y canMark si hay ancla', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
     rosterMock.mockResolvedValue([
@@ -1729,7 +1828,7 @@ describe('inasistencias diarias de la libreta', () => {
     expect(res.body.students[0]).toMatchObject({ studentId: SID, dayMark: null })
   })
 
-  it('PUT /absences/day guarda falta con peso 50', async () => {
+  function classOn14() {
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
     rosterMock.mockResolvedValue([
       { studentId: SID, studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
@@ -1741,6 +1840,11 @@ describe('inasistencias diarias de la libreta', () => {
       endAt: new Date('2026-09-14T13:00:00Z'),
       occurrenceCount: 1,
     })
+    findSessionMock.mockResolvedValue(null)
+  }
+
+  it('PUT /absences/day: el docente no gradúa la falta, aunque mande un peso', async () => {
+    classOn14()
 
     const res = await request(app())
       .put(`/gradebook/${GB_ID}/absences/day`)
@@ -1751,12 +1855,63 @@ describe('inasistencias diarias de la libreta', () => {
       })
 
     expect(res.status).toBe(200)
-    expect(saveRollCallMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        occurrenceYmd: '2026-09-14',
-        entries: [expect.objectContaining({ studentId: SID, status: 'ABSENT', absenceWeightHundredths: 50 })],
-      }),
-    )
+    const [entry] = saveRollCallMock.mock.calls[0][0].entries
+    expect(entry).toMatchObject({ studentId: SID, status: 'ABSENT' })
+    // Graduarla es de adscripción al justificar: la libreta no la pisa.
+    expect(entry.absenceWeightHundredths).toBeUndefined()
+    expect(saveRollCallMock.mock.calls[0][0]).toMatchObject({ outsideWindow: false })
+  })
+
+  it('PUT /absences/day respeta la ventana de 48 h del pase de lista', async () => {
+    classOn14()
+    vi.setSystemTime(new Date('2026-09-20T12:00:00.000Z'))
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/absences/day`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ date: '2026-09-14', entries: [{ studentId: SID, status: 'ABSENT' }] })
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('WINDOW_EXPIRED')
+    expect(saveRollCallMock).not.toHaveBeenCalled()
+  })
+
+  it('PUT /absences/day: una planilla cerrada por administración no se edita', async () => {
+    classOn14()
+    findSessionMock.mockResolvedValue({ takenAt: null, lockedAt: new Date('2026-09-14T14:00:00.000Z'), entries: [] })
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/absences/day`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ date: '2026-09-14', entries: [{ studentId: SID, status: 'LATE' }] })
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('LOCKED')
+  })
+
+  it('administración edita fuera de plazo, y queda marcado para la auditoría', async () => {
+    classOn14()
+    vi.setSystemTime(new Date('2026-09-20T12:00:00.000Z'))
+    scopeMock.mockResolvedValue('all')
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/absences/day`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ date: '2026-09-14', entries: [{ studentId: SID, status: 'LATE' }] })
+
+    expect(res.status).toBe(200)
+    expect(saveRollCallMock.mock.calls[0][0]).toMatchObject({ outsideWindow: true, actedAsAdmin: true })
+  })
+
+  it('GET /absences/day dice que no se puede marcar y por qué', async () => {
+    classOn14()
+    vi.setSystemTime(new Date('2026-09-20T12:00:00.000Z'))
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/absences/day?date=2026-09-14`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body).toMatchObject({ hasClass: true, canMark: false, markBlockedReason: 'WINDOW_EXPIRED' })
   })
 
   it('PUT /absences/day sin peso no pisa el que haya fijado adscripción', async () => {
@@ -2277,9 +2432,14 @@ describe('reabrir una entrega', () => {
       ['gbp-1', 'REOPENED'],
       ['gbp-t1', 'REOPENED'],
     ])
-    const notice = prismaMock.inAppNotification.createMany.mock.calls[0][0].data[0]
-    expect(notice).toMatchObject({ userId: 'teacher-1', type: 'GRADEBOOK_PERIOD_REOPENED' })
-    expect(notice.body).toContain('Adscripción observó el juicio de Benítez')
+    // El aviso sale en segundo plano: se espera y se busca por tipo, no por posición.
+    const reopenNotice = () =>
+      prismaMock.inAppNotification.createMany.mock.calls
+        .flatMap((call: any[]) => call[0].data)
+        .find((n: any) => n.type === 'GRADEBOOK_PERIOD_REOPENED')
+    await vi.waitFor(() => expect(reopenNotice()).toBeDefined())
+    expect(reopenNotice()).toMatchObject({ userId: 'teacher-1' })
+    expect(reopenNotice().body).toContain('Adscripción observó el juicio de Benítez')
   })
 
   it('un tramo o una reunión sin tramos no toca otros períodos', async () => {

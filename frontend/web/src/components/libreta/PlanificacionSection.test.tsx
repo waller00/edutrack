@@ -72,7 +72,7 @@ describe('<PlanificacionSection />', () => {
     mockedApi.mockResolvedValueOnce(LOADED).mockRejectedValueOnce(new Error('Ciclo cerrado'))
 
     render(<PlanificacionSection />)
-    await screen.findByLabelText('A — Planificación formativa')
+    fireEvent.change(await screen.findByLabelText('A — Planificación formativa'), { target: { value: 'Unidad 1 y 2' } })
 
     fireEvent.click(screen.getByRole('button', { name: /Guardar planificación/ }))
 
@@ -80,6 +80,19 @@ describe('<PlanificacionSection />', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Guardar planificación/ })).not.toBeDisabled(),
     )
+  })
+
+  it('sin cambios no hay nada que guardar, y dice quién la modificó por última vez', async () => {
+    mockedApi.mockResolvedValue({
+      ...LOADED,
+      data: { ...LOADED.data, updatedAt: '2026-05-02T15:00:00.000Z', updatedByName: 'Dirección Liceo' },
+    })
+
+    render(<PlanificacionSection />)
+    await screen.findByLabelText('A — Planificación formativa')
+
+    expect(screen.getByRole('button', { name: /Guardar planificación/ })).toBeDisabled()
+    expect(screen.getByText(/Modificada por Dirección Liceo el/)).toBeInTheDocument()
   })
 
   it('explica que EduTrack no guarda archivos', async () => {

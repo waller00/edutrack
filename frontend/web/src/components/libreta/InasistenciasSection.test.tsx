@@ -76,6 +76,18 @@ describe('<InasistenciasSection />', () => {
     })
   })
 
+  it('con el plazo vencido lo explica y no deja marcar', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (String(path).includes('/mine')) return { data: [] }
+      return board({ canMark: false, markBlockedReason: 'WINDOW_EXPIRED' })
+    })
+
+    render(<InasistenciasSection />)
+
+    expect(await screen.findByText(/Se venció el plazo para pasar lista de este día/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Inasistencia de Cabrera, Camila/)).toBeDisabled()
+  })
+
   it('no renderiza nada mientras la libreta no cargó', () => {
     detail.mockReturnValue(null)
     const { container } = render(<InasistenciasSection />)
