@@ -5,6 +5,7 @@ import { attachmentDisposition } from '../services/exports/content-disposition.j
 import { requirePermission } from '../middlewares/auth.js'
 import { loadAbsenceTotals } from '../services/student-attendance/absence-totals.js'
 import { loadReportCards } from '../services/gradebook/report-card-loader.js'
+import { loadStudentFileExtras } from '../services/gradebook/student-file.js'
 import { completionRequestBody, isStageComplete, stageDetail } from '../services/gradebook/completeness.js'
 import { conductOptions, conductScale, isConductValue, periodScaleFor } from '../services/gradebook/period-scale.js'
 import { loadPeriodCompleteness } from '../services/gradebook/completeness-loader.js'
@@ -299,8 +300,8 @@ r.get('/students/:studentId', async (req: any, res) => {
       prisma.studentEnrollment.findMany({
         where: { studentId: student.id },
         include: {
-          schoolYear: { select: { code: true, label: true } },
-          courseOffering: { include: { course: { select: { name: true } } } },
+          schoolYear: { select: { id: true, code: true, label: true } },
+          courseOffering: { include: { course: { select: { name: true, level: true } } } },
           orientation: { select: { name: true } },
           courseOrientation: { include: { orientation: { select: { name: true } } } },
         },
@@ -358,17 +359,26 @@ r.get('/students/:studentId', async (req: any, res) => {
       }
     })
 
+    // Faltas, conducta y reuniones con boletín de cada año: la reunión mira las tres cosas juntas.
+    const extras = await loadStudentFileExtras(
+      student.id,
+      enrollments.map((e) => ({ schoolYearId: e.schoolYearId, level: e.courseOffering.course.level ?? null })),
+    )
+
     return res.json({
       student,
       enrollments: enrollments.map((e) => ({
+        schoolYearId: e.schoolYearId,
         schoolYearCode: e.schoolYear.code,
         schoolYearLabel: e.schoolYear.label,
         courseName: e.courseOffering.course.name,
         orientationName: e.courseOrientation?.orientation.name ?? e.orientation?.name ?? null,
         status: e.enrollmentStatus,
+        ...extras.byYear.get(e.schoolYearId),
       })),
       history,
       evolutionByYear,
+      decisions: extras.decisions,
     })
   } catch (error) {
     console.error('[admin-gradebook] student file:', error)

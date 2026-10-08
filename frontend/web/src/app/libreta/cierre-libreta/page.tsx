@@ -1,14 +1,9 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-import RoleGuard from '@/components/auth/RoleGuard'
-import ElegirLibreta from '@/components/libreta/ElegirLibreta'
-
+/**
+ * "Cerrar Prom. por Libreta" abría la misma pantalla que "por Alumno", que ya cierra de las dos
+ * formas. Se unificaron en "Cierre de períodos"; la ruta queda para que los enlaces viejos no se rompan.
+ */
 export default function Page() {
-  return (
-    <RoleGuard permission="gradebook.read">
-      <main className="responsive-page max-w-[1200px]">
-        <ElegirLibreta section="cierre" title="Cerrar Prom. por Libreta" hint="Cerrar el período de una libreta completa." />
-      </main>
-    </RoleGuard>
-  )
+  redirect('/libreta/cierre-alumno')
 }
