@@ -4,7 +4,8 @@ import { authGuard, requirePermission, userPermissionScope } from '../middleware
 import { prisma } from '../db/prisma.js'
 import { reconcileAttendancesForMedicalLeave } from '../services/medicalLeaveReconciliation.js'
 import { recordAuditEvent } from '../services/audit-log.js'
-import { AuditAction } from '@prisma/client'
+import { AuditAction, type Prisma } from '@prisma/client'
+import { activeOnDays, queryDayYmd, schoolYearDays } from '../services/medical-leave-dates.js'
 import { sendWebPushPayloadToUser } from '../services/webPush.js'
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
 
@@ -23,6 +24,13 @@ function myLicensesPathForRole(role: string | undefined): string {
 
 function medicalLeaveWithRoleCode<L extends { user: Parameters<typeof attachRoleCode>[0] }>(l: L) {
   return { ...l, user: attachRoleCode(l.user) }
+}
+
+/** Página y tamaño válidos: antes un `pageSize` sin tope (o no numérico) llegaba tal cual a Prisma. */
+function pageParams(query: Record<string, unknown>): { page: number; pageSize: number } {
+  const page = Math.max(1, Math.trunc(Number(query.page)) || 1)
+  const pageSize = Math.min(100, Math.max(1, Math.trunc(Number(query.pageSize)) || 20))
+  return { page, pageSize }
 }
 
 // Esquemas de validación
@@ -46,42 +54,35 @@ const medicalLeaveUpdateSchema = z.object({
 // Obtener todas las licencias médicas (solo admin)
 r.get('/all', authGuard, requirePermission('licenses.read', 'all'), async (req, res) => {
   try {
-    const {
-      userId,
-      type,
-      status,
-      startDate,
-      endDate,
-      schoolYearId,
-      page = 1,
-      pageSize = 20
-    } = req.query
+    const { userId, type, status, startDate, endDate, schoolYearId } = req.query
+    const { page, pageSize } = pageParams(req.query)
 
-    const where: any = {}
+    // "Desde" y "Hasta" son el período consultado: entra toda licencia vigente algún día de ese
+    // rango. Antes eran "empieza después de" y "termina antes de", y una licencia que cruzaba el
+    // borde quedaba afuera.
+    const and: Prisma.MedicalLeaveWhereInput[] = activeOnDays(queryDayYmd(startDate), queryDayYmd(endDate))
 
-    if (userId) where.userId = userId
-    if (type) where.type = type
-    if (status) where.status = status
-    if (startDate) where.startDate = { gte: new Date(String(startDate)) }
-    if (endDate) where.endDate = { lte: new Date(String(endDate)) }
-
-    // Filtro por ciclo lectivo: la licencia no tiene ciclo propio, así que la incluimos si
-    // su período SOLAPA el rango del ciclo (startDate <= fin del ciclo y endDate >= inicio).
+    // La licencia no tiene ciclo propio: entra si está vigente algún día del ciclo.
     if (typeof schoolYearId === 'string' && schoolYearId) {
       const sy = await prisma.schoolYear.findUnique({
         where: { id: schoolYearId },
-        select: { startsOn: true, endsOn: true },
+        select: { code: true, startsOn: true, endsOn: true },
       })
-      if (sy?.startsOn && sy.endsOn) {
-        where.startDate = { ...where.startDate, lte: sy.endsOn }
-        where.endDate = { ...where.endDate, gte: sy.startsOn }
-      }
+      if (!sy) return res.status(404).json({ message: 'Ciclo lectivo no encontrado' })
+      const days = schoolYearDays(sy)
+      and.push(...activeOnDays(days.from, days.to))
     }
 
-    const skip = (Number(page) - 1) * Number(pageSize)
-    const take = Number(pageSize)
+    const where: Prisma.MedicalLeaveWhereInput = {
+      ...(typeof userId === 'string' && userId ? { userId } : {}),
+      ...(typeof type === 'string' && type ? { type: type as never } : {}),
+      ...(typeof status === 'string' && status ? { status: status as never } : {}),
+      ...(and.length > 0 ? { AND: and } : {}),
+    }
 
-    const [licenses, total] = await Promise.all([
+    // Los totales son de todo el filtro, no de la página: antes se contaban sobre las 20 visibles.
+    const countWith = (extra: Prisma.MedicalLeaveWhereInput) => prisma.medicalLeave.count({ where: { AND: [where, extra] } })
+    const [licenses, total, active, inactive, medical] = await Promise.all([
       prisma.medicalLeave.findMany({
         where,
         include: {
@@ -94,21 +95,26 @@ r.get('/all', authGuard, requirePermission('licenses.read', 'all'), async (req, 
             }
           }
         },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take
+        // Por fecha de la licencia, no de carga: es lo que se busca al revisar un período.
+        orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
       }),
-      prisma.medicalLeave.count({ where })
+      prisma.medicalLeave.count({ where }),
+      countWith({ status: 'ACTIVE' }),
+      countWith({ status: 'INACTIVE' }),
+      countWith({ type: 'MEDICAL_LEAVE' }),
     ])
 
     res.json({
       data: licenses.map((li) => medicalLeaveWithRoleCode(li)),
       pagination: {
-        page: Number(page),
-        pageSize: Number(pageSize),
+        page,
+        pageSize,
         total,
-        totalPages: Math.ceil(total / Number(pageSize))
-      }
+        totalPages: Math.ceil(total / pageSize)
+      },
+      summary: { total, active, inactive, medical },
     })
   } catch (error) {
     console.error('Error obteniendo licencias médicas:', error)
@@ -121,17 +127,14 @@ r.get('/my-leaves', authGuard, requirePermission('licenses.read'), async (req, r
   try {
     const userId = req.user?.id
     if (!userId) return res.status(401).json({ message: 'No autorizado' })
-    const { page = 1, pageSize = 20 } = req.query
-
-    const skip = (Number(page) - 1) * Number(pageSize)
-    const take = Number(pageSize)
+    const { page, pageSize } = pageParams(req.query)
 
     const [licenses, total] = await Promise.all([
       prisma.medicalLeave.findMany({
         where: { userId },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take
+        orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
       }),
       prisma.medicalLeave.count({ where: { userId } })
     ])
@@ -139,10 +142,10 @@ r.get('/my-leaves', authGuard, requirePermission('licenses.read'), async (req, r
     res.json({
       data: licenses,
       pagination: {
-        page: Number(page),
-        pageSize: Number(pageSize),
+        page,
+        pageSize,
         total,
-        totalPages: Math.ceil(total / Number(pageSize))
+        totalPages: Math.ceil(total / pageSize)
       }
     })
   } catch (error) {

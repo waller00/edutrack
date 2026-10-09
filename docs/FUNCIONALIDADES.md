@@ -241,7 +241,20 @@ Registro **sin login obligatorio** del alumnado:
 
 - Registro de licencias con fechas, tipo, usuario, documentación.
 - Estados activo/inactivo; impacto en reconciliación de asistencia e incidencias.
-- Filtros por usuario, fechas y estado.
+- **Una licencia es de días enteros** (`services/medical-leave-dates.ts`): cubre desde las 00:00
+  del primer día hasta el final del último en hora institucional, para la conciliación, la marca de
+  entrada, las incidencias y la biometría. Se guarda con la fecha UTC del día; antes se comparaba
+  ese instante y una licencia "del 3 al 7" iba de las 9:00 del 3 a las 9:00 del 7.
+- **Ciclo lectivo:** la licencia no tiene ciclo propio; aparece en un ciclo si está vigente algún
+  día de él, comparando días (antes una licencia que empezaba el último día del ciclo quedaba
+  afuera). Un ciclo sin fechas cargadas es su año calendario; antes el filtro se ignoraba y se
+  veían las licencias de todos los años. Al crear una licencia de otro ciclo, la pantalla avisa
+  que no va a aparecer en la lista que se está mirando.
+- **Filtros:** usuario, estado, tipo y un período (desde/hasta) que trae las licencias vigentes
+  algún día de él, también las que empezaron antes o terminan después.
+- **Lista paginada** (50 por página, ordenadas por fecha de la licencia) con los totales del
+  filtro entero; antes se veían sólo las 20 cargadas más recientemente. El selector de personal
+  trae a todos, también después del usuario 100.
 
 ---
 
