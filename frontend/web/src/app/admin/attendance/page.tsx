@@ -1,9 +1,10 @@
 'use client'
 import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
-import DateField from '@/components/forms/DateField'
+import DateRangePicker from '@/components/forms/DateRangePicker'
+import AttendanceExportMenu from '@/components/admin/AttendanceExportMenu'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import {
@@ -25,23 +26,13 @@ import PersonAttendanceDrawer from '@/components/admin/PersonAttendanceDrawer'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   BarChart3,
-  Calendar,
   ChevronDown,
   ChevronRight,
-  Download,
-  FileSpreadsheet,
-  FileText,
-  Loader2,
   Search,
   Trash2,
 } from 'lucide-react'
 
 type NovedadesFormat = 'XLSX' | 'CSV'
-
-const NOVEDADES_EXPORT_FORMATS: { value: NovedadesFormat; label: string; hint: string }[] = [
-  { value: 'XLSX', label: 'Excel (.xlsx)', hint: 'Para revisar y ajustar antes de importar' },
-  { value: 'CSV', label: 'CSV (.csv)', hint: 'Formato universal de importación' },
-]
 
 function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
   if (attendance.type === 'CHECK_OUT' && attendance.status === 'PRESENT') {
@@ -642,32 +633,13 @@ export default function AdminAttendance() {
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
   const [novedadesExporting, setNovedadesExporting] = useState<'' | NovedadesFormat>('')
-  const [novedadesMenuOpen, setNovedadesMenuOpen] = useState(false)
-  const novedadesMenuRef = useRef<HTMLDivElement | null>(null)
-
-  // El menú de formato de novedades se cierra al hacer clic fuera o con Escape.
-  useEffect(() => {
-    if (!novedadesMenuOpen) return
-    function onPointerDown(event: MouseEvent) {
-      if (!novedadesMenuRef.current?.contains(event.target as Node)) setNovedadesMenuOpen(false)
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setNovedadesMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [novedadesMenuOpen])
+  const [reportExporting, setReportExporting] = useState<'' | 'excel' | 'pdf'>('')
 
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
   const showingExitStats = filters.type === 'CHECK_OUT'
   const activeFilterCount = [
-    filters.startDate,
-    filters.endDate,
+    filters.startDate || filters.endDate,
     filters.userId,
     filters.eventId,
     filters.eventType,
@@ -675,6 +647,8 @@ export default function AdminAttendance() {
     filters.status,
     filters.role,
   ].filter(Boolean).length
+
+  const additionalFilterCount = [filters.eventId, filters.eventType, filters.role].filter(Boolean).length
 
   useEffect(() => {
     loadAttendances()
@@ -897,9 +871,11 @@ export default function AdminAttendance() {
   }
 
   async function exportReport(format: 'excel' | 'pdf') {
+    if (reportExporting || novedadesExporting) return
+    setReportExporting(format)
     try {
       const apiUrl = apiBaseUrl()
-      const to = filters.endDate || new Date().toISOString().split('T')[0]
+      const to = filters.endDate || getTodayYmdInUruguay()
       // Si no se eligió fecha de inicio, tomamos el 1 de enero del año de `to`
       // para cubrir el ciclo completo y que el reporte no quede vacío ni falle la validación.
       const from = filters.startDate || `${to.slice(0, 4)}-01-01`
@@ -983,6 +959,8 @@ export default function AdminAttendance() {
     } catch (error: any) {
       console.error('Error completo:', error)
       setMessage(`❌ Error: ${error.message || 'Error al exportar el reporte'}`)
+    } finally {
+      setReportExporting('')
     }
   }
 
@@ -1005,11 +983,11 @@ export default function AdminAttendance() {
   // Novedades de liquidación de sueldos: una fila por docente y concepto (CI, horas dictadas,
   // suplencias, faltas, licencias). Respeta exactamente los mismos filtros que la tabla en pantalla.
   async function exportNovedades(format: NovedadesFormat) {
-    setNovedadesMenuOpen(false)
+    if (reportExporting || novedadesExporting) return
     setNovedadesExporting(format)
     try {
       const apiUrl = apiBaseUrl()
-      const to = filters.endDate || new Date().toISOString().split('T')[0]
+      const to = filters.endDate || getTodayYmdInUruguay()
       const from = filters.startDate || `${to.slice(0, 4)}-01-01`
 
       const payload = {
@@ -1069,7 +1047,7 @@ export default function AdminAttendance() {
 
   return (
     <RoleGuard permission="attendance.read" permissionScope="all">
-      <main className="responsive-page max-w-7xl space-y-8">
+      <main className="responsive-page max-w-7xl space-y-5">
         {/* Header moderno */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
@@ -1077,13 +1055,13 @@ export default function AdminAttendance() {
               <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">EduTrack</h1>
+              <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Asistencias</h1>
               <p className="text-gray-600">Control y seguimiento del personal</p>
             </div>
           </div>
-          <div className="text-left sm:text-right">
-            <div className="text-2xl font-bold text-emerald-600">{total}</div>
-            <div className="text-sm text-gray-600">registros totales</div>
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="text-sm text-slate-500"><strong className="font-semibold tabular-nums text-slate-800">{total}</strong> registros totales</span>
+            <AttendanceExportMenu pending={!!(reportExporting || novedadesExporting)} onAttendance={exportReport} onPayroll={exportNovedades} />
           </div>
         </div>
 
@@ -1095,27 +1073,12 @@ export default function AdminAttendance() {
                 <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
                   <Search className="h-4 w-4 text-emerald-600" aria-hidden />
                 </div>
-                <h2 className="text-lg font-semibold text-gray-900">Filtros de Búsqueda</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Buscar asistencias</h2>
               </div>
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                <button
-                  onClick={() => exportReport('excel')}
-                  aria-label="Exportar asistencias a Excel"
-                  className="btn-success inline-flex items-center gap-1.5 text-sm"
-                >
-                  <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
-                  Excel
-                </button>
-                <button
-                  onClick={() => exportReport('pdf')}
-                  aria-label="Exportar asistencias a PDF"
-                  className="btn-danger inline-flex items-center gap-1.5 text-sm"
-                >
-                  <FileText className="h-4 w-4 shrink-0" aria-hidden />
-                  PDF
-                </button>
+              <div>
                 <button
                   onClick={() => {
+                    setPage(1)
                     setFilters({
                       startDate: '',
                       endDate: '',
@@ -1136,7 +1099,7 @@ export default function AdminAttendance() {
                   className="btn-secondary inline-flex items-center gap-1.5 text-sm"
                 >
                   <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
-                  Limpiar
+                  Limpiar filtros
                   {activeFilterCount > 0 ? (
                     <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1 text-xs font-semibold text-white">
                       {activeFilterCount}
@@ -1147,146 +1110,73 @@ export default function AdminAttendance() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <DateRangePicker
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+              onChange={(range) => {
+                setPage(1)
+                setFilters((previous) => ({ ...previous, ...range }))
+              }}
+            />
             <div>
-              <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
-                <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                Fecha inicio
-              </label>
-              <DateField
-                value={filters.startDate}
-                onChange={(v) => setFilters({ ...filters, startDate: v })}
-                className="input-field"
-              />
-            </div>
-            <div>
-              <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
-                <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                Fecha fin
-              </label>
-              <DateField
-                value={filters.endDate}
-                onChange={(v) => setFilters({ ...filters, endDate: v })}
-                className="input-field"
-              />
-            </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={filters.userSearch}
-                          onChange={(e) => {
-                            setFilters({ ...filters, userSearch: e.target.value, userId: '' })
-                            setSelectedUserName('')
-                          }}
-                          onFocus={() => setIsUserDropdownOpen(true)}
-                          placeholder="Buscar por username..."
-                          className="w-full border border-gray-300 rounded px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                        />
-                        <button
-                          type="button"
-                          aria-label="Mostrar/ocultar lista de usuarios"
-                          className="absolute inset-y-0 right-0 flex items-center pr-2 cursor-pointer"
-                          onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
-                        >
-                          <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
-                      </div>
-                      {isUserDropdownOpen && !selectedUserName && (
-                        <div className="mt-1 max-h-40 overflow-y-auto border border-gray-300 rounded bg-white shadow-lg z-10">
-                          {users
-                            .filter(user => 
-                              !filters.userSearch || 
-                              (user.username && user.username.toLowerCase().includes(filters.userSearch.toLowerCase())) ||
-                              (user.name && user.name.toLowerCase().includes(filters.userSearch.toLowerCase()))
-                            )
-                            .map(user => (
-                              <button
-                                type="button"
-                                key={user.id}
-                                onClick={() => {
-                                  setFilters({ ...filters, userId: user.id, userSearch: user.username || user.name || '' })
-                                  setSelectedUserName(user.username || user.name || '')
-                                  setIsUserDropdownOpen(false)
-                                }}
-                                className="block w-full text-left px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
-                              >
-                                {user.username ? `@${user.username}` : (user.name || 'Sin nombre')}
-                              </button>
-                            ))}
-                        </div>
-                      )}
-                      {selectedUserName && (
-                        <div className="mt-1 px-3 py-2 bg-gray-100 rounded text-sm">
-                          Seleccionado: {selectedUserName.startsWith('@') ? selectedUserName : `@${selectedUserName}`}
-                          <button
-                            onClick={() => {
-                              setFilters({ ...filters, userId: '', userSearch: '' })
-                              setSelectedUserName('')
-                              setIsUserDropdownOpen(false)
-                            }}
-                            className="ml-2 text-red-600 hover:text-red-800"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      )}
-                    </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Evento</label>
+              <label htmlFor="attendance-user" className="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
               <div className="relative">
                 <input
+                  id="attendance-user"
                   type="text"
-                  value={selectedEventName}
+                  value={filters.userSearch}
                   onChange={(e) => {
-                    setSelectedEventName(e.target.value)
-                    setFilters({ ...filters, eventId: '' })
+                    setFilters({ ...filters, userSearch: e.target.value, userId: '' })
+                    setSelectedUserName('')
                   }}
-                  onFocus={() => setIsEventDropdownOpen(true)}
-                  placeholder="Buscar evento..."
-                  disabled={!filters.userId}
-                  className="w-full border border-gray-300 rounded px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  onFocus={() => setIsUserDropdownOpen(true)}
+                  placeholder="Buscar por username..."
+                  className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                 />
                 <button
                   type="button"
-                  aria-label="Mostrar/ocultar lista de eventos"
+                  aria-label="Mostrar/ocultar lista de usuarios"
                   className="absolute inset-y-0 right-0 flex items-center pr-2 cursor-pointer"
-                  onClick={() => setIsEventDropdownOpen(!isEventDropdownOpen)}
+                  onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
                 >
                   <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
               </div>
-              {isEventDropdownOpen && !selectedEventName && filters.userId && (
+              {isUserDropdownOpen && !selectedUserName && (
                 <div className="mt-1 max-h-40 overflow-y-auto border border-gray-300 rounded bg-white shadow-lg z-10">
-                  {userEvents.map(event => (
-                    <button
-                      type="button"
-                      key={event.id}
-                      onClick={() => {
-                        setFilters({ ...filters, eventId: event.id })
-                        setSelectedEventName(event.title)
-                        setIsEventDropdownOpen(false)
-                      }}
-                      className="block w-full text-left px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
-                    >
-                      {event.title} ({event.type})
-                    </button>
-                  ))}
+                  {users
+                    .filter(user =>
+                      !filters.userSearch ||
+                      (user.username && user.username.toLowerCase().includes(filters.userSearch.toLowerCase())) ||
+                      (user.name && user.name.toLowerCase().includes(filters.userSearch.toLowerCase()))
+                    )
+                    .map(user => (
+                      <button
+                        type="button"
+                        key={user.id}
+                        onClick={() => {
+                          setFilters({ ...filters, userId: user.id, userSearch: user.username || user.name || '' })
+                          setSelectedUserName(user.username || user.name || '')
+                          setIsUserDropdownOpen(false)
+                        }}
+                        className="block w-full text-left px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                      >
+                        {user.username ? `@${user.username}` : (user.name || 'Sin nombre')}
+                      </button>
+                    ))}
                 </div>
               )}
-              {selectedEventName && (
+              {selectedUserName && (
                 <div className="mt-1 px-3 py-2 bg-gray-100 rounded text-sm">
-                  Seleccionado: {selectedEventName}
+                  Seleccionado: {selectedUserName.startsWith('@') ? selectedUserName : `@${selectedUserName}`}
                   <button
                     onClick={() => {
-                      setFilters({ ...filters, eventId: '' })
-                      setSelectedEventName('')
-                      setIsEventDropdownOpen(false)
+                      setFilters({ ...filters, userId: '', userSearch: '' })
+                      setSelectedUserName('')
+                      setIsUserDropdownOpen(false)
                     }}
                     className="ml-2 text-red-600 hover:text-red-800"
                   >
@@ -1294,143 +1184,153 @@ export default function AdminAttendance() {
                   </button>
                 </div>
               )}
-              {!filters.userId && (
-                <p className="text-xs text-gray-500 mt-1">Seleccioná una persona primero</p>
-              )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de actividad</label>
+              <label htmlFor="attendance-type" className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
               <select
-                value={filters.eventType}
-                onChange={(e) => setFilters({ ...filters, eventType: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              >
-                <option value="">Todos</option>
-                <option value="JORNADA_LABORAL">Jornada laboral</option>
-                <option value="REUNION">Reunión</option>
-                <option value="CLASE">Clase</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-              <select
+                id="attendance-type"
                 value={filters.type}
                 onChange={(e) => setFilters({ ...filters, type: e.target.value, status: '' })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               >
                 <option value="">Todos</option>
                 <option value="CHECK_IN">Entrada</option>
                 <option value="CHECK_OUT">Salida</option>
               </select>
             </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-                      <select
-                        value={filters.status}
-                        onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                        disabled={!filters.type}
-                        className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                      >
-                        <option value="">Todos</option>
-                        {filters.type === 'CHECK_IN' && (
-                          <>
-                            <option value="ABSENCES">Todas las ausencias</option>
-                            <option value="PRESENT">Presente</option>
-                            <option value="LATE">Tarde</option>
-                            <option value="ABSENT_NOT_JUSTIFIED">Ausente sin justificar</option>
-                            <option value="SUBSTITUTED">Suplida (ausencia cubierta)</option>
-                            <option value="JUSTIFIED">Justificado</option>
-                            <option value="ABSENT_JUSTIFIED">Ausente justificada</option>
-                          </>
-                        )}
-                        {filters.type === 'CHECK_OUT' && (
-                          <>
-                            <option value="EXIT">Salida</option>
-                            <option value="EARLY_EXIT">Salida anticipada</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Perfil</label>
+              <label htmlFor="attendance-status" className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
               <select
-                value={filters.role}
-                onChange={(e) => setFilters({ ...filters, role: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                id="attendance-status"
+                value={filters.status}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                disabled={!filters.type}
+                className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
                 <option value="">Todos</option>
-                <option value="ADMIN">Administración</option>
-                <option value="TEACHER">Docente</option>
-                <option value="STAFF">Personal</option>
+                {filters.type === 'CHECK_IN' && (
+                  <>
+                    <option value="ABSENCES">Todas las ausencias</option>
+                    <option value="PRESENT">Presente</option>
+                    <option value="LATE">Tarde</option>
+                    <option value="ABSENT_NOT_JUSTIFIED">Ausente sin justificar</option>
+                    <option value="SUBSTITUTED">Suplida (ausencia cubierta)</option>
+                    <option value="JUSTIFIED">Justificado</option>
+                    <option value="ABSENT_JUSTIFIED">Ausente justificada</option>
+                  </>
+                )}
+                {filters.type === 'CHECK_OUT' && (
+                  <>
+                    <option value="EXIT">Salida</option>
+                    <option value="EARLY_EXIT">Salida anticipada</option>
+                  </>
+                )}
               </select>
             </div>
           </div>
-
-          {/* Novedades de liquidación de sueldos: usa exactamente los filtros de arriba */}
-          <div className="mt-6 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-2.5">
-              <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+          <details className="mt-4 rounded-xl border border-slate-200">
+            <summary className="cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">
+              Más filtros{additionalFilterCount > 0 ? ` · ${additionalFilterCount} activos` : ''}
+            </summary>
+            <div className="grid grid-cols-1 gap-4 border-t border-slate-100 p-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
-                <div className="text-sm font-medium text-gray-900">Novedades de liquidación (sueldos)</div>
-                <p className="mt-0.5 max-w-xl text-xs leading-relaxed text-gray-500">
-                  Una fila por docente y concepto (CI, horas dictadas, suplencias, faltas, licencias) con los filtros
-                  aplicados, para importar en el sistema de sueldos (GNS, Memory, Kash, LIDESU). Si no elegís persona ni
-                  perfil, se toman todos los docentes.
-                </p>
+                <label htmlFor="attendance-event" className="block text-sm font-medium text-gray-700 mb-1">Evento</label>
+                <div className="relative">
+                  <input
+                    id="attendance-event"
+                    type="text"
+                    value={selectedEventName}
+                    onChange={(e) => {
+                      setSelectedEventName(e.target.value)
+                      setFilters({ ...filters, eventId: '' })
+                    }}
+                    onFocus={() => setIsEventDropdownOpen(true)}
+                    placeholder="Buscar evento..."
+                    disabled={!filters.userId}
+                    className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Mostrar/ocultar lista de eventos"
+                    className="absolute inset-y-0 right-0 flex items-center pr-2 cursor-pointer"
+                    onClick={() => setIsEventDropdownOpen(!isEventDropdownOpen)}
+                  >
+                    <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                </div>
+                {isEventDropdownOpen && !selectedEventName && filters.userId && (
+                  <div className="mt-1 max-h-40 overflow-y-auto border border-gray-300 rounded bg-white shadow-lg z-10">
+                    {userEvents.map(event => (
+                      <button
+                        type="button"
+                        key={event.id}
+                        onClick={() => {
+                          setFilters({ ...filters, eventId: event.id })
+                          setSelectedEventName(event.title)
+                          setIsEventDropdownOpen(false)
+                        }}
+                        className="block w-full text-left px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                      >
+                        {event.title} ({event.type})
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selectedEventName && (
+                  <div className="mt-1 px-3 py-2 bg-gray-100 rounded text-sm">
+                    Seleccionado: {selectedEventName}
+                    <button
+                      onClick={() => {
+                        setFilters({ ...filters, eventId: '' })
+                        setSelectedEventName('')
+                        setIsEventDropdownOpen(false)
+                      }}
+                      className="ml-2 text-red-600 hover:text-red-800"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                {!filters.userId && (
+                  <p className="text-xs text-gray-500 mt-1">Seleccioná una persona primero</p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="attendance-event-type" className="block text-sm font-medium text-gray-700 mb-1">Tipo de actividad</label>
+                <select
+                    id="attendance-event-type"
+                  value={filters.eventType}
+                  onChange={(e) => setFilters({ ...filters, eventType: e.target.value })}
+                  className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                >
+                  <option value="">Todos</option>
+                  <option value="JORNADA_LABORAL">Jornada laboral</option>
+                  <option value="REUNION">Reunión</option>
+                  <option value="CLASE">Clase</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="attendance-role" className="block text-sm font-medium text-gray-700 mb-1">Perfil</label>
+                <select
+                    id="attendance-role"
+                  value={filters.role}
+                  onChange={(e) => setFilters({ ...filters, role: e.target.value })}
+                  className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                >
+                  <option value="">Todos</option>
+                  <option value="ADMIN">Administración</option>
+                  <option value="TEACHER">Docente</option>
+                  <option value="STAFF">Personal</option>
+                </select>
               </div>
             </div>
-
-            <div className="relative shrink-0" ref={novedadesMenuRef}>
-              <button
-                type="button"
-                disabled={novedadesExporting !== ''}
-                onClick={() => setNovedadesMenuOpen(!novedadesMenuOpen)}
-                aria-haspopup="menu"
-                aria-expanded={novedadesMenuOpen}
-                className="btn-secondary inline-flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-50 sm:w-auto"
-              >
-                {novedadesExporting !== '' ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                ) : (
-                  <Download className="h-4 w-4 shrink-0" aria-hidden />
-                )}
-                {novedadesExporting !== '' ? 'Generando…' : 'Exportar novedades'}
-                <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
-              </button>
-
-              {novedadesMenuOpen && (
-                <div
-                  role="menu"
-                  aria-label="Formato de exportación de novedades"
-                  className="absolute right-0 z-20 mt-2 w-64 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg"
-                >
-                  {NOVEDADES_EXPORT_FORMATS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => exportNovedades(option.value)}
-                      className="flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-emerald-50"
-                    >
-                      {option.value === 'XLSX' ? (
-                        <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                      ) : (
-                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                      )}
-                      <span>
-                        <span className="block text-sm font-medium text-gray-900">{option.label}</span>
-                        <span className="block text-xs text-gray-500">{option.hint}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          </details>
         </div>
 
         {/* Métricas (KPIs) */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="p-4 bg-white border rounded-lg shadow-sm">
             <div className="text-sm text-gray-500">{showingExitStats ? 'Tasa de Salida' : 'Tasa de Presencia'}</div>
             <div className="text-2xl font-bold text-emerald-600">
@@ -1438,7 +1338,7 @@ export default function AdminAttendance() {
             </div>
             <div className="text-xs text-gray-500">
               {showingExitStats
-                ? 'Solo salidas (CHECK_OUT) en el rango filtrado'
+                ? 'Salidas en el período elegido'
                 : 'Entradas registradas sobre el filtro completo'}
             </div>
           </div>
@@ -1475,58 +1375,61 @@ export default function AdminAttendance() {
         </div>
 
         {/* Gráfico (simple) de distribución de estados */}
-        <div className="bg-white border rounded-lg shadow-sm p-4 sm:p-6">
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <h3 className="text-lg font-semibold">Distribución de Estados</h3>
-            <div className="text-sm text-gray-500">
-              {statsLoading
-                ? 'Cargando…'
-                : stats
-                  ? `${showingExitStats ? 'Salidas' : 'Entradas'}: ${stats.totalAttendances}`
-                  : ''}
+        <details className="rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">Ver distribución de estados</summary>
+          <div className="border-t border-slate-100 p-4 sm:p-6">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <h3 className="text-lg font-semibold">Distribución de Estados</h3>
+              <div className="text-sm text-gray-500">
+                {statsLoading
+                  ? 'Cargando…'
+                  : stats
+                    ? `${showingExitStats ? 'Salidas' : 'Entradas'}: ${stats.totalAttendances}`
+                    : ''}
+              </div>
             </div>
+            {statsLoading || !stats ? (
+              <div className="text-sm text-gray-500">—</div>
+            ) : (
+              (() => {
+                const first = showingExitStats ? stats.exitCount : stats.presentCount
+                const second = showingExitStats ? stats.earlyExitCount : stats.lateCount
+                const third = showingExitStats ? 0 : stats.absentCount
+                const max = Math.max(1, first, second, third)
+                const hMax = 90
+                const bar = (value: number) => (value / max) * hMax
+
+                const bar1H = bar(first)
+                const bar2H = bar(second)
+                const bar3H = bar(third)
+
+                return (
+                  <svg viewBox="0 0 600 140" className="w-full" role="img" aria-label="Distribución de estados">
+                    <rect x="40" y="20" width="520" height="100" fill="none" stroke="#e5e7eb" rx="8" />
+                    {/* Eje / baseline */}
+                    <line x1="60" y1="110" x2="560" y2="110" stroke="#e5e7eb" />
+
+                    {/* Barras */}
+                    <rect x="130" y={110 - bar1H} width="90" height={bar1H} fill="#16a34a" rx="6" />
+                    <rect x="255" y={110 - bar2H} width="90" height={bar2H} fill="#f59e0b" rx="6" />
+                    <rect x="380" y={110 - bar3H} width="90" height={bar3H} fill="#dc2626" rx="6" />
+
+                    {/* Labels */}
+                    <text x="175" y="130" textAnchor="middle" fontSize="12" fill="#374151">
+                      {showingExitStats ? `Salida (${first})` : `Presente (${first})`}
+                    </text>
+                    <text x="300" y="130" textAnchor="middle" fontSize="12" fill="#374151">
+                      {showingExitStats ? `Anticipada (${second})` : `Tarde (${second})`}
+                    </text>
+                    <text x="425" y="130" textAnchor="middle" fontSize="12" fill="#374151">
+                      {showingExitStats ? '' : `Ausente (${third})`}
+                    </text>
+                  </svg>
+                )
+              })()
+            )}
           </div>
-          {statsLoading || !stats ? (
-            <div className="text-sm text-gray-500">—</div>
-          ) : (
-            (() => {
-              const first = showingExitStats ? stats.exitCount : stats.presentCount
-              const second = showingExitStats ? stats.earlyExitCount : stats.lateCount
-              const third = showingExitStats ? 0 : stats.absentCount
-              const max = Math.max(1, first, second, third)
-              const hMax = 90
-              const bar = (value: number) => (value / max) * hMax
-
-              const bar1H = bar(first)
-              const bar2H = bar(second)
-              const bar3H = bar(third)
-
-              return (
-                <svg viewBox="0 0 600 140" className="w-full" role="img" aria-label="Distribución de estados">
-                  <rect x="40" y="20" width="520" height="100" fill="none" stroke="#e5e7eb" rx="8" />
-                  {/* Eje / baseline */}
-                  <line x1="60" y1="110" x2="560" y2="110" stroke="#e5e7eb" />
-
-                  {/* Barras */}
-                  <rect x="130" y={110 - bar1H} width="90" height={bar1H} fill="#16a34a" rx="6" />
-                  <rect x="255" y={110 - bar2H} width="90" height={bar2H} fill="#f59e0b" rx="6" />
-                  <rect x="380" y={110 - bar3H} width="90" height={bar3H} fill="#dc2626" rx="6" />
-
-                  {/* Labels */}
-                  <text x="175" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    {showingExitStats ? `Salida (${first})` : `Presente (${first})`}
-                  </text>
-                  <text x="300" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    {showingExitStats ? `Anticipada (${second})` : `Tarde (${second})`}
-                  </text>
-                  <text x="425" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                    {showingExitStats ? '' : `Ausente (${third})`}
-                  </text>
-                </svg>
-              )
-            })()
-          )}
-        </div>
+        </details>
 
         {message && (
           <div className={`p-3 rounded ${getAdminFlashMessageClass(message)}`}>
