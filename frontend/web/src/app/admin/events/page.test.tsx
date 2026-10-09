@@ -6,9 +6,6 @@ import { api } from '@/lib/api/client'
 vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
 }))
-vi.mock('@/components/forms/DateRangeFields', () => ({
-  default: () => <div data-testid="dr" />,
-}))
 vi.mock('@/components/common/PaginationControls', () => ({
   default: () => <nav data-testid="pagination" />,
 }))
@@ -86,6 +83,85 @@ describe('AdminEvents', () => {
     expect(courseCalls.some((url) => url.includes('all=1'))).toBe(false)
   })
 
+  it('aplica el período completo junto con los filtros adicionales y lo conserva al cambiar de vista', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (url.includes('events/all')) return { total: 0, page: 1, pageSize: 20, data: [] }
+      if (url.includes('admin/users')) return { data: [{ id: 'admin1', name: 'Dirección', role: 'ADMIN' }] }
+      if (url.startsWith('/courses')) return [{ id: 'course1', name: 'Segundo A', code: '2A' }]
+      if (url.startsWith('/substitutions')) return { data: [] }
+      if (url.startsWith('/non-working-days')) return []
+      return {}
+    })
+
+    render(<AdminEvents />)
+    await screen.findByText('No hay actividades')
+    fireEvent.click(screen.getByRole('button', { name: /Período/ }))
+    const callsBeforeDraft = mockedApi.mock.calls.length
+    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '01/10/2026' } })
+    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '09/10/2026' } })
+    expect(mockedApi.mock.calls).toHaveLength(callsBeforeDraft)
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('startDate=2026-10-01&endDate=2026-10-09')))
+
+    const moreFilters = screen.getByText('Más filtros').closest('details')!
+    expect(moreFilters).not.toHaveAttribute('open')
+    fireEvent.click(screen.getByText('Más filtros'))
+    fireEvent.change(screen.getByLabelText('Curso', { exact: true }), { target: { value: 'course1' } })
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('startDate=2026-10-01&endDate=2026-10-09&courseId=course1')))
+    expect(screen.getByText('Más filtros · 1 activos')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Calendario' }))
+    expect(screen.queryByText('Buscar en agenda')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Calendario de actividades' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Lista' }))
+    expect(screen.getByRole('button', { name: 'Período 01/10/2026 – 09/10/2026' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar filtros' }))
+    expect(screen.getByRole('button', { name: 'Período Todo el período' })).toBeInTheDocument()
+  })
+
+  it('usa el atajo de próximos siete días desde el calendario de período', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (url.includes('events/all')) return { total: 0, page: 1, pageSize: 20, data: [] }
+      if (url.includes('admin/users')) return { data: [] }
+      if (url.startsWith('/courses')) return []
+      if (url.startsWith('/substitutions')) return { data: [] }
+      return {}
+    })
+    render(<AdminEvents />)
+    await screen.findByText('No hay actividades')
+    fireEvent.click(screen.getByRole('button', { name: /Período/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Próximos 7 días' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining(`startDate=${ymdOffset(0)}&endDate=${ymdOffset(6)}`)))
+  })
+
+  it('importa actividades desde el menú CSV y muestra el resultado', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (url.includes('events/all')) return { total: 0, page: 1, pageSize: 20, data: [] }
+      if (url.includes('admin/users')) return { data: [] }
+      if (url.startsWith('/courses')) return []
+      if (url.startsWith('/substitutions')) return { data: [] }
+      if (url === '/events/import') return { ok: true, createdCount: 1 }
+      return {}
+    })
+    const { container } = render(<AdminEvents />)
+    await screen.findByText('No hay actividades')
+    expect(screen.queryByRole('button', { name: 'Descargar formato' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Importar' }))
+    expect(screen.getByRole('button', { name: 'Descargar formato' })).toBeInTheDocument()
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!
+    const chooseFile = vi.spyOn(fileInput, 'click')
+    fireEvent.click(screen.getByRole('button', { name: 'Importar CSV' }))
+    expect(chooseFile).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('dialog', { name: 'Opciones de importación' })).not.toBeInTheDocument()
+    const csv = 'titulo;tipo;fecha;hora_inicio;hora_fin;asignado_a\nReunión;REUNION;2026-10-12;09:00;10:00;profe1'
+    const file = new File([csv], 'agenda.csv', { type: 'text/csv' })
+    Object.defineProperty(file, 'text', { value: async () => csv })
+    fireEvent.change(fileInput, { target: { files: [file] } })
+    expect(await screen.findByText('✅ Se importaron 1 eventos correctamente')).toBeInTheDocument()
+    const importCall = mockedApi.mock.calls.find(([url]) => url === '/events/import')!
+    expect(JSON.parse(importCall[1]!.body as string)).toEqual({ rows: [{ titulo: 'Reunión', tipo: 'REUNION', fecha: '2026-10-12', hora_inicio: '09:00', hora_fin: '10:00', asignado_a: 'profe1' }] })
+  })
+
   it('cancela evento vía API', async () => {
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('events/all')) {
@@ -150,7 +226,10 @@ describe('AdminEvents', () => {
 
     render(<AdminEvents />)
 
-    expect(await screen.findByText('Próximos 7 días')).toBeInTheDocument()
+    const summary = await screen.findByText('Ver próximos 7 días')
+    expect(summary.closest('details')).not.toHaveAttribute('open')
+    fireEvent.click(summary)
+    expect(screen.getByRole('heading', { name: 'Próximos 7 días' })).toBeInTheDocument()
     expect(screen.getAllByText('Clase matutina').length).toBeGreaterThan(0)
   })
 
@@ -178,7 +257,7 @@ describe('AdminEvents', () => {
 
     render(<AdminEvents />)
 
-    await screen.findByText('Próximos 7 días')
+    fireEvent.click(await screen.findByText('Ver próximos 7 días'))
     fireEvent.click(screen.getByRole('button', { name: /Hoy/ }))
 
     const detail = await screen.findByRole('region', { name: /Actividades del Hoy/ })

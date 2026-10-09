@@ -28,6 +28,11 @@ const row = {
   isActive: true,
 }
 
+function openActions() {
+  fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Más acciones de Ana L' }))
+  return within(screen.getByRole('dialog', { name: 'Acciones de Ana L' }))
+}
+
 describe('AdminUsersPage', () => {
   beforeEach(() => {
     mockedApi.mockReset()
@@ -46,7 +51,8 @@ describe('AdminUsersPage', () => {
 
     expect((await screen.findAllByText('user1')).length).toBeGreaterThan(0)
     const table = screen.getByRole('table')
-    expect(table).toHaveTextContent('Verificado')
+    expect(table).toHaveTextContent('Activo')
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(4)
     expect(mockedApi).toHaveBeenCalledWith('/admin/org-roles')
     expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/admin/users?'))
   })
@@ -135,7 +141,7 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rechazar' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rechazar solicitud' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(`/admin/users/${row.id}/reject`, {
@@ -158,7 +164,7 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rechazar' }))
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rechazar solicitud' }))
 
     expect(promptMock.mock.calls[0][0]).toMatch(/No se le manda correo/)
     expect(mockedApi).not.toHaveBeenCalledWith(`/admin/users/${row.id}/reject`, expect.any(Object))
@@ -170,7 +176,7 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    expect(within(screen.getByRole('table')).queryByRole('button', { name: 'Rechazar' })).toBeNull()
+    expect(openActions().queryByRole('button', { name: 'Rechazar solicitud' })).toBeNull()
   })
 
   it('no guarda edición con usuario inválido', async () => {
@@ -213,7 +219,7 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Bloquear 15 min' }))
+    fireEvent.click(openActions().getByRole('button', { name: 'Bloquear 15 min' }))
     await waitFor(() => expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/lock'), expect.any(Object)))
   })
 
@@ -227,14 +233,14 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    fireEvent.click(within(screen.getByRole('table')).getByTitle('Volver a pendiente'))
+    fireEvent.click(openActions().getByRole('button', { name: 'Volver a pendiente' }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(`/admin/users/${row.id}`, expect.objectContaining({ method: 'PUT' })),
     )
   })
 
-  it('chip "Pendientes de aprobación" muestra sólo las cuentas con el correo verificado', async () => {
+  it('el desplegable separa usuarios aprobados de pendientes sin excluir correos sin verificar', async () => {
     mockedApi
       .mockResolvedValueOnce(orgRoles)
       .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [row] })
@@ -243,12 +249,12 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Pendientes de aprobación' }))
+    fireEvent.change(screen.getByLabelText('Mostrar'), { target: { value: 'false' } })
 
     await waitFor(() => {
       const last = mockedApi.mock.calls.at(-1)?.[0] as string
       expect(last).toContain('approved=false')
-      expect(last).toContain('verified=true')
+      expect(last).not.toContain('verified=')
     })
   })
 
@@ -265,9 +271,8 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    const approve = within(screen.getByRole('table')).getByTitle('Esperando que verifique su correo')
-    expect(approve).toBeDisabled()
-    fireEvent.click(approve)
+    expect(within(screen.getByRole('table')).queryByRole('button', { name: 'Aprobar' })).toBeNull()
+    expect(within(screen.getByRole('table')).getByText('Correo sin verificar')).toBeInTheDocument()
     expect(mockedApi).not.toHaveBeenCalledWith(`/admin/users/${row.id}`, expect.anything())
   })
 
@@ -280,7 +285,7 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Restablecer contraseña' }))
+    fireEvent.click(openActions().getByRole('button', { name: 'Restablecer contraseña' }))
 
     expect(await screen.findByText(/correo de restablecimiento/i)).toBeInTheDocument()
   })
@@ -296,4 +301,130 @@ describe('AdminUsersPage', () => {
     const matches = await screen.findAllByText('user1')
     expect(matches.length).toBeGreaterThanOrEqual(2)
   })
+
+  it('pliega los filtros secundarios, conserva los aplicados al cerrarlos y permite limpiarlos', async () => {
+    mockedApi.mockResolvedValueOnce(orgRoles).mockResolvedValue({ total: 0, page: 1, pageSize: 20, data: [] })
+    render(<AdminUsersPage />)
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+
+    const summary = screen.getByText('Más filtros')
+    const details = summary.closest('details')!
+    expect(details).not.toHaveAttribute('open')
+    fireEvent.click(summary)
+    expect(details).toHaveAttribute('open')
+    fireEvent.change(screen.getByLabelText('Bloqueo temporal'), { target: { value: 'true' } })
+    fireEvent.change(screen.getByLabelText('Documento de identidad'), { target: { value: 'true' } })
+    expect(mockedApi).toHaveBeenCalledTimes(2)
+    expect(screen.getByLabelText('Mostrar')).toHaveValue('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('locked=true&docExpiring=true')))
+    fireEvent.click(screen.getByText('Más filtros · 2 activos'))
+    expect(details).not.toHaveAttribute('open')
+    expect(screen.getByText('Más filtros · 2 activos')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=true'))
+    expect(screen.getByLabelText('Mostrar')).toHaveValue('true')
+    expect(screen.getByLabelText('Bloqueo temporal')).toHaveValue('')
+    expect(screen.getByLabelText('Documento de identidad')).toHaveValue('')
+  })
+
+  it('conserva búsqueda y rol al cambiar de lista y Limpiar mantiene la lista de pendientes', async () => {
+    mockedApi.mockResolvedValueOnce(orgRoles).mockResolvedValue({ total: 0, page: 1, pageSize: 20, data: [] })
+    render(<AdminUsersPage />)
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+    expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=true')
+    fireEvent.change(screen.getByLabelText('Búsqueda'), { target: { value: 'ana' } })
+    fireEvent.change(screen.getByLabelText('Rol'), { target: { value: 'STAFF' } })
+    fireEvent.change(screen.getByLabelText('Mostrar'), { target: { value: 'false' } })
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&q=ana&role=STAFF&approved=false'))
+    fireEvent.click(screen.getByText('Más filtros'))
+    fireEvent.change(screen.getByLabelText('Correo verificado'), { target: { value: 'false' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&q=ana&role=STAFF&approved=false&verified=false'))
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=false'))
+    expect(screen.getByLabelText('Mostrar')).toHaveValue('false')
+    fireEvent.change(screen.getByLabelText('Mostrar'), { target: { value: 'true' } })
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=true'))
+  })
+
+  it.each([true, false])('una solicitud pendiente solo ofrece acciones de revisión (correo verificado: %s)', async (verified) => {
+    mockedApi.mockResolvedValueOnce(orgRoles).mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [{ ...row, isApproved: false, isActive: false, emailVerifiedAt: verified ? row.emailVerifiedAt : null }] })
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+    expect(screen.getAllByRole('button', { name: 'Revisar solicitud' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Rechazar solicitud' })).toHaveLength(2)
+    expect(screen.queryAllByRole('button', { name: 'Aprobar' })).toHaveLength(verified ? 2 : 0)
+    expect(screen.queryByRole('button', { name: /huella|Más acciones|contraseña|Bloquear|Dar de|Eliminar/ })).toBeNull()
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Revisar solicitud' }))
+    expect(screen.getByRole('heading', { name: 'Revisar solicitud' })).toBeInTheDocument()
+    expect(screen.queryByText('Estado cuenta')).toBeNull()
+    expect(screen.queryByText('Aprobación')).toBeNull()
+    expect(mockedApi).toHaveBeenCalledTimes(2)
+  })
+
+  it('aprobar retira la solicitud de pendientes y recarga esa misma lista', async () => {
+    let approved = false
+    mockedApi.mockImplementation(async (url, options) => {
+      if (url === '/admin/org-roles') return orgRoles as never
+      if (url === '/admin/users/u1' && options?.method === 'PUT') {
+        approved = true
+        return {} as never
+      }
+      const showingPending = new URL(String(url), 'http://localhost').searchParams.get('approved') === 'false'
+      const data = showingPending && !approved ? [{ ...row, isApproved: false }] : []
+      return { total: data.length, page: 1, pageSize: 20, data } as never
+    })
+    render(<AdminUsersPage />)
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
+    fireEvent.change(screen.getByLabelText('Mostrar'), { target: { value: 'false' } })
+    await screen.findAllByText('user1')
+    fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Aprobar' }))
+    await waitFor(() => expect(screen.queryAllByText('user1')).toHaveLength(0))
+    expect(mockedApi).toHaveBeenCalledWith('/admin/users/u1', { method: 'PUT', body: JSON.stringify({ isApproved: true }) })
+    expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=false')
+    expect(screen.getByLabelText('Mostrar')).toHaveValue('false')
+  })
+
+  it('el menú cierra con Escape o al hacer clic afuera y no cambia la cuenta', async () => {
+    mockedApi.mockResolvedValueOnce(orgRoles).mockResolvedValue({ total: 1, page: 1, pageSize: 20, data: [row] })
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+    const trigger = within(screen.getByRole('table')).getByRole('button', { name: 'Más acciones de Ana L' })
+    const actions = openActions()
+    expect(actions.getByRole('button', { name: 'Volver a pendiente' })).toHaveFocus()
+    expect(actions.queryByRole('button', { name: 'Eliminar definitivamente' })).toBeNull()
+    fireEvent(window, new Event('resize'))
+    expect(screen.getByRole('dialog', { name: 'Acciones de Ana L' })).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(trigger).toHaveFocus()
+    openActions()
+    fireEvent.pointerDown(screen.getByRole('heading', { name: 'Usuarios' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(mockedApi).toHaveBeenCalledTimes(2)
+  })
+
+  it('mantiene la confirmación de baja y limita la eliminación a cuentas dadas de baja', async () => {
+    mockedApi.mockResolvedValueOnce(orgRoles).mockResolvedValue({ total: 1, page: 1, pageSize: 20, data: [row] })
+    vi.stubGlobal('confirm', vi.fn(() => false))
+    const view = render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+    fireEvent.click(openActions().getByRole('button', { name: 'Dar de baja' }))
+    expect(confirm).toHaveBeenCalledWith('¿Dar de baja al usuario?')
+    expect(mockedApi).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    view.unmount()
+
+    mockedApi.mockReset()
+    mockedApi.mockResolvedValueOnce(orgRoles).mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [{ ...row, isActive: false }] }).mockResolvedValueOnce({}).mockResolvedValueOnce({ total: 0, data: [] })
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+    expect(within(screen.getByRole('table')).getByText('De baja')).toBeInTheDocument()
+    fireEvent.click(openActions().getByRole('button', { name: 'Eliminar definitivamente' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith('/admin/users/u1', { method: 'DELETE' }))
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Esta acción no se puede deshacer'))
+  })
+
 })

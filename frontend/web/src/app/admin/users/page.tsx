@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import UserActionsMenu from '@/components/admin/UserActionsMenu'
 import BiometricLinkSection from '@/components/profile/BiometricLinkSection'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
@@ -12,14 +13,11 @@ import {
   countActiveUserFilters,
   displayUserName,
   getActiveBadgeClass,
-  getActiveLabel,
   getAdminUserSaveErrorMessage,
   getApprovalBadgeClass,
-  getApprovalLabel,
   getLockBadgeClass,
   getLockLabel,
   getVerificationBadgeClass,
-  getVerificationLabel,
   isAccountLocked,
   type AdminUserRow,
   type AdminUsersListFilters,
@@ -29,6 +27,7 @@ import { getRoleLabel } from '@/lib/roles/display'
 import { REGISTER_USERNAME_PATTERN, REGISTER_USERNAME_REGEX } from '@/lib/auth/register-form-validation'
 import {
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Fingerprint,
@@ -36,6 +35,8 @@ import {
   Loader2,
   Lock,
   Pencil,
+  Plus,
+  SlidersHorizontal,
   Search,
   Trash2,
   TriangleAlert,
@@ -49,31 +50,12 @@ type Notice = { text: string; tone: 'success' | 'error' }
 const ICON_ACTION_BTN =
   'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors focus:outline-none focus:ring-2'
 
-/** Filtros rápidos: cada chip aplica un parche sobre los filtros y recarga. */
-const QUICK_FILTERS: { key: string; label: string; patch: Partial<AdminUsersListFilters> }[] = [
-  // Una cuenta nueva llega a aprobación recién con el correo verificado; las que todavía no lo
-  // verificaron están en "Sin verificar".
-  { key: 'approved', label: 'Pendientes de aprobación', patch: { approved: 'false', verified: 'true' } },
-  { key: 'verified', label: 'Sin verificar', patch: { verified: 'false' } },
-  { key: 'locked', label: 'Bloqueados', patch: { locked: 'true' } },
-  { key: 'active', label: 'De baja', patch: { active: 'false' } },
-  { key: 'docExpiring', label: 'Documento por vencer', patch: { docExpiring: 'true' } },
-]
-
 type OrgRoleRow = { code: string; label: string; active: boolean }
 
-function triStateOptions(label: string): { value: TriState; hint: string }[] {
-  return [
-    { value: '', hint: `${label}: cualquiera` },
-    { value: 'true', hint: `${label}: sí` },
-    { value: 'false', hint: `${label}: no` },
-  ]
-}
-
-const defaultFilters = (): AdminUsersListFilters => ({
+const defaultFilters = (approved: 'true' | 'false' = 'true'): AdminUsersListFilters => ({
   q: '',
   role: 'ALL',
-  approved: '',
+  approved,
   active: '',
   verified: '',
   locked: '',
@@ -148,25 +130,22 @@ export default function AdminUsersPage() {
   }
 
   function resetDraftFilters() {
-    const cleared = defaultFilters()
+    const cleared = defaultFilters(draftFilters.approved === 'false' ? 'false' : 'true')
     setDraftFilters(cleared)
     void load(cleared)
   }
 
-  function isQuickFilterActive(qf: (typeof QUICK_FILTERS)[number]): boolean {
-    return (Object.keys(qf.patch) as (keyof AdminUsersListFilters)[]).every((k) => filters[k] === (qf.patch as AdminUsersListFilters)[k])
-  }
+  const secondaryKeys = ['active', 'verified', 'locked', 'docExpiring'] as const
 
-  function applyQuickFilter(qf: (typeof QUICK_FILTERS)[number]) {
-    const patch = isQuickFilterActive(qf)
-      ? (Object.fromEntries(Object.keys(qf.patch).map((k) => [k, ''])) as Partial<AdminUsersListFilters>)
-      : qf.patch
-    const next: AdminUsersListFilters = { ...filters, ...patch, page: 1 }
+  function changeUserList(approved: 'true' | 'false') {
+    const next = { ...defaultFilters(approved), q: draftFilters.q, role: draftFilters.role }
     setDraftFilters(next)
     void load(next)
   }
 
-  const activeFilterCount = countActiveUserFilters(filters)
+  const secondaryFilterCount = secondaryKeys.filter((key) => !!filters[key]).length
+
+  const activeFilterCount = countActiveUserFilters({ ...filters, approved: '' })
 
   const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize))
   const rangeStart = data.total === 0 ? 0 : (data.page - 1) * data.pageSize + 1
@@ -349,97 +328,58 @@ export default function AdminUsersPage() {
   }
 
   function renderRowActions(u: AdminUserRow) {
+    if (!u.isApproved) {
+      return (
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          {u.emailVerifiedAt && (
+            <button type="button" onClick={() => void toggleApproval(u)} className="min-h-10 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+              Aprobar
+            </button>
+          )}
+          <button type="button" onClick={() => openEdit(u)} aria-label="Revisar solicitud" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+            <Pencil className="h-4 w-4" aria-hidden />Revisar
+          </button>
+          <button type="button" onClick={() => void rejectUser(u)} aria-label="Rechazar solicitud" className="min-h-10 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-700 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300">
+            Rechazar
+          </button>
+        </div>
+      )
+    }
+
     const biometricLabel = u.biometricLinked ? 'Huella vinculada' : 'Vincular huella'
     const biometricButtonClass = u.biometricLinked
       ? `${ICON_ACTION_BTN} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-400`
       : `${ICON_ACTION_BTN} border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100 focus:ring-amber-300`
     const locked = isAccountLocked(u.lockUntil)
-    // Se aprueba recién con el correo verificado (el backend también lo exige).
-    const awaitingVerification = !u.isApproved && !u.emailVerifiedAt
-    let approvalTitle = 'Aprobar'
-    if (u.isApproved) approvalTitle = 'Volver a pendiente'
-    else if (awaitingVerification) approvalTitle = 'Esperando que verifique su correo'
+    const actions = [
+      { label: 'Volver a pendiente', icon: CheckCircle2, onSelect: () => void toggleApproval(u) },
+      { label: 'Restablecer contraseña', icon: KeyRound, onSelect: () => void resetPassword(u) },
+      { label: locked ? 'Desbloquear' : 'Bloquear 15 min', icon: locked ? Unlock : Lock, onSelect: () => void toggleLock(u) },
+      { label: u.isActive ? 'Dar de baja' : 'Dar de alta', icon: u.isActive ? X : CheckCircle2, onSelect: () => void toggleActive(u), destructive: u.isActive },
+      ...(!u.isActive ? [{ label: 'Eliminar definitivamente', icon: Trash2, onSelect: () => void deleteUser(u), destructive: true }] : []),
+    ]
 
     return (
-      <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 xl:flex-nowrap xl:justify-end">
-        <button
-          type="button"
-          onClick={() => toggleApproval(u)}
-          disabled={awaitingVerification}
-          className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
-          title={approvalTitle}
-        >
-          {u.isApproved ? 'Pendiente' : 'Aprobar'}
+      <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end">
+        <button type="button" onClick={() => openEdit(u)} aria-label="Editar usuario" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+          <Pencil className="h-4 w-4" aria-hidden />Editar
         </button>
-        {!u.isApproved && (
-          <button
-            type="button"
-            onClick={() => void rejectUser(u)}
-            className="shrink-0 rounded-lg border border-red-300 bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 shadow-sm hover:border-red-400 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
-            title="Rechazar la solicitud: borra la cuenta y le avisa por correo"
-          >
-            Rechazar
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => toggleActive(u)}
-          className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-          title={u.isActive ? 'Dar de baja' : 'Dar de alta'}
-        >
-          {u.isActive ? 'Dar baja' : 'Dar alta'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setBiometricUser(u)}
-          className={biometricButtonClass}
-          aria-label={biometricLabel}
-          title={biometricLabel}
-        >
+        <button type="button" onClick={() => setBiometricUser(u)} className={biometricButtonClass} aria-label={biometricLabel} title={biometricLabel}>
           <Fingerprint className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
         </button>
-        <button
-          type="button"
-          onClick={() => void resetPassword(u)}
-          className={`${ICON_ACTION_BTN} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
-          aria-label="Restablecer contraseña"
-          title="Generar enlace de restablecimiento de contraseña"
-        >
-          <KeyRound className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-        </button>
-        <button
-          type="button"
-          onClick={() => openEdit(u)}
-          className={`${ICON_ACTION_BTN} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
-          aria-label="Editar usuario"
-          title="Editar datos del usuario"
-        >
-          <Pencil className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLock(u)}
-          className={`${ICON_ACTION_BTN} border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:ring-emerald-400`}
-          aria-label={locked ? 'Desbloquear' : 'Bloquear 15 min'}
-          title={locked ? 'Desbloquear' : 'Bloquear 15 min'}
-        >
-          {locked ? (
-            <Unlock className="h-[18px] w-[18px] shrink-0" strokeWidth={2.25} aria-hidden />
-          ) : (
-            <Lock className="h-[18px] w-[18px] shrink-0" strokeWidth={2.25} aria-hidden />
-          )}
-        </button>
-        {!u.isActive && (
-          <button
-            type="button"
-            onClick={() => void deleteUser(u)}
-            className={`${ICON_ACTION_BTN} border-red-300 bg-red-50 text-red-600 hover:border-red-400 hover:bg-red-100 focus:ring-red-300`}
-            aria-label="Eliminar definitivamente"
-            title="Eliminar definitivamente (solo usuarios dados de baja)"
-          >
-            <Trash2 className="h-[18px] w-[18px] shrink-0" strokeWidth={2.25} aria-hidden />
-          </button>
-        )}
+        <UserActionsMenu name={displayUserName(u)} actions={actions} />
+      </div>
+    )
+  }
+
+  function renderUserStatus(u: AdminUserRow) {
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        <span className={!u.isApproved ? getApprovalBadgeClass(false) : getActiveBadgeClass(u.isActive)}>
+          {!u.isApproved ? 'Pendiente de aprobación' : u.isActive ? 'Activo' : 'De baja'}
+        </span>
+        {!u.emailVerifiedAt && <span className={getVerificationBadgeClass(null)}>Correo sin verificar</span>}
+        {u.isApproved && isAccountLocked(u.lockUntil) && <span className={getLockBadgeClass(u.lockUntil)} title={getLockLabel(u.lockUntil)}>Bloqueado</span>}
       </div>
     )
   }
@@ -448,32 +388,13 @@ export default function AdminUsersPage() {
     if (u.role === 'ADMIN') return null
     return (
       <tr key={u.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
-        <td className="px-3 py-3 align-middle font-mono text-xs text-slate-700">{u.username || '—'}</td>
-        <td className="px-3 py-3 align-middle">
-          <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-700">
-            {getRoleLabel(u.role)}
-          </span>
+        <td className="px-4 py-4 align-middle text-sm">
+          <div className="break-words font-medium text-slate-900">{displayUserName(u)}</div>
+          <div className="truncate text-xs text-slate-500" title={u.email}>{u.email}</div>
+          <div className="mt-1 truncate font-mono text-[11px] text-slate-400" title={u.username ?? undefined}>{u.username || '—'}</div>
         </td>
-        <td className="px-3 py-3 align-middle text-sm">
-          <div className="font-medium text-slate-900">{displayUserName(u)}</div>
-          <div className="truncate text-xs text-slate-500" title={u.email}>
-            {u.email}
-          </div>
-        </td>
-        <td className="px-3 py-3 align-middle">
-          <span className={getVerificationBadgeClass(u.emailVerifiedAt)}>{getVerificationLabel(u.emailVerifiedAt)}</span>
-        </td>
-        <td className="px-3 py-3 align-middle">
-          <span className={getApprovalBadgeClass(u.isApproved)}>{getApprovalLabel(u.isApproved)}</span>
-        </td>
-        <td className="px-3 py-3 align-middle">
-          <span className={getActiveBadgeClass(u.isActive)}>{getActiveLabel(u.isActive)}</span>
-        </td>
-        <td className="px-3 py-3 align-middle">
-          <span className={getLockBadgeClass(u.lockUntil)} title={getLockLabel(u.lockUntil)}>
-            {isAccountLocked(u.lockUntil) ? 'Bloqueado' : 'Libre'}
-          </span>
-        </td>
+        <td className="px-3 py-4 align-middle text-sm text-slate-600">{getRoleLabel(u.role)}</td>
+        <td className="px-3 py-4 align-middle">{renderUserStatus(u)}</td>
         <td className="px-3 py-2.5 align-middle">{renderRowActions(u)}</td>
       </tr>
     )
@@ -495,25 +416,18 @@ export default function AdminUsersPage() {
             {getRoleLabel(u.role)}
           </span>
         </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <span className={getVerificationBadgeClass(u.emailVerifiedAt)}>{getVerificationLabel(u.emailVerifiedAt)}</span>
-          <span className={getApprovalBadgeClass(u.isApproved)}>{getApprovalLabel(u.isApproved)}</span>
-          <span className={getActiveBadgeClass(u.isActive)}>{getActiveLabel(u.isActive)}</span>
-          <span className={getLockBadgeClass(u.lockUntil)} title={getLockLabel(u.lockUntil)}>
-            {isAccountLocked(u.lockUntil) ? 'Bloqueado' : 'Libre'}
-          </span>
-        </div>
+        <div className="mt-3">{renderUserStatus(u)}</div>
         <div className="mt-3 border-t border-slate-100 pt-3">{renderRowActions(u)}</div>
       </div>
     )
   }
 
   const selectCls =
-    'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40'
+    'min-h-11 min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40'
 
   return (
     <RoleGuard permission="users.read" permissionScope="all">
-      <main className="responsive-page max-w-[1600px]">
+      <main className="responsive-page max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
@@ -522,12 +436,12 @@ export default function AdminUsersPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Usuarios</h1>
               <p className="mt-1 text-sm text-slate-600">
-                Alta, aprobación, roles y cuenta. No incluye cuentas de administrador de plataforma.
+                Gestioná las cuentas y las solicitudes de acceso.
               </p>
             </div>
           </div>
           <button type="button" onClick={() => setCreating(true)} className="btn-primary shrink-0">
-            Nuevo usuario
+            <Plus className="h-4 w-4" aria-hidden />Nuevo usuario
           </button>
         </div>
 
@@ -609,30 +523,8 @@ export default function AdminUsersPage() {
           </section>
         ) : null}
 
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atajos:</span>
-          {QUICK_FILTERS.map((qf) => {
-            const active = isQuickFilterActive(qf)
-            return (
-              <button
-                key={qf.key}
-                type="button"
-                onClick={() => applyQuickFilter(qf)}
-                aria-pressed={active}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                  active
-                    ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50'
-                }`}
-              >
-                {qf.label}
-              </button>
-            )
-          })}
-        </div>
-
         <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Filtros</h2>
+          <h2 className="mb-3 text-sm font-semibold text-slate-800">Buscar usuarios</h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="sm:col-span-2 lg:col-span-2">
               <label htmlFor="filter-q" className="mb-1 block text-xs font-medium text-slate-600">
@@ -648,7 +540,7 @@ export default function AdminUsersPage() {
                     if (e.key === 'Enter') applyFilters()
                   }}
                   placeholder="Correo, usuario, nombre o apellido"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50/80 py-2 pl-9 pr-3 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                  className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50/80 py-2 pl-9 pr-3 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                 />
               </div>
             </div>
@@ -671,82 +563,81 @@ export default function AdminUsersPage() {
               </select>
             </div>
             <div>
-              <label htmlFor="filter-approved" className="mb-1 block text-xs font-medium text-slate-600">
-                Aprobación
-              </label>
-              <select
-                id="filter-approved"
-                value={draftFilters.approved}
-                onChange={(e) => setDraftFilters({ ...draftFilters, approved: e.target.value as TriState })}
-                className={`w-full ${selectCls}`}
-              >
-                {triStateOptions('Aprobación').map((o) => (
-                  <option key={o.value || 'all'} value={o.value}>
-                    {o.value === '' ? 'Cualquiera' : o.value === 'true' ? 'Solo aprobados' : 'Solo pendientes'}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="filter-active" className="mb-1 block text-xs font-medium text-slate-600">
-                Alta / baja
-              </label>
-              <select
-                id="filter-active"
-                value={draftFilters.active}
-                onChange={(e) => setDraftFilters({ ...draftFilters, active: e.target.value as TriState })}
-                className={`w-full ${selectCls}`}
-              >
-                <option value="">Cualquiera</option>
-                <option value="true">Solo alta</option>
-                <option value="false">Solo baja</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="filter-verified" className="mb-1 block text-xs font-medium text-slate-600">
-                Correo verificado
-              </label>
-              <select
-                id="filter-verified"
-                value={draftFilters.verified}
-                onChange={(e) => setDraftFilters({ ...draftFilters, verified: e.target.value as TriState })}
-                className={`w-full ${selectCls}`}
-              >
-                <option value="">Cualquiera</option>
-                <option value="true">Verificado</option>
-                <option value="false">Sin verificar</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="filter-locked" className="mb-1 block text-xs font-medium text-slate-600">
-                Bloqueo temporal
-              </label>
-              <select
-                id="filter-locked"
-                value={draftFilters.locked}
-                onChange={(e) => setDraftFilters({ ...draftFilters, locked: e.target.value as TriState })}
-                className={`w-full ${selectCls}`}
-              >
-                <option value="">Cualquiera</option>
-                <option value="true">Bloqueado ahora</option>
-                <option value="false">Sin bloqueo activo</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="filter-doc-expiring" className="mb-1 block text-xs font-medium text-slate-600">
-                Documento de identidad
-              </label>
-              <select
-                id="filter-doc-expiring"
-                value={draftFilters.docExpiring}
-                onChange={(e) => setDraftFilters({ ...draftFilters, docExpiring: e.target.value as TriState })}
-                className={`w-full ${selectCls}`}
-              >
-                <option value="">Cualquiera</option>
-                <option value="true">Por vencer (90 días)</option>
+              <label htmlFor="filter-list" className="mb-1 block text-xs font-medium text-slate-600">Mostrar</label>
+              <select id="filter-list" value={draftFilters.approved} onChange={(e) => changeUserList(e.target.value as 'true' | 'false')} className={`w-full ${selectCls}`}>
+                <option value="true">Usuarios aprobados</option>
+                <option value="false">Pendientes de aprobación</option>
               </select>
             </div>
           </div>
+          <details className="mt-4 border-t border-slate-100 pt-3">
+            <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg text-sm font-medium text-slate-600 [&::-webkit-details-marker]:hidden">
+              <SlidersHorizontal className="h-4 w-4" aria-hidden />
+              Más filtros{secondaryFilterCount > 0 ? ` · ${secondaryFilterCount} ${secondaryFilterCount === 1 ? 'activo' : 'activos'}` : ''}
+              <ChevronDown className="ml-auto h-4 w-4" aria-hidden />
+            </summary>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label htmlFor="filter-active" className="mb-1 block text-xs font-medium text-slate-600">
+                  Alta / baja
+                </label>
+                <select
+                  id="filter-active"
+                  value={draftFilters.active}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, active: e.target.value as TriState })}
+                  className={`w-full ${selectCls}`}
+                >
+                  <option value="">Cualquiera</option>
+                  <option value="true">Solo alta</option>
+                  <option value="false">Solo baja</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="filter-verified" className="mb-1 block text-xs font-medium text-slate-600">
+                  Correo verificado
+                </label>
+                <select
+                  id="filter-verified"
+                  value={draftFilters.verified}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, verified: e.target.value as TriState })}
+                  className={`w-full ${selectCls}`}
+                >
+                  <option value="">Cualquiera</option>
+                  <option value="true">Verificado</option>
+                  <option value="false">Sin verificar</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="filter-locked" className="mb-1 block text-xs font-medium text-slate-600">
+                  Bloqueo temporal
+                </label>
+                <select
+                  id="filter-locked"
+                  value={draftFilters.locked}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, locked: e.target.value as TriState })}
+                  className={`w-full ${selectCls}`}
+                >
+                  <option value="">Cualquiera</option>
+                  <option value="true">Bloqueado ahora</option>
+                  <option value="false">Sin bloqueo activo</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="filter-doc-expiring" className="mb-1 block text-xs font-medium text-slate-600">
+                  Documento de identidad
+                </label>
+                <select
+                  id="filter-doc-expiring"
+                  value={draftFilters.docExpiring}
+                  onChange={(e) => setDraftFilters({ ...draftFilters, docExpiring: e.target.value as TriState })}
+                  className={`w-full ${selectCls}`}
+                >
+                  <option value="">Cualquiera</option>
+                  <option value="true">Por vencer (90 días)</option>
+                </select>
+              </div>
+            </div>
+          </details>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <button
               type="button"
@@ -817,27 +708,19 @@ export default function AdminUsersPage() {
 
         <div className="hidden overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm sm:block">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] table-fixed text-sm">
+            <table className="w-full min-w-[720px] table-fixed text-sm">
               <colgroup>
-                <col className="w-[11%]" />
-                <col className="w-[8%]" />
-                <col className="w-[21%]" />
-                <col className="w-[10%]" />
-                <col className="w-[10%]" />
-                <col className="w-[9%]" />
-                <col className="w-[9%]" />
-                <col className="w-[22%]" />
+                <col className="w-[32%]" />
+                <col className="w-[16%]" />
+                <col className="w-[24%]" />
+                <col className="w-[28%]" />
               </colgroup>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="whitespace-nowrap px-3 py-3">Usuario</th>
-                  <th className="whitespace-nowrap px-3 py-3">Rol</th>
-                  <th className="px-3 py-3">Persona</th>
-                  <th className="whitespace-nowrap px-3 py-3">Verificado</th>
-                  <th className="whitespace-nowrap px-3 py-3">Aprobación</th>
-                  <th className="whitespace-nowrap px-3 py-3">Estado</th>
-                  <th className="whitespace-nowrap px-3 py-3">Acceso</th>
-                  <th className="whitespace-nowrap px-3 py-3 text-right">Acciones</th>
+                  <th className="px-4 py-3">Persona</th>
+                  <th className="px-3 py-3">Rol</th>
+                  <th className="px-3 py-3">Estado de cuenta</th>
+                  <th className="px-3 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -845,7 +728,7 @@ export default function AdminUsersPage() {
                   (data.data ?? []).map(renderUserRow).filter(Boolean)}
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="px-3 py-10 text-center text-sm text-slate-500">
+                    <td colSpan={4} className="px-3 py-10 text-center text-sm text-slate-500">
                       <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin text-emerald-600" aria-hidden />
                       Cargando usuarios…
                     </td>
@@ -870,7 +753,7 @@ export default function AdminUsersPage() {
         {edit && (
           <div className="responsive-modal bg-slate-900/40 backdrop-blur-[1px]">
             <div className="responsive-modal-panel max-w-lg border-slate-200">
-              <h2 className="text-lg font-semibold text-slate-900">Editar usuario</h2>
+              <h2 className="text-lg font-semibold text-slate-900">{editOrig?.isApproved ? 'Editar usuario' : 'Revisar solicitud'}</h2>
               <p className="mt-1 text-xs text-slate-500">{edit.email}</p>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
@@ -929,28 +812,32 @@ export default function AdminUsersPage() {
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                   />
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Aprobación</label>
-                  <select
-                    value={edit.isApproved ? 'true' : 'false'}
-                    onChange={(e) => setEdit({ ...edit, isApproved: e.target.value === 'true' })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    <option value="false">Pendiente</option>
-                    <option value="true">Aprobado</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Estado cuenta</label>
-                  <select
-                    value={edit.isActive ? 'true' : 'false'}
-                    onChange={(e) => setEdit({ ...edit, isActive: e.target.value === 'true' })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    <option value="true">Alta</option>
-                    <option value="false">Baja</option>
-                  </select>
-                </div>
+                {editOrig?.isApproved && (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">Aprobación</label>
+                      <select
+                        value={edit.isApproved ? 'true' : 'false'}
+                        onChange={(e) => setEdit({ ...edit, isApproved: e.target.value === 'true' })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      >
+                        <option value="false">Pendiente</option>
+                        <option value="true">Aprobado</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">Estado cuenta</label>
+                      <select
+                        value={edit.isActive ? 'true' : 'false'}
+                        onChange={(e) => setEdit({ ...edit, isActive: e.target.value === 'true' })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      >
+                        <option value="true">Alta</option>
+                        <option value="false">Baja</option>
+                      </select>
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-600">Verificación email</label>
                   <select
