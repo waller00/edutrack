@@ -1,12 +1,13 @@
 'use client'
-import DateRangeFields from '@/components/forms/DateRangeFields'
+import DateRangePicker from '@/components/forms/DateRangePicker'
+import EventsImportMenu from '@/components/admin/EventsImportMenu'
 import DateField from '@/components/forms/DateField'
 import PaginationControls from '@/components/common/PaginationControls'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Calendar, Download, Upload } from 'lucide-react'
+import { Calendar, List, Plus, Search, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import {
   buildAdminEventsAllQueryString,
@@ -693,7 +694,15 @@ export default function AdminEvents() {
   const [occurrenceBusy, setOccurrenceBusy] = useState(false)
   // Vista rápida: próximos 7 días con sus actividades reales (resuelve recurrencias, sin vencidos).
   const next7Days = buildNext7DaysSummary(events, getTodayYmdInUruguay())
-  const activeFilterCount = Object.values(filters).filter((value) => value).length
+  const activeFilterCount = [filters.startDate || filters.endDate, filters.userId, filters.assignedUserId, filters.courseId, filters.type, filters.status].filter(Boolean).length
+  const additionalFilterCount = [filters.userId, filters.courseId].filter(Boolean).length
+  const today = getTodayYmdInUruguay()
+  const periodPresets = [
+    { label: 'Hoy', startDate: today, endDate: today },
+    { label: 'Próximos 7 días', startDate: today, endDate: addDaysToYmd(today, 6) },
+    { label: 'Próximos 30 días', startDate: today, endDate: addDaysToYmd(today, 29) },
+    { label: 'Este mes', startDate: `${today.slice(0, 7)}-01`, endDate: new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0, 12)).toISOString().slice(0, 10) },
+  ]
   const selectedDaySummary = selectedDate === null ? null : next7Days.find((day) => day.ymd === selectedDate) ?? null
   const selectedDayEvents = selectedDate === null ? [] : getEventsForYmd(events, selectedDate)
 
@@ -702,6 +711,12 @@ export default function AdminEvents() {
     loadUsers()
     void loadSubstitutionFlags()
   }, [page, filters, syCtx?.allYears, syCtx?.schoolYearQuery])
+
+  function updateFilters(values: Partial<typeof filters>) {
+    setPage(1)
+    setSelectedDate(null)
+    setFilters((previous) => ({ ...previous, ...values }))
+  }
 
   async function loadSubstitutionFlags() {
     try {
@@ -1289,35 +1304,23 @@ export default function AdminEvents() {
 
   return (
     <RoleGuard permission="events.read" permissionScope="all">
-      <main className="responsive-page max-w-[1600px] space-y-6">
+      <main className="responsive-page max-w-7xl space-y-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Agenda y clases</h1>
+              <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Agenda y clases</h1>
               <p className="text-gray-600">Organizá clases, jornadas, reuniones y suplencias.</p>
             </div>
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-            <button
-              type="button"
-              onClick={downloadImportTemplate}
-              className="inline-flex items-center justify-center gap-2 rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Download className="h-4 w-4" aria-hidden />
-              Descargar formato
-            </button>
-            <button
-              type="button"
-              onClick={() => importInputRef.current?.click()}
-              disabled={importingEvents}
-              className="inline-flex items-center justify-center gap-2 rounded border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Upload className="h-4 w-4" aria-hidden />
-              {importingEvents ? 'Importando...' : 'Importar CSV'}
-            </button>
+            <EventsImportMenu
+              pending={importingEvents}
+              onImport={() => importInputRef.current?.click()}
+              onDownloadTemplate={downloadImportTemplate}
+            />
             <input
               ref={importInputRef}
               type="file"
@@ -1335,29 +1338,50 @@ export default function AdminEvents() {
                 setCreateModalError('')
                 setCreating(true)
               }}
-              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              className="btn-primary order-first text-sm sm:order-none"
             >
+              <Plus className="h-4 w-4" aria-hidden />
               Nueva actividad
             </button>
             <div className="text-sm text-gray-600">
-              {total} actividades
+              {total} {total === 1 ? 'actividad' : 'actividades'}
             </div>
           </div>
         </div>
 
-        {/* Filtros */}
-        <div className="bg-white border rounded-lg p-4 shadow-sm sm:p-6">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold">Buscar en agenda</h2>
-              {activeFilterCount > 0 && (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                  {activeFilterCount} filtro{activeFilterCount > 1 ? 's' : ''} activo{activeFilterCount > 1 ? 's' : ''}
-                </span>
-              )}
+        {/* Selector de vista */}
+        <div role="group" aria-label="Vista de agenda" className="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+          {(['list', 'calendar'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`flex min-h-10 items-center gap-2 rounded-lg px-4 py-2 font-medium ${
+                view === v ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-600 hover:bg-white/60'
+              }`}
+            >
+              {v === 'list' ? <List className="h-4 w-4" aria-hidden /> : <Calendar className="h-4 w-4" aria-hidden />}
+              {v === 'list' ? 'Lista' : 'Calendario'}
+            </button>
+          ))}
+        </div>
+
+        {/* Filtros de la lista; el calendario tiene su propia navegación por fecha. */}
+        {view === 'list' && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <Search className="h-4 w-4 text-emerald-600" aria-hidden />
+                <h2 className="text-lg font-semibold">Buscar en agenda</h2>
+                {activeFilterCount > 0 && (
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                    {activeFilterCount} filtro{activeFilterCount > 1 ? 's' : ''} activo{activeFilterCount > 1 ? 's' : ''}
+                  </span>
+                )}
             </div>
             <button
-              onClick={() => setFilters({
+              onClick={() => updateFilters({
                 startDate: '',
                 endDate: '',
                 userId: '',
@@ -1367,69 +1391,22 @@ export default function AdminEvents() {
                 status: ''
               })}
               disabled={activeFilterCount === 0}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-secondary text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
+              <Trash2 className="h-4 w-4" aria-hidden />
               Limpiar filtros
             </button>
           </div>
 
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-gray-500">Atajos:</span>
-            <button
-              type="button"
-              onClick={() => setFilters({ ...filters, type: 'CLASE' })}
-              className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              Solo clases
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setFilters({
-                  ...filters,
-                  startDate: getTodayYmdInUruguay(),
-                  endDate: addDaysToYmd(getTodayYmdInUruguay(), 7),
-                })
-              }
-              className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              Próximos 7 días
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilters({ ...filters, status: 'SCHEDULED' })}
-              className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              Solo programados
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
-            <DateRangeFields
-              startDate={filters.startDate}
-              endDate={filters.endDate}
-              onStartDateChange={(value) => setFilters({ ...filters, startDate: value })}
-              onEndDateChange={(value) => setFilters({ ...filters, endDate: value })}
-            />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <DateRangePicker startDate={filters.startDate} endDate={filters.endDate} presets={periodPresets} onChange={updateFilters} />
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Creador</label>
+              <label htmlFor="agenda-assignee" className="block text-sm font-medium text-gray-700 mb-1">Asignado</label>
               <select
-                value={filters.userId}
-                onChange={(e) => setFilters({ ...filters, userId: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              >
-                <option value="">Todos</option>
-                {users.filter(user => user.role === 'ADMIN').map(user => (
-                  <option key={user.id} value={user.id}>{user.username || user.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Asignado</label>
-              <select
+                id="agenda-assignee"
                 value={filters.assignedUserId}
-                onChange={(e) => setFilters({ ...filters, assignedUserId: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                onChange={(e) => updateFilters({ assignedUserId: e.target.value })}
+                className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               >
                 <option value="">Todos</option>
                 {users.map(user => (
@@ -1438,26 +1415,12 @@ export default function AdminEvents() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Curso</label>
+              <label htmlFor="agenda-type" className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
               <select
-                value={filters.courseId}
-                onChange={(e) => setFilters({ ...filters, courseId: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              >
-                <option value="">Todos</option>
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code ? `${c.code} — ${c.name}` : c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-              <select
+                id="agenda-type"
                 value={filters.type}
-                onChange={(e) => setFilters({ ...filters, type: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                onChange={(e) => updateFilters({ type: e.target.value })}
+                className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               >
                 <option value="">Todos</option>
                 {ADMIN_EVENT_TYPE_SELECT_OPTIONS.map((o) => (
@@ -1468,11 +1431,12 @@ export default function AdminEvents() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+              <label htmlFor="agenda-status" className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
               <select
+                id="agenda-status"
                 value={filters.status}
-                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                onChange={(e) => updateFilters({ status: e.target.value })}
+                className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
               >
                 <option value="">Todos</option>
                 <option value="SCHEDULED">Programado</option>
@@ -1483,7 +1447,45 @@ export default function AdminEvents() {
               </select>
             </div>
           </div>
+          <details className="mt-4 rounded-xl border border-slate-200">
+            <summary className="cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">
+              Más filtros{additionalFilterCount > 0 ? ` · ${additionalFilterCount} activos` : ''}
+            </summary>
+            <div className="grid grid-cols-1 gap-4 border-t border-slate-100 p-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="agenda-creator" className="block text-sm font-medium text-gray-700 mb-1">Creador</label>
+                <select
+                  id="agenda-creator"
+                  value={filters.userId}
+                  onChange={(e) => updateFilters({ userId: e.target.value })}
+                  className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                >
+                  <option value="">Todos</option>
+                  {users.filter(user => user.role === 'ADMIN').map(user => (
+                    <option key={user.id} value={user.id}>{user.username || user.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="agenda-course" className="block text-sm font-medium text-gray-700 mb-1">Curso</label>
+                <select
+                  id="agenda-course"
+                  value={filters.courseId}
+                  onChange={(e) => updateFilters({ courseId: e.target.value })}
+                  className="w-full min-h-11 min-w-0 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                >
+                  <option value="">Todos</option>
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code ? `${c.code} — ${c.name}` : c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </details>
         </div>
+        )}
 
         {/* Oculto si hay modal abierto: si no, el aviso se ve “detrás” del overlay y parece que no se actualizó nada */}
         {message && !creating && !editingEvent && (
@@ -1504,22 +1506,6 @@ export default function AdminEvents() {
             ) : null}
           </div>
         ) : null}
-
-        {/* Selector de vista */}
-        <div className="inline-flex rounded-lg border border-gray-200 p-0.5 text-sm">
-          {(['list', 'calendar'] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              className={`rounded-md px-4 py-1.5 font-medium ${
-                view === v ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {v === 'list' ? 'Lista' : 'Calendario'}
-            </button>
-          ))}
-        </div>
 
         {view === 'calendar' && (
           <EventsCalendar
@@ -1551,124 +1537,127 @@ export default function AdminEvents() {
             </div>
           </div>
           {!loading && events.length > 0 ? (
-            <div className="border-b bg-slate-50 px-4 py-4 sm:px-6">
-              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900">Próximos 7 días</h3>
-                  <p className="text-xs text-slate-500">
-                    Actividades de los próximos 7 días (resuelve las recurrencias; no muestra eventos vencidos).
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
-                {next7Days.map((day) => (
-                  <button
-                    key={day.ymd}
-                    type="button"
-                    onClick={() => setSelectedDate(day.ymd)}
-                    aria-pressed={selectedDate === day.ymd}
-                    className={`min-h-[6.5rem] rounded border px-3 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      selectedDate === day.ymd
-                        ? 'border-emerald-500 bg-emerald-50 shadow-sm'
-                        : 'border-slate-200 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 text-sm font-semibold text-slate-900">
-                        {day.dayLabel} <span className="font-normal text-slate-500">{day.dateLabel}</span>
-                      </span>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                        {day.count}
-                      </span>
-                    </div>
-                    {day.visible.length > 0 ? (
-                      <ul className="mt-2 space-y-1">
-                        {day.visible.map((event) => (
-                          <li key={`${day.ymd}-${event.id}`} className="min-w-0 text-xs text-slate-600">
-                            <span className="block truncate font-medium text-slate-800">{event.title}</span>
-                            <span className="block truncate">{event.time} · {event.assigned}</span>
-                          </li>
-                        ))}
-                        {day.hiddenCount > 0 ? (
-                          <li className="text-xs font-medium text-slate-500">+{day.hiddenCount} más</li>
-                        ) : null}
-                      </ul>
-                    ) : (
-                      <div className="mt-2 text-xs text-slate-400">Sin actividades</div>
-                    )}
-                  </button>
-                ))}
-              </div>
-              {selectedDaySummary ? (
-                <div
-                  className="mt-4 rounded border border-slate-200 bg-white"
-                  role="region"
-                  aria-label={`Actividades del ${selectedDaySummary.dayLabel} ${selectedDaySummary.dateLabel}`}
-                >
-                  <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">
-                        {selectedDaySummary.dayLabel} {selectedDaySummary.dateLabel}
-                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                          {selectedDayEvents.length}
-                        </span>
-                      </h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDate(null)}
-                      className="self-start rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:self-auto"
-                    >
-                      Cerrar
-                    </button>
+            <details className="border-b border-slate-100">
+              <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600 sm:px-6">Ver próximos 7 días</summary>
+              <div className="bg-slate-50/50 px-4 pb-4 pt-3 sm:px-6">
+                <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">Próximos 7 días</h3>
+                    <p className="text-xs text-slate-500">
+                      Resumen semanal de las actividades de esta lista.
+                    </p>
                   </div>
-                  {selectedDayEvents.length > 0 ? (
-                    <div className="max-h-[22rem] overflow-y-auto">
-                      <ul className="divide-y divide-slate-100">
-                        {selectedDayEvents.map((event) => (
-                          <li key={`${selectedDaySummary.ymd}-${event.id}`} className="px-4 py-3">
-                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                              <div className="min-w-0 space-y-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800">
-                                    {formatEventTimeRange(event)}
-                                  </span>
-                                  <span className={`rounded px-2 py-1 text-xs font-medium ${getAdminEventStatusStyle(event.status)}`}>
-                                    {getAdminEventStatusLabel(event.status)}
-                                  </span>
-                                  <span className="rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
-                                    {getAdminEventTypeLabel(event.type)}
-                                  </span>
-                                </div>
-                                <div>
-                                  <div className="font-medium text-slate-900">{event.title}</div>
-                                  <div className="mt-1 text-xs text-slate-500">{formatEventRecurrenceLabel(event)}</div>
-                                </div>
-                                <div className="text-sm text-slate-700">{getEventAcademicSummary(event)}</div>
-                                <div className="text-xs text-slate-500">
-                                  {getEventAssignedDisplay(event)} · {event.location || 'Sin ubicación'} · {event._count.attendances} asist.
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => openEditEvent(event)}
-                                className="inline-flex w-fit items-center rounded border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
-                              >
-                                Editar
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : (
-                    <div className="px-4 py-5 text-sm text-slate-500">Sin actividades para este día.</div>
-                  )}
                 </div>
-              ) : null}
-            </div>
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 xl:grid-cols-7">
+                  {next7Days.map((day) => (
+                    <button
+                      key={day.ymd}
+                      type="button"
+                      onClick={() => setSelectedDate(day.ymd)}
+                      aria-pressed={selectedDate === day.ymd}
+                      className={`min-h-[6.5rem] rounded border px-3 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                        selectedDate === day.ymd
+                          ? 'border-emerald-500 bg-emerald-50 shadow-sm'
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 text-sm font-semibold text-slate-900">
+                          {day.dayLabel} <span className="font-normal text-slate-500">{day.dateLabel}</span>
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                          {day.count}
+                        </span>
+                      </div>
+                      {day.visible.length > 0 ? (
+                        <ul className="mt-2 space-y-1">
+                          {day.visible.map((event) => (
+                            <li key={`${day.ymd}-${event.id}`} className="min-w-0 text-xs text-slate-600">
+                              <span className="block truncate font-medium text-slate-800">{event.title}</span>
+                              <span className="block truncate">{event.time} · {event.assigned}</span>
+                            </li>
+                          ))}
+                          {day.hiddenCount > 0 ? (
+                            <li className="text-xs font-medium text-slate-500">+{day.hiddenCount} más</li>
+                          ) : null}
+                        </ul>
+                      ) : (
+                        <div className="mt-2 text-xs text-slate-400">Sin actividades</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {selectedDaySummary ? (
+                  <div
+                    className="mt-4 rounded border border-slate-200 bg-white"
+                    role="region"
+                    aria-label={`Actividades del ${selectedDaySummary.dayLabel} ${selectedDaySummary.dateLabel}`}
+                  >
+                    <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">
+                          {selectedDaySummary.dayLabel} {selectedDaySummary.dateLabel}
+                          <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                            {selectedDayEvents.length}
+                          </span>
+                        </h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate(null)}
+                        className="self-start rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:self-auto"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                    {selectedDayEvents.length > 0 ? (
+                      <div className="max-h-[22rem] overflow-y-auto">
+                        <ul className="divide-y divide-slate-100">
+                          {selectedDayEvents.map((event) => (
+                            <li key={`${selectedDaySummary.ymd}-${event.id}`} className="px-4 py-3">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div className="min-w-0 space-y-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800">
+                                      {formatEventTimeRange(event)}
+                                    </span>
+                                    <span className={`rounded px-2 py-1 text-xs font-medium ${getAdminEventStatusStyle(event.status)}`}>
+                                      {getAdminEventStatusLabel(event.status)}
+                                    </span>
+                                    <span className="rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
+                                      {getAdminEventTypeLabel(event.type)}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <div className="font-medium text-slate-900">{event.title}</div>
+                                    <div className="mt-1 text-xs text-slate-500">{formatEventRecurrenceLabel(event)}</div>
+                                  </div>
+                                  <div className="text-sm text-slate-700">{getEventAcademicSummary(event)}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {getEventAssignedDisplay(event)} · {event.location || 'Sin ubicación'} · {event._count.attendances} asist.
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditEvent(event)}
+                                  className="inline-flex w-fit items-center rounded border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+                                >
+                                  Editar
+                                </button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-5 text-sm text-slate-500">Sin actividades para este día.</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </details>
           ) : null}
-          
+
           {loading ? (
             <div className="p-4 text-center text-gray-500 sm:p-6">Cargando agenda…</div>
           ) : renderEventsEmptyState(events) || (

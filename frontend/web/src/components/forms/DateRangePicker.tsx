@@ -10,6 +10,7 @@ type DateRange = { startDate: string; endDate: string }
 
 type Props = DateRange & {
   onChange: (range: DateRange) => void
+  presets?: Array<DateRange & { label: string }>
 }
 
 // UTC keeps calendar arithmetic independent of the browser's timezone.
@@ -28,7 +29,7 @@ function rangeLabel({ startDate, endDate }: DateRange) {
   return 'Todo el período'
 }
 
-export default function DateRangePicker({ startDate, endDate, onChange }: Props) {
+export default function DateRangePicker({ startDate, endDate, onChange, presets: customPresets }: Props) {
   const id = useId()
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -86,7 +87,7 @@ export default function DateRangePicker({ startDate, endDate, onChange }: Props)
   weekStart.setUTCDate(weekStart.getUTCDate() - (weekStart.getUTCDay() + 6) % 7)
   const thirtyDaysAgo = new Date(todayDate)
   thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 29)
-  const presets = [
+  const presets = customPresets ?? [
     { label: 'Hoy', startDate: today, endDate: today },
     { label: 'Esta semana', startDate: ymd(weekStart), endDate: today },
     { label: 'Este mes', startDate: `${today.slice(0, 7)}-01`, endDate: today },
