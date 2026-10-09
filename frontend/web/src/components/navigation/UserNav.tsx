@@ -32,6 +32,7 @@ import { logoutUrl } from '@/lib/auth/urls'
 import { clearObservabilityUser } from '@/lib/observability/user-session'
 import { getRoleLabel } from '@/lib/roles/display'
 import { useAuth, type AuthMe } from '@/contexts/AuthContext'
+import { SidebarSlotContext } from './sidebar-slot'
 
 type MeUser = AuthMe
 
@@ -329,25 +330,49 @@ function RailGroup({ group, pathname, onOpen }: { group: VisibleGroup; pathname:
   )
 }
 
-/** Contraer o expandir el menú lateral. Sólo en escritorio: en el celular el menú es un panel. */
-function SidebarToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+/**
+ * Contraer o expandir el menú lateral, arriba al lado del logo (como el de Claude). Sólo en
+ * escritorio: en el celular el menú es un panel que se cierra con la X.
+ */
+function SidebarCollapseButton({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const Icon = collapsed ? PanelLeftOpen : PanelLeftClose
+  const label = collapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'
   return (
-    <div className="hidden border-t border-gray-200 p-2 lg:block">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={!collapsed}
-        aria-label={collapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'}
-        title={collapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'}
-        className={`flex w-full items-center gap-2 rounded-lg py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 ${
-          collapsed ? 'justify-center' : 'px-3'
-        }`}
-      >
-        <Icon className="h-5 w-5 shrink-0" aria-hidden />
-        {!collapsed && <span>Contraer menú</span>}
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-label={label}
+      title={label}
+      className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 lg:flex ${
+        collapsed ? '' : 'ml-auto'
+      }`}
+    >
+      <Icon className="h-5 w-5" aria-hidden />
+    </button>
+  )
+}
+
+/** Quién está usando el sistema, al pie del menú (como el de Claude). Contraído, sólo la inicial. */
+function SidebarUser({ me, rail }: { me: MeUser; rail: boolean }) {
+  const name = me.name || me.email || 'Usuario'
+  const role = me.roleLabel || getRoleLabel(me.role)
+  return (
+    <a
+      href="/profile"
+      title={rail ? `${name} · ${role}` : 'Mi perfil'}
+      className={`flex items-center gap-3 border-t border-gray-200 py-3 transition-colors hover:bg-gray-50 ${rail ? 'justify-center px-2' : 'px-4'}`}
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-semibold text-emerald-700">
+        {name.substring(0, 1).toUpperCase()}
+      </span>
+      {!rail && (
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-gray-900">{name}</span>
+          <span className="block truncate text-xs text-gray-500">{role}</span>
+        </span>
+      )}
+    </a>
   )
 }
 
@@ -357,6 +382,8 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [collapsed, setCollapsed] = useState(false)
+  // Hueco arriba del menú donde la sección pone su selector de ciclo lectivo (ver `sidebar-slot`).
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
   const [unreadInApp, setUnreadInApp] = useState(0)
   const pathname = usePathname()
 
@@ -518,15 +545,19 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         rail ? 'lg:w-16' : 'lg:w-72'
       }`}
     >
-      <div className={`flex h-16 items-center gap-3 border-b border-gray-200 ${rail ? 'justify-center px-2' : 'px-5'}`}>
-        <a
-          href="/"
-          title="EduTrack"
-          className="flex min-w-0 items-center gap-2 text-xl font-bold text-emerald-600 transition-colors hover:text-emerald-700"
-        >
-          <img src="/logo.svg" alt="EduTrack" className="h-8 w-8 shrink-0" />
-          {!rail && <span className="truncate">EduTrack</span>}
-        </a>
+      <div className={`flex h-16 items-center gap-2 border-b border-gray-200 ${rail ? 'justify-center px-2' : 'px-4'}`}>
+        {/* Contraído, arriba queda sólo el botón para volver a abrirlo, como en Claude. */}
+        {!rail && (
+          <a
+            href="/"
+            title="EduTrack"
+            className="flex min-w-0 items-center gap-2 text-xl font-bold text-emerald-600 transition-colors hover:text-emerald-700"
+          >
+            <img src="/logo.svg" alt="EduTrack" className="h-8 w-8 shrink-0" />
+            <span className="truncate">EduTrack</span>
+          </a>
+        )}
+        <SidebarCollapseButton collapsed={rail} onToggle={toggleCollapsed} />
         <button
           type="button"
           className="ml-auto rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:hidden"
@@ -537,15 +568,11 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         </button>
       </div>
 
+      {/* El selector de ciclo lectivo de la sección llega acá por portal; sin selector no ocupa lugar. */}
+      <div ref={setSlot} className={`empty:hidden ${rail ? 'px-2 pt-3' : 'px-3 pt-3'}`} />
+
       {/* Contraído no hay scroll: con `overflow-y-auto` el panel que se despliega al costado quedaba recortado. */}
       <nav className={`flex-1 py-4 ${rail ? 'overflow-visible px-2' : 'overflow-y-auto px-3'}`}>
-        {!rail && (
-          <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Panel de trabajo</p>
-            <p className="mt-0.5 truncate text-sm text-emerald-950">{me?.name || me?.email || 'Usuario'}</p>
-          </div>
-        )}
-
         <div className={rail ? 'space-y-2' : 'space-y-1.5'}>
           {groups.map((group) => {
             if (rail) {
@@ -568,7 +595,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         </div>
       </nav>
 
-      <SidebarToggle collapsed={rail} onToggle={toggleCollapsed} />
+      {me && <SidebarUser me={me} rail={rail} />}
     </aside>
   ) : null
 
@@ -591,48 +618,52 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     )
   }
 
+  const slotValue = { slot, rail, expand: () => rail && toggleCollapsed() }
+
   return (
-    <div className="min-h-screen bg-slate-50/80">
-      <div
-        aria-hidden="true"
-        className={`fixed inset-0 z-40 bg-slate-950/40 transition-opacity lg:hidden ${mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
-        onClick={() => setMobileOpen(false)}
-        onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setMobileOpen(false) }}
-      />
-      <div className={`lg:block ${mobileOpen ? 'block' : 'hidden'}`}>{sidebar}</div>
-      <div className={`min-h-screen transition-[padding] duration-200 ${collapsed ? 'lg:pl-16' : 'lg:pl-72'}`}>
-        <header className="header-modern sticky top-0 z-30 bg-white/90">
-          <div className="flex h-16 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
-            <button
-              type="button"
-              className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 lg:hidden"
-              onClick={() => setMobileOpen(true)}
-              aria-label="Abrir menú"
-            >
-              <Menu className="h-5 w-5" aria-hidden />
-            </button>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">EduTrack</p>
-              <p className="truncate text-sm text-gray-600">Gestión diaria de la institución</p>
+    <SidebarSlotContext.Provider value={slotValue}>
+      <div className="min-h-screen bg-slate-50/80">
+        <div
+          aria-hidden="true"
+          className={`fixed inset-0 z-40 bg-slate-950/40 transition-opacity lg:hidden ${mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+          onClick={() => setMobileOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setMobileOpen(false) }}
+        />
+        <div className={`lg:block ${mobileOpen ? 'block' : 'hidden'}`}>{sidebar}</div>
+        <div className={`min-h-screen transition-[padding] duration-200 ${collapsed ? 'lg:pl-16' : 'lg:pl-72'}`}>
+          <header className="header-modern sticky top-0 z-30 bg-white/90">
+            <div className="flex h-16 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
+              <button
+                type="button"
+                className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 lg:hidden"
+                onClick={() => setMobileOpen(true)}
+                aria-label="Abrir menú"
+              >
+                <Menu className="h-5 w-5" aria-hidden />
+              </button>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">EduTrack</p>
+                <p className="truncate text-sm text-gray-600">Gestión diaria de la institución</p>
+              </div>
+              <a
+                href="/notifications"
+                className="relative rounded-lg p-2 text-gray-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+                title="Avisos"
+                aria-label="Avisos"
+              >
+                <Bell className="h-5 w-5" aria-hidden />
+                {unreadInApp > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold text-white">
+                    {unreadInApp > 99 ? '99+' : unreadInApp}
+                  </span>
+                )}
+              </a>
+              {accountButton}
             </div>
-            <a
-              href="/notifications"
-              className="relative rounded-lg p-2 text-gray-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
-              title="Avisos"
-              aria-label="Avisos"
-            >
-              <Bell className="h-5 w-5" aria-hidden />
-              {unreadInApp > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold text-white">
-                  {unreadInApp > 99 ? '99+' : unreadInApp}
-                </span>
-              )}
-            </a>
-            {accountButton}
-          </div>
-        </header>
-        <div className="min-w-0">{children}</div>
+          </header>
+          <div className="min-w-0">{children}</div>
+        </div>
       </div>
-    </div>
+    </SidebarSlotContext.Provider>
   )
 }

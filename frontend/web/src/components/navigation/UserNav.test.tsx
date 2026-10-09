@@ -97,7 +97,8 @@ describe('UserNav', () => {
 
     renderNav()
 
-    expect(await screen.findByText('A')).toBeInTheDocument()
+    // La inicial está en el botón de cuenta y en el usuario al pie del menú.
+    expect((await screen.findAllByText('A')).length).toBeGreaterThan(0)
     expect(screen.queryByText('Mis asistencias')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /avisos/i })).toBeInTheDocument()
   })
