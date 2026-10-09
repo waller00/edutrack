@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeEditableUntil,
+  computeOpensAt,
   isTeacherWritableStatus,
   isWithinEditWindow,
   resolveRollCallPermissions,
+  rollCallBlockedMessage,
 } from './edit-window.js'
 
+const startAt = new Date('2026-05-05T13:00:00.000Z')
 const endAt = new Date('2026-05-05T14:00:00.000Z')
 
 describe('computeEditableUntil', () => {
@@ -50,14 +53,77 @@ describe('isWithinEditWindow', () => {
   })
 })
 
+describe('computeOpensAt', () => {
+  it('abre 10 minutos antes del inicio', () => {
+    expect(computeOpensAt(startAt)).toEqual(new Date('2026-05-05T12:50:00.000Z'))
+  })
+})
+
 describe('resolveRollCallPermissions', () => {
   const base = {
+    occurrenceStartAt: startAt,
     occurrenceEndAt: endAt,
     takenAt: null,
     lockedAt: null,
     windowHours: 48,
     now: new Date('2026-05-06T10:00:00.000Z'),
   }
+
+  it('devuelve desde cuándo abre la lista', () => {
+    const result = resolveRollCallPermissions({ ...base, scope: 'own', isAssignedTeacher: true })
+    expect(result.opensAt).toEqual(new Date('2026-05-05T12:50:00.000Z'))
+  })
+
+  it('antes de abrir, el docente no puede pasarla', () => {
+    const result = resolveRollCallPermissions({
+      ...base,
+      scope: 'own',
+      isAssignedTeacher: true,
+      now: new Date('2026-05-05T12:49:59.999Z'),
+    })
+    expect(result).toMatchObject({ canEdit: false, blockedReason: 'NOT_STARTED' })
+  })
+
+  it('justo a los 10 minutos antes ya se puede', () => {
+    const result = resolveRollCallPermissions({
+      ...base,
+      scope: 'own',
+      isAssignedTeacher: true,
+      now: new Date('2026-05-05T12:50:00.000Z'),
+    })
+    expect(result).toMatchObject({ canEdit: true, blockedReason: null })
+  })
+
+  it('la clase de mañana tampoco la puede pasar administración', () => {
+    const result = resolveRollCallPermissions({
+      ...base,
+      scope: 'all',
+      isAssignedTeacher: false,
+      now: new Date('2026-05-04T13:00:00.000Z'),
+    })
+    expect(result).toMatchObject({ canEdit: false, blockedReason: 'NOT_STARTED' })
+  })
+
+  it('a quien no es docente de la clase se le dice eso, aunque no haya abierto', () => {
+    const result = resolveRollCallPermissions({
+      ...base,
+      scope: 'own',
+      isAssignedTeacher: false,
+      now: new Date('2026-05-04T13:00:00.000Z'),
+    })
+    expect(result.blockedReason).toBe('NOT_ASSIGNED')
+  })
+
+  it('una planilla cerrada pesa más que una clase sin abrir', () => {
+    const result = resolveRollCallPermissions({
+      ...base,
+      scope: 'own',
+      isAssignedTeacher: true,
+      lockedAt: new Date('2026-05-04T00:00:00.000Z'),
+      now: new Date('2026-05-04T13:00:00.000Z'),
+    })
+    expect(result.blockedReason).toBe('LOCKED')
+  })
 
   it('el docente asignado edita dentro de la ventana', () => {
     const result = resolveRollCallPermissions({ ...base, scope: 'own', isAssignedTeacher: true })
@@ -99,6 +165,21 @@ describe('resolveRollCallPermissions', () => {
       now: new Date('2026-09-01T10:00:00.000Z'),
     })
     expect(result).toMatchObject({ canEdit: true, blockedReason: null })
+  })
+})
+
+describe('rollCallBlockedMessage', () => {
+  it('dice a qué hora abre la lista, en hora de Uruguay', () => {
+    expect(
+      rollCallBlockedMessage({ blockedReason: 'NOT_STARTED', opensAt: new Date('2026-05-05T12:50:00.000Z') }),
+    ).toBe('La lista se abre a las 09:50, 10 minutos antes de la clase.')
+  })
+
+  it('explica el cierre y el plazo vencido', () => {
+    expect(rollCallBlockedMessage({ blockedReason: 'LOCKED', opensAt: startAt })).toBe(
+      'La planilla fue cerrada por administración.',
+    )
+    expect(rollCallBlockedMessage({ blockedReason: 'WINDOW_EXPIRED', opensAt: startAt })).toMatch(/Se venció el plazo/)
   })
 })
 

@@ -2,10 +2,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission, userPermissionScope } from '../middlewares/auth.js'
-import { expandRecurringEvent } from '../events/events-query.js'
 import { isYmdDateString } from '../config/app-timezone.js'
 import { todayUruguayYmd } from '../services/events/event-versioning.js'
-import { occurrenceYmdOf } from '../services/events/occurrence-instant.js'
 import { findNonWorkingDayForDate } from '../services/non-working-days.js'
 import { getStudentRollCallSettings } from '../config/system-settings.js'
 import {
@@ -14,7 +12,7 @@ import {
   OCCURRENCE_ERROR_MESSAGE,
   type OccurrenceErrorCode,
 } from '../services/student-attendance/occurrence.js'
-import { resolveRollCallPermissions } from '../services/student-attendance/edit-window.js'
+import { resolveRollCallPermissions, rollCallBlockedMessage } from '../services/student-attendance/edit-window.js'
 import { canResolveRoster, loadRosterForScope } from '../services/student-attendance/roster.js'
 import {
   findSession,
@@ -24,18 +22,17 @@ import {
   saveRollCall,
 } from '../services/student-attendance/roll-call.js'
 import { findPreviousSession, projectPreviousStatuses } from '../services/student-attendance/copy-previous.js'
+import {
+  CLASS_EVENT_INCLUDE,
+  courseLabelOf,
+  loadClassesForDay,
+  loadRollCallReminders,
+  orientationLabelOf,
+} from '../services/student-attendance/my-classes.js'
+import { PERSON_SELECT, personRef } from '../services/student-attendance/person.js'
 
 const r = Router()
 r.use(authGuard)
-
-const EVENT_INCLUDE = {
-  subject: { select: { id: true, name: true, code: true } },
-  orientation: { select: { id: true, name: true, code: true } },
-  courseOrientation: { select: { id: true, orientation: { select: { id: true, name: true, code: true } } } },
-  courseOffering: { select: { id: true, course: { select: { id: true, name: true, code: true } } } },
-  assignedUser: { select: { id: true, name: true, username: true } },
-  childEvents: true,
-} as const
 
 const rollCallEntrySchema = z.object({
   studentId: z.string().uuid(),
@@ -67,14 +64,6 @@ const OCCURRENCE_ERROR_STATUS: Record<OccurrenceErrorCode, number> = {
   OUT_OF_EFFECTIVE_WINDOW: 409,
 }
 
-function courseLabelOf(event: any): string | null {
-  return event.courseOffering?.course?.name ?? null
-}
-
-function orientationLabelOf(event: any): string | null {
-  return event.courseOrientation?.orientation?.name ?? event.orientation?.name ?? null
-}
-
 function cohortOf(event: any) {
   return {
     schoolYearId: event.schoolYearId as string,
@@ -85,14 +74,12 @@ function cohortOf(event: any) {
   }
 }
 
-/** ¿Quien pide es titular de la clase, o suplente oficial ese día? */
-async function isResponsibleTeacher(event: any, userId: string, occurrenceYmd: string): Promise<boolean> {
-  if (event.assignedUserId === userId) return true
-  const substitution = await (prisma as any).substitution.findUnique({
-    where: { eventId_date: { eventId: event.id, date: occurrenceDateOf(occurrenceYmd) } },
-    select: { substituteUserId: true },
+/** Suplencia del día, con quién cubre: la planilla lo muestra y decide quién es responsable. */
+async function findDaySubstitution(eventId: string, occurrenceYmd: string) {
+  return (prisma as any).substitution.findUnique({
+    where: { eventId_date: { eventId, date: occurrenceDateOf(occurrenceYmd) } },
+    select: { substituteUserId: true, substitute: { select: PERSON_SELECT } },
   })
-  return substitution?.substituteUserId === userId
 }
 
 type OccurrenceContext = {
@@ -102,6 +89,7 @@ type OccurrenceContext = {
   endAt: Date
   scope: 'own' | 'all'
   isAssigned: boolean
+  substitute: { id: string; name: string } | null
 }
 
 /**
@@ -116,7 +104,7 @@ async function loadOccurrenceContext(req: any, res: any): Promise<OccurrenceCont
   }
   const { eventId, ymd } = parsed.data
 
-  const event = await prisma.event.findUnique({ where: { id: eventId }, include: EVENT_INCLUDE })
+  const event = await prisma.event.findUnique({ where: { id: eventId }, include: CLASS_EVENT_INCLUDE })
   if (!event) {
     res.status(404).json({ message: 'Clase no encontrada' })
     return null
@@ -152,13 +140,23 @@ async function loadOccurrenceContext(req: any, res: any): Promise<OccurrenceCont
 
   const user = req.user
   const scope = (await userPermissionScope(user.sub, 'student-attendance.take', user.role)) ?? 'own'
-  const isAssigned = await isResponsibleTeacher(event, user.sub, ymd)
+  const substitution = await findDaySubstitution(event.id, ymd)
+  // Responsable: el titular, o el suplente oficial ese día.
+  const isAssigned = event.assignedUserId === user.sub || substitution?.substituteUserId === user.sub
   if (scope !== 'all' && !isAssigned) {
     res.status(403).json({ message: 'No sos el docente de esta clase.' })
     return null
   }
 
-  return { event, ymd, startAt: occurrence.startAt, endAt: occurrence.endAt, scope, isAssigned }
+  return {
+    event,
+    ymd,
+    startAt: occurrence.startAt,
+    endAt: occurrence.endAt,
+    scope,
+    isAssigned,
+    substitute: personRef(substitution?.substitute),
+  }
 }
 
 function serializeEntries(session: any, roster: { studentId: string; firstName: string; lastName: string; documentId: string | null }[]) {
@@ -195,6 +193,7 @@ async function buildSheetResponse(ctx: OccurrenceContext) {
   const permissions = resolveRollCallPermissions({
     scope: ctx.scope,
     isAssignedTeacher: ctx.isAssigned,
+    occurrenceStartAt: ctx.startAt,
     occurrenceEndAt: ctx.endAt,
     takenAt: session?.takenAt ?? null,
     lockedAt: session?.lockedAt ?? null,
@@ -210,14 +209,18 @@ async function buildSheetResponse(ctx: OccurrenceContext) {
     orientation: orientationLabelOf(ctx.event),
     startAt: ctx.startAt,
     endAt: ctx.endAt,
+    teacher: personRef(ctx.event.assignedUser),
+    substitute: ctx.substitute,
     rollCall: {
       sessionId: session?.id ?? null,
       status: session?.status ?? 'PENDING',
       source: session?.source ?? null,
       takenAt: session?.takenAt ?? null,
+      takenBy: personRef((session as any)?.takenBy)?.name ?? null,
       notes: session?.notes ?? null,
       canEdit: permissions.canEdit,
       blockedReason: permissions.blockedReason,
+      opensAt: permissions.opensAt,
       editableUntil: permissions.editableUntil,
       copyPreviousEnabled: settings.copyPreviousEnabled,
     },
@@ -226,7 +229,7 @@ async function buildSheetResponse(ctx: OccurrenceContext) {
 }
 
 /**
- * Clases del día del docente, con el estado de su pase de lista.
+ * Clases del día del docente, con el estado de su pase de lista y quién da cada una.
  *
  * Devuelve `eventId` y `ymd` como campos SEPARADOS: el id compuesto `uuid_ymd` que produce
  * la expansión de recurrencia nunca llega al cliente, así no puede reenviarlo como eventId.
@@ -238,78 +241,23 @@ r.get('/my-classes', requirePermission('student-attendance.take'), async (req: a
 
     const userId = req.user.sub
     const scope = (await userPermissionScope(userId, 'student-attendance.take', req.user.role)) ?? 'own'
-    const occurrenceDate = occurrenceDateOf(rawDate)
-
-    const substitutions = await (prisma as any).substitution.findMany({
-      where: { substituteUserId: userId, date: occurrenceDate },
-      select: { eventId: true },
-    })
-    const substitutedEventIds = substitutions.map((s: { eventId: string }) => s.eventId)
-
-    const events = await prisma.event.findMany({
-      where: {
-        type: 'CLASE',
-        status: { not: 'CANCELLED' },
-        parentEventId: null,
-        ...(scope === 'all'
-          ? {}
-          : { OR: [{ assignedUserId: userId }, { id: { in: substitutedEventIds } }] }),
-      },
-      include: EVENT_INCLUDE,
-      orderBy: { startTime: 'asc' },
-    })
-
-    const settings = await getStudentRollCallSettings()
-    const nonWorking = await findNonWorkingDayForDate(new Date(`${rawDate}T00:00:00.000Z`))
-
-    const occurrences = events
-      .map((event) => ({ event, occurrence: classifyOccurrence(event as any, rawDate) }))
-      .filter((row) => isOccurrenceOk(row.occurrence))
-      .map((row) => ({ event: row.event, startAt: row.occurrence.startAt!, endAt: row.occurrence.endAt! }))
-
-    const sessions = await prisma.studentAttendanceSession.findMany({
-      where: { occurrenceYmd: rawDate, eventId: { in: occurrences.map((o) => o.event.id) } },
-    })
-    const sessionByEvent = new Map(sessions.map((s) => [s.eventId, s]))
-
-    const rows = occurrences
-      .map(({ event, startAt, endAt }) => {
-        const session = sessionByEvent.get(event.id) ?? null
-        const permissions = resolveRollCallPermissions({
-          scope,
-          isAssignedTeacher: event.assignedUserId === userId || substitutedEventIds.includes(event.id),
-          occurrenceEndAt: endAt,
-          takenAt: session?.takenAt ?? null,
-          lockedAt: session?.lockedAt ?? null,
-          windowHours: settings.editWindowHours,
-        })
-        return {
-          eventId: event.id,
-          ymd: rawDate,
-          title: event.title,
-          subject: (event as any).subject?.name ?? null,
-          course: courseLabelOf(event),
-          orientation: orientationLabelOf(event),
-          startAt,
-          endAt,
-          isSubstitution: event.assignedUserId !== userId && substitutedEventIds.includes(event.id),
-          nonWorkingDay: nonWorking ? nonWorking.reason : null,
-          rollCall: {
-            sessionId: session?.id ?? null,
-            status: session?.status ?? 'PENDING',
-            takenAt: session?.takenAt ?? null,
-            rosterSize: session?.rosterSize ?? null,
-            canEdit: permissions.canEdit,
-            blockedReason: permissions.blockedReason,
-            editableUntil: permissions.editableUntil,
-          },
-        }
-      })
-      .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
-
-    return res.json(rows)
+    return res.json(await loadClassesForDay({ userId, scope, ymd: rawDate }))
   } catch (error) {
     console.error('[student-attendance] my-classes:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+/**
+ * Listas que quien pide tiene que pasar hoy, para el aviso que la app muestra arriba durante la
+ * clase. Siempre las propias, aunque tenga alcance total: administración no da esas clases.
+ */
+r.get('/reminder', requirePermission('student-attendance.take'), async (req: any, res) => {
+  try {
+    const items = await loadRollCallReminders({ userId: req.user.sub, ymd: todayUruguayYmd() })
+    return res.json({ items })
+  } catch (error) {
+    console.error('[student-attendance] reminder:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
@@ -348,6 +296,7 @@ r.put('/sessions/:eventId/:ymd', requirePermission('student-attendance.take'), a
     const permissions = resolveRollCallPermissions({
       scope: ctx.scope,
       isAssignedTeacher: ctx.isAssigned,
+      occurrenceStartAt: ctx.startAt,
       occurrenceEndAt: ctx.endAt,
       takenAt: session?.takenAt ?? null,
       lockedAt: session?.lockedAt ?? null,
@@ -355,11 +304,9 @@ r.put('/sessions/:eventId/:ymd', requirePermission('student-attendance.take'), a
     })
     if (!permissions.canEdit) {
       return res.status(409).json({
-        message:
-          permissions.blockedReason === 'LOCKED'
-            ? 'La planilla fue cerrada por administración.'
-            : 'Se venció el plazo para editar esta lista. Pedile el cambio a administración.',
+        message: rollCallBlockedMessage(permissions),
         code: permissions.blockedReason,
+        opensAt: permissions.opensAt,
         editableUntil: permissions.editableUntil,
       })
     }

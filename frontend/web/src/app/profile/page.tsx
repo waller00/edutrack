@@ -1,7 +1,7 @@
 'use client'
 import type { FormEvent } from 'react'
-import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ExternalLink, FileText, KeyRound, Mail, Save, ShieldCheck, User, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Bell, ChevronDown, ExternalLink, FileText, KeyRound, Mail, Save, ShieldCheck, User, X } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
 import { accountPasswordUrl, accountRecoveryCodesUrl, accountTwoFactorUrl } from '@/lib/auth/urls'
@@ -20,6 +20,8 @@ import {
 
 export default function ProfilePage() {
   const { me, loading, refresh } = useAuth()
+  const [section, setSection] = useState<'personal' | 'security' | 'notifications'>('personal')
+  const [notificationsVisited, setNotificationsVisited] = useState(false)
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [nationalId, setNationalId] = useState('')
@@ -32,19 +34,18 @@ export default function ProfilePage() {
   const [msgTone, setMsgTone] = useState<'success' | 'error'>('success')
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [twoFactorLoading, setTwoFactorLoading] = useState(true)
+  const [twoFactorError, setTwoFactorError] = useState(false)
+  const twoFactorRequest = useRef(0)
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [twoFactorDisableBusy, setTwoFactorDisableBusy] = useState(false)
   const [disableEmailBusy, setDisableEmailBusy] = useState(false)
-
-  const ci = useMemo(() => formatCI(nationalId), [nationalId])
-  useEffect(() => { setNationalId(ci) }, [ci])
 
   useEffect(() => {
     if (loading) return
     if (!me) { globalThis.location.href = '/login'; return }
     setEmail(me.email || '')
     setUsername(me.username || '')
-    setNationalId(me.nationalId || '')
+    setNationalId(formatCI(me.nationalId || ''))
     setFirstName(me.firstName || '')
     setLastName(me.lastName || '')
     setPhoneLocal(formatLocalMobileInputFromE164(me.phone))
@@ -68,16 +69,26 @@ export default function ProfilePage() {
     }
   }, [])
 
-  // Consultamos el estado de 2FA cuando el usuario queda identificado; depende del id
-  // (estable) para no re-consultar en cada refresh del perfil.
-  useEffect(() => {
+  const loadTwoFactor = useCallback(async () => {
     if (!me?.id) return
+    const request = ++twoFactorRequest.current
     setTwoFactorLoading(true)
-    api<{ enabled: boolean }>('/auth/account/2fa/status')
-      .then((status) => setTwoFactorEnabled(Boolean(status.enabled)))
-      .catch(() => setTwoFactorEnabled(false))
-      .finally(() => setTwoFactorLoading(false))
+    setTwoFactorError(false)
+    try {
+      const status = await api<{ enabled: boolean }>('/auth/account/2fa/status')
+      if (request === twoFactorRequest.current) setTwoFactorEnabled(Boolean(status.enabled))
+    } catch {
+      if (request === twoFactorRequest.current) setTwoFactorError(true)
+    } finally {
+      if (request === twoFactorRequest.current) setTwoFactorLoading(false)
+    }
   }, [me?.id])
+  const cancelTwoFactorLoad = useCallback(() => { twoFactorRequest.current++ }, [])
+
+  useEffect(() => {
+    void loadTwoFactor()
+    return cancelTwoFactorLoad
+  }, [loadTwoFactor, cancelTwoFactorLoad])
 
   function notify(text: string, tone: 'success' | 'error') {
     setMsg(text)
@@ -154,221 +165,157 @@ export default function ProfilePage() {
   const isAdmin = me.role === 'ADMIN'
 
   return (
-    <main className="responsive-page max-w-7xl space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-            <User className="h-7 w-7 text-emerald-600" aria-hidden />
-          </div>
+    <main className="responsive-page max-w-4xl space-y-4">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
+            <User className="h-6 w-6" aria-hidden />
+          </span>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Mi Perfil</h1>
-            <p className="text-gray-600">Datos personales y notificaciones</p>
+            <h1 className="text-2xl font-bold text-slate-900">Mi Perfil</h1>
+            <p className="mt-1 text-sm text-slate-500">Actualizá tus datos y las preferencias de tu cuenta.</p>
           </div>
         </div>
-        <div className="text-left sm:text-right">
-          <div className="text-lg font-semibold text-emerald-600">{me.name || me.email}</div>
-          <div className="text-sm text-gray-600">{me.roleLabel || getRoleLabel(me.role)}</div>
-        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+          {me.roleLabel || getRoleLabel(me.role)}
+        </span>
+      </header>
+
+      <div role="group" aria-label="Secciones del perfil" className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
+        {([
+          ['personal', 'Datos personales', FileText],
+          ['security', 'Seguridad', ShieldCheck],
+          ['notifications', 'Notificaciones', Bell],
+        ] as const).map(([value, label, Icon]) => (
+          <button key={value} type="button" aria-pressed={section === value} aria-controls={`profile-${value}`}
+            onClick={() => { setSection(value); if (value === 'notifications') setNotificationsVisited(true) }}
+            className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-xs font-medium transition sm:text-sm ${section === value ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}>
+            <Icon className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden />{label}
+          </button>
+        ))}
       </div>
 
       {msg && (
-        <output
-          className={`flex w-full items-start gap-2 rounded-lg border p-4 text-sm ${
-            msgTone === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {msgTone === 'error' ? (
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          ) : (
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          )}
-          <span className="flex-1">{msg}</span>
-          <button
-            type="button"
-            onClick={() => setMsg('')}
-            className="shrink-0 rounded p-0.5 opacity-70 transition-opacity hover:opacity-100"
-            aria-label="Cerrar aviso"
-          >
+        <div role={msgTone === 'error' ? 'alert' : 'status'} className={`flex items-start gap-2 rounded-xl border p-3 text-sm ${msgTone === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+          {msgTone === 'error' ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}
+          <span className="min-w-0 flex-1">{msg}</span>
+          <button type="button" onClick={() => setMsg('')} className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100" aria-label="Cerrar aviso">
             <X className="h-4 w-4" aria-hidden />
           </button>
-        </output>
+        </div>
       )}
 
-      <section className="card">
-        <div className="card-header">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-              <FileText className="h-4 w-4 text-emerald-600" aria-hidden />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900">Datos Personales</h2>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label htmlFor="profile-email" className="block text-sm font-medium text-gray-700 mb-2">Correo</label>
-            <input
-              id="profile-email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              className="input-field"
-              placeholder="tu@correo.com"
-              type="email"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Usuario</label>
-            <input
-              value={username}
-              readOnly
-              aria-readonly="true"
-              className="input-field cursor-not-allowed bg-gray-50 text-gray-600"
-              placeholder="Ingresa tu nombre de usuario"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Cédula {isAdmin ? null : <span className="text-xs text-gray-500">(solo editable por administración)</span>}
-            </label>
-            <input
-              value={nationalId}
-              onChange={e => setNationalId(e.target.value)}
-              disabled={!isAdmin}
-              className="input-field disabled:opacity-60"
-              placeholder="1.234.567-8"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Nombre</label>
-            <input value={firstName} onChange={e => setFirstName(e.target.value)} className="input-field" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Apellido</label>
-            <input value={lastName} onChange={e => setLastName(e.target.value)} className="input-field" />
-          </div>
-          <PhoneBirthdateFields
-            phoneLocal={phoneLocal}
-            birthdate={birthdate}
-            onPhoneChange={setPhoneLocal}
-            onBirthdateChange={setBirthdate}
-          />
-        </div>
-        <div className="flex justify-end pt-6 border-t border-gray-200">
-          <button
-            onClick={saveProfile}
-            disabled={saving}
-            className="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60"
-          >
-            <PendingButtonContent
-              pending={saving}
-              pendingText="Guardando…"
-              idle={<><Save className="h-4 w-4 shrink-0" aria-hidden />Guardar cambios</>}
-            />
-          </button>
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="card-header">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100">
-              <ShieldCheck className="h-4 w-4 text-sky-700" aria-hidden />
+      <section id="profile-personal" aria-labelledby="profile-personal-title" hidden={section !== 'personal'} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+        <h2 id="profile-personal-title" className="font-semibold text-slate-900">Datos personales</h2>
+        <p className="mt-1 text-sm text-slate-500">Mantené tus datos de contacto al día.</p>
+        <form noValidate onSubmit={(event) => { event.preventDefault(); void saveProfile() }} className="mt-5 space-y-5">
+          <fieldset disabled={saving} className="grid min-w-0 gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="profile-first-name" className="mb-2 block text-sm font-medium text-slate-700">Nombre</label>
+              <input id="profile-first-name" value={firstName} onChange={e => setFirstName(e.target.value)} autoComplete="given-name" className="input-field" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-950">Seguridad de la cuenta</h2>
-              <p className="text-sm text-gray-600">Gestioná tu contraseña y la verificación en dos pasos.</p>
+              <label htmlFor="profile-last-name" className="mb-2 block text-sm font-medium text-slate-700">Apellido</label>
+              <input id="profile-last-name" value={lastName} onChange={e => setLastName(e.target.value)} autoComplete="family-name" className="input-field" />
             </div>
-          </div>
-        </div>
-        <div className="divide-y divide-gray-100">
-          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-gray-700" aria-hidden />
+            <div className="sm:col-span-2">
+              <label htmlFor="profile-email" className="mb-2 block text-sm font-medium text-slate-700">Correo</label>
+              <input id="profile-email" value={email} onChange={e => setEmail(e.target.value)} className="input-field" placeholder="tu@correo.com" type="email" autoComplete="email" />
+            </div>
+            <PhoneBirthdateFields phoneLocal={phoneLocal} birthdate={birthdate} onPhoneChange={setPhoneLocal} onBirthdateChange={setBirthdate} />
+          </fieldset>
+          <details className="group rounded-lg border border-slate-200">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-3 text-sm font-medium text-slate-600 [&::-webkit-details-marker]:hidden">
+              Identificación de la cuenta<ChevronDown className="h-4 w-4 shrink-0 transition group-open:rotate-180" aria-hidden />
+            </summary>
+            <div className="grid gap-4 border-t border-slate-100 p-3 sm:grid-cols-2">
               <div>
-                <h3 className="font-semibold text-gray-950">Contraseña</h3>
-                <p className="text-sm text-gray-600">Cambiá tu contraseña actual desde el gestor seguro de cuenta.</p>
+                <p className="text-xs font-medium text-slate-500">Usuario</p>
+                <p className="mt-1 break-words text-sm text-slate-700">{username || 'Sin usuario asignado'}</p>
+              </div>
+              <div>
+                {isAdmin ? <>
+                  <label htmlFor="profile-national-id" className="mb-2 block text-sm font-medium text-slate-700">Cédula</label>
+                  <input id="profile-national-id" value={nationalId} onChange={e => setNationalId(formatCI(e.target.value))} disabled={saving} inputMode="numeric" className="input-field" placeholder="1.234.567-8" />
+                </> : <>
+                  <p className="text-xs font-medium text-slate-500">Cédula</p>
+                  <p className="mt-1 text-sm text-slate-700">{nationalId || 'Sin cédula registrada'}</p>
+                  <p className="mt-1 text-xs text-slate-500">Para corregirla, contactá a administración.</p>
+                </>}
               </div>
             </div>
-            <a href={accountPasswordUrl()} className="btn-secondary w-full sm:w-auto">
-              Cambiar contraseña
-              <ExternalLink className="h-4 w-4" aria-hidden />
-            </a>
+          </details>
+          <div className="flex justify-end border-t border-slate-100 pt-4">
+            <button type="submit" disabled={saving} className="btn-primary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60 sm:w-auto">
+              <PendingButtonContent pending={saving} pendingText="Guardando…" idle={<><Save className="h-4 w-4 shrink-0" aria-hidden />Guardar cambios</>} />
+            </button>
           </div>
-          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        </form>
+      </section>
+
+      <section id="profile-security" aria-labelledby="profile-security-title" hidden={section !== 'security'} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+        <h2 id="profile-security-title" className="font-semibold text-slate-900">Seguridad de la cuenta</h2>
+        <p className="mt-1 text-sm text-slate-500">Gestioná tu contraseña y la verificación en dos pasos.</p>
+        <div className="mt-5 space-y-5">
+          <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Contraseña</h3>
+                <p className="mt-1 text-xs text-slate-500">Elegí una contraseña nueva para tu cuenta.</p>
+              </div>
+            </div>
+            <a href={accountPasswordUrl()} className="btn-secondary w-full shrink-0 sm:w-auto">Cambiar contraseña<ExternalLink className="h-4 w-4 shrink-0" aria-hidden /></a>
+          </div>
+          <div className="space-y-4 rounded-lg border border-slate-200 p-4">
             <div className="flex items-start gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden />
-              <div>
-                <h3 className="font-semibold text-gray-950">Verificación en dos pasos</h3>
-                <p className="text-sm text-gray-600">
-                  {twoFactorEnabled
-                    ? '2FA está activo. Ingresá el código de tu autenticador para desactivarlo.'
-                    : 'Activá tu autenticador y guardá los códigos de respaldo al terminar.'}
-                </p>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">Verificación en dos pasos</h3>
+                  {!twoFactorLoading && !twoFactorError && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${twoFactorEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{twoFactorEnabled ? 'Activada' : 'Sin activar'}</span>}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">Protegé el acceso con un código de tu autenticador.</p>
               </div>
             </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
-              {twoFactorLoading ? (
-                <span className="btn-secondary w-full cursor-wait justify-center opacity-70 sm:w-auto">Consultando…</span>
-              ) : twoFactorEnabled ? (
-                <>
-                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                    <a href={accountRecoveryCodesUrl()} className="btn-secondary w-full sm:w-auto">
-                      Códigos de respaldo
-                      <ExternalLink className="h-4 w-4" aria-hidden />
-                    </a>
+            {twoFactorLoading ? <p role="status" className="text-sm text-slate-500">Consultando estado…</p> : twoFactorError ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 p-3">
+                <p role="alert" className="text-sm text-amber-800">No se pudo consultar la verificación en dos pasos.</p>
+                <button type="button" onClick={() => void loadTwoFactor()} className="text-sm font-medium text-emerald-700 hover:underline">Reintentar</button>
+              </div>
+            ) : twoFactorEnabled ? (
+              <>
+                <a href={accountRecoveryCodesUrl()} className="btn-secondary w-full sm:w-auto">Códigos de respaldo<ExternalLink className="h-4 w-4 shrink-0" aria-hidden /></a>
+                <details className="group border-t border-slate-100 pt-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm text-slate-600 [&::-webkit-details-marker]:hidden">
+                    Desactivar verificación en dos pasos<ChevronDown className="h-4 w-4 shrink-0 transition group-open:rotate-180" aria-hidden />
+                  </summary>
+                  <div className="mt-4 space-y-3">
+                    <p className="text-xs text-slate-500">Ingresá el código de tu autenticador para desactivarla.</p>
+                    <form onSubmit={disableTwoFactorWithCode} className="space-y-2">
+                      <label htmlFor="profile-2fa-code" className="block text-sm font-medium text-slate-700">Código de 2FA</label>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input id="profile-2fa-code" value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} disabled={twoFactorDisableBusy}
+                          className="input-field text-center tabular-nums sm:max-w-40" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,8}" required placeholder="123456" />
+                        <button type="submit" disabled={twoFactorDisableBusy || disableEmailBusy || !twoFactorCode.trim()} className="btn-secondary w-full justify-center border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60 sm:w-auto">
+                          <PendingButtonContent pending={twoFactorDisableBusy} pendingText="Desactivando…" idle="Desactivar 2FA" />
+                        </button>
+                      </div>
+                    </form>
+                    <button type="button" onClick={requestDisableTwoFactorEmail} disabled={disableEmailBusy || twoFactorDisableBusy} className="inline-flex items-start gap-1.5 text-left text-sm text-slate-500 hover:text-emerald-700 hover:underline disabled:opacity-60">
+                      <PendingButtonContent pending={disableEmailBusy} pendingText="Enviando correo…" idle={<><Mail className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />¿Sin acceso a tu autenticador? Desactivar por correo</>} />
+                    </button>
                   </div>
-                  <form onSubmit={disableTwoFactorWithCode} className="flex w-full flex-col gap-2 sm:w-[22rem]">
-                    <label htmlFor="profile-2fa-code" className="sr-only">Código de 2FA</label>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <input
-                        id="profile-2fa-code"
-                        value={twoFactorCode}
-                        onChange={(event) => setTwoFactorCode(event.target.value)}
-                        className="input-field text-center tabular-nums sm:w-32"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        pattern="[0-9 ]{6,8}"
-                        placeholder="123456"
-                      />
-                      <button
-                        type="submit"
-                        disabled={twoFactorDisableBusy || !twoFactorCode.trim()}
-                        className="btn-secondary w-full justify-center border-red-200 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:flex-1"
-                      >
-                        <PendingButtonContent
-                          pending={twoFactorDisableBusy}
-                          pendingText="Desactivando…"
-                          idle="Desactivar 2FA"
-                        />
-                      </button>
-                    </div>
-                  </form>
-                  <button
-                    type="button"
-                    onClick={requestDisableTwoFactorEmail}
-                    disabled={disableEmailBusy}
-                    className="inline-flex items-center gap-1.5 self-start text-sm text-gray-500 underline-offset-2 hover:text-emerald-700 hover:underline disabled:cursor-wait disabled:opacity-60 sm:self-end"
-                  >
-                    <PendingButtonContent
-                      pending={disableEmailBusy}
-                      pendingText="Enviando correo…"
-                      idle={<><Mail className="h-3.5 w-3.5" aria-hidden />¿Sin acceso a tu autenticador? Desactivar por correo</>}
-                    />
-                  </button>
-                </>
-              ) : (
-                <a href={accountTwoFactorUrl()} className="btn-primary w-full sm:w-auto">
-                  Configurar 2FA
-                  <ExternalLink className="h-4 w-4" aria-hidden />
-                </a>
-              )}
-            </div>
+                </details>
+              </>
+            ) : <a href={accountTwoFactorUrl()} className="btn-primary w-full sm:w-auto">Configurar 2FA<ExternalLink className="h-4 w-4 shrink-0" aria-hidden /></a>}
           </div>
         </div>
       </section>
 
-      <WebPushSection />
+      <section id="profile-notifications" aria-label="Preferencias de notificaciones" hidden={section !== 'notifications'}>
+        {notificationsVisited && <WebPushSection />}
+      </section>
     </main>
   )
 }

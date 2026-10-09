@@ -2,10 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Clock, Loader2, UserRound } from 'lucide-react'
 import { api } from '@/lib/api/client'
+import { useOptionalAuth } from '@/contexts/AuthContext'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { formatTimeInUruguay } from '@/lib/forms/datetime-uy'
+import { todayYmdUruguay } from '@/lib/libreta/absence-day'
+import { useNow } from '@/lib/hooks/useNow'
+import {
+  classGroupLabel,
+  classTeacherLine,
+  formatRollCallDay,
+  rollCallPhase,
+  rollCallPhaseChipClass,
+  rollCallPhaseLabel,
+  type PersonRef,
+} from '@/lib/rollcall/rollcall-phase'
+import { ROLL_CALL_SAVED_EVENT } from '@/lib/rollcall/class-row'
 import {
   applyBulk,
   applyCopySuggestion,
@@ -34,21 +47,30 @@ export type SheetResponse = {
   orientation: string | null
   startAt: string
   endAt: string
+  teacher: PersonRef | null
+  substitute: PersonRef | null
   rollCall: {
     sessionId: string | null
     status: SessionStatus
     takenAt: string | null
+    takenBy: string | null
     notes: string | null
     canEdit: boolean
     blockedReason: BlockedReason
+    opensAt: string
     editableUntil: string | null
     copyPreviousEnabled: boolean
   }
   students: SheetStudent[]
 }
 
+/** Más allá de un día no vale la pena esperar la apertura con un temporizador. */
+const MAX_OPEN_WAIT_MS = 24 * 60 * 60 * 1000
+
 export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: string }) {
   const router = useRouter()
+  const me = useOptionalAuth()?.me ?? null
+  const now = useNow()
   const [sheet, setSheet] = useState<SheetResponse | null>(null)
   const [draft, setDraft] = useState<SheetDraft>({})
   const [loading, setLoading] = useState(true)
@@ -85,6 +107,16 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
     void load()
   }, [load])
 
+  // Abierta antes de hora: cuando llega la apertura se vuelve a pedir, y el servidor la habilita.
+  const opensAt = sheet?.rollCall.blockedReason === 'NOT_STARTED' ? sheet.rollCall.opensAt : null
+  useEffect(() => {
+    if (!opensAt) return
+    const wait = new Date(opensAt).getTime() - Date.now()
+    if (wait > MAX_OPEN_WAIT_MS) return
+    const id = setTimeout(() => void load(), Math.max(wait, 0) + 1000)
+    return () => clearTimeout(id)
+  }, [opensAt, load])
+
   const students = sheet?.students ?? []
   const counts = useMemo(() => countByStatus(draft, students), [draft, students])
   const canEdit = sheet?.rollCall.canEdit ?? false
@@ -93,8 +125,10 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
         canEdit,
         blockedReason: sheet.rollCall.blockedReason,
         editableUntil: sheet.rollCall.editableUntil,
+        opensAt: sheet.rollCall.opensAt,
       })
     : null
+  const backHref = ymd === todayYmdUruguay(now) ? '/me/roll-call' : `/me/roll-call?date=${ymd}`
 
   async function save() {
     if (!sheet) return
@@ -118,6 +152,8 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
       setDraft(buildDraft(updated.students))
       setNewStudentIds([])
       setMsg('✅ Lista guardada')
+      // El aviso de arriba ("pasá la lista") se entera sin esperar a su próxima consulta.
+      globalThis.dispatchEvent?.(new Event(ROLL_CALL_SAVED_EVENT))
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'No se pudo guardar la lista')
     } finally {
@@ -166,7 +202,7 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
     return (
       <div className="space-y-4">
         {msg ? <p className={`rounded-lg px-3 py-2 text-sm ${getAdminFlashMessageClass(msg)}`}>{msg}</p> : null}
-        <button type="button" className="btn-secondary text-sm" onClick={() => router.push('/me/roll-call')}>
+        <button type="button" className="btn-secondary text-sm" onClick={() => router.push(backHref)}>
           <ArrowLeft className="h-4 w-4" aria-hidden />
           Volver a mis clases
         </button>
@@ -174,22 +210,50 @@ export default function RollCallSheet({ eventId, ymd }: { eventId: string; ymd: 
     )
   }
 
+  const phase = rollCallPhase(
+    {
+      status: sheet.rollCall.status,
+      blockedReason: sheet.rollCall.blockedReason,
+      opensAt: sheet.rollCall.opensAt,
+      endAt: sheet.endAt,
+      editableUntil: sheet.rollCall.editableUntil,
+      takenAt: sheet.rollCall.takenAt,
+    },
+    now,
+  )
+  const teacherLine = classTeacherLine({ meId: me?.id, teacher: sheet.teacher, substitute: sheet.substitute })
+
   return (
     <div className="space-y-4">
-      <header className="space-y-1">
+      <header className="space-y-1.5">
         <button
           type="button"
           className="inline-flex items-center gap-1 text-sm text-emerald-700 hover:underline"
-          onClick={() => router.push('/me/roll-call')}
+          onClick={() => router.push(backHref)}
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
           Mis clases
         </button>
-        <h1 className="text-xl font-bold text-gray-900">{sheet.subject ?? sheet.title}</h1>
-        <p className="text-sm text-gray-600">
-          {[sheet.course, sheet.orientation].filter(Boolean).join(' · ') || 'Sin curso'} ·{' '}
-          {formatTimeInUruguay(sheet.startAt)}–{formatTimeInUruguay(sheet.endAt)}
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-gray-900">{classGroupLabel(sheet.course, sheet.orientation)}</h1>
+            <p className="text-base text-gray-700">{sheet.subject ?? sheet.title}</p>
+          </div>
+          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${rollCallPhaseChipClass(phase)}`}>
+            {rollCallPhaseLabel(phase, sheet.rollCall)}
+            {sheet.rollCall.takenBy && sheet.rollCall.status === 'TAKEN' ? ` · ${sheet.rollCall.takenBy}` : ''}
+          </span>
+        </div>
+        <p className="flex items-center gap-1.5 text-sm tabular-nums text-gray-600">
+          <Clock className="h-4 w-4 text-gray-400" aria-hidden />
+          {formatRollCallDay(ymd)} · {formatTimeInUruguay(sheet.startAt)}–{formatTimeInUruguay(sheet.endAt)}
         </p>
+        {teacherLine ? (
+          <p className="flex items-center gap-1.5 text-sm text-gray-600">
+            <UserRound className="h-4 w-4 text-gray-400" aria-hidden />
+            {teacherLine}
+          </p>
+        ) : null}
       </header>
 
       {notice ? (

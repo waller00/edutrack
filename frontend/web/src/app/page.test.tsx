@@ -199,6 +199,81 @@ describe('Home page', () => {
     expect(screen.getByText('Jorge Daniel Marrero Peiran tiene puente libre')).toBeInTheDocument()
   })
 
+  it('en "Clases del día" cada clase dice si la lista de alumnos se pasó', async () => {
+    const rollCall = (eventId: string, over: Record<string, unknown> = {}) => ({
+      eventId,
+      ymd: '2026-05-24',
+      status: 'PENDING',
+      takenAt: null,
+      takenBy: null,
+      opensAt: '2026-05-24T10:50:00.000Z',
+      endAt: '2026-05-24T11:45:00.000Z',
+      ...over,
+    })
+    vi.mocked(api)
+      .mockResolvedValueOnce({
+        name: 'Ada',
+        email: 'ada@example.com',
+        role: 'ADMIN',
+        emailVerifiedAt: '2026-01-01',
+        isApproved: true,
+        isActive: true,
+        permissions: [{ id: 'student-attendance.take', scope: 'all' }],
+      })
+      .mockResolvedValueOnce({
+        date: '2026-05-24',
+        summary: {
+          expectedTeachers: 2,
+          presentTeachers: 2,
+          lateArrivals: 0,
+          pendingAbsences: 0,
+          suspendedClasses: 0,
+          outOfSchedulePunches: 0,
+          unidentifiedPunches: 0,
+        },
+        filters: { teachers: [], groups: [], statuses: [], types: [] },
+        items: [
+          {
+            id: 'class:ev-1_2026-05-24',
+            time: '08:00',
+            type: 'CLASS_ATTENDANCE',
+            status: 'PRESENT',
+            statusLabel: 'Presente',
+            title: 'Matemática 1°A - Ana Pérez',
+            teacher: { id: 'u1', name: 'Ana Pérez' },
+            group: { id: 'g1', name: '1°A' },
+            event: { id: 'ev-1', title: 'Matemática' },
+            rollCall: rollCall('ev-1', { status: 'TAKEN', takenAt: '2026-05-24T11:07:00.000Z', takenBy: 'Ana Pérez' }),
+          },
+          {
+            id: 'class:ev-2_2026-05-24',
+            time: '09:00',
+            type: 'CLASS_ATTENDANCE',
+            status: 'PRESENT',
+            statusLabel: 'Presente',
+            title: 'Historia 2°B - Carlos Silva',
+            teacher: { id: 'u2', name: 'Carlos Silva' },
+            group: { id: 'g2', name: '2°B' },
+            event: { id: 'ev-2', title: 'Historia' },
+            rollCall: rollCall('ev-2'),
+          },
+        ],
+      })
+
+    renderHome()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Clases/i }))
+
+    expect(screen.getByText('Lista pasada 08:07 · Ana Pérez')).toBeInTheDocument()
+    expect(screen.getByText('Lista sin pasar')).toBeInTheDocument()
+    expect(screen.getByText('Listas pasadas: 1 de 2.')).toBeInTheDocument()
+    const links = screen.getAllByRole('link', { name: 'Ver lista' })
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/me/roll-call/ev-2/2026-05-24',
+      '/me/roll-call/ev-1/2026-05-24',
+    ])
+  })
+
   it('keeps full incident counts and lets users expand the short preview', async () => {
     vi.mocked(api)
       .mockResolvedValueOnce({

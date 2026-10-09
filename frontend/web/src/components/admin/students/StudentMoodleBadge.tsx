@@ -8,10 +8,12 @@ type Props = {
   moodle: MoodleAccountStatus | undefined
   studentName: string
   pending: boolean
-  /** `null` en las vistas de sólo lectura (la tabla no crea cuentas). */
+  /** `null` en los listados que agrupan las acciones en un menú. */
   onAction: ((action: 'provision' | 'resend') => void) | null
   /** Muestra la explicación de una línea; se usa en la ficha, no en la tabla. */
   withHint?: boolean
+  /** Sólo el estado, para mantener el listado compacto. */
+  compact?: boolean
 }
 
 /** Estado Moodle y su acción. Único punto de verdad: lo usan la tabla, las tarjetas y la ficha. */
@@ -21,6 +23,7 @@ export default function StudentMoodleBadge({
   pending,
   onAction,
   withHint = false,
+  compact = false,
 }: Props) {
   const view = getMoodleStatusView(moodle?.state, {
     linked: moodle?.linked,
@@ -31,7 +34,7 @@ export default function StudentMoodleBadge({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${view.className}`}>
+        <span title={view.hint} className={`inline-block max-w-full break-words rounded-full px-2 py-0.5 text-xs font-medium ${view.className}`}>
           {view.label}
         </span>
         {actionable && (
@@ -52,7 +55,7 @@ export default function StudentMoodleBadge({
             {view.actionLabel}
           </button>
         )}
-        {moodle?.welcomeSentAt ? (
+        {!compact && moodle?.welcomeSentAt ? (
           <span className="text-[11px] text-gray-400">Enviado {moodle.welcomeSentAt.slice(0, 10)}</span>
         ) : null}
       </div>

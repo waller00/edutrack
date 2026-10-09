@@ -30,7 +30,16 @@ import {
   type AttendanceCell,
 } from '../services/student-attendance/consolidation.js'
 import { getStudentRollCallSettings } from '../config/system-settings.js'
-import { RollCallError } from '../services/student-attendance/roll-call.js'
+import { occurrenceDateOf, RollCallError } from '../services/student-attendance/roll-call.js'
+import { findNonWorkingDayForDate } from '../services/non-working-days.js'
+import {
+  classifyOccurrence,
+  isOccurrenceOk,
+  OCCURRENCE_ERROR_MESSAGE,
+} from '../services/student-attendance/occurrence.js'
+import { computeOpensAt } from '../services/student-attendance/edit-window.js'
+import { CLASS_EVENT_INCLUDE } from '../services/student-attendance/my-classes.js'
+import { PERSON_SELECT, personRef } from '../services/student-attendance/person.js'
 
 const r = Router()
 
@@ -312,6 +321,76 @@ r.post('/sessions/:sessionId/reopen', requirePermission('student-attendance.mana
     return res.json({ ok: true, sessionId: updated.id })
   } catch (error) {
     console.error('[admin-student-attendance] reopen:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
+  }
+})
+
+const occurrenceParamsSchema = z.object({
+  eventId: z.string().uuid('Identificador de clase inválido'),
+  ymd: z.string().refine(isYmdDateString, 'Fecha inválida'),
+})
+
+const EMPTY_COUNTS = { PRESENT: 0, LATE: 0, ABSENT: 0, ABSENT_JUSTIFIED: 0 }
+
+/**
+ * Pase de lista de una clase en un día, para el modal de la Agenda: quién la da, si la lista se
+ * pasó, quién y a qué hora, y cuántos presentes, tardes y ausentes hubo. Solo lectura.
+ */
+r.get('/sessions/:eventId/:ymd/status', async (req: any, res) => {
+  try {
+    const parsed = occurrenceParamsSchema.safeParse(req.params)
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+    }
+    const { eventId, ymd } = parsed.data
+
+    const event = await prisma.event.findUnique({ where: { id: eventId }, include: CLASS_EVENT_INCLUDE })
+    if (!event) return res.status(404).json({ message: 'Clase no encontrada' })
+    const occurrence = classifyOccurrence(event as any, ymd)
+    if (!isOccurrenceOk(occurrence)) {
+      return res.status(409).json({ message: OCCURRENCE_ERROR_MESSAGE[occurrence.code], code: occurrence.code })
+    }
+
+    const [substitution, session, nonWorking] = await Promise.all([
+      (prisma as any).substitution.findUnique({
+        where: { eventId_date: { eventId, date: occurrenceDateOf(ymd) } },
+        select: { substitute: { select: PERSON_SELECT } },
+      }),
+      prisma.studentAttendanceSession.findUnique({
+        where: { eventId_occurrenceYmd: { eventId, occurrenceYmd: ymd } },
+        select: {
+          status: true,
+          takenAt: true,
+          rosterSize: true,
+          takenBy: { select: PERSON_SELECT },
+          entries: { select: { status: true } },
+        },
+      }),
+      findNonWorkingDayForDate(new Date(`${ymd}T00:00:00.000Z`)),
+    ])
+
+    const counts: Record<string, number> = { ...EMPTY_COUNTS }
+    for (const entry of session?.entries ?? []) counts[entry.status] = (counts[entry.status] ?? 0) + 1
+
+    return res.json({
+      eventId,
+      ymd,
+      startAt: occurrence.startAt,
+      endAt: occurrence.endAt,
+      opensAt: computeOpensAt(occurrence.startAt),
+      teacher: personRef((event as any).assignedUser),
+      substitute: personRef(substitution?.substitute),
+      nonWorkingDay: nonWorking?.reason ?? null,
+      rollCall: {
+        status: session?.status ?? 'PENDING',
+        takenAt: session?.takenAt ?? null,
+        takenBy: personRef(session?.takenBy)?.name ?? null,
+        rosterSize: session?.rosterSize ?? null,
+        counts,
+      },
+    })
+  } catch (error) {
+    console.error('[admin-student-attendance] occurrence status:', error)
     return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })

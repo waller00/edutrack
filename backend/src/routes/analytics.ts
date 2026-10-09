@@ -21,6 +21,7 @@ import { resolveSchoolYearIdForList } from '../services/school-year-service.js'
 import { getAppTimezone, uruguayWallToUtc, uruguayYmdEndOfDayToUtc } from '../config/app-timezone.js'
 import { timelineSortInstantOnDay } from '../services/analytics/timeline-sort.js'
 import { getAttendanceOperationalSettings } from '../config/system-settings.js'
+import { loadDayRollCalls, type DayRollCall } from '../services/student-attendance/day-roll-calls.js'
 
 const r = Router()
 
@@ -124,6 +125,8 @@ type TimelineItem = {
   teacher?: { id: string; name: string; email?: string | null } | null
   group?: { id: string; name: string } | null
   event?: { id: string; title: string } | null
+  /** Pase de lista de los alumnos en esa clase; `null` si la clase no lleva lista (suspendida). */
+  rollCall?: DayRollCall | null
 }
 
 function todayYmdUruguay() {
@@ -223,6 +226,7 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
         },
         select: {
           id: true,
+          parentEventId: true,
           title: true,
           status: true,
           startTime: true,
@@ -238,7 +242,10 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
     : []
   const eventById = new Map(events.map((event) => [event.id, event]))
   const filteredPlanned = plannedInstances.filter((planned) => eventById.has(planned.eventId))
-  const resolved = await resolveAttendanceAndJustification({ plannedInstances: filteredPlanned })
+  const [resolved, rollCallOf] = await Promise.all([
+    resolveAttendanceAndJustification({ plannedInstances: filteredPlanned }),
+    loadDayRollCalls(date),
+  ])
 
   const items: TimelineItem[] = []
 
@@ -323,6 +330,15 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
       teacher,
       group,
       event: { id: event.id, title: event.title },
+      rollCall:
+        status === 'SUSPENDED'
+          ? null
+          : rollCallOf({
+              eventId: event.id,
+              parentEventId: event.parentEventId,
+              startAt: row.planned.plannedStartTime,
+              endAt: row.planned.plannedEndTime,
+            }),
     })
 
     if (row.checkOutStatusResolved === 'EARLY_EXIT') {
@@ -488,7 +504,9 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
     {
       id: string
       eventId: string
+      parentEventId: string | null
       startTime: Date
+      endTime: Date
       reason: string
       eventTitle: string
       originalId: string
@@ -506,7 +524,9 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
     SELECT
       s."id",
       s."eventId",
+      e."parentEventId",
       s."startTime",
+      s."endTime",
       s."reason",
       e."title" AS "eventTitle",
       original."id" AS "originalId",
@@ -547,6 +567,13 @@ async function computeAttendanceTimeline(data: z.infer<typeof attendanceTimeline
       teacher,
       group,
       event: { id: row.eventId, title: row.eventTitle },
+      // La lista la pasa el suplente: el estado acompaña a esta fila.
+      rollCall: rollCallOf({
+        eventId: row.eventId,
+        parentEventId: row.parentEventId,
+        startAt: row.startTime,
+        endAt: row.endTime,
+      }),
     })
   }
 

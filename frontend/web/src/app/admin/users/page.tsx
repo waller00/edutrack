@@ -52,7 +52,7 @@ const ICON_ACTION_BTN =
 
 type OrgRoleRow = { code: string; label: string; active: boolean }
 
-const defaultFilters = (approved: 'true' | 'false' = 'true'): AdminUsersListFilters => ({
+const defaultFilters = (approved: TriState = ''): AdminUsersListFilters => ({
   q: '',
   role: 'ALL',
   approved,
@@ -130,14 +130,14 @@ export default function AdminUsersPage() {
   }
 
   function resetDraftFilters() {
-    const cleared = defaultFilters(draftFilters.approved === 'false' ? 'false' : 'true')
+    const cleared = defaultFilters(draftFilters.approved)
     setDraftFilters(cleared)
     void load(cleared)
   }
 
   const secondaryKeys = ['active', 'verified', 'locked', 'docExpiring'] as const
 
-  function changeUserList(approved: 'true' | 'false') {
+  function changeUserList(approved: TriState) {
     const next = { ...defaultFilters(approved), q: draftFilters.q, role: draftFilters.role }
     setDraftFilters(next)
     void load(next)
@@ -525,8 +525,8 @@ export default function AdminUsersPage() {
 
         <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-3 text-sm font-semibold text-slate-800">Buscar usuarios</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="sm:col-span-2 lg:col-span-2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="sm:col-span-2">
               <label htmlFor="filter-q" className="mb-1 block text-xs font-medium text-slate-600">
                 Búsqueda
               </label>
@@ -560,13 +560,6 @@ export default function AdminUsersPage() {
                     {r.label} ({r.code})
                   </option>
                 ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="filter-list" className="mb-1 block text-xs font-medium text-slate-600">Mostrar</label>
-              <select id="filter-list" value={draftFilters.approved} onChange={(e) => changeUserList(e.target.value as 'true' | 'false')} className={`w-full ${selectCls}`}>
-                <option value="true">Usuarios aprobados</option>
-                <option value="false">Pendientes de aprobación</option>
               </select>
             </div>
           </div>
@@ -664,23 +657,47 @@ export default function AdminUsersPage() {
           </div>
         </section>
 
-        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">
-            {loading ? (
-              <span className="inline-flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-emerald-600" aria-hidden />
-                Cargando…
-              </span>
-            ) : data.total === 0 ? (
-              'Sin resultados con los filtros actuales.'
-            ) : (
-              <>
-                Mostrando <strong className="font-semibold text-slate-900">{rangeStart}</strong> –
-                <strong className="font-semibold text-slate-900">{rangeEnd}</strong> de{' '}
-                <strong className="font-semibold text-slate-900">{data.total}</strong>
-              </>
-            )}
-          </p>
+        <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <div role="group" aria-label="Filtrar usuarios por aprobación" className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+              {([
+                { label: 'Todos', value: '' },
+                { label: 'Aprobados', value: 'true' },
+                { label: 'Pendientes', value: 'false' },
+              ] as const).map(({ label, value }) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={filters.approved === value}
+                  disabled={loading}
+                  onClick={() => changeUserList(value)}
+                  className={`min-h-10 rounded-lg px-3 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:cursor-wait ${
+                    filters.approved === value
+                      ? 'bg-white text-emerald-700 shadow-sm'
+                      : 'text-slate-600 hover:bg-white/70 hover:text-slate-900'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="text-sm text-slate-600">
+              {loading ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-emerald-600" aria-hidden />
+                  Cargando…
+                </span>
+              ) : data.total === 0 ? (
+                'Sin resultados con los filtros actuales.'
+              ) : (
+                <>
+                  Mostrando <strong className="font-semibold text-slate-900">{rangeStart}</strong> –
+                  <strong className="font-semibold text-slate-900">{rangeEnd}</strong> de{' '}
+                  <strong className="font-semibold text-slate-900">{data.total}</strong>
+                </>
+              )}
+            </p>
+          </div>
           {data.total > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <button

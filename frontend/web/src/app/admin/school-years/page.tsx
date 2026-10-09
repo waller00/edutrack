@@ -2,6 +2,7 @@
 
 import RoleGuard from '@/components/auth/RoleGuard'
 import DateField from '@/components/forms/DateField'
+import UserActionsMenu from '@/components/admin/UserActionsMenu'
 import { useAdminSchoolYear, type SchoolYearApiRow } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import {
@@ -27,14 +28,14 @@ import {
   type StartPlanStudent,
   type TargetOption,
 } from '@/lib/admin/school-year-start'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
   BookOpen,
   CalendarRange,
   CheckCircle2,
-  ChevronDown,
+  Archive,
   Loader2,
   Pencil,
   Plus,
@@ -92,6 +93,11 @@ const START_STEPS = [
 function toInputDate(iso: string | null): string {
   if (!iso) return ''
   return iso.slice(0, 10)
+}
+
+function displayYearDate(iso: string | null) {
+  const value = toInputDate(iso)
+  return value ? value.split('-').reverse().join('/') : 'Sin definir'
 }
 
 function StartStudentRow({
@@ -237,6 +243,8 @@ export default function AdminSchoolYearsPage() {
   const [err, setErr] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
 
+  const [yearSearch, setYearSearch] = useState('')
+  const [yearStatus, setYearStatus] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [createCode, setCreateCode] = useState('')
   const [createLabel, setCreateLabel] = useState('')
@@ -273,7 +281,13 @@ export default function AdminSchoolYearsPage() {
   const [cmpErr, setCmpErr] = useState('')
 
   const sortedYears = useMemo(() => [...years].sort((a, b) => b.code - a.code), [years])
-  const canCreateSchoolYear = !activeId
+  const activeYear = years.find((year) => year.id === activeId)
+  const visibleYears = sortedYears.filter((year) => {
+    const matchesStatus = !yearStatus || year.status === yearStatus
+    const query = yearSearch.trim().toLocaleLowerCase('es')
+    return matchesStatus && (!query || `${year.code} ${year.label}`.toLocaleLowerCase('es').includes(query))
+  })
+  const canCreateSchoolYear = !loading && !activeId
   const selectedStartCourses = useMemo(
     () => startPlan?.courses.filter((course) => selectedCourseIds.has(course.id)) ?? [],
     [selectedCourseIds, startPlan],
@@ -322,10 +336,6 @@ export default function AdminSchoolYearsPage() {
     for (const decision of Object.values(studentDecisions)) summary[decision.action] += 1
     return summary
   }, [studentDecisions])
-
-  useEffect(() => {
-    if (!loading && canCreateSchoolYear) setCreateOpen(true)
-  }, [canCreateSchoolYear, loading])
 
   const clearFlash = useCallback(() => {
     setMsg('')
@@ -703,69 +713,30 @@ export default function AdminSchoolYearsPage() {
   }
 
   function renderYearActions(y: SchoolYearApiRow) {
+    const busy = busyId === y.id || deleting
+    const secondaryActions = [
+      ...(y.status !== 'CLOSED' ? [{ label: 'Cerrar ciclo', icon: Archive, onSelect: () => void doClose(y.id) }] : []),
+      { label: 'Borrar ciclo', icon: Trash2, destructive: true, onSelect: () => {
+        clearFlash()
+        setDeleteTarget(y)
+      } },
+    ]
     return (
-      <div className="flex flex-wrap items-center justify-end gap-1">
-        <button
-          type="button"
-          className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-          onClick={() => openEdit(y)}
-        >
-          <span className="inline-flex items-center gap-1">
-            <Pencil className="h-3.5 w-3.5" aria-hidden />
-            Editar
-          </span>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {y.status === 'PLANNED' && (
+          <button type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50" disabled={busy || Boolean(startTarget)} onClick={() => void openStartWizard(y)}>
+            <Rocket className="h-4 w-4" aria-hidden />Iniciar
+          </button>
+        )}
+        {y.status === 'CLOSED' && !activeId && (
+          <button type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50" disabled={busy} onClick={() => void doActivate(y)}>
+            <CheckCircle2 className="h-4 w-4" aria-hidden />Activar
+          </button>
+        )}
+        <button type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50" disabled={busy} onClick={() => openEdit(y)}>
+          <Pencil className="h-4 w-4" aria-hidden />Editar
         </button>
-        {y.status !== 'ACTIVE' && y.status !== 'CLOSED' && (
-          <button
-            type="button"
-            className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-            disabled={busyId === y.id || Boolean(startTarget)}
-            onClick={() => void openStartWizard(y)}
-          >
-            <span className="inline-flex items-center gap-1">
-              {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" aria-hidden />}
-              Iniciar
-            </span>
-          </button>
-        )}
-        {y.status === 'CLOSED' && (
-          <button
-            type="button"
-            className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={busyId === y.id || Boolean(activeId)}
-            title={activeId ? 'Ya hay un ciclo lectivo activo. Cerralo antes de activar este ciclo.' : 'Activar este ciclo lectivo cerrado'}
-            onClick={() => void doActivate(y)}
-          >
-            <span className="inline-flex items-center gap-1">
-              {busyId === y.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />}
-              Activar
-            </span>
-          </button>
-        )}
-        {y.status !== 'CLOSED' && (
-          <button
-            type="button"
-            className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-            disabled={busyId === y.id}
-            onClick={() => void doClose(y.id)}
-          >
-            Cerrar
-          </button>
-        )}
-        <button
-          type="button"
-          className="shrink-0 rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-          disabled={deleting}
-          onClick={() => {
-            clearFlash()
-            setDeleteTarget(y)
-          }}
-        >
-          <span className="inline-flex items-center gap-1">
-            <Trash2 className="h-3.5 w-3.5" aria-hidden />
-            Borrar
-          </span>
-        </button>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin text-emerald-600" aria-label="Procesando ciclo" /> : <UserActionsMenu name={`ciclo ${y.code}`} actions={secondaryActions} />}
       </div>
     )
   }
@@ -786,7 +757,7 @@ export default function AdminSchoolYearsPage() {
         <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
           <div className="flex gap-2">
             <dt className="text-gray-500">Inicio:</dt>
-            <dd className="text-gray-800">{toInputDate(y.startsOn) || '—'}</dd>
+            <dd className="text-gray-800">{displayYearDate(y.startsOn)}</dd>
           </div>
           <div className="flex gap-2">
             <dt className="text-gray-500">Cursos:</dt>
@@ -800,22 +771,37 @@ export default function AdminSchoolYearsPage() {
 
   return (
     <RoleGuard permission="school-years.manage">
-      <main className="responsive-page max-w-[1600px] space-y-4">
-        <header className="space-y-2 border-b border-gray-200 pb-4">
-          <div className="flex flex-wrap items-center gap-2 text-emerald-800">
-            <CalendarRange className="h-6 w-6" aria-hidden />
-            <h1 className="text-2xl font-bold text-gray-950">Ciclos lectivos</h1>
+      <main className="responsive-page max-w-7xl space-y-4">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
+              <CalendarRange className="h-6 w-6 text-emerald-700" aria-hidden />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-950">Ciclos lectivos</h1>
+              <p className="mt-1 text-sm text-gray-600">Organizá los años lectivos y su oferta de cursos.</p>
+              <details className="mt-2 max-w-2xl text-xs text-slate-500">
+                <summary className="cursor-pointer">Cómo funcionan los ciclos</summary>
+                <p className="mt-2 leading-relaxed">Cada ciclo se crea planificado. Al iniciarlo podés elegir cursos y asignar estudiantes. La columna Cursos muestra la oferta de ese año; el selector global filtra los listados del resto del sistema. Para crear otro ciclo, primero cerrá el activo.</p>
+              </details>
+            </div>
           </div>
-          <p className="max-w-3xl text-sm text-gray-600">
-            Alta y edición de ciclos, inicio manual del año lectivo, cierre manual y replicación de oferta cuando el ciclo destino tiene{' '}
-            <strong>0 ofertas</strong> (la columna «Cursos» muestra cuántos cursos están ofertados en ese ciclo). Abajo podés
-            comparar métricas entre dos ciclos. El selector global del encabezado admin sigue filtrando listados en el resto
-            del sistema.
-          </p>
+          <button type="button" className="btn-primary shrink-0 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!canCreateSchoolYear} aria-expanded={createOpen} onClick={() => setCreateOpen((open) => !open)} title={!canCreateSchoolYear ? 'Primero cerrá el ciclo lectivo activo.' : undefined}>
+            <Plus className="h-4 w-4" aria-hidden />Nuevo ciclo lectivo
+          </button>
         </header>
+
+        {!loading && (
+          <div className={`rounded-xl border px-4 py-3 ${activeYear ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+            <p className={`text-xs font-medium ${activeYear ? 'text-emerald-700' : 'text-amber-800'}`}>{activeYear ? 'Ciclo activo de la institución' : 'Sin ciclo activo'}</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{activeYear ? `${activeYear.code} · ${activeYear.label}` : 'Podés iniciar un ciclo planificado o activar uno cerrado.'}</p>
+            {activeYear && <p className="mt-1 text-xs text-emerald-800">Para crear otro ciclo, primero cerrá el activo desde Más acciones.</p>}
+          </div>
+        )}
 
         {(msg || err) && (
           <div
+            role={err ? 'alert' : 'status'}
             className={`rounded-xl border px-4 py-3 text-sm ${
               err ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-900'
             }`}
@@ -827,12 +813,78 @@ export default function AdminSchoolYearsPage() {
           </div>
         )}
 
+        {createOpen && canCreateSchoolYear && (
+          <section className="rounded-xl border border-emerald-200 bg-white shadow-sm">
+            <h2 className="px-4 py-3 text-lg font-semibold sm:px-5">Nuevo ciclo lectivo</h2>
+            <div className="space-y-4 border-t border-gray-100 px-4 pb-5 pt-2 sm:px-5">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label htmlFor="create-year-code" className="mb-1 block text-xs font-medium text-gray-600">Código (año)</label>
+                  <input
+                    id="create-year-code"
+                    className="input-field text-sm"
+                    type="number"
+                    value={createCode}
+                    onChange={(e) => setCreateCode(e.target.value)}
+                    placeholder="Ej. 2027"
+                    min={1980}
+                    max={2100}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label htmlFor="create-year-label" className="mb-1 block text-xs font-medium text-gray-600">Etiqueta</label>
+                  <input
+                    id="create-year-label"
+                    className="input-field text-sm"
+                    value={createLabel}
+                    onChange={(e) => setCreateLabel(e.target.value)}
+                    placeholder="Ej. Ciclo lectivo 2027"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="create-year-start" className="mb-1 block text-xs font-medium text-gray-600">Inicio (opcional)</label>
+                  <DateField id="create-year-start" className="input-field text-sm" value={createStart} onChange={setCreateStart} />
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button type="button" className="btn-secondary text-sm" onClick={() => setCreateOpen(false)}>Cancelar</button>
+                <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={creating} onClick={() => void submitCreate()}>
+                  {creating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+                  Crear ciclo
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+          <label htmlFor="year-search" className="mb-1 block text-sm font-medium text-slate-700">Buscar ciclo</label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+            <input id="year-search" value={yearSearch} onChange={(event) => setYearSearch(event.target.value)} placeholder="Año o nombre del ciclo" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40" />
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div role="group" aria-label="Filtrar ciclos por estado" className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 sm:grid-cols-4">
+            {([
+              { label: 'Todos', value: '' },
+              { label: 'Activos', value: 'ACTIVE' },
+              { label: 'Planificados', value: 'PLANNED' },
+              { label: 'Cerrados', value: 'CLOSED' },
+            ] as const).map(({ label, value }) => (
+              <button key={label} type="button" aria-pressed={yearStatus === value} onClick={() => setYearStatus(value)} className={`min-h-10 rounded-lg px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-400 ${yearStatus === value ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:bg-white/70'}`}>{label}</button>
+            ))}
+          </div>
+          <p className="text-sm text-slate-500">{loading ? 'Cargando…' : `${visibleYears.length} ${visibleYears.length === 1 ? 'ciclo' : 'ciclos'}`}</p>
+        </div>
+
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 sm:px-5">
             <h2 className="text-lg font-semibold text-gray-900">Listado de ciclos</h2>
             <button
               type="button"
               className="btn-secondary inline-flex items-center gap-2 text-sm"
+              disabled={loading}
               onClick={() => void reload()}
             >
               <RefreshCw className="h-4 w-4" aria-hidden />
@@ -840,38 +892,36 @@ export default function AdminSchoolYearsPage() {
             </button>
           </div>
           <div className="hidden overflow-x-auto sm:block">
-            <table className="w-full min-w-[900px] table-fixed text-left text-sm">
+            <table className="w-full min-w-[720px] table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[9%]" />
-                <col className="w-[27%]" />
-                <col className="w-[12%]" />
-                <col className="w-[18%]" />
-                <col className="w-[9%]" />
-                <col className="w-[25%]" />
+                <col className="w-[34%]" />
+                <col className="w-[24%]" />
+                <col className="w-[10%]" />
+                <col className="w-[32%]" />
               </colgroup>
               <thead className="border-b border-gray-100 bg-gray-50/80 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <tr>
-                  <th className="px-4 py-2.5 sm:px-5">Año</th>
-                  <th className="px-4 py-2.5 sm:px-5">Etiqueta</th>
-                  <th className="px-4 py-2.5 sm:px-5">Inicio</th>
+                  <th className="px-4 py-2.5 sm:px-5">Ciclo</th>
                   <th className="px-4 py-2.5 sm:px-5">Estado</th>
                   <th className="px-4 py-2.5 text-right tabular-nums sm:px-5">Cursos</th>
                   <th className="px-4 py-2.5 text-right sm:px-5">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {sortedYears.length === 0 ? (
+                {visibleYears.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-5 text-center text-sm text-gray-500 sm:px-5">
-                      No hay ciclos cargados.
+                    <td colSpan={4} className="px-4 py-5 text-center text-sm text-gray-500 sm:px-5">
+                      {years.length === 0 ? 'No hay ciclos cargados.' : 'No hay ciclos con estos filtros.'}
                     </td>
                   </tr>
                 ) : (
-                sortedYears.map((y) => (
+                visibleYears.map((y) => (
                   <tr key={y.id} className="hover:bg-gray-50/80">
-                    <td className="whitespace-nowrap px-4 py-2.5 font-medium text-gray-900 sm:px-5">{y.code}</td>
-                    <td className="truncate px-4 py-2.5 text-gray-800 sm:px-5">{y.label}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-gray-600 sm:px-5">{toInputDate(y.startsOn) || '—'}</td>
+                    <td className="px-4 py-4 sm:px-5">
+                      <div className="font-semibold text-gray-900">{y.code}</div>
+                      <div className="break-words text-sm text-gray-700">{y.label}</div>
+                      <div className="mt-1 text-xs text-gray-500">Inicio: {displayYearDate(y.startsOn)}</div>
+                    </td>
                     <td className="px-4 py-2.5 sm:px-5">
                       <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${getYearStatusBadgeClass(y.status)}`}>
                         {STATUS_LABEL[y.status] ?? y.status}
@@ -890,81 +940,24 @@ export default function AdminSchoolYearsPage() {
           </div>
 
           <div className="space-y-3 p-4 sm:hidden">
-            {sortedYears.length === 0 ? (
-              <div className="py-5 text-center text-sm text-gray-500">No hay ciclos cargados.</div>
+            {visibleYears.length === 0 ? (
+              <div className="py-5 text-center text-sm text-gray-500">{years.length === 0 ? 'No hay ciclos cargados.' : 'No hay ciclos con estos filtros.'}</div>
             ) : (
-              sortedYears.map(renderYearCard)
+              visibleYears.map(renderYearCard)
             )}
           </div>
         </section>
 
-        <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
-          <button
-            type="button"
-            className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left disabled:cursor-not-allowed disabled:opacity-60 sm:px-5"
-            onClick={() => {
-              if (canCreateSchoolYear) setCreateOpen((v) => !v)
-            }}
-            disabled={!canCreateSchoolYear}
-            aria-expanded={createOpen}
-          >
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Nuevo ciclo lectivo</h2>
-              <p className="text-sm text-gray-500">
-                {canCreateSchoolYear
-                  ? 'Se crea en estado planificado; luego podés iniciarlo manualmente y armar su oferta de cursos.'
-                  : 'No disponible porque ya hay un ciclo lectivo activo.'}
-              </p>
-            </div>
-            <ChevronDown className={`h-5 w-5 shrink-0 text-gray-500 transition ${createOpen ? 'rotate-180' : ''}`} aria-hidden />
-          </button>
-          {createOpen && (
-            <div className="space-y-4 border-t border-gray-100 px-4 pb-5 pt-2 sm:px-5">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Código (año)</label>
-                  <input
-                    className="input-field text-sm"
-                    type="number"
-                    value={createCode}
-                    onChange={(e) => setCreateCode(e.target.value)}
-                    placeholder="Ej. 2027"
-                    min={1980}
-                    max={2100}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Etiqueta</label>
-                  <input
-                    className="input-field text-sm"
-                    value={createLabel}
-                    onChange={(e) => setCreateLabel(e.target.value)}
-                    placeholder="Ej. Ciclo lectivo 2027"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Inicio (opc.)</label>
-                  <DateField className="input-field text-sm" value={createStart} onChange={setCreateStart} />
-                </div>
-              </div>
-              <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={creating} onClick={() => void submitCreate()}>
-                {creating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
-                Crear ciclo
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-          <h2 className="text-lg font-semibold text-gray-900">Comparar dos ciclos</h2>
+        <details className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-gray-900">Comparar dos ciclos</summary>
           <p className="mt-0.5 text-sm text-gray-600">
             Totales de estudiantes por estado de matrícula y cantidad de cursos ofertados. Útil para ver diferencias
             entre años antes de planificar el siguiente.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo A</label>
-              <select className="select-field min-w-0 text-sm lg:min-w-[220px]" value={cmpA} onChange={(e) => setCmpA(e.target.value)}>
+              <label htmlFor="compare-year-a" className="mb-1 block text-xs font-medium text-gray-600">Ciclo A</label>
+              <select id="compare-year-a" className="select-field min-w-0 text-sm lg:min-w-[220px]" value={cmpA} onChange={(e) => setCmpA(e.target.value)}>
                 <option value="">—</option>
                 {sortedYears.map((y) => (
                   <option key={y.id} value={y.id}>
@@ -974,8 +967,8 @@ export default function AdminSchoolYearsPage() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">Ciclo B</label>
-              <select className="select-field min-w-0 text-sm lg:min-w-[220px]" value={cmpB} onChange={(e) => setCmpB(e.target.value)}>
+              <label htmlFor="compare-year-b" className="mb-1 block text-xs font-medium text-gray-600">Ciclo B</label>
+              <select id="compare-year-b" className="select-field min-w-0 text-sm lg:min-w-[220px]" value={cmpB} onChange={(e) => setCmpB(e.target.value)}>
                 <option value="">—</option>
                 {sortedYears.map((y) => (
                   <option key={y.id} value={y.id}>
@@ -1015,7 +1008,7 @@ export default function AdminSchoolYearsPage() {
               ))}
             </div>
           )}
-        </section>
+        </details>
 
         {editing && (
           <div
@@ -1033,12 +1026,12 @@ export default function AdminSchoolYearsPage() {
               <p className="text-xs text-gray-500">El código (año) no se modifica desde acá.</p>
               <div className="mt-4 space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Etiqueta</label>
-                  <input className="input-field text-sm" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} />
+                  <label htmlFor="edit-year-label" className="mb-1 block text-xs font-medium text-gray-600">Etiqueta</label>
+                  <input id="edit-year-label" className="input-field text-sm" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Inicio</label>
-                  <DateField className="input-field text-sm" value={editStart} onChange={setEditStart} />
+                  <label htmlFor="edit-year-start" className="mb-1 block text-xs font-medium text-gray-600">Inicio</label>
+                  <DateField id="edit-year-start" className="input-field text-sm" value={editStart} onChange={setEditStart} />
                 </div>
               </div>
               <div className="mt-6 flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">

@@ -28,6 +28,17 @@ import {
   getAssignedEventStatusColor,
 } from '@/lib/events/assigned-event-display'
 import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
+import { useNow } from '@/lib/hooks/useNow'
+import {
+  dayRollCallChipClass,
+  dayRollCallLabel,
+  dayRollCallPhase,
+  dayRollCallTally,
+  type DayRollCall,
+} from '@/lib/rollcall/rollcall-phase'
+import { rollCallHref } from '@/lib/rollcall/class-row'
 
 type AttendanceFeedRow = {
   id: string
@@ -108,6 +119,8 @@ type AttendanceTimelineApiItem = {
   teacher?: { id: string; name: string; email?: string | null } | null
   group?: { id: string; name: string } | null
   event?: { id: string; title: string } | null
+  /** Pase de lista de los alumnos en esa clase. */
+  rollCall?: DayRollCall | null
 }
 
 type AttendanceTimelineResponse = {
@@ -508,6 +521,27 @@ function humanTimelineTitle(item: AttendanceTimelineApiItem) {
   return item.title
 }
 
+/** Estado del pase de lista de la clase, con texto (RNF 7.2) y, si se puede, enlace a la lista. */
+function ClassRollCallStatus({ rollCall, now, canOpen }: { rollCall: DayRollCall; now: Date; canOpen: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-medium ${dayRollCallChipClass(
+          dayRollCallPhase(rollCall, now),
+        )}`}
+      >
+        <ClipboardList className="h-3.5 w-3.5" aria-hidden />
+        {dayRollCallLabel(rollCall, now)}
+      </span>
+      {canOpen ? (
+        <Link href={rollCallHref(rollCall)} className="font-semibold text-emerald-700 hover:underline">
+          Ver lista
+        </Link>
+      ) : null}
+    </div>
+  )
+}
+
 function isBridgeVisible(filters: { teacherId: string; type: string }, showFreeBlocks: boolean) {
   return showFreeBlocks || !!filters.teacherId || filters.type === 'FREE_BRIDGE'
 }
@@ -611,6 +645,10 @@ function HomeTimelineFilters({ data, filters, setFilters, showFreeBlocks, setSho
 }
 
 export function HomeAdminTimeline() {
+  const me = useOptionalAuth()?.me ?? null
+  const now = useNow(60_000)
+  // La planilla de otro docente sólo la abre quien pasa lista con alcance total.
+  const canOpenRollCall = hasPermission(me, 'student-attendance.take', 'all')
   const requestId = useRef(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -660,6 +698,7 @@ export function HomeAdminTimeline() {
   const activityItems = compactItems
     .filter((item) => item.type !== 'CLASS_ATTENDANCE' || item.status !== 'PRESENT' || (item.mergedCount || 1) <= 1 || item.event?.id)
   const selectedItems = view === 'incidents' ? incidentItems : view === 'classes' ? classItems : activityItems
+  const rollCallTally = dayRollCallTally(classItems.map((item) => item.rollCall), now)
   const preview = (items: CompactTimelineItem[]) => showAll ? items : items.slice(0, 5)
   const hasFilters = !!(filters.date !== todayInputValue() || filters.teacherId || filters.groupId || filters.status || filters.type || showFreeBlocks)
 
@@ -854,7 +893,14 @@ export function HomeAdminTimeline() {
                     <h2 id="today-classes-title" className="text-base font-semibold text-slate-900">
                       Clases del día
                     </h2>
-                    <p className="text-xs text-slate-500">Horario, docente y estado de cada clase.</p>
+                    <p className="text-xs text-slate-500">
+                      Horario, docente y estado de cada clase.
+                      {rollCallTally.opened > 0 ? (
+                        <span className="ml-1 font-medium text-slate-700">
+                          Listas pasadas: {rollCallTally.taken} de {rollCallTally.opened}.
+                        </span>
+                      ) : null}
+                    </p>
                   </div>
                   <a href="/admin/events" className="text-xs font-semibold text-emerald-700 hover:underline">
                     Ver agenda
@@ -883,6 +929,9 @@ export function HomeAdminTimeline() {
                               {item.type === 'SUBSTITUTION' && item.status === 'SUBSTITUTED' ? <span>Cubierta por suplencia</span> : null}
                               {item.type === 'PENDING_ABSENCE' ? <span>Clase sin docente presente</span> : null}
                             </div>
+                            {item.rollCall ? (
+                              <ClassRollCallStatus rollCall={item.rollCall} now={now} canOpen={canOpenRollCall} />
+                            ) : null}
                           </div>
                           <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-right ring-1 ring-slate-100">
                             <div className="text-sm font-semibold tabular-nums text-slate-800">{timelineDisplayTime(item)}</div>

@@ -1914,6 +1914,38 @@ describe('inasistencias diarias de la libreta', () => {
     expect(res.body).toMatchObject({ hasClass: true, canMark: false, markBlockedReason: 'WINDOW_EXPIRED' })
   })
 
+  it('PUT /absences/day: la lista de una clase que no empezó todavía no abre', async () => {
+    classOn14()
+    vi.setSystemTime(new Date('2026-09-14T11:00:00.000Z')) // 08:00; la clase es a las 09:00
+
+    const res = await request(app())
+      .put(`/gradebook/${GB_ID}/absences/day`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send({ date: '2026-09-14', entries: [{ studentId: SID, status: 'ABSENT' }] })
+
+    expect(res.status).toBe(409)
+    expect(res.body).toMatchObject({
+      code: 'NOT_STARTED',
+      message: 'La lista se abre a las 08:50, 10 minutos antes de la clase.',
+    })
+    expect(saveRollCallMock).not.toHaveBeenCalled()
+  })
+
+  it('GET /absences/day dice desde cuándo abre la lista', async () => {
+    classOn14()
+    vi.setSystemTime(new Date('2026-09-14T11:00:00.000Z'))
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/absences/day?date=2026-09-14`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.body).toMatchObject({
+      canMark: false,
+      markBlockedReason: 'NOT_STARTED',
+      opensAt: '2026-09-14T11:50:00.000Z',
+    })
+  })
+
   it('PUT /absences/day sin peso no pisa el que haya fijado adscripción', async () => {
     // El docente ya no elige "media falta": una ausencia sin peso viaja como undefined.
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)

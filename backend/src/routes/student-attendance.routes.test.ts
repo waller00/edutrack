@@ -11,6 +11,7 @@ const { prismaMock } = vi.hoisted(() => ({
     studentEnrollment: { findMany: vi.fn() },
     studentAttendanceSession: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn() },
     studentAttendanceEntry: { upsert: vi.fn() },
+    medicalLeave: { findMany: vi.fn() },
     systemSettings: { upsert: vi.fn() },
     auditLog: { create: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
@@ -106,6 +107,7 @@ describe("student-attendance routes", () => {
     prismaMock.studentAttendanceSession.findMany.mockResolvedValue([]);
     prismaMock.studentAttendanceSession.upsert.mockResolvedValue({ id: "sess-1" });
     prismaMock.studentAttendanceEntry.upsert.mockResolvedValue({});
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     (findNonWorkingDayForDate as any).mockResolvedValue(null);
   });
 
@@ -270,5 +272,177 @@ describe("student-attendance routes", () => {
       .get("/student-attendance/my-classes?date=05-2026")
       .set("Authorization", `Bearer ${tok()}`);
     expect(res.status).toBe(400);
+  });
+
+  describe("la lista abre 10 minutos antes de la clase", () => {
+    it("409 NOT_STARTED si el docente la quiere pasar antes", async () => {
+      vi.setSystemTime(new Date("2026-05-11T10:49:00.000Z")); // 07:49, la clase es 08:00
+      const res = await request(app())
+        .put(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
+        .set("Authorization", `Bearer ${tok()}`)
+        .send(body([{ studentId: STUDENT_A, status: "PRESENT" }]));
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({
+        code: "NOT_STARTED",
+        message: "La lista se abre a las 07:50, 10 minutos antes de la clase.",
+      });
+      expect(prismaMock.studentAttendanceSession.upsert).not.toHaveBeenCalled();
+    });
+
+    it("a las 07:50 ya se puede", async () => {
+      vi.setSystemTime(new Date("2026-05-11T10:50:00.000Z"));
+      const res = await request(app())
+        .put(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
+        .set("Authorization", `Bearer ${tok()}`)
+        .send(body([{ studentId: STUDENT_A, status: "PRESENT" }]));
+      expect(res.status).toBe(200);
+    });
+
+    it("administración tampoco pasa la lista de una clase de mañana", async () => {
+      vi.setSystemTime(new Date("2026-05-10T13:00:00.000Z"));
+      const res = await request(app())
+        .put(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
+        .set("Authorization", `Bearer ${tok("ADMIN", "admin-1")}`)
+        .send(body([{ studentId: STUDENT_A, status: "PRESENT" }]));
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("NOT_STARTED");
+    });
+
+    it("la planilla dice desde cuándo abre", async () => {
+      vi.setSystemTime(new Date("2026-05-11T10:00:00.000Z"));
+      const res = await request(app())
+        .get(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+      expect(res.body.rollCall).toMatchObject({
+        canEdit: false,
+        blockedReason: "NOT_STARTED",
+        opensAt: "2026-05-11T10:50:00.000Z",
+      });
+    });
+  });
+
+  describe("quién da la clase", () => {
+    it("la planilla trae titular, suplente y quién pasó la lista", async () => {
+      prismaMock.event.findUnique.mockResolvedValue(classEvent({ assignedUserId: "otro", assignedUser: { id: "otro", name: "Ana Pérez" } }));
+      prismaMock.substitution.findUnique.mockResolvedValue({
+        substituteUserId: TEACHER_ID,
+        substitute: { id: TEACHER_ID, name: null, firstName: "Juan", lastName: "Gómez" },
+      });
+      prismaMock.studentAttendanceSession.findUnique.mockResolvedValue({
+        id: "sess-1",
+        status: "TAKEN",
+        takenAt: new Date("2026-05-11T11:07:00.000Z"),
+        takenBy: { id: TEACHER_ID, name: null, firstName: "Juan", lastName: "Gómez" },
+        lockedAt: null,
+        entries: [],
+      });
+      const res = await request(app())
+        .get(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+      expect(res.body.teacher).toEqual({ id: "otro", name: "Ana Pérez" });
+      expect(res.body.substitute).toEqual({ id: TEACHER_ID, name: "Juan Gómez" });
+      expect(res.body.rollCall.takenBy).toBe("Juan Gómez");
+    });
+
+    it("my-classes dice quién cubre la clase del titular y desde cuándo abre", async () => {
+      prismaMock.event.findMany.mockResolvedValue([classEvent()]);
+      prismaMock.substitution.findMany.mockResolvedValue([
+        { eventId: EVENT_ID, substituteUserId: "suplente-1", substitute: { id: "suplente-1", name: "Juan Gómez" } },
+      ]);
+      const res = await request(app())
+        .get(`/student-attendance/my-classes?date=${YMD}`)
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({
+        teacher: { id: TEACHER_ID, name: "Ana" },
+        substitute: { id: "suplente-1", name: "Juan Gómez" },
+        isSubstitution: false,
+      });
+      expect(res.body[0].rollCall.opensAt).toBe("2026-05-11T10:50:00.000Z");
+    });
+
+    it("my-classes incluye la clase que el docente cubre como suplente", async () => {
+      prismaMock.substitution.findMany.mockResolvedValue([
+        { eventId: EVENT_ID, substituteUserId: TEACHER_ID, substitute: { id: TEACHER_ID, name: "Ana" } },
+      ]);
+      prismaMock.event.findMany.mockResolvedValue([classEvent({ assignedUserId: "otro", assignedUser: { id: "otro", name: "Beatriz" } })]);
+      const res = await request(app())
+        .get(`/student-attendance/my-classes?date=${YMD}`)
+        .set("Authorization", `Bearer ${tok()}`);
+      const where = prismaMock.event.findMany.mock.calls[0][0].where;
+      expect(where.OR).toEqual([{ assignedUserId: TEACHER_ID }, { id: { in: [EVENT_ID] } }]);
+      expect(res.body[0]).toMatchObject({ isSubstitution: true, teacher: { name: "Beatriz" } });
+      expect(res.body[0].rollCall.canEdit).toBe(true);
+    });
+  });
+
+  describe("reminder: listas que me toca pasar hoy", () => {
+    beforeEach(() => {
+      vi.setSystemTime(new Date("2026-05-11T11:05:00.000Z")); // 08:05, en plena clase
+      prismaMock.event.findMany.mockResolvedValue([classEvent()]);
+    });
+
+    it("trae la clase de hoy sin pasar, con sus horarios", async () => {
+      const res = await request(app())
+        .get("/student-attendance/reminder")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+      expect(res.body.items).toHaveLength(1);
+      expect(res.body.items[0]).toMatchObject({
+        eventId: EVENT_ID,
+        ymd: YMD,
+        startAt: "2026-05-11T11:00:00.000Z",
+        endAt: "2026-05-11T12:00:00.000Z",
+      });
+      expect(res.body.items[0].rollCall.opensAt).toBe("2026-05-11T10:50:00.000Z");
+    });
+
+    it("siempre las propias, aunque quien pida tenga alcance total", async () => {
+      await request(app())
+        .get("/student-attendance/reminder")
+        .set("Authorization", `Bearer ${tok("ADMIN", "admin-1")}`);
+      const where = prismaMock.event.findMany.mock.calls[0][0].where;
+      expect(where.OR).toEqual([{ assignedUserId: "admin-1" }, { id: { in: [] } }]);
+    });
+
+    it("no recuerda una lista ya pasada", async () => {
+      prismaMock.studentAttendanceSession.findMany.mockResolvedValue([
+        { id: "sess-1", eventId: EVENT_ID, status: "TAKEN", takenAt: new Date("2026-05-11T11:03:00.000Z"), lockedAt: null },
+      ]);
+      const res = await request(app())
+        .get("/student-attendance/reminder")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.body.items).toEqual([]);
+    });
+
+    it("al titular cubierto por un suplente no le recuerda nada", async () => {
+      prismaMock.substitution.findMany.mockResolvedValue([
+        { eventId: EVENT_ID, substituteUserId: "suplente-1", substitute: { id: "suplente-1", name: "Juan" } },
+      ]);
+      const res = await request(app())
+        .get("/student-attendance/reminder")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.body.items).toEqual([]);
+    });
+
+    it("con licencia aprobada ese día, tampoco", async () => {
+      prismaMock.medicalLeave.findMany.mockResolvedValue([
+        { id: "lic-1", startDate: new Date("2026-05-11T00:00:00.000Z"), endDate: new Date("2026-05-11T00:00:00.000Z") },
+      ]);
+      const res = await request(app())
+        .get("/student-attendance/reminder")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.body.items).toEqual([]);
+    });
+
+    it("en un día no laborable no hay nada que pasar", async () => {
+      (findNonWorkingDayForDate as any).mockResolvedValue({ id: "nw", reason: "Feriado" });
+      const res = await request(app())
+        .get("/student-attendance/reminder")
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.body.items).toEqual([]);
+    });
   });
 });

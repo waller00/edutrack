@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { SubjectStatusChip } from './StatusChips'
 import type { SubjectDraft, SubjectRow } from './course-types'
 import { emptySubjectDraft } from './course-types'
+import UserActionsMenu from '../UserActionsMenu'
 
 type Props = {
   title: string
@@ -62,9 +63,16 @@ export default function SubjectListBlock({
 
   return (
     <div className="space-y-3">
-      <div>
-        <h4 className="text-sm font-semibold text-gray-900">{title}</h4>
-        {hint ? <p className="mt-0.5 text-xs text-gray-500">{hint}</p> : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">{title}{!loading ? ` (${subjects.length})` : ''}</h3>
+          {hint ? <p className="mt-0.5 text-xs text-gray-500">{hint}</p> : null}
+        </div>
+        {!readOnly && !showForm ? (
+          <button type="button" onClick={() => setShowForm(true)} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700">
+            <Plus className="h-4 w-4" aria-hidden />{addLabel}
+          </button>
+        ) : null}
       </div>
 
       {loading ? (
@@ -88,9 +96,9 @@ export default function SubjectListBlock({
                   saveLabel="Guardar"
                 />
               ) : (
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-medium text-gray-900">{s.name}</div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="break-words font-medium text-gray-900">{s.name}</div>
                     {showStatus ? (
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                         <SubjectStatusChip active={s.isActive} assignmentActive={s.assignmentIsActive} />
@@ -101,8 +109,8 @@ export default function SubjectListBlock({
                     <div className="flex shrink-0 gap-1">
                       <button
                         type="button"
-                        className="rounded p-1.5 text-gray-500 hover:bg-gray-100"
-                        title="Editar"
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                        aria-label={`Editar ${s.name}`}
                         onClick={() => {
                           setEditingId(s.id)
                           setEditDraft({
@@ -114,16 +122,11 @@ export default function SubjectListBlock({
                           })
                         }}
                       >
-                        <Pencil className="h-4 w-4" aria-hidden />
+                        <Pencil className="h-4 w-4" aria-hidden />Editar
                       </button>
-                      <button
-                        type="button"
-                        className="rounded p-1.5 text-red-600 hover:bg-red-50"
-                        title="Eliminar"
-                        onClick={() => void onRemove(s.id)}
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden />
-                      </button>
+                      <UserActionsMenu name={`asignatura ${s.name}`} actions={[
+                        { label: 'Quitar del plan', icon: Trash2, destructive: true, onSelect: () => void onRemove(s.id) },
+                      ]} />
                     </div>
                   ) : null}
                 </div>
@@ -136,7 +139,7 @@ export default function SubjectListBlock({
       {!readOnly ? (
         <>
           {showForm ? (
-            <div className="rounded-lg border border-dashed border-indigo-200 bg-indigo-50/30 p-3">
+            <div className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/30 p-3">
               <SubjectForm
                 draft={draft}
                 onChange={setDraft}
@@ -149,16 +152,7 @@ export default function SubjectListBlock({
                 saveLabel="Guardar asignatura"
               />
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowForm(true)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
-            >
-              <Plus className="h-4 w-4" aria-hidden />
-              {addLabel}
-            </button>
-          )}
+          ) : null}
         </>
       ) : null}
     </div>
@@ -185,23 +179,23 @@ function SubjectForm({
       <label className="block text-xs">
         <span className="text-gray-600">Nombre</span>
         <input
-          className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+          className="input-field mt-1 min-h-10 text-sm"
           value={draft.name}
           onChange={(e) => onChange({ ...draft, name: e.target.value })}
           placeholder="Ej. Matemática"
         />
       </label>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
           disabled={busy}
           onClick={onSave}
-          className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-60"
+          className="min-h-10 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
         >
           {busy ? <Loader2 className="inline h-4 w-4 animate-spin" aria-hidden /> : null}
           {saveLabel}
         </button>
-        <button type="button" onClick={onCancel} className="rounded bg-gray-100 px-3 py-1.5 text-sm text-gray-700">
+        <button type="button" disabled={busy} onClick={onCancel} className="min-h-10 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
           Cancelar
         </button>
       </div>

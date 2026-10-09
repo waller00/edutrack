@@ -60,6 +60,11 @@ export function parseEventTimeToUruguayHhMm(s: string): { hh: number; mm: number
   return { hh: wall.hour, mm: wall.minute }
 }
 
+/** Hora civil institucional del instante, "HH:mm" (para mensajes al usuario). */
+export function formatUruguayHhMm(at: Date): string {
+  return DateTime.fromJSDate(at, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('HH:mm')
+}
+
 /** Día de semana JS (0=dom … 6=sáb) del instante visto en la zona institucional. */
 export function jsWeekdayInUruguay(d: Date): number {
   return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(getAppTimezone()).weekday % 7

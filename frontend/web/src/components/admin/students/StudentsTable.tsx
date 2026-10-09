@@ -1,23 +1,17 @@
 'use client'
 
-import { Loader2, Trash2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { getStudentStatusBadgeClass, getStudentStatusLabel } from '@/lib/admin/students-display'
+import StudentActionsMenu from './StudentActionsMenu'
 import StudentMoodleBadge from './StudentMoodleBadge'
 import type { StudentListRow } from './student-types'
 
-type Column = { key: string; label: string; width: string; onlyAllYears?: boolean }
-
-/**
- * Ancho y visibilidad de columnas en un solo lugar: antes eran un `<colgroup>` con
- * porcentajes a mano y dos `colSpan` calculados que había que mantener en sincronía.
- */
-const COLUMNS: Column[] = [
-  { key: 'student', label: 'Estudiante', width: 'w-[30%]' },
-  { key: 'schoolYear', label: 'Ciclo', width: 'w-[9%]', onlyAllYears: true },
-  { key: 'course', label: 'Curso', width: 'w-[14%]' },
-  { key: 'status', label: 'Estado', width: 'w-[11%]' },
-  { key: 'moodle', label: 'Moodle', width: 'w-[25%]' },
-  { key: 'actions', label: '', width: 'w-[4%]' },
+const COLUMNS = [
+  { key: 'student', label: 'Estudiante', width: 'w-[32%]' },
+  { key: 'course', label: 'Curso', width: 'w-[18%]' },
+  { key: 'status', label: 'Estado', width: 'w-[13%]' },
+  { key: 'moodle', label: 'Aula virtual', width: 'w-[14%]' },
+  { key: 'actions', label: 'Acciones', width: 'w-[23%]' },
 ]
 
 type Props = {
@@ -39,11 +33,11 @@ export default function StudentsTable({
   onDelete,
   onResendMoodle,
 }: Props) {
-  const columns = COLUMNS.filter((c) => !c.onlyAllYears || allYears)
+  const columns = COLUMNS
 
   return (
-    <div className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 sm:block">
-      <table className="w-full min-w-[760px] table-fixed text-sm">
+    <div className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 md:block">
+      <table className="w-full min-w-[720px] table-fixed text-sm">
         <colgroup>
           {columns.map((c) => (
             <col key={c.key} className={c.width} />
@@ -78,15 +72,17 @@ export default function StudentsTable({
                 <td className="px-4 py-2.5">
                   <button
                     type="button"
-                    className="text-left font-medium text-emerald-700 hover:underline"
+                    className="break-words text-left font-medium text-emerald-700 hover:underline"
                     onClick={() => onOpen(row)}
                   >
                     {row.lastName}, {row.firstName}
                   </button>
                   {row.documentId ? <div className="text-xs text-gray-500">{row.documentId}</div> : null}
                 </td>
-                {allYears ? <td className="px-4 py-2.5 text-gray-600">{row.schoolYearCode ?? '—'}</td> : null}
-                <td className="px-4 py-2.5 text-gray-700">{row.course?.name ?? '—'}</td>
+                <td className="break-words px-4 py-2.5 text-gray-700">
+                  {row.course?.name ?? 'Sin curso'}
+                  {allYears ? <div className="mt-1 text-xs text-gray-500">Ciclo {row.schoolYearCode ?? '—'}</div> : null}
+                </td>
                 <td className="px-4 py-2.5">
                   <span
                     className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getStudentStatusBadgeClass(
@@ -101,19 +97,15 @@ export default function StudentsTable({
                     moodle={row.moodle}
                     studentName={`${row.firstName} ${row.lastName}`}
                     pending={resendingId === row.studentId}
-                    onAction={() => onResendMoodle(row)}
+                    onAction={null}
+                    compact
                   />
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <button
-                    type="button"
-                    className="inline-grid h-8 w-8 place-items-center rounded-lg text-red-600 hover:bg-red-50 hover:text-red-800"
-                    title={`Eliminar a ${row.lastName}, ${row.firstName}`}
-                    aria-label={`Eliminar a ${row.lastName}, ${row.firstName}`}
-                    onClick={() => onDelete(row)}
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden />
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button type="button" onClick={() => onOpen(row)} className="min-h-10 whitespace-nowrap rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50" aria-label={`Ver ficha de ${row.firstName} ${row.lastName}`}>Ver ficha</button>
+                    <StudentActionsMenu row={row} allYears={allYears} pending={resendingId === row.studentId} onDelete={onDelete} onResendMoodle={onResendMoodle} />
+                  </div>
                 </td>
               </tr>
             ))

@@ -63,8 +63,10 @@ export type AbsenceDayBoard = {
   hasClass: boolean
   /** Permite marcar aunque el día sea S/H (hay evento ancla del scope). */
   canMark: boolean
-  /** Por qué no se puede marcar aunque haya clase: `WINDOW_EXPIRED`, `LOCKED` o `NOT_ASSIGNED`. */
+  /** Por qué no se puede marcar aunque haya clase: `NOT_STARTED`, `WINDOW_EXPIRED`, `LOCKED` o `NOT_ASSIGNED`. */
   markBlockedReason?: string | null
+  /** Desde cuándo se puede pasar la lista de ese día (10 minutos antes de la clase). */
+  opensAt?: string | null
   noClassReason: string | null
   eventId: string | null
   canGrade: boolean

@@ -1,6 +1,6 @@
 'use client'
 
-import { Bell, BellOff } from 'lucide-react'
+import { Bell, BellOff, ChevronDown } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import {
@@ -15,15 +15,15 @@ import {
 function unsupportedExplanation(code: WebPushSupportCode): string {
   switch (code) {
     case 'insecure-context':
-      return 'Las notificaciones push requieren HTTPS (contexto seguro). Si entrás por http:// a la IP del servidor, el navegador no habilita push ni service worker: usá el dominio con SSL (por ejemplo detrás de Cloudflare) o https:// en el puerto público. En tu PC, http://localhost sí cuenta como seguro.'
+      return 'Para activar notificaciones, entrá al sitio desde su dirección segura (https://). Si no la conocés, consultá a administración.'
     case 'no-service-worker':
-      return 'Este navegador no ofrece service workers, o están bloqueados (extensiones, políticas del dispositivo). Probá Chrome o Edge actualizado, o otra ventana sin modo restringido.'
+      return 'Este navegador tiene bloqueadas las funciones necesarias para recibir avisos. Revisá sus permisos o probá desde otro navegador.'
     case 'no-notification':
-      return 'Este entorno no expone la API de notificaciones del sistema.'
+      return 'Las notificaciones no están disponibles en este navegador.'
     case 'no-push-manager':
-      return 'Este navegador no soporta la API Push web (o está en modo privado / WebView donde no está disponible). En iPhone/iPad hace falta iOS 16.4+ y Safari; en desktop usá Chrome, Edge o Firefox recientes.'
+      return 'Este navegador no permite recibir estos avisos. Probá desde otro navegador o desde la aplicación instalada en tu dispositivo.'
     default:
-      return 'Tu navegador no admite notificaciones push web en estas condiciones.'
+      return 'Las notificaciones no están disponibles en este dispositivo.'
   }
 }
 
@@ -32,12 +32,14 @@ export default function WebPushSection() {
   const [configured, setConfigured] = useState(false)
   const [deviceSubscribed, setDeviceSubscribed] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (preserveNote = false) => {
     setLoading(true)
-    setNote('')
+    setLoadError(false)
+    if (!preserveNote) setNote('')
     try {
       const [serverStatus, localStatus] = await Promise.all([
         getWebPushServerStatusWithRetry(),
@@ -46,19 +48,17 @@ export default function WebPushSection() {
       setConfigured(serverStatus.configured)
       setDeviceSubscribed(localStatus.subscribed)
     } catch {
-      setNote(
-        'No se pudo consultar el estado de notificaciones. Si acabás de iniciar sesión, recargá la página o probá de nuevo en unos segundos.',
-      )
-      const localStatus = await getCurrentDeviceWebPushState()
-      setDeviceSubscribed(localStatus.subscribed)
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    setSupportCode(getWebPushSupportState().code)
-    void refresh()
+    const support = getWebPushSupportState().code
+    setSupportCode(support)
+    if (support === 'supported') void refresh()
+    else setLoading(false)
   }, [refresh])
 
   async function onToggle() {
@@ -70,140 +70,59 @@ export default function WebPushSection() {
         setDeviceSubscribed(false)
         setNote('Notificaciones desactivadas en este dispositivo.')
       } else {
-        const r = await subscribeCurrentDeviceToWebPush()
-        if (!r.ok) {
-          setNote(r.error)
+        const result = await subscribeCurrentDeviceToWebPush()
+        if (!result.ok) {
+          setNote(result.error)
           return
         }
         setDeviceSubscribed(true)
         setNote('Notificaciones activadas en este dispositivo.')
       }
-      await refresh()
-    } catch (e: unknown) {
-      setNote(e instanceof Error ? e.message : 'Error al cambiar el estado de las notificaciones.')
+      await refresh(true)
+    } catch (error: unknown) {
+      setNote(error instanceof Error ? error.message : 'Error al cambiar el estado de las notificaciones.')
     } finally {
       setBusy(false)
     }
   }
 
-  if (supportCode === 'pending') {
-    return (
-      <section className="card">
-        <div className="card-header">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
-              <Bell className="h-4 w-4 text-gray-500" aria-hidden />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900">Notificaciones en el navegador</h2>
-          </div>
-        </div>
-        <p className="text-sm text-gray-500">Comprobando compatibilidad…</p>
-      </section>
-    )
-  }
-
-  if (supportCode !== 'supported') {
-    return (
-      <section className="card">
-        <div className="card-header">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
-              <Bell className="h-4 w-4 text-gray-500" aria-hidden />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900">Notificaciones en el navegador</h2>
-          </div>
-        </div>
-        <p className="text-sm text-gray-600">{unsupportedExplanation(supportCode)}</p>
-      </section>
-    )
-  }
-
   return (
-    <section className="card">
-      <div className="card-header">
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-              deviceSubscribed ? 'bg-emerald-100' : 'bg-gray-100'
-            }`}
-          >
-            {deviceSubscribed ? (
-              <Bell className="h-4 w-4 text-emerald-600" aria-hidden />
-            ) : (
-              <BellOff className="h-4 w-4 text-gray-500" aria-hidden />
-            )}
-          </div>
-          <h2 className="text-lg font-semibold text-gray-900">Notificaciones en el navegador</h2>
-        </div>
+    <section aria-labelledby="profile-push-title" className="space-y-5 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+      <div>
+        <h2 id="profile-push-title" className="font-semibold text-slate-900">Notificaciones en el navegador</h2>
+        <p className="mt-1 text-sm text-slate-500">Recibí avisos en este dispositivo, aunque no tengas EduTrack abierto.</p>
       </div>
-
-      <p className="text-sm text-gray-600 mb-4">
-        Recibí avisos aunque no tengas el sitio abierto (por ejemplo, cuando se registra una licencia a tu nombre).
-        Funciona en la web en computadora y celular; el navegador pedirá permiso la primera vez.
-      </p>
-
-      {loading ? (
-        <p className="text-sm text-gray-500">Cargando…</p>
+      {supportCode === 'pending' ? <p role="status" className="text-sm text-slate-500">Comprobando compatibilidad…</p> : supportCode !== 'supported' ? (
+        <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">{unsupportedExplanation(supportCode)}</p>
+      ) : loading ? <p role="status" className="text-sm text-slate-500">Consultando estado…</p> : loadError ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 p-3">
+          <p role="alert" className="text-sm text-amber-800">No se pudo consultar el estado de las notificaciones.</p>
+          <button type="button" onClick={() => void refresh()} className="text-sm font-medium text-emerald-700 hover:underline">Reintentar</button>
+        </div>
       ) : !configured ? (
-        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
-          El servidor aún no tiene configuradas las claves VAPID para push web. Contactá a administración.
-        </p>
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Las notificaciones todavía no están habilitadas por la institución. Consultá a administración.</p>
       ) : (
-        <>
-          <div
-            className={`mb-4 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
-              deviceSubscribed
-                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                : 'bg-gray-50 text-gray-700 border border-gray-200'
-            }`}
-          >
-            {deviceSubscribed ? (
-              <>
-                <Bell className="h-4 w-4 shrink-0" aria-hidden />
-                Activadas en este dispositivo
-              </>
-            ) : (
-              <>
-                <BellOff className="h-4 w-4 shrink-0" aria-hidden />
-                Desactivadas en este dispositivo
-              </>
-            )}
+        <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            {deviceSubscribed ? <Bell className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden /> : <BellOff className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />}
+            <div>
+              <p className="text-sm font-medium text-slate-800">{deviceSubscribed ? 'Activadas en este dispositivo' : 'Desactivadas en este dispositivo'}</p>
+              <p className="mt-1 text-xs text-slate-500">Esta preferencia se aplica a este navegador.</p>
+            </div>
           </div>
-
-          {note ? (
-            <div className="mb-4 text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3">{note}</div>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={() => void onToggle()}
-            disabled={busy}
-            className={
-              deviceSubscribed
-                ? 'inline-flex items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60'
-                : 'btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60'
-            }
-          >
-            <PendingButtonContent
-              pending={busy}
-              pendingText={deviceSubscribed ? 'Desactivando…' : 'Activando…'}
-              idle={
-                deviceSubscribed ? (
-                  <>
-                    <BellOff className="h-4 w-4 shrink-0" aria-hidden />
-                    Desactivar
-                  </>
-                ) : (
-                  <>
-                    <Bell className="h-4 w-4 shrink-0" aria-hidden />
-                    Activar
-                  </>
-                )
-              }
-            />
+          <button type="button" onClick={() => void onToggle()} disabled={busy}
+            className={`${deviceSubscribed ? 'btn-secondary' : 'btn-primary'} inline-flex w-full items-center justify-center gap-2 disabled:opacity-60 sm:w-auto`}>
+            <PendingButtonContent pending={busy} pendingText={deviceSubscribed ? 'Desactivando…' : 'Activando…'} idle={deviceSubscribed ? 'Desactivar notificaciones' : 'Activar notificaciones'} />
           </button>
-        </>
+        </div>
       )}
+      {note && <p role="status" className="rounded-lg bg-sky-50 p-3 text-sm text-sky-800">{note}</p>}
+      <details className="group border-t border-slate-100 pt-4">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm text-slate-600 [&::-webkit-details-marker]:hidden">
+          Cómo funcionan<ChevronDown className="h-4 w-4 shrink-0 transition group-open:rotate-180" aria-hidden />
+        </summary>
+        <p className="mt-3 text-sm text-slate-500">El navegador te pedirá permiso al activarlas. Si usás varios dispositivos, activalas en cada uno donde quieras recibir avisos.</p>
+      </details>
     </section>
   )
 }

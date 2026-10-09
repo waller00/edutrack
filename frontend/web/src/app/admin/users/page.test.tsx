@@ -57,6 +57,29 @@ describe('AdminUsersPage', () => {
     expect(mockedApi).toHaveBeenCalledWith(expect.stringContaining('/admin/users?'))
   })
 
+  it('muestra tres botones junto a los resultados, arranca en Todos y conserva el estado al paginar', async () => {
+    mockedApi.mockImplementation(async (url) => {
+      if (url === '/admin/org-roles') return orgRoles as never
+      const params = new URL(String(url), 'http://localhost').searchParams
+      return { total: 41, page: Number(params.get('page')), pageSize: 20, data: [row] } as never
+    })
+    render(<AdminUsersPage />)
+    await screen.findAllByText('user1')
+    expect(screen.queryByLabelText('Mostrar')).toBeNull()
+    const buttons = within(screen.getByRole('group', { name: 'Filtrar usuarios por aprobación' })).getAllByRole('button')
+    expect(buttons.map((button) => button.textContent)).toEqual(['Todos', 'Aprobados', 'Pendientes'])
+    expect(buttons[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20')
+    fireEvent.click(buttons[2])
+    await waitFor(() => expect(buttons[2]).toHaveAttribute('aria-pressed', 'true'))
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=2&pageSize=20&approved=false'))
+    fireEvent.click(buttons[0])
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20'))
+    expect(buttons[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(buttons[2]).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('marca en verde el botón cuando el usuario tiene huella vinculada', async () => {
     mockedApi
       .mockResolvedValueOnce(orgRoles)
@@ -240,7 +263,7 @@ describe('AdminUsersPage', () => {
     )
   })
 
-  it('el desplegable separa usuarios aprobados de pendientes sin excluir correos sin verificar', async () => {
+  it('los botones separan usuarios aprobados de pendientes sin excluir correos sin verificar', async () => {
     mockedApi
       .mockResolvedValueOnce(orgRoles)
       .mockResolvedValueOnce({ total: 1, page: 1, pageSize: 20, data: [row] })
@@ -249,7 +272,7 @@ describe('AdminUsersPage', () => {
     render(<AdminUsersPage />)
     await screen.findAllByText('user1')
 
-    fireEvent.change(screen.getByLabelText('Mostrar'), { target: { value: 'false' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pendientes' }))
 
     await waitFor(() => {
       const last = mockedApi.mock.calls.at(-1)?.[0] as string
@@ -315,15 +338,15 @@ describe('AdminUsersPage', () => {
     fireEvent.change(screen.getByLabelText('Bloqueo temporal'), { target: { value: 'true' } })
     fireEvent.change(screen.getByLabelText('Documento de identidad'), { target: { value: 'true' } })
     expect(mockedApi).toHaveBeenCalledTimes(2)
-    expect(screen.getByLabelText('Mostrar')).toHaveValue('true')
+    expect(screen.getByRole('button', { name: 'Todos' })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }))
     await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('locked=true&docExpiring=true')))
     fireEvent.click(screen.getByText('Más filtros · 2 activos'))
     expect(details).not.toHaveAttribute('open')
     expect(screen.getByText('Más filtros · 2 activos')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }))
-    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=true'))
-    expect(screen.getByLabelText('Mostrar')).toHaveValue('true')
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20'))
+    expect(screen.getByRole('button', { name: 'Todos' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('Bloqueo temporal')).toHaveValue('')
     expect(screen.getByLabelText('Documento de identidad')).toHaveValue('')
   })
@@ -332,10 +355,10 @@ describe('AdminUsersPage', () => {
     mockedApi.mockResolvedValueOnce(orgRoles).mockResolvedValue({ total: 0, page: 1, pageSize: 20, data: [] })
     render(<AdminUsersPage />)
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
-    expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=true')
+    expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20')
     fireEvent.change(screen.getByLabelText('Búsqueda'), { target: { value: 'ana' } })
     fireEvent.change(screen.getByLabelText('Rol'), { target: { value: 'STAFF' } })
-    fireEvent.change(screen.getByLabelText('Mostrar'), { target: { value: 'false' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pendientes' }))
     await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&q=ana&role=STAFF&approved=false'))
     fireEvent.click(screen.getByText('Más filtros'))
     fireEvent.change(screen.getByLabelText('Correo verificado'), { target: { value: 'false' } })
@@ -343,8 +366,8 @@ describe('AdminUsersPage', () => {
     await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&q=ana&role=STAFF&approved=false&verified=false'))
     fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }))
     await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=false'))
-    expect(screen.getByLabelText('Mostrar')).toHaveValue('false')
-    fireEvent.change(screen.getByLabelText('Mostrar'), { target: { value: 'true' } })
+    expect(screen.getByRole('button', { name: 'Pendientes' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Aprobados' }))
     await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=true'))
   })
 
@@ -377,13 +400,13 @@ describe('AdminUsersPage', () => {
     })
     render(<AdminUsersPage />)
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(2))
-    fireEvent.change(screen.getByLabelText('Mostrar'), { target: { value: 'false' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pendientes' }))
     await screen.findAllByText('user1')
     fireEvent.click(within(screen.getByRole('table')).getByRole('button', { name: 'Aprobar' }))
     await waitFor(() => expect(screen.queryAllByText('user1')).toHaveLength(0))
     expect(mockedApi).toHaveBeenCalledWith('/admin/users/u1', { method: 'PUT', body: JSON.stringify({ isApproved: true }) })
     expect(mockedApi).toHaveBeenLastCalledWith('/admin/users?page=1&pageSize=20&approved=false')
-    expect(screen.getByLabelText('Mostrar')).toHaveValue('false')
+    expect(screen.getByRole('button', { name: 'Pendientes' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('el menú cierra con Escape o al hacer clic afuera y no cambia la cuenta', async () => {
