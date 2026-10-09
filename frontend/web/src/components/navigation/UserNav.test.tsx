@@ -189,3 +189,75 @@ describe('UserNav', () => {
     expect(screen.queryByRole('link', { name: 'Cursos' })).not.toBeInTheDocument()
   })
 })
+
+describe('UserNav: menú lateral que se contrae', () => {
+  const ADMIN = {
+    role: 'ADMIN',
+    name: 'Admin',
+    email: 'admin@example.com',
+    isApproved: true,
+    isActive: true,
+    needsProfileCompletion: false,
+    permissions: [
+      { id: 'users.read', scope: 'all' },
+      { id: 'gradebook.read', scope: 'all' },
+    ],
+  }
+
+  beforeEach(() => {
+    vi.mocked(api).mockReset()
+    mockUsePathname.mockReset()
+    mockUsePathname.mockReturnValue('/admin/users')
+    globalThis.localStorage.clear()
+    mockApiByUrl(ADMIN)
+  })
+
+  it('se contrae a íconos y lo recuerda', async () => {
+    renderNav()
+    await screen.findByRole('link', { name: 'Usuarios' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contraer menú lateral' }))
+
+    expect(screen.getByRole('button', { name: 'Expandir menú lateral' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Equipo: abrir el menú' })).toBeInTheDocument()
+    // El panel del costado tiene los ítems del grupo, para llegar sin abrir el menú.
+    expect(screen.getByRole('link', { name: 'Usuarios' })).toHaveAttribute('href', '/admin/users')
+    expect(screen.queryByText('Panel de trabajo')).not.toBeInTheDocument()
+    expect(globalThis.localStorage.getItem('edutrack.sidebar.collapsed')).toBe('1')
+  })
+
+  it('arranca contraído si así lo dejó (los enlaces recargan la página)', async () => {
+    globalThis.localStorage.setItem('edutrack.sidebar.collapsed', '1')
+    renderNav()
+
+    expect(await screen.findByRole('button', { name: 'Expandir menú lateral' })).toBeInTheDocument()
+  })
+
+  it('el clic en un ícono abre el menú con ese grupo desplegado', async () => {
+    globalThis.localStorage.setItem('edutrack.sidebar.collapsed', '1')
+    renderNav()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Libreta @: abrir el menú' }))
+
+    expect(screen.getByRole('button', { name: 'Contraer menú lateral' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: /Libreta @/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('link', { name: 'Visado de libretas' })).toBeInTheDocument()
+    expect(globalThis.localStorage.getItem('edutrack.sidebar.collapsed')).toBe('0')
+  })
+
+  it('recuerda los grupos que el usuario despliega', async () => {
+    const { unmount } = renderNav()
+    await screen.findByRole('link', { name: 'Usuarios' })
+
+    fireEvent.click(screen.getByRole('button', { name: /Libreta @/ }))
+    expect(screen.getByRole('link', { name: 'Reunión de profesores' })).toBeInTheDocument()
+    expect(JSON.parse(globalThis.localStorage.getItem('edutrack.sidebar.openGroups') ?? '{}')).toMatchObject({
+      'Libreta @': true,
+    })
+    unmount()
+
+    // Al recargar (otro clic en el menú), el grupo sigue abierto.
+    renderNav()
+    expect(await screen.findByRole('link', { name: 'Reunión de profesores' })).toBeInTheDocument()
+  })
+})
