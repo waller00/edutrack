@@ -26,7 +26,7 @@ export default function MyLicensesPage(_props: { role?: 'STAFF' | 'TEACHER' } = 
   useEffect(() => {
     async function loadLicenses() {
       try {
-        const data = await api<{ data: License[] }>('/medical-leaves/my-leaves')
+        const data = await api<{ data: License[] }>('/medical-leaves/my-leaves?pageSize=100')
         setLicenses(data.data)
       } catch (error) {
         console.error('Error cargando mis licencias:', error)

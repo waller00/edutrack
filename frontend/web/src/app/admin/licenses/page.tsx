@@ -9,6 +9,7 @@ import {
   getLicenseStatusBadgeClass,
   getLicenseStatusLabel,
   getLicenseTypeLabel,
+  licenseOutsideRange,
 } from '@/lib/admin/licenses-display'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
@@ -72,6 +73,12 @@ function yearRange(year: number) {
   return { from: `${year}-01-01`, to: `${year}-12-31` }
 }
 
+/** Licencias por página: con más, la lista se vuelve larga de recorrer; el resto se pagina. */
+const LICENSES_PAGE_SIZE = 50
+
+type LicensesSummary = { total: number; active: number; inactive: number; medical: number }
+type LicensesPagination = { page: number; totalPages: number; total: number }
+
 function ymdFromApiDate(value: string | null | undefined) {
   return value ? value.slice(0, 10) : null
 }
@@ -91,6 +98,9 @@ export default function LicensesPage() {
   const [message, setMessage] = useState('')
   const [selectedLicenseIds, setSelectedLicenseIds] = useState<string[]>([])
   const [deletingSelected, setDeletingSelected] = useState(false)
+  // Antes se mostraban sólo las 20 primeras (el tamaño por defecto de la API) y no había forma de ver el resto.
+  const [pagination, setPagination] = useState<LicensesPagination>({ page: 1, totalPages: 1, total: 0 })
+  const [summary, setSummary] = useState<LicensesSummary | null>(null)
   const [filters, setFilters] = useState({
     userId: '',
     type: '',
@@ -126,12 +136,16 @@ export default function LicensesPage() {
     () => (selectedSchoolYearId ? syCtx?.years.find((year) => year.id === selectedSchoolYearId) ?? null : null),
     [syCtx?.years, selectedSchoolYearId],
   )
+  // Un ciclo sin fechas cargadas es su año calendario, igual que en el backend. Antes caía en el
+  // año en curso: con el ciclo 2025 elegido se mostraban los días no laborables de 2026.
   const schoolYearDateRange = useMemo(() => {
     if (syCtx?.allYears) return yearRange(currentYear)
-    const from = ymdFromApiDate(selectedSchoolYear?.startsOn)
-    const to = ymdFromApiDate(selectedSchoolYear?.endsOn)
-    return from && to ? { from, to } : yearRange(currentYear)
-  }, [currentYear, selectedSchoolYear?.endsOn, selectedSchoolYear?.startsOn, syCtx?.allYears])
+    const fallback = yearRange(selectedSchoolYear?.code ?? currentYear)
+    return {
+      from: ymdFromApiDate(selectedSchoolYear?.startsOn) ?? fallback.from,
+      to: ymdFromApiDate(selectedSchoolYear?.endsOn) ?? fallback.to,
+    }
+  }, [currentYear, selectedSchoolYear?.code, selectedSchoolYear?.endsOn, selectedSchoolYear?.startsOn, syCtx?.allYears])
 
   useEffect(() => {
     loadUsers()
@@ -150,15 +164,22 @@ export default function LicensesPage() {
     setSelectedLicenseIds([])
   }, [licenses])
 
-  async function loadLicenses(override?: typeof filters) {
+  /** Cambiar filtros o ciclo vuelve a la página 1; sólo las flechas cambian de página. */
+  async function loadLicenses(override?: typeof filters, page = 1) {
     setLoading(true)
     try {
-      const qs = buildMedicalLeavesQueryString(override ?? filters)
+      const params = new URLSearchParams(buildMedicalLeavesQueryString(override ?? filters))
+      params.set('page', String(page))
+      params.set('pageSize', String(LICENSES_PAGE_SIZE))
       const data = await api<{
         data: License[]
-      }>(withSchoolYear(`/medical-leaves/all?${qs}`, schoolYearQuery))
+        pagination?: LicensesPagination
+        summary?: LicensesSummary
+      }>(withSchoolYear(`/medical-leaves/all?${params}`, schoolYearQuery))
 
       setLicenses(data.data)
+      setPagination(data.pagination ?? { page: 1, totalPages: 1, total: data.data.length })
+      setSummary(data.summary ?? null)
     } catch (error) {
       console.error('Error cargando licencias:', error)
     } finally {
@@ -166,17 +187,21 @@ export default function LicensesPage() {
     }
   }
 
+  /** Todo el personal: la API pagina de a 100 y antes desde el 101 no se podía cargarles licencia. */
   async function loadUsers() {
     try {
-      const data = await api<{
-        data: User[]
-      }>('/admin/users?pageSize=100')
-      // Procesar usuarios para tener el campo name
-      const processedUsers = data.data.map((user) => ({
-        ...user,
-        name: formatLicenseAdminUserDisplayName(user),
-      }))
-      setUsers(processedUsers)
+      const all: User[] = []
+      for (let page = 1; page <= 50; page += 1) {
+        const data = await api<{ data: User[]; total?: number }>(`/admin/users?pageSize=100&page=${page}`)
+        all.push(...data.data)
+        if (data.data.length < 100 || (data.total != null && all.length >= data.total)) break
+      }
+      setUsers(
+        all.map((user) => ({
+          ...user,
+          name: formatLicenseAdminUserDisplayName(user),
+        })),
+      )
     } catch (error) {
       console.error('Error cargando usuarios:', error)
     }
@@ -261,7 +286,12 @@ export default function LicensesPage() {
       })
 
       setCreateModalError('')
-      setMessage('✅ Licencia creada correctamente')
+      // Si es de otro ciclo no aparece en la lista: sin el aviso parece que no se guardó.
+      setMessage(
+        !syCtx?.allYears && licenseOutsideRange(newLicense, schoolYearDateRange)
+          ? '✅ Licencia creada. Sus fechas quedan fuera del ciclo que estás viendo: para encontrarla, elegí su ciclo o «Ver todos los ciclos».'
+          : '✅ Licencia creada correctamente',
+      )
       setCreating(false)
       setNewLicense({
         userId: '',
@@ -301,7 +331,7 @@ export default function LicensesPage() {
       setEditModalError('')
       setMessage('✅ Licencia actualizada correctamente')
       setEditing(null)
-      await loadLicenses()
+      await loadLicenses(undefined, pagination.page)
     } catch (error: unknown) {
       setEditModalError(formatValidationErrorFromApi(error) || '❌ Error al actualizar licencia')
     }
@@ -317,7 +347,7 @@ export default function LicensesPage() {
       await Promise.all(selectedLicenseIds.map((id) => api(`/medical-leaves/${id}`, { method: 'DELETE' })))
       setMessage(`✅ Se eliminaron ${selectedLicenseIds.length} licencias seleccionadas`)
       setSelectedLicenseIds([])
-      await loadLicenses()
+      await loadLicenses(undefined, pagination.page)
     } catch (error: any) {
       setMessage(`❌ Error: ${error.message || 'Error al eliminar licencias seleccionadas'}`)
     } finally {
@@ -337,9 +367,11 @@ export default function LicensesPage() {
   }
 
   const activeLicenseFilterCount = Object.values(filters).filter(Boolean).length
-  const licensesActiveCount = licenses.filter((l) => l.status === 'ACTIVE').length
-  const licensesInactiveCount = licenses.filter((l) => l.status === 'INACTIVE').length
-  const licensesMedicalCount = licenses.filter((l) => l.type === 'MEDICAL_LEAVE').length
+  // Del filtro entero, no de la página visible.
+  const licensesTotal = summary?.total ?? pagination.total
+  const licensesActiveCount = summary?.active ?? licenses.filter((l) => l.status === 'ACTIVE').length
+  const licensesInactiveCount = summary?.inactive ?? licenses.filter((l) => l.status === 'INACTIVE').length
+  const licensesMedicalCount = summary?.medical ?? licenses.filter((l) => l.type === 'MEDICAL_LEAVE').length
 
   function renderLicensesRows() {
     if (loading) {
@@ -504,7 +536,7 @@ export default function LicensesPage() {
           {activeSection === 'licenses' ? (
             <div className="flex flex-col items-end gap-3 shrink-0">
               <div className="text-right">
-                <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licenses.length}</div>
+                <div className="text-2xl font-bold text-emerald-600">{loading ? '—' : licensesTotal}</div>
                 <div className="text-sm text-gray-600">registros listados</div>
               </div>
               <button
@@ -722,6 +754,11 @@ export default function LicensesPage() {
             </div>
           </div>
 
+          <p className="mb-3 text-xs text-gray-500">
+            Desde y hasta marcan un período: aparecen las licencias vigentes algún día de ese período, también
+            las que empezaron antes o terminan después. Siempre dentro del ciclo lectivo elegido arriba.
+          </p>
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             <div>
               <label
@@ -808,7 +845,7 @@ export default function LicensesPage() {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
             <div className="text-xs text-gray-500">Totales listados</div>
-            <div className="text-xl font-bold text-emerald-600">{loading ? '—' : licenses.length}</div>
+            <div className="text-xl font-bold text-emerald-600">{loading ? '—' : licensesTotal}</div>
           </div>
           <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
             <div className="text-xs text-gray-500">Activas</div>
@@ -893,6 +930,32 @@ export default function LicensesPage() {
               licenses.map(renderLicenseCard)
             )}
           </div>
+
+          {pagination.totalPages > 1 && (
+            <nav aria-label="Páginas de licencias" className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 px-4 py-3 text-sm text-gray-600">
+              <span>
+                Página {pagination.page} de {pagination.totalPages} · {pagination.total} licencias
+              </span>
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={loading || pagination.page <= 1}
+                  onClick={() => void loadLicenses(undefined, pagination.page - 1)}
+                  className="btn-secondary text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={loading || pagination.page >= pagination.totalPages}
+                  onClick={() => void loadLicenses(undefined, pagination.page + 1)}
+                  className="btn-secondary text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Siguiente
+                </button>
+              </span>
+            </nav>
+          )}
         </div>
           </section>
         )}

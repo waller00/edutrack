@@ -7,6 +7,7 @@
 import type { AttendanceStatus, Event, MedicalLeave } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { expandRecurringEvent } from '../events/events-query.js'
+import { licenseWindow } from './medical-leave-dates.js'
 
 const AUDIT_PREFIX = '[LIC-AUTO]'
 
@@ -14,10 +15,13 @@ export function rangesOverlapInstant(a0: Date, a1: Date, b0: Date, b1: Date): bo
   return a0.getTime() <= b1.getTime() && b0.getTime() <= a1.getTime()
 }
 
-/** Licencia activa en sentido de vigencia: [start, end] por instantes. */
+/** ¿La licencia cubre ese instante? Cubre sus días enteros en hora institucional (`licenseWindow`). */
 export function licenseCoversInstant(license: Pick<MedicalLeave, 'startDate' | 'endDate'>, at: Date): boolean {
-  return license.startDate.getTime() <= at.getTime() && at.getTime() <= license.endDate.getTime()
+  const { from, to } = licenseWindow(license)
+  return from.getTime() <= at.getTime() && at.getTime() <= to.getTime()
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 function auditNote(licenseId: string, action: string) {
   return `${AUDIT_PREFIX} ${new Date().toISOString()} licencia=${licenseId} ${action}`
@@ -78,8 +82,8 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
     return { justified: 0, created: 0, conflicts: 0, skipped: 0 }
   }
 
-  const licenseStart = license.startDate
-  const licenseEnd = license.endDate
+  // Días enteros: una clase de las 7:30 del primer día o de la tarde del último también es de la licencia.
+  const { from: licenseStart, to: licenseEnd } = licenseWindow(license)
 
   const events = await prisma.event.findMany({
     where: {
@@ -174,7 +178,8 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
       eventId: null,
       type: 'CHECK_IN',
       status: 'ABSENT_NOT_JUSTIFIED',
-      date: { gte: normalizeUtcDay(licenseStart), lte: normalizeUtcDay(licenseEnd) },
+      // Por día: el final de la ventana ya cae al día UTC siguiente y sumaría uno de más.
+      date: { gte: normalizeUtcDay(license.startDate), lte: normalizeUtcDay(license.endDate) },
     },
     data: {
       status: 'ABSENT_JUSTIFIED',
@@ -186,15 +191,23 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
   return { justified, created, conflicts, skipped: unchanged }
 }
 
-/** ¿Hay licencia activa que cubra el instante del evento (inicio)? */
+/**
+ * ¿Hay licencia activa que cubra el evento? La consulta trae con un día de margen —las fechas
+ * guardadas son el mediodía o la medianoche UTC del día— y la ventana exacta se mira después.
+ */
 export async function findApprovedLicenseCoveringEventTime(userId: string, eventStart: Date, eventEnd: Date) {
   const leaves = await prisma.medicalLeave.findMany({
     where: {
       userId,
       status: 'ACTIVE' as any,
-      startDate: { lte: eventEnd },
-      endDate: { gte: eventStart },
+      startDate: { lte: new Date(eventEnd.getTime() + DAY_MS) },
+      endDate: { gte: new Date(eventStart.getTime() - DAY_MS) },
     },
   })
-  return leaves.find((l) => rangesOverlapInstant(l.startDate, l.endDate, eventStart, eventEnd)) ?? null
+  return (
+    leaves.find((l) => {
+      const { from, to } = licenseWindow(l)
+      return rangesOverlapInstant(from, to, eventStart, eventEnd)
+    }) ?? null
+  )
 }

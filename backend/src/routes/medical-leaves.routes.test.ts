@@ -18,6 +18,7 @@ const { prismaMock } = vi.hoisted(() => ({
       create: vi.fn().mockResolvedValue({ id: "a1" }),
     },
     user: { findUnique: vi.fn() },
+    schoolYear: { findUnique: vi.fn() },
     event: { findMany: vi.fn() },
     attendance: {
       findMany: vi.fn(),
@@ -94,8 +95,76 @@ describe("medical-leaves (prisma mock)", () => {
     expect(where.userId).toBe("u1");
     expect(where.type).toBe("MEDICAL_LEAVE");
     expect(where.status).toBe("ACTIVE");
-    expect(where.startDate.gte).toBeInstanceOf(Date);
-    expect(where.endDate.lte).toBeInstanceOf(Date);
+    // "Desde/Hasta" es el período: entra toda licencia vigente algún día de enero, aunque
+    // haya empezado en diciembre o termine en febrero.
+    expect(where.AND).toEqual([
+      { startDate: { lte: new Date("2025-01-31T23:59:59.999Z") } },
+      { endDate: { gte: new Date("2025-01-01T00:00:00.000Z") } },
+    ]);
+    expect(prismaMock.medicalLeave.findMany.mock.calls[0][0]).toMatchObject({ skip: 5, take: 5 });
+  });
+
+  it("GET /medical-leaves/all por ciclo: vigente algún día del ciclo, también el último", async () => {
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    prismaMock.medicalLeave.count.mockResolvedValue(0);
+    prismaMock.schoolYear.findUnique.mockResolvedValue({
+      code: 2026,
+      startsOn: new Date("2026-03-01T00:00:00.000Z"),
+      endsOn: new Date("2026-12-20T00:00:00.000Z"),
+    });
+
+    await request(app()).get("/medical-leaves/all?schoolYearId=sy-1").set(admin());
+
+    const where = prismaMock.medicalLeave.findMany.mock.calls[0][0].where;
+    // El ciclo se guarda a medianoche y la licencia al mediodía: comparando instantes, una
+    // licencia que empezaba el 20/12 quedaba afuera del ciclo que termina ese día.
+    expect(where.AND).toEqual([
+      { startDate: { lte: new Date("2026-12-20T23:59:59.999Z") } },
+      { endDate: { gte: new Date("2026-03-01T00:00:00.000Z") } },
+    ]);
+  });
+
+  it("GET /medical-leaves/all con un ciclo sin fechas usa su año calendario", async () => {
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    prismaMock.medicalLeave.count.mockResolvedValue(0);
+    prismaMock.schoolYear.findUnique.mockResolvedValue({ code: 2025, startsOn: null, endsOn: null });
+
+    await request(app()).get("/medical-leaves/all?schoolYearId=sy-1").set(admin());
+
+    // Antes el filtro se ignoraba y aparecían las licencias de todos los años.
+    expect(prismaMock.medicalLeave.findMany.mock.calls[0][0].where.AND).toEqual([
+      { startDate: { lte: new Date("2025-12-31T23:59:59.999Z") } },
+      { endDate: { gte: new Date("2025-01-01T00:00:00.000Z") } },
+    ]);
+  });
+
+  it("GET /medical-leaves/all cuenta los totales de todo el filtro, no de la página", async () => {
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    prismaMock.medicalLeave.count
+      .mockResolvedValueOnce(45)
+      .mockResolvedValueOnce(40)
+      .mockResolvedValueOnce(5)
+      .mockResolvedValueOnce(30);
+
+    const res = await request(app()).get("/medical-leaves/all?userId=u1").set(admin());
+
+    expect(res.body.summary).toEqual({ total: 45, active: 40, inactive: 5, medical: 30 });
+    expect(prismaMock.medicalLeave.count.mock.calls[1][0].where).toEqual({
+      AND: [{ userId: "u1" }, { status: "ACTIVE" }],
+    });
+  });
+
+  it("GET /medical-leaves/all ordena por fecha de la licencia y pone tope a la página", async () => {
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    prismaMock.medicalLeave.count.mockResolvedValue(0);
+
+    const res = await request(app()).get("/medical-leaves/all?pageSize=5000&page=abc").set(admin());
+
+    expect(res.body.pagination).toMatchObject({ page: 1, pageSize: 100 });
+    expect(prismaMock.medicalLeave.findMany.mock.calls[0][0].orderBy).toEqual([
+      { startDate: "desc" },
+      { createdAt: "desc" },
+    ]);
   });
 
   it("POST /medical-leaves 400 zod", async () => {

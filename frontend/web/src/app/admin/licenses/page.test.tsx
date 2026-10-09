@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LicensesPage from './page'
+import { licenseOutsideRange } from '@/lib/admin/licenses-display'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/components/auth/RoleGuard', () => ({
@@ -277,5 +278,71 @@ describe('LicensesPage', () => {
       const callsAfter = mockedApi.mock.calls.filter((c) => String(c[0]).includes('medical-leaves/all')).length
       expect(callsAfter).toBeGreaterThan(callsBefore)
     })
+  })
+})
+
+describe('LicensesPage: ciclos, páginas y totales', () => {
+  beforeEach(() => {
+    mockedApi.mockReset()
+    schoolYearContextMock.current = null
+  })
+
+  it('pagina las licencias y muestra los totales de todo el filtro', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      const u = String(url)
+      if (u.includes('medical-leaves/all')) {
+        const page = Number(new URL(u, 'http://x').searchParams.get('page'))
+        return {
+          data: [{ ...activeLicense, id: `lic-${page}`, reason: `Licencia de la página ${page}` }],
+          pagination: { page, pageSize: 50, total: 75, totalPages: 2 },
+          summary: { total: 75, active: 70, inactive: 5, medical: 60 },
+        }
+      }
+      if (u.includes('admin/users')) return { data: [] }
+      return { data: [] }
+    })
+
+    render(<LicensesPage />)
+
+    expect(await screen.findByText(/Página 1 de 2 · 75 licencias/)).toBeInTheDocument()
+    // Totales del filtro, no de la página visible (que tiene una sola licencia).
+    expect(screen.getByText('70')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+
+    expect((await screen.findAllByText('Licencia de la página 2')).length).toBeGreaterThan(0)
+    const lastCall = mockedApi.mock.calls.filter((c) => String(c[0]).includes('medical-leaves/all')).at(-1)!
+    expect(String(lastCall[0])).toContain('page=2')
+    expect(String(lastCall[0])).toContain('pageSize=50')
+  })
+
+  it('trae todo el personal, también después del usuario 100', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, i) => ({ id: `u${i}`, email: `u${i}@x.com`, firstName: 'U', lastName: String(i) }))
+    mockedApi.mockImplementation(async (url: string) => {
+      const u = String(url)
+      if (u.includes('medical-leaves/all')) return { data: [] }
+      if (u.includes('admin/users') && u.includes('page=1')) return { data: firstPage, total: 101 }
+      if (u.includes('admin/users') && u.includes('page=2')) {
+        return { data: [{ id: 'u100', email: 'ultima@x.com', firstName: 'Última', lastName: 'Persona' }], total: 101 }
+      }
+      return { data: [] }
+    })
+
+    render(<LicensesPage />)
+
+    await waitFor(() =>
+      expect(mockedApi.mock.calls.some((c) => String(c[0]).includes('admin/users?pageSize=100&page=2'))).toBe(true),
+    )
+  })
+})
+
+describe('licenseOutsideRange', () => {
+  it('dice si la licencia no toca el ciclo que se está mirando', () => {
+    const cycle = { from: '2026-03-01', to: '2026-12-20' }
+    expect(licenseOutsideRange({ startDate: '2027-02-01', endDate: '2027-02-03' }, cycle)).toBe(true)
+    expect(licenseOutsideRange({ startDate: '2026-02-20', endDate: '2026-02-28' }, cycle)).toBe(true)
+    // Cruza el inicio del ciclo: aparece en él.
+    expect(licenseOutsideRange({ startDate: '2026-02-25', endDate: '2026-03-02' }, cycle)).toBe(false)
+    expect(licenseOutsideRange({ startDate: '2026-12-20T12:00:00.000Z', endDate: '2026-12-23T12:00:00.000Z' }, cycle)).toBe(false)
   })
 })

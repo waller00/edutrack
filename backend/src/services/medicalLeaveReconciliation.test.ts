@@ -18,12 +18,28 @@ describe('medicalLeaveReconciliation helpers', () => {
     expect(rangesOverlapInstant(a0, a1, b0, b1)).toBe(false)
   })
 
-  it('licenseCoversInstant inclusivo en bordes', () => {
+  it('licenseCoversInstant cubre los días enteros en hora de Uruguay', () => {
+    // Como la guarda la pantalla: el mediodía UTC de cada día (las 9:00 en Uruguay).
     const lic = {
-      startDate: new Date('2025-06-01T00:00:00.000Z'),
-      endDate: new Date('2025-06-05T23:59:59.999Z'),
+      startDate: new Date('2025-06-02T12:00:00.000Z'),
+      endDate: new Date('2025-06-06T12:00:00.000Z'),
     }
-    expect(licenseCoversInstant(lic, new Date('2025-06-01T00:00:00.000Z'))).toBe(true)
-    expect(licenseCoversInstant(lic, new Date('2025-06-05T23:59:59.999Z'))).toBe(true)
+    // Una clase de las 7:30 del primer día (10:30 UTC) y una de las 19:00 del último (22:00 UTC).
+    // Antes quedaban afuera: la licencia iba de las 9:00 del 2 a las 9:00 del 6.
+    expect(licenseCoversInstant(lic, new Date('2025-06-02T10:30:00.000Z'))).toBe(true)
+    expect(licenseCoversInstant(lic, new Date('2025-06-06T22:00:00.000Z'))).toBe(true)
+    // El día anterior y el siguiente, no.
+    expect(licenseCoversInstant(lic, new Date('2025-06-02T02:59:00.000Z'))).toBe(false)
+    expect(licenseCoversInstant(lic, new Date('2025-06-07T03:00:00.000Z'))).toBe(false)
+  })
+
+  it('una licencia vieja guardada a medianoche UTC cubre el mismo día', () => {
+    const lic = {
+      startDate: new Date('2025-06-02T00:00:00.000Z'),
+      endDate: new Date('2025-06-02T00:00:00.000Z'),
+    }
+    expect(licenseCoversInstant(lic, new Date('2025-06-02T20:00:00.000Z'))).toBe(true)
+    // El 1/6 a las 21:00 de Uruguay es 00:00 UTC del 2: no es el día de la licencia.
+    expect(licenseCoversInstant(lic, new Date('2025-06-02T00:00:00.000Z'))).toBe(false)
   })
 })

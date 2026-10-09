@@ -58,3 +58,14 @@ export function getLicenseStatusLabel(status: string): string {
   }
   return labels[status] || status
 }
+
+/**
+ * ¿La licencia queda fuera del ciclo que se está mirando? Entonces no aparece en la lista, y
+ * conviene decirlo: si no, parece que no se guardó. Compara días (`YYYY-MM-DD`), no instantes.
+ */
+export function licenseOutsideRange(
+  license: { startDate: string; endDate: string },
+  range: { from: string; to: string },
+): boolean {
+  return license.endDate.slice(0, 10) < range.from || license.startDate.slice(0, 10) > range.to
+}
