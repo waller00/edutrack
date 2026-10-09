@@ -368,16 +368,19 @@ r.delete('/:id', authGuard, requirePermission('licenses.delete', 'all'), async (
       } as any
     })
 
+    // Las faltas que justificó vuelven a como estaban; antes quedaban justificadas igual.
+    const reconciliation = await reconcileAttendancesForMedicalLeave(id)
+
     recordAuditEvent({
       action: AuditAction.MEDICAL_LEAVE_DEACTIVATED,
       actorUserId: req.user?.id ?? null,
       req,
       entityType: 'MedicalLeave',
       entityId: id,
-      metadata: { affectedUserId: license.userId },
+      metadata: { affectedUserId: license.userId, reverted: reconciliation.reverted, removed: reconciliation.removed },
     })
 
-    res.json({ message: 'Licencia médica desactivada correctamente' })
+    res.json({ message: 'Licencia médica desactivada correctamente', reconciliation })
   } catch (error) {
     console.error('Error desactivando licencia médica:', error)
     res.status(500).json({ message: 'Error interno del servidor' })

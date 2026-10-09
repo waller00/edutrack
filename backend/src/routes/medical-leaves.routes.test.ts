@@ -66,7 +66,11 @@ const leaveBody = {
 };
 
 describe("medical-leaves (prisma mock)", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // La conciliación primero busca lo que la licencia había tocado, para deshacer lo que ya no cubre.
+    prismaMock.attendance.findMany.mockResolvedValue([]);
+  });
 
   it("GET /medical-leaves/all ADMIN", async () => {
     prismaMock.medicalLeave.findMany.mockResolvedValue([]);
@@ -346,12 +350,55 @@ describe("medical-leaves (prisma mock)", () => {
     expect(res.status).toBe(500);
   });
 
-  it("DELETE /medical-leaves/:id desactiva", async () => {
-    prismaMock.medicalLeave.findUnique.mockResolvedValue({ id: "l1" });
+  it("DELETE /medical-leaves/:id desactiva y deshace lo que la licencia justificó", async () => {
+    const license = {
+      id: "l1",
+      userId: uid,
+      startDate: new Date("2025-01-06T12:00:00.000Z"),
+      endDate: new Date("2025-01-10T12:00:00.000Z"),
+    };
+    prismaMock.medicalLeave.findUnique
+      .mockResolvedValueOnce({ ...license, status: "ACTIVE" })
+      .mockResolvedValueOnce({ ...license, status: "INACTIVE" });
     prismaMock.medicalLeave.update.mockResolvedValue({});
+    prismaMock.medicalLeave.findMany.mockResolvedValue([]);
+    (prismaMock.attendance as any).delete = vi.fn().mockResolvedValue({});
+    prismaMock.attendance.findMany.mockResolvedValue([
+      {
+        id: "creada",
+        status: "ABSENT_JUSTIFIED",
+        time: new Date("2025-01-07T11:00:00.000Z"),
+        notes: "[LIC-AUTO] 2025-01-05T10:00:00.000Z licencia=l1 crear ausencia justificada por licencia · evento=e1",
+        _count: { justifications: 0 },
+      },
+      {
+        id: "justificada",
+        status: "ABSENT_JUSTIFIED",
+        time: new Date("2025-01-08T11:00:00.000Z"),
+        notes: "[LIC-AUTO] 2025-01-05T10:00:00.000Z licencia=l1 ABSENT_NOT_JUSTIFIED→ABSENT_JUSTIFIED",
+        _count: { justifications: 0 },
+      },
+      {
+        id: "a-mano",
+        status: "ABSENT_JUSTIFIED",
+        time: new Date("2025-01-09T11:00:00.000Z"),
+        notes: "[LIC-AUTO] 2025-01-05T10:00:00.000Z licencia=l1 ABSENT_NOT_JUSTIFIED→ABSENT_JUSTIFIED\nJustificación: certificado",
+        _count: { justifications: 1 },
+      },
+    ]);
+
     const res = await request(app()).delete("/medical-leaves/l1").set(admin());
+
     expect(res.status).toBe(200);
-    expect(prismaMock.medicalLeave.update).toHaveBeenCalled();
+    expect(res.body.reconciliation).toMatchObject({ reverted: 1, removed: 1 });
+    // La que creó la licencia se borra: sin fila, la ausencia vuelve a calcularse en vivo.
+    expect((prismaMock.attendance as any).delete).toHaveBeenCalledWith({ where: { id: "creada" } });
+    // La que estaba sin justificar vuelve a sin justificar; la justificada a mano no se toca.
+    expect(prismaMock.attendance.update).toHaveBeenCalledTimes(1);
+    expect(prismaMock.attendance.update.mock.calls[0][0]).toMatchObject({
+      where: { id: "justificada" },
+      data: { status: "ABSENT_NOT_JUSTIFIED" },
+    });
   });
 
   it("DELETE /medical-leaves/:id 404 si no existe", async () => {
