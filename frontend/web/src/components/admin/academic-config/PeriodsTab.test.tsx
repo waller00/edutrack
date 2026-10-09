@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PeriodsTab, { deactivateMessage } from './PeriodsTab'
 import { api } from '@/lib/api/client'
@@ -9,10 +15,21 @@ const mockedApi = vi.mocked(api)
 
 function period(over: Partial<AcademicPeriod> = {}): AcademicPeriod {
   return {
-    id: 'p-1', schoolYearId: 'sy-1', level: 'EBI', code: 'MAYO', name: 'Mayo', sortOrder: 2,
-    startsOn: '2026-05-01', endsOn: '2026-05-31', closesOn: '2026-06-08',
-    requiresConceptualJudgement: true, requiresGeneralGrade: true, isActive: true,
-    kind: 'TRAMO', isMeeting: false, judgementLabel: null,
+    id: 'p-1',
+    schoolYearId: 'sy-1',
+    level: 'EBI',
+    code: 'MAYO',
+    name: 'Mayo',
+    sortOrder: 2,
+    startsOn: '2026-05-01',
+    endsOn: '2026-05-31',
+    closesOn: '2026-06-08',
+    requiresConceptualJudgement: true,
+    requiresGeneralGrade: true,
+    isActive: true,
+    kind: 'TRAMO',
+    isMeeting: false,
+    judgementLabel: null,
     usage: { assessments: 0, closedGradeBooks: 0 },
     ...over,
   }
@@ -30,22 +47,35 @@ describe('<PeriodsTab />', () => {
   })
 
   it('lista los períodos separados por nivel', async () => {
-    respond([period(), period({ id: 'p-2', level: 'EMS', code: 'JUNIO', name: 'Junio' })])
+    respond([
+      period(),
+      period({ id: 'p-2', level: 'EMS', code: 'JUNIO', name: 'Junio' }),
+    ])
 
     render(<PeriodsTab onError={onError} />)
 
     expect(await screen.findByText('Mayo')).toBeInTheDocument()
+    expect(screen.queryByText('Junio')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^EMS/ }))
     expect(screen.getByText('Junio')).toBeInTheDocument()
+    expect(screen.queryByText('Mayo')).not.toBeInTheDocument()
   })
 
   it('crea un período con el ciclo y el nivel de la sección', async () => {
     respond([period()])
 
     render(<PeriodsTab onError={onError} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Nuevo período en EMS/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^EMS/ }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Nuevo período en EMS/ }),
+    )
 
-    fireEvent.change(screen.getByLabelText('Código'), { target: { value: 'SETIEMBRE' } })
-    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Setiembre' } })
+    fireEvent.change(screen.getByLabelText('Código'), {
+      target: { value: 'SETIEMBRE' },
+    })
+    fireEvent.change(screen.getByLabelText('Nombre'), {
+      target: { value: 'Setiembre' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
@@ -53,7 +83,10 @@ describe('<PeriodsTab />', () => {
     expect(path).toBe('/admin/academic-config/periods')
     expect(init?.method).toBe('POST')
     expect(JSON.parse(String(init?.body))).toMatchObject({
-      schoolYearId: 'sy-1', level: 'EMS', code: 'SETIEMBRE', name: 'Setiembre',
+      schoolYearId: 'sy-1',
+      level: 'EMS',
+      code: 'SETIEMBRE',
+      name: 'Setiembre',
     })
   })
 
@@ -63,7 +96,9 @@ describe('<PeriodsTab />', () => {
     render(<PeriodsTab onError={onError} />)
     fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
 
-    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Mayo (ajustado)' } })
+    fireEvent.change(screen.getByLabelText('Nombre'), {
+      target: { value: 'Mayo (ajustado)' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
@@ -82,6 +117,7 @@ describe('<PeriodsTab />', () => {
     render(<PeriodsTab onError={onError} />)
     fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
 
+    fireEvent.click(screen.getByText('Más opciones del período'))
     expect(screen.getByLabelText('Código')).toBeDisabled()
   })
 
@@ -91,10 +127,14 @@ describe('<PeriodsTab />', () => {
     render(<PeriodsTab onError={onError} />)
     fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
 
-    fireEvent.change(screen.getByLabelText('Cierre'), { target: { value: '01/05/2026' } })
+    fireEvent.change(screen.getByLabelText('Cierre'), {
+      target: { value: '01/05/2026' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/cierre no puede ser anterior/i)
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /cierre no puede ser anterior/i,
+    )
     expect(mockedApi).toHaveBeenCalledTimes(1)
   })
 
@@ -102,11 +142,19 @@ describe('<PeriodsTab />', () => {
     respond([period()])
 
     render(<PeriodsTab onError={onError} />)
+    await screen.findByText('Mayo')
+    fireEvent.click(screen.getByText('Detalles de Mayo'))
     fireEvent.click(await screen.findByRole('button', { name: 'Desactivar' }))
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Desactivar' }))
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Desactivar',
+      }),
+    )
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
-    expect(mockedApi.mock.calls[1][0]).toBe('/admin/academic-config/periods/p-1')
+    expect(mockedApi.mock.calls[1][0]).toBe(
+      '/admin/academic-config/periods/p-1',
+    )
     expect(mockedApi.mock.calls[1][1]?.method).toBe('DELETE')
   })
 
@@ -114,9 +162,12 @@ describe('<PeriodsTab />', () => {
     respond([period({ isActive: false })])
 
     render(<PeriodsTab onError={onError} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Inactivos/ }))
     await screen.findByText('Mayo')
 
-    expect(screen.queryByRole('button', { name: 'Desactivar' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Desactivar' }),
+    ).not.toBeInTheDocument()
   })
 
   it('muestra el uso de cada período', async () => {
@@ -124,17 +175,27 @@ describe('<PeriodsTab />', () => {
 
     render(<PeriodsTab onError={onError} />)
 
-    expect(await screen.findByText('3 evaluaciones · 1 libreta cerrada')).toBeInTheDocument()
+    await screen.findByText('Mayo')
+    expect(
+      screen.getByText('3 evaluaciones · 1 libreta cerrada'),
+    ).not.toBeVisible()
+    fireEvent.click(screen.getByText('Detalles de Mayo'))
+    expect(screen.getByText('3 evaluaciones · 1 libreta cerrada')).toBeVisible()
   })
 })
 
 describe('deactivateMessage', () => {
   it('aclara que desactivar no borra nada', () => {
-    expect(deactivateMessage(period())).toMatch(/Nada de lo ya cargado se borra/)
+    expect(deactivateMessage(period())).toMatch(
+      /Nada de lo ya cargado se borra/,
+    )
   })
 
   it('avisa cuando hay libretas cerradas que dependen del período', () => {
-    expect(deactivateMessage(period({ usage: { assessments: 0, closedGradeBooks: 4 } })))
-      .toMatch(/4 libreta\(s\) ya cerraron/)
+    expect(
+      deactivateMessage(
+        period({ usage: { assessments: 0, closedGradeBooks: 4 } }),
+      ),
+    ).toMatch(/4 libreta\(s\) ya cerraron/)
   })
 })

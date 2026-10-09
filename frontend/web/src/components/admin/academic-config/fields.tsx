@@ -15,7 +15,10 @@ export function Field({
 }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="mb-1 block text-xs font-medium text-gray-600">
+      <label
+        htmlFor={htmlFor}
+        className="mb-1 block text-xs font-medium text-gray-600"
+      >
         {label}
       </label>
       {children}
@@ -44,14 +47,17 @@ export function Check({
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 rounded border-gray-300"
+        className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-emerald-600"
       />
       <label htmlFor={id} className="text-sm text-gray-700">
         {label}
-        {hint && <span className="block text-[11px] text-gray-500">{hint}</span>}
+        {hint && (
+          <span className="block text-[11px] text-gray-500">{hint}</span>
+        )}
       </label>
     </div>
   )
 }
 
-export const inputClass = 'w-full rounded border border-gray-300 px-2 py-1.5 text-sm'
+export const inputClass =
+  'w-full min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500'

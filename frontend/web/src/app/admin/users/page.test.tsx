@@ -1,3 +1,4 @@
+import { useOptionalAuth } from '@/contexts/AuthContext'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminUsersPage from './page'
@@ -6,6 +7,8 @@ import { api } from '@/lib/api/client'
 vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
 }))
+
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: vi.fn(() => ({ me: { role: 'ADMIN', permissions: [{ id: 'users.create', scope: 'all' }, { id: 'users.update', scope: 'all' }, { id: 'users.security', scope: 'all' }] } })) }))
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 
@@ -450,4 +453,12 @@ describe('AdminUsersPage', () => {
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Esta acción no se puede deshacer'))
   })
 
+})
+
+it('un perfil que solo consulta usuarios no ve acciones de gestión o seguridad', async () => {
+  vi.mocked(useOptionalAuth).mockReturnValue({ me: { role: 'CONSULTA', permissions: [{ id: 'users.read', scope: 'all' }] }, loading: false, error: false, refresh: vi.fn() })
+  mockedApi.mockImplementation(async (url) => url.startsWith('/admin/users') ? { total: 2, data: [row, { ...row, id: 'pending', isApproved: false }] } as never : orgRoles as never)
+  render(<AdminUsersPage />)
+  await screen.findAllByText('Ana L')
+  expect(screen.queryByRole('button', { name: /Nuevo usuario|Editar usuario|Revisar solicitud|Rechazar solicitud|Aprobar|Más acciones|Vincular huella/ })).not.toBeInTheDocument()
 })

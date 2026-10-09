@@ -1,16 +1,24 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { CalendarRange, Loader2, Pencil, Plus } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Loader2, Pencil, Plus } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
-import PeriodFormModal, { periodPayload, type PeriodDraft } from './PeriodFormModal'
+import PeriodFormModal, {
+  periodPayload,
+  type PeriodDraft,
+} from './PeriodFormModal'
 import UsageNote from './UsageNote'
+import SettingsDetails from '@/components/admin/settings/SettingsDetails'
+import CatalogFilters, {
+  matchesCatalog,
+  type CatalogStatus,
+} from './CatalogFilters'
+import ScopedCycleNote from './ScopedCycleNote'
 import {
   LEVEL_LABELS,
-  LEVEL_SHORT_LABELS,
   PERIOD_KIND_SHORT,
   type AcademicLevel,
   type AcademicPeriod,
@@ -26,21 +34,7 @@ function formatDay(ymd: string | null): string {
   return `${day}/${month}/${year}`
 }
 
-function RequirementBadge({ on, label }: { on: boolean; label: string }) {
-  // Texto además del color: el estado no puede leerse sólo por el fondo (RNF 7.2).
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs ${
-        on ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-gray-50 text-gray-500'
-      }`}
-    >
-      <span aria-hidden>{on ? '✓' : '—'}</span>
-      {label}
-    </span>
-  )
-}
-
-function PeriodRow({
+function PeriodCard({
   period,
   onEdit,
   onDeactivate,
@@ -49,118 +43,111 @@ function PeriodRow({
   onEdit: () => void
   onDeactivate: () => void
 }) {
+  const required = [
+    ...(period.requiresGeneralGrade ? ['Calificación (C)'] : []),
+    ...(period.isMeeting && period.requiresGeneralGrade ? ['Reunión (R)'] : []),
+    ...(period.requiresConceptualJudgement
+      ? [period.judgementLabel || 'Juicio conceptual']
+      : []),
+  ]
   return (
-    <tr className={period.isActive ? '' : 'opacity-55'}>
-      <td className="px-3 py-2">
-        <div className="font-medium text-gray-900">{period.name}</div>
-        <div className="font-mono text-xs text-gray-500">{period.code}</div>
-        <div className="text-xs text-gray-600">
-          {PERIOD_KIND_SHORT[period.kind ?? 'TRAMO']}
-          {period.isMeeting && ' · lleva reunión (R)'}
+    <article className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-slate-900">
+            {period.name}
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">
+            {PERIOD_KIND_SHORT[period.kind ?? 'TRAMO']}
+            {period.isMeeting && ' · Con reunión'}
+          </p>
         </div>
-      </td>
-      <td className="whitespace-nowrap px-3 py-2 text-sm text-gray-700">
-        {formatDay(period.startsOn)} – {formatDay(period.endsOn)}
-      </td>
-      <td className="whitespace-nowrap px-3 py-2 text-sm text-gray-700">{formatDay(period.closesOn)}</td>
-      <td className="px-3 py-2">
+        <span
+          className={`shrink-0 rounded-full px-2 py-1 text-xs ${period.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
+        >
+          {period.isActive ? 'Activo' : 'Inactivo'}
+        </span>
+      </header>
+      <dl className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-slate-500">Inicio y fin</dt>
+          <dd className="mt-1 text-sm text-slate-700">
+            {period.startsOn && period.endsOn
+              ? `${formatDay(period.startsOn)} – ${formatDay(period.endsOn)}`
+              : period.startsOn
+                ? `Desde ${formatDay(period.startsOn)}`
+                : period.endsOn
+                  ? `Hasta ${formatDay(period.endsOn)}`
+                  : 'Sin fechas definidas'}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-slate-500">Cierre de libreta</dt>
+          <dd className="mt-1 text-sm text-slate-700">
+            {period.closesOn
+              ? formatDay(period.closesOn)
+              : 'Sin fecha de cierre'}
+          </dd>
+        </div>
+      </dl>
+      <div>
+        <p className="mb-1 text-xs text-slate-500">Obligatorio al cerrar</p>
         <div className="flex flex-wrap gap-1">
-          <RequirementBadge on={period.requiresGeneralGrade} label="C" />
-          <RequirementBadge on={Boolean(period.isMeeting && period.requiresGeneralGrade)} label="R" />
-          <RequirementBadge
-            on={period.requiresConceptualJudgement}
-            label={period.judgementLabel || 'Juicio conceptual'}
-          />
+          {required.length ? (
+            required.map((label) => (
+              <span
+                key={label}
+                className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700"
+              >
+                {label}
+              </span>
+            ))
+          ) : (
+            <p className="text-xs text-slate-500">
+              Sin requisitos obligatorios.
+            </p>
+          )}
         </div>
-      </td>
-      <td className="px-3 py-2 text-sm">
-        {period.isActive ? (
-          <span className="text-gray-600">Activo</span>
-        ) : (
-          <span className="text-gray-500">Inactivo</span>
-        )}
+      </div>
+      <button
+        type="button"
+        onClick={onEdit}
+        aria-label={`Editar ${period.name}`}
+        className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 hover:underline"
+      >
+        <Pencil className="h-4 w-4" aria-hidden />
+        Editar
+      </button>
+      <SettingsDetails title={`Detalles de ${period.name}`}>
+        <p className="text-xs text-slate-500">
+          Código: <span className="font-mono">{period.code}</span> · Orden:{' '}
+          {period.sortOrder}
+        </p>
         <UsageNote
           items={[
-            { count: period.usage.assessments, one: 'evaluación', many: 'evaluaciones' },
-            { count: period.usage.closedGradeBooks, one: 'libreta cerrada', many: 'libretas cerradas' },
+            {
+              count: period.usage.assessments,
+              one: 'evaluación',
+              many: 'evaluaciones',
+            },
+            {
+              count: period.usage.closedGradeBooks,
+              one: 'libreta cerrada',
+              many: 'libretas cerradas',
+            },
           ]}
         />
-      </td>
-      <td className="whitespace-nowrap px-3 py-2 text-sm">
-        <button type="button" onClick={onEdit} className="inline-flex items-center gap-1 text-emerald-700 hover:underline">
-          <Pencil className="h-3.5 w-3.5" aria-hidden />
-          Editar
-        </button>
         {period.isActive && (
-          <button type="button" onClick={onDeactivate} className="ml-3 text-red-600 hover:underline">
+          <button
+            type="button"
+            onClick={onDeactivate}
+            className="text-sm text-red-600 hover:underline"
+          >
             Desactivar
           </button>
         )}
-      </td>
-    </tr>
-  )
-}
-
-function LevelSection({
-  level,
-  periods,
-  onCreate,
-  onEdit,
-  onDeactivate,
-}: {
-  level: AcademicLevel
-  periods: AcademicPeriod[]
-  onCreate: () => void
-  onEdit: (period: AcademicPeriod) => void
-  onDeactivate: (period: AcademicPeriod) => void
-}) {
-  return (
-    <section className="rounded-xl border border-gray-200 bg-white">
-      <header className="flex flex-wrap items-baseline gap-2 border-b border-gray-100 px-4 py-3">
-        <h3 className="text-sm font-semibold text-gray-900">{LEVEL_SHORT_LABELS[level]}</h3>
-        <p className="text-xs text-gray-500">{LEVEL_LABELS[level]}</p>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="ml-auto inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700"
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden />
-          Nuevo período en {LEVEL_SHORT_LABELS[level]}
-        </button>
-      </header>
-
-      {periods.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-gray-500">
-          Este nivel no tiene períodos en el ciclo seleccionado. Corré <code>npm run seed:academic-config</code> para
-          cargar los reglamentarios.
-        </p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left">
-            <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th scope="col" className="px-3 py-2 font-medium">Período</th>
-                <th scope="col" className="px-3 py-2 font-medium">Ventana</th>
-                <th scope="col" className="px-3 py-2 font-medium">Cierre</th>
-                <th scope="col" className="px-3 py-2 font-medium">Obligatorio al cerrar</th>
-                <th scope="col" className="px-3 py-2 font-medium">Estado</th>
-                <th scope="col" className="px-3 py-2 font-medium">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {periods.map((period) => (
-                <PeriodRow
-                  key={period.id}
-                  period={period}
-                  onEdit={() => onEdit(period)}
-                  onDeactivate={() => onDeactivate(period)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
+      </SettingsDetails>
+    </article>
   )
 }
 
@@ -168,7 +155,8 @@ type Editing = { period: AcademicPeriod | null; level: AcademicLevel }
 
 /** El mensaje dice qué pasa de verdad: desactivar no borra nada, deja de ofrecerse al calificar. */
 export function deactivateMessage(period: AcademicPeriod): string {
-  const base = 'Deja de ofrecerse al crear evaluaciones y al cerrar libretas. Nada de lo ya cargado se borra, y podés volver a activarlo.'
+  const base =
+    'Deja de ofrecerse al crear evaluaciones y al cerrar libretas. Nada de lo ya cargado se borra, y podés volver a activarlo.'
   if (period.usage.closedGradeBooks > 0) {
     return `${base} Cuidado: ${period.usage.closedGradeBooks} libreta(s) ya cerraron este período y se siguen consultando.`
   }
@@ -180,6 +168,11 @@ export default function PeriodsTab({ onError }: Props) {
   // `schoolYearScopedQuery` y no `schoolYearQuery`: un período pertenece a UN ciclo, así que
   // "ver todos los ciclos" no tiene sentido acá y mezclaría calendarios de años distintos.
   const schoolYearQuery = schoolYear?.schoolYearScopedQuery ?? ''
+  const schoolYearsLoading = schoolYear?.loading ?? false
+  const loadRequest = useRef(0)
+  const [level, setLevel] = useState<AcademicLevel>('EBI')
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<CatalogStatus>('active')
   const [periods, setPeriods] = useState<AcademicPeriod[]>([])
   const [schoolYearId, setSchoolYearId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -189,19 +182,33 @@ export default function PeriodsTab({ onError }: Props) {
   const [formError, setFormError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current
     setLoading(true)
+    if (schoolYearsLoading) return
     try {
       const res = await api<{ data: AcademicPeriod[]; schoolYearId: string }>(
-        withSchoolYear('/admin/academic-config/periods?includeInactive=true', schoolYearQuery),
+        withSchoolYear(
+          '/admin/academic-config/periods?includeInactive=true',
+          schoolYearQuery,
+        ),
       )
-      setPeriods(res.data)
-      setSchoolYearId(res.schoolYearId)
+      if (request === loadRequest.current) {
+        setPeriods(res.data)
+        setSchoolYearId(res.schoolYearId)
+      }
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'No se pudieron cargar los períodos')
+      if (request !== loadRequest.current) return
+      setPeriods([])
+      setSchoolYearId('')
+      onError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudieron cargar los períodos',
+      )
     } finally {
-      setLoading(false)
+      if (request === loadRequest.current) setLoading(false)
     }
-  }, [schoolYearQuery, onError])
+  }, [schoolYearQuery, schoolYearsLoading, onError])
 
   async function save(draft: PeriodDraft) {
     const target = editing?.period
@@ -209,16 +216,28 @@ export default function PeriodsTab({ onError }: Props) {
     setFormError(null)
     try {
       await api(
-        target ? `/admin/academic-config/periods/${target.id}` : '/admin/academic-config/periods',
+        target
+          ? `/admin/academic-config/periods/${target.id}`
+          : '/admin/academic-config/periods',
         {
           method: target ? 'PATCH' : 'POST',
-          body: JSON.stringify(periodPayload(draft, target !== null && target !== undefined, schoolYearId)),
+          body: JSON.stringify(
+            periodPayload(
+              draft,
+              target !== null && target !== undefined,
+              schoolYearId,
+            ),
+          ),
         },
       )
       setEditing(null)
       await load()
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'No se pudo guardar el período')
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo guardar el período',
+      )
     } finally {
       setSaving(false)
     }
@@ -228,19 +247,31 @@ export default function PeriodsTab({ onError }: Props) {
     if (!deactivating) return
     setSaving(true)
     try {
-      await api(`/admin/academic-config/periods/${deactivating.id}`, { method: 'DELETE' })
+      await api(`/admin/academic-config/periods/${deactivating.id}`, {
+        method: 'DELETE',
+      })
       setDeactivating(null)
       await load()
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'No se pudo desactivar el período')
+      onError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo desactivar el período',
+      )
     } finally {
       setSaving(false)
     }
   }
 
+  const cancelPendingLoad = useCallback(() => {
+    loadRequest.current++
+  }, [])
   useEffect(() => {
+    setEditing(null)
+    setDeactivating(null)
     void load()
-  }, [load])
+    return cancelPendingLoad
+  }, [load, cancelPendingLoad])
 
   if (loading) {
     return (
@@ -253,28 +284,103 @@ export default function PeriodsTab({ onError }: Props) {
 
   return (
     <div className="space-y-4">
-      <p className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">
-        <CalendarRange className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />
-        Los períodos se administran por ciclo lectivo y nivel: EBI y EMS tienen calendarios distintos.
-        Un período con calificación o juicio conceptual obligatorio no deja cerrar la libreta hasta completarlos.
-      </p>
-
-      {LEVELS.map((level) => (
-        <LevelSection
-          key={level}
-          level={level}
-          periods={periods.filter((p) => p.level === level)}
-          onCreate={() => {
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Calendario de evaluación
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Fechas y requisitos para cerrar cada período.
+          </p>
+          <div className="mt-2">
+            <ScopedCycleNote />
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={!schoolYearId}
+          onClick={() => {
             setFormError(null)
             setEditing({ period: null, level })
           }}
-          onEdit={(period) => {
-            setFormError(null)
-            setEditing({ period, level })
-          }}
-          onDeactivate={setDeactivating}
-        />
-      ))}
+          className="btn-primary inline-flex items-center gap-2 text-sm"
+        >
+          <Plus className="h-4 w-4" aria-hidden />
+          Nuevo período en {level}
+        </button>
+      </header>
+      <div
+        role="group"
+        aria-label="Nivel educativo"
+        className="flex flex-wrap gap-2"
+      >
+        {LEVELS.map((item) => (
+          <button
+            key={item}
+            type="button"
+            aria-pressed={level === item}
+            onClick={() => {
+              setLevel(item)
+              setSearch('')
+            }}
+            className={`rounded-lg border px-4 py-2 text-sm ${level === item ? 'border-emerald-200 bg-emerald-50 font-medium text-emerald-700' : 'border-slate-200 bg-white text-slate-600'}`}
+          >
+            {item}{' '}
+            <span className="text-xs">
+              ({periods.filter((period) => period.level === item).length})
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500">{LEVEL_LABELS[level]}</p>
+      <CatalogFilters
+        items={periods.filter((period) => period.level === level)}
+        search={search}
+        status={status}
+        onSearch={setSearch}
+        onStatus={setStatus}
+        label="Buscar período"
+      />
+      {periods.some(
+        (period) =>
+          period.level === level && matchesCatalog(period, search, status),
+      ) ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {periods
+            .filter(
+              (period) =>
+                period.level === level &&
+                matchesCatalog(period, search, status),
+            )
+            .map((period) => (
+              <PeriodCard
+                key={period.id}
+                period={period}
+                onEdit={() => {
+                  setFormError(null)
+                  setEditing({ period, level })
+                }}
+                onDeactivate={() => setDeactivating(period)}
+              />
+            ))}
+        </div>
+      ) : (
+        <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+          {periods.some((period) => period.level === level)
+            ? 'No hay períodos que coincidan con los filtros.'
+            : 'Este nivel no tiene períodos en el ciclo seleccionado. Creá uno con Nuevo período.'}
+        </p>
+      )}
+      <SettingsDetails title="Cómo funcionan los períodos">
+        <p className="text-sm text-slate-600">
+          EBI y EMS tienen calendarios distintos. Los requisitos indicados deben
+          completarse para poder cerrar la libreta.
+        </p>
+        <p className="text-sm text-slate-600">
+          Los períodos inactivos conservan lo ya cargado. Podés volver a
+          activarlos desde Editar.
+        </p>
+      </SettingsDetails>
 
       {editing && (
         <PeriodFormModal

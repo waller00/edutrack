@@ -1,4 +1,6 @@
 'use client'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api/client'
@@ -85,6 +87,15 @@ function ymdFromApiDate(value: string | null | undefined) {
 }
 
 export default function LicensesPage() {
+  return <RoleGuard permission="licenses.read" permissionScope="all"><LicensesPageContent /></RoleGuard>
+}
+
+function LicensesPageContent() {
+  const me = useOptionalAuth()?.me
+  const canCreate = hasPermission(me, 'licenses.create', 'all')
+  const canUpdate = hasPermission(me, 'licenses.update', 'all')
+  const canDelete = hasPermission(me, 'licenses.delete', 'all')
+
   const [activeSection, setActiveSection] = useState<'licenses' | 'non-working'>('licenses')
   const [licenses, setLicenses] = useState<License[]>([])
   const [nonWorkingDays, setNonWorkingDays] = useState<NonWorkingDay[]>([])
@@ -413,13 +424,13 @@ export default function LicensesPage() {
     return licenses.map(license => (
       <tr key={license.id}>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
-          <input
+          {canDelete && <input
             type="checkbox"
             checked={selectedLicenseIds.includes(license.id)}
             onChange={() => toggleLicenseSelection(license.id)}
             disabled={license.status === 'INACTIVE'}
             aria-label={`Seleccionar licencia de ${license.user.name}`}
-          />
+          />}
         </td>
         <td className="px-4 py-4 text-sm text-gray-900">
           <div className="break-words font-medium">{license.user.name}</div>
@@ -442,7 +453,7 @@ export default function LicensesPage() {
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
           <div className="flex gap-2">
-            <button
+            {canUpdate && <button
               onClick={() => {
                 setEditModalError('')
                 setEditing(license)
@@ -450,7 +461,7 @@ export default function LicensesPage() {
               className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400"
             >
               Editar
-            </button>
+            </button>}
           </div>
         </td>
       </tr>
@@ -462,14 +473,14 @@ export default function LicensesPage() {
       <div key={license.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2">
-            <input
+            {canDelete && <input
               type="checkbox"
               className="mt-1 shrink-0"
               checked={selectedLicenseIds.includes(license.id)}
               onChange={() => toggleLicenseSelection(license.id)}
               disabled={license.status === 'INACTIVE'}
               aria-label={`Seleccionar licencia de ${license.user.name}`}
-            />
+            />}
             <div className="min-w-0">
               <div className="truncate font-medium text-gray-900">{license.user.name}</div>
               <div className="text-xs text-gray-500">{getLicenseTypeLabel(license.type)}</div>
@@ -494,7 +505,7 @@ export default function LicensesPage() {
           </details>
         )}
         <div className="mt-3 flex justify-end border-t border-gray-100 pt-3">
-          <button
+          {canUpdate && <button
             type="button"
             onClick={() => {
               setEditModalError('')
@@ -503,7 +514,7 @@ export default function LicensesPage() {
             className="btn-secondary text-sm"
           >
             Editar
-          </button>
+          </button>}
         </div>
       </div>
     )
@@ -517,13 +528,13 @@ export default function LicensesPage() {
             <div className="font-medium text-gray-900">{formatDateOnlyForDisplay(day.date)}</div>
             <div className="text-xs text-gray-500">{day.type === 'HOLIDAY' ? 'Feriado' : 'No laborable'}</div>
           </div>
-          <button
+          {canDelete && <button
             type="button"
             onClick={() => void deleteNonWorkingDay(day.id)}
             className="shrink-0 text-sm font-medium text-red-700 hover:text-red-900"
           >
             Eliminar
-          </button>
+          </button>}
         </div>
         <div className="mt-2 text-sm text-gray-900">{day.reason}</div>
         {day.notes ? <div className="mt-1 text-sm text-gray-600">{day.notes}</div> : null}
@@ -532,7 +543,7 @@ export default function LicensesPage() {
   }
 
   return (
-    <RoleGuard permission="licenses.read" permissionScope="all">
+    <>
       <main className="responsive-page max-w-7xl space-y-5">
         {/* Header alineado a otros módulos admin */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
@@ -554,7 +565,7 @@ export default function LicensesPage() {
           </div>
           {activeSection === 'licenses' ? (
             <div className="flex flex-col items-end gap-3 shrink-0">
-              <button
+              {canCreate && <button
                 type="button"
                 onClick={() => {
                   setCreateModalError('')
@@ -564,7 +575,7 @@ export default function LicensesPage() {
               >
                 <Plus className="h-4 w-4 shrink-0" aria-hidden />
                 Nueva Licencia
-              </button>
+              </button>}
             </div>
           ) : null}
         </div>
@@ -603,7 +614,7 @@ export default function LicensesPage() {
 
         {activeSection === 'non-working' && (
           <section className="space-y-4">
-            <details className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+            {canCreate && <details className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
               <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-gray-900 [&::-webkit-details-marker]:hidden">
                 <Plus className="h-4 w-4 text-emerald-600" aria-hidden />Marcar feriado o día no laborable
                 <ChevronDown className="ml-auto h-4 w-4" aria-hidden />
@@ -659,7 +670,7 @@ export default function LicensesPage() {
                   </div>
                 </div>
               </div>
-            </details>
+            </details>}
 
             <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4 sm:px-5">
@@ -707,9 +718,9 @@ export default function LicensesPage() {
                           <td className="px-6 py-4 text-sm text-gray-900">{day.reason}</td>
                           <td className="px-6 py-4 text-sm text-gray-600">{day.notes || '-'}</td>
                           <td className="px-6 py-4 text-sm">
-                            <button type="button" onClick={() => void deleteNonWorkingDay(day.id)} className="font-medium text-red-700 hover:text-red-900">
+                            {canDelete && <button type="button" onClick={() => void deleteNonWorkingDay(day.id)} className="font-medium text-red-700 hover:text-red-900">
                               Eliminar
-                            </button>
+                            </button>}
                           </td>
                         </tr>
                       ))
@@ -785,7 +796,7 @@ export default function LicensesPage() {
             <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
               <div className="flex flex-col gap-2 border-b border-gray-100 p-4 md:flex-row md:items-center md:justify-between">
                 <h2 className="text-lg font-semibold">Licencias</h2>
-                {selectedLicenseIds.length > 0 && (
+                {canDelete && selectedLicenseIds.length > 0 && (
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-sm text-gray-500">{selectedLicenseIds.length} seleccionadas</span>
                     <button type="button" onClick={deleteSelectedLicenses} disabled={deletingSelected || loading} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-medium text-red-700 hover:bg-red-100 disabled:cursor-wait disabled:opacity-50">
@@ -806,7 +817,7 @@ export default function LicensesPage() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">
-                        <input
+                        {canDelete && <input
                           type="checkbox"
                           checked={
                             licenses.some((license) => license.status !== 'INACTIVE')
@@ -815,7 +826,7 @@ export default function LicensesPage() {
                           disabled={loading || !licenses.some((license) => license.status === 'ACTIVE')}
                           onChange={toggleAllLicensesSelection}
                           aria-label="Seleccionar todas las licencias"
-                        />
+                        />}
                       </th>
                       <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Persona y licencia</th>
                       <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
@@ -895,7 +906,7 @@ export default function LicensesPage() {
         )}
 
         {/* Modal para crear licencia */}
-        {creating && (
+        {canCreate && creating && (
           <div className="responsive-modal backdrop-blur-sm">
             <div className="responsive-modal-panel max-w-2xl">
               <h3 className="text-lg font-semibold mb-4">Nueva Licencia</h3>
@@ -1022,7 +1033,7 @@ export default function LicensesPage() {
         )}
 
         {/* Modal para ver detalles */}
-        {editing && (
+        {canUpdate && editing && (
           <div className="responsive-modal backdrop-blur-sm">
             <div className="responsive-modal-panel max-w-2xl">
               <h3 className="mb-4 text-lg font-semibold">Editar Licencia</h3>
@@ -1145,6 +1156,6 @@ export default function LicensesPage() {
           </div>
         )}
       </main>
-    </RoleGuard>
+    </>
   )
 }

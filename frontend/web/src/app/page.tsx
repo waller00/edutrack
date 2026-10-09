@@ -5,9 +5,10 @@ import { AlertTriangle, Check, Info, Loader2, Mail, PenLine } from 'lucide-react
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import {
   HomeAdminTimeline,
-  HomeGenericHint,
   HomeUpcomingSchedule,
 } from '@/components/home/HomeRolePanels'
+import HomeQuickAccess from '@/components/home/HomeQuickAccess'
+import { hasPermission } from '@/lib/auth/permissions'
 import { api } from '@/lib/api/client'
 import { getWelcomeMessage } from '@/lib/home/dashboard'
 import { useAuth } from '@/contexts/AuthContext'
@@ -39,12 +40,13 @@ export default function Home() {
   const inactiveAccount = !me.isActive
 
   const canRoleDashboard = me.isApproved && me.isActive && !needsProfile
-  const scheduleRole = me.role === 'TEACHER' || me.role === 'STAFF' ? me.role : null
+  const canTeamDashboard = hasPermission(me, 'analytics.read', 'all')
+  const canSchedule = hasPermission(me, 'events.read')
 
   return (
     <main
       className={`mx-auto max-w-3xl space-y-6 px-4 py-6 sm:max-w-4xl sm:px-6 ${
-        me.role === 'ADMIN' ? 'lg:max-w-7xl' : 'lg:max-w-5xl'
+        canTeamDashboard ? 'lg:max-w-7xl' : 'lg:max-w-5xl'
       }`}
     >
       {notVerified && (
@@ -143,7 +145,7 @@ export default function Home() {
             </h1>
             <p className="max-w-xl text-sm leading-relaxed text-slate-600">
               {canRoleDashboard
-                ? me.role === 'ADMIN'
+                ? canTeamDashboard
                   ? 'Lo esencial del día y lo que necesita tu atención.'
                   : 'Tu agenda y tus próximos pasos, en un solo lugar.'
                 : getWelcomeMessage(inactiveAccount, pendingApproval)}
@@ -155,13 +157,12 @@ export default function Home() {
         </div>
       </header>
 
-      {canRoleDashboard && me.role === 'ADMIN' && (
+      {canRoleDashboard && canTeamDashboard && (
         <HomeAdminTimeline />
       )}
 
-      {canRoleDashboard && scheduleRole && me.id && <HomeUpcomingSchedule role={scheduleRole} userId={me.id} />}
-
-      {canRoleDashboard && me.role !== 'ADMIN' && !scheduleRole && <HomeGenericHint />}
+      {canRoleDashboard && !canTeamDashboard && <HomeQuickAccess />}
+      {canRoleDashboard && !canTeamDashboard && canSchedule && me.id && <HomeUpcomingSchedule role={me.role} userId={me.id} />}
 
       <footer className="pb-2 pt-2 text-center text-[11px] text-slate-400">EduTrack</footer>
     </main>

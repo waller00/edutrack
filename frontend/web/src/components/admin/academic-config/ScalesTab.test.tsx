@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ScalesTab from './ScalesTab'
 import { api } from '@/lib/api/client'
@@ -9,16 +15,32 @@ const mockedApi = vi.mocked(api)
 
 function scale(over: Partial<GradingScale> = {}): GradingScale {
   return {
-    id: 's-1', code: 'NUM_1_10', name: 'Numérica 1-10', kind: 'NUMERIC',
-    minValueHundredths: 100, maxValueHundredths: 1000, decimals: 0,
-    description: null, isActive: true, sortOrder: 0, gaps: [],
+    id: 's-1',
+    code: 'NUM_1_10',
+    name: 'Numérica 1-10',
+    kind: 'NUMERIC',
+    minValueHundredths: 100,
+    maxValueHundredths: 1000,
+    decimals: 0,
+    description: null,
+    isActive: true,
+    sortOrder: 0,
+    gaps: [],
     usage: { assessments: 0 },
     gradebookRole: null,
     levels: [
       {
-        id: 'l-1', code: 'INSUF', label: 'Insuficiente', descriptor: 'No alcanza.',
-        minValueHundredths: 100, maxValueHundredths: 500,
-        colorToken: 'red', iconToken: 'x', isPassing: false, isAlert: true, sortOrder: 0,
+        id: 'l-1',
+        code: 'INSUF',
+        label: 'Insuficiente',
+        descriptor: 'No alcanza.',
+        minValueHundredths: 100,
+        maxValueHundredths: 500,
+        colorToken: 'red',
+        iconToken: 'x',
+        isPassing: false,
+        isAlert: true,
+        sortOrder: 0,
       },
     ],
     ...over,
@@ -38,7 +60,9 @@ describe('<ScalesTab />', () => {
     render(<ScalesTab onError={onError} />)
 
     expect(await screen.findByText('Numérica 1-10')).toBeInTheDocument()
-    expect(screen.getByText('Insuficiente')).toBeInTheDocument()
+    expect(screen.getByText('Insuficiente')).not.toBeVisible()
+    fireEvent.click(screen.getByText('Ver tramos de Numérica 1-10'))
+    expect(screen.getByText('Insuficiente')).toBeVisible()
   })
 
   it('crea una escala con sus tramos en centésimos', async () => {
@@ -47,14 +71,27 @@ describe('<ScalesTab />', () => {
     render(<ScalesTab onError={onError} />)
     fireEvent.click(await screen.findByRole('button', { name: /Nueva escala/ }))
 
-    fireEvent.change(screen.getByLabelText('Código'), { target: { value: 'SEMAFORO' } })
-    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Semáforo' } })
-    fireEvent.change(screen.getByLabelText('Mínimo'), { target: { value: '1' } })
-    fireEvent.change(screen.getByLabelText('Máximo'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText('Código'), {
+      target: { value: 'SEMAFORO' },
+    })
+    fireEvent.change(screen.getByLabelText('Nombre'), {
+      target: { value: 'Semáforo' },
+    })
+    fireEvent.change(screen.getByLabelText('Mínimo'), {
+      target: { value: '1' },
+    })
+    fireEvent.change(screen.getByLabelText('Máximo'), {
+      target: { value: '3' },
+    })
 
     fireEvent.click(screen.getByRole('button', { name: /Agregar tramo/ }))
-    fireEvent.change(screen.getByLabelText('Código', { selector: '#level-code-1' }), { target: { value: 'LOGRADO' } })
-    fireEvent.change(screen.getByLabelText('Etiqueta'), { target: { value: 'Logrado' } })
+    fireEvent.change(
+      screen.getByLabelText('Código', { selector: '#level-code-1' }),
+      { target: { value: 'LOGRADO' } },
+    )
+    fireEvent.change(screen.getByLabelText('Etiqueta'), {
+      target: { value: 'Logrado' },
+    })
     fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '3' } })
 
@@ -65,18 +102,30 @@ describe('<ScalesTab />', () => {
     expect(path).toBe('/admin/academic-config/scales')
     expect(init?.method).toBe('POST')
     const body = JSON.parse(String(init?.body))
-    expect(body).toMatchObject({ code: 'SEMAFORO', minValueHundredths: 100, maxValueHundredths: 300 })
-    expect(body.levels[0]).toMatchObject({ code: 'LOGRADO', minValueHundredths: 100, maxValueHundredths: 300 })
+    expect(body).toMatchObject({
+      code: 'SEMAFORO',
+      minValueHundredths: 100,
+      maxValueHundredths: 300,
+    })
+    expect(body.levels[0]).toMatchObject({
+      code: 'LOGRADO',
+      minValueHundredths: 100,
+      maxValueHundredths: 300,
+    })
   })
 
   it('avisa que editar los tramos re-clasifica las notas ya cargadas', async () => {
-    mockedApi.mockResolvedValue({ data: [scale({ usage: { assessments: 7 } })] })
+    mockedApi.mockResolvedValue({
+      data: [scale({ usage: { assessments: 7 } })],
+    })
 
     render(<ScalesTab onError={onError} />)
     fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
 
     expect(screen.getByText(/ya se usa en/)).toHaveTextContent('7 evaluaciones')
-    expect(screen.getByText(/se vuelven a clasificar/)).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('dialog')).getByText(/se vuelven a clasificar/),
+    ).toBeInTheDocument()
   })
 
   it('no avisa nada si la escala no se usó todavía', async () => {
@@ -85,7 +134,9 @@ describe('<ScalesTab />', () => {
     render(<ScalesTab onError={onError} />)
     fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
 
-    expect(screen.queryByText(/se vuelven a clasificar/)).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole('dialog')).queryByText(/se vuelven a clasificar/),
+    ).not.toBeInTheDocument()
   })
 
   it('no llama al backend si dos tramos se pisan', async () => {
@@ -95,11 +146,26 @@ describe('<ScalesTab />', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
 
     fireEvent.click(screen.getByRole('button', { name: /Agregar tramo/ }))
-    fireEvent.change(screen.getByLabelText('Código', { selector: '#level-code-2' }), { target: { value: 'ALTO' } })
-    fireEvent.change(screen.getByLabelText('Etiqueta', { selector: '#level-label-2' }), { target: { value: 'Alto' } })
-    fireEvent.change(screen.getByLabelText('Desde', { selector: '#level-min-2' }), { target: { value: '4' } })
-    fireEvent.change(screen.getByLabelText('Hasta', { selector: '#level-max-2' }), { target: { value: '10' } })
-    fireEvent.change(screen.getByLabelText('Hasta', { selector: '#level-max-1' }), { target: { value: '6' } })
+    fireEvent.change(
+      screen.getByLabelText('Código', { selector: '#level-code-2' }),
+      { target: { value: 'ALTO' } },
+    )
+    fireEvent.change(
+      screen.getByLabelText('Etiqueta', { selector: '#level-label-2' }),
+      { target: { value: 'Alto' } },
+    )
+    fireEvent.change(
+      screen.getByLabelText('Desde', { selector: '#level-min-2' }),
+      { target: { value: '4' } },
+    )
+    fireEvent.change(
+      screen.getByLabelText('Hasta', { selector: '#level-max-2' }),
+      { target: { value: '10' } },
+    )
+    fireEvent.change(
+      screen.getByLabelText('Hasta', { selector: '#level-max-1' }),
+      { target: { value: '6' } },
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
@@ -124,8 +190,14 @@ describe('<ScalesTab />', () => {
     mockedApi.mockResolvedValue({ data: [scale()] })
 
     render(<ScalesTab onError={onError} />)
+    await screen.findByText('Numérica 1-10')
+    fireEvent.click(screen.getByText('Ver tramos de Numérica 1-10'))
     fireEvent.click(await screen.findByRole('button', { name: 'Desactivar' }))
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Desactivar' }))
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Desactivar',
+      }),
+    )
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     expect(mockedApi.mock.calls[1][0]).toBe('/admin/academic-config/scales/s-1')
@@ -133,37 +205,65 @@ describe('<ScalesTab />', () => {
   })
 
   it('una escala de la libreta dice para qué se usa y no ofrece desactivarla', async () => {
-    mockedApi.mockResolvedValue({ data: [scale({ code: 'NUMERICA_1_10', gradebookRole: 'C y R de ciclo básico' })] })
-
-    render(<ScalesTab onError={onError} />)
-
-    expect(await screen.findByText(/La libreta la usa para C y R de ciclo básico/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Desactivar' })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /Editar/ }))
-    expect(within(screen.getByRole('dialog')).getByText(/no desactivarla/)).toBeInTheDocument()
-    expect(screen.queryByRole('checkbox', { name: /^Activa/ })).not.toBeInTheDocument()
-  })
-
-  it('si ya estaba desactivada, deja activarla desde el formulario', async () => {
     mockedApi.mockResolvedValue({
-      data: [scale({ code: 'CONDUCTA', gradebookRole: 'la conducta', isActive: false })],
+      data: [
+        scale({
+          code: 'NUMERICA_1_10',
+          gradebookRole: 'C y R de ciclo básico',
+        }),
+      ],
     })
 
     render(<ScalesTab onError={onError} />)
 
-    expect(await screen.findByText(/Quedó desactivada de antes/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/La libreta la usa para C y R de ciclo básico/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Desactivar' }),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Editar/ }))
+    expect(
+      within(screen.getByRole('dialog')).getByText(/no desactivarla/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: /^Activa/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('si ya estaba desactivada, deja activarla desde el formulario', async () => {
+    mockedApi.mockResolvedValue({
+      data: [
+        scale({
+          code: 'CONDUCTA',
+          gradebookRole: 'la conducta',
+          isActive: false,
+        }),
+      ],
+    })
+
+    render(<ScalesTab onError={onError} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Inactivos/ }))
+    expect(
+      await screen.findByText(/Quedó desactivada de antes/),
+    ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Editar/ }))
 
     // Guardarla desactivada no llega al backend.
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('la conducta: dejala activa')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'la conducta: dejala activa',
+    )
     expect(mockedApi).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('checkbox', { name: /^Activa/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
-    expect(JSON.parse(String(mockedApi.mock.calls[1][1]?.body))).toMatchObject({ isActive: true })
+    expect(JSON.parse(String(mockedApi.mock.calls[1][1]?.body))).toMatchObject({
+      isActive: true,
+    })
   })
 
   it('muestra el error del backend sin cerrar el formulario', async () => {
@@ -175,7 +275,9 @@ describe('<ScalesTab />', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe una escala con ese código')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Ya existe una escala con ese código',
+    )
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 })

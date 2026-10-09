@@ -12,9 +12,7 @@ vi.mock('@/lib/observability/user-session', () => ({
   clearObservabilityUser: vi.fn(),
 }))
 
-vi.mock('@/components/auth/RoleGuard', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}))
+vi.mock('next/navigation', () => ({ usePathname: () => '/me/events' }))
 
 function renderPage(ui: React.ReactNode) {
   return render(<AuthProvider>{ui}</AuthProvider>)
@@ -39,7 +37,13 @@ describe('MyAssignedEventsPage', () => {
 
   it('loads upcoming events by default and includes the assigned user filter', async () => {
     mockedApi
-      .mockResolvedValueOnce({ id: 'user-1' } as never)
+      .mockResolvedValueOnce({
+        id: 'user-1',
+        role: 'TEACHER',
+        isActive: true,
+        isApproved: true,
+        permissions: [{ id: 'events.read', scope: 'own' }],
+      } as never)
       .mockResolvedValueOnce([
         {
           id: 'event-1',
@@ -51,7 +55,12 @@ describe('MyAssignedEventsPage', () => {
           endTime: '2026-03-18T10:00:00.000Z',
           isRecurring: false,
           daysOfWeek: [],
-          user: { id: 'admin-1', name: 'Admin', email: 'admin@test.com', role: 'ADMIN' },
+          user: {
+            id: 'admin-1',
+            name: 'Admin',
+            email: 'admin@test.com',
+            role: 'ADMIN',
+          },
         },
       ] as never)
 
@@ -73,7 +82,13 @@ describe('MyAssignedEventsPage', () => {
 
   it('muestra chip de suplencia cuando el evento viene como suplido', async () => {
     mockedApi
-      .mockResolvedValueOnce({ id: 'user-1' } as never)
+      .mockResolvedValueOnce({
+        id: 'user-1',
+        role: 'TEACHER',
+        isActive: true,
+        isApproved: true,
+        permissions: [{ id: 'events.read', scope: 'own' }],
+      } as never)
       .mockResolvedValueOnce([
         {
           id: 'event-sub-1',
@@ -86,8 +101,18 @@ describe('MyAssignedEventsPage', () => {
           isRecurring: false,
           isSubstitution: true,
           daysOfWeek: [],
-          user: { id: 'admin-1', name: 'Admin', email: 'admin@test.com', role: 'ADMIN' },
-          assignedUser: { id: 'titular-1', name: 'Titular', email: 'titular@test.com', role: 'TEACHER' },
+          user: {
+            id: 'admin-1',
+            name: 'Admin',
+            email: 'admin@test.com',
+            role: 'ADMIN',
+          },
+          assignedUser: {
+            id: 'titular-1',
+            name: 'Titular',
+            email: 'titular@test.com',
+            role: 'TEACHER',
+          },
         },
       ] as never)
 
@@ -99,8 +124,16 @@ describe('MyAssignedEventsPage', () => {
 
   it('reloads without week range when switching to all events', async () => {
     mockedApi.mockImplementation((path: string) => {
-      if (path === '/auth/me') return Promise.resolve({ id: 'user-1' } as never)
-      if (path.startsWith('/events/my-events')) return Promise.resolve([] as never)
+      if (path === '/auth/me')
+        return Promise.resolve({
+          id: 'user-1',
+          role: 'TEACHER',
+          isActive: true,
+          isApproved: true,
+          permissions: [{ id: 'events.read', scope: 'own' }],
+        } as never)
+      if (path.startsWith('/events/my-events'))
+        return Promise.resolve([] as never)
       return Promise.reject(new Error(`unexpected api call: ${path}`))
     })
 
@@ -113,13 +146,21 @@ describe('MyAssignedEventsPage', () => {
 
     await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenLastCalledWith('/events/my-events?assignedUserId=user-1'),
+      expect(mockedApi).toHaveBeenLastCalledWith(
+        '/events/my-events?assignedUserId=user-1',
+      ),
     )
   })
 
   it('expands and collapses event details on user interaction', async () => {
     mockedApi
-      .mockResolvedValueOnce({ id: 'user-1' } as never)
+      .mockResolvedValueOnce({
+        id: 'user-1',
+        role: 'TEACHER',
+        isActive: true,
+        isApproved: true,
+        permissions: [{ id: 'events.read', scope: 'own' }],
+      } as never)
       .mockResolvedValueOnce([
         {
           id: 'event-1',
@@ -132,22 +173,28 @@ describe('MyAssignedEventsPage', () => {
           daysOfWeek: [1, 3],
           recurrenceEnd: '2026-04-01T00:00:00.000Z',
           location: 'Salon 2',
-          user: { id: 'admin-1', name: 'Admin', email: 'admin@test.com', role: 'ADMIN' },
+          user: {
+            id: 'admin-1',
+            name: 'Admin',
+            email: 'admin@test.com',
+            role: 'ADMIN',
+          },
         },
       ] as never)
 
     renderPage(<MyAssignedEventsPage role="TEACHER" />)
 
     await screen.findByText('Jornada Especial')
-    const toggle = screen.getByTitle('Expandir detalles')
+    const toggle = screen.getByText('Detalles de Jornada Especial')
+    expect(screen.getByText('Detalle extendido')).not.toBeVisible()
 
     fireEvent.click(toggle)
     expect(screen.getByText('Detalle extendido')).toBeInTheDocument()
     expect(screen.getByText('Salon 2')).toBeInTheDocument()
     expect(screen.getByText(/Todos los Lun, Mié/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByTitle('Contraer detalles'))
-    expect(screen.queryByText('Detalle extendido')).not.toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(screen.getByText('Detalle extendido')).not.toBeVisible()
   })
 
   it('redirects to login when auth lookup fails', async () => {
@@ -156,6 +203,17 @@ describe('MyAssignedEventsPage', () => {
 
     renderPage(<MyAssignedEventsPage role="TEACHER" />)
 
-    await waitFor(() => expect(window.location.href).toBe('/login'))
+    await waitFor(() =>
+      expect(window.location.href).toBe('/login?returnTo=%2Fme%2Fevents'),
+    )
   })
+})
+
+it('no consulta la agenda si el perfil no tiene permiso', async () => {
+  mockLocation()
+  mockedApi.mockReset()
+  mockedApi.mockResolvedValue({ id: 'u1', role: 'INSPECCION', isActive: true, isApproved: true, permissions: [] } as never)
+  renderPage(<MyAssignedEventsPage />)
+  await waitFor(() => expect(window.location.href).toBe('/'))
+  expect(mockedApi).toHaveBeenCalledTimes(1)
 })

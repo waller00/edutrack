@@ -504,6 +504,8 @@ function OccurrenceActionModal({
   const stateLabel = occ.suspended ? ' · Suspendida' : occ.overridden ? ' · Modificada' : ''
   const me = useOptionalAuth()?.me ?? null
   // Una clase que se dicta muestra quién la da y cómo está su pase de lista.
+  const canEditOccurrence = hasPermission(me, 'events.update', 'all')
+  const canCancelOccurrence = hasPermission(me, 'events.cancel', 'all')
   const showRollCall =
     occ.event.type === 'CLASE' && !occ.suspended && hasPermission(me, 'student-attendance.read', 'all')
 
@@ -587,7 +589,7 @@ function OccurrenceActionModal({
                 Marcar suplencia
               </button>
             )}
-            {!occ.suspended && !readOnlyReason && (
+            {canCancelOccurrence && !occ.suspended && !readOnlyReason && (
               <button
                 type="button"
                 disabled={busy}
@@ -597,7 +599,7 @@ function OccurrenceActionModal({
                 Suspender solo este día
               </button>
             )}
-            {!occ.suspended && !readOnlyReason && (
+            {canEditOccurrence && !occ.suspended && !readOnlyReason && (
               <button
                 type="button"
                 disabled={busy}
@@ -607,7 +609,7 @@ function OccurrenceActionModal({
                 Editar horario solo este día
               </button>
             )}
-            {(occ.suspended || occ.overridden) && !readOnlyReason && (
+            {canEditOccurrence && (occ.suspended || occ.overridden) && !readOnlyReason && (
               <button
                 type="button"
                 disabled={busy}
@@ -617,7 +619,7 @@ function OccurrenceActionModal({
                 Restaurar este día (quitar excepción)
               </button>
             )}
-            {!readOnlyReason ? (
+            {canEditOccurrence && !readOnlyReason ? (
               <button
                 type="button"
                 onClick={onEditSeries}
@@ -634,6 +636,16 @@ function OccurrenceActionModal({
 }
 
 export default function AdminEvents() {
+  return <RoleGuard permission="events.read" permissionScope="all"><AdminEventsContent /></RoleGuard>
+}
+
+function AdminEventsContent() {
+  const me = useOptionalAuth()?.me
+  const canCreate = hasPermission(me, 'events.create', 'all')
+  const canUpdate = hasPermission(me, 'events.update', 'all')
+  const canCancel = hasPermission(me, 'events.cancel', 'all')
+  const canDelete = hasPermission(me, 'events.delete', 'all')
+
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
   /** Cursos/asignaturas: siempre un solo ciclo (evita EMS1-ARTE-2020, 2024, 2025… en el combo). */
@@ -1309,15 +1321,16 @@ export default function AdminEvents() {
       !occurrencePanel.suspended &&
       occurrencePanel.event.status !== 'CANCELLED',
   )
-  const canForeseeOccurrence = Boolean(canManageOccurrence && occurrenceHasAssignee)
+  const canForeseeOccurrence = Boolean(canManageOccurrence && occurrenceHasAssignee && hasPermission(me, 'attendance.update', 'all'))
   const canSubstituteOccurrence = Boolean(
     canManageOccurrence &&
+      hasPermission(me, 'events.update', 'all') &&
       occurrenceHasAssignee &&
       occurrencePanel?.event.type === 'CLASE',
   )
 
   return (
-    <RoleGuard permission="events.read" permissionScope="all">
+    <>
       <main className="responsive-page max-w-7xl space-y-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
@@ -1330,11 +1343,11 @@ export default function AdminEvents() {
             </div>
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-            <EventsImportMenu
+            {canCreate && <EventsImportMenu
               pending={importingEvents}
               onImport={() => importInputRef.current?.click()}
               onDownloadTemplate={downloadImportTemplate}
-            />
+            />}
             <input
               ref={importInputRef}
               type="file"
@@ -1345,7 +1358,7 @@ export default function AdminEvents() {
                 if (file) void importEventsFromFile(file)
               }}
             />
-            <button
+            {canCreate && <button
               onClick={() => {
                 setMessage('')
                 setImportErrors([])
@@ -1356,7 +1369,7 @@ export default function AdminEvents() {
             >
               <Plus className="h-4 w-4" aria-hidden />
               Nueva actividad
-            </button>
+            </button>}
             <div className="text-sm text-gray-600">
               {total} {total === 1 ? 'actividad' : 'actividades'}
             </div>
@@ -1534,21 +1547,21 @@ export default function AdminEvents() {
         <div className="bg-white border rounded-lg shadow-sm">
           <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between sm:p-6">
             <h2 className="text-lg font-semibold">Actividades programadas</h2>
-            <div className="flex flex-wrap items-center gap-3">
+            {canDelete && <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
                 {selectedEventIds.length === 0
                   ? 'Seleccioná actividades para eliminarlas'
                   : `${selectedEventIds.length} seleccionados`}
               </span>
-              <button
+              {canDelete && <button
                 type="button"
                 onClick={deleteSelectedEvents}
                 disabled={selectedEventIds.length === 0 || deletingSelected}
                 className="inline-flex items-center rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {deletingSelected ? 'Eliminando…' : 'Eliminar seleccionadas'}
-              </button>
-            </div>
+              </button>}
+            </div>}
           </div>
           {!loading && events.length > 0 ? (
             <details className="border-b border-slate-100">
@@ -1651,13 +1664,13 @@ export default function AdminEvents() {
                                     {getEventAssignedDisplay(event)} · {event.location || 'Sin ubicación'} · {event._count.attendances} asist.
                                   </div>
                                 </div>
-                                <button
+                                {canUpdate && <button
                                   type="button"
                                   onClick={() => openEditEvent(event)}
                                   className="inline-flex w-fit items-center rounded border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
                                 >
                                   Editar
-                                </button>
+                                </button>}
                               </div>
                             </li>
                           ))}
@@ -1687,12 +1700,12 @@ export default function AdminEvents() {
                         {formatEventTimeRange(event)} · {formatEventRecurrenceLabel(event)}
                       </div>
                     </div>
-                    <input
+                    {canDelete && <input
                       type="checkbox"
                       checked={selectedEventIds.includes(event.id)}
                       onChange={() => toggleEventSelection(event.id)}
                       aria-label={`Seleccionar actividad ${event.title}`}
-                    />
+                    />}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
@@ -1705,15 +1718,15 @@ export default function AdminEvents() {
                   <div className="text-xs text-gray-600">{getEventAcademicSummary(event)}</div>
                   <div className="text-xs text-gray-500">{getEventAssignedDisplay(event)}</div>
                   <div className="flex flex-wrap gap-4 pt-1 text-sm">
-                    <button onClick={() => openEditEvent(event)} className="font-medium text-indigo-600">
+                    {canUpdate && <button onClick={() => openEditEvent(event)} className="font-medium text-indigo-600">
                       Editar
-                    </button>
+                    </button>}
                     {event.status !== 'CANCELLED' ? (
-                      <button onClick={() => cancelEvent(event.id)} className="font-medium text-yellow-600">
+                      canCancel && <button onClick={() => cancelEvent(event.id)} className="font-medium text-yellow-600">
                         Cancelar
                       </button>
                     ) : (
-                      <button onClick={() => reactivateEvent(event.id)} className="font-medium text-green-600">
+                      canUpdate && <button onClick={() => reactivateEvent(event.id)} className="font-medium text-green-600">
                         Reactivar
                       </button>
                     )}
@@ -1735,12 +1748,12 @@ export default function AdminEvents() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      <input
+                      {canDelete && <input
                         type="checkbox"
                         checked={events.length > 0 && selectedEventIds.length === events.length}
                         onChange={toggleAllEventsSelection}
                         aria-label="Seleccionar todas las actividades"
-                      />
+                      />}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actividad</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Curso y asignatura</th>
@@ -1753,12 +1766,12 @@ export default function AdminEvents() {
                   {events.map((event) => (
                     <tr key={event.id}>
                       <td className="px-4 py-4 align-top text-sm">
-                        <input
+                        {canDelete && <input
                           type="checkbox"
                           checked={selectedEventIds.includes(event.id)}
                           onChange={() => toggleEventSelection(event.id)}
                           aria-label={`Seleccionar actividad ${event.title}`}
-                        />
+                        />}
                       </td>
                       <td className="px-4 py-4 align-top text-sm">
                         <div className="min-w-0 space-y-2">
@@ -1844,21 +1857,21 @@ export default function AdminEvents() {
                       </td>
                       <td className="px-4 py-4 align-top text-sm">
                         <div className="flex flex-col items-start gap-2">
-                          <button
+                          {canUpdate && <button
                             onClick={() => openEditEvent(event)}
                             className="text-indigo-600 hover:text-indigo-900"
                           >
                             Editar
-                          </button>
+                          </button>}
                           {event.status !== 'CANCELLED' ? (
-                            <button
+                            canCancel && <button
                               onClick={() => cancelEvent(event.id)}
                               className="text-yellow-600 hover:text-yellow-900"
                             >
                               Cancelar
                             </button>
                           ) : (
-                            <button
+                            canUpdate && <button
                               onClick={() => reactivateEvent(event.id)}
                               className="text-green-600 hover:text-green-900"
                             >
@@ -1944,7 +1957,7 @@ export default function AdminEvents() {
 
         {/* Modal de creación (portal a document.body → siempre encima, no queda “tapado” por el layout) */}
         {portalReady &&
-          creating &&
+          canCreate && creating &&
           createPortal(
             <div
               className="fixed inset-0 flex items-end justify-center overflow-y-auto bg-black/70 p-3 sm:items-center sm:p-4"
@@ -2312,7 +2325,7 @@ export default function AdminEvents() {
 
         {/* Modal de edición (portal) */}
         {portalReady &&
-          editingEvent &&
+          canUpdate && editingEvent &&
           createPortal(
             <div
               className="fixed inset-0 flex items-end justify-center overflow-y-auto bg-black/70 p-3 sm:items-center sm:p-4"
@@ -2563,6 +2576,6 @@ export default function AdminEvents() {
             document.body,
           )}
       </main>
-    </RoleGuard>
+    </>
   )
 }

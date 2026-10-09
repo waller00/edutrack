@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import {
@@ -18,6 +20,8 @@ type Props = {
 }
 
 export default function AdminIncidentsPanel({ onMessage }: Props) {
+  const me = useOptionalAuth()?.me
+  const canUpdate = hasPermission(me, 'attendance.update', 'all')
   const [statusFilter, setStatusFilter] = useState<'OPEN' | ''>('OPEN')
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
@@ -103,7 +107,7 @@ export default function AdminIncidentsPanel({ onMessage }: Props) {
           <button type="button" onClick={() => void load()} className="btn-secondary text-sm">
             Actualizar
           </button>
-          <button
+          {canUpdate && <button
             type="button"
             onClick={() => void scanNow()}
             disabled={scanning}
@@ -111,7 +115,7 @@ export default function AdminIncidentsPanel({ onMessage }: Props) {
           >
             {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Escanear ahora
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -148,11 +152,11 @@ export default function AdminIncidentsPanel({ onMessage }: Props) {
                   <td className="px-4 py-3">{INCIDENT_TYPE_LABELS[row.type]}</td>
                   <td className="px-4 py-3">{row.user?.name || row.user?.email || '—'}</td>
                   <td className="px-4 py-3">
-                    {row.event ? (
+                    {row.event ? hasPermission(me, 'events.read', 'all') ? (
                       <Link href="/admin/events" className="text-emerald-700 hover:underline">
                         {row.event.title}
                       </Link>
-                    ) : (
+                    ) : <span>{row.event.title}</span> : (
                       '—'
                     )}
                   </td>
@@ -167,7 +171,7 @@ export default function AdminIncidentsPanel({ onMessage }: Props) {
                   </td>
                   <td className="px-4 py-3">
                     {row.status === 'OPEN' ? (
-                      <button
+                      canUpdate && <button
                         type="button"
                         onClick={() => void resolve(row.id)}
                         className="text-sm font-medium text-emerald-700 hover:underline"

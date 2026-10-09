@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import DateField from '@/components/forms/DateField'
+import DateRangePicker from '@/components/forms/DateRangePicker'
+import SettingsDetails from '@/components/admin/settings/SettingsDetails'
 import ConfigModal from './ConfigModal'
 import { Check, Field, inputClass } from './fields'
 import {
@@ -28,7 +30,10 @@ export type PeriodDraft = {
   isActive: boolean
 }
 
-export function draftFromPeriod(period: AcademicPeriod | null, level: AcademicLevel): PeriodDraft {
+export function draftFromPeriod(
+  period: AcademicPeriod | null,
+  level: AcademicLevel,
+): PeriodDraft {
   return {
     level: period?.level ?? level,
     code: period?.code ?? '',
@@ -50,7 +55,10 @@ export function draftFromPeriod(period: AcademicPeriod | null, level: AcademicLe
  * Valida la ventana antes de llamar al backend, con los mismos límites que `assertPeriodWindow`.
  * No reemplaza la validación del servidor: evita el viaje y señala el campo exacto.
  */
-export function validatePeriod(draft: PeriodDraft, isEdit: boolean): string | null {
+export function validatePeriod(
+  draft: PeriodDraft,
+  isEdit: boolean,
+): string | null {
   if (!isEdit && !/^[A-Z0-9_]+$/.test(draft.code)) {
     return 'El código va en mayúsculas, números y guion bajo (por ejemplo, MODULO_INTRO).'
   }
@@ -65,7 +73,11 @@ export function validatePeriod(draft: PeriodDraft, isEdit: boolean): string | nu
 }
 
 /** Sólo lo editable: el backend rechaza `code` y `level` en un PATCH. */
-export function periodPayload(draft: PeriodDraft, isEdit: boolean, schoolYearId: string) {
+export function periodPayload(
+  draft: PeriodDraft,
+  isEdit: boolean,
+  schoolYearId: string,
+) {
   const common = {
     name: draft.name.trim(),
     sortOrder: draft.sortOrder,
@@ -92,9 +104,18 @@ type Props = {
   onClose: () => void
 }
 
-export default function PeriodFormModal({ period, level, saving, error, onSave, onClose }: Props) {
+export default function PeriodFormModal({
+  period,
+  level,
+  saving,
+  error,
+  onSave,
+  onClose,
+}: Props) {
   const isEdit = period !== null
-  const [draft, setDraft] = useState<PeriodDraft>(() => draftFromPeriod(period, level))
+  const [draft, setDraft] = useState<PeriodDraft>(() =>
+    draftFromPeriod(period, level),
+  )
   const [localError, setLocalError] = useState<string | null>(null)
 
   function patch<K extends keyof PeriodDraft>(key: K, value: PeriodDraft[K]) {
@@ -117,92 +138,67 @@ export default function PeriodFormModal({ period, level, saving, error, onSave, 
       onClose={onClose}
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field
-          label="Código"
-          htmlFor="period-code"
-          hint={isEdit ? 'El código no se cambia: lo referencian las libretas.' : 'Identificador estable, en mayúsculas.'}
-        >
-          <input
-            id="period-code"
-            value={draft.code}
-            disabled={isEdit}
-            onChange={(e) => patch('code', e.target.value.toUpperCase())}
-            className={`${inputClass} disabled:bg-gray-50`}
-          />
-        </Field>
-
         <Field label="Nombre" htmlFor="period-name">
-          <input id="period-name" value={draft.name} onChange={(e) => patch('name', e.target.value)} className={inputClass} />
-        </Field>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Empieza" htmlFor="period-starts">
-          <DateField id="period-starts" value={draft.startsOn} onChange={(v) => patch('startsOn', v)} className={inputClass} />
-        </Field>
-        <Field label="Termina" htmlFor="period-ends">
-          <DateField id="period-ends" value={draft.endsOn} onChange={(v) => patch('endsOn', v)} className={inputClass} />
-        </Field>
-        <Field label="Cierre" htmlFor="period-closes" hint="Fecha límite para cerrar la libreta.">
-          <DateField id="period-closes" value={draft.closesOn} onChange={(v) => patch('closesOn', v)} className={inputClass} />
-        </Field>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field
-          label="Tipo de bloque"
-          htmlFor="period-kind"
-          hint="Cómo aparece en la carta del alumno, igual que en la planilla del liceo."
-        >
-          <select
-            id="period-kind"
-            value={draft.kind}
-            onChange={(e) => patch('kind', e.target.value as PeriodKind)}
-            className={inputClass}
-          >
-            {(Object.keys(PERIOD_KIND_LABELS) as PeriodKind[]).map((kind) => (
-              <option key={kind} value={kind}>
-                {PERIOD_KIND_LABELS[kind]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field
-          label="Nombre del texto"
-          htmlFor="period-judgement-label"
-          hint="Por ejemplo: Informe de actuación, Diagnóstico, Informe para envío APE."
-        >
           <input
-            id="period-judgement-label"
-            value={draft.judgementLabel}
-            maxLength={80}
-            onChange={(e) => patch('judgementLabel', e.target.value)}
+            id="period-name"
+            value={draft.name}
+            onChange={(e) => patch('name', e.target.value)}
+            className={inputClass}
+          />
+        </Field>
+        {!isEdit && (
+          <Field
+            label="Código"
+            htmlFor="period-code"
+            hint="Identificador en mayúsculas, por ejemplo MAYO."
+          >
+            <input
+              id="period-code"
+              value={draft.code}
+              onChange={(e) => patch('code', e.target.value.toUpperCase())}
+              className={inputClass}
+            />
+          </Field>
+        )}
+      </div>
+      <div className="grid items-start gap-3 sm:grid-cols-2">
+        <DateRangePicker
+          startDate={draft.startsOn}
+          endDate={draft.endsOn}
+          presets={[]}
+          onChange={({ startDate, endDate }) =>
+            setDraft((prev) => ({
+              ...prev,
+              startsOn: startDate,
+              endsOn: endDate,
+            }))
+          }
+        />
+        <Field
+          label="Cierre"
+          htmlFor="period-closes"
+          hint="Fecha límite para cerrar la libreta."
+        >
+          <DateField
+            id="period-closes"
+            value={draft.closesOn}
+            onChange={(v) => patch('closesOn', v)}
             className={inputClass}
           />
         </Field>
       </div>
-
       <Check
         id="period-meeting"
         label="Lleva reunión (tiene R)"
-        hint="Aparece en la reunión, el boletín, el visado y el control. Si además exige C, para cerrar hace falta R."
+        hint="Incluye este período en reuniones, boletines, visados y control."
         checked={draft.isMeeting}
         onChange={(v) => patch('isMeeting', v)}
       />
 
-      <Field label="Orden" htmlFor="period-order" hint="Define en qué posición aparece dentro del nivel.">
-        <input
-          id="period-order"
-          type="number"
-          min={0}
-          value={draft.sortOrder}
-          onChange={(e) => patch('sortOrder', Number(e.target.value))}
-          className={`${inputClass} w-28`}
-        />
-      </Field>
-
       <fieldset className="space-y-2 rounded-lg border border-gray-200 p-3">
-        <legend className="px-1 text-xs font-medium text-gray-600">Obligatorio para poder cerrar</legend>
+        <legend className="px-1 text-xs font-medium text-gray-600">
+          Obligatorio para poder cerrar
+        </legend>
         <Check
           id="period-requires-grade"
           label="Calificación (C)"
@@ -218,6 +214,69 @@ export default function PeriodFormModal({ period, level, saving, error, onSave, 
           onChange={(v) => patch('requiresConceptualJudgement', v)}
         />
       </fieldset>
+
+      <SettingsDetails
+        title="Más opciones del período"
+        description="Tipo de bloque, nombre del texto y orden."
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Tipo de bloque" htmlFor="period-kind">
+            <select
+              id="period-kind"
+              value={draft.kind}
+              onChange={(e) => patch('kind', e.target.value as PeriodKind)}
+              className={inputClass}
+            >
+              {(Object.keys(PERIOD_KIND_LABELS) as PeriodKind[]).map((kind) => (
+                <option key={kind} value={kind}>
+                  {PERIOD_KIND_LABELS[kind]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Nombre del texto"
+            htmlFor="period-judgement-label"
+            hint="Por ejemplo, Informe de actuación o Diagnóstico."
+          >
+            <input
+              id="period-judgement-label"
+              value={draft.judgementLabel}
+              maxLength={80}
+              onChange={(e) => patch('judgementLabel', e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+          <Field
+            label="Orden"
+            htmlFor="period-order"
+            hint="Posición dentro del nivel."
+          >
+            <input
+              id="period-order"
+              type="number"
+              min={0}
+              value={draft.sortOrder}
+              onChange={(e) => patch('sortOrder', Number(e.target.value))}
+              className={inputClass}
+            />
+          </Field>
+          {isEdit && (
+            <Field
+              label="Código"
+              htmlFor="period-code"
+              hint="Identificador fijo del período."
+            >
+              <input
+                id="period-code"
+                value={draft.code}
+                disabled
+                className={`${inputClass} disabled:bg-slate-50`}
+              />
+            </Field>
+          )}
+        </div>
+      </SettingsDetails>
 
       {isEdit && (
         <Check

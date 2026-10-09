@@ -1,3 +1,4 @@
+import { useOptionalAuth } from '@/contexts/AuthContext'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import AdminShell, { adminRouteUsesSchoolYear } from './AdminShell'
@@ -6,6 +7,15 @@ import { SidebarSlotContext } from '@/components/navigation/sidebar-slot'
 const usePathnameMock = vi.fn(() => '/admin/users')
 const setAllYearsMock = vi.hoisted(() => vi.fn())
 
+vi.mock('@/contexts/AuthContext', () => ({
+  useOptionalAuth: vi.fn(() => ({
+    me: {
+      role: 'ADMIN',
+      permissions: [{ id: 'school-years.manage', scope: 'all' }],
+    },
+  })),
+}))
+
 vi.mock('next/navigation', () => ({
   usePathname: () => usePathnameMock(),
 }))
@@ -13,7 +23,9 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/contexts/AdminSchoolYearContext', () => ({
   useAdminSchoolYear: () => ({
     loading: false,
-    years: [{ id: 'sy-2026', code: 2026, label: 'Ciclo 2026', status: 'ACTIVE' }],
+    years: [
+      { id: 'sy-2026', code: 2026, label: 'Ciclo 2026', status: 'ACTIVE' },
+    ],
     activeId: 'sy-2026',
     selectedId: 'sy-2026',
     allYears: false,
@@ -42,20 +54,32 @@ describe('AdminShell school-year filter visibility', () => {
   it('renders the school-year filter on scoped routes', () => {
     usePathnameMock.mockReturnValue('/admin/events')
 
-    render(<AdminShell><div>Contenido</div></AdminShell>)
+    render(
+      <AdminShell>
+        <div>Contenido</div>
+      </AdminShell>,
+    )
 
     expect(screen.getByText('Ciclo lectivo')).toBeInTheDocument()
-    expect(screen.getByLabelText('Seleccionar ciclo lectivo')).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('Seleccionar ciclo lectivo'),
+    ).toBeInTheDocument()
     expect(screen.queryByText('Filtro API:')).not.toBeInTheDocument()
     expect(screen.queryByText('schoolYearId=sy-2026')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Gestionar ciclos' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Gestionar ciclos' }),
+    ).toBeInTheDocument()
     expect(screen.getByText('Contenido')).toBeInTheDocument()
   })
 
   it('hides the school-year filter on global admin routes', () => {
     usePathnameMock.mockReturnValue('/admin/users')
 
-    render(<AdminShell><div>Contenido global</div></AdminShell>)
+    render(
+      <AdminShell>
+        <div>Contenido global</div>
+      </AdminShell>,
+    )
 
     expect(screen.queryByText('Ciclo lectivo')).not.toBeInTheDocument()
     expect(screen.getByText('Contenido global')).toBeInTheDocument()
@@ -81,16 +105,23 @@ describe('AdminShell: ciclo lectivo en el menú lateral', () => {
     const { slot } = renderWithSlot()
 
     expect(within(slot).getByLabelText('Ciclo lectivo')).toHaveValue('sy-2026')
-    expect(within(slot).getByRole('link', { name: 'Gestionar ciclos' })).toBeInTheDocument()
+    expect(
+      within(slot).getByRole('link', { name: 'Gestionar ciclos' }),
+    ).toBeInTheDocument()
     // La línea de arriba sigue para el celular, oculta en escritorio.
-    expect(screen.getByLabelText('Seleccionar ciclo lectivo').closest('div.border-b')?.className).toContain('lg:hidden')
+    expect(
+      screen.getByLabelText('Seleccionar ciclo lectivo').closest('div.border-b')
+        ?.className,
+    ).toContain('lg:hidden')
   })
 
   it('"Todos los ciclos" es una opción del selector', () => {
     usePathnameMock.mockReturnValue('/admin/licenses')
     const { slot } = renderWithSlot()
 
-    fireEvent.change(within(slot).getByLabelText('Ciclo lectivo'), { target: { value: '__all__' } })
+    fireEvent.change(within(slot).getByLabelText('Ciclo lectivo'), {
+      target: { value: '__all__' },
+    })
     expect(setAllYearsMock).toHaveBeenCalledWith(true)
   })
 
@@ -98,7 +129,9 @@ describe('AdminShell: ciclo lectivo en el menú lateral', () => {
     usePathnameMock.mockReturnValue('/admin/licenses')
     const { slot, expand } = renderWithSlot(true)
 
-    const button = within(slot).getByRole('button', { name: /Ciclo lectivo: 2026/ })
+    const button = within(slot).getByRole('button', {
+      name: /Ciclo lectivo: 2026/,
+    })
     expect(button).toHaveTextContent('2026')
     fireEvent.click(button)
     expect(expand).toHaveBeenCalled()
@@ -109,4 +142,22 @@ describe('AdminShell: ciclo lectivo en el menú lateral', () => {
     const { slot } = renderWithSlot()
     expect(slot).toBeEmptyDOMElement()
   })
+})
+
+it('permite seleccionar el ciclo sin ofrecer su gestión a un docente', () => {
+  vi.mocked(useOptionalAuth).mockReturnValueOnce({
+    me: {
+      role: 'TEACHER',
+      permissions: [{ id: 'courses.read', scope: 'all' }],
+    },
+    loading: false,
+    error: false,
+    refresh: vi.fn(),
+  })
+  usePathnameMock.mockReturnValue('/admin/courses')
+  render(<AdminShell>Consulta</AdminShell>)
+  expect(screen.getByLabelText('Seleccionar ciclo lectivo')).toBeInTheDocument()
+  expect(
+    screen.queryByRole('link', { name: 'Gestionar ciclos' }),
+  ).not.toBeInTheDocument()
 })

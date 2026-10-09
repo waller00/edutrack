@@ -1,3 +1,4 @@
+import { useOptionalAuth } from '@/contexts/AuthContext'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminEvents from './page'
@@ -9,6 +10,8 @@ vi.mock('@/components/auth/RoleGuard', () => ({
 vi.mock('@/components/common/PaginationControls', () => ({
   default: () => <nav data-testid="pagination" />,
 }))
+
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: vi.fn(() => ({ me: { role: 'ADMIN', permissions: [{ id: 'events.create', scope: 'all' }, { id: 'events.update', scope: 'all' }, { id: 'events.cancel', scope: 'all' }, { id: 'events.delete', scope: 'all' }, { id: 'attendance.update', scope: 'all' }] } })) }))
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
@@ -492,4 +495,13 @@ describe('AdminEvents', () => {
       ),
     )
   })
+})
+
+it('un perfil que consulta agenda no ve creación, importación ni cambios en las actividades', async () => {
+  vi.mocked(useOptionalAuth).mockReturnValue({ me: { role: 'CONSULTA', permissions: [{ id: 'events.read', scope: 'all' }] }, loading: false, error: false, refresh: vi.fn() })
+  mockedApi.mockImplementation(async (url) => url.includes('events/all') ? { total: 1, data: [baseEvent] } as never : { data: [] } as never)
+  render(<AdminEvents />)
+  await screen.findAllByText('Clase matutina')
+  expect(screen.queryByRole('button', { name: /Nueva actividad|Importar|Editar|Cancelar|Reactivar|Eliminar seleccionados/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('checkbox', { name: /Seleccionar.*actividad/ })).not.toBeInTheDocument()
 })

@@ -770,7 +770,7 @@ export default function AdminSchoolYearsPage() {
   }
 
   return (
-    <RoleGuard permission="school-years.manage">
+    <RoleGuard permission="school-years.manage" permissionScope="all">
       <main className="responsive-page max-w-7xl space-y-4">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">

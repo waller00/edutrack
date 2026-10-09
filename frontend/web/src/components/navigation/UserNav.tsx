@@ -40,7 +40,7 @@ type MeUser = AuthMe
 type NavItem = {
   label: string
   href: string
-  permission?: string
+  permission?: string | string[]
   permissionScope?: 'own' | 'all'
 }
 
@@ -67,7 +67,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Agenda y clases', href: '/admin/events', permission: 'events.read', permissionScope: 'all' },
       { label: 'Usuarios', href: '/admin/users', permission: 'users.read', permissionScope: 'all' },
       { label: 'Licencias', href: '/admin/licenses', permission: 'licenses.read', permissionScope: 'all' },
-      { label: 'Mis eventos', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
+      { label: 'Mi agenda', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
       { label: 'Pase de lista', href: '/me/roll-call', permission: 'student-attendance.take', permissionScope: 'own' },
       { label: 'Mis asistencias', href: '/me/attendance', permission: 'attendance.read', permissionScope: 'own' },
       { label: 'Mis licencias', href: '/me/licenses', permission: 'licenses.read', permissionScope: 'own' },
@@ -77,9 +77,9 @@ const NAV_GROUPS: NavGroup[] = [
     title: 'Académico',
     icon: School,
     items: [
-      { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage' },
-      { label: 'Cursos', href: '/admin/courses', permission: 'courses.manage' },
-      { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage' },
+      { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage', permissionScope: 'all' },
+      { label: 'Cursos', href: '/admin/courses', permission: ['courses.read', 'courses.manage'] },
+      { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage', permissionScope: 'all' },
       { label: 'Mensualidades', href: '/admin/tuition', permission: 'students.manage', permissionScope: 'all' },
       // Lo ven adscripción y dirección para justificar; administración también tiene `justify`.
       { label: 'Pase de lista y justificaciones', href: '/admin/student-attendance', permission: 'student-attendance.justify', permissionScope: 'all' },
@@ -90,7 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: BookMarked,
     items: [
       // El orden espeja cómo se usa: primero las libretas propias, después lo transversal.
-      { label: 'Mis Libretas', href: '/libreta', permission: 'gradebook.read', permissionScope: 'own' },
+      { label: 'Mis Libretas', href: '/libreta', permission: 'gradebook.read' },
       { label: 'Inasistencias de Libreta', href: '/libreta/inasistencias', permission: 'gradebook.read', permissionScope: 'own' },
       { label: 'Evaluaciones', href: '/libreta/evaluaciones', permission: 'gradebook.read', permissionScope: 'own' },
       // Una sola entrada: "por alumno" y "por libreta" abrían la misma pantalla, que ya cierra de las dos formas.
@@ -100,7 +100,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
       { label: 'Reunión de profesores', href: '/libreta/reunion', permission: 'gradebook.read', permissionScope: 'all' },
       { label: 'Inteligencia académica', href: '/libreta/indicadores', permission: 'academic-analytics.read', permissionScope: 'all' },
-      { label: 'Configuración de libreta', href: '/libreta/configuracion', permission: 'academic-config.manage' },
+      { label: 'Configuración de libreta', href: '/libreta/configuracion', permission: 'academic-config.manage', permissionScope: 'all' },
     ],
   },
   {
@@ -123,7 +123,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: SlidersHorizontal,
     items: [
       { label: 'Mi perfil', href: '/profile' },
-      { label: 'Configuración del sistema', href: '/admin/settings', permission: 'settings.manage' },
+      { label: 'Configuración del sistema', href: '/admin/settings', permission: 'settings.manage', permissionScope: 'all' },
       { label: 'Roles / Perfiles', href: '/admin/profiles', permission: 'profiles.manage' },
       { label: 'Auditoría', href: '/admin/audit', permission: 'audit.read' },
     ],
@@ -147,7 +147,7 @@ function itemIcon(label: string) {
   if (/curso/i.test(label)) return BookOpen
   if (/estudiante/i.test(label)) return GraduationCap
   if (/mensualidad/i.test(label)) return Receipt
-  if (/evento|clase|turno/i.test(label)) return CalendarDays
+  if (/agenda|evento|clase|turno/i.test(label)) return CalendarDays
   if (/asistencia/i.test(label)) return ClipboardList
   if (/perfil|rol/i.test(label)) return ShieldCheck
   if (/consulta/i.test(label)) return MessageCircle
@@ -164,18 +164,14 @@ function permissionMap(me: MeUser) {
 
 function canSeeItem(me: MeUser, item: NavItem) {
   if (item.permission) {
-    const scope = permissionMap(me).get(item.permission)
-    if (scope === undefined) return false
-
-    if (item.permissionScope === 'all') {
-      return scope === 'all'
-    }
-
-    if (item.permissionScope === 'own') {
-      return scope === 'own'
-    }
-
-    return Boolean(scope)
+    const ids = Array.isArray(item.permission) ? item.permission : [item.permission]
+    return ids.some((id) => {
+      const scope = permissionMap(me).get(id)
+      if (scope === undefined) return false
+      if (item.permissionScope === 'all') return scope === 'all'
+      if (item.permissionScope === 'own') return scope === 'own'
+      return true
+    })
   }
 
   return true
@@ -190,7 +186,7 @@ function visibleGroups(me: MeUser) {
   return NAV_GROUPS
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => canSeeItem(me, item)),
+      items: group.items.filter((item) => canSeeItem(me, item)).map((item) => item.href === '/libreta' && hasPermission(me, 'gradebook.read', 'all') ? { ...item, label: 'Libretas' } : item),
     }))
     .filter((group) => group.items.length > 0)
 }

@@ -1,15 +1,24 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
-import { BarChart3 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { BarChart3, RefreshCw } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { useAuth } from '@/contexts/AuthContext'
-import MyAttendanceMarkingPanel from '@/components/personal/MyAttendanceMarkingPanel'
+import { hasPermission } from '@/lib/auth/permissions'
+import MyAttendanceMarkingPanel from './MyAttendanceMarkingPanel'
 import AttendanceHeatmap from '@/components/admin/AttendanceHeatmap'
-import { getTodayYmdInUruguay, formatDateInUruguay } from '@/lib/forms/datetime-uy'
-import DateField from '@/components/forms/DateField'
-import type { AttendanceSummaryResponse, AttendanceSummaryPerson } from '@/lib/attendance/summary'
+import SettingsDetails from '@/components/admin/settings/SettingsDetails'
+import DateRangePicker from '@/components/forms/DateRangePicker'
+import {
+  getTodayYmdInUruguay,
+  formatTimeInUruguay,
+} from '@/lib/forms/datetime-uy'
+import { ymdToDmy } from '@/lib/forms/date-mask'
+import type {
+  AttendanceSummaryResponse,
+  AttendanceSummaryPerson,
+} from '@/lib/attendance/summary'
 import {
   getDefaultAttendanceStartDate,
   getAttendanceTypeStyle,
@@ -19,6 +28,12 @@ import {
   type MyAttendanceType,
   type MyAttendanceStatus,
 } from '@/lib/attendance/my-attendance-display'
+import {
+  PersonalHeader,
+  PersonalLoading,
+  PersonalError,
+  PersonalPagination,
+} from './PersonalPageUi'
 
 type AttendanceRecord = {
   id: string
@@ -30,213 +45,315 @@ type AttendanceRecord = {
   event?: { id: string; title: string; type: string }
 }
 
+const ABSENCE_STATUSES = new Set([
+  'ABSENT',
+  'ABSENT_NOT_JUSTIFIED',
+  'ABSENT_JUSTIFIED',
+  'SUBSTITUTED',
+  'MEDICAL_LEAVE',
+  'JUSTIFIED_ABSENCE',
+])
+const isAbsence = (record: AttendanceRecord) =>
+  ABSENCE_STATUSES.has(record.status)
+const recordTypeLabel = (record: AttendanceRecord) =>
+  isAbsence(record) ? 'Falta' : getAttendanceTypeLabel(record.type)
+
 function getAttendanceRowStatusLabel(attendance: AttendanceRecord) {
-  if (attendance.status === 'LATE' && attendance.notes?.toLowerCase().includes('llegada muy tarde')) {
+  if (
+    attendance.status === 'LATE' &&
+    attendance.notes?.toLowerCase().includes('llegada muy tarde')
+  ) {
     return 'Llegada muy tarde'
   }
   return getAttendanceStatusLabelForType(attendance.type, attendance.status)
 }
 
-export default function MyAttendancePage(_props: { role?: 'TEACHER' | 'STAFF' } = {}) {
-  const { me: authUser, loading: authLoading } = useAuth()
-  const userId = authUser?.id ?? null
+export default function MyAttendancePage(
+  _props: { role?: 'TEACHER' | 'STAFF' } = {},
+) {
+  return (
+    <RoleGuard permission="attendance.read" permissionScope="own">
+      <AttendanceContent />
+    </RoleGuard>
+  )
+}
+
+function AttendanceContent() {
+  const { me } = useAuth()
+  const userId = me?.id
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [startDate, setStartDate] = useState(getDefaultAttendanceStartDate())
-  const [endDate, setEndDate] = useState('')
-  const [refreshKey, setRefreshKey] = useState(0)
   const [summary, setSummary] = useState<AttendanceSummaryPerson | null>(null)
-  const attendanceQuery = new URLSearchParams(
-    [
-      ['startDate', startDate],
-      ['endDate', endDate],
-      ['includeAbsences', 'true'],
-    ].filter(([, value]) => Boolean(value))
-  ).toString()
-
+  const [summaryError, setSummaryError] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [startDate, setStartDate] = useState(getDefaultAttendanceStartDate())
+  const [endDate, setEndDate] = useState(getTodayYmdInUruguay())
+  const [refresh, setRefresh] = useState(0)
+  const [view, setView] = useState('history')
+  const [type, setType] = useState('')
+  const [page, setPage] = useState(1)
+  const canMark =
+    hasPermission(me, 'attendance.create') && hasPermission(me, 'events.read')
+  const rangeError =
+    startDate && endDate && startDate > endDate
+      ? 'La fecha de fin debe ser posterior al inicio.'
+      : null
   useEffect(() => {
-    if (!authLoading && !authUser) globalThis.location.href = '/login'
-  }, [authLoading, authUser])
-
-  useEffect(() => {
-    if (!userId) return
+    if (!userId || rangeError) return
     let cancelled = false
+    setLoading(true)
+    setError(null)
+    setSummary(null)
+    setSummaryError(false)
+    const params = new URLSearchParams({ includeAbsences: 'true' })
+    if (startDate) params.set('startDate', startDate)
+    if (endDate) params.set('endDate', endDate)
+    const summaryParams = new URLSearchParams({
+      userId,
+      to: endDate || getTodayYmdInUruguay(),
+    })
+    if (startDate) summaryParams.set('from', startDate)
     async function load() {
-      setLoading(true)
-      try {
-        const data = await api<AttendanceRecord[]>(
-          attendanceQuery ? `/attendance/my-attendances?${attendanceQuery}` : '/attendance/my-attendances'
-        )
-        if (!cancelled) setAttendances(Array.isArray(data) ? data : [])
-      } catch (e) {
-        console.error('Error cargando asistencias:', e)
-      } finally {
-        if (!cancelled) setLoading(false)
+      const [records, result] = await Promise.allSettled([
+        api<AttendanceRecord[]>(`/attendance/my-attendances?${params}`),
+        api<AttendanceSummaryResponse>(`/attendance/summary?${summaryParams}`),
+      ])
+      if (cancelled) return
+      if (records.status === 'fulfilled')
+        setAttendances(Array.isArray(records.value) ? records.value : [])
+      else {
+        setAttendances([])
+        setError('No se pudieron cargar tus asistencias.')
       }
+      if (result.status === 'fulfilled')
+        setSummary(result.value?.person ?? null)
+      else setSummaryError(true)
+      setLoading(false)
     }
     void load()
     return () => {
       cancelled = true
     }
-  }, [userId, attendanceQuery, refreshKey])
-
-  useEffect(() => {
-    if (!userId) return
-    let cancelled = false
-    async function loadSummary() {
-      try {
-        const params = new URLSearchParams()
-        if (startDate) params.set('from', startDate)
-        params.set('to', endDate || getTodayYmdInUruguay())
-        const qs = params.toString()
-        const data = await api<AttendanceSummaryResponse>(`/attendance/summary?${qs}`)
-        if (!cancelled) setSummary(data.person ?? null)
-      } catch (e) {
-        console.error('Error cargando resumen:', e)
-        if (!cancelled) setSummary(null)
-      }
-    }
-    void loadSummary()
-    return () => {
-      cancelled = true
-    }
-  }, [userId, startDate, endDate, refreshKey])
-
-  if (loading) return <p>Cargando...</p>
-
+  }, [userId, startDate, endDate, refresh, rangeError])
+  const visible = attendances.filter(
+    (record) =>
+      !type ||
+      (type === 'absences'
+        ? isAbsence(record)
+        : record.type === type && !isAbsence(record)),
+  )
+  const safePage = Math.min(page, Math.max(1, Math.ceil(visible.length / 20)))
+  const activeView = view === 'marking' && !canMark ? 'history' : view
   return (
-    <RoleGuard permission="attendance.read" permissionScope="own">
-      <main className="responsive-page max-w-6xl space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">Mis Asistencias</h1>
-              <p className="text-sm text-gray-600">Consulta tu historial de asistencias</p>
-            </div>
-          </div>
-          <div className="text-sm text-gray-500">Total: {attendances.length} registros</div>
-        </div>
-
-        {userId ? <MyAttendanceMarkingPanel userId={userId} onMarked={() => setRefreshKey((k) => k + 1)} /> : null}
-
-        {summary ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <div className="text-xs text-slate-500">% Asistencia</div>
-                <div className="text-xl font-bold text-emerald-600">{summary.stats.pctAsistencia}%</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <div className="text-xs text-slate-500">% Puntualidad</div>
-                <div className="text-xl font-bold text-emerald-600">{summary.stats.pctPuntualidad}%</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <div className="text-xs text-slate-500">Tarde</div>
-                <div className="text-xl font-bold text-amber-600">{summary.stats.tarde}</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <div className="text-xs text-slate-500">Faltas sin justificar</div>
-                <div className="text-xl font-bold text-red-600">{summary.stats.ausenteNoJustificado}</div>
-              </div>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
-              <h2 className="mb-3 text-sm font-semibold text-slate-700">Mapa de asistencia</h2>
-              <AttendanceHeatmap
-                rows={summary.rows}
-                from={startDate || `${(endDate || getTodayYmdInUruguay()).slice(0, 4)}-01-01`}
-                to={endDate || getTodayYmdInUruguay()}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label htmlFor="my-attendance-start-date" className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-            <DateField
-              id="my-attendance-start-date"
-              value={startDate}
-              onChange={setStartDate}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+    <main className="responsive-page max-w-6xl space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PersonalHeader
+          title="Mis Asistencias"
+          description="Tu historial y el resumen del período."
+          icon={<BarChart3 className="h-6 w-6" aria-hidden />}
+        />
+        <button
+          type="button"
+          onClick={() => setRefresh((value) => value + 1)}
+          className="btn-secondary inline-flex items-center gap-2 text-sm"
+        >
+          <RefreshCw className="h-4 w-4" aria-hidden />
+          Actualizar
+        </button>
+      </div>
+      <div className="grid items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-[minmax(0,24rem)_1fr]">
+        <DateRangePicker
+          startDate={startDate}
+          endDate={endDate}
+          onChange={(range) => {
+            setStartDate(range.startDate)
+            setEndDate(range.endDate)
+            setPage(1)
+          }}
+        />
+        <p className="text-xs text-slate-500">
+          {loading
+            ? 'Consultando el período…'
+            : `Total: ${attendances.length} registros`}
+        </p>
+      </div>
+      <div
+        role="group"
+        aria-label="Vistas de mis asistencias"
+        className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1"
+      >
+        {[
+          ['history', 'Historial'],
+          ['summary', 'Resumen'],
+          ...(canMark ? [['marking', 'Marcar asistencia']] : []),
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={activeView === id}
+            onClick={() => setView(id)}
+            className={`min-h-10 flex-1 rounded-lg px-3 py-2 text-sm ${activeView === id ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {rangeError ? (
+        <p role="alert" className="text-sm text-red-700">
+          {rangeError}
+        </p>
+      ) : activeView === 'marking' && userId ? (
+        <MyAttendanceMarkingPanel
+          userId={userId}
+          onMarked={() => setRefresh((value) => value + 1)}
+        />
+      ) : loading ? (
+        <PersonalLoading />
+      ) : error ? (
+        <PersonalError
+          message={error}
+          retry={() => setRefresh((value) => value + 1)}
+        />
+      ) : activeView === 'summary' ? (
+        <>
+          {summaryError ? (
+            <PersonalError
+              message="No se pudo cargar el resumen."
+              retry={() => setRefresh((value) => value + 1)}
             />
-          </div>
-          <div>
-            <label htmlFor="my-attendance-end-date" className="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-            <DateField
-              id="my-attendance-end-date"
-              value={endDate}
-              onChange={setEndDate}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="bg-white border rounded-lg shadow-sm">
-          <div className="border-b p-4 sm:p-6">
-            <h2 className="text-lg font-semibold">Registros de Asistencia</h2>
-          </div>
-          {attendances.length === 0 ? (
-            <div className="p-4 text-center text-gray-500 sm:p-6">No hay registros de asistencia</div>
+          ) : summary ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {[
+                  [
+                    'Asistencia',
+                    `${summary.stats.pctAsistencia}%`,
+                    'text-emerald-600',
+                  ],
+                  [
+                    'Puntualidad',
+                    `${summary.stats.pctPuntualidad}%`,
+                    'text-emerald-600',
+                  ],
+                  ['Llegadas tarde', summary.stats.tarde, 'text-amber-600'],
+                  [
+                    'Faltas sin justificar',
+                    summary.stats.ausenteNoJustificado,
+                    'text-red-600',
+                  ],
+                ].map(([label, value, color]) => (
+                  <article
+                    key={label}
+                    className="rounded-xl border border-slate-200 bg-white p-4"
+                  >
+                    <h2 className="text-xs text-slate-500">{label}</h2>
+                    <p className={`mt-2 text-2xl font-bold ${color}`}>
+                      {value}
+                    </p>
+                  </article>
+                ))}
+              </div>
+              <SettingsDetails
+                title="Mapa de asistencia"
+                description="Consultá la distribución de tus asistencias por día."
+              >
+                <AttendanceHeatmap
+                  rows={summary.rows}
+                  from={
+                    startDate ||
+                    `${(endDate || getTodayYmdInUruguay()).slice(0, 4)}-01-01`
+                  }
+                  to={endDate || getTodayYmdInUruguay()}
+                />
+              </SettingsDetails>
+            </>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px]">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Fecha
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Hora
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Tipo
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Estado
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Notas
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {attendances.map((attendance) => (
-                    <tr key={attendance.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatDateInUruguay(attendance.date)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(attendance.time).toLocaleTimeString('es-ES', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceTypeStyle(attendance.type)}`}
-                        >
-                          {getAttendanceTypeLabel(attendance.type)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${getAttendanceStatusStyle(attendance.status)}`}
-                        >
-                          {getAttendanceRowStatusLabel(attendance)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{attendance.notes || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <p className="rounded-xl border bg-white p-6 text-sm text-slate-500">
+              No hay datos de resumen para este período.
+            </p>
           )}
-        </div>
-      </main>
-    </RoleGuard>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Registros de Asistencia
+            </h2>
+            <label className="flex items-center gap-2 text-sm text-slate-500">
+              Ver
+              <select
+                aria-label="Tipo de registro"
+                value={type}
+                onChange={(event) => {
+                  setType(event.target.value)
+                  setPage(1)
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+              >
+                <option value="">Todos</option>
+                <option value="CHECK_IN">Entradas</option>
+                <option value="CHECK_OUT">Salidas</option>
+                <option value="absences">Faltas</option>
+              </select>
+            </label>
+          </div>
+          {visible.length === 0 ? (
+            <p className="rounded-xl border bg-white p-6 text-sm text-slate-500">
+              No hay registros de asistencia
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {visible
+                .slice((safePage - 1) * 20, safePage * 20)
+                .map((record) => (
+                  <li
+                    key={record.id}
+                    className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">
+                          {ymdToDmy(record.date.slice(0, 10))} ·{' '}
+                          {formatTimeInUruguay(record.time)}
+                        </p>
+                        {record.event?.title && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            {record.event.title}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <span
+                          className={`rounded-full px-2 py-1 text-xs ${isAbsence(record) ? getAttendanceStatusStyle(record.status) : getAttendanceTypeStyle(record.type)}`}
+                        >
+                          {recordTypeLabel(record)}
+                        </span>
+                        {getAttendanceRowStatusLabel(record) !==
+                          recordTypeLabel(record) && (
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs ${getAttendanceStatusStyle(record.status)}`}
+                          >
+                            {getAttendanceRowStatusLabel(record)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {record.notes && (
+                      <SettingsDetails title="Notas del registro">
+                        <p className="text-sm text-slate-600">{record.notes}</p>
+                      </SettingsDetails>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          )}
+          <PersonalPagination
+            page={safePage}
+            total={visible.length}
+            onPage={setPage}
+          />
+        </>
+      )}
+    </main>
   )
 }

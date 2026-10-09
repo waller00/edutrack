@@ -15,6 +15,8 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Loader2, Pencil, Plus, Power, Search, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 
 type CourseDraft = {
@@ -32,6 +34,12 @@ function emptyCourseDraft(): CourseDraft {
 }
 
 export default function AdminCoursesPage() {
+  return <RoleGuard permission={['courses.read', 'courses.manage']}><CoursesContent /></RoleGuard>
+}
+
+function CoursesContent() {
+  const auth = useOptionalAuth()
+  const canManage = hasPermission(auth?.me, 'courses.manage', 'all')
   const syCtx = useOptionalAdminSchoolYear()
   const schoolYearQuery = syCtx?.schoolYearQuery ?? ''
   const activeSchoolYearId = syCtx?.allYears ? null : syCtx?.selectedId ?? syCtx?.activeId ?? null
@@ -417,7 +425,6 @@ export default function AdminCoursesPage() {
   }
 
   return (
-    <RoleGuard permission="courses.manage">
       <main className="responsive-page max-w-[1600px] space-y-5">
         <header className="flex flex-wrap items-center gap-3">
           <div className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:flex">
@@ -425,19 +432,19 @@ export default function AdminCoursesPage() {
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold">Cursos y asignaturas</h1>
-            <p className="text-sm text-gray-600">Elegí un curso para gestionar su oferta y sus asignaturas.</p>
+            <p className="text-sm text-gray-600">{canManage ? 'Elegí un curso para gestionar su oferta y sus asignaturas.' : 'Consultá los cursos, sus asignaturas y orientaciones.'}</p>
           </div>
-          <button type="button" aria-expanded={showCreateCourse} aria-controls="new-course-form" onClick={() => {
+          {canManage && <button type="button" aria-expanded={showCreateCourse} aria-controls="new-course-form" onClick={() => {
             setCourseDraft((draft) => ({ ...draft, offerInSchoolYear: Boolean(activeSchoolYearId) }))
             setShowCreateCourse((value) => !value)
           }} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
             <Plus className="h-4 w-4" aria-hidden />Nuevo curso
-          </button>
+          </button>}
         </header>
 
         {msg ? <div role="status" className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800">{msg}</div> : null}
 
-        {showCreateCourse ? (
+        {canManage && showCreateCourse ? (
           <form id="new-course-form" onSubmit={(event) => { event.preventDefault(); void createCourse() }} className="space-y-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-sm sm:p-5">
             <h2 className="font-semibold text-gray-900">Nuevo curso</h2>
             <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
@@ -532,7 +539,7 @@ export default function AdminCoursesPage() {
                     <h2 className="break-words text-xl font-bold text-gray-900">{courseShortLabel(selectedCourse.name)}</h2>
                     <p className="mt-1 text-xs text-gray-500">{schoolYearLabel}{!selectedCourse.isActive ? ' · Catálogo inactivo' : ''}</p>
                   </div>
-                  <div className="space-y-1">
+                  {canManage ? <div className="space-y-1">
                     <button type="button" role="switch" aria-label={`Oferta de ${selectedCourse.name} en el ciclo`} aria-checked={isOfferedInCycle(selectedCourse)} disabled={!activeSchoolYearId || updatingOffering} onClick={() => void toggleCourseOffering(selectedCourse)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                       {updatingOffering ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : (
                         <span className={`relative h-5 w-9 shrink-0 rounded-full ${isOfferedInCycle(selectedCourse) ? 'bg-emerald-600' : 'bg-gray-300'}`} aria-hidden>
@@ -541,7 +548,7 @@ export default function AdminCoursesPage() {
                       )}
                       {activeSchoolYearId ? (isOfferedInCycle(selectedCourse) ? 'Ofertado en el ciclo' : 'No ofertado en el ciclo') : 'Elegí un ciclo para ofertar'}
                     </button>
-                  </div>
+                  </div> : <p className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{isOfferedInCycle(selectedCourse) ? 'Ofertado en el ciclo' : 'No ofertado en el ciclo'}</p>}
                 </div>
 
                 <div className="flex flex-wrap items-end justify-between gap-3">
@@ -579,12 +586,13 @@ export default function AdminCoursesPage() {
                   onUpdate={updateSubject}
                   onRemove={removeSubject}
                   showStatus={showHistoricalSubjects}
+                  readOnly={!canManage}
                 />
 
                 <div className="rounded-lg border border-gray-200">
                   <button type="button" aria-expanded={orientationsOpen} aria-controls="course-orientations" onClick={() => setOrientationsOpen((value) => !value)} className="flex min-h-11 w-full items-center gap-2 p-3 text-left text-sm hover:bg-gray-50">
                     {orientationsOpen ? <ChevronDown className="h-4 w-4 text-gray-500" aria-hidden /> : <ChevronRight className="h-4 w-4 text-gray-500" aria-hidden />}
-                    <span className="flex-1 font-medium text-gray-700">Gestionar orientaciones</span>
+                    <span className="flex-1 font-medium text-gray-700">{canManage ? 'Gestionar orientaciones' : 'Orientaciones'}</span>
                     <span className="text-xs text-gray-500">{courseOrientations.length}</span>
                   </button>
                   {orientationsOpen ? (
@@ -593,7 +601,7 @@ export default function AdminCoursesPage() {
                         <ul className="divide-y divide-gray-100">
                           {courseOrientations.map((row) => (
                             <li key={row.id} className="py-2">
-                              {editingOrientationId === row.id ? (
+                              {canManage && editingOrientationId === row.id ? (
                                 <form onSubmit={(event) => { event.preventDefault(); void updateOrientation(row) }} className="space-y-2">
                                   <label className="block space-y-1 text-sm text-gray-700">
                                     <span>Nombre de la orientación</span>
@@ -610,22 +618,22 @@ export default function AdminCoursesPage() {
                                     <span className="block break-words text-sm font-medium text-gray-900">{row.orientation.name}</span>
                                     <span className="mt-1 block text-xs text-gray-500">{byOrientation.get(row.orientationId)?.length ?? 0} específicas{!row.isActive ? ' · Inactiva' : ''}</span>
                                   </button>
-                                  <UserActionsMenu name={`orientación ${row.orientation.name}`} actions={[
+                                  {canManage && <UserActionsMenu name={`orientación ${row.orientation.name}`} actions={[
                                     { label: 'Editar nombre', icon: Pencil, onSelect: () => { setEditingOrientationId(row.id); setEditingOrientationName(row.orientation.name) } },
                                     { label: row.isActive ? 'Desactivar en el curso' : 'Activar en el curso', icon: Power, onSelect: () => void toggleOrientationOffer(row) },
                                     { label: 'Quitar del curso', icon: X, destructive: true, onSelect: () => void removeOrientationFromCourse(row) },
                                     { label: 'Eliminar del catálogo', icon: Trash2, destructive: true, onSelect: () => void deleteOrientation(row) },
-                                  ]} />
+                                  ]} />}
                                 </div>
                               )}
                             </li>
                           ))}
                         </ul>
                       )}
-                      <button type="button" aria-expanded={showAddOrientation} aria-controls="add-orientation-form" onClick={() => setShowAddOrientation((value) => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
+                      {canManage && <button type="button" aria-expanded={showAddOrientation} aria-controls="add-orientation-form" onClick={() => setShowAddOrientation((value) => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
                         <Plus className="h-4 w-4" aria-hidden />Agregar orientación
-                      </button>
-                      {showAddOrientation ? (
+                      </button>}
+                      {canManage && showAddOrientation ? (
                         <form id="add-orientation-form" onSubmit={(event) => { event.preventDefault(); void (orientationMode === 'existing' ? attachOrientation() : createOrientation()) }} className="space-y-3 rounded-lg bg-gray-50 p-3">
                           <div role="group" aria-label="Tipo de orientación" className="flex flex-wrap gap-2">
                             {(['existing', 'new'] as const).map((mode) => <button key={mode} type="button" aria-pressed={orientationMode === mode} onClick={() => setOrientationMode(mode)} className={`min-h-9 rounded-lg px-3 py-2 text-xs ${orientationMode === mode ? 'bg-white font-medium text-emerald-800 shadow-sm' : 'text-gray-600'}`}>{mode === 'existing' ? 'Del catálogo' : 'Crear nueva'}</button>)}
@@ -656,6 +664,5 @@ export default function AdminCoursesPage() {
           </section>
         </div>
       </main>
-    </RoleGuard>
   )
 }

@@ -1,3 +1,4 @@
+import { useOptionalAuth } from '@/contexts/AuthContext'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminAttendance from './page'
@@ -9,6 +10,8 @@ vi.mock('@/components/auth/RoleGuard', () => ({
 vi.mock('@/components/common/PaginationControls', () => ({
   default: () => <nav data-testid="pagination" />,
 }))
+
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: vi.fn(() => ({ me: { role: 'ADMIN', permissions: [{ id: 'attendance.update', scope: 'all' }, { id: 'attendance.delete', scope: 'all' }, { id: 'exports.create', scope: 'all' }] } })) }))
 
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
@@ -540,4 +543,13 @@ describe('AdminAttendance', () => {
     expect(screen.getByRole('checkbox', { name: 'Seleccionar asistencia de Ana' })).toBeChecked()
   })
 
+})
+
+it('un perfil que solo lee asistencias no ve exportación, edición ni eliminación', async () => {
+  vi.mocked(useOptionalAuth).mockReturnValue({ me: { role: 'CONSULTA', permissions: [{ id: 'attendance.read', scope: 'all' }] }, loading: false, error: false, refresh: vi.fn() })
+  mockedApi.mockImplementation(async (url) => url.includes('attendance/all') ? { total: 1, data: [{ id: 'a1', type: 'CHECK_IN', status: 'PRESENT', date: '2026-10-09', time: '2026-10-09T12:00:00Z', user: { id: 'u1', name: 'Ana', email: 'ana@example.com', role: 'TEACHER' } }] } as never : { data: [] } as never)
+  render(<AdminAttendance />)
+  await screen.findAllByText('Ana')
+  expect(screen.queryByRole('button', { name: /Exportar|Editar|Eliminar seleccionadas/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('checkbox', { name: /Seleccionar.*asistencia/ })).not.toBeInTheDocument()
 })

@@ -1,31 +1,43 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
-import DateField from '@/components/forms/DateField'
+import DateRangePicker from '@/components/forms/DateRangePicker'
+import SettingsDetails from '@/components/admin/settings/SettingsDetails'
+import { ymdToDmy } from '@/lib/forms/date-mask'
+import { getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
 import { apiBaseUrl } from '@/lib/api/base-url'
 import { getAdminEventTypeLabel } from '@/lib/admin/events-display'
-import { getRiskScoreBadgeClass } from '@/lib/admin/analytics-display'
+import {
+  getRiskScoreBadgeClass,
+  resolveSchoolYearDateRange,
+} from '@/lib/admin/analytics-display'
 import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import {
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
   BarChart3,
-  Calendar,
+  ChevronDown,
   FileSpreadsheet,
   FileText,
-  LayoutGrid,
-  Lightbulb,
+  SlidersHorizontal,
   Loader2,
-  PieChart as PieChartIcon,
   RefreshCw,
   Search,
-  Trash2,
+  X,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import TrendLineChart from '@/components/charts/TrendLineChart'
 import BreakdownBarChart from '@/components/charts/BreakdownBarChart'
 import StatusDonutChart from '@/components/charts/StatusDonutChart'
@@ -99,7 +111,12 @@ type BreakdownRow = {
 
 type StatusDistRow = { status: string; count: number; pct: number }
 
-type SeriesMultiPoint = { period: string; lateRate: number; aop: number; coverage: number }
+type SeriesMultiPoint = {
+  period: string
+  lateRate: number
+  aop: number
+  coverage: number
+}
 
 type PeriodComparison = {
   previousFrom: string
@@ -156,29 +173,45 @@ function trimEdgeChars(value: string, char: string): string {
 }
 
 function sanitizeFilenamePart(value: string) {
-  return trimEdgeChars(
-    value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9_-]+/g, '_'),
-    '_',
+  return (
+    trimEdgeChars(
+      value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9_-]+/g, '_'),
+      '_',
+    ).slice(0, 48) || 'persona'
   )
-    .slice(0, 48) || 'persona'
 }
 
 type KpiTone = 'emerald' | 'amber' | 'red' | 'slate'
 
 /** Delta vs período anterior. `higherIsBetter` define el color (verde/rojo). */
-function DeltaBadge({ delta, higherIsBetter, suffix = '%' }: { delta: number; higherIsBetter: boolean; suffix?: string }) {
+function DeltaBadge({
+  delta,
+  higherIsBetter,
+  suffix = ' p.p.',
+}: {
+  delta: number
+  higherIsBetter: boolean
+  suffix?: string
+}) {
   if (Math.abs(delta) < 0.01) {
-    return <span className="inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">Sin cambios</span>
+    return (
+      <span className="inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">
+        Sin cambios
+      </span>
+    )
   }
   const isUp = delta > 0
   const good = isUp === higherIsBetter
   const cls = good ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
   const Icon = isUp ? ArrowUpRight : ArrowDownRight
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${cls}`} title="Variación vs período anterior">
+    <span
+      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${cls}`}
+      title="Variación vs período anterior"
+    >
       <Icon className="h-3 w-3" aria-hidden />
       {`${isUp ? '+' : ''}${delta.toFixed(2)}${suffix}`}
     </span>
@@ -201,19 +234,38 @@ function KpiCard(props: {
     red: 'text-red-600',
     slate: 'text-slate-900',
   }
-  const { label, hint, value, foot, tone, delta, deltaHigherIsBetter, deltaSuffix } = props
+  const {
+    label,
+    hint,
+    value,
+    foot,
+    tone,
+    delta,
+    deltaHigherIsBetter,
+    deltaSuffix,
+  } = props
 
   return (
     <article className="flex flex-col justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
       <div>
         <h3 title={hint} className="text-sm font-medium text-gray-600">
           {label}
-          {hint ? <span className="ml-1 cursor-help text-gray-400">ⓘ</span> : null}
+          {hint ? (
+            <span className="ml-1 cursor-help text-gray-400">ⓘ</span>
+          ) : null}
         </h3>
         <div className="mt-2 flex flex-wrap items-baseline gap-2">
-          <p className={`text-2xl font-bold tabular-nums tracking-tight ${toneMap[tone]}`}>{value}</p>
+          <p
+            className={`text-2xl font-bold tabular-nums tracking-tight ${toneMap[tone]}`}
+          >
+            {value}
+          </p>
           {typeof delta === 'number' ? (
-            <DeltaBadge delta={delta} higherIsBetter={deltaHigherIsBetter ?? true} suffix={deltaSuffix ?? '%'} />
+            <DeltaBadge
+              delta={delta}
+              higherIsBetter={deltaHigherIsBetter ?? true}
+              suffix={deltaSuffix ?? ' p.p.'}
+            />
           ) : null}
         </div>
       </div>
@@ -224,8 +276,8 @@ function KpiCard(props: {
 
 function AnalyticsSkeletonGrid() {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-6">
-      {Array.from({ length: 6 }).map((_, i) => (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {Array.from({ length: 4 }).map((_, i) => (
         <div
           key={`sk-${String(i)}`}
           className="h-28 animate-pulse rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-gray-100"
@@ -238,8 +290,12 @@ function AnalyticsSkeletonGrid() {
 function buildDecisionSignals(d: DashboardResponse): string[] {
   const hints: string[] = []
   const { kpis } = d
-  const hotPeople = (d.topLists?.topRiskPeople ?? []).filter((p) => p.riskScore > 0)
-  const hotEvents = (d.topLists?.topRiskEvents ?? []).filter((e) => e.focusScore > 0)
+  const hotPeople = (d.topLists?.topRiskPeople ?? []).filter(
+    (p) => p.riskScore > 0,
+  )
+  const hotEvents = (d.topLists?.topRiskEvents ?? []).filter(
+    (e) => e.focusScore > 0,
+  )
 
   const n = d.meta?.resolvedInstanceCount ?? 0
   if (n >= 120) {
@@ -309,58 +365,112 @@ function roleChipLabel(role: string | undefined | null) {
   }
 }
 
-function PersonRankCard({ p, onSelect }: Readonly<{ p: TopRiskPerson; onSelect: () => void }>) {
+function PersonRankCard({
+  p,
+  onSelect,
+}: Readonly<{ p: TopRiskPerson; onSelect: () => void }>) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <article className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate font-medium text-gray-900">{p.displayName}</div>
-          <div className="text-xs text-gray-500">{roleChipLabel(p.role)}</div>
+          <h3 className="break-words text-sm font-semibold text-slate-900">
+            {p.displayName}
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">{roleChipLabel(p.role)}</p>
         </div>
-        <span className={`inline-flex shrink-0 rounded-full px-2 py-1 text-xs font-bold tabular-nums ${getRiskScoreBadgeClass(p.riskScore)}`}>
+        <span
+          aria-label={`Prioridad: ${p.riskScore}`}
+          className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${getRiskScoreBadgeClass(p.riskScore)}`}
+        >
           {p.riskScore}
         </span>
       </div>
-      <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
-        <div className="flex gap-1"><dt className="text-gray-500">Oblig.:</dt><dd className="tabular-nums">{p.plannedCount}</dd></div>
-        <div className="flex gap-1"><dt className="text-gray-500">Tarde:</dt><dd className="tabular-nums text-amber-800">{p.lateCount}</dd></div>
-        <div className="flex gap-1"><dt className="text-gray-500">Aus NJ:</dt><dd className="tabular-nums font-medium text-red-700">{p.absentNotJustifiedCount}</dd></div>
-        <div className="flex gap-1"><dt className="text-gray-500">Aus OK:</dt><dd className="tabular-nums">{p.absentJustifiedCount}</dd></div>
-      </dl>
+      <p className="text-xs text-slate-500">
+        {p.lateCount} llegadas tarde · {p.absentNotJustifiedCount} ausencias sin
+        justificar
+      </p>
+      <SettingsDetails title={`Ver cifras de ${p.displayName}`}>
+        <dl className="space-y-2 text-sm text-slate-600">
+          <div className="flex justify-between gap-3">
+            <dt>Registros planificados</dt>
+            <dd>{p.plannedCount}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt>Llegadas tarde</dt>
+            <dd>{p.lateCount}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt>Ausencias sin justificar</dt>
+            <dd>{p.absentNotJustifiedCount}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt>Ausencias justificadas</dt>
+            <dd>{p.absentJustifiedCount}</dd>
+          </div>
+        </dl>
+      </SettingsDetails>
       <button
         type="button"
-        className="mt-3 w-full rounded-md border border-emerald-200 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+        aria-label={`Ver indicadores de ${p.displayName}`}
         onClick={onSelect}
+        className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
       >
-        Ver detalle
+        Ver indicadores
+        <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
       </button>
-    </div>
+    </article>
   )
 }
 
 function EventRankCard({ e }: Readonly<{ e: TopRiskEvent }>) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <article className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 font-semibold text-gray-900" title={`${e.title} · ${e.eventId}`}>
+        <h3 className="min-w-0 break-words text-sm font-semibold text-slate-900">
           {e.title}
-        </div>
-        <span className="shrink-0 whitespace-nowrap rounded-md border border-emerald-100 bg-emerald-50/70 px-2 py-1 text-[11px] font-medium uppercase text-emerald-900">
-          {getAdminEventTypeLabel(e.eventType)}
+        </h3>
+        <span
+          className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600"
+          aria-label={`Índice: ${e.focusScore.toFixed(2)}`}
+        >
+          {e.focusScore.toFixed(2)}
         </span>
       </div>
-      <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
-        <div className="flex gap-1"><dt className="text-gray-500">Oblig.:</dt><dd className="tabular-nums">{e.plannedCount}</dd></div>
-        <div className="flex gap-1"><dt className="text-gray-500">% Tarde:</dt><dd className="tabular-nums text-amber-800">{formatPct(e.lateRatePct)}</dd></div>
-        <div className="flex gap-1"><dt className="text-gray-500">% Aus:</dt><dd className="tabular-nums font-medium text-red-700">{formatPct(e.absentOverPlanPct)}</dd></div>
-        <div className="flex gap-1"><dt className="text-gray-500">Índice:</dt><dd className="font-semibold tabular-nums text-slate-900">{e.focusScore.toFixed(2)}</dd></div>
-      </dl>
-    </div>
+      <p className="text-xs text-slate-500">
+        {getAdminEventTypeLabel(e.eventType)}
+      </p>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <p className="text-slate-600">
+          Tardanzas{' '}
+          <strong className="block font-semibold text-amber-700">
+            {formatPct(e.lateRatePct)}
+          </strong>
+        </p>
+        <p className="text-slate-600">
+          Ausencias{' '}
+          <strong className="block font-semibold text-red-700">
+            {formatPct(e.absentOverPlanPct)}
+          </strong>
+        </p>
+      </div>
+      <p className="text-xs text-slate-500">
+        {e.plannedCount} registros planificados
+      </p>
+    </article>
   )
 }
 
 export default function AdminAnalyticsPage() {
   const syCtx = useOptionalAdminSchoolYear()
+  const [view, setView] = useState<'summary' | 'trends' | 'followup'>('summary')
+  const [showFilters, setShowFilters] = useState(false)
+  const [breakdown, setBreakdown] = useState<
+    'byRole' | 'byEventType' | 'byCourse'
+  >('byRole')
+  const requestId = useRef(0)
+  const userPicker = useRef<HTMLDivElement>(null)
+  const userListId = useId()
+  const [activeUserIndex, setActiveUserIndex] = useState(0)
   const [from, setFrom] = useState(() => {
     const d = new Date()
     d.setUTCDate(d.getUTCDate() - 29)
@@ -370,8 +480,7 @@ export default function AdminAnalyticsPage() {
   /** Vacío = sin filtro (todos los usuarios planificados en el período). */
   const [roleFilter, setRoleFilter] = useState<string>('')
   const [eventType, setEventType] = useState<string>('')
-  // null = ninguna granularidad elegida (sin botón resaltado); las tendencias usan 'week' por defecto.
-  const [granularity, setGranularity] = useState<SeriesGranularity | null>(null)
+  const [granularity, setGranularity] = useState<SeriesGranularity>('week')
   const [users, setUsers] = useState<AnalyticsUserOption[]>([])
   const [selectedUserId, setSelectedUserId] = useState('')
   const [userSearch, setUserSearch] = useState('')
@@ -391,7 +500,10 @@ export default function AdminAnalyticsPage() {
 
   // Fila del ciclo lectivo efectivamente filtrado (para derivar su rango de fechas).
   const selectedYearRow = useMemo(
-    () => (analyticsSchoolYearId ? syCtx?.years.find((y) => y.id === analyticsSchoolYearId) ?? null : null),
+    () =>
+      analyticsSchoolYearId
+        ? (syCtx?.years.find((y) => y.id === analyticsSchoolYearId) ?? null)
+        : null,
     [syCtx?.years, analyticsSchoolYearId],
   )
 
@@ -399,25 +511,29 @@ export default function AdminAnalyticsPage() {
   // el período del ciclo seleccionado, no los últimos 30 días (que suelen quedar fuera
   // de un ciclo cerrado y dejan todos los KPIs en 0). Se acota a "hoy" para ciclos en curso.
   const yearRange = useMemo<{ from: string; to: string } | null>(() => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = getTodayYmdInUruguay()
     if (syCtx?.allYears) {
       const starts = (syCtx.years ?? [])
         .map((y) => y.startsOn?.slice(0, 10))
         .filter((v): v is string => Boolean(v))
         .sort((a, b) => a.localeCompare(b))
       if (starts.length === 0) return null
-      return { from: starts[0], to: today }
+      return { from: starts[0] > today ? today : starts[0], to: today }
     }
-    const start = selectedYearRow?.startsOn?.slice(0, 10)
-    if (!start) return null
-    const end = selectedYearRow?.endsOn?.slice(0, 10)
-    return { from: start, to: end && end < today ? end : today }
+    return resolveSchoolYearDateRange(selectedYearRow, today)
   }, [syCtx?.allYears, syCtx?.years, selectedYearRow])
 
   // Identidad de la selección de ciclo: cambiar de ciclo (o a "todos") re-sincroniza el rango,
   // pero ediciones manuales de fecha posteriores se respetan (no se vuelven a sobreescribir).
   const selectionKey = syCtx?.allYears ? 'ALL' : analyticsSchoolYearId
   const appliedSelectionRef = useRef<string | null>(null)
+  const selectionChanged = Boolean(
+    yearRange && selectionKey && appliedSelectionRef.current !== selectionKey,
+  )
+  const requestedFrom = selectionChanged ? (yearRange?.from ?? from) : from
+  const requestedTo = selectionChanged ? (yearRange?.to ?? to) : to
+  const schoolYearsLoading = syCtx?.loading ?? false
+  const allYears = syCtx?.allYears ?? false
 
   useEffect(() => {
     if (!yearRange || !selectionKey) return
@@ -427,36 +543,73 @@ export default function AdminAnalyticsPage() {
     setTo(yearRange.to)
   }, [selectionKey, yearRange])
 
+  const rangeError =
+    !requestedFrom || !requestedTo
+      ? 'Elegí el inicio y el fin del período.'
+      : requestedFrom > requestedTo
+        ? 'La fecha de fin debe ser igual o posterior al inicio.'
+        : null
   const loadDashboard = useCallback(async () => {
+    const currentRequest = ++requestId.current
+    if (rangeError || schoolYearsLoading) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ from, to, granularity: granularity ?? 'week' })
+      const params = new URLSearchParams({
+        from: requestedFrom,
+        to: requestedTo,
+        granularity,
+      })
       if (selectedUserId) params.set('userId', selectedUserId)
       else if (roleFilter) params.set('role', roleFilter)
       if (eventType) params.set('eventType', eventType)
-      if (syCtx?.allYears) params.set('allYears', '1')
-      else if (analyticsSchoolYearId) params.set('schoolYearId', analyticsSchoolYearId)
+      if (allYears) params.set('allYears', '1')
+      else if (analyticsSchoolYearId)
+        params.set('schoolYearId', analyticsSchoolYearId)
 
-      const data = await api<DashboardResponse>(`/analytics/dashboard?${params.toString()}`)
-      setDashboard(data)
+      const data = await api<DashboardResponse>(
+        `/analytics/dashboard?${params.toString()}`,
+      )
+      if (currentRequest === requestId.current) setDashboard(data)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'No se pudo cargar el dashboard'
-      setError(msg || 'No se pudo cargar el dashboard')
+      const msg =
+        e instanceof Error ? e.message : 'No se pudo cargar el dashboard'
+      if (currentRequest === requestId.current)
+        setError(msg || 'No se pudo cargar el dashboard')
     } finally {
-      setLoading(false)
+      if (currentRequest === requestId.current) setLoading(false)
     }
-  }, [from, to, granularity, roleFilter, selectedUserId, eventType, syCtx?.allYears, analyticsSchoolYearId])
+  }, [
+    requestedFrom,
+    requestedTo,
+    granularity,
+    roleFilter,
+    selectedUserId,
+    eventType,
+    allYears,
+    schoolYearsLoading,
+    rangeError,
+    analyticsSchoolYearId,
+  ])
 
+  const cancelPendingLoad = useCallback(() => {
+    requestId.current++
+  }, [])
   useEffect(() => {
     void loadDashboard()
-  }, [loadDashboard])
+    return cancelPendingLoad
+  }, [loadDashboard, cancelPendingLoad])
 
   useEffect(() => {
     let active = true
     async function loadUsers() {
       try {
-        const data = await api<{ data: AnalyticsUserOption[] }>('/admin/users?pageSize=200')
+        const data = await api<{ data: AnalyticsUserOption[] }>(
+          '/admin/users?pageSize=200',
+        )
         if (active) setUsers(data.data)
       } catch {
         if (active) setUsers([])
@@ -488,10 +641,16 @@ export default function AdminAnalyticsPage() {
     : null
 
   const exportFilters = () => ({
-    ...(selectedUserId ? { userId: selectedUserId } : roleFilter ? { role: roleFilter } : {}),
+    ...(selectedUserId
+      ? { userId: selectedUserId }
+      : roleFilter
+        ? { role: roleFilter }
+        : {}),
     ...(eventType ? { eventType } : {}),
     ...(syCtx?.allYears ? { allYears: '1' } : {}),
-    ...(!syCtx?.allYears && analyticsSchoolYearId ? { schoolYearId: analyticsSchoolYearId } : {}),
+    ...(!syCtx?.allYears && analyticsSchoolYearId
+      ? { schoolYearId: analyticsSchoolYearId }
+      : {}),
   })
 
   /** Crea la exportación, espera a que termine y dispara la descarga del archivo. */
@@ -514,22 +673,35 @@ export default function AdminAnalyticsPage() {
         to: overrides?.to ?? to,
         filters: overrides?.filters ?? exportFilters(),
       }
-      const res = await api<{ exportId: string }>(`/exports`, { method: 'POST', body: JSON.stringify(body) })
+      const res = await api<{ exportId: string }>(`/exports`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
       const exportId = res.exportId
 
       let exportDone = false
       for (let i = 0; i < 30; i++) {
-        const statusRes = await api<{ status: string; downloadUrl: string | null; errorMessage?: string }>(`/exports/${exportId}`)
+        const statusRes = await api<{
+          status: string
+          downloadUrl: string | null
+          errorMessage?: string
+        }>(`/exports/${exportId}`)
         if (statusRes.status === 'DONE') {
           exportDone = true
           break
         }
-        if (statusRes.status === 'FAILED') throw new Error(statusRes.errorMessage || 'Error generando exportación')
+        if (statusRes.status === 'FAILED')
+          throw new Error(
+            statusRes.errorMessage || 'Error generando exportación',
+          )
         await new Promise((r) => setTimeout(r, 250))
       }
-      if (!exportDone) throw new Error('La exportación tardó demasiado en generarse')
+      if (!exportDone)
+        throw new Error('La exportación tardó demasiado en generarse')
 
-      const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, { credentials: 'include' })
+      const dl = await fetch(`${apiUrl}/exports/${exportId}/download`, {
+        credentials: 'include',
+      })
       if (!dl.ok) throw new Error(`Error descargando exportación: ${dl.status}`)
       const blob = await dl.blob()
       const url = globalThis.URL.createObjectURL(blob)
@@ -561,11 +733,19 @@ export default function AdminAnalyticsPage() {
       selectedUserName
         ? `EduTrack_Asistencia_detallada_${sanitizeFilenamePart(selectedUserName)}_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`
         : `EduTrack_Asistencia_detallada_${from}_${to}.${format === 'XLSX' ? 'xlsx' : 'csv'}`,
-      selectedUserName ? `✅ Detalle ${format} de ${selectedUserName} listo.` : `✅ Exportación ${format} lista.`,
+      selectedUserName
+        ? `✅ Detalle ${format} de ${selectedUserName} listo.`
+        : `✅ Exportación ${format} lista.`,
     )
 
   const runExportMonthly = () =>
-    runExport('pdf', 'monthly_summary', 'PDF', `EduTrack_Resumen_mensual_${from.slice(0, 7)}.pdf`, '✅ PDF mensual listo.')
+    runExport(
+      'pdf',
+      'monthly_summary',
+      'PDF',
+      `EduTrack_Resumen_mensual_${from.slice(0, 7)}.pdf`,
+      '✅ PDF mensual listo.',
+    )
 
   const runExportPerson = () =>
     runExport(
@@ -575,11 +755,19 @@ export default function AdminAnalyticsPage() {
       selectedUserName
         ? `EduTrack_Reporte_persona_${sanitizeFilenamePart(selectedUserName)}_${from}_${to}.xlsx`
         : `EduTrack_Reporte_por_persona_${from}_${to}.xlsx`,
-      selectedUserName ? `✅ Reporte de ${selectedUserName} listo.` : '✅ Reporte por persona listo.',
+      selectedUserName
+        ? `✅ Reporte de ${selectedUserName} listo.`
+        : '✅ Reporte por persona listo.',
     )
 
   const runExportCourse = () =>
-    runExport('course', 'course_report', 'XLSX', `EduTrack_Reporte_por_curso_${from}_${to}.xlsx`, '✅ Reporte por curso listo.')
+    runExport(
+      'course',
+      'course_report',
+      'XLSX',
+      `EduTrack_Reporte_por_curso_${from}_${to}.xlsx`,
+      '✅ Reporte por curso listo.',
+    )
 
   function clearFiltersAndReload() {
     // "Limpiar" vuelve al rango del ciclo lectivo en foco (no a los últimos 30 días,
@@ -595,7 +783,7 @@ export default function AdminAnalyticsPage() {
     }
     setRoleFilter('')
     setEventType('')
-    setGranularity(null)
+    setGranularity('week')
     setSelectedUserId('')
     setUserSearch('')
     setSelectedUserName('')
@@ -618,20 +806,33 @@ export default function AdminAnalyticsPage() {
   const breakdowns = dashboard?.breakdowns
   const statusRows = dashboard?.statusDistribution?.rows ?? []
   const deltas = dashboard?.comparison?.deltas ?? null
-  const granularityLabel = GRANULARITY_OPTIONS.find((g) => g.value === granularity)?.label ?? 'Semana'
+  const granularityLabel =
+    GRANULARITY_OPTIONS.find((g) => g.value === granularity)?.label ?? 'Semana'
   const filteredUsers = useMemo(() => {
-    const q = userSearch.trim().toLowerCase()
+    const normalize = (value: string) =>
+      value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+    const q = normalize(userSearch)
     return users
       .filter((user) => {
-        if (roleFilter && !selectedUserId && user.orgRole?.code !== roleFilter) return false
+        if (roleFilter && !selectedUserId && user.orgRole?.code !== roleFilter)
+          return false
         if (!q) return true
-        return userDisplayLabel(user).toLowerCase().includes(q) || (user.email || '').toLowerCase().includes(q)
+        return (
+          normalize(userDisplayLabel(user)).includes(q) ||
+          normalize(user.email || '').includes(q)
+        )
       })
       .slice(0, 30)
   }, [users, userSearch, roleFilter, selectedUserId])
 
   function selectAnalyticsUser(user: AnalyticsUserOption | TopRiskPerson) {
-    const label = 'displayName' in user ? user.displayName : userDisplayLabel(user)
+    const label =
+      'displayName' in user ? user.displayName : userDisplayLabel(user)
+    setView('summary')
     setSelectedUserId('userId' in user ? user.userId : user.id)
     setSelectedUserName(label)
     setUserSearch(label)
@@ -640,646 +841,769 @@ export default function AdminAnalyticsPage() {
     setExportNotice('')
   }
 
+  useEffect(() => {
+    if (!isUserDropdownOpen) return
+    function outside(event: PointerEvent) {
+      if (!userPicker.current?.contains(event.target as Node))
+        setIsUserDropdownOpen(false)
+    }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [isUserDropdownOpen])
+
+  useEffect(() => {
+    if (isUserDropdownOpen)
+      document
+        .getElementById(`${userListId}-${activeUserIndex}`)
+        ?.scrollIntoView?.({ block: 'nearest' })
+  }, [isUserDropdownOpen, activeUserIndex, userListId])
+
+  function clearPerson() {
+    setSelectedUserId('')
+    setSelectedUserName('')
+    setUserSearch('')
+    setIsUserDropdownOpen(false)
+    setExportNotice('')
+  }
+  const advancedCount = Number(Boolean(roleFilter)) + Number(Boolean(eventType))
+  const thirtyDaysAgo = new Date(`${getTodayYmdInUruguay()}T12:00:00Z`)
+  thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 29)
+  const periodPresets = [
+    ...(yearRange
+      ? [
+          {
+            label: syCtx?.allYears ? 'Todos los ciclos' : 'Todo el ciclo',
+            startDate: yearRange.from,
+            endDate: yearRange.to,
+          },
+        ]
+      : []),
+    {
+      label: 'Últimos 30 días',
+      startDate: thirtyDaysAgo.toISOString().slice(0, 10),
+      endDate: getTodayYmdInUruguay(),
+    },
+    {
+      label: 'Este mes',
+      startDate: `${getTodayYmdInUruguay().slice(0, 7)}-01`,
+      endDate: getTodayYmdInUruguay(),
+    },
+  ]
+  const safeUserIndex = Math.min(
+    activeUserIndex,
+    Math.max(0, filteredUsers.length - 1),
+  )
+  const cardClass =
+    'space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5'
+
   return (
     <RoleGuard permission="analytics.read" permissionScope="all">
-      <main className="responsive-page max-w-7xl space-y-8">
-        <header className="flex flex-col justify-between gap-6 lg:flex-row lg:items-start">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
-              <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
-            </div>
+      <main className="responsive-page max-w-7xl space-y-4">
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
+              <BarChart3 className="h-6 w-6" aria-hidden />
+            </span>
             <div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <h1 className="text-3xl font-bold text-gray-900">Analítica institucional</h1>
-                {loading && dashboard ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50/80 px-3 py-0.5 text-xs font-medium text-emerald-800">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                    Actualizando datos…
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-2 max-w-3xl leading-relaxed text-gray-600">
-                Tablero operativo sobre obligaciones efectivamente planificadas y su conciliación con fichadas para priorizar políticas horarias,
-                seguimiento a personas responsables y ajustes sobre eventos con impacto institucional.
+              <h1 className="text-2xl font-bold text-slate-900">Indicadores</h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Revisá la asistencia del personal y su evolución en el período.
               </p>
-              {dashboard ? (
-                <div className="mt-4 flex flex-wrap gap-4 border-t border-gray-100 pt-4 text-sm text-gray-700">
-                  <div>
-                    <span className="text-gray-500">Universo analizado</span>
-                    <span className="ml-2 font-semibold tabular-nums text-emerald-700">
-                      {resolvedCount.toLocaleString('es-UY')} obligaciones
-                    </span>
-                  </div>
-                  <span className="hidden text-gray-300 sm:inline" aria-hidden>
-                    ·
-                  </span>
-                  <div>
-                    <span className="text-gray-500">Ámbito de rol</span>
-                    <span className="ml-2 font-semibold">{selectedUserName ? 'Persona seleccionada' : roleChipLabel(roleFilter)}</span>
-                  </div>
-                  {selectedUserName ? (
-                    <>
-                      <span className="hidden text-gray-300 sm:inline" aria-hidden>
-                        ·
-                      </span>
-                      <div>
-                        <span className="text-gray-500">Persona</span>
-                        <span className="ml-2 font-semibold text-emerald-800">{selectedUserName}</span>
-                      </div>
-                    </>
-                  ) : null}
-                  {eventType ? (
-                    <>
-                      <span className="hidden text-gray-300 sm:inline" aria-hidden>
-                        ·
-                      </span>
-                      <div>
-                        <span className="text-gray-500">Actividad</span>
-                        <span className="ml-2 font-semibold">{getAdminEventTypeLabel(eventType)}</span>
-                      </div>
-                    </>
-                  ) : null}
-                  {generatedLabel ? (
-                    <>
-                      <span className="hidden text-gray-300 sm:inline" aria-hidden>
-                        ·
-                      </span>
-                      <div title="Último cálculo en backend">
-                        <span className="text-gray-500">Generado</span>
-                        <span className="ml-2 tabular-nums text-gray-800">{generatedLabel}</span>
-                      </div>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
           </div>
-
-          <div className="flex shrink-0 flex-col gap-3 lg:items-end">
-            <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-              <button
-                type="button"
-                className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
-                disabled={loading && !dashboard}
-                onClick={() => void loadDashboard()}
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
-                Refrescar
-              </button>
-            </div>
-            {showAnalyticsAttendanceExports ? (
-              <div className="flex flex-col gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase text-emerald-800">
-                  <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
-                  Exportar asistencias
-                </div>
-                <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={loading || Boolean(rangeError) || syCtx?.loading}
+              onClick={() => void loadDashboard()}
+              className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
+                aria-hidden
+              />
+              Actualizar
+            </button>
+            {showAnalyticsAttendanceExports && (
+              <details className="relative">
+                <summary className="btn-secondary cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                  Exportar
+                  <ChevronDown className="h-4 w-4" aria-hidden />
+                </summary>
+                <div className="absolute right-0 z-30 mt-2 w-64 max-w-[calc(100vw-2rem)] space-y-2 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
                   <button
                     type="button"
-                    disabled={loading || exportingKind === 'xlsx'}
-                    className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                    disabled={
+                      Boolean(exportingKind) || loading || Boolean(rangeError)
+                    }
                     onClick={() => void runExportAttendance('XLSX')}
+                    className="flex w-full items-center gap-2 p-2 text-sm"
                   >
-                    {exportingKind === 'xlsx' ? (
-                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    ) : (
-                      <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
-                    )}
-                    {selectedUserName ? 'Excel detalle' : 'Excel'}
+                    <FileSpreadsheet className="h-4 w-4" aria-hidden />
+                    Asistencias en Excel
                   </button>
                   <button
                     type="button"
-                    disabled={loading || exportingKind === 'csv'}
-                    className="btn-success inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                    disabled={
+                      Boolean(exportingKind) || loading || Boolean(rangeError)
+                    }
                     onClick={() => void runExportAttendance('CSV')}
+                    className="flex w-full items-center gap-2 p-2 text-sm"
                   >
-                    {exportingKind === 'csv' ? (
-                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    ) : (
-                      <FileText className="h-4 w-4 shrink-0 text-white" aria-hidden />
-                    )}
-                    {selectedUserName ? 'CSV detalle' : 'CSV'}
+                    <FileText className="h-4 w-4" aria-hidden />
+                    Asistencias en CSV
                   </button>
                 </div>
-              </div>
-            ) : null}
-            {showAnalyticsAttendanceExports && selectedUserName ? (
-              <p className="max-w-sm text-left text-xs text-gray-500 lg:text-right">
-                Exportando detalle filtrado de {selectedUserName}.
-              </p>
-            ) : null}
+              </details>
+            )}
           </div>
         </header>
-
-        <div className="card">
-          <div className="card-header">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
-                  <Search className="h-4 w-4 text-emerald-600" aria-hidden />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">Filtros de búsqueda</h2>
-                  <p className="mt-0.5 text-xs text-gray-500">Todos los KPIs, rankings y gráficas respetan estos criterios en conjunto.</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => clearFiltersAndReload()} className="btn-secondary inline-flex items-center gap-2 text-sm">
-                <Trash2 className="h-4 w-4" aria-hidden />
-                Limpiar
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
-            <div className="lg:col-span-1">
-              <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
-                <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                Desde (período)
-              </label>
-              <DateField value={from} onChange={setFrom} className="input-field" />
-            </div>
-            <div>
-              <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
-                <Calendar className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                Hasta (período)
-              </label>
-              <DateField value={to} onChange={setTo} className="input-field" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Rol asignado al evento</label>
-              <select
-                value={roleFilter}
-                onChange={(e) => {
-                  setRoleFilter(e.target.value)
-                  setSelectedUserId('')
-                  setSelectedUserName('')
-                  setUserSearch('')
-                  setExportNotice('')
-                }}
-                className="select-field"
+        <section aria-label="Filtros de indicadores" className={cardClass}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <DateRangePicker
+              startDate={requestedFrom}
+              endDate={requestedTo}
+              presets={periodPresets}
+              onChange={({ startDate, endDate }) => {
+                if (!startDate && !endDate) {
+                  setFrom(
+                    yearRange?.from ?? thirtyDaysAgo.toISOString().slice(0, 10),
+                  )
+                  setTo(yearRange?.to ?? getTodayYmdInUruguay())
+                } else {
+                  setFrom(startDate)
+                  setTo(endDate)
+                }
+                setExportNotice('')
+              }}
+            />
+            <div
+              ref={userPicker}
+              className="relative min-w-0"
+              onBlur={(event) => {
+                if (
+                  event.relatedTarget &&
+                  !event.currentTarget.contains(event.relatedTarget as Node)
+                )
+                  setIsUserDropdownOpen(false)
+              }}
+            >
+              <label
+                htmlFor="analytics-person"
+                className="mb-1 block text-sm font-medium text-slate-700"
               >
-                <option value="">Todos los roles</option>
-                <option value="TEACHER">Docentes</option>
-                <option value="STAFF">Personal</option>
-                <option value="ADMIN">Administradores</option>
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                Equivalente operativo del filtro utilizado también en otros módulos de control de personal.
-              </p>
-            </div>
-            <div className="relative">
-              <label className="mb-2 block text-sm font-medium text-gray-700">Persona</label>
-              <input
-                type="text"
-                value={userSearch}
-                onChange={(e) => {
-                  setUserSearch(e.target.value)
-                  setSelectedUserId('')
-                  setSelectedUserName('')
-                  setIsUserDropdownOpen(true)
-                  setExportNotice('')
-                }}
-                onFocus={() => setIsUserDropdownOpen(true)}
-                placeholder="Buscar persona..."
-                className="input-field"
-              />
-              {isUserDropdownOpen && !selectedUserId ? (
-                <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                  {filteredUsers.length > 0 ? (
-                    filteredUsers.map((user) => (
+                Persona
+              </label>
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400"
+                  aria-hidden
+                />
+                <input
+                  id="analytics-person"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={isUserDropdownOpen && !selectedUserId}
+                  aria-controls={
+                    isUserDropdownOpen && !selectedUserId
+                      ? userListId
+                      : undefined
+                  }
+                  aria-activedescendant={
+                    isUserDropdownOpen &&
+                    !selectedUserId &&
+                    filteredUsers.length
+                      ? `${userListId}-${safeUserIndex}`
+                      : undefined
+                  }
+                  value={userSearch}
+                  placeholder="Todas las personas"
+                  autoComplete="off"
+                  className="input-field min-h-11 !pl-9 !pr-10 text-sm"
+                  onFocus={() => {
+                    if (!selectedUserId) {
+                      setIsUserDropdownOpen(true)
+                      setActiveUserIndex(0)
+                    }
+                  }}
+                  onChange={(e) => {
+                    setUserSearch(e.target.value)
+                    setSelectedUserId('')
+                    setSelectedUserName('')
+                    setActiveUserIndex(0)
+                    setIsUserDropdownOpen(true)
+                    setExportNotice('')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') setIsUserDropdownOpen(false)
+                    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                      event.preventDefault()
+                      setIsUserDropdownOpen(true)
+                      setActiveUserIndex((previous) =>
+                        Math.max(
+                          0,
+                          Math.min(
+                            filteredUsers.length - 1,
+                            previous + (event.key === 'ArrowDown' ? 1 : -1),
+                          ),
+                        ),
+                      )
+                    }
+                    if (
+                      event.key === 'Enter' &&
+                      isUserDropdownOpen &&
+                      !selectedUserId &&
+                      filteredUsers[safeUserIndex]
+                    ) {
+                      event.preventDefault()
+                      selectAnalyticsUser(filteredUsers[safeUserIndex])
+                    }
+                  }}
+                />
+                {userSearch && (
+                  <button
+                    type="button"
+                    aria-label="Quitar persona"
+                    onClick={clearPerson}
+                    className="absolute right-2 top-2 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                  </button>
+                )}
+              </div>
+              {isUserDropdownOpen && !selectedUserId && (
+                <div
+                  id={userListId}
+                  role="listbox"
+                  aria-label="Personas"
+                  className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+                >
+                  {filteredUsers.length ? (
+                    filteredUsers.map((user, index) => (
                       <button
+                        id={`${userListId}-${index}`}
+                        role="option"
+                        aria-selected={safeUserIndex === index}
+                        tabIndex={-1}
                         type="button"
                         key={user.id}
+                        onPointerDown={(event) => event.preventDefault()}
                         onClick={() => selectAnalyticsUser(user)}
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-emerald-50"
+                        className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${safeUserIndex === index ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}
                       >
-                        <span className="block font-medium text-gray-900">{userDisplayLabel(user)}</span>
-                        <span className="block truncate text-xs text-gray-500">
-                          {[user.email, roleChipLabel(user.orgRole?.code || '')].filter(Boolean).join(' · ')}
+                        <span className="block break-words font-medium text-slate-800">
+                          {userDisplayLabel(user)}
+                        </span>
+                        <span className="block break-words text-xs text-slate-500">
+                          {[user.email, roleChipLabel(user.orgRole?.code)]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </span>
                       </button>
                     ))
                   ) : (
-                    <div className="px-3 py-2 text-sm text-gray-500">Sin coincidencias</div>
+                    <p className="p-3 text-sm text-slate-500">
+                      Sin coincidencias
+                    </p>
                   )}
                 </div>
-              ) : null}
-              {selectedUserName ? (
-                <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm">
-                  <span className="truncate font-medium text-emerald-900">{selectedUserName}</span>
-                  <button
-                    type="button"
-                    className="shrink-0 text-xs font-semibold text-red-700 hover:text-red-900"
-                    onClick={() => {
-                      setSelectedUserId('')
-                      setSelectedUserName('')
-                      setUserSearch('')
-                      setIsUserDropdownOpen(false)
-                      setExportNotice('')
-                    }}
-                  >
-                    Quitar
-                  </button>
-                </div>
-              ) : (
-                <p className="mt-1 text-xs text-gray-500">Filtra indicadores y exportaciones al historial de una persona.</p>
               )}
             </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Tipo de actividad</label>
-              <select value={eventType} onChange={(e) => setEventType(e.target.value)} className="select-field">
-                <option value="">Todos</option>
-                {EVENT_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {getAdminEventTypeLabel(t)}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">Aisla un tipo de encuentro institucional (clase, jornada, reunión…).</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 text-xs text-slate-500">
+              {[
+                selectedUserName || roleChipLabel(roleFilter),
+                eventType
+                  ? getAdminEventTypeLabel(eventType)
+                  : 'Todas las actividades',
+              ].join(' · ')}
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={clearFiltersAndReload}
+                className="text-sm font-medium text-emerald-700 hover:underline"
+              >
+                Limpiar filtros
+              </button>
+              <button
+                type="button"
+                aria-expanded={showFilters}
+                aria-controls="analytics-extra-filters"
+                onClick={() => {
+                  setShowFilters(!showFilters)
+                  setIsUserDropdownOpen(false)
+                }}
+                className="inline-flex items-center gap-2 text-sm text-slate-600"
+              >
+                <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                Más filtros{advancedCount ? ` (${advancedCount})` : ''}
+                <ChevronDown
+                  className={`h-4 w-4 transition ${showFilters ? 'rotate-180' : ''}`}
+                  aria-hidden
+                />
+              </button>
             </div>
           </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-4">
-            <span className="text-sm font-medium text-gray-700">Granularidad de las tendencias</span>
-            <div className="inline-flex overflow-hidden rounded-lg border border-gray-200" role="group" aria-label="Granularidad temporal">
-              {GRANULARITY_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setGranularity((current) => (current === opt.value ? null : opt.value))}
-                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                    granularity === opt.value ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-                  }`}
-                  aria-pressed={granularity === opt.value}
+          {showFilters && (
+            <div
+              id="analytics-extra-filters"
+              className="grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2"
+            >
+              <div>
+                <label
+                  htmlFor="analytics-role"
+                  className="mb-1.5 block text-sm font-medium text-slate-700"
                 >
-                  {opt.label}
-                </button>
-              ))}
+                  Rol
+                </label>
+                <select
+                  id="analytics-role"
+                  value={roleFilter}
+                  onChange={(e) => {
+                    setRoleFilter(e.target.value)
+                    clearPerson()
+                  }}
+                  className="select-field text-sm"
+                >
+                  <option value="">Todos los roles</option>
+                  <option value="TEACHER">Docentes</option>
+                  <option value="STAFF">Personal</option>
+                  <option value="ADMIN">Administradores</option>
+                </select>
+              </div>
+              <div>
+                <label
+                  htmlFor="analytics-activity"
+                  className="mb-1.5 block text-sm font-medium text-slate-700"
+                >
+                  Tipo de actividad
+                </label>
+                <select
+                  id="analytics-activity"
+                  value={eventType}
+                  onChange={(e) => {
+                    setEventType(e.target.value)
+                    setExportNotice('')
+                  }}
+                  className="select-field text-sm"
+                >
+                  <option value="">Todas las actividades</option>
+                  {EVENT_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {getAdminEventTypeLabel(type)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <p className="text-xs text-gray-500">Define cómo se agrupan las series de tendencia (día, semana o mes).</p>
-          </div>
+          )}
+        </section>
+        <div
+          role="group"
+          aria-label="Vistas de indicadores"
+          className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1"
+        >
+          {(
+            [
+              ['summary', 'Resumen'],
+              ['trends', 'Tendencias'],
+              ['followup', 'Seguimiento'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={view === value}
+              aria-controls="analytics-results"
+              onClick={() => {
+                setView(value)
+                setIsUserDropdownOpen(false)
+              }}
+              className={`flex-1 rounded-lg px-2 py-2.5 text-sm font-medium ${view === value ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-
-        {exportNotice ? (
-          <div
-            className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border px-4 py-3 text-sm ${exportNotice.includes('✅') ? 'border-green-200' : 'border-red-200'} ${getAdminFlashMessageClass(exportNotice)}`}
+        {exportNotice && (
+          <p
             role="status"
+            className={`rounded-xl border p-3 text-sm ${getAdminFlashMessageClass(exportNotice)}`}
           >
             {exportNotice}
             <button
               type="button"
-              className="ml-3 text-xs font-semibold underline"
               onClick={() => setExportNotice('')}
+              className="ml-3 text-xs underline"
             >
               Ocultar
             </button>
+          </p>
+        )}
+        {(rangeError || error) && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+          >
+            <p>{rangeError || error}</p>
+            {!rangeError && (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void loadDashboard()}
+                className="font-medium hover:underline disabled:opacity-50"
+              >
+                Reintentar
+              </button>
+            )}
           </div>
-        ) : null}
-
-        {error ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <span>{error}</span>
-            <button type="button" className="btn-secondary text-xs" disabled={loading} onClick={() => void loadDashboard()}>
-              Reintentar
-            </button>
-          </div>
-        ) : null}
-
-        {!dashboard && loading ? (
-          <div className="space-y-6">
-            <p className="text-sm font-medium text-gray-600">Cargando modelo analítico…</p>
-            <AnalyticsSkeletonGrid />
-          </div>
-        ) : null}
-
-        {dashboard ? (
-          <>
-            <section className="card border-emerald-100/90 bg-emerald-50/35" aria-labelledby="interpretacion-heading">
-              <div className="mb-4 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                  <Lightbulb className="h-5 w-5 text-emerald-800" aria-hidden />
-                </div>
-                <div>
-                  <h2 id="interpretacion-heading" className="text-lg font-semibold text-gray-900">
-                    Lectura ejecutiva orientada a la decisión
-                  </h2>
-                  <p className="mt-1 max-w-3xl text-sm text-gray-600">
-                    Esta capa sintetiza el mismo modelo numérico de la tabla siguiente: combina valores críticos, volumen muestral y listas de trabajo.
-                  </p>
-                </div>
-              </div>
-              <ol className="ml-8 list-decimal space-y-2 border-t border-emerald-100/80 pt-4 text-sm text-gray-800">
-                {decisionSignals.map((line, idx) => (
-                  <li key={`sig-${idx}`} className="pl-2 leading-snug marker:font-semibold">
-                    {line}
-                  </li>
-                ))}
-              </ol>
-              <footer className="mt-6 border-t border-emerald-100 pt-4 text-xs text-gray-600">
-                <strong>Gobernanza de datos:</strong> los rankings están pensados como listas exploratorias ante el directorio institucional. No otorgan estado
-                ni sanciones automáticas; validá siempre con contexto cualitativo antes de comunicar métricas a terceros.
-              </footer>
-            </section>
-
-            <section aria-labelledby="kpi-heading" className="space-y-3">
-              <div className="flex flex-wrap items-end justify-between gap-2">
-                <h2 id="kpi-heading" className="text-lg font-semibold text-gray-900">
-                  Indicadores agregados
-                </h2>
-                <p className="max-w-xl text-xs text-gray-500">Definiciones alineadas con el motor de métricas de conciliación de instancias (asistente de exportaciones usa el mismo modelo).</p>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
-                <KpiCard
-                  label="Puntualidad en entrada"
-                  hint="Porcentaje de llegadas marcadas puntual sobre entradas con registro válido."
-                  tone="emerald"
-                  value={formatPct(dashboard.kpis.M1_PUNCTUALITY_pct)}
-                  foot="Sobre llegadas efectivamente registradas"
-                  delta={deltas?.M1_PUNCTUALITY_pct}
-                  deltaHigherIsBetter
-                />
-                <KpiCard
-                  label="Llegadas tarde"
-                  hint="Porcentaje de entradas con estado tardío dentro del período seleccionado."
-                  tone="amber"
-                  value={formatPct(dashboard.kpis.M2_LATE_RATE_pct)}
-                  foot="Indicador de disciplina horaria inicial"
-                  delta={deltas?.M2_LATE_RATE_pct}
-                  deltaHigherIsBetter={false}
-                />
-                <KpiCard
-                  label="Ausentismo / plan"
-                  hint="Ausencias del titular contra instancias programadas incluidas en el período."
-                  tone="red"
-                  value={formatPct(dashboard.kpis.M4_AOP_pct)}
-                  foot="Ausentismo efectivo institucional"
-                  delta={deltas?.M4_AOP_pct}
-                  deltaHigherIsBetter={false}
-                />
-                <KpiCard
-                  label="Cobertura de presencia efectiva"
-                  hint="Combinación entrada/salida que cubra la sesión institucional modelada."
-                  tone="emerald"
-                  value={formatPct(dashboard.kpis.M6_COVERAGE_CP_pct)}
-                  foot="Señal integral de ocupación efectiva del bloque planificado"
-                  delta={deltas?.M6_COVERAGE_CP_pct}
-                  deltaHigherIsBetter
-                />
-                <KpiCard
-                  label="Desvío temporal vs planificado"
-                  hint="Relación tiempos observados contra ventana institucional reservada (horas efectivas)."
-                  tone="slate"
-                  value={formatPct(dashboard.kpis.M8_HOURS_DELTA_pct)}
-                  foot="Interpretación relativa sin escala absoluta institucional fija"
-                />
-                <KpiCard label="Licencias inactivas" tone="slate" value={dashboard.kpis.PC_count} foot="Rango solapante con período solicitado." />
-              </div>
-            </section>
-
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <section className="card" aria-labelledby="rank-people-heading">
-                <header className="mb-5 flex flex-col gap-1 border-b border-gray-100 pb-4">
-                  <h2 id="rank-people-heading" className="text-lg font-semibold text-gray-900">
-                    Personas prioritarias para revisión institucional
-                  </h2>
-                  <p className="text-sm text-gray-600">
-                    Puntajes calculados sólo dentro del período filtrado. Las ausencias con licencia activa válida pierden penalización en puntaje.
-                  </p>
-                  <Link
-                    href="/admin/attendance"
-                    prefetch={false}
-                    className="mt-3 inline-flex w-fit items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-900"
-                  >
-                    Abrir cuadro de control de personal
-                    <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
-                  </Link>
-                </header>
-
-                {peopleRank.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-gray-500">No registramos instancias con usuario asignado en los filtros actuales.</p>
-                ) : (
+        )}
+        <div id="analytics-results" className="space-y-4">
+          {loading || syCtx?.loading ? (
+            <div role="status" className="space-y-3">
+              <p className="flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Actualizando indicadores…
+              </p>
+              <AnalyticsSkeletonGrid />
+            </div>
+          ) : (
+            !rangeError &&
+            !error &&
+            dashboard && (
+              <>
+                <p className="text-sm text-slate-500">
+                  {resolvedCount.toLocaleString('es-UY')} registros planificados
+                  en el período{selectedUserName && ` · ${selectedUserName}`}
+                </p>
+                {resolvedCount === 0 && (
+                  <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+                    <p className="text-sm text-slate-600">
+                      No hay registros planificados para estos filtros.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={clearFiltersAndReload}
+                      className="mt-3 text-sm font-medium text-emerald-700 hover:underline"
+                    >
+                      Ver todo el período
+                    </button>
+                  </div>
+                )}
+                {resolvedCount > 0 && (
                   <>
-                  <div className="hidden overflow-hidden rounded-xl border border-gray-100 sm:block">
-                    <div className="max-h-[22rem] overflow-auto">
-                      <table className="min-w-[640px] text-left text-sm">
-                        <thead className="sticky top-0 z-10 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500 shadow-[0_1px_0_0_rgba(0,0,0,0.05)]">
-                          <tr>
-                            <th scope="col" className="px-4 py-3">
-                              Persona
-                            </th>
-                            <th scope="col" className="hidden px-2 py-3 sm:table-cell">
-                              Rol
-                            </th>
-                            <th scope="col" className="hidden px-2 py-3 text-right lg:table-cell" title="Instancias contabilizadas en el período">
-                              Oblig.
-                            </th>
-                            <th scope="col" className="px-2 py-3 text-right">
-                              Tarde
-                            </th>
-                            <th scope="col" className="hidden px-2 py-3 text-right md:table-cell" title="Ausencia sin cobertura de licencia válida para la fecha">
-                              Aus NJ
-                            </th>
-                            <th scope="col" className="hidden px-2 py-3 text-right xl:table-cell" title="Licencia activa alcanzó esa ausencia como justificación">
-                              Aus OK
-                            </th>
-                            <th scope="col" className="whitespace-nowrap px-4 py-3 text-right font-semibold text-emerald-800" title="Heurística: tarde ×1 + aus NJ ×2">
-                              Prioridad Σ
-                            </th>
-                            <th scope="col" className="px-4 py-3 text-right">
-                              Reporte
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 bg-white">
-                          {peopleRank.map((p, i) => (
-                            <tr key={p.userId} className={`transition-colors hover:bg-emerald-50/40 ${i === 0 && p.riskScore > 0 ? 'bg-amber-50/30' : ''}`}>
-                              <td className="px-4 py-3">
-                                <div className="font-medium text-gray-900">{p.displayName}</div>
-                                <div className="text-xs font-mono text-gray-400">{p.userId.slice(0, 8)}…</div>
-                              </td>
-                              <td className="hidden px-2 py-3 text-xs text-gray-600 sm:table-cell">{roleChipLabel(p.role)}</td>
-                              <td className="hidden px-2 py-3 text-right tabular-nums lg:table-cell">{p.plannedCount}</td>
-                              <td className="whitespace-nowrap px-2 py-3 text-right tabular-nums text-amber-800">{p.lateCount}</td>
-                              <td className="hidden px-2 py-3 text-right tabular-nums font-medium text-red-700 md:table-cell">{p.absentNotJustifiedCount}</td>
-                              <td className="hidden px-2 py-3 text-right tabular-nums text-gray-500 xl:table-cell">{p.absentJustifiedCount}</td>
-                              <td className="whitespace-nowrap px-4 py-3 text-right">
-                                <span
-                                  className={`inline-flex min-w-[2.5rem] justify-end rounded-full px-2 py-1 text-xs font-bold tabular-nums ${getRiskScoreBadgeClass(p.riskScore)}`}
-                                >
-                                  {p.riskScore}
-                                </span>
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-3 text-right">
+                    {view === 'summary' && (
+                      <>
+                        <section
+                          aria-label="Indicadores principales"
+                          className="space-y-3"
+                        >
+                          {dashboard.comparison && (
+                            <p className="text-xs text-slate-500">
+                              Variación respecto al{' '}
+                              {ymdToDmy(dashboard.comparison.previousFrom)}–
+                              {ymdToDmy(dashboard.comparison.previousTo)}.
+                              Diferencias en puntos porcentuales.
+                            </p>
+                          )}
+                          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <KpiCard
+                              label="Puntualidad"
+                              tone="emerald"
+                              value={formatPct(
+                                dashboard.kpis.M1_PUNCTUALITY_pct,
+                              )}
+                              foot="Entradas puntuales sobre las registradas"
+                              delta={deltas?.M1_PUNCTUALITY_pct}
+                              deltaHigherIsBetter
+                            />
+                            <KpiCard
+                              label="Llegadas tarde"
+                              tone="amber"
+                              value={formatPct(dashboard.kpis.M2_LATE_RATE_pct)}
+                              foot="Entradas tarde sobre las registradas"
+                              delta={deltas?.M2_LATE_RATE_pct}
+                              deltaHigherIsBetter={false}
+                            />
+                            <KpiCard
+                              label="Ausentismo"
+                              tone="red"
+                              value={formatPct(dashboard.kpis.M4_AOP_pct)}
+                              foot="Ausencias sobre lo planificado, incluidas las justificadas"
+                              delta={deltas?.M4_AOP_pct}
+                              deltaHigherIsBetter={false}
+                            />
+                            <KpiCard
+                              label="Cobertura de asistencia"
+                              tone="emerald"
+                              value={formatPct(
+                                dashboard.kpis.M6_COVERAGE_CP_pct,
+                              )}
+                              foot="Presencias sobre lo planificado"
+                              delta={deltas?.M6_COVERAGE_CP_pct}
+                              deltaHigherIsBetter
+                            />
+                          </div>
+                        </section>
+                        <SettingsDetails
+                          title="Más indicadores"
+                          description="Horas registradas y licencias inactivas."
+                        >
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <KpiCard
+                              label="Desvío de horas"
+                              tone="slate"
+                              value={formatPct(
+                                dashboard.kpis.M8_HOURS_DELTA_pct,
+                              )}
+                              foot="Diferencia de tiempo registrado respecto al planificado"
+                            />
+                            <KpiCard
+                              label="Licencias inactivas"
+                              tone="slate"
+                              value={dashboard.kpis.PC_count}
+                              foot="Licencias inactivas que coinciden con el período"
+                            />
+                          </div>
+                        </SettingsDetails>
+                        <SettingsDetails
+                          title="Lectura del período"
+                          description="Sugerencias para interpretar los resultados."
+                        >
+                          <ul className="list-disc space-y-2 pl-4 text-sm text-slate-600">
+                            {decisionSignals.map((signal, index) => (
+                              <li key={index}>{signal}</li>
+                            ))}
+                          </ul>
+                        </SettingsDetails>
+                      </>
+                    )}
+                    {view === 'trends' && (
+                      <>
+                        <section
+                          className={cardClass}
+                          aria-labelledby="analytics-trend-title"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h2
+                                id="analytics-trend-title"
+                                className="font-semibold text-slate-900"
+                              >
+                                Evolución de la asistencia
+                              </h2>
+                              <p className="mt-1 text-xs text-slate-500">
+                                Tardanzas, ausencias y cobertura agrupadas por{' '}
+                                {granularityLabel.toLowerCase()}.
+                              </p>
+                            </div>
+                            <div
+                              role="group"
+                              aria-label="Agrupar tendencias por"
+                              className="inline-flex gap-1 rounded-lg bg-slate-100 p-1"
+                            >
+                              {GRANULARITY_OPTIONS.map((option) => (
                                 <button
+                                  key={option.value}
                                   type="button"
-                                  className="rounded-md border border-emerald-200 px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
-                                  onClick={() => selectAnalyticsUser(p)}
+                                  aria-pressed={granularity === option.value}
+                                  onClick={() => setGranularity(option.value)}
+                                  className={`rounded-md px-3 py-1.5 text-sm ${granularity === option.value ? 'bg-white font-medium text-emerald-700 shadow-sm' : 'text-slate-500'}`}
                                 >
-                                  Ver detalle
+                                  {option.label}
                                 </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <div className="space-y-3 sm:hidden">
-                    {peopleRank.map((p) => (
-                      <PersonRankCard key={p.userId} p={p} onSelect={() => selectAnalyticsUser(p)} />
-                    ))}
-                  </div>
+                              ))}
+                            </div>
+                          </div>
+                          <TrendLineChart points={trendPoints} />
+                        </section>
+                        <SettingsDetails
+                          title="Distribución de asistencias"
+                          description="Presentes, llegadas tarde y ausencias."
+                        >
+                          <StatusDonutChart rows={statusRows} />
+                        </SettingsDetails>
+                        {breakdowns && (
+                          <section className={cardClass}>
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <h2 className="font-semibold text-slate-900">
+                                Comparar grupos
+                              </h2>
+                              <div>
+                                <label
+                                  htmlFor="analytics-breakdown"
+                                  className="sr-only"
+                                >
+                                  Comparar por
+                                </label>
+                                <select
+                                  id="analytics-breakdown"
+                                  value={breakdown}
+                                  onChange={(event) =>
+                                    setBreakdown(
+                                      event.target.value as typeof breakdown,
+                                    )
+                                  }
+                                  className="select-field text-sm"
+                                >
+                                  <option value="byRole">Por rol</option>
+                                  <option value="byEventType">
+                                    Por tipo de actividad
+                                  </option>
+                                  <option value="byCourse">Por curso</option>
+                                </select>
+                              </div>
+                            </div>
+                            <BreakdownBarChart rows={breakdowns[breakdown]} />
+                          </section>
+                        )}
+                      </>
+                    )}
+                    {view === 'followup' && (
+                      <>
+                        <p className="text-xs text-slate-500">
+                          Estas listas ayudan a revisar casos. Los puntajes no
+                          generan sanciones automáticas.
+                        </p>
+                        <div className="grid gap-4 xl:grid-cols-2">
+                          <section
+                            className={cardClass}
+                            aria-labelledby="analytics-people-title"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h2
+                                id="analytics-people-title"
+                                className="font-semibold text-slate-900"
+                              >
+                                Personas para revisar
+                              </h2>
+                              <Link
+                                href="/admin/attendance"
+                                prefetch={false}
+                                className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:underline"
+                              >
+                                Ver asistencias
+                                <ArrowRight className="h-4 w-4" aria-hidden />
+                              </Link>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Prioridad: llegadas tarde + ausencias sin
+                              justificar × 2.
+                            </p>
+                            {peopleRank.length ? (
+                              <div className="space-y-3">
+                                {peopleRank.map((person) => (
+                                  <PersonRankCard
+                                    key={person.userId}
+                                    p={person}
+                                    onSelect={() => selectAnalyticsUser(person)}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="py-6 text-center text-sm text-slate-500">
+                                No hay personas en esta lista para los filtros
+                                actuales.
+                              </p>
+                            )}
+                          </section>
+                          <section
+                            className={cardClass}
+                            aria-labelledby="analytics-events-title"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h2
+                                id="analytics-events-title"
+                                className="font-semibold text-slate-900"
+                              >
+                                Actividades para revisar
+                              </h2>
+                              <Link
+                                href="/admin/events"
+                                prefetch={false}
+                                className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:underline"
+                              >
+                                Ver agendas
+                                <ArrowRight className="h-4 w-4" aria-hidden />
+                              </Link>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Índice: porcentaje de tardanzas + porcentaje de
+                              ausencias.
+                            </p>
+                            {eventsRank.length ? (
+                              <div className="space-y-3">
+                                {eventsRank.map((event) => (
+                                  <EventRankCard
+                                    key={event.eventId}
+                                    e={event}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="py-6 text-center text-sm text-slate-500">
+                                No hay actividades en esta lista para los
+                                filtros actuales.
+                              </p>
+                            )}
+                          </section>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
-              </section>
-
-              <section className="card" aria-labelledby="rank-events-heading">
-                <header className="mb-5 flex flex-col gap-1 border-b border-gray-100 pb-4">
-                  <h2 id="rank-events-heading" className="text-lg font-semibold text-gray-900">
-                    Tipos / eventos con mayor fricción operativa
-                  </h2>
-                  <p className="text-sm text-gray-600">
-                    Ranking por suma combinada tardanza + absentismo efectivo dentro del período seleccionado. Id útil cuando el volumen permite comparar agendas.
-                  </p>
-                  <Link
-                    href="/admin/events"
-                    prefetch={false}
-                    className="mt-3 inline-flex w-fit items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-900"
-                  >
-                    Gestionar cronogramas de eventos
-                    <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
-                  </Link>
-                </header>
-
-                {eventsRank.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-gray-500">Sin eventos suficientemente representados dentro del período.</p>
-                ) : (
-                  <>
-                  <div className="hidden overflow-hidden rounded-xl border border-gray-100 sm:block">
-                    <div className="max-h-[22rem] overflow-auto">
-                      <table className="min-w-[640px] text-left text-sm">
-                        <thead className="sticky top-0 z-10 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500 shadow-[0_1px_0_0_rgba(0,0,0,0.05)]">
-                          <tr>
-                            <th scope="col" className="min-w-[8rem] px-4 py-3">
-                              Actividad
-                            </th>
-                            <th scope="col" className="px-2 py-3">
-                              Tipo
-                            </th>
-                            <th scope="col" className="hidden px-2 py-3 text-right sm:table-cell">
-                              Oblig.
-                            </th>
-                            <th scope="col" className="px-2 py-3 text-right">
-                              % Tarde
-                            </th>
-                            <th scope="col" className="px-2 py-3 text-right">
-                              % Aus
-                            </th>
-                            <th scope="col" className="whitespace-nowrap px-4 py-3 text-right font-semibold text-gray-900" title="Suma combinada tardanza % + ausentismo %">
-                              Índice
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 bg-white">
-                          {eventsRank.map((e, i) => (
-                            <tr key={e.eventId} className={`transition-colors hover:bg-slate-50/80 ${i === 0 && e.focusScore > 0 ? 'bg-red-50/25' : ''}`}>
-                              <td className="px-4 py-3">
-                                <div className="line-clamp-2 font-semibold text-gray-900" title={`${e.title} · ${e.eventId}`}>
-                                  {e.title}
-                                </div>
-                              </td>
-                              <td className="whitespace-nowrap px-2 py-3">
-                                <span className="inline-flex rounded-md border border-emerald-100 bg-emerald-50/70 px-2 py-1 text-[11px] font-medium uppercase text-emerald-900">
-                                  {getAdminEventTypeLabel(e.eventType)}
-                                </span>
-                              </td>
-                              <td className="hidden px-2 py-3 text-right tabular-nums text-gray-600 sm:table-cell">{e.plannedCount}</td>
-                              <td className="px-2 py-3 text-right tabular-nums text-amber-800">{formatPct(e.lateRatePct)}</td>
-                              <td className="px-2 py-3 text-right tabular-nums font-medium text-red-700">{formatPct(e.absentOverPlanPct)}</td>
-                              <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">{e.focusScore.toFixed(2)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                <SettingsDetails
+                  title="Detalles del cálculo"
+                  description="Período, filtros y última actualización."
+                >
+                  <dl className="grid gap-4 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs text-slate-500">
+                        Período analizado
+                      </dt>
+                      <dd className="mt-1 text-slate-700">
+                        {ymdToDmy(dashboard.meta?.rangeFrom ?? from)}–
+                        {ymdToDmy(dashboard.meta?.rangeTo ?? to)}
+                      </dd>
                     </div>
-                  </div>
-                  <div className="space-y-3 sm:hidden">
-                    {eventsRank.map((e) => (
-                      <EventRankCard key={e.eventId} e={e} />
-                    ))}
-                  </div>
-                  </>
-                )}
-              </section>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <section className="card lg:col-span-1" aria-labelledby="status-dist-heading">
-                <header className="mb-4 flex items-start gap-3 border-b border-gray-100 pb-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                    <PieChartIcon className="h-5 w-5 text-emerald-700" aria-hidden />
-                  </div>
-                  <div>
-                    <h2 id="status-dist-heading" className="text-lg font-semibold text-gray-900">
-                      Distribución de estados
-                    </h2>
-                    <p className="mt-0.5 text-sm text-gray-600">Resolución de entradas sobre lo planificado.</p>
-                  </div>
-                </header>
-                <StatusDonutChart rows={statusRows} />
-              </section>
-
-              <section className="card lg:col-span-2" aria-labelledby="trend-heading">
-                <header className="mb-4 flex items-start gap-3 border-b border-gray-100 pb-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                    <BarChart3 className="h-5 w-5 text-emerald-700" aria-hidden />
-                  </div>
-                  <div>
-                    <h2 id="trend-heading" className="text-lg font-semibold text-gray-900">
-                      Tendencias por {granularityLabel.toLowerCase()}
-                    </h2>
-                    <p className="mt-0.5 text-sm text-gray-600">
-                      Tardanza, ausentismo y cobertura efectiva agrupadas según la granularidad elegida.
-                    </p>
-                  </div>
-                </header>
-                <TrendLineChart points={trendPoints} />
-              </section>
-            </div>
-
-            {breakdowns ? (
-              <section className="card" aria-labelledby="breakdowns-heading">
-                <header className="mb-5 flex items-start gap-3 border-b border-gray-100 pb-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                    <LayoutGrid className="h-5 w-5 text-emerald-700" aria-hidden />
-                  </div>
-                  <div>
-                    <h2 id="breakdowns-heading" className="text-lg font-semibold text-gray-900">
-                      Desgloses por dimensión
-                    </h2>
-                    <p className="mt-0.5 text-sm text-gray-600">
-                      Tardanza vs ausentismo comparados por rol, tipo de actividad y curso dentro del período.
-                    </p>
-                  </div>
-                </header>
-                <div className="grid grid-cols-1 gap-8 xl:grid-cols-3">
-                  <div>
-                    <h3 className="mb-3 text-base font-semibold text-gray-800">Por rol</h3>
-                    <BreakdownBarChart rows={breakdowns.byRole} />
-                  </div>
-                  <div>
-                    <h3 className="mb-3 text-base font-semibold text-gray-800">Por tipo de actividad</h3>
-                    <BreakdownBarChart rows={breakdowns.byEventType} />
-                  </div>
-                  <div>
-                    <h3 className="mb-3 text-base font-semibold text-gray-800">Por curso</h3>
-                    <BreakdownBarChart rows={breakdowns.byCourse} />
-                  </div>
-                </div>
-              </section>
-            ) : null}
-          </>
-        ) : null}
+                    <div>
+                      <dt className="text-xs text-slate-500">
+                        Registros planificados
+                      </dt>
+                      <dd className="mt-1 text-slate-700">{resolvedCount}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-slate-500">Persona o rol</dt>
+                      <dd className="mt-1 text-slate-700">
+                        {selectedUserName || roleChipLabel(roleFilter)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-slate-500">Actividad</dt>
+                      <dd className="mt-1 text-slate-700">
+                        {eventType
+                          ? getAdminEventTypeLabel(eventType)
+                          : 'Todas las actividades'}
+                      </dd>
+                    </div>
+                    {generatedLabel && (
+                      <div>
+                        <dt className="text-xs text-slate-500">
+                          Última actualización
+                        </dt>
+                        <dd className="mt-1 text-slate-700">
+                          {generatedLabel}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </SettingsDetails>
+              </>
+            )
+          )}
+        </div>
       </main>
     </RoleGuard>
   )

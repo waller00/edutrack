@@ -1,3 +1,4 @@
+import { useOptionalAuth } from '@/contexts/AuthContext'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LicensesPage from './page'
@@ -7,6 +8,8 @@ import { api } from '@/lib/api/client'
 vi.mock('@/components/auth/RoleGuard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="guard">{children}</div>,
 }))
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: vi.fn(() => ({ me: { role: 'ADMIN', permissions: [{ id: 'licenses.create', scope: 'all' }, { id: 'licenses.update', scope: 'all' }, { id: 'licenses.delete', scope: 'all' }] } })) }))
+
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const schoolYearContextMock = vi.hoisted(() => ({ current: null as any }))
 vi.mock('@/contexts/AdminSchoolYearContext', () => ({
@@ -418,4 +421,15 @@ describe('licenseOutsideRange', () => {
     expect(licenseOutsideRange({ startDate: '2026-02-25', endDate: '2026-03-02' }, cycle)).toBe(false)
     expect(licenseOutsideRange({ startDate: '2026-12-20T12:00:00.000Z', endDate: '2026-12-23T12:00:00.000Z' }, cycle)).toBe(false)
   })
+})
+
+it('un perfil de consulta ve licencias y calendario sin controles de escritura', async () => {
+  vi.mocked(useOptionalAuth).mockReturnValue({ me: { role: 'CONSULTA', permissions: [{ id: 'licenses.read', scope: 'all' }] }, loading: false, error: false, refresh: vi.fn() })
+  mockedApi.mockImplementation(async (url) => url.includes('medical-leaves/all') ? { data: [activeLicense] } as never : { data: [] } as never)
+  render(<LicensesPage />)
+  await screen.findAllByText('Ana G')
+  expect(screen.queryByRole('button', { name: /Nueva Licencia|Editar|Eliminar seleccionadas/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /no laborables/i }))
+  expect(screen.queryByText('Marcar feriado o día no laborable')).not.toBeInTheDocument()
 })

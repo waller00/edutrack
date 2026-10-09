@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation'
 import { CalendarDays, Loader2, Settings2 } from 'lucide-react'
 import { useAdminSchoolYear, type SchoolYearApiRow } from '@/contexts/AdminSchoolYearContext'
 import { useSidebarSlot } from '@/components/navigation/sidebar-slot'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 
 const SCHOOL_YEAR_SCOPED_ADMIN_ROUTES = [
   '/admin/attendance',
@@ -63,6 +65,8 @@ function SchoolYearSelect({ id, className, ariaLabel }: { id: string; className:
  * botón que lo vuelve a abrir.
  */
 function SidebarSchoolYearPicker() {
+  const auth = useOptionalAuth()
+  const canManage = hasPermission(auth?.me, 'school-years.manage', 'all')
   const { rail, expand } = useSidebarSlot()
   const { years, activeId, selectedId, allYears } = useAdminSchoolYear()
 
@@ -90,14 +94,14 @@ function SidebarSchoolYearPicker() {
         <label htmlFor="sidebar-school-year" className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
           Ciclo lectivo
         </label>
-        <Link
+        {canManage && <Link
           href="/admin/school-years"
           title="Gestionar ciclos"
           aria-label="Gestionar ciclos"
           className="text-gray-400 transition-colors hover:text-emerald-700"
         >
           <Settings2 className="h-3.5 w-3.5" aria-hidden />
-        </Link>
+        </Link>}
       </div>
       <SchoolYearSelect
         id="sidebar-school-year"
@@ -109,6 +113,8 @@ function SidebarSchoolYearPicker() {
 
 /** Una sola línea arriba del contenido: en el celular (el menú está cerrado) o si no hay menú. */
 function InlineSchoolYearBar({ className = '' }: { className?: string }) {
+  const auth = useOptionalAuth()
+  const canManage = hasPermission(auth?.me, 'school-years.manage', 'all')
   return (
     <div className={`border-b border-gray-200 bg-white ${className}`}>
       <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-2">
@@ -120,9 +126,9 @@ function InlineSchoolYearBar({ className = '' }: { className?: string }) {
           ariaLabel="Seleccionar ciclo lectivo"
           className="min-w-0 flex-1 rounded-md border border-gray-200 px-2 py-1 text-sm sm:max-w-xs sm:flex-none"
         />
-        <Link href="/admin/school-years" className="ml-auto shrink-0 text-xs text-emerald-700 hover:underline">
+        {canManage && <Link href="/admin/school-years" className="ml-auto shrink-0 text-xs text-emerald-700 hover:underline">
           Gestionar ciclos
-        </Link>
+        </Link>}
       </div>
     </div>
   )

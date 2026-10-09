@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { Prisma, AuditAction } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { authGuard, requirePermission } from '../middlewares/auth.js'
+import { requireSchoolYearAccess } from '../middlewares/school-year-access.js'
 import { z } from 'zod'
 import { onlyDigits, isValidUruguayanCI } from '../identity/uruguay-ci.js'
 import { isMoodleSyncEnabledFromEnv, getMoodleOperationalSettings } from '../config/system-settings.js'
@@ -1257,7 +1258,7 @@ r.use('/tuition', requirePermission('students.manage', 'all'), adminTuitionRoute
 // El router se monta con lectura y cada ruta pide lo suyo: adscripción justifica sin poder
 // reabrir planillas cerradas, que sigue siendo de administración.
 r.use('/student-attendance', requirePermission('student-attendance.read', 'all'), adminStudentAttendanceRoutes)
-r.use('/school-years', requirePermission('school-years.manage', 'all'), adminSchoolYearsRoutes)
+r.use('/school-years', requireSchoolYearAccess, adminSchoolYearsRoutes)
 r.use('/academic-config', requirePermission('academic-config.manage', 'all'), adminAcademicConfigRoutes)
 r.use('/gradebook', requirePermission('gradebook.read', 'all'), adminGradeBookRoutes)
 r.use('/academic-analytics', requirePermission('academic-analytics.read', 'all'), adminAcademicAnalyticsRoutes)

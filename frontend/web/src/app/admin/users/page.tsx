@@ -1,5 +1,7 @@
 'use client'
 
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import RoleGuard from '@/components/auth/RoleGuard'
 import UserActionsMenu from '@/components/admin/UserActionsMenu'
 import BiometricLinkSection from '@/components/profile/BiometricLinkSection'
@@ -64,6 +66,15 @@ const defaultFilters = (approved: TriState = ''): AdminUsersListFilters => ({
 })
 
 export default function AdminUsersPage() {
+  return <RoleGuard permission="users.read" permissionScope="all"><AdminUsersPageContent /></RoleGuard>
+}
+
+function AdminUsersPageContent() {
+  const me = useOptionalAuth()?.me
+  const canCreate = hasPermission(me, 'users.create', 'all')
+  const canUpdate = hasPermission(me, 'users.update', 'all')
+  const canSecurity = hasPermission(me, 'users.security', 'all')
+
   const [data, setData] = useState<{ total: number; page: number; pageSize: number; data: AdminUserRow[] }>({
     total: 0,
     page: 1,
@@ -332,16 +343,16 @@ export default function AdminUsersPage() {
       return (
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           {u.emailVerifiedAt && (
-            <button type="button" onClick={() => void toggleApproval(u)} className="min-h-10 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+            canUpdate && <button type="button" onClick={() => void toggleApproval(u)} className="min-h-10 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400">
               Aprobar
             </button>
           )}
-          <button type="button" onClick={() => openEdit(u)} aria-label="Revisar solicitud" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+          {canUpdate && <button type="button" onClick={() => openEdit(u)} aria-label="Revisar solicitud" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400">
             <Pencil className="h-4 w-4" aria-hidden />Revisar
-          </button>
-          <button type="button" onClick={() => void rejectUser(u)} aria-label="Rechazar solicitud" className="min-h-10 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-700 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300">
+          </button>}
+          {canUpdate && <button type="button" onClick={() => void rejectUser(u)} aria-label="Rechazar solicitud" className="min-h-10 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-700 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300">
             Rechazar
-          </button>
+          </button>}
         </div>
       )
     }
@@ -352,22 +363,22 @@ export default function AdminUsersPage() {
       : `${ICON_ACTION_BTN} border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100 focus:ring-amber-300`
     const locked = isAccountLocked(u.lockUntil)
     const actions = [
-      { label: 'Volver a pendiente', icon: CheckCircle2, onSelect: () => void toggleApproval(u) },
-      { label: 'Restablecer contraseña', icon: KeyRound, onSelect: () => void resetPassword(u) },
-      { label: locked ? 'Desbloquear' : 'Bloquear 15 min', icon: locked ? Unlock : Lock, onSelect: () => void toggleLock(u) },
-      { label: u.isActive ? 'Dar de baja' : 'Dar de alta', icon: u.isActive ? X : CheckCircle2, onSelect: () => void toggleActive(u), destructive: u.isActive },
-      ...(!u.isActive ? [{ label: 'Eliminar definitivamente', icon: Trash2, onSelect: () => void deleteUser(u), destructive: true }] : []),
-    ]
+      { granted: canUpdate, label: 'Volver a pendiente', icon: CheckCircle2, onSelect: () => void toggleApproval(u) },
+      { granted: canSecurity, label: 'Restablecer contraseña', icon: KeyRound, onSelect: () => void resetPassword(u) },
+      { granted: canSecurity, label: locked ? 'Desbloquear' : 'Bloquear 15 min', icon: locked ? Unlock : Lock, onSelect: () => void toggleLock(u) },
+      { granted: canUpdate, label: u.isActive ? 'Dar de baja' : 'Dar de alta', icon: u.isActive ? X : CheckCircle2, onSelect: () => void toggleActive(u), destructive: u.isActive },
+      ...(!u.isActive ? [{ granted: canUpdate, label: 'Eliminar definitivamente', icon: Trash2, onSelect: () => void deleteUser(u), destructive: true }] : []),
+    ].filter((action) => action.granted)
 
     return (
       <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end">
-        <button type="button" onClick={() => openEdit(u)} aria-label="Editar usuario" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+        {canUpdate && <button type="button" onClick={() => openEdit(u)} aria-label="Editar usuario" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400">
           <Pencil className="h-4 w-4" aria-hidden />Editar
-        </button>
-        <button type="button" onClick={() => setBiometricUser(u)} className={biometricButtonClass} aria-label={biometricLabel} title={biometricLabel}>
+        </button>}
+        {canUpdate && <button type="button" onClick={() => setBiometricUser(u)} className={biometricButtonClass} aria-label={biometricLabel} title={biometricLabel}>
           <Fingerprint className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-        </button>
-        <UserActionsMenu name={displayUserName(u)} actions={actions} />
+        </button>}
+        {actions.length > 0 && <UserActionsMenu name={displayUserName(u)} actions={actions} />}
       </div>
     )
   }
@@ -426,7 +437,7 @@ export default function AdminUsersPage() {
     'min-h-11 min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/40'
 
   return (
-    <RoleGuard permission="users.read" permissionScope="all">
+    <>
       <main className="responsive-page max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-4">
@@ -440,9 +451,9 @@ export default function AdminUsersPage() {
               </p>
             </div>
           </div>
-          <button type="button" onClick={() => setCreating(true)} className="btn-primary shrink-0">
+          {canCreate && <button type="button" onClick={() => setCreating(true)} className="btn-primary shrink-0">
             <Plus className="h-4 w-4" aria-hidden />Nuevo usuario
-          </button>
+          </button>}
         </div>
 
         {notice ? (
@@ -471,7 +482,7 @@ export default function AdminUsersPage() {
           </div>
         ) : null}
 
-        {creating ? (
+        {canCreate && creating ? (
           <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm sm:p-5">
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Alta de usuario</h2>
             <form onSubmit={createUser} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -767,7 +778,7 @@ export default function AdminUsersPage() {
           )}
         </div>
 
-        {edit && (
+        {canUpdate && edit && (
           <div className="responsive-modal bg-slate-900/40 backdrop-blur-[1px]">
             <div className="responsive-modal-panel max-w-lg border-slate-200">
               <h2 className="text-lg font-semibold text-slate-900">{editOrig?.isApproved ? 'Editar usuario' : 'Revisar solicitud'}</h2>
@@ -898,7 +909,7 @@ export default function AdminUsersPage() {
           </div>
         )}
 
-        {biometricUser && (
+        {canUpdate && biometricUser && (
           <div className="responsive-modal bg-slate-900/40 backdrop-blur-[1px]">
             <div className="responsive-modal-panel max-w-xl border-slate-200">
               <div className="mb-4 flex items-start justify-between gap-3">
@@ -923,6 +934,6 @@ export default function AdminUsersPage() {
           </div>
         )}
       </main>
-    </RoleGuard>
+    </>
   )
 }

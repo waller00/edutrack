@@ -320,7 +320,7 @@ export default function AdminStudentsPage() {
   }
 
   return (
-    <RoleGuard permission="students.manage">
+    <RoleGuard permission="students.manage" permissionScope="all">
       <main className="responsive-page max-w-[1600px] space-y-5">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-center gap-4">

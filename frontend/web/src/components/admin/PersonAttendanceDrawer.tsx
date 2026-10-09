@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import AttendanceHeatmap from '@/components/admin/AttendanceHeatmap'
@@ -84,6 +86,8 @@ export default function PersonAttendanceDrawer({
   onClose,
   onJustified,
 }: Props) {
+  const me = useOptionalAuth()?.me
+  const canUpdate = hasPermission(me, 'attendance.update', 'all')
   const [portalReady, setPortalReady] = useState(false)
   const [loading, setLoading] = useState(true)
   const [person, setPerson] = useState<AttendanceSummaryPerson | null>(null)
@@ -182,17 +186,17 @@ export default function PersonAttendanceDrawer({
         <div>
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-700">Detalle ({person.rows.length})</h3>
-            <button
+            {canUpdate && <button
               type="button"
               onClick={() => setShowJustify((v) => !v)}
               disabled={stats.ausenteNoJustificado === 0 && !includeLate}
               className="btn-secondary text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
               Justificar rango
-            </button>
+            </button>}
           </div>
 
-          {showJustify ? (
+          {canUpdate && showJustify ? (
             <JustifyRangeForm
               range={range}
               reason={reason}

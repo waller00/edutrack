@@ -164,7 +164,7 @@ export default function AdminSystemSettingsPage() {
   }
 
   return (
-    <RoleGuard permission="settings.manage">
+    <RoleGuard permission="settings.manage" permissionScope="all">
       <main className="responsive-page max-w-5xl space-y-4">
         <header className="flex items-start gap-3">
           <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">

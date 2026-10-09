@@ -1,8 +1,10 @@
+import { useOptionalAuth } from '@/contexts/AuthContext'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PersonAttendanceDrawer from './PersonAttendanceDrawer'
 import { api } from '@/lib/api/client'
 
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: vi.fn(() => ({ me: { permissions: [{ id: 'attendance.update', scope: 'all' }] } })) }))
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 const mockedApi = vi.mocked(api)
 
@@ -85,4 +87,12 @@ describe('PersonAttendanceDrawer', () => {
     )
     await waitFor(() => expect(onJustified).toHaveBeenCalled())
   })
+})
+
+it('muestra el resumen sin justificación para un perfil de consulta', async () => {
+  vi.mocked(useOptionalAuth).mockReturnValue({ me: { role: 'CONSULTA', permissions: [{ id: 'attendance.read', scope: 'all' }] }, loading: false, error: false, refresh: vi.fn() })
+  mockedApi.mockResolvedValue(summary as never)
+  render(<PersonAttendanceDrawer userId="u1" userName="Ada" from="2026-01-01" to="2026-05-31" onClose={() => {}} />)
+  expect(await screen.findByText('75%')).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Justificar rango' })).not.toBeInTheDocument()
 })

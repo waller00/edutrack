@@ -45,6 +45,11 @@ describe('Home page', () => {
         name: 'Ada',
         email: 'ada@example.com',
         role: 'ADMIN',
+        permissions: [
+          { id: 'analytics.read', scope: 'all' },
+          { id: 'attendance.read', scope: 'all' },
+          { id: 'events.read', scope: 'all' },
+        ],
         emailVerifiedAt: null,
         isApproved: true,
         isActive: true,
@@ -70,9 +75,15 @@ describe('Home page', () => {
     expect(await screen.findByText('Resumen del día')).toBeInTheDocument()
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
     expect(screen.getByText('Agenda')).toBeInTheDocument()
-    expect(await screen.findByText('Sin incidencias para revisar')).toBeInTheDocument()
-    expect(screen.queryByText(/No hay clases para mostrar/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/No hay actividad relevante/i)).not.toBeInTheDocument()
+    expect(
+      await screen.findByText('Sin incidencias para revisar'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/No hay clases para mostrar/i),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/No hay actividad relevante/i),
+    ).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^Clases/i }))
     expect(screen.getByText(/No hay clases para mostrar/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^Actividad/i }))
@@ -81,7 +92,9 @@ describe('Home page', () => {
     fireEvent.click(screen.getByRole('button', { name: /reenviar correo/i }))
 
     await waitFor(() =>
-      expect(api).toHaveBeenCalledWith('/auth/verify/resend', { method: 'POST' })
+      expect(api).toHaveBeenCalledWith('/auth/verify/resend', {
+        method: 'POST',
+      }),
     )
     expect(screen.getByRole('button', { name: /enviado/i })).toBeDisabled()
   })
@@ -92,6 +105,11 @@ describe('Home page', () => {
         name: 'Ada',
         email: 'ada@example.com',
         role: 'ADMIN',
+        permissions: [
+          { id: 'analytics.read', scope: 'all' },
+          { id: 'attendance.read', scope: 'all' },
+          { id: 'events.read', scope: 'all' },
+        ],
         emailVerifiedAt: '2026-01-01',
         isApproved: true,
         isActive: true,
@@ -108,7 +126,9 @@ describe('Home page', () => {
           unidentifiedPunches: 1,
         },
         filters: {
-          teachers: [{ id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' }],
+          teachers: [
+            { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+          ],
           groups: [{ id: 'g1', name: '1°A' }],
           statuses: [{ value: 'PRESENT', label: 'Presente' }],
           types: [
@@ -128,7 +148,11 @@ describe('Home page', () => {
             statusLabel: 'Registrado',
             title: 'Jorge Daniel Marrero Peiran registró entrada por huella',
             detail: 'Marcación biométrica',
-            teacher: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            teacher: {
+              id: 'u1',
+              name: 'Jorge Daniel Marrero Peiran',
+              email: 'j@e.com',
+            },
             group: null,
             event: null,
           },
@@ -140,7 +164,11 @@ describe('Home page', () => {
             statusLabel: 'Presente',
             title: 'Matemática 1°A - Jorge Daniel Marrero Peiran',
             detail: 'Clase vinculada a marcación biométrica',
-            teacher: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            teacher: {
+              id: 'u1',
+              name: 'Jorge Daniel Marrero Peiran',
+              email: 'j@e.com',
+            },
             group: { id: 'g1', name: '1°A' },
             event: { id: 'ev-1', title: 'Matemática' },
           },
@@ -152,7 +180,11 @@ describe('Home page', () => {
             statusLabel: 'Libre',
             title: 'Jorge Daniel Marrero Peiran tiene puente libre',
             detail: 'Hasta 10:15',
-            teacher: { id: 'u1', name: 'Jorge Daniel Marrero Peiran', email: 'j@e.com' },
+            teacher: {
+              id: 'u1',
+              name: 'Jorge Daniel Marrero Peiran',
+              email: 'j@e.com',
+            },
             group: null,
             event: null,
           },
@@ -179,24 +211,45 @@ describe('Home page', () => {
     expect(screen.queryByText('Clases del día')).not.toBeInTheDocument()
     expect(screen.queryByText('Actividad reciente')).not.toBeInTheDocument()
     expect(screen.getByText('Ausencia en Historia 2°B')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Revisar' })).toHaveAttribute('href', '/admin/attendance')
+    expect(screen.getByRole('link', { name: 'Revisar' })).toHaveAttribute(
+      'href',
+      '/admin/attendance',
+    )
 
     fireEvent.click(screen.getByRole('button', { name: /^Clases/i }))
     expect(screen.queryByText('Necesita tu atención')).not.toBeInTheDocument()
     expect(screen.getAllByText('Matemática 1°A')[0]).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^Actividad/i }))
-    expect(screen.getByText('Jorge Daniel Marrero Peiran registró entrada por huella')).toBeInTheDocument()
-    expect(screen.getAllByText('Hay una ausencia pendiente de justificar: Historia 2°B')[0]).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Jorge Daniel Marrero Peiran registró entrada por huella',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText(
+        'Hay una ausencia pendiente de justificar: Historia 2°B',
+      )[0],
+    ).toBeInTheDocument()
     expect(screen.getAllByText('Pendiente')[0]).toBeInTheDocument()
-    expect(screen.queryByText('Jorge Daniel Marrero Peiran tiene puente libre')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Jorge Daniel Marrero Peiran tiene puente libre'),
+    ).not.toBeInTheDocument()
     const filters = screen.getByText(/Filtrar resumen/).closest('details')!
     expect(filters).not.toHaveAttribute('open')
     fireEvent.click(screen.getByText(/Filtrar resumen/))
-    expect(screen.getByRole('option', { name: 'Todos los movimientos' })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'Puente libre' })).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('option', { name: 'Todos los movimientos' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('option', { name: 'Puente libre' }),
+    ).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /ver bloques libres/i }))
-    expect(screen.getByText('Jorge Daniel Marrero Peiran tiene puente libre')).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: /ver bloques libres/i }),
+    )
+    expect(
+      screen.getByText('Jorge Daniel Marrero Peiran tiene puente libre'),
+    ).toBeInTheDocument()
   })
 
   it('en "Clases del día" cada clase dice si la lista de alumnos se pasó', async () => {
@@ -218,7 +271,12 @@ describe('Home page', () => {
         emailVerifiedAt: '2026-01-01',
         isApproved: true,
         isActive: true,
-        permissions: [{ id: 'student-attendance.take', scope: 'all' }],
+        permissions: [
+          { id: 'analytics.read', scope: 'all' },
+          { id: 'attendance.read', scope: 'all' },
+          { id: 'events.read', scope: 'all' },
+          { id: 'student-attendance.take', scope: 'all' },
+        ],
       })
       .mockResolvedValueOnce({
         date: '2026-05-24',
@@ -243,7 +301,11 @@ describe('Home page', () => {
             teacher: { id: 'u1', name: 'Ana Pérez' },
             group: { id: 'g1', name: '1°A' },
             event: { id: 'ev-1', title: 'Matemática' },
-            rollCall: rollCall('ev-1', { status: 'TAKEN', takenAt: '2026-05-24T11:07:00.000Z', takenBy: 'Ana Pérez' }),
+            rollCall: rollCall('ev-1', {
+              status: 'TAKEN',
+              takenAt: '2026-05-24T11:07:00.000Z',
+              takenBy: 'Ana Pérez',
+            }),
           },
           {
             id: 'class:ev-2_2026-05-24',
@@ -264,7 +326,9 @@ describe('Home page', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /^Clases/i }))
 
-    expect(screen.getByText('Lista pasada 08:07 · Ana Pérez')).toBeInTheDocument()
+    expect(
+      screen.getByText('Lista pasada 08:07 · Ana Pérez'),
+    ).toBeInTheDocument()
     expect(screen.getByText('Lista sin pasar')).toBeInTheDocument()
     expect(screen.getByText('Listas pasadas: 1 de 2.')).toBeInTheDocument()
     const links = screen.getAllByRole('link', { name: 'Ver lista' })
@@ -277,29 +341,51 @@ describe('Home page', () => {
   it('keeps full incident counts and lets users expand the short preview', async () => {
     vi.mocked(api)
       .mockResolvedValueOnce({
-        name: 'Ada', role: 'ADMIN', emailVerifiedAt: '2026-01-01', isApproved: true, isActive: true,
+        name: 'Ada',
+        role: 'ADMIN',
+        permissions: [
+          { id: 'analytics.read', scope: 'all' },
+          { id: 'attendance.read', scope: 'all' },
+          { id: 'events.read', scope: 'all' },
+        ],
+        emailVerifiedAt: '2026-01-01',
+        isApproved: true,
+        isActive: true,
       })
       .mockResolvedValueOnce({
         date: '2026-05-24',
         summary: {
-          expectedTeachers: 8, presentTeachers: 0, lateArrivals: 0, pendingAbsences: 8,
-          suspendedClasses: 0, outOfSchedulePunches: 0, unidentifiedPunches: 0,
+          expectedTeachers: 8,
+          presentTeachers: 0,
+          lateArrivals: 0,
+          pendingAbsences: 8,
+          suspendedClasses: 0,
+          outOfSchedulePunches: 0,
+          unidentifiedPunches: 0,
         },
         filters: { teachers: [], groups: [], statuses: [], types: [] },
         items: Array.from({ length: 8 }, (_, index) => ({
-          id: `absence:${index}`, time: `${String(8 + index).padStart(2, '0')}:00`,
-          type: 'PENDING_ABSENCE', status: 'PENDING', statusLabel: 'Pendiente',
-          title: `Clase ${index}`, teacher: { id: `u${index}`, name: `Docente ${index}` },
+          id: `absence:${index}`,
+          time: `${String(8 + index).padStart(2, '0')}:00`,
+          type: 'PENDING_ABSENCE',
+          status: 'PENDING',
+          statusLabel: 'Pendiente',
+          title: `Clase ${index}`,
+          teacher: { id: `u${index}`, name: `Docente ${index}` },
           event: { id: `event${index}`, title: `Clase ${index}` },
         })),
       })
 
     renderHome()
 
-    expect(await screen.findByRole('button', { name: 'Pendientes 8' })).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      await screen.findByRole('button', { name: 'Pendientes 8' }),
+    ).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getAllByRole('listitem')).toHaveLength(5)
     expect(screen.getByText('5 de 8 registros')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ver todos los registros' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ver todos los registros' }),
+    )
     expect(screen.getAllByRole('listitem')).toHaveLength(8)
     fireEvent.click(screen.getByRole('button', { name: 'Mostrar menos' }))
     expect(screen.getAllByRole('listitem')).toHaveLength(5)
@@ -309,19 +395,32 @@ describe('Home page', () => {
   it('shows only the nearest activities for teachers, with access to the full agenda', async () => {
     vi.mocked(api)
       .mockResolvedValueOnce({
-        id: 'teacher1', name: 'Eva', role: 'TEACHER', emailVerifiedAt: '2026-01-01', isApproved: true, isActive: true,
+        id: 'teacher1',
+        name: 'Eva',
+        role: 'TEACHER',
+        permissions: [{ id: 'events.read', scope: 'own' }],
+        emailVerifiedAt: '2026-01-01',
+        isApproved: true,
+        isActive: true,
       })
-      .mockResolvedValueOnce(Array.from({ length: 6 }, (_, index) => ({
-        id: `event${index}`, title: `Actividad ${index}`, type: 'CLASS', status: 'SCHEDULED',
-        startDate: `2026-10-${String(9 + index).padStart(2, '0')}T12:00:00Z`,
-      })))
+      .mockResolvedValueOnce(
+        Array.from({ length: 6 }, (_, index) => ({
+          id: `event${index}`,
+          title: `Actividad ${index}`,
+          type: 'CLASS',
+          status: 'SCHEDULED',
+          startDate: `2026-10-${String(9 + index).padStart(2, '0')}T12:00:00Z`,
+        })),
+      )
 
     renderHome()
 
     expect(await screen.findByText('Actividad 0')).toBeInTheDocument()
     expect(screen.getAllByRole('listitem')).toHaveLength(4)
     expect(screen.queryByText('Actividad 4')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Ver agenda completa/i })).toHaveAttribute('href', '/me/events')
+    expect(
+      screen.getByRole('link', { name: /Ver agenda completa/i }),
+    ).toHaveAttribute('href', '/me/events')
   })
 
   it('shows the profile completion state instead of role sections', async () => {
@@ -338,7 +437,9 @@ describe('Home page', () => {
     renderHome()
 
     expect(await screen.findByText('Perfil incompleto')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /completar perfil/i })).toHaveAttribute('href', '/onboarding')
+    expect(
+      screen.getByRole('link', { name: /completar perfil/i }),
+    ).toHaveAttribute('href', '/onboarding')
     expect(screen.queryByText('Mis asistencias')).not.toBeInTheDocument()
   })
 
@@ -354,9 +455,138 @@ describe('Home page', () => {
 
     renderHome()
 
-    expect(await screen.findByText('Cuenta pendiente de aprobación')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Cuenta pendiente de aprobación'),
+    ).toBeInTheDocument()
     expect(screen.getByText('Cuenta dada de baja')).toBeInTheDocument()
-    expect(screen.getByText('Tu cuenta está desactivada y no puede usar módulos operativos.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Tu cuenta está desactivada y no puede usar módulos operativos.',
+      ),
+    ).toBeInTheDocument()
     expect(screen.queryByText('Ver asistencias')).not.toBeInTheDocument()
   })
+})
+
+const ownModules = ['events.read', 'attendance.read', 'licenses.read'].map(
+  (id) => ({ id, scope: 'own' }),
+)
+const schoolRead = { id: 'courses.read', scope: 'all' }
+const rolePermissions = [
+  {
+    role: 'TEACHER',
+    permissions: [
+      ...ownModules,
+      schoolRead,
+      { id: 'gradebook.read', scope: 'own' },
+    ],
+  },
+  {
+    role: 'STAFF',
+    permissions: [
+      ...ownModules,
+      schoolRead,
+      { id: 'gradebook.read', scope: 'own' },
+    ],
+  },
+  {
+    role: 'ADSCRIPTO',
+    permissions: [
+      ...ownModules,
+      schoolRead,
+      { id: 'gradebook.read', scope: 'all' },
+      { id: 'gradebook.review', scope: 'all' },
+    ],
+  },
+  {
+    role: 'DIRECCION',
+    permissions: [
+      ...ownModules,
+      schoolRead,
+      { id: 'gradebook.read', scope: 'all' },
+      { id: 'academic-analytics.read', scope: 'all' },
+    ],
+  },
+  {
+    role: 'INSPECCION',
+    permissions: [
+      schoolRead,
+      { id: 'gradebook.read', scope: 'all' },
+      { id: 'academic-analytics.read', scope: 'all' },
+    ],
+  },
+  { role: 'COORDINADOR', permissions: [schoolRead] },
+]
+it.each(rolePermissions)(
+  'muestra un inicio útil y solo sus módulos para $role',
+  async ({ role, permissions }) => {
+    const calls = vi.mocked(api)
+    calls.mockReset()
+    calls.mockImplementation(async (url) =>
+      url === '/auth/me'
+        ? ({
+            id: 'u1',
+            name: 'Ana',
+            role,
+            permissions,
+            isActive: true,
+            isApproved: true,
+            emailVerifiedAt: '2026-01-01',
+          } as never)
+        : ([] as never),
+    )
+    renderHome()
+    expect(
+      await screen.findByRole('region', { name: 'Accesos rápidos' }),
+    ).toBeVisible()
+    expect(screen.getByRole('link', { name: /Cursos/ })).toHaveAttribute(
+      'href',
+      '/admin/courses',
+    )
+    const withOwn = permissions.some((item) => item.id === 'attendance.read')
+    expect(
+      Boolean(screen.queryByRole('link', { name: /Mis asistencias/ })),
+    ).toBe(withOwn)
+    const withAnalytics = permissions.some(
+      (item) => item.id === 'academic-analytics.read',
+    )
+    expect(
+      Boolean(screen.queryByRole('link', { name: /Inteligencia académica/ })),
+    ).toBe(withAnalytics)
+    expect(
+      calls.mock.calls.some(([url]) =>
+        url.startsWith('/analytics/attendance-timeline'),
+      ),
+    ).toBe(false)
+    await waitFor(() =>
+      expect(
+        calls.mock.calls.some(([url]) => url.startsWith('/events/my-events')),
+      ).toBe(permissions.some((item) => item.id === 'events.read')),
+    )
+  },
+)
+it('un perfil personalizado con indicadores no recibe enlaces a módulos que no puede consultar', async () => {
+  vi.mocked(api).mockReset()
+  vi.mocked(api).mockImplementation(async (url) =>
+    url === '/auth/me'
+      ? ({
+          id: 'u1',
+          role: 'AUDITOR',
+          permissions: [{ id: 'analytics.read', scope: 'all' }],
+          isActive: true,
+          isApproved: true,
+        } as never)
+      : ({
+          date: '2026-10-09',
+          summary: { expectedTeachers: 0, presentTeachers: 0 },
+          items: [],
+          filters: { teachers: [], groups: [], statuses: [], types: [] },
+        } as never),
+  )
+  renderHome()
+  await screen.findByText('Resumen del día')
+  expect(
+    screen.queryByRole('link', { name: 'Asistencias' }),
+  ).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Agenda' })).not.toBeInTheDocument()
 })

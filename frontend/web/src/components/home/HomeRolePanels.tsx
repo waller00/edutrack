@@ -648,6 +648,8 @@ export function HomeAdminTimeline() {
   const me = useOptionalAuth()?.me ?? null
   const now = useNow(60_000)
   // La planilla de otro docente sólo la abre quien pasa lista con alcance total.
+  const canReadAttendance = hasPermission(me, 'attendance.read', 'all')
+  const canReadEvents = hasPermission(me, 'events.read', 'all')
   const canOpenRollCall = hasPermission(me, 'student-attendance.take', 'all')
   const requestId = useRef(0)
   const [loading, setLoading] = useState(true)
@@ -724,20 +726,20 @@ export function HomeAdminTimeline() {
 
   const action = (
     <div className="flex flex-wrap gap-2">
-      <a
+      {canReadAttendance && <a
         href="/admin/attendance"
         className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3.5 py-2 text-sm font-medium text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/80"
       >
         Asistencias
         <ChevronRight className="h-4 w-4 opacity-80" aria-hidden />
-      </a>
-      <a
+      </a>}
+      {canReadEvents && <a
         href="/admin/events"
         className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3.5 py-2 text-sm font-medium text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/80"
       >
         Agenda
         <ChevronRight className="h-4 w-4 opacity-80" aria-hidden />
-      </a>
+      </a>}
     </div>
   )
 
@@ -876,7 +878,7 @@ export function HomeAdminTimeline() {
                             <span className="font-medium tabular-nums text-slate-700">{timelineDisplayTime(item)}</span>
                             {item.group && item.type !== 'PENDING_ABSENCE' ? <span>{item.group.name}</span> : null}
                             {item.detail ? <span className="break-words">{item.detail}</span> : null}
-                            <Link href={item.type === 'SUBSTITUTION' || item.type === 'SUSPENDED_CLASS' ? '/admin/events' : '/admin/attendance'} className="font-semibold text-emerald-700 hover:underline">Revisar<ChevronRight className="ml-0.5 inline h-3 w-3" aria-hidden /></Link>
+                            {((item.type === 'SUBSTITUTION' || item.type === 'SUSPENDED_CLASS') ? canReadEvents : canReadAttendance) && <Link href={item.type === 'SUBSTITUTION' || item.type === 'SUSPENDED_CLASS' ? '/admin/events' : '/admin/attendance'} className="font-semibold text-emerald-700 hover:underline">Revisar<ChevronRight className="ml-0.5 inline h-3 w-3" aria-hidden /></Link>}
                           </div>
                         </div>
                       </li>
@@ -902,9 +904,9 @@ export function HomeAdminTimeline() {
                       ) : null}
                     </p>
                   </div>
-                  <a href="/admin/events" className="text-xs font-semibold text-emerald-700 hover:underline">
+                  {canReadEvents && <a href="/admin/events" className="text-xs font-semibold text-emerald-700 hover:underline">
                     Ver agenda
-                  </a>
+                  </a>}
                 </div>
                 {classItems.length === 0 ? (
                   <div className="px-4 py-8 text-sm text-slate-500">No hay clases para mostrar con estos filtros.</div>
@@ -985,12 +987,12 @@ export function HomeAdminTimeline() {
                         <span className="font-medium tabular-nums text-slate-700">{timelineDisplayTime(item)}</span>
                         {item.teacher ? <span>{timelineTeacherName(item)}</span> : null}
                         {item.group ? <span>{item.group.name}</span> : null}
-                        {item.type === 'SUBSTITUTION' ? (
+                        {item.type === 'SUBSTITUTION' && canReadEvents ? (
                           <Link href="/admin/events" className="font-medium text-indigo-700 hover:underline">
                             Ver agenda
                           </Link>
                         ) : null}
-                        {item.status === 'PENDING' || item.type === 'PENDING_ABSENCE' ? (
+                        {canReadAttendance && (item.status === 'PENDING' || item.type === 'PENDING_ABSENCE') ? (
                           <Link href="/admin/attendance" className="font-medium text-emerald-700 hover:underline">
                             Gestionar asistencias
                           </Link>
@@ -1266,7 +1268,7 @@ export function HomeAdminUpcomingEvents() {
   )
 }
 
-export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAFF'; userId?: string }) {
+export function HomeUpcomingSchedule({ role, userId }: { role: string; userId?: string }) {
   const [events, setEvents] = useState<AssignedEventRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
@@ -1328,7 +1330,7 @@ export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAF
 
   return (
     <HomePanelShell
-      title={role === 'TEACHER' ? 'Tus próximas clases' : 'Tus próximos turnos'}
+      title={role === 'TEACHER' ? 'Tus próximas clases' : role === 'STAFF' ? 'Tus próximos turnos' : 'Tus próximas actividades'}
       subtitle="Las actividades más cercanas. Consultá el resto en tu agenda."
       icon={<Calendar className="h-6 w-6" strokeWidth={2} aria-hidden />}
       action={action}

@@ -1,5 +1,7 @@
 'use client'
 import PaginationControls from '@/components/common/PaginationControls'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import RoleGuard from '@/components/auth/RoleGuard'
 import DateRangePicker from '@/components/forms/DateRangePicker'
 import AttendanceExportMenu from '@/components/admin/AttendanceExportMenu'
@@ -321,7 +323,7 @@ function getSelectableIdsForRows(rows: AttendancePairRow[]): string[] {
 function renderAttendanceMark(
   attendance: DisplayAttendanceRecord | undefined,
   fallback: string,
-  onEdit: (attendance: AttendanceRecord) => void,
+  onEdit: ((attendance: AttendanceRecord) => void) | undefined,
 ) {
   if (!attendance) {
     return <span className="text-sm text-gray-400">{fallback}</span>
@@ -340,7 +342,7 @@ function renderAttendanceMark(
       <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getAdminAttendanceStatusStyle(attendance.status)}`}>
         {getAttendanceRowStatusLabel(attendance)}
       </span>
-      {isDerivedAttendanceRow(attendance) ? null : (
+      {isDerivedAttendanceRow(attendance) || !onEdit ? null : (
         <div>
           <button onClick={() => onEdit(attendance)} className="text-sm text-indigo-600 hover:text-indigo-900">
             Editar
@@ -440,9 +442,10 @@ function renderAttendancesTable(
   onToggleSelect: (id: string) => void,
   expandedRowKeys: string[],
   onToggleExpandedRow: (key: string) => void,
-  onEdit: (attendance: AttendanceRecord) => void,
+  onEdit: ((attendance: AttendanceRecord) => void) | undefined,
   allSelected: boolean,
-  onUserClick: (user: AttendanceRecord['user']) => void
+  onUserClick: (user: AttendanceRecord['user']) => void,
+  canSelect: boolean,
 ) {
   if (attendances.length === 0) {
     return <div className="p-4 text-center text-gray-500 sm:p-6">No hay registros de asistencia</div>
@@ -456,12 +459,12 @@ function renderAttendancesTable(
         <thead className="bg-gray-50">
           <tr>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-              <input
+              {canSelect && <input
                 type="checkbox"
                 checked={allSelected}
                 onChange={onToggleSelectAll}
                 aria-label="Seleccionar todas las asistencias"
-              />
+              />}
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuario</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
@@ -489,7 +492,7 @@ function renderAttendancesTable(
                   {!selectable ? (
                     <span className="text-xs text-gray-400">—</span>
                   ) : (
-                    <input
+                    canSelect && <input
                       type="checkbox"
                       checked={selected}
                       onChange={() => {
@@ -539,7 +542,7 @@ function renderAttendancesTable(
 
 function renderAttendanceCards(
   attendances: AttendanceRecord[],
-  onEdit: (attendance: AttendanceRecord) => void,
+  onEdit: ((attendance: AttendanceRecord) => void) | undefined,
   onUserClick: (user: AttendanceRecord['user']) => void,
 ) {
   if (attendances.length === 0) {
@@ -599,6 +602,15 @@ function renderAttendanceCards(
 }
 
 export default function AdminAttendance() {
+  return <RoleGuard permission="attendance.read" permissionScope="all"><AdminAttendanceContent /></RoleGuard>
+}
+
+function AdminAttendanceContent() {
+  const me = useOptionalAuth()?.me
+  const canUpdate = hasPermission(me, 'attendance.update', 'all')
+  const canDelete = hasPermission(me, 'attendance.delete', 'all')
+  const canExport = hasPermission(me, 'exports.create', 'all')
+
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(false)
@@ -1046,7 +1058,7 @@ export default function AdminAttendance() {
   }
 
   return (
-    <RoleGuard permission="attendance.read" permissionScope="all">
+    <>
       <main className="responsive-page max-w-7xl space-y-5">
         {/* Header moderno */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1061,7 +1073,7 @@ export default function AdminAttendance() {
           </div>
           <div className="flex flex-wrap items-center gap-4">
             <span className="text-sm text-slate-500"><strong className="font-semibold tabular-nums text-slate-800">{total}</strong> registros totales</span>
-            <AttendanceExportMenu pending={!!(reportExporting || novedadesExporting)} onAttendance={exportReport} onPayroll={exportNovedades} />
+            {canExport && <AttendanceExportMenu pending={!!(reportExporting || novedadesExporting)} onAttendance={exportReport} onPayroll={exportNovedades} />}
           </div>
         </div>
 
@@ -1483,7 +1495,7 @@ export default function AdminAttendance() {
                 {showLegend ? 'Ocultar leyenda' : 'Ver leyenda'}
               </button>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            {canDelete && <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-gray-500">
                 {selectedAttendanceIds.length === 0
                   ? 'Selecciona registros para eliminarlos'
@@ -1498,7 +1510,7 @@ export default function AdminAttendance() {
                 <Trash2 className="h-4 w-4" aria-hidden />
                 {deletingSelected ? 'Eliminando...' : 'Eliminar seleccionadas'}
               </button>
-            </div>
+            </div>}
           </div>
 
           {showLegend ? (
@@ -1525,14 +1537,15 @@ export default function AdminAttendance() {
                 toggleAttendanceSelection,
                 expandedAttendanceRows,
                 toggleExpandedAttendanceRow,
-                openAttendanceEditor,
+                canUpdate ? openAttendanceEditor : undefined,
                 (() => {
                   const selectableIds = getSelectableIdsForRows(buildAttendancePairRows(attendances))
                   return selectableIds.length > 0 && selectableIds.every((id) => selectedAttendanceIds.includes(id))
                 })(),
                 openPersonDrawer,
+                canDelete,
               )}
-              {renderAttendanceCards(attendances, openAttendanceEditor, openPersonDrawer)}
+              {renderAttendanceCards(attendances, canUpdate ? openAttendanceEditor : undefined, openPersonDrawer)}
             </>
           )}
 
@@ -1540,7 +1553,7 @@ export default function AdminAttendance() {
         </div>
         ) : null}
 
-        {justifyTarget ? (
+        {canUpdate && justifyTarget ? (
           <AttendanceJustifyModal
             attendanceId={justifyTarget.id}
             teacherLabel={justifyTarget.user.name}
@@ -1569,7 +1582,7 @@ export default function AdminAttendance() {
         ) : null}
 
         {/* Modal de edición */}
-        {editing && (
+        {canUpdate && editing && (
           <div className="responsive-modal">
             <div className="responsive-modal-panel max-w-md">
               <h3 className="text-lg font-semibold mb-4">Editar Asistencia</h3>
@@ -1643,6 +1656,6 @@ export default function AdminAttendance() {
           </div>
         )}
       </main>
-    </RoleGuard>
+    </>
   )
 }

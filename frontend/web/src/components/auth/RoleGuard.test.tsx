@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import RoleGuard from '@/components/auth/RoleGuard'
-import { AuthProvider } from '@/contexts/AuthContext'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api/client'
 
 vi.mock('@/lib/api/client', () => ({
@@ -66,7 +66,11 @@ describe('RoleGuard', () => {
       </RoleGuard>,
     )
 
-    await waitFor(() => expect(window.location.href).toBe('/login?returnTo=%2Fadmin%2Fattendance'))
+    await waitFor(() =>
+      expect(window.location.href).toBe(
+        '/login?returnTo=%2Fadmin%2Fattendance',
+      ),
+    )
   })
 
   it('redirects to login when auth lookup fails', async () => {
@@ -78,7 +82,11 @@ describe('RoleGuard', () => {
       </RoleGuard>,
     )
 
-    await waitFor(() => expect(window.location.href).toBe('/login?returnTo=%2Fadmin%2Fattendance'))
+    await waitFor(() =>
+      expect(window.location.href).toBe(
+        '/login?returnTo=%2Fadmin%2Fattendance',
+      ),
+    )
     expect(screen.queryByText('contenido protegido')).not.toBeInTheDocument()
   })
 
@@ -166,5 +174,66 @@ describe('RoleGuard', () => {
 
     expect(await screen.findByText('contenido protegido')).toBeInTheDocument()
     expect(window.location.href).toBe('')
+  })
+})
+
+describe('permisos por perfil', () => {
+  it.each([
+    { permissions: [], permission: 'attendance.read', scope: 'all' as const },
+    {
+      permissions: [{ id: 'attendance.read', scope: 'own' }],
+      permission: 'attendance.read',
+      scope: 'all' as const,
+    },
+    {
+      permissions: [{ id: 'events.read', scope: 'all' }],
+      permission: ['attendance.read', 'licenses.read'],
+      scope: 'own' as const,
+    },
+  ])(
+    'impide montar el contenido sin el permiso y alcance requeridos ($scope)',
+    async ({ permissions, permission, scope }) => {
+      mockLocation()
+      mockedApi.mockResolvedValue({
+        role: 'COORDINADOR',
+        isActive: true,
+        isApproved: true,
+        permissions,
+      } as never)
+      renderGuarded(
+        <RoleGuard permission={permission} permissionScope={scope}>
+          <div>datos reservados</div>
+        </RoleGuard>,
+      )
+      await waitFor(() => expect(window.location.href).toBe('/'))
+      expect(screen.queryByText('datos reservados')).not.toBeInTheDocument()
+    },
+  )
+
+  it('retira el contenido si se revoca el permiso durante la sesión', async () => {
+    mockLocation()
+    const session = { role: 'DIRECCION', isActive: true, isApproved: true }
+    mockedApi
+      .mockResolvedValueOnce({
+        ...session,
+        permissions: [{ id: 'gradebook.read', scope: 'all' }],
+      } as never)
+      .mockResolvedValueOnce({ ...session, permissions: [] } as never)
+    function Refresh() {
+      const { refresh } = useAuth()
+      return <button onClick={() => void refresh()}>Refrescar sesión</button>
+    }
+    renderGuarded(
+      <>
+        <Refresh />
+        <RoleGuard permission="gradebook.read">
+          <div>libretas protegidas</div>
+        </RoleGuard>
+      </>,
+    )
+    await screen.findByText('libretas protegidas')
+    fireEvent.click(screen.getByRole('button', { name: 'Refrescar sesión' }))
+    await waitFor(() => expect(window.location.href).toBe('/'))
+    expect(screen.queryByText('libretas protegidas')).not.toBeInTheDocument()
   })
 })
