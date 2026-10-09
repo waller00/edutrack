@@ -43,7 +43,7 @@ export default function Home() {
 
   return (
     <main
-      className={`mx-auto max-w-3xl space-y-8 px-4 py-6 sm:max-w-4xl sm:px-6 ${
+      className={`mx-auto max-w-3xl space-y-6 px-4 py-6 sm:max-w-4xl sm:px-6 ${
         me.role === 'ADMIN' ? 'lg:max-w-7xl' : 'lg:max-w-5xl'
       }`}
     >
@@ -134,20 +134,22 @@ export default function Home() {
         </div>
       )}
 
-      <header className="relative overflow-hidden rounded-2xl border border-emerald-100/60 bg-white/90 px-5 py-6 shadow-sm ring-1 ring-slate-950/[0.03] sm:px-8 sm:py-7">
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-400"
-          aria-hidden
-        />
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-2 pt-1">
+      <header className="px-1 py-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700/90">Inicio</p>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
               ¡Hola, {me.name || me.email}!
             </h1>
-            <p className="max-w-xl text-sm leading-relaxed text-slate-600">{getWelcomeMessage(inactiveAccount, pendingApproval)}</p>
+            <p className="max-w-xl text-sm leading-relaxed text-slate-600">
+              {canRoleDashboard
+                ? me.role === 'ADMIN'
+                  ? 'Lo esencial del día y lo que necesita tu atención.'
+                  : 'Tu agenda y tus próximos pasos, en un solo lugar.'
+                : getWelcomeMessage(inactiveAccount, pendingApproval)}
+            </p>
           </div>
-          <span className="inline-flex w-fit shrink-0 items-center rounded-full border border-emerald-200/80 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+          <span className="inline-flex w-fit shrink-0 items-center rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
             {me.roleLabel || getRoleLabel(me.role)}
           </span>
         </div>

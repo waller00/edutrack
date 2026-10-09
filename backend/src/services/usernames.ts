@@ -33,8 +33,6 @@ export async function generateUniqueUsername(
   const firstLast = lastParts[0] || "sinapellido";
   const base = `${first}.${firstLast}`.slice(0, 30).replace(/[.-]+$/g, "");
 
-  // Letras del/los apellido(s) restantes para desempatar de a poco:
-  // joaquin.waller → joaquin.waller.p → joaquin.waller.pe → … (apellido "peña").
   const restLetters = lastParts.slice(1).join("");
 
   const candidates = [base];

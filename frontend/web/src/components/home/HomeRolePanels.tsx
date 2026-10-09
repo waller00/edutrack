@@ -1,11 +1,12 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import type { Dispatch, ReactNode, SetStateAction } from 'react'
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Calendar,
+  CheckCircle2,
   ChevronRight,
   ClipboardList,
   Clock,
@@ -14,7 +15,6 @@ import {
   LogIn,
   LogOut,
   MapPin,
-  ShieldAlert,
   User,
   UserCheck,
   UserX,
@@ -221,11 +221,11 @@ function HomePanelShell({
   children: ReactNode
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-emerald-100/70 bg-white shadow-md shadow-emerald-950/[0.04] ring-1 ring-slate-950/[0.04]">
-      <div className="relative border-b border-emerald-100/80 bg-gradient-to-br from-emerald-50/90 via-white to-white px-5 py-5 sm:px-6">
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-600/30">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
               {icon}
             </div>
             <div className="min-w-0 space-y-1">
@@ -236,7 +236,7 @@ function HomePanelShell({
           {action ? <div className="shrink-0 sm:pt-0.5">{action}</div> : null}
         </div>
       </div>
-      <div className="bg-gradient-to-b from-slate-50/40 to-white">{children}</div>
+      <div>{children}</div>
     </section>
   )
 }
@@ -512,11 +512,112 @@ function isBridgeVisible(filters: { teacherId: string; type: string }, showFreeB
   return showFreeBlocks || !!filters.teacherId || filters.type === 'FREE_BRIDGE'
 }
 
+type TimelineFilters = {
+  date: string
+  teacherId: string
+  groupId: string
+  status: string
+  type: string
+}
+
+function HomeTimelineFilters({ data, filters, setFilters, showFreeBlocks, setShowFreeBlocks }: {
+  data: AttendanceTimelineResponse
+  filters: TimelineFilters
+  setFilters: Dispatch<SetStateAction<TimelineFilters>>
+  showFreeBlocks: boolean
+  setShowFreeBlocks: Dispatch<SetStateAction<boolean>>
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-2 border-t border-slate-100 px-4 py-3 sm:grid-cols-2 lg:grid-cols-5">
+      <DateField
+        value={filters.date}
+        onChange={(v) => setFilters((prev) => ({ ...prev, date: v || todayInputValue() }))}
+        className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+        aria-label="Fecha"
+      />
+      <select
+        value={filters.teacherId}
+        onChange={(e) => setFilters((prev) => ({ ...prev, teacherId: e.target.value }))}
+        className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+        aria-label="Docente"
+      >
+        <option value="">Todos los docentes</option>
+        {data.filters.teachers.map((teacher) => (
+          <option key={teacher.id} value={teacher.id}>
+            {teacher.name}
+          </option>
+        ))}
+      </select>
+      <select
+        value={filters.groupId}
+        onChange={(e) => setFilters((prev) => ({ ...prev, groupId: e.target.value }))}
+        className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+        aria-label="Grupo"
+      >
+        <option value="">Todos los grupos</option>
+        {data.filters.groups.map((group) => (
+          <option key={group.id} value={group.id}>
+            {group.name}
+          </option>
+        ))}
+      </select>
+      <select
+        value={filters.status}
+        onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+        className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+        aria-label="Estado"
+      >
+        <option value="">Todos los estados</option>
+        {data.filters.statuses.map((status) => (
+          <option key={status.value} value={status.value}>
+            {status.label}
+          </option>
+        ))}
+      </select>
+      <select
+        value={filters.type}
+        onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
+        className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+        aria-label="Movimiento"
+      >
+        <option value="">Todos los movimientos</option>
+        {data.filters.types.map((type) => (
+          <option key={type.value} value={type.value}>
+            {type.label}
+          </option>
+        ))}
+      </select>
+      <label className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 lg:col-span-5">
+        <input
+          type="checkbox"
+          checked={showFreeBlocks}
+          onChange={(e) => setShowFreeBlocks(e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+        />
+        Ver bloques libres
+      </label>
+      <button
+        type="button"
+        onClick={() => {
+          setFilters({ date: todayInputValue(), teacherId: '', groupId: '', status: '', type: '' })
+          setShowFreeBlocks(false)
+        }}
+        className="justify-self-start text-sm font-semibold text-emerald-700 hover:underline"
+      >
+        Restablecer filtros
+      </button>
+    </div>
+  )
+}
+
 export function HomeAdminTimeline() {
+  const requestId = useRef(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<AttendanceTimelineResponse | null>(null)
   const [showFreeBlocks, setShowFreeBlocks] = useState(false)
+  const [view, setView] = useState<'incidents' | 'classes' | 'activity'>('incidents')
+  const [showAll, setShowAll] = useState(false)
   const [filters, setFilters] = useState({
     date: todayInputValue(),
     teacherId: '',
@@ -526,6 +627,7 @@ export function HomeAdminTimeline() {
   })
 
   const load = useCallback(async () => {
+    const currentRequest = ++requestId.current
     setLoading(true)
     setError(null)
     try {
@@ -535,17 +637,17 @@ export function HomeAdminTimeline() {
       if (filters.status) params.set('status', filters.status)
       if (filters.type) params.set('type', filters.type)
       const res = await api<AttendanceTimelineResponse>(`/analytics/attendance-timeline?${params.toString()}`)
-      setData(res)
+      if (currentRequest === requestId.current) setData(res)
     } catch {
-      setError('No se pudo cargar el inicio operativo.')
-      setData(null)
+      if (currentRequest === requestId.current) setError('No se pudo cargar el resumen del día.')
     } finally {
-      setLoading(false)
+      if (currentRequest === requestId.current) setLoading(false)
     }
   }, [filters])
 
   useEffect(() => {
     void load()
+    return () => { requestId.current += 1 }
   }, [load])
 
   const visibleRawItems = data
@@ -553,69 +655,33 @@ export function HomeAdminTimeline() {
     : []
   // Orden operativo: lo más reciente del día primero (a administración le importa lo último que pasó).
   const compactItems = compactTimelineItems(visibleRawItems).sort((a, b) => timelineMinutes(b) - timelineMinutes(a))
-  const incidentItems = compactItems.filter((item) => INCIDENT_TIMELINE_TYPES.has(item.type)).slice(0, 7)
-  const classItems = compactItems.filter((item) => CLASS_TIMELINE_TYPES.has(item.type)).slice(0, 7)
+  const incidentItems = compactItems.filter((item) => INCIDENT_TIMELINE_TYPES.has(item.type))
+  const classItems = compactItems.filter((item) => CLASS_TIMELINE_TYPES.has(item.type))
   const activityItems = compactItems
     .filter((item) => item.type !== 'CLASS_ATTENDANCE' || item.status !== 'PRESENT' || (item.mergedCount || 1) <= 1 || item.event?.id)
-    .slice(0, 14)
+  const selectedItems = view === 'incidents' ? incidentItems : view === 'classes' ? classItems : activityItems
+  const preview = (items: CompactTimelineItem[]) => showAll ? items : items.slice(0, 5)
+  const hasFilters = !!(filters.date !== todayInputValue() || filters.teacherId || filters.groupId || filters.status || filters.type || showFreeBlocks)
+
+  useEffect(() => {
+    setShowAll(false)
+  }, [view, filters, showFreeBlocks])
   const expectedAbsencesCount =
     data?.summary.expectedAbsences ??
     data?.summary.substitutions ??
     data?.items.filter((item) => item.type === 'SUBSTITUTION' && !item.title.toLowerCase().includes('cubre')).length ??
     0
 
-  const summaryCards = data
-    ? [
-        {
-          label: 'Docentes esperados hoy',
-          value: data.summary.expectedTeachers,
-          tone: 'border-slate-200 bg-white text-slate-900',
-          icon: <User className="h-4 w-4 text-slate-500" aria-hidden />,
-        },
-        {
-          label: 'Docentes presentes',
-          value: data.summary.presentTeachers,
-          tone: 'border-emerald-200 bg-emerald-50/70 text-emerald-900',
-          icon: <UserCheck className="h-4 w-4 text-emerald-700" aria-hidden />,
-        },
-        {
-          label: 'Llegadas tarde',
-          value: data.summary.lateArrivals,
-          tone: 'border-amber-200 bg-amber-50/70 text-amber-900',
-          icon: <Clock className="h-4 w-4 text-amber-700" aria-hidden />,
-        },
-        {
-          label: 'Ausencias pendientes',
-          value: data.summary.pendingAbsences,
-          tone: 'border-red-200 bg-red-50/70 text-red-900',
-          icon: <UserX className="h-4 w-4 text-red-700" aria-hidden />,
-        },
-        {
-          label: 'Ausencias previstas',
-          value: expectedAbsencesCount,
-          tone: 'border-indigo-200 bg-indigo-50/70 text-indigo-900',
-          icon: <UserCheck className="h-4 w-4 text-indigo-700" aria-hidden />,
-        },
-        {
-          label: 'Clases suspendidas',
-          value: data.summary.suspendedClasses,
-          tone: 'border-slate-200 bg-slate-50/80 text-slate-800',
-          icon: <Calendar className="h-4 w-4 text-slate-500" aria-hidden />,
-        },
-        {
-          label: 'Fuera de horario',
-          value: data.summary.outOfSchedulePunches,
-          tone: 'border-orange-200 bg-orange-50/70 text-orange-900',
-          icon: <ShieldAlert className="h-4 w-4 text-orange-700" aria-hidden />,
-        },
-        {
-          label: 'No identificadas',
-          value: data.summary.unidentifiedPunches,
-          tone: 'border-rose-200 bg-rose-50/70 text-rose-900',
-          icon: <AlertTriangle className="h-4 w-4 text-rose-700" aria-hidden />,
-        },
-      ]
-    : []
+  const primaryCards = data ? [
+    { label: 'Ausencias pendientes', value: data.summary.pendingAbsences, icon: <UserX className="h-4 w-4 text-amber-700" aria-hidden /> },
+    { label: 'Llegadas tarde', value: data.summary.lateArrivals, icon: <Clock className="h-4 w-4 text-amber-700" aria-hidden /> },
+  ] : []
+  const secondaryCards = data ? [
+    { label: 'Ausencias previstas', value: expectedAbsencesCount },
+    { label: 'Clases suspendidas', value: data.summary.suspendedClasses },
+    { label: 'Fuera de horario', value: data.summary.outOfSchedulePunches },
+    { label: 'No identificadas', value: data.summary.unidentifiedPunches },
+  ] : []
 
   const action = (
     <div className="flex flex-wrap gap-2">
@@ -638,31 +704,52 @@ export function HomeAdminTimeline() {
 
   return (
     <HomePanelShell
-      title="Inicio operativo"
-      subtitle="Estado del día, incidencias que requieren atención y actividad reciente de asistencia."
+      title="Resumen del día"
+      subtitle="Pendientes, clases y movimientos del día."
       icon={<ClipboardList className="h-6 w-6" strokeWidth={2} aria-hidden />}
       action={action}
     >
       <div className="space-y-5 p-4 sm:p-5">
-        {data ? (
+        {data && !loading && !error ? (
           <section aria-labelledby="daily-summary-title" className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <h2 id="daily-summary-title" className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                Resumen del día
-              </h2>
-              <span className="text-xs font-medium tabular-nums text-slate-500">{data.date}</span>
+              <h3 id="daily-summary-title" className="text-sm font-medium text-slate-600">
+                Asistencia del personal
+              </h3>
+              <span className="text-xs font-medium tabular-nums text-slate-500">{formatDateInUruguay(`${data.date}T12:00:00-03:00`)}</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-              {summaryCards.map((card) => (
-                <div key={card.label} className={`rounded-lg border px-3 py-3 shadow-sm ${card.tone}`}>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 sm:col-span-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-slate-600">Docentes presentes</span>
+                  <UserCheck className="h-4 w-4 text-emerald-600" aria-hidden />
+                </div>
+                <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">
+                  {data.summary.presentTeachers}
+                  <span className="ml-2 text-sm font-normal text-slate-500">de {data.summary.expectedTeachers} esperados</span>
+                </p>
+              </div>
+              {primaryCards.map((card) => (
+                <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xl font-bold tabular-nums">{card.value}</div>
+                    <span className="text-sm font-medium text-slate-600">{card.label}</span>
                     {card.icon}
                   </div>
-                  <div className="mt-1 text-[11px] font-medium leading-tight text-slate-600">{card.label}</div>
+                  <div className={`mt-2 text-3xl font-semibold tabular-nums ${card.value > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{card.value}</div>
                 </div>
               ))}
             </div>
+            <details className="group rounded-lg border border-slate-100">
+              <summary className="cursor-pointer rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">Más indicadores</summary>
+              <dl className="grid gap-3 border-t border-slate-100 p-3 sm:grid-cols-2 lg:grid-cols-4">
+                {secondaryCards.map((card) => (
+                  <div key={card.label} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                    <dt className="text-xs text-slate-600">{card.label}</dt>
+                    <dd className="text-sm font-semibold tabular-nums text-slate-900">{card.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
           </section>
         ) : null}
 
@@ -672,102 +759,145 @@ export function HomeAdminTimeline() {
             <span className="text-sm">Cargando inicio…</span>
           </div>
         )}
-        {!loading && error && <EmptyState message={error} />}
+        {!loading && error && (
+          <div role="alert" className="py-6 text-center">
+            <p className="text-sm text-slate-600">{error}</p>
+            <button type="button" onClick={() => void load()} className="btn-secondary mt-3 text-sm">Volver a intentar</button>
+          </div>
+        )}
+
+        {data && (
+          <details className="rounded-xl border border-slate-200">
+            <summary className="cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">
+              <span className="ml-1 inline-flex items-center gap-2"><Filter className="h-4 w-4" aria-hidden />Filtrar resumen{hasFilters ? ' · Filtros activos' : ''}</span>
+            </summary>
+            <HomeTimelineFilters data={data} filters={filters} setFilters={setFilters} showFreeBlocks={showFreeBlocks} setShowFreeBlocks={setShowFreeBlocks} />
+          </details>
+        )}
 
         {!loading && !error && data ? (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-            <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="today-incidents-title">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                <div>
-                  <h2 id="today-incidents-title" className="text-base font-semibold text-slate-900">
-                    Incidencias de hoy
-                  </h2>
-                  <p className="text-xs text-slate-500">Primero lo que requiere acción administrativa.</p>
+          <div className="space-y-4">
+            <div role="group" aria-label="Vista del resumen" className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+              {([
+                { id: 'incidents', label: 'Pendientes', count: incidentItems.length },
+                { id: 'classes', label: 'Clases', count: classItems.length },
+                { id: 'activity', label: 'Actividad', count: activityItems.length },
+              ] as const).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={view === option.id}
+                  onClick={() => setView(option.id)}
+                  className={`flex min-h-11 items-center justify-center gap-1 rounded-lg px-1 py-2 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 sm:gap-1.5 sm:px-2 sm:text-sm ${view === option.id ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-600 hover:bg-white/60'}`}
+                >
+                  {option.label}{' '}<span className="rounded-md bg-slate-100 px-1.5 text-xs tabular-nums text-slate-500">{option.count}</span>
+                </button>
+              ))}
+            </div>
+            {view === 'incidents' && (
+              <section className="rounded-xl border border-slate-200 bg-white" aria-labelledby="today-incidents-title">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                  <div>
+                    <h2 id="today-incidents-title" className="text-base font-semibold text-slate-900">
+                      Necesita tu atención
+                    </h2>
+                    <p className="text-xs text-slate-500">Incidencias de la fecha seleccionada.</p>
+                  </div>
+                  <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-red-700 ring-1 ring-red-100">
+                    {incidentItems.length}
+                  </span>
                 </div>
-                <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-red-700 ring-1 ring-red-100">
-                  {incidentItems.length}
-                </span>
-              </div>
-              {incidentItems.length === 0 ? (
-                <div className="px-4 py-8 text-sm text-slate-500">No hay incidencias relevantes para este día.</div>
-              ) : (
-                <ul className="divide-y divide-slate-100" role="list">
-                  {incidentItems.map((item) => (
-                    <li key={item.id} className="flex gap-3 px-4 py-3.5">
-                      <div
-                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white ${iconToneForTimelineType(item.type)}`}
-                        title={item.statusLabel}
-                      >
-                        {iconForTimelineType(item.type)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{humanTimelineTitle(item)}</p>
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
-                            {item.statusLabel}
-                          </span>
+                {incidentItems.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+                    <CheckCircle2 className="h-8 w-8 text-emerald-600" aria-hidden />
+                    <p className="text-sm font-semibold text-slate-800">Sin incidencias para revisar</p>
+                    <p className="text-sm text-slate-500">Podés consultar las clases o la actividad del día.</p>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-slate-100" role="list">
+                    {preview(incidentItems).map((item) => (
+                      <li key={item.id} className="flex gap-3 px-4 py-3.5">
+                        <div
+                          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white ${iconToneForTimelineType(item.type)}`}
+                          title={item.statusLabel}
+                        >
+                          {iconForTimelineType(item.type)}
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                          <span className="font-medium tabular-nums text-slate-700">{timelineDisplayTime(item)}</span>
-                          {item.group ? <span>{item.group.name}</span> : null}
-                          {item.detail ? <span className="break-words">{item.detail}</span> : null}
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="today-classes-title">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                <div>
-                  <h2 id="today-classes-title" className="text-base font-semibold text-slate-900">
-                    Clases en curso y próximas
-                  </h2>
-                  <p className="text-xs text-slate-500">Bloques docentes relevantes del día.</p>
-                </div>
-                <a href="/admin/events" className="text-xs font-semibold text-emerald-700 hover:underline">
-                  Ver agenda
-                </a>
-              </div>
-              {classItems.length === 0 ? (
-                <div className="px-4 py-8 text-sm text-slate-500">No hay clases para mostrar con estos filtros.</div>
-              ) : (
-                <ul className="divide-y divide-slate-100" role="list">
-                  {classItems.map((item) => (
-                    <li key={item.id} className="px-4 py-3.5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 space-y-1">
+                        <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="break-words text-sm font-semibold text-slate-900">{timelineClassName(item)}</h3>
+                            <p className="min-w-0 break-words text-sm font-semibold text-slate-900">
+                              {item.type === 'PENDING_ABSENCE' ? `Ausencia en ${timelineClassName(item)}` : humanTimelineTitle(item)}
+                            </p>
                             <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
                               {item.statusLabel}
                             </span>
                           </div>
-                          <p className="truncate text-sm text-slate-600">
-                            <span className="text-slate-400">Docente · </span>
-                            {timelineTeacherName(item)}
-                          </p>
-                          <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                            {item.group ? <span>{item.group.name}</span> : null}
-                            {item.type === 'SUBSTITUTION' && item.status === 'SUBSTITUTED' ? <span>Cubierta por suplencia</span> : null}
-                            {item.type === 'PENDING_ABSENCE' ? <span>Clase sin docente presente</span> : null}
+                          {item.type === 'PENDING_ABSENCE' && item.teacher && <p className="mt-1 text-sm text-slate-600">{timelineTeacherName(item)}</p>}
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                            <span className="font-medium tabular-nums text-slate-700">{timelineDisplayTime(item)}</span>
+                            {item.group && item.type !== 'PENDING_ABSENCE' ? <span>{item.group.name}</span> : null}
+                            {item.detail ? <span className="break-words">{item.detail}</span> : null}
+                            <Link href={item.type === 'SUBSTITUTION' || item.type === 'SUSPENDED_CLASS' ? '/admin/events' : '/admin/attendance'} className="font-semibold text-emerald-700 hover:underline">Revisar<ChevronRight className="ml-0.5 inline h-3 w-3" aria-hidden /></Link>
                           </div>
                         </div>
-                        <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-right ring-1 ring-slate-100">
-                          <div className="text-sm font-semibold tabular-nums text-slate-800">{timelineDisplayTime(item)}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+
+            {view === 'classes' && (
+              <section className="rounded-xl border border-slate-200 bg-white" aria-labelledby="today-classes-title">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                  <div>
+                    <h2 id="today-classes-title" className="text-base font-semibold text-slate-900">
+                      Clases del día
+                    </h2>
+                    <p className="text-xs text-slate-500">Horario, docente y estado de cada clase.</p>
+                  </div>
+                  <a href="/admin/events" className="text-xs font-semibold text-emerald-700 hover:underline">
+                    Ver agenda
+                  </a>
+                </div>
+                {classItems.length === 0 ? (
+                  <div className="px-4 py-8 text-sm text-slate-500">No hay clases para mostrar con estos filtros.</div>
+                ) : (
+                  <ul className="divide-y divide-slate-100" role="list">
+                    {preview(classItems).map((item) => (
+                      <li key={item.id} className="px-4 py-3.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="break-words text-sm font-semibold text-slate-900">{timelineClassName(item)}</h3>
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
+                                {item.statusLabel}
+                              </span>
+                            </div>
+                            <p className="truncate text-sm text-slate-600">
+                              <span className="text-slate-400">Docente · </span>
+                              {timelineTeacherName(item)}
+                            </p>
+                            <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                              {item.group ? <span>{item.group.name}</span> : null}
+                              {item.type === 'SUBSTITUTION' && item.status === 'SUBSTITUTED' ? <span>Cubierta por suplencia</span> : null}
+                              {item.type === 'PENDING_ABSENCE' ? <span>Clase sin docente presente</span> : null}
+                            </div>
+                          </div>
+                          <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-right ring-1 ring-slate-100">
+                            <div className="text-sm font-semibold tabular-nums text-slate-800">{timelineDisplayTime(item)}</div>
+                          </div>
                         </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
           </div>
         ) : null}
 
-        {!loading && !error && data ? (
+        {!loading && !error && data && view === 'activity' ? (
           <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="recent-activity-title">
             <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -776,87 +906,13 @@ export function HomeAdminTimeline() {
                 </h2>
                 <p className="text-xs text-slate-500">Cronología resumida del día.</p>
               </div>
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <Filter className="h-4 w-4" aria-hidden />
-                Filtros
-              </div>
-            </div>
-
-            <div className="grid gap-2 border-b border-slate-100 px-4 py-3 sm:grid-cols-2 lg:grid-cols-5">
-              <DateField
-                value={filters.date}
-                onChange={(v) => setFilters((prev) => ({ ...prev, date: v || todayInputValue() }))}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                aria-label="Fecha"
-              />
-              <select
-                value={filters.teacherId}
-                onChange={(e) => setFilters((prev) => ({ ...prev, teacherId: e.target.value }))}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                aria-label="Docente"
-              >
-                <option value="">Todos los docentes</option>
-                {data.filters.teachers.map((teacher) => (
-                  <option key={teacher.id} value={teacher.id}>
-                    {teacher.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={filters.groupId}
-                onChange={(e) => setFilters((prev) => ({ ...prev, groupId: e.target.value }))}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                aria-label="Grupo"
-              >
-                <option value="">Todos los grupos</option>
-                {data.filters.groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                aria-label="Estado"
-              >
-                <option value="">Todos los estados</option>
-                {data.filters.statuses.map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={filters.type}
-                onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                aria-label="Movimiento"
-              >
-                <option value="">Todos los movimientos</option>
-                {data.filters.types.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 lg:col-span-5">
-                <input
-                  type="checkbox"
-                  checked={showFreeBlocks}
-                  onChange={(e) => setShowFreeBlocks(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                />
-                Ver bloques libres
-              </label>
             </div>
 
             {activityItems.length === 0 ? (
               <div className="px-4 py-8 text-sm text-slate-500">No hay actividad relevante para mostrar con esos filtros.</div>
             ) : (
               <ol className="divide-y divide-slate-100" role="list">
-                {activityItems.map((item) => (
+                {preview(activityItems).map((item) => (
                   <li key={item.id} className="flex gap-3 px-4 py-3.5">
                     <div
                       className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white ${iconToneForTimelineType(item.type)}`}
@@ -898,6 +954,14 @@ export function HomeAdminTimeline() {
             )}
           </section>
         ) : null}
+        {!loading && !error && data && selectedItems.length > 5 && (
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+            <p className="text-xs text-slate-500">{showAll ? selectedItems.length : 5} de {selectedItems.length} registros</p>
+            <button type="button" onClick={() => setShowAll((previous) => !previous)} className="text-sm font-semibold text-emerald-700 hover:underline">
+              {showAll ? 'Mostrar menos' : 'Ver todos los registros'}
+            </button>
+          </div>
+        )}
       </div>
     </HomePanelShell>
   )
@@ -1156,6 +1220,7 @@ export function HomeAdminUpcomingEvents() {
 export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAFF'; userId?: string }) {
   const [events, setEvents] = useState<AssignedEventRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
     if (!userId) {
@@ -1166,6 +1231,7 @@ export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAF
     let cancelled = false
     async function load() {
       setLoading(true)
+      setError(false)
       try {
         const now = new Date()
         const to = new Date(now)
@@ -1176,9 +1242,11 @@ export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAF
         })
         const data = await api<AssignedEventRow[]>(`/events/my-events?${params.toString()}`)
         if (!cancelled) setEvents(data)
-      } catch (e) {
-        console.error(e)
-        if (!cancelled) setEvents([])
+      } catch {
+        if (!cancelled) {
+          setEvents([])
+          setError(true)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -1195,7 +1263,7 @@ export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAF
       if (a.status !== b.status) return a.status === 'IN_PROGRESS' ? -1 : 1
       return new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
     })
-    .slice(0, 12)
+    .slice(0, 4)
 
   const eventsHref = '/me/events'
 
@@ -1211,8 +1279,8 @@ export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAF
 
   return (
     <HomePanelShell
-      title="Próximos turnos"
-      subtitle="Lo que tenés programado en las próximas dos semanas (año lectivo activo). En curso aparece primero."
+      title={role === 'TEACHER' ? 'Tus próximas clases' : 'Tus próximos turnos'}
+      subtitle="Las actividades más cercanas. Consultá el resto en tu agenda."
       icon={<Calendar className="h-6 w-6" strokeWidth={2} aria-hidden />}
       action={action}
     >
@@ -1223,26 +1291,16 @@ export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAF
             <span className="text-sm">Cargando tu agenda…</span>
           </div>
         )}
-        {!loading && visible.length === 0 && (
-          <EmptyState message="No hay turnos próximos en esta ventana. Podés revisar la vista completa en «Mis eventos» desde el menú." />
+        {!loading && error && <EmptyState message="No pudimos cargar tu agenda. Abrí la agenda completa para volver a consultar." />}
+        {!loading && !error && visible.length === 0 && (
+          <EmptyState message="No tenés actividades programadas para las próximas dos semanas." />
         )}
-        {!loading && visible.length > 0 && (
-          <ul className="space-y-0" role="list">
-            {visible.map((event, index) => (
-              <li key={event.id} className="flex gap-4 pb-5 last:pb-0">
-                <div className="flex w-11 shrink-0 flex-col items-center">
-                  <div
-                    className={`relative z-10 mt-1.5 h-3.5 w-3.5 shrink-0 rounded-full border-2 border-white shadow-md ${
-                      event.status === 'IN_PROGRESS' ? 'bg-amber-500 ring-2 ring-amber-200/80' : 'bg-emerald-500 ring-2 ring-emerald-200/80'
-                    }`}
-                    aria-hidden
-                  />
-                  {index < visible.length - 1 ? (
-                    <div className="mt-1 h-12 w-px shrink-0 bg-gradient-to-b from-emerald-300/90 to-emerald-100/30" aria-hidden />
-                  ) : null}
-                </div>
+        {!loading && !error && visible.length > 0 && (
+          <ul className="space-y-3" role="list">
+            {visible.map((event) => (
+              <li key={event.id}>
                 <div className="min-w-0 flex-1">
-                  <div className="rounded-xl border border-slate-100/90 bg-white/95 px-4 py-3.5 shadow-sm ring-1 ring-slate-950/[0.02] transition hover:border-emerald-200/90 hover:shadow-md">
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3.5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 space-y-1.5">
                         <h3 className="text-[15px] font-semibold leading-snug text-slate-900">{event.title}</h3>
@@ -1258,7 +1316,6 @@ export function HomeUpcomingSchedule({ role, userId }: { role: 'TEACHER' | 'STAF
                         </div>
                       </div>
                       <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-right ring-1 ring-slate-100">
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Fecha</div>
                         <div className="text-sm font-semibold tabular-nums text-slate-800">{formatDateInUruguay(event.startDate)}</div>
                         {event.startTime ? (
                           <div className="mt-1 flex items-center justify-end gap-1 text-xs tabular-nums text-slate-600">
