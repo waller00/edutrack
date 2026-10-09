@@ -245,6 +245,14 @@ Registro **sin login obligatorio** del alumnado:
   del primer día hasta el final del último en hora institucional, para la conciliación, la marca de
   entrada, las incidencias y la biometría. Se guarda con la fecha UTC del día; antes se comparaba
   ese instante y una licencia "del 3 al 7" iba de las 9:00 del 3 a las 9:00 del 7.
+- **En vivo:** cargar una licencia justifica sólo las clases que ya terminaron. Las que vienen
+  aparecen como ausencia justificada cuando termina cada una (la ausencia virtual ya mira las
+  licencias); antes, cargar el lunes una licencia para el jueves creaba la ausencia del jueves en el
+  momento. `npm run fix:license-future-absences` (dry-run; `-- --apply`) borra las ausencias
+  futuras que creó el comportamiento anterior.
+- **Desactivar o acortar** una licencia deshace lo que ya no cubre: lo que la licencia creó se
+  borra (la ausencia vuelve a calcularse en vivo) y lo que justificó vuelve a sin justificar. No se
+  tocan las justificaciones a mano ni lo que otra licencia vigente sigue cubriendo.
 - **Ciclo lectivo:** la licencia no tiene ciclo propio; aparece en un ciclo si está vigente algún
   día de él, comparando días (antes una licencia que empezaba el último día del ciclo quedaba
   afuera). Un ciclo sin fechas cargadas es su año calendario; antes el filtro se ignoraba y se

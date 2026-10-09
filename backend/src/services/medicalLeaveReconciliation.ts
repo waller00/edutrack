@@ -67,23 +67,103 @@ function collectOccurrencesForLicenseWindow(
   return out
 }
 
-/**
- * Tras crear o editar una licencia ACTIVE: alinea asistencias de eventos del funcionario
- * cuyo horario cae dentro de la vigencia.
- */
-export async function reconcileAttendancesForMedicalLeave(licenseId: string): Promise<{
+/** Acción con la que la conciliación crea una ausencia; distingue lo que la licencia creó de lo que justificó. */
+const CREATED_ACTION = 'crear ausencia justificada por licencia'
+
+type ReconciliationResult = {
   justified: number
   created: number
   conflicts: number
   skipped: number
-}> {
-  const license = await prisma.medicalLeave.findUnique({ where: { id: licenseId } })
-  if (!license || String(license.status) !== 'ACTIVE') {
-    return { justified: 0, created: 0, conflicts: 0, skipped: 0 }
-  }
+  /** Ausencias que la licencia había justificado y volvieron a quedar sin justificar. */
+  reverted: number
+  /** Ausencias que la licencia había creado y ya no corresponden (o eran de clases que todavía no pasaron). */
+  removed: number
+}
 
+type JustifiedRow = {
+  status: AttendanceStatus
+  time: Date
+  notes: string | null
+  _count: { justifications: number }
+}
+
+export type RevertAction = 'keep' | 'remove' | 'revert'
+
+/**
+ * Qué hacer con una asistencia que tocó la licencia, ahora que la licencia cambió.
+ *
+ * - Una justificación a mano (`AttendanceJustification`) no se toca nunca.
+ * - Lo que la licencia **creó** se borra si ya no lo cubre o si la clase todavía no pasó: sin la
+ *   fila, la ausencia se calcula en vivo (virtual) cuando termina la clase, con la licencia que
+ *   corresponda en ese momento.
+ * - Lo que la licencia **justificó** (era una falta sin justificar) vuelve a sin justificar.
+ */
+export function revertActionFor(
+  row: JustifiedRow,
+  licenseId: string,
+  coversRow: boolean,
+  now: Date,
+): RevertAction {
+  if (row.status !== 'ABSENT_JUSTIFIED' || row._count.justifications > 0) return 'keep'
+  const createdByLicense = (row.notes ?? '').includes(`licencia=${licenseId} ${CREATED_ACTION}`)
+  if (createdByLicense && row.time.getTime() > now.getTime()) return 'remove'
+  if (coversRow) return 'keep'
+  return createdByLicense ? 'remove' : 'revert'
+}
+
+/**
+ * Deshace lo que la licencia ya no cubre: desactivada, o acortada. Antes las faltas que había
+ * justificado quedaban justificadas igual.
+ */
+async function revertLicenseJustifications(license: MedicalLeave, now: Date): Promise<{ reverted: number; removed: number }> {
+  const rows = await prisma.attendance.findMany({
+    where: { userId: license.userId, notes: { contains: `licencia=${license.id} ` } },
+    select: { id: true, status: true, time: true, notes: true, _count: { select: { justifications: true } } },
+  })
+  const active = String(license.status) === 'ACTIVE'
+  let reverted = 0
+  let removed = 0
+  for (const row of rows) {
+    const action = revertActionFor(row, license.id, active && licenseCoversInstant(license, row.time), now)
+    if (action === 'remove') {
+      await prisma.attendance.delete({ where: { id: row.id } })
+      removed++
+      continue
+    }
+    if (action !== 'revert') continue
+    // Otra licencia vigente la sigue cubriendo: queda justificada.
+    if (await findApprovedLicenseCoveringEventTime(license.userId, row.time, row.time)) continue
+    await prisma.attendance.update({
+      where: { id: row.id },
+      data: {
+        status: 'ABSENT_NOT_JUSTIFIED',
+        notes: `${row.notes ? `${row.notes}\n` : ''}${auditNote(license.id, 'revertida: la licencia ya no cubre esta clase')}`,
+      },
+    })
+    reverted++
+  }
+  return { reverted, removed }
+}
+
+/**
+ * Alinea las asistencias del funcionario con la licencia, después de crearla, editarla o
+ * desactivarla.
+ *
+ * **En vivo:** sólo toca las clases que ya terminaron. Antes, cargar el lunes una licencia para
+ * el jueves creaba la ausencia del jueves en el momento; ahora aparece el jueves, cuando termina
+ * la clase (la ausencia virtual ya mira las licencias). Y lo que la licencia ya no cubre se deshace.
+ */
+export async function reconcileAttendancesForMedicalLeave(licenseId: string, now = new Date()): Promise<ReconciliationResult> {
+  const empty: ReconciliationResult = { justified: 0, created: 0, conflicts: 0, skipped: 0, reverted: 0, removed: 0 }
+  const license = await prisma.medicalLeave.findUnique({ where: { id: licenseId } })
+  if (!license) return empty
+
+  const undone = await revertLicenseJustifications(license, now)
   // Días enteros: una clase de las 7:30 del primer día o de la tarde del último también es de la licencia.
-  const { from: licenseStart, to: licenseEnd } = licenseWindow(license)
+  const { from: licenseStart, to: windowEnd } = licenseWindow(license)
+  if (String(license.status) !== 'ACTIVE' || licenseStart.getTime() > now.getTime()) return { ...empty, ...undone }
+  const licenseEnd = new Date(Math.min(windowEnd.getTime(), now.getTime()))
 
   const events = await prisma.event.findMany({
     where: {
@@ -106,6 +186,8 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
     const occs = collectOccurrencesForLicenseWindow(ev as any, licenseStart, licenseEnd)
 
     for (const o of occs) {
+      // Una clase en curso o por venir todavía no tiene ausencia: aparece cuando termina.
+      if (o.occEnd.getTime() > now.getTime()) continue
       const key = `${o.parentEventId}|${o.attendanceDay.toISOString()}`
       if (seen.has(key)) continue
       seen.add(key)
@@ -129,7 +211,7 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
             status: 'ABSENT_JUSTIFIED' as AttendanceStatus,
             date: o.attendanceDay,
             time: o.occStart,
-            notes: `${auditNote(license.id, 'crear ausencia justificada por licencia')} · evento=${o.parentEventId}`,
+            notes: `${auditNote(license.id, CREATED_ACTION)} · evento=${o.parentEventId}`,
           },
         })
         created++
@@ -154,6 +236,11 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
       }
 
       if (existing.status === 'PRESENT' || existing.status === 'LATE') {
+        // Cada edición de la licencia vuelve a conciliar: el mismo conflicto se anota una vez.
+        if ((existing.notes ?? '').includes(`licencia=${license.id} CONFLICTO`)) {
+          conflicts++
+          continue
+        }
         await prisma.attendance.update({
           where: { id: existing.id },
           data: {
@@ -178,8 +265,12 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
       eventId: null,
       type: 'CHECK_IN',
       status: 'ABSENT_NOT_JUSTIFIED',
-      // Por día: el final de la ventana ya cae al día UTC siguiente y sumaría uno de más.
-      date: { gte: normalizeUtcDay(license.startDate), lte: normalizeUtcDay(license.endDate) },
+      // Por día: el final de la ventana ya cae al día UTC siguiente y sumaría uno de más. Y sólo
+      // hasta hoy, igual que las clases con evento.
+      date: {
+        gte: normalizeUtcDay(license.startDate),
+        lte: normalizeUtcDay(new Date(Math.min(license.endDate.getTime(), now.getTime()))),
+      },
     },
     data: {
       status: 'ABSENT_JUSTIFIED',
@@ -188,7 +279,25 @@ export async function reconcileAttendancesForMedicalLeave(licenseId: string): Pr
   })
   justified += legacy.count
 
-  return { justified, created, conflicts, skipped: unchanged }
+  return { justified, created, conflicts, skipped: unchanged, ...undone }
+}
+
+/**
+ * Corrección única de los datos de antes: la conciliación creaba la ausencia justificada de las
+ * clases futuras en el momento de cargar la licencia. Se borran las que todavía no pasaron (sin
+ * justificación a mano); cuando la clase termine, la ausencia aparece en vivo. Devuelve cuántas
+ * son; sin `apply` no borra nada.
+ */
+export async function removeFutureLicenseAbsences(apply: boolean, now = new Date()): Promise<number> {
+  const where = {
+    status: 'ABSENT_JUSTIFIED' as AttendanceStatus,
+    time: { gt: now },
+    notes: { contains: CREATED_ACTION },
+    justifications: { none: {} },
+  }
+  if (!apply) return prisma.attendance.count({ where })
+  const { count } = await prisma.attendance.deleteMany({ where })
+  return count
 }
 
 /**

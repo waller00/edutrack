@@ -529,7 +529,9 @@ export default function LicensesPage() {
               <h1 className="text-3xl font-bold text-gray-900">Gestión de licencias</h1>
               <p className="mt-1 max-w-2xl text-gray-600">
                 Registro centralizado por la dirección o administración. El personal solo consulta sus licencias en su
-                panel. Las licencias activas se reflejan en la justificación de inasistencias cuando corresponde.
+                panel. Una licencia cubre sus días enteros: cada clase de esos días aparece como ausencia justificada
+                cuando termina, no antes. Si la licencia se desactiva o se acorta, esas ausencias vuelven a quedar sin
+                justificar (las justificadas a mano no se tocan).
               </p>
             </div>
           </div>
