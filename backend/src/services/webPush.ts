@@ -32,6 +32,11 @@ export type WebPushPayload = {
   body: string;
   /** Ruta en el front (mismo origen), ej. `/teacher/licenses`. */
   url?: string;
+  /**
+   * Etiqueta de la notificación en el dispositivo. Dos push con la misma etiqueta se pisan: cada
+   * aviso lleva la suya para que no se pierda el anterior.
+   */
+  tag?: string;
 };
 
 /**
@@ -49,6 +54,7 @@ export async function sendWebPushPayloadToUser(
     title: payload.title,
     body: payload.body,
     url: payload.url || "/",
+    ...(payload.tag ? { tag: payload.tag } : {}),
   });
 
   const subs = await prisma.webPushSubscription.findMany({ where: { userId } });

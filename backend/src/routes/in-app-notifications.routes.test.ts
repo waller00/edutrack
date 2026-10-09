@@ -103,6 +103,75 @@ describe("in-app notifications routes", () => {
     );
   });
 
+  describe("lo que pide la campana", () => {
+    it("GET /summary trae cuántos sin leer y los últimos, en una sola respuesta", async () => {
+      prismaMock.inAppNotification.count.mockResolvedValue(3);
+      prismaMock.inAppNotification.findMany.mockResolvedValue([{ id: "n1" }, { id: "n2" }]);
+
+      const res = await request(app()).get("/notifications/in-app/summary").set(auth());
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ unreadCount: 3, items: [{ id: "n1" }, { id: "n2" }] });
+      expect(prismaMock.inAppNotification.count).toHaveBeenCalledWith({ where: { userId: uid, readAt: null } });
+      expect(prismaMock.inAppNotification.findMany).toHaveBeenCalledWith({
+        where: { userId: uid },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 8,
+      });
+    });
+
+    it("GET /summary acota cuántos trae", async () => {
+      expect((await request(app()).get("/notifications/in-app/summary?take=50").set(auth())).status).toBe(400);
+    });
+
+    it("GET /summary 401 sin token", async () => {
+      expect((await request(app()).get("/notifications/in-app/summary")).status).toBe(401);
+    });
+  });
+
+  describe("Cargar más", () => {
+    const row = (id: string, iso: string) => ({ id, createdAt: new Date(iso) });
+
+    it("pide uno de más y, si hay otra página, devuelve el cursor del último", async () => {
+      prismaMock.inAppNotification.findMany.mockResolvedValue([
+        row("n3", "2026-10-09T12:00:00.000Z"),
+        row("n2", "2026-10-09T11:00:00.000Z"),
+        row("n1", "2026-10-09T10:00:00.000Z"),
+      ]);
+
+      const res = await request(app()).get("/notifications/in-app?take=2").set(auth());
+
+      expect(prismaMock.inAppNotification.findMany.mock.calls[0][0].take).toBe(3);
+      expect(res.body.items.map((item: any) => item.id)).toEqual(["n3", "n2"]);
+      expect(res.body.nextCursor).toBe("2026-10-09T11:00:00.000Z|n2");
+    });
+
+    it("en la última página no hay cursor", async () => {
+      prismaMock.inAppNotification.findMany.mockResolvedValue([row("n1", "2026-10-09T10:00:00.000Z")]);
+      const res = await request(app()).get("/notifications/in-app?take=2").set(auth());
+      expect(res.body.nextCursor).toBeNull();
+    });
+
+    it("con cursor trae los anteriores, desempatando por id", async () => {
+      prismaMock.inAppNotification.findMany.mockResolvedValue([]);
+      const cursor = encodeURIComponent("2026-10-09T11:00:00.000Z|n2");
+
+      await request(app()).get(`/notifications/in-app?before=${cursor}`).set(auth());
+
+      const { where, orderBy } = prismaMock.inAppNotification.findMany.mock.calls[0][0];
+      expect(where.OR).toEqual([
+        { createdAt: { lt: new Date("2026-10-09T11:00:00.000Z") } },
+        { createdAt: new Date("2026-10-09T11:00:00.000Z"), id: { lt: "n2" } },
+      ]);
+      expect(orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+    });
+
+    it("un cursor roto es 400", async () => {
+      const res = await request(app()).get("/notifications/in-app?before=cualquiera").set(auth());
+      expect(res.status).toBe(400);
+    });
+  });
+
   it("devuelve 500 cuando la DB falla en cada endpoint", async () => {
     prismaMock.inAppNotification.findMany.mockRejectedValueOnce(new Error("db"));
     expect((await request(app()).get("/notifications/in-app").set(auth())).status).toBe(500);

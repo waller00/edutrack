@@ -4,6 +4,7 @@ import { getActiveSchoolYearId } from '../school-year-service.js'
 import { formatAbsenceUnits } from '../student-attendance/absence-weight.js'
 import { loadAbsenceStreaks, loadAbsenceThresholds, loadAllGradeDrops } from './reports.js'
 import { thresholdKey } from './rules.js'
+import { notifyUsers } from '../notifications/notify.js'
 
 /**
  * Alertas de estudiantes: detecta, guarda lo nuevo y avisa **una vez** a adscripción y dirección.
@@ -24,6 +25,12 @@ export type AlertCandidate = {
 
 /** Roles que reciben las alertas. */
 export const ALERT_RECIPIENT_ROLES = ['DIRECCION', 'ADSCRIPTO'] as const
+
+/**
+ * Las alertas que avisan. Las faltas seguidas y los 18/25 piden intervenir ya; una baja de nota se
+ * mira en Reportes ("Bajas de boletín" y "Alertas"), que la sigue mostrando, sin llenar la campana.
+ */
+export const NOTIFIED_ALERT_TYPES: ReadonlySet<StudentAlertType> = new Set(['ABSENCE_STREAK', 'ABSENCE_THRESHOLD'])
 
 /** Con más alertas nuevas que esto, se manda un resumen en vez de una notificación por alerta. */
 export const MAX_INDIVIDUAL_NOTIFICATIONS = 5
@@ -97,19 +104,23 @@ export function newAlerts(
   return [...fresh.values()]
 }
 
-/** Notificaciones a crear: una por alerta, o un resumen si son demasiadas. */
+/**
+ * Notificaciones a crear: una por alerta de faltas, o un resumen si son demasiadas. Las bajas de
+ * nota no avisan (ver `NOTIFIED_ALERT_TYPES`).
+ */
 export function notificationsFor(alerts: readonly AlertCandidate[]) {
-  if (alerts.length === 0) return []
-  if (alerts.length > MAX_INDIVIDUAL_NOTIFICATIONS) {
+  const notified = alerts.filter((a) => NOTIFIED_ALERT_TYPES.has(a.type))
+  if (notified.length === 0) return []
+  if (notified.length > MAX_INDIVIDUAL_NOTIFICATIONS) {
     return [
       {
-        title: `${alerts.length} alertas nuevas de estudiantes`,
-        body: 'Faltas seguidas, umbrales de faltas o bajas de boletín. Revisalas en Reportes.',
+        title: `${notified.length} alertas nuevas de faltas`,
+        body: 'Faltas seguidas o estudiantes que llegaron a 18 o 25 faltas. Revisalas en Reportes.',
         actionUrl: '/admin/reportes?tab=alertas',
       },
     ]
   }
-  return alerts.map((a) => ({ title: a.title, body: a.body, actionUrl: `/admin/reportes?tab=${TAB_BY_TYPE[a.type]}` }))
+  return notified.map((a) => ({ title: a.title, body: a.body, actionUrl: `/admin/reportes?tab=${TAB_BY_TYPE[a.type]}` }))
 }
 
 export async function scanStudentAlerts(schoolYearId?: string | null): Promise<{ created: number }> {
@@ -135,11 +146,12 @@ export async function scanStudentAlerts(schoolYearId?: string | null): Promise<{
     where: { isActive: true, isApproved: true, orgRole: { code: { in: [...ALERT_RECIPIENT_ROLES] } } },
     select: { id: true },
   })
-  const notifications = notificationsFor(fresh)
-  if (recipients.length && notifications.length) {
-    await prisma.inAppNotification.createMany({
-      data: recipients.flatMap((user) => notifications.map((n) => ({ userId: user.id, type: 'STUDENT_ALERT' as const, ...n }))),
-    })
+  // Campana y push: el escaneo corre solo, así que nadie más se va a enterar a tiempo.
+  for (const notification of notificationsFor(fresh)) {
+    await notifyUsers(
+      recipients.map((user) => user.id),
+      { type: 'STUDENT_ALERT', ...notification },
+    )
   }
   return { created: count }
 }

@@ -208,6 +208,19 @@ describe('ProfilePage', () => {
     expect(vi.mocked(WebPushSection)).toHaveBeenCalled()
   })
 
+  it('"Configurar avisos" de la campana entra directo a notificaciones', async () => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { href: 'http://localhost/profile?section=notifications' },
+    })
+    mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
+    renderProfile()
+    await waitForProfileLoaded()
+    expect(screen.getByRole('button', { name: 'Notificaciones' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Preferencias del navegador')).toBeVisible()
+  })
+
   it('conserva los cambios del formulario al pasar por otras secciones', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
     renderProfile()

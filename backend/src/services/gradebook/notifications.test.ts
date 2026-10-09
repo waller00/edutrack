@@ -8,16 +8,20 @@ import {
   resolveGradeBookRecipients,
 } from './notifications.js'
 
-const { prismaMock } = vi.hoisted(() => ({
+const { prismaMock, pushMock } = vi.hoisted(() => ({
   prismaMock: {
     gradeBook: { findUnique: vi.fn() },
     inAppNotification: { createMany: vi.fn() },
   },
+  pushMock: vi.fn(),
 }))
+
+vi.mock('../webPush.js', () => ({ sendWebPushPayloadToUser: pushMock }))
 
 beforeEach(() => {
   vi.clearAllMocks()
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 1 })
+  pushMock.mockResolvedValue({ sent: 1, failed: 0 })
 })
 
 describe('excerpt', () => {
@@ -72,7 +76,15 @@ describe('notifyGradeBook', () => {
   it('un fallo del aviso NO tumba la operación que lo originó', async () => {
     // Observar una libreta tiene que quedar registrado aunque la campana falle.
     prismaMock.inAppNotification.createMany.mockRejectedValue(new Error('db caída'))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     await expect(notifyGradeBook([{ userId: 'a' }], notification, prismaMock as any)).resolves.toBe(0)
+    error.mockRestore()
+  })
+
+  it('también sale por push, a la pantalla del aviso', async () => {
+    await notifyGradeBook([{ userId: 'a' }], notification, prismaMock as any)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(pushMock).toHaveBeenCalledWith('a', expect.objectContaining({ title: 'T', body: 'B', url: '/x' }))
   })
 })
 

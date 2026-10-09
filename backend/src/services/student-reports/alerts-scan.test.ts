@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { prismaMock, reportsMock } = vi.hoisted(() => ({
+const { prismaMock, reportsMock, pushMock } = vi.hoisted(() => ({
   prismaMock: {
     studentAlert: { findMany: vi.fn(), createMany: vi.fn() },
     user: { findMany: vi.fn() },
@@ -11,9 +11,11 @@ const { prismaMock, reportsMock } = vi.hoisted(() => ({
     loadAbsenceStreaks: vi.fn(),
     loadAllGradeDrops: vi.fn(),
   },
+  pushMock: vi.fn(),
 }))
 
 vi.mock('../../db/prisma.js', () => ({ prisma: prismaMock }))
+vi.mock('../webPush.js', () => ({ sendWebPushPayloadToUser: pushMock }))
 vi.mock('./reports.js', () => reportsMock)
 vi.mock('../school-year-service.js', () => ({ getActiveSchoolYearId: vi.fn().mockResolvedValue('sy-1') }))
 
@@ -37,7 +39,14 @@ beforeEach(() => {
   prismaMock.studentAlert.createMany.mockImplementation(async ({ data }: any) => ({ count: data.length }))
   prismaMock.user.findMany.mockResolvedValue([{ id: 'adscripta' }, { id: 'direccion' }])
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
+  pushMock.mockResolvedValue({ sent: 1, failed: 0 })
 })
+
+const drop = {
+  period: { id: 'e2', name: '2.ª Entrega' },
+  previous: { id: 'e1', name: '1.ª Entrega' },
+  rows: [{ ...student, subjectId: 'mat', subjectName: 'Matemática', previous: 800, current: 600 }],
+}
 
 describe('collectAlertCandidates', () => {
   it('una alerta por umbral alcanzado: la de 25 es otra, además de la de 18', async () => {
@@ -60,13 +69,7 @@ describe('collectAlertCandidates', () => {
   })
 
   it('la baja de boletín es por período y materia', async () => {
-    reportsMock.loadAllGradeDrops.mockResolvedValue([
-      {
-        period: { id: 'e2', name: '2.ª Entrega' },
-        previous: { id: 'e1', name: '1.ª Entrega' },
-        rows: [{ ...student, subjectId: 'mat', subjectName: 'Matemática', previous: 800, current: 600 }],
-      },
-    ])
+    reportsMock.loadAllGradeDrops.mockResolvedValue([drop])
     const [candidate] = await collectAlertCandidates('sy-1')
     expect(candidate).toMatchObject({ type: 'GRADE_DROP', key: 'e2:mat', title: 'Díaz, Ana bajó en Matemática' })
     expect(candidate.body).toBe('7 EBI: de 8 (1.ª Entrega) a 6 (2.ª Entrega).')
@@ -93,7 +96,23 @@ describe('newAlerts / notificationsFor', () => {
     const many = Array.from({ length: MAX_INDIVIDUAL_NOTIFICATIONS + 1 }, (_, i) => candidate(String(i)))
     const [summary] = notificationsFor(many)
     expect(notificationsFor(many)).toHaveLength(1)
-    expect(summary.title).toBe(`${many.length} alertas nuevas de estudiantes`)
+    expect(summary.title).toBe(`${many.length} alertas nuevas de faltas`)
+  })
+
+  it('las bajas de nota no avisan: sólo faltas seguidas y 18/25', () => {
+    const gradeDrop: AlertCandidate = { ...candidate('e2:mat'), type: 'GRADE_DROP' }
+    const streak: AlertCandidate = { ...candidate('2026-10-05'), type: 'ABSENCE_STREAK', title: 'racha' }
+    expect(notificationsFor([gradeDrop])).toEqual([])
+    expect(notificationsFor([gradeDrop, streak, candidate('18')]).map((n) => n.title)).toEqual(['racha', 't18'])
+  })
+
+  it('el resumen cuenta sólo las de faltas', () => {
+    const drops = Array.from({ length: MAX_INDIVIDUAL_NOTIFICATIONS + 3 }, (_, i): AlertCandidate => ({
+      ...candidate(`d${i}`),
+      type: 'GRADE_DROP',
+    }))
+    expect(notificationsFor([...drops, candidate('18')])).toHaveLength(1)
+    expect(notificationsFor([...drops, candidate('18')])[0].title).toBe('t18')
   })
 })
 
@@ -113,6 +132,29 @@ describe('scanStudentAlerts', () => {
     const notifications = prismaMock.inAppNotification.createMany.mock.calls[0][0].data
     expect(notifications.map((n: any) => n.userId)).toEqual(['adscripta', 'direccion'])
     expect(notifications[0]).toMatchObject({ type: 'STUDENT_ALERT', title: 'Díaz, Ana llegó a 18 faltas' })
+  })
+
+  it('también les llega por push', async () => {
+    await scanStudentAlerts('sy-1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(pushMock.mock.calls.map(([userId]) => userId)).toEqual(['adscripta', 'direccion'])
+    expect(pushMock.mock.calls[0][1]).toMatchObject({
+      title: 'Díaz, Ana llegó a 18 faltas',
+      url: '/admin/reportes?tab=faltas',
+    })
+  })
+
+  it('una baja de nota se guarda (sigue en Reportes) pero no avisa', async () => {
+    reportsMock.loadAbsenceThresholds.mockResolvedValue([])
+    reportsMock.loadAllGradeDrops.mockResolvedValue([drop])
+
+    expect((await scanStudentAlerts('sy-1')).created).toBe(1)
+    expect(prismaMock.studentAlert.createMany.mock.calls[0][0].data).toEqual([
+      expect.objectContaining({ type: 'GRADE_DROP', key: 'e2:mat' }),
+    ])
+    expect(prismaMock.inAppNotification.createMany).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
   })
 
   it('no avisa dos veces lo mismo', async () => {

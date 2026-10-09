@@ -6,8 +6,11 @@ import { api } from '@/lib/api/client'
 
 const mockUsePathname = vi.fn()
 
+const routerPush = vi.hoisted(() => vi.fn())
+
 vi.mock('next/navigation', () => ({
   usePathname: () => mockUsePathname(),
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
 }))
 
 vi.mock('@/lib/api/client', () => ({
@@ -29,7 +32,7 @@ function renderNav() {
 
 /**
  * Mock de api resuelto por URL (no por orden de llamada). Evita flakiness:
- * el componente dispara /auth/me y /notifications/in-app/unread-count desde
+ * el componente dispara /auth/me y /notifications/in-app/summary desde
  * efectos independientes, y bajo CI el orden/cantidad puede variar.
  */
 function mockApiByUrl(me: Record<string, unknown> | Error, unreadCount = 0) {
@@ -39,7 +42,7 @@ function mockApiByUrl(me: Record<string, unknown> | Error, unreadCount = 0) {
       if (me instanceof Error) throw me
       return me
     }
-    if (u.includes('unread-count')) return { count: unreadCount }
+    if (u.includes('/notifications/in-app/summary')) return { unreadCount, items: [] }
     return {}
   })
 }
@@ -100,7 +103,27 @@ describe('UserNav', () => {
     // La inicial está en el botón de cuenta y en el usuario al pie del menú.
     expect((await screen.findAllByText('A')).length).toBeGreaterThan(0)
     expect(screen.queryByText('Mis asistencias')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /avisos/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /avisos/i })).toBeInTheDocument()
+  })
+
+  it('los avisos están en la campana, no en el menú lateral', async () => {
+    mockApiByUrl(
+      {
+        role: 'TEACHER',
+        name: 'Ana',
+        email: 'ana@example.com',
+        isApproved: true,
+        isActive: true,
+        needsProfileCompletion: false,
+        permissions: [{ id: 'notifications.read', scope: 'own' }],
+      },
+      3,
+    )
+
+    renderNav()
+
+    expect(await screen.findByRole('button', { name: 'Avisos, 3 sin leer' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Notificaciones' })).not.toBeInTheDocument()
   })
 
   it('admin puede abrir menú y cerrar sesión', async () => {

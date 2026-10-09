@@ -6,7 +6,7 @@ import { signAccessToken } from "../test-utils/bearer-token.js";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
-    inAppNotification: { create: vi.fn().mockResolvedValue({ id: "n1" }) },
+    inAppNotification: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     medicalLeave: {
       findMany: vi.fn(),
       count: vi.fn(),
@@ -217,15 +217,15 @@ describe("medical-leaves (prisma mock)", () => {
         }),
       }),
     );
-    expect(prismaMock.inAppNotification.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
+    expect(prismaMock.inAppNotification.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
           userId: uid,
           type: "LICENSE_CREATED",
           actionUrl: "/me/licenses",
         }),
-      }),
-    );
+      ],
+    });
   });
 
   it("POST /medical-leaves 500 si prisma falla", async () => {
@@ -280,15 +280,15 @@ describe("medical-leaves (prisma mock)", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ACTIVE");
     expect(res.body.reconciliation).toBeDefined();
-    expect(prismaMock.inAppNotification.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
+    expect(prismaMock.inAppNotification.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
           userId: uid,
           type: "LICENSE_UPDATED",
           actionUrl: "/me/licenses",
         }),
-      }),
-    );
+      ],
+    });
   });
 
   it("PUT /medical-leaves/:id acepta notas opcionales en null (como desde Prisma/UI)", async () => {

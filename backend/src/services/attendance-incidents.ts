@@ -5,6 +5,7 @@ import { toYmdUtc } from "./analytics/dateRange.js";
 import { buildPresenceSpans, resolveOccurrenceOutcome } from "./attendance/coverage-spans.js";
 import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
 import { isNonWorkingDate } from "./non-working-days.js";
+import { notifyUsers } from "./notifications/notify.js";
 
 async function notifyAdminsAttendanceIncident(title: string, body: string, actionUrl = "/admin/attendance") {
   const admins = await prisma.user.findMany({
@@ -16,18 +17,11 @@ async function notifyAdminsAttendanceIncident(title: string, body: string, actio
     select: { id: true },
   });
 
-  await Promise.all(
-    admins.map((admin) =>
-      prisma.inAppNotification.create({
-        data: {
-          userId: admin.id,
-          type: "ATTENDANCE_INCIDENT",
-          title,
-          body,
-          actionUrl,
-        },
-      }),
-    ),
+  // Sólo en la campana: un incidente de marcación no justifica despertar el celular.
+  await notifyUsers(
+    admins.map((admin) => admin.id),
+    { type: "ATTENDANCE_INCIDENT", title, body, actionUrl },
+    { push: false },
   );
 }
 

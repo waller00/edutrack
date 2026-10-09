@@ -19,7 +19,7 @@ import {
   uruguayYmdEndOfDayToUtc,
 } from '../config/app-timezone.js';
 import { DateTime } from 'luxon';
-import { sendWebPushPayloadToUser } from '../services/webPush.js';
+import { notifyUsers } from '../services/notifications/notify.js';
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
 import { AuditAction } from '@prisma/client';
 import { recordAuditEvent } from '../services/audit-log.js';
@@ -918,23 +918,12 @@ r.post('/', authGuard, requirePermission('events.create'), async (req, res) => {
     if (assigneeId && assigneeId !== user.sub) {
       const assigneeRole = event.assignedUser?.orgRole?.code;
       const titleShort = event.title.length > 80 ? `${event.title.slice(0, 80)}…` : event.title;
-      void sendWebPushPayloadToUser(assigneeId, {
-        title: 'Edutrack — Nuevo evento',
+      void notifyUsers([assigneeId], {
+        type: 'EVENT_ASSIGNED',
+        title: 'Nuevo evento',
         body: `Te asignaron un evento: ${titleShort}`,
-        url: myEventsPathForRole(assigneeRole),
-      }).catch((err) => console.error('Web push (evento asignado):', err));
-
-      void prisma.inAppNotification
-        .create({
-          data: {
-            userId: assigneeId,
-            type: 'EVENT_ASSIGNED',
-            title: 'Nuevo evento',
-            body: `Te asignaron un evento: ${titleShort}`,
-            actionUrl: myEventsPathForRole(assigneeRole),
-          },
-        })
-        .catch((err) => console.error('Aviso en app (evento asignado):', err));
+        actionUrl: myEventsPathForRole(assigneeRole),
+      });
     }
 
     recordAuditEvent({

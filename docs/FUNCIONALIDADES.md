@@ -629,7 +629,7 @@ adscripción, dirección, inspección y administración.
 - Va **separado de la cadena de visado** a propósito: acá viven las consultas y aclaraciones; en
   `Endorsement` sólo lo que cambia un estado formal.
 - **Avisos (RF-091):** observación, visado y mensaje nuevo llegan por la campana que ya existe
-  (`InAppNotification`), con tipos propios para poder filtrarlos. Nunca se avisa a quien originó
+  (`InAppNotification`) y por push, con tipos propios para poder filtrarlos. Nunca se avisa a quien originó
   la acción, y **un fallo del aviso jamás interrumpe lo que lo originó**: observar o visar queda
   firme aunque la notificación no salga.
 - **Registro de acceso (RF-100):** cada apertura de una libreta deja usuario, rol, fecha e IP en
@@ -725,10 +725,44 @@ nivel, reunión y grupo.
 
 ## 12. Notificaciones
 
-**Pantalla:** `/notifications`
+**Pantalla:** `/notifications`. No está en el menú lateral: se entra desde la campana del encabezado.
 
-- **Notificaciones in-app** (campana): eventos asignados, cambios de cuenta, avisos operativos.
+- **Campana:**
+  - Muestra cuántos avisos hay sin leer.
+  - Al tocarla abre un panel con los últimos avisos: ícono y etiqueta según el tipo, hace cuánto
+    llegó y si está sin leer.
+  - Tocar un aviso lo marca leído y lleva a su pantalla sin recargar.
+  - Abajo están "Ver todos los avisos" y "Configurar avisos", que abre
+    `/profile?section=notifications` para activar el push.
+- **Al día solo:**
+  - El número se actualiza cada minuto con la pestaña a la vista, al volver a la pestaña y apenas
+    llega un push (el service worker avisa a las pestañas abiertas).
+  - Leer en cualquier lado (panel, cartelito o página) lo baja enseguida: comparten el estado
+    (`NotificationsProvider`).
+- **Cartelito:** un aviso que llega mientras se usa la app aparece unos segundos abajo. Con uno solo
+  se abre al tocarlo; con varios, los cuenta y abre el panel.
+- **Página de avisos:**
+  - agrupada por día;
+  - filtro de no leídos;
+  - cada fila se toca entera, y hay una acción aparte para marcarla como leída;
+  - "Cargar más", paginado por cursor (`GET /notifications/in-app?before=`).
+- **Qué avisa y a quién:**
+
+  | Avisa | A quién | Por push |
+  |-------|---------|----------|
+  | Licencias registradas o actualizadas | el titular | sí |
+  | Eventos asignados | quien lo recibe | sí |
+  | Libreta: observaciones, mensajes, visados, reaperturas y pendientes de cierre | el titular | sí |
+  | Alertas de estudiantes | adscripción y dirección | sí |
+  | Incidentes de marcación | administración | no |
+
+  - Todos los avisos pasan por `notifyUsers` (`services/notifications/notify.ts`): campana y push
+    juntos, y un fallo nunca corta la acción que lo originó.
+  - De las alertas de estudiantes sólo avisan las **faltas seguidas** y las **18/25 faltas**. Las
+    bajas de nota se siguen registrando y viendo en Reportes, pero no notifican.
 - **Web Push** (suscripción y envío vía API `web-push`) cuando el navegador lo permite.
+  - Cada aviso lleva su propia etiqueta, para que dos seguidos no se pisen en el celular.
+  - Tocar el push usa la pestaña de EduTrack que ya está abierta.
 - Permiso `notifications.read` (alcance own por defecto en docente/staff).
 
 ---

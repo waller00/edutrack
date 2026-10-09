@@ -56,6 +56,12 @@ export default function ProfilePage() {
     const href = typeof window !== 'undefined' ? window.location.href : ''
     const query = href.includes('?') ? href.slice(href.indexOf('?')) : ''
     const params = new URLSearchParams(query)
+    // "Configurar avisos" de la campana entra directo a la sección de notificaciones.
+    const requestedSection = params.get('section')
+    if (requestedSection === 'notifications' || requestedSection === 'security') {
+      setSection(requestedSection)
+      if (requestedSection === 'notifications') setNotificationsVisited(true)
+    }
     if (params.has('twoFactorDisabled')) {
       notify('2FA desactivado', 'success')
       setTwoFactorEnabled(false)

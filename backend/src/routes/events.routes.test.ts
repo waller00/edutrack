@@ -14,7 +14,7 @@ const { prismaMock } = vi.hoisted(() => ({
     subject: { findFirst: vi.fn(), findMany: vi.fn() },
     schoolYear: { findUnique: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: "audit-1" }) },
-    inAppNotification: { create: vi.fn().mockResolvedValue({ id: "n1" }) },
+    inAppNotification: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     event: {
       create: vi.fn(),
       findMany: vi.fn(),
@@ -112,7 +112,7 @@ describe("events routes (prisma mock)", () => {
       .send(minimalEvent);
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("ev1");
-    expect(prismaMock.inAppNotification.create).not.toHaveBeenCalled();
+    expect(prismaMock.inAppNotification.createMany).not.toHaveBeenCalled();
     expect(prismaMock.course.findFirst).not.toHaveBeenCalled();
   });
 
@@ -213,15 +213,15 @@ describe("events routes (prisma mock)", () => {
       .set("Authorization", `Bearer ${tok}`)
       .send({ ...minimalEvent, title: "Reunión pedagógica", assignedUserId: teacherId });
     expect(res.status).toBe(200);
-    expect(prismaMock.inAppNotification.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
+    expect(prismaMock.inAppNotification.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
           userId: teacherId,
           type: "EVENT_ASSIGNED",
           actionUrl: "/me/events",
         }),
-      }),
-    );
+      ],
+    });
   });
 
   it("POST /events 500 si create falla", async () => {

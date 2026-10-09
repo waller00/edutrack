@@ -1,12 +1,13 @@
 import type { InAppNotificationType, PrismaClient } from '@prisma/client'
 import { prisma as defaultPrisma } from '../../db/prisma.js'
+import { notifyUsers } from '../notifications/notify.js'
 
 /**
  * Avisos de la libreta (RF-091).
  *
- * Reusa `InAppNotification` —la campana que ya existe— en vez de inventar un canal propio. Las
- * fallas de notificación **nunca** interrumpen la acción que las originó: observar una libreta
- * tiene que quedar registrado aunque el aviso no salga.
+ * Reusa `InAppNotification` —la campana que ya existe— en vez de inventar un canal propio, y
+ * además sale por push a quien lo activó. Las fallas de notificación **nunca** interrumpen la
+ * acción que las originó: observar una libreta tiene que quedar registrado aunque el aviso no salga.
  */
 
 export type NotifyTarget = { userId: string }
@@ -39,28 +40,17 @@ export async function resolveGradeBookRecipients(
   return [{ userId: teacherId }]
 }
 
-/** Inserta los avisos sin dejar que un fallo tumbe la operación principal. */
+/** Deja los avisos en la campana y los manda por push, sin que un fallo tumbe la operación principal. */
 export async function notifyGradeBook(
   targets: readonly NotifyTarget[],
   notification: GradeBookNotification,
   db: PrismaClient = defaultPrisma,
 ): Promise<number> {
-  if (targets.length === 0) return 0
-  try {
-    const result = await db.inAppNotification.createMany({
-      data: targets.map((target) => ({
-        userId: target.userId,
-        type: notification.type,
-        title: notification.title,
-        body: notification.body,
-        actionUrl: notification.actionUrl,
-      })),
-    })
-    return result.count
-  } catch (error) {
-    console.error('[gradebook] notify:', error)
-    return 0
-  }
+  return notifyUsers(
+    targets.map((target) => target.userId),
+    notification,
+    { db },
+  )
 }
 
 /** Corta un texto largo para el cuerpo del aviso, sin partir a mitad de palabra. */

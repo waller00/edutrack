@@ -6,7 +6,7 @@ import { reconcileAttendancesForMedicalLeave } from '../services/medicalLeaveRec
 import { recordAuditEvent } from '../services/audit-log.js'
 import { AuditAction, type Prisma } from '@prisma/client'
 import { activeOnDays, queryDayYmd, schoolYearDays } from '../services/medical-leave-dates.js'
-import { sendWebPushPayloadToUser } from '../services/webPush.js'
+import { notifyUsers } from '../services/notifications/notify.js'
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js'
 
 function licenseUpdatePreview(reason: string): string {
@@ -214,23 +214,12 @@ r.post('/', authGuard, requirePermission('licenses.create', 'all'), async (req, 
     const reconciliation = await reconcileAttendancesForMedicalLeave(license.id)
 
     const preview = licenseUpdatePreview(license.reason)
-    void sendWebPushPayloadToUser(userId, {
-      title: 'Edutrack — Licencia registrada',
+    void notifyUsers([userId], {
+      type: 'LICENSE_CREATED',
+      title: 'Licencia registrada',
       body: `La institución registró una licencia: ${preview}`,
-      url: myLicensesPathForRole(license.user?.orgRole?.code),
-    }).catch((err) => console.error('Web push (licencia creada):', err))
-
-    void prisma.inAppNotification
-      .create({
-        data: {
-          userId,
-          type: 'LICENSE_CREATED',
-          title: 'Licencia registrada',
-          body: `La institución registró una licencia: ${preview}`,
-          actionUrl: myLicensesPathForRole(license.user?.orgRole?.code),
-        },
-      })
-      .catch((err) => console.error('Aviso en app (licencia creada):', err))
+      actionUrl: myLicensesPathForRole(license.user?.orgRole?.code),
+    })
 
     recordAuditEvent({
       action: AuditAction.MEDICAL_LEAVE_CREATED,
@@ -312,23 +301,12 @@ r.put('/:id', authGuard, requirePermission('licenses.update', 'all'), async (req
 
     const ownerId = updatedLicense.userId
     const preview = licenseUpdatePreview(updatedLicense.reason)
-    void sendWebPushPayloadToUser(ownerId, {
-      title: 'Edutrack — Licencia actualizada',
+    void notifyUsers([ownerId], {
+      type: 'LICENSE_UPDATED',
+      title: 'Licencia actualizada',
       body: `La institución actualizó una licencia: ${preview}`,
-      url: myLicensesPathForRole(updatedLicense.user?.orgRole?.code),
-    }).catch((err) => console.error('Web push (licencia actualizada):', err))
-
-    void prisma.inAppNotification
-      .create({
-        data: {
-          userId: ownerId,
-          type: 'LICENSE_UPDATED',
-          title: 'Licencia actualizada',
-          body: `La institución actualizó una licencia: ${preview}`,
-          actionUrl: myLicensesPathForRole(updatedLicense.user?.orgRole?.code),
-        },
-      })
-      .catch((err) => console.error('Aviso en app (licencia actualizada):', err))
+      actionUrl: myLicensesPathForRole(updatedLicense.user?.orgRole?.code),
+    })
 
     recordAuditEvent({
       action: AuditAction.MEDICAL_LEAVE_UPDATED,

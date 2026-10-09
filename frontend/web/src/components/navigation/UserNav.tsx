@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import {
   BarChart3,
-  Bell,
   BellRing,
   BookMarked,
   BookOpen,
@@ -27,12 +26,14 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { api } from '@/lib/api/client'
 import { logoutUrl } from '@/lib/auth/urls'
 import { clearObservabilityUser } from '@/lib/observability/user-session'
 import { getRoleLabel } from '@/lib/roles/display'
 import { useAuth, type AuthMe } from '@/contexts/AuthContext'
 import RollCallReminderBar from '@/components/rollcall/RollCallReminderBar'
+import NotificationBell from '@/components/notifications/NotificationBell'
+import NotificationToast from '@/components/notifications/NotificationToast'
+import { NotificationsProvider } from '@/components/notifications/NotificationsProvider'
 import { SidebarSlotContext } from './sidebar-slot'
 
 type MeUser = AuthMe
@@ -54,10 +55,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Inicio',
     icon: LayoutDashboard,
-    items: [
-      { label: 'Inicio', href: '/' },
-      { label: 'Notificaciones', href: '/notifications', permission: 'notifications.read' },
-    ],
+    // Los avisos no van en el menú: están en la campana del encabezado.
+    items: [{ label: 'Inicio', href: '/' }],
   },
   {
     title: 'Equipo',
@@ -381,7 +380,6 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
   const [collapsed, setCollapsed] = useState(false)
   // Hueco arriba del menú donde la sección pone su selector de ciclo lectivo (ver `sidebar-slot`).
   const [slot, setSlot] = useState<HTMLElement | null>(null)
-  const [unreadInApp, setUnreadInApp] = useState(0)
   const pathname = usePathname()
 
   // Se leen después de montar: en el servidor no hay storage.
@@ -414,25 +412,6 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     setGroupOpen(title, true)
     toggleCollapsed()
   }
-
-  useEffect(() => {
-    if (!me || !canAccessModules(me)) {
-      setUnreadInApp(0)
-      return
-    }
-    let cancelled = false
-    ;(async () => {
-      try {
-        const r = await api<{ count: number }>('/notifications/in-app/unread-count')
-        if (!cancelled) setUnreadInApp(r.count)
-      } catch {
-        if (!cancelled) setUnreadInApp(0)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [me, pathname])
 
   const groups = useMemo(() => (me ? visibleGroups(me) : []), [me])
 
@@ -618,51 +597,42 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
   const slotValue = { slot, rail, expand: () => rail && toggleCollapsed() }
 
   return (
-    <SidebarSlotContext.Provider value={slotValue}>
-      <div className="min-h-screen bg-slate-50/80">
-        <div
-          aria-hidden="true"
-          className={`fixed inset-0 z-40 bg-slate-950/40 transition-opacity lg:hidden ${mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
-          onClick={() => setMobileOpen(false)}
-          onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setMobileOpen(false) }}
-        />
-        <div className={`lg:block ${mobileOpen ? 'block' : 'hidden'}`}>{sidebar}</div>
-        <div className={`min-h-screen transition-[padding] duration-200 ${collapsed ? 'lg:pl-16' : 'lg:pl-72'}`}>
-          <header className="header-modern sticky top-0 z-30 bg-white/90">
-            <div className="flex h-16 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
-              <button
-                type="button"
-                className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 lg:hidden"
-                onClick={() => setMobileOpen(true)}
-                aria-label="Abrir menú"
-              >
-                <Menu className="h-5 w-5" aria-hidden />
-              </button>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">EduTrack</p>
-                <p className="truncate text-sm text-gray-600">Gestión diaria de la institución</p>
+    <NotificationsProvider>
+      <SidebarSlotContext.Provider value={slotValue}>
+        <div className="min-h-screen bg-slate-50/80">
+          <div
+            aria-hidden="true"
+            className={`fixed inset-0 z-40 bg-slate-950/40 transition-opacity lg:hidden ${mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+            onClick={() => setMobileOpen(false)}
+            onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setMobileOpen(false) }}
+          />
+          <div className={`lg:block ${mobileOpen ? 'block' : 'hidden'}`}>{sidebar}</div>
+          <div className={`min-h-screen transition-[padding] duration-200 ${collapsed ? 'lg:pl-16' : 'lg:pl-72'}`}>
+            <header className="header-modern sticky top-0 z-30 bg-white/90">
+              <div className="flex h-16 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
+                <button
+                  type="button"
+                  className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 lg:hidden"
+                  onClick={() => setMobileOpen(true)}
+                  aria-label="Abrir menú"
+                >
+                  <Menu className="h-5 w-5" aria-hidden />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">EduTrack</p>
+                  <p className="truncate text-sm text-gray-600">Gestión diaria de la institución</p>
+                </div>
+                <NotificationBell />
+                {accountButton}
               </div>
-              <a
-                href="/notifications"
-                className="relative rounded-lg p-2 text-gray-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
-                title="Avisos"
-                aria-label="Avisos"
-              >
-                <Bell className="h-5 w-5" aria-hidden />
-                {unreadInApp > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold text-white">
-                    {unreadInApp > 99 ? '99+' : unreadInApp}
-                  </span>
-                )}
-              </a>
-              {accountButton}
-            </div>
-            {/* Durante la clase, debajo del encabezado y en cualquier pantalla: "pasá la lista". */}
-            {me && hasPermission(me, 'student-attendance.take') && <RollCallReminderBar />}
-          </header>
-          <div className="min-w-0">{children}</div>
+              {/* Durante la clase, debajo del encabezado y en cualquier pantalla: "pasá la lista". */}
+              {me && hasPermission(me, 'student-attendance.take') && <RollCallReminderBar />}
+            </header>
+            <div className="min-w-0">{children}</div>
+          </div>
         </div>
-      </div>
-    </SidebarSlotContext.Provider>
+        <NotificationToast />
+      </SidebarSlotContext.Provider>
+    </NotificationsProvider>
   )
 }
