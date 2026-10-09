@@ -19,7 +19,7 @@ describe('AdminAttendance', () => {
     vi.restoreAllMocks()
   })
 
-  it('carga asistencias vacías y muestra EduTrack', async () => {
+  it('carga asistencias vacías y muestra la pantalla de asistencias', async () => {
     mockedApi.mockImplementation(async (url: string) => {
       if (String(url).includes('attendance/all')) {
         return { total: 0, page: 1, pageSize: 20, data: [] }
@@ -32,7 +32,7 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    expect(await screen.findByText('EduTrack')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Asistencias' })).toBeInTheDocument()
     expect((await screen.findAllByText('No hay registros de asistencia')).length).toBeGreaterThan(0)
     expect(screen.getByText('registros totales')).toBeInTheDocument()
   })
@@ -418,7 +418,12 @@ describe('AdminAttendance', () => {
     expect(screen.getAllByText('Entrada duplicada').length).toBeGreaterThan(0)
   })
 
-  it('exporta Excel vía fetch al backend', async () => {
+  it.each([
+    { label: 'asistencias a Excel', option: 'Exportar asistencias a Excel', format: 'XLSX', reportKey: 'attendance_detail' },
+    { label: 'asistencias a PDF', option: 'Exportar asistencias a PDF', format: 'PDF', reportKey: 'attendance_detail' },
+    { label: 'novedades a Excel', option: 'Exportar novedades a Excel', format: 'XLSX', reportKey: 'payroll_novedades' },
+    { label: 'novedades a CSV', option: 'Exportar novedades a CSV', format: 'CSV', reportKey: 'payroll_novedades' },
+  ])('exporta $label con el período aplicado', async ({ option, format, reportKey }) => {
     const blob = new Blob(['xlsx'])
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -442,9 +447,16 @@ describe('AdminAttendance', () => {
     })
 
     render(<AdminAttendance />)
-    await screen.findByText('EduTrack')
+    await screen.findByRole('heading', { name: 'Asistencias' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Exportar asistencias a Excel' }))
+    fireEvent.click(screen.getByRole('button', { name: /Período/ }))
+    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '01/10/2026' } })
+    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '09/10/2026' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+    expect(screen.queryByRole('button', { name: 'Exportar asistencias a Excel' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Exportar' }))
+    fireEvent.click(screen.getByRole('button', { name: option }))
+    expect(screen.queryByRole('dialog', { name: 'Opciones de exportación' })).not.toBeInTheDocument()
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled()
@@ -452,6 +464,11 @@ describe('AdminAttendance', () => {
       expect(call).toContain('localhost:4000/exports/exp-1/download')
     })
     expect(mockedApi).toHaveBeenCalledWith('/exports', expect.objectContaining({ method: 'POST' }))
+    const exportCall = mockedApi.mock.calls.find(([url]) => url === '/exports')!
+    expect(JSON.parse(exportCall[1]!.body as string)).toMatchObject({
+      reportKey, format, from: '2026-10-01', to: '2026-10-09',
+    })
+    expect(mockedApi).toHaveBeenCalledWith(expect.stringMatching(/attendance\/all\?.*startDate=2026-10-01.*endDate=2026-10-09/))
   })
 
   it('elimina asistencias seleccionadas tras confirmar', async () => {
