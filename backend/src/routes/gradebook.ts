@@ -35,7 +35,11 @@ import { resolveMoodleAcademicScope } from '../integrations/moodle/scope.js'
 import { AuditAction } from '@prisma/client'
 import { clientIpFromRequest, recordAuditEvent, recordAuditEventNow } from '../services/audit-log.js'
 import { getGradeBookSettings, getStudentRollCallSettings } from '../config/system-settings.js'
-import { isWithinEditWindow, resolveRollCallPermissions } from '../services/student-attendance/edit-window.js'
+import {
+  isWithinEditWindow,
+  resolveRollCallPermissions,
+  rollCallBlockedMessage,
+} from '../services/student-attendance/edit-window.js'
 import { GRADE_BLOCK_MESSAGES, resolveGradeEditPermissions } from '../services/gradebook/edit-window.js'
 import { GradingError, saveGrades } from '../services/gradebook/grading.js'
 import ExcelJS from 'exceljs'
@@ -407,15 +411,16 @@ function scopeOfRow(row: NonNullable<GradeBookRow>) {
 }
 
 /**
- * ¿Se puede pasar lista ese día desde la libreta? Las mismas reglas que `/me/roll-call`: la
- * ventana del docente (`studentRollCallEditWindowHours`, desde la clase o desde que pasó lista),
- * la planilla cerrada por administración, y administración (`student-attendance.take` con alcance
- * total) sin ventana pero auditada. Antes la libreta dejaba editar cualquier día pasado sin rastro.
+ * ¿Se puede pasar lista ese día desde la libreta? Las mismas reglas que `/me/roll-call`: la lista
+ * abre 10 minutos antes de la clase, la ventana del docente (`studentRollCallEditWindowHours`,
+ * desde la clase o desde que pasó lista), la planilla cerrada por administración, y administración
+ * (`student-attendance.take` con alcance total) sin ventana pero auditada. Antes la libreta dejaba
+ * editar cualquier día pasado sin rastro.
  */
 async function libretaRollCallPermissions(
   req: any,
   access: { level: string },
-  target: { endAt: Date },
+  target: { startAt: Date; endAt: Date },
   session: { takenAt?: Date | null; lockedAt?: Date | null } | null,
 ) {
   const userId = req.user?.id ?? req.user?.sub
@@ -426,6 +431,7 @@ async function libretaRollCallPermissions(
   const permissions = resolveRollCallPermissions({
     scope: scope === 'all' ? 'all' : 'own',
     isAssignedTeacher: access.level === 'OWNER' || access.level === 'SUBSTITUTE',
+    occurrenceStartAt: target.startAt,
     occurrenceEndAt: target.endAt,
     takenAt: session?.takenAt ?? null,
     lockedAt: session?.lockedAt ?? null,
@@ -482,6 +488,7 @@ r.get('/:id/absences/day', requirePermission('gradebook.read'), async (req: any,
     const hasClass = day.kind === 'class'
     let canMark = false
     let markBlockedReason: string | null = null
+    let opensAt: string | null = null
     let editableUntil: string | null = null
     let noClassReason: string | null = null
 
@@ -496,6 +503,7 @@ r.get('/:id/absences/day', requirePermission('gradebook.read'), async (req: any,
       const permissions = await libretaRollCallPermissions(req, ctx.access, markTarget, session)
       canMark = permissions.canEdit
       markBlockedReason = permissions.blockedReason
+      opensAt = permissions.opensAt.toISOString()
       editableUntil = permissions.editableUntil.toISOString()
       for (const entry of session?.entries ?? []) {
         dayByStudent.set(entry.studentId, {
@@ -510,8 +518,10 @@ r.get('/:id/absences/day', requirePermission('gradebook.read'), async (req: any,
       date: ymd,
       hasClass,
       canMark,
-      /** Por qué no se puede marcar aunque haya clase: `WINDOW_EXPIRED`, `LOCKED` o `NOT_ASSIGNED`. */
+      /** Por qué no se puede marcar aunque haya clase: `NOT_STARTED`, `WINDOW_EXPIRED`, `LOCKED` o `NOT_ASSIGNED`. */
       markBlockedReason,
+      /** Desde cuándo se puede pasar la lista de ese día. */
+      opensAt,
       editableUntil,
       noClassReason,
       eventId,
@@ -574,11 +584,9 @@ r.put('/:id/absences/day', requirePermission('gradebook.grade'), async (req: any
     )
     if (!permissions.canEdit) {
       return res.status(409).json({
-        message:
-          permissions.blockedReason === 'LOCKED'
-            ? 'La planilla fue cerrada por administración.'
-            : 'Se venció el plazo para editar esta lista. Pedile el cambio a administración.',
+        message: rollCallBlockedMessage(permissions),
         code: permissions.blockedReason,
+        opensAt: permissions.opensAt,
         editableUntil: permissions.editableUntil,
       })
     }

@@ -37,6 +37,16 @@ describe('editWindowNotice', () => {
     expect(notice).toContain('docente')
   })
 
+  it('antes de la clase dice a qué hora abre', () => {
+    const notice = editWindowNotice({
+      canEdit: false,
+      blockedReason: 'NOT_STARTED',
+      editableUntil: null,
+      opensAt: '2026-10-08T12:50:00.000Z',
+    })
+    expect(notice).toBe('La lista se abre a las 09:50, 10 minutos antes de la clase.')
+  })
+
   it('tiene un mensaje genérico para un motivo desconocido', () => {
     expect(editWindowNotice({ canEdit: false, blockedReason: null, editableUntil: null })).toContain('no se puede editar')
   })

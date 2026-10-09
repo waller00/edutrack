@@ -1,4 +1,4 @@
-import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
+import { formatDateTimeInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
 
 export type BlockedReason = 'LOCKED' | 'WINDOW_EXPIRED' | 'NOT_ASSIGNED' | 'NOT_STARTED' | null
 
@@ -9,11 +9,19 @@ export function isEditableNow(editableUntil: string | null, canEdit: boolean, no
   return now.getTime() <= new Date(editableUntil).getTime()
 }
 
+/** Texto de "todavía no abrió", con la hora: la lista abre 10 minutos antes de la clase. */
+export function notStartedNotice(opensAt: string | null | undefined): string {
+  return opensAt
+    ? `La lista se abre a las ${formatTimeInUruguay(opensAt)}, 10 minutos antes de la clase.`
+    : 'La lista se abre 10 minutos antes de la clase.'
+}
+
 /** Texto que explica por qué no se puede editar, o hasta cuándo se puede. */
 export function editWindowNotice(params: {
   canEdit: boolean
   blockedReason: BlockedReason
   editableUntil: string | null
+  opensAt?: string | null
 }): string | null {
   if (!params.canEdit) {
     switch (params.blockedReason) {
@@ -23,6 +31,8 @@ export function editWindowNotice(params: {
         return 'Venció el plazo para editar esta lista. Pedile el cambio a secretaría.'
       case 'NOT_ASSIGNED':
         return 'No sos el docente de esta clase.'
+      case 'NOT_STARTED':
+        return notStartedNotice(params.opensAt)
       default:
         return 'Esta lista no se puede editar.'
     }

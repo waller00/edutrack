@@ -279,6 +279,79 @@ describe('LicensesPage', () => {
       expect(callsAfter).toBeGreaterThan(callsBefore)
     })
   })
+
+  it('muestra estados como botones y pliega el resumen, los motivos y los filtros secundarios', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('medical-leaves/all')) return { data: [activeLicense] }
+      return { data: [] }
+    })
+    render(<LicensesPage />)
+    await screen.findAllByText('Licencia médica presentada')
+    const buttons = within(screen.getByRole('group', { name: 'Filtrar licencias por estado' })).getAllByRole('button')
+    expect(buttons.map((button) => button.textContent)).toEqual(['Todas', 'Activas', 'Inactivas'])
+    expect(buttons[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(within(screen.getByRole('table')).getAllByRole('columnheader')).toHaveLength(5)
+    for (const text of ['Más filtros', 'Ver resumen de licencias', 'Cómo se aplican las licencias']) {
+      expect(screen.getByText(text).closest('details')).not.toHaveAttribute('open')
+    }
+    expect(within(screen.getByRole('table')).getByText('Ver motivo').closest('details')).not.toHaveAttribute('open')
+    expect(screen.queryByRole('button', { name: 'Eliminar seleccionadas' })).toBeNull()
+  })
+
+  it('aplica el rango de fechas solo al confirmarlo y conserva los filtros al cambiar de estado o de página', async () => {
+    mockedApi.mockImplementation(async (url: string) => {
+      if (String(url).includes('medical-leaves/all')) {
+        const page = Number(new URL(url, 'http://test').searchParams.get('page'))
+        return { data: [activeLicense], pagination: { page, total: 75, totalPages: 2 } }
+      }
+      if (String(url).includes('admin/users')) return { data: [{ id: 'u1', email: 'ana@example.com', firstName: 'Ana', lastName: 'G' }] }
+      return { data: [] }
+    })
+    render(<LicensesPage />)
+    await screen.findAllByText('Licencia médica presentada')
+    const callsBefore = mockedApi.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: /Período/ }))
+    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '01/01/2025' } })
+    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '31/01/2025' } })
+    expect(mockedApi).toHaveBeenCalledTimes(callsBefore)
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/medical-leaves/all?startDate=2025-01-01&endDate=2025-01-31&page=1&pageSize=50'))
+    fireEvent.change(screen.getByLabelText('Persona'), { target: { value: 'u1' } })
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('userId=u1&startDate=2025-01-01&endDate=2025-01-31')))
+    fireEvent.click(screen.getByText('Más filtros'))
+    fireEvent.change(screen.getByLabelText('Tipo de licencia'), { target: { value: 'WORK_LEAVE' } })
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('type=WORK_LEAVE')))
+    fireEvent.click(screen.getByRole('button', { name: 'Inactivas' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/medical-leaves/all?userId=u1&type=WORK_LEAVE&status=INACTIVE&startDate=2025-01-01&endDate=2025-01-31&page=1&pageSize=50'))
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('page=2')))
+    fireEvent.click(screen.getByRole('button', { name: 'Activas' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith(expect.stringContaining('status=ACTIVE&startDate=2025-01-01&endDate=2025-01-31&page=1')))
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/medical-leaves/all?status=ACTIVE&page=1&pageSize=50'))
+    expect(screen.getByRole('button', { name: 'Activas' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Persona')).toHaveValue('')
+  })
+
+  it('los días no laborables usan el calendario y muestran el formulario de alta a pedido', async () => {
+    mockedApi.mockResolvedValue({ data: [] })
+    render(<LicensesPage />)
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledTimes(3))
+    fireEvent.click(screen.getByRole('button', { name: 'Días no laborables' }))
+    const summary = screen.getByText('Marcar feriado o día no laborable')
+    expect(summary.closest('details')).not.toHaveAttribute('open')
+    fireEvent.click(summary)
+    fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '12/06/2026' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Feriado' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar día' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith('/non-working-days', { method: 'POST', body: JSON.stringify({ date: '2026-06-12', type: 'NON_WORKING_DAY', reason: 'Feriado' }) }))
+    fireEvent.click(screen.getByRole('button', { name: /Período/ }))
+    fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '01/06/2026' } })
+    fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '30/06/2026' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+    await waitFor(() => expect(mockedApi).toHaveBeenLastCalledWith('/non-working-days?from=2026-06-01&to=2026-06-30'))
+  })
+
 })
 
 describe('LicensesPage: ciclos, páginas y totales', () => {

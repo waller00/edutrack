@@ -13,6 +13,7 @@ import {
   resolveIncomingEntryStatus,
 } from './roll-call-rules.js'
 import type { RosterStudent } from './roster.js'
+import { PERSON_SELECT } from './person.js'
 
 /**
  * Instante que representa el día civil de una ocurrencia.
@@ -89,7 +90,7 @@ async function justifyFromRange(
 export async function findSession(eventId: string, occurrenceYmd: string, db = prisma) {
   return db.studentAttendanceSession.findUnique({
     where: { eventId_occurrenceYmd: { eventId, occurrenceYmd } },
-    include: { entries: true },
+    include: { entries: true, takenBy: { select: PERSON_SELECT } },
   })
 }
 

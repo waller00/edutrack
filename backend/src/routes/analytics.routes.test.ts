@@ -18,6 +18,7 @@ const {
     attendance: { findMany: vi.fn().mockResolvedValue([]) },
     biometricPunch: { findMany: vi.fn().mockResolvedValue([]) },
     medicalLeave: { count: vi.fn().mockResolvedValue(0) },
+    studentAttendanceSession: { findMany: vi.fn().mockResolvedValue([]) },
     $queryRaw: vi.fn().mockResolvedValue([]),
   },
   getPlannedInstancesMock: vi.fn(),
@@ -156,6 +157,7 @@ function setupTimelineMocks() {
   prismaMock.event.findMany.mockResolvedValueOnce([timelineEvent()]).mockResolvedValueOnce([])
   prismaMock.attendance.findMany.mockResolvedValue([])
   prismaMock.biometricPunch.findMany.mockResolvedValue([])
+  prismaMock.studentAttendanceSession.findMany.mockResolvedValue([])
   prismaMock.$queryRaw.mockResolvedValue([])
 }
 
@@ -257,6 +259,43 @@ describe('analytics /attendance-timeline', () => {
       ]),
     )
     expect(res.body.items.some((item: any) => item.type === 'PENDING_ABSENCE')).toBe(false)
+  })
+
+  it('cada clase dice si la lista de alumnos se pasó, quién y cuándo abre', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-25T13:30:00.000Z'))
+    prismaMock.studentAttendanceSession.findMany.mockResolvedValue([
+      {
+        eventId: 'event-1',
+        status: 'TAKEN',
+        takenAt: new Date('2026-06-25T13:07:00.000Z'),
+        takenBy: { id: 'teacher-1', name: 'Ana Docente' },
+      },
+    ])
+
+    const res = await request(app()).get('/analytics/attendance-timeline?date=2026-06-25').set(adminHdr())
+
+    expect(prismaMock.studentAttendanceSession.findMany.mock.calls[0][0].where).toEqual({ occurrenceYmd: '2026-06-25' })
+    const item = res.body.items.find((row: any) => row.id === 'class:event-1_2026-06-25')
+    expect(item.rollCall).toEqual({
+      eventId: 'event-1',
+      ymd: '2026-06-25',
+      status: 'TAKEN',
+      takenAt: '2026-06-25T13:07:00.000Z',
+      takenBy: 'Ana Docente',
+      opensAt: '2026-06-25T12:50:00.000Z',
+      endAt: '2026-06-25T14:00:00.000Z',
+    })
+  })
+
+  it('sin lista pasada, la clase queda pendiente', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-25T13:30:00.000Z'))
+
+    const res = await request(app()).get('/analytics/attendance-timeline?date=2026-06-25').set(adminHdr())
+
+    const item = res.body.items.find((row: any) => row.id === 'class:event-1_2026-06-25')
+    expect(item.rollCall).toMatchObject({ status: 'PENDING', takenAt: null, takenBy: null })
   })
 
   it('muestra ausencia pendiente después de la tolerancia de no-show', async () => {

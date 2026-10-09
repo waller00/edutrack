@@ -37,6 +37,9 @@ import {
   isUruguayWallDateTimeInPast,
 } from '@/lib/forms/datetime-uy'
 import SubstitutionModal, { type SubstitutionModalEvent } from '@/components/admin/SubstitutionModal'
+import OccurrenceRollCallBox from '@/components/admin/events/OccurrenceRollCallBox'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import EventsCalendar, { type CalendarEvent } from '@/components/admin/EventsCalendar'
 import type { SubstitutionListResponse } from '@/lib/substitutions/types'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
@@ -499,6 +502,10 @@ function OccurrenceActionModal({
   const [endTime, setEndTime] = useState(occ.endTime ? formatClockHhMmInUruguayFromIso(occ.endTime) : '10:00')
   const dateLabel = `${occ.ymd.slice(8, 10)}/${occ.ymd.slice(5, 7)}/${occ.ymd.slice(0, 4)}`
   const stateLabel = occ.suspended ? ' · Suspendida' : occ.overridden ? ' · Modificada' : ''
+  const me = useOptionalAuth()?.me ?? null
+  // Una clase que se dicta muestra quién la da y cómo está su pase de lista.
+  const showRollCall =
+    occ.event.type === 'CLASE' && !occ.suspended && hasPermission(me, 'student-attendance.read', 'all')
 
   return (
     <div
@@ -548,6 +555,13 @@ function OccurrenceActionModal({
           </div>
         ) : (
           <div className="space-y-2">
+            {showRollCall ? (
+              <OccurrenceRollCallBox
+                eventId={occ.event.id}
+                ymd={occ.ymd}
+                canOpen={hasPermission(me, 'student-attendance.take', 'all')}
+              />
+            ) : null}
             {readOnlyReason ? (
               <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                 {readOnlyReason}

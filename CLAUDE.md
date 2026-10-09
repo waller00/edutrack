@@ -132,14 +132,19 @@ Módulo: `backend/src/services/student-attendance/`
 
 - `roster.ts` — cohorte del evento; misma precedencia que `moodle/scope.ts` (`courseOrientationId` > `orientationId` > tronco común)
 - `occurrence.ts` — valida que el día sea clase real; distingue *suspendida* de *inexistente*
-- `edit-window.ts` — ventana de edición del docente (`SystemSettings.studentRollCallEditWindowHours`, default 48 h)
+- `edit-window.ts` — la lista abre 10 min antes de la clase (`opensAt`, si no `NOT_STARTED`, para todos los alcances) y la ventana de edición del docente (`SystemSettings.studentRollCallEditWindowHours`, default 48 h)
+- `my-classes.ts` — clases de un día con titular, suplente y estado de la lista; `loadRollCallReminders` alimenta la franja "pasá la lista" (`GET /student-attendance/reminder`, siempre lo propio)
+- `day-roll-calls.ts` — estado de las listas de un día para "Clases del día" del Inicio (timeline de analytics)
 - `copy-previous.ts` — sugerencia de copiar la hora anterior del mismo grupo
 - `pending.ts` — listas sin pasar (se calculan; no hay filas PENDING pre-creadas)
 - `consolidation.ts` — faltas por día/asignatura, derivadas al leer
 - `roll-call.ts` / `justify.ts` — escritura y transición ABSENT → ABSENT_JUSTIFIED
 
 Rutas: `backend/src/routes/student-attendance.ts` (docente) y `admin-student-attendance.ts` (control).
-Frontend: `/me/roll-call` y `/admin/student-attendance`.
+Frontend: `/me/roll-call` y `/admin/student-attendance`. La franja que aparece en toda la app durante
+la clase es `components/rollcall/RollCallReminderBar.tsx` (montada en `UserNav`). Las fases de una
+lista ("Abre 09:50", "Pasá la lista", "Sin pasar", "Pasada 10:07") salen de `lib/rollcall/rollcall-phase.ts`,
+calculadas con la hora del cliente: no confiar en un `canEdit` viejo.
 
 > `occurrenceDate` **debe** calcularse con `uruguayWallToUtc(ymd, 0, 0)`, idéntico a lo que escribe
 > `resolveSubstitutionOccurrence` en `Substitution.date`. Si difieren, el suplente recibe un 403

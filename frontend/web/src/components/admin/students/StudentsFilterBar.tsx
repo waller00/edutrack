@@ -1,8 +1,8 @@
 'use client'
 
-import { Search, X } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, ChevronRight, Search, SlidersHorizontal, X } from 'lucide-react'
 import type { CourseOpt, OrientationOpt } from './student-types'
-import { STUDENT_STATUS_OPTIONS } from './student-types'
 
 export type StudentFilters = {
   draftQ: string
@@ -20,111 +20,56 @@ type Props = {
   onClear: () => void
 }
 
-/**
- * Barra de filtros. Todos los controles (incluida la búsqueda, que va con debounce en el
- * contenedor) se aplican solos: antes el texto exigía Enter o un botón "Aplicar" mientras
- * los selects filtraban al instante, dos modelos de interacción en la misma barra.
- */
-export default function StudentsFilterBar({
-  filters,
-  courses,
-  orientations,
-  activeFilterCount,
-  onChange,
-  onClear,
-}: Props) {
+export default function StudentsFilterBar({ filters, courses, orientations, activeFilterCount, onChange, onClear }: Props) {
+  const [moreOpen, setMoreOpen] = useState(false)
+  const selectedOrientation = orientations.find((row) => row.orientationId === filters.orientationId)
+
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
-      <div className="min-w-0 lg:min-w-[220px] lg:flex-1">
-        <label htmlFor="student-search" className="mb-1 block text-xs font-medium text-gray-600">
-          Buscar
-        </label>
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-            aria-hidden
-          />
-          <input
-            id="student-search"
-            type="search"
-            className="input-field w-full pl-9 text-sm"
-            value={filters.draftQ}
-            onChange={(e) => onChange({ draftQ: e.target.value })}
-            placeholder="Nombre, apellido o documento"
-          />
+    <div className="space-y-3">
+      <div className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]">
+        <div className="min-w-0">
+          <label htmlFor="student-search" className="mb-1 block text-xs font-medium text-gray-600">Buscar estudiante</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+            <input id="student-search" type="search" className="min-h-10 w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={filters.draftQ} onChange={(e) => onChange({ draftQ: e.target.value })} placeholder="Nombre, apellido o documento" />
+          </div>
         </div>
-      </div>
-
-      <div className="min-w-0 lg:min-w-[170px]">
-        <label htmlFor="student-course" className="mb-1 block text-xs font-medium text-gray-600">
-          Curso
-        </label>
-        <select
-          id="student-course"
-          className="select-field w-full text-sm"
-          value={filters.courseId}
-          onChange={(e) => onChange({ courseId: e.target.value, orientationId: '' })}
-        >
-          <option value="">Todos</option>
-          {courses.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-              {c.code ? ` (${c.code})` : ''}
-              {c.isActive === false ? ' — inactivo' : ''}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {filters.courseId && orientations.length > 0 ? (
-        <div className="min-w-0 lg:min-w-[170px]">
-          <label htmlFor="student-orientation" className="mb-1 block text-xs font-medium text-gray-600">
-            Orientación
-          </label>
-          <select
-            id="student-orientation"
-            className="select-field w-full text-sm"
-            value={filters.orientationId}
-            onChange={(e) => onChange({ orientationId: e.target.value })}
-          >
-            <option value="">Todas</option>
-            {orientations.map((o) => (
-              <option key={o.orientationId} value={o.orientationId}>
-                {o.orientation.name}
-                {o.orientation.code ? ` (${o.orientation.code})` : ''}
-              </option>
-            ))}
+        <div className="min-w-0">
+          <label htmlFor="student-course" className="mb-1 block text-xs font-medium text-gray-600">Curso</label>
+          <select id="student-course" className="select-field min-h-10 text-sm" value={filters.courseId} onChange={(e) => onChange({ courseId: e.target.value, orientationId: '' })}>
+            <option value="">Todos los cursos</option>
+            {courses.map((course) => <option key={course.id} value={course.id}>{course.name}{course.code ? ` (${course.code})` : ''}{course.isActive === false ? ' — inactivo' : ''}</option>)}
           </select>
         </div>
-      ) : null}
-
-      <div className="min-w-0 lg:min-w-[150px]">
-        <label htmlFor="student-status" className="mb-1 block text-xs font-medium text-gray-600">
-          Estado
-        </label>
-        <select
-          id="student-status"
-          className="select-field w-full text-sm"
-          value={filters.status}
-          onChange={(e) => onChange({ status: e.target.value })}
-        >
-          <option value="">Todos</option>
-          {STUDENT_STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
       </div>
-
-      {activeFilterCount > 0 ? (
-        <button type="button" className="btn-secondary text-sm" onClick={onClear}>
-          <X className="h-4 w-4" aria-hidden />
-          Limpiar
-          <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1 text-xs font-semibold text-white">
-            {activeFilterCount}
-          </span>
-        </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {filters.courseId && orientations.length > 0 ? (
+          <button type="button" aria-expanded={moreOpen} aria-controls="student-more-filters" onClick={() => setMoreOpen((value) => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
+            <SlidersHorizontal className="h-4 w-4" aria-hidden />Más filtros
+            {filters.orientationId ? <span className="rounded-full bg-emerald-100 px-2 text-xs text-emerald-800">1</span> : null}
+            {moreOpen ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+          </button>
+        ) : null}
+        {selectedOrientation ? (
+          <button type="button" onClick={() => onChange({ orientationId: '' })} className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800" aria-label={`Quitar filtro de orientación ${selectedOrientation.orientation.name}`}>
+            <span className="min-w-0 break-words">{selectedOrientation.orientation.name}</span><X className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          </button>
+        ) : null}
+        {activeFilterCount > 0 ? (
+          <button type="button" onClick={onClear} className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
+            <X className="h-4 w-4" aria-hidden />Limpiar filtros
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-gray-100 px-1 text-xs font-medium">{activeFilterCount}</span>
+          </button>
+        ) : null}
+      </div>
+      {moreOpen && filters.courseId && orientations.length > 0 ? (
+        <div id="student-more-filters" className="rounded-lg bg-gray-50 p-3">
+          <label htmlFor="student-orientation" className="mb-1 block text-xs font-medium text-gray-600">Orientación</label>
+          <select id="student-orientation" className="select-field min-h-10 text-sm sm:max-w-sm" value={filters.orientationId} onChange={(e) => onChange({ orientationId: e.target.value })}>
+            <option value="">Todas las orientaciones</option>
+            {orientations.map((row) => <option key={row.orientationId} value={row.orientationId}>{row.orientation.name}{row.orientation.code ? ` (${row.orientation.code})` : ''}</option>)}
+          </select>
+        </div>
       ) : null}
     </div>
   )

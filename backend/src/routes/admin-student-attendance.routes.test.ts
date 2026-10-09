@@ -6,7 +6,8 @@ import { signAccessToken } from "../test-utils/bearer-token.js";
 
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
-    event: { findMany: vi.fn() },
+    event: { findMany: vi.fn(), findUnique: vi.fn() },
+    substitution: { findUnique: vi.fn() },
     nonWorkingDay: { findMany: vi.fn() },
     studentAttendanceSession: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     studentAttendanceEntry: { findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
@@ -22,6 +23,9 @@ const { prismaMock } = vi.hoisted(() => ({
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../services/school-year-service.js", () => ({
   resolveSchoolYearIdForList: vi.fn().mockResolvedValue("sy-1"),
+}));
+vi.mock("../services/non-working-days.js", () => ({
+  findNonWorkingDayForDate: vi.fn().mockResolvedValue(null),
 }));
 
 import adminStudentAttendanceRoutes from "./admin-student-attendance.js";
@@ -270,6 +274,78 @@ describe("admin student-attendance routes", () => {
         .post("/admin/student-attendance/justification-ranges/range-1/revoke")
         .set("Authorization", `Bearer ${tok()}`);
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe("estado de la lista de una clase, para la Agenda", () => {
+    const EVENT_ID = "11111111-1111-4111-8111-111111111111";
+    const YMD = "2026-05-11"; // lunes
+    const url = `/admin/student-attendance/sessions/${EVENT_ID}/${YMD}/status`;
+
+    beforeEach(() => {
+      // Matemática de los lunes 08:00–09:00 (11:00–12:00 UTC).
+      prismaMock.event.findUnique.mockResolvedValue({
+        id: EVENT_ID,
+        title: "Matemática",
+        type: "CLASE",
+        status: "SCHEDULED",
+        parentEventId: null,
+        isRecurring: true,
+        recurrenceType: "WEEKLY",
+        daysOfWeek: [1],
+        startDate: new Date("2026-05-04T11:00:00.000Z"),
+        startTime: new Date("2026-05-04T11:00:00.000Z"),
+        endTime: new Date("2026-05-04T12:00:00.000Z"),
+        recurrenceEnd: new Date("2026-12-01T00:00:00.000Z"),
+        effectiveFrom: null,
+        effectiveUntil: null,
+        childEvents: [],
+        assignedUserId: "teacher-1",
+        assignedUser: { id: "teacher-1", name: "Ana Pérez" },
+      });
+      prismaMock.substitution.findUnique.mockResolvedValue(null);
+      prismaMock.studentAttendanceSession.findUnique.mockResolvedValue(null);
+    });
+
+    it("sin lista: pendiente, con el titular y desde cuándo abre", async () => {
+      const res = await request(app()).get(url).set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        startAt: "2026-05-11T11:00:00.000Z",
+        endAt: "2026-05-11T12:00:00.000Z",
+        opensAt: "2026-05-11T10:50:00.000Z",
+        teacher: { id: "teacher-1", name: "Ana Pérez" },
+        substitute: null,
+        rollCall: { status: "PENDING", takenAt: null, takenBy: null },
+      });
+    });
+
+    it("lista pasada: quién, cuándo y cuántos presentes, tardes y ausentes", async () => {
+      prismaMock.substitution.findUnique.mockResolvedValue({ substitute: { id: "sub-1", name: "Juan Gómez" } });
+      prismaMock.studentAttendanceSession.findUnique.mockResolvedValue({
+        status: "TAKEN",
+        takenAt: new Date("2026-05-11T11:07:00.000Z"),
+        rosterSize: 4,
+        takenBy: { id: "sub-1", name: "Juan Gómez" },
+        entries: [{ status: "PRESENT" }, { status: "PRESENT" }, { status: "LATE" }, { status: "ABSENT" }],
+      });
+      const res = await request(app()).get(url).set("Authorization", `Bearer ${tok()}`);
+      expect(res.body.substitute).toEqual({ id: "sub-1", name: "Juan Gómez" });
+      expect(res.body.rollCall).toEqual({
+        status: "TAKEN",
+        takenAt: "2026-05-11T11:07:00.000Z",
+        takenBy: "Juan Gómez",
+        rosterSize: 4,
+        counts: { PRESENT: 2, LATE: 1, ABSENT: 1, ABSENT_JUSTIFIED: 0 },
+      });
+    });
+
+    it("409 si la clase no se dicta ese día", async () => {
+      const res = await request(app())
+        .get(`/admin/student-attendance/sessions/${EVENT_ID}/2026-05-12/status`)
+        .set("Authorization", `Bearer ${tok()}`);
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("NO_OCCURRENCE");
     });
   });
 });

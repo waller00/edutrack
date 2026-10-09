@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CalendarDays, Check, Loader2, X } from 'lucide-react'
+import { Check, Loader2, X } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { MONTH_NAMES, TUITION_STATUS_LABELS, formatTuitionAmount, parseTuitionAmount, todayYmd, tuitionStatus, type TuitionMonth, type TuitionStatus, type TuitionStudent } from '@/lib/admin/tuition'
+import DateField from '@/components/forms/DateField'
 import TuitionStatusBadge from './TuitionStatusBadge'
 
 type Draft = { status: TuitionStatus; amount: string; date: string; notes: string }
@@ -111,31 +112,7 @@ export default function TuitionStudentPanel({ student, year, initialMonth, regis
           <button ref={closeRef} type="button" disabled={saving} onClick={() => requestCloseRef.current()} aria-label="Cerrar cuenta del estudiante" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X className="h-5 w-5" aria-hidden /></button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
-          <section aria-label={`Resumen anual ${year}`}>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800"><CalendarDays className="h-4 w-4 text-slate-400" aria-hidden />Vista anual</h3>
-              <p className="text-xs text-slate-500">{paidCount} pagados · {pendingCount} pendientes · {12 - paidCount - pendingCount} sin registrar</p>
-            </div>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {MONTH_NAMES.map((name, index) => {
-                const item = months.find((entry) => entry.year === year && entry.month === index + 1)
-                const status = tuitionStatus(item)
-                const selected = month === index + 1
-                return <button type="button" key={name} disabled={saving} aria-pressed={selected} aria-label={`${name}: ${TUITION_STATUS_LABELS[status]}`} onClick={() => {
-                  if (selected) return
-                  if (dirty) setDiscardAction(index + 1)
-                  else selectMonth(index + 1)
-                }} className={`rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${selected ? 'border-emerald-600 bg-emerald-50 ring-1 ring-emerald-600' : 'border-slate-200 hover:border-slate-400'}`}>
-                  <span className="block text-sm font-semibold text-slate-800">{name}</span>
-                  <span className={`mt-1 flex items-center gap-1 text-xs ${status === 'paid' ? 'text-emerald-700' : status === 'pending' ? 'text-amber-700' : 'text-slate-400'}`}>
-                    {status === 'paid' && <Check className="h-3 w-3" aria-hidden />}{TUITION_STATUS_LABELS[status]}
-                  </span>
-                </button>
-              })}
-            </div>
-          </section>
-
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-7">
           {discardAction !== null && <div role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             <p>Tenés cambios sin guardar en {MONTH_NAMES[month - 1]}. Podés guardarlos o descartarlos para continuar.</p>
             <div className="mt-3 flex flex-wrap gap-3">
@@ -144,12 +121,22 @@ export default function TuitionStudentPanel({ student, year, initialMonth, regis
             </div>
           </div>}
 
-          <form id="tuition-payment-form" className="mt-7 space-y-5" onSubmit={(event) => { event.preventDefault(); void save() }}>
-            <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-6">
+          <form id="tuition-payment-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); void save() }}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div><h3 className="text-lg font-bold text-slate-900">{MONTH_NAMES[month - 1]} {year}</h3><p className="text-xs text-slate-500">{row ? `Importe registrado: ${formatTuitionAmount(row.amountCents)}` : 'Este mes todavía no tiene una cuota registrada.'}</p></div>
               <TuitionStatusBadge status={tuitionStatus(row)} />
             </div>
-            <fieldset disabled={saving} className="space-y-5">
+            <label className="block text-sm font-medium text-slate-700">Mes
+              <select aria-label="Mes de mensualidad" value={month} disabled={saving} onChange={(event) => {
+                const next = Number(event.target.value)
+                if (next === month) return
+                if (dirty) setDiscardAction(next)
+                else selectMonth(next)
+              }} className="select-field mt-1.5 text-sm">
+                {MONTH_NAMES.map((name, index) => <option key={name} value={index + 1}>{name} · {TUITION_STATUS_LABELS[tuitionStatus(months.find((entry) => entry.year === year && entry.month === index + 1))]}</option>)}
+              </select>
+            </label>
+            <fieldset disabled={saving} className="space-y-4">
               <div>
                 <p id="tuition-status-label" className="mb-2 text-sm font-medium text-slate-700">Estado de la mensualidad</p>
                 <div role="radiogroup" aria-labelledby="tuition-status-label" className="grid grid-cols-3 gap-2">
@@ -164,18 +151,46 @@ export default function TuitionStudentPanel({ student, year, initialMonth, regis
                     <input type="text" inputMode="decimal" className="input-field mt-1.5 w-full" placeholder="Ej. 3500,00" value={draft.amount} onChange={(event) => patch({ amount: event.target.value })} />
                     <span className="mt-1 block text-xs font-normal text-slate-500">Opcional. Dejalo vacío si no tenés el importe.</span>
                   </label>
-                  {draft.status === 'paid' && <label className="block text-sm font-medium text-slate-700">Fecha de pago
-                    <input type="date" required className="input-field mt-1.5 w-full" value={draft.date} onChange={(event) => patch({ date: event.target.value })} />
-                  </label>}
+                  {draft.status === 'paid' && <div>
+                    <label htmlFor="tuition-paid-at" className="block text-sm font-medium text-slate-700">Fecha de pago</label>
+                    <DateField id="tuition-paid-at" required disabled={saving} className="input-field mt-1.5 w-full" value={draft.date} onChange={(date) => patch({ date })} />
+                  </div>}
                 </div>
-                <label className="block text-sm font-medium text-slate-700">Notas <span className="font-normal text-slate-400">(opcional)</span>
-                  <textarea rows={3} maxLength={2000} className="input-field mt-1.5 w-full" placeholder="Referencia del pago o una aclaración…" value={draft.notes} onChange={(event) => patch({ notes: event.target.value })} />
-                </label>
+                <details key={month} className="rounded-lg border border-slate-200">
+                  <summary className="cursor-pointer p-3 text-sm font-medium text-slate-600">Notas (opcional){draft.notes ? ' · Con notas' : ''}</summary>
+                  <label className="block border-t border-slate-100 p-3 text-sm font-medium text-slate-700">Notas del pago
+                    <textarea rows={3} maxLength={2000} className="input-field mt-1.5 w-full" placeholder="Referencia del pago o una aclaración…" value={draft.notes} onChange={(event) => patch({ notes: event.target.value })} />
+                  </label>
+                </details>
               </>}
             </fieldset>
             {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
             {notice && <p role="status" className="flex items-center gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800"><Check className="h-4 w-4" aria-hidden />{notice}</p>}
           </form>
+
+          <details className="mt-5 rounded-xl border border-slate-200">
+            <summary className="cursor-pointer p-3 text-sm font-medium text-slate-700">Ver año completo</summary>
+            <section aria-label={`Resumen anual ${year}`} className="space-y-3 border-t border-slate-100 p-3">
+              <p className="text-xs text-slate-500">{paidCount} pagados · {pendingCount} pendientes · {12 - paidCount - pendingCount} sin registrar</p>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {MONTH_NAMES.map((name, index) => {
+                  const item = months.find((entry) => entry.year === year && entry.month === index + 1)
+                  const status = tuitionStatus(item)
+                  const selected = month === index + 1
+                  return <button type="button" key={name} disabled={saving} aria-pressed={selected} aria-label={`${name}: ${TUITION_STATUS_LABELS[status]}`} onClick={() => {
+                    if (selected) return
+                    if (dirty) setDiscardAction(index + 1)
+                    else selectMonth(index + 1)
+                  }} className={`rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${selected ? 'border-emerald-600 bg-emerald-50 ring-1 ring-emerald-600' : 'border-slate-200 hover:border-slate-400'}`}>
+                    <span className="block text-sm font-semibold text-slate-800">{name}</span>
+                    <span className={`mt-1 flex items-center gap-1 text-xs ${status === 'paid' ? 'text-emerald-700' : status === 'pending' ? 'text-amber-700' : 'text-slate-400'}`}>
+                      {status === 'paid' && <Check className="h-3 w-3" aria-hidden />}{TUITION_STATUS_LABELS[status]}
+                    </span>
+                  </button>
+                })}
+              </div>
+            </section>
+          </details>
         </div>
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:px-7">
           <button type="button" disabled={saving} onClick={() => requestCloseRef.current()} className="btn-secondary text-sm">Cerrar</button>

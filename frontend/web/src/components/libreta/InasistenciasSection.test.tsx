@@ -88,6 +88,20 @@ describe('<InasistenciasSection />', () => {
     expect(screen.getByLabelText(/Inasistencia de Cabrera, Camila/)).toBeDisabled()
   })
 
+  it('antes de la clase dice a qué hora abre la lista', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (String(path).includes('/mine')) return { data: [] }
+      return board({ canMark: false, markBlockedReason: 'NOT_STARTED', opensAt: '2026-09-14T11:50:00.000Z' })
+    })
+
+    render(<InasistenciasSection />)
+
+    expect(
+      await screen.findByText('La lista se abre a las 08:50, 10 minutos antes de la clase.'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/Inasistencia de Cabrera, Camila/)).toBeDisabled()
+  })
+
   it('no renderiza nada mientras la libreta no cargó', () => {
     detail.mockReturnValue(null)
     const { container } = render(<InasistenciasSection />)

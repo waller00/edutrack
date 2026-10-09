@@ -1,6 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
+import UserActionsMenu from '@/components/admin/UserActionsMenu'
 import SubjectListBlock from '@/components/admin/courses/SubjectListBlock'
 import type {
   CourseOrientationRow,
@@ -9,10 +10,10 @@ import type {
   SubjectDraft,
   SubjectRow,
 } from '@/components/admin/courses/course-types'
-import { courseShortLabel, partitionSubjects } from '@/components/admin/courses/course-types'
+import { courseShortLabel, isOfferedInCycle, partitionSubjects } from '@/components/admin/courses/course-types'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { api } from '@/lib/api/client'
-import { BookOpen, ChevronDown, ChevronRight, Layers, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Loader2, Pencil, Plus, Power, Search, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 
@@ -47,6 +48,8 @@ export default function AdminCoursesPage() {
   const [courseDraft, setCourseDraft] = useState<CourseDraft>(emptyCourseDraft())
   const [creatingCourse, setCreatingCourse] = useState(false)
   const [courseSearch, setCourseSearch] = useState('')
+  const [offeringFilter, setOfferingFilter] = useState<'all' | 'offered' | 'not-offered'>('all')
+  const [updatingOffering, setUpdatingOffering] = useState(false)
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
   const [subjects, setSubjects] = useState<SubjectRow[]>([])
   const [subjectsLoading, setSubjectsLoading] = useState(false)
@@ -55,6 +58,8 @@ export default function AdminCoursesPage() {
   const [showCreateCourse, setShowCreateCourse] = useState(false)
   const [showHistoricalSubjects, setShowHistoricalSubjects] = useState(false)
   const [orientationsOpen, setOrientationsOpen] = useState(false)
+  const [showAddOrientation, setShowAddOrientation] = useState(false)
+  const [orientationMode, setOrientationMode] = useState<'existing' | 'new'>('existing')
   const [selectedCourseOrientationId, setSelectedCourseOrientationId] = useState<string | null>(null)
   const [attachOrientationId, setAttachOrientationId] = useState('')
   const [newOrientationName, setNewOrientationName] = useState('')
@@ -129,7 +134,11 @@ export default function AdminCoursesPage() {
       setCourseOrientations([])
       return
     }
-    setOrientationsOpen(true)
+    setSubjects([])
+    setCourseOrientations([])
+    setOrientationsOpen(false)
+    setShowAddOrientation(false)
+    setShowHistoricalSubjects(false)
     setSelectedCourseOrientationId(null)
     setAttachOrientationId('')
     setNewOrientationName('')
@@ -146,13 +155,18 @@ export default function AdminCoursesPage() {
       ),
     [courses],
   )
+  useEffect(() => {
+    if (!activeSchoolYearId) setOfferingFilter('all')
+  }, [activeSchoolYearId])
+
   const filteredCourses = useMemo(() => {
-    const term = courseSearch.trim().toLowerCase()
-    if (!term) return visibleCourses
-    return visibleCourses.filter(
-      (c) => c.name.toLowerCase().includes(term) || (c.code ?? '').toLowerCase().includes(term),
-    )
-  }, [visibleCourses, courseSearch])
+    const term = courseSearch.trim().toLocaleLowerCase('es')
+    return visibleCourses.filter((course) => {
+      const matchesSearch = !term || course.name.toLocaleLowerCase('es').includes(term) || (course.code ?? '').toLocaleLowerCase('es').includes(term)
+      const matchesOffering = offeringFilter === 'all' || isOfferedInCycle(course) === (offeringFilter === 'offered')
+      return matchesSearch && matchesOffering
+    })
+  }, [visibleCourses, courseSearch, offeringFilter])
   const selectedCourse = courses.find((c) => c.id === selectedCourseId)
   const selectedCourseOrientation =
     courseOrientations.find((row) => row.id === selectedCourseOrientationId) ?? null
@@ -185,12 +199,9 @@ export default function AdminCoursesPage() {
   }
 
   async function createCourse() {
+    const offerInSchoolYear = Boolean(activeSchoolYearId) && courseDraft.offerInSchoolYear
     if (!courseDraft.name.trim()) {
       setMsg('Escribí el nombre del curso.')
-      return
-    }
-    if (courseDraft.offerInSchoolYear && !activeSchoolYearId) {
-      setMsg('Elegí un ciclo lectivo concreto para ofertar el curso.')
       return
     }
     setCreatingCourse(true)
@@ -204,15 +215,15 @@ export default function AdminCoursesPage() {
           sortOrder: Number(courseDraft.sortOrder) || 0,
           description: courseDraft.description.trim() || undefined,
           isActive: courseDraft.isActive,
-          offerInSchoolYear: courseDraft.offerInSchoolYear,
-          schoolYearId: courseDraft.offerInSchoolYear ? activeSchoolYearId : undefined,
+          offerInSchoolYear,
+          schoolYearId: offerInSchoolYear ? activeSchoolYearId : undefined,
         }),
       })
       setCourseDraft(emptyCourseDraft())
       setShowCreateCourse(false)
       await loadCourses()
       setSelectedCourseId(created.id)
-      setMsg(courseDraft.offerInSchoolYear ? 'Curso creado y ofertado en el ciclo.' : 'Curso creado en el catálogo.')
+      setMsg(offerInSchoolYear ? 'Curso creado y ofertado en el ciclo.' : 'Curso creado en el catálogo.')
     } catch (e: unknown) {
       setMsg((e as Error)?.message || 'Error al crear curso.')
     } finally {
@@ -225,9 +236,8 @@ export default function AdminCoursesPage() {
       setMsg('Elegí un ciclo lectivo concreto para activar o desactivar la oferta.')
       return
     }
-    const offered = Boolean(
-      course.courseOfferingId && (course.offeringIsActive ?? false) && (course.offeringIsOffered ?? true),
-    )
+    const offered = isOfferedInCycle(course)
+    setUpdatingOffering(true)
     setMsg('')
     try {
       const updated = await api<CourseRow>(ws(`/courses/${course.id}`), {
@@ -238,6 +248,8 @@ export default function AdminCoursesPage() {
       setMsg(!offered ? 'Curso activado en el ciclo.' : 'Curso desactivado en el ciclo.')
     } catch (e: unknown) {
       setMsg((e as Error)?.message || 'No se pudo actualizar la oferta del curso.')
+    } finally {
+      setUpdatingOffering(false)
     }
   }
 
@@ -307,6 +319,7 @@ export default function AdminCoursesPage() {
         body: JSON.stringify({ orientationId: attachOrientationId, isActive: true }),
       })
       setAttachOrientationId('')
+      setShowAddOrientation(false)
       await loadCourseOrientations(selectedCourse.id)
       onMessage('Orientación agregada al curso.')
     } catch (e: unknown) {
@@ -327,6 +340,7 @@ export default function AdminCoursesPage() {
         body: JSON.stringify({ orientationId: created.id, isActive: true }),
       })
       setNewOrientationName('')
+      setShowAddOrientation(false)
       await loadOrientations()
       await loadCourseOrientations(selectedCourse.id)
       onMessage('Orientación creada y agregada al curso.')
@@ -405,417 +419,238 @@ export default function AdminCoursesPage() {
   return (
     <RoleGuard permission="courses.manage">
       <main className="responsive-page max-w-[1600px] space-y-5">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100">
+        <header className="flex flex-wrap items-center gap-3">
+          <div className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:flex">
             <BookOpen className="h-7 w-7 text-emerald-600" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold">Cursos y asignaturas</h1>
-            <p className="text-gray-600">
-              Catálogo académico completo. La oferta del ciclo solo afecta filtros operativos y creación de eventos.
-            </p>
+            <p className="text-sm text-gray-600">Elegí un curso para gestionar su oferta y sus asignaturas.</p>
           </div>
-        </div>
+          <button type="button" aria-expanded={showCreateCourse} aria-controls="new-course-form" onClick={() => {
+            setCourseDraft((draft) => ({ ...draft, offerInSchoolYear: Boolean(activeSchoolYearId) }))
+            setShowCreateCourse((value) => !value)
+          }} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+            <Plus className="h-4 w-4" aria-hidden />Nuevo curso
+          </button>
+        </header>
 
-        {msg ? (
-          <div className="rounded border border-gray-200 bg-white px-4 py-2 text-sm text-gray-800">{msg}</div>
+        {msg ? <div role="status" className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800">{msg}</div> : null}
+
+        {showCreateCourse ? (
+          <form id="new-course-form" onSubmit={(event) => { event.preventDefault(); void createCourse() }} className="space-y-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-sm sm:p-5">
+            <h2 className="font-semibold text-gray-900">Nuevo curso</h2>
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+              <label className="space-y-1 text-sm font-medium text-gray-700">
+                <span>Nombre del curso</span>
+                <input autoFocus required className="input-field" placeholder="Ej. Primero" value={courseDraft.name} onChange={(e) => setCourseDraft({ ...courseDraft, name: e.target.value })} />
+              </label>
+              <label className="space-y-1 text-sm font-medium text-gray-700">
+                <span>Orden en el listado</span>
+                <input type="number" className="input-field" value={courseDraft.sortOrder} onChange={(e) => setCourseDraft({ ...courseDraft, sortOrder: Number(e.target.value) })} />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input type="checkbox" disabled={!activeSchoolYearId} checked={Boolean(activeSchoolYearId) && courseDraft.offerInSchoolYear} onChange={(e) => setCourseDraft({ ...courseDraft, offerInSchoolYear: e.target.checked })} />
+              Ofertar en {schoolYearLabel}
+            </label>
+            {!activeSchoolYearId ? <p className="text-xs text-gray-500">Elegí un ciclo lectivo para ofertarlo. Podés crearlo ahora en el catálogo.</p> : null}
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" disabled={creatingCourse} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60">
+                {creatingCourse ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}Crear curso
+              </button>
+              <button type="button" disabled={creatingCourse} onClick={() => setShowCreateCourse(false)} className="min-h-10 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">Cancelar</button>
+            </div>
+          </form>
         ) : null}
 
-        <div className="grid gap-5 xl:grid-cols-[minmax(320px,520px)_minmax(0,1fr)]">
-          <aside className="rounded-lg border border-gray-200 bg-white shadow-sm">
-            <div className="border-b border-gray-100 px-3 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold text-gray-900">Cursos del catálogo</h2>
-                <Layers className="h-4 w-4 text-emerald-600" aria-hidden />
+        <div className="grid items-start gap-5 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]">
+          <aside aria-label="Catálogo de cursos" className={`${selectedCourse ? 'hidden lg:block' : ''} min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm`}>
+            <div className="space-y-3 border-b border-gray-100 p-4">
+              <div>
+                <h2 className="font-semibold text-gray-900">Cursos</h2>
+                <p className="mt-1 text-xs text-gray-500">{schoolYearLabel}</p>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                Orden académico · Ciclo: {schoolYearLabel}
-                {!coursesLoading && courses.length > 0
-                  ? ` · ${courseSearch.trim() ? `${filteredCourses.length}/${visibleCourses.length}` : visibleCourses.length} curso(s)`
-                  : ''}
-              </p>
-              <div className="relative mt-2">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden />
-                <input
-                  type="search"
-                  value={courseSearch}
-                  onChange={(e) => setCourseSearch(e.target.value)}
-                  placeholder="Buscar curso por nombre o código"
-                  aria-label="Buscar curso"
-                  className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-2 text-sm placeholder:text-gray-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                />
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+                <input type="search" value={courseSearch} onChange={(e) => setCourseSearch(e.target.value)} placeholder="Buscar por nombre o código" aria-label="Buscar curso" className="min-h-10 w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100" />
               </div>
-              <button
-                type="button"
-                onClick={() => setShowCreateCourse((v) => !v)}
-                className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
-              >
-                <Plus className="h-3.5 w-3.5" aria-hidden />
-                {showCreateCourse ? 'Ocultar formulario' : 'Nuevo curso'}
-              </button>
+              <div role="group" aria-label="Filtrar cursos por oferta" className="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1">
+                {([{ value: 'all', label: 'Todos' }, { value: 'offered', label: 'Ofertados' }, { value: 'not-offered', label: 'No ofertados' }] as const).map(({ value, label }) => (
+                  <button key={value} type="button" aria-pressed={offeringFilter === value} disabled={value !== 'all' && !activeSchoolYearId} onClick={() => setOfferingFilter(value)} className={`min-h-9 flex-1 whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium transition disabled:opacity-50 ${offeringFilter === value ? 'bg-white text-emerald-800 shadow-sm' : 'text-gray-600 hover:bg-white/70'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {!activeSchoolYearId ? <p className="text-xs text-gray-500">Elegí un ciclo para filtrar y modificar su oferta.</p> : null}
+              {!coursesLoading ? <p className="text-xs text-gray-500">Mostrando {filteredCourses.length} de {courses.length} cursos</p> : null}
             </div>
 
-            {showCreateCourse ? (
-              <div className="border-b border-gray-100 bg-emerald-50/30 p-3">
-                <div className="grid gap-2">
-                  <input
-                    className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                    placeholder="Nombre del curso"
-                    value={courseDraft.name}
-                    onChange={(e) => setCourseDraft({ ...courseDraft, name: e.target.value })}
-                  />
-                  <input
-                    type="number"
-                    className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
-                    placeholder="Orden"
-                    value={courseDraft.sortOrder}
-                    onChange={(e) => setCourseDraft({ ...courseDraft, sortOrder: Number(e.target.value) })}
-                  />
-                  <label className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={courseDraft.offerInSchoolYear}
-                      onChange={(e) => setCourseDraft({ ...courseDraft, offerInSchoolYear: e.target.checked })}
-                    />
-                    Ofertar en ciclo actual
-                  </label>
-                  <button
-                    type="button"
-                    disabled={creatingCourse}
-                    onClick={() => void createCourse()}
-                    className="rounded bg-emerald-600 px-2 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
-                  >
-                    Crear curso
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
             {coursesLoading ? (
-              <div className="flex items-center gap-2 p-4 text-sm text-gray-500">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Cargando…
-              </div>
+              <div className="flex items-center gap-2 p-4 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />Cargando cursos…</div>
             ) : visibleCourses.length === 0 ? (
               <p className="p-4 text-sm text-gray-500">No hay cursos en el catálogo.</p>
             ) : filteredCourses.length === 0 ? (
-              <p className="p-4 text-sm text-gray-500">Ningún curso coincide con «{courseSearch.trim()}».</p>
-            ) : (
-              <div className="max-h-[min(70vh,640px)] overflow-y-auto p-2">
-                <ul className="space-y-1">
-                  {filteredCourses.map((c) => {
-                    const offered = Boolean(
-                      c.courseOfferingId && (c.offeringIsActive ?? false) && (c.offeringIsOffered ?? true),
-                    )
-                    return (
-                      <li key={c.id}>
-                        <div
-                          className={`flex items-center gap-2 rounded-md border px-2 py-2 text-sm ${
-                            selectedCourseId === c.id
-                              ? 'border-emerald-500 bg-emerald-50'
-                              : !c.isActive || !offered
-                                ? 'border-transparent bg-gray-50/80 opacity-80'
-                                : 'border-transparent hover:bg-gray-50'
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => {
-                              setSelectedCourseId(c.id)
-                              setSelectedCourseOrientationId(null)
-                            }}
-                          >
-                            <div className="font-medium text-gray-900">{c.name}</div>
-                            <div className="mt-0.5 text-[11px] text-gray-500">
-                              {!c.courseOfferingId ? 'No ofertado' : offered ? 'Ofertado' : 'No ofertado'}
-                              {!c.isActive ? ' · Catálogo inactivo' : ''}
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={offered}
-                            title={offered ? 'Desactivar en el ciclo' : 'Activar en el ciclo'}
-                            onClick={() => void toggleCourseOffering(c)}
-                            className={`relative h-5 w-9 shrink-0 rounded-full transition ${
-                              offered ? 'bg-emerald-600' : 'bg-gray-300'
-                            }`}
-                          >
-                            <span
-                              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${
-                                offered ? 'left-4' : 'left-0.5'
-                              }`}
-                            />
-                            <span className="sr-only">{offered ? 'Desactivar curso' : 'Activar curso'}</span>
-                          </button>
-                        </div>
-                        {selectedCourseId === c.id && selectedCourse ? (
-                          <div className="mt-1 rounded-md border border-emerald-100 bg-white p-2">
-                            <div className="rounded-md border border-gray-200 bg-white">
-                              <button
-                                type="button"
-                                className="flex w-full items-center justify-between gap-2 px-2 py-2 text-left hover:bg-gray-50"
-                                onClick={() => setOrientationsOpen((value) => !value)}
-                              >
-                                <span className="flex min-w-0 items-center gap-1.5">
-                                  {orientationsOpen ? (
-                                    <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-                                  ) : (
-                                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-                                  )}
-                                  <span className="truncate text-sm font-semibold text-gray-900">Orientaciones</span>
-                                </span>
-                                <span className="shrink-0 text-[11px] text-gray-500">
-                                  {courseOrientations.length}
-                                </span>
-                              </button>
-
-                              {orientationsOpen ? (
-                                <div className="space-y-2 border-t border-gray-100 p-2">
-                                  {courseOrientations.length === 0 ? (
-                                    <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-3 text-sm text-gray-500">
-                                      Este curso no tiene orientaciones.
-                                    </div>
-                                  ) : (
-                                    courseOrientations.map((row) => {
-                                      const specific = byOrientation.get(row.orientationId) ?? []
-                                      const isEditing = editingOrientationId === row.id
-                                      const selected = selectedCourseOrientationId === row.id
-                                      return (
-                                        <div
-                                          key={row.id}
-                                          className={`rounded-md border bg-white ${
-                                            selected ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200'
-                                          }`}
-                                        >
-                                          <div className="flex items-center justify-between gap-2 px-2 py-2 hover:bg-gray-50">
-                                            <button
-                                              type="button"
-                                              className="shrink-0"
-                                              onClick={() => setSelectedCourseOrientationId(row.id)}
-                                            >
-                                              <ChevronRight className="h-4 w-4 text-gray-500" aria-hidden />
-                                            </button>
-                                            {isEditing ? (
-                                              <input
-                                                className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-sm"
-                                                value={editingOrientationName}
-                                                onChange={(e) => setEditingOrientationName(e.target.value)}
-                                              />
-                                            ) : (
-                                              <button
-                                                type="button"
-                                                className="min-w-0 flex-1 truncate text-left text-sm font-medium text-gray-900"
-                                                onClick={() => setSelectedCourseOrientationId(row.id)}
-                                              >
-                                                {row.orientation.name}
-                                              </button>
-                                            )}
-                                            <span className="hidden shrink-0 text-[11px] text-gray-500 xl:inline">
-                                              {common.length} comunes · {specific.length} específicas
-                                            </span>
-                                            {isEditing ? (
-                                              <div className="flex shrink-0 gap-1">
-                                                <button
-                                                  type="button"
-                                                  className="rounded bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-700"
-                                                  onClick={() => void updateOrientation(row)}
-                                                >
-                                                  Guardar
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700"
-                                                  onClick={() => {
-                                                    setEditingOrientationId(null)
-                                                    setEditingOrientationName('')
-                                                  }}
-                                                >
-                                                  Cancelar
-                                                </button>
-                                              </div>
-                                            ) : (
-                                              <div className="flex shrink-0 items-center gap-0.5">
-                                                <button
-                                                  type="button"
-                                                  role="switch"
-                                                  aria-checked={row.isActive}
-                                                  title={row.isActive ? 'Desactivar orientación en este curso' : 'Activar orientación en este curso'}
-                                                  onClick={() => void toggleOrientationOffer(row)}
-                                                  className={`relative h-5 w-9 rounded-full transition ${
-                                                    row.isActive ? 'bg-emerald-600' : 'bg-gray-300'
-                                                  }`}
-                                                >
-                                                  <span
-                                                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${
-                                                      row.isActive ? 'left-4' : 'left-0.5'
-                                                    }`}
-                                                  />
-                                                  <span className="sr-only">
-                                                    {row.isActive ? 'Desactivar orientación' : 'Activar orientación'}
-                                                  </span>
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  className="rounded p-1.5 text-gray-500 hover:bg-gray-100"
-                                                  title="Editar orientación"
-                                                  onClick={() => {
-                                                    setEditingOrientationId(row.id)
-                                                    setEditingOrientationName(row.orientation.name)
-                                                  }}
-                                                >
-                                                  <Pencil className="h-4 w-4" aria-hidden />
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  className="rounded p-1.5 text-amber-700 hover:bg-amber-50"
-                                                  title="Quitar del curso"
-                                                  onClick={() => void removeOrientationFromCourse(row)}
-                                                >
-                                                  <X className="h-4 w-4" aria-hidden />
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  className="rounded p-1.5 text-red-600 hover:bg-red-50"
-                                                  title="Eliminar orientación"
-                                                  onClick={() => void deleteOrientation(row)}
-                                                >
-                                                  <Trash2 className="h-4 w-4" aria-hidden />
-                                                </button>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      )
-                                    })
-                                  )}
-
-                                  <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-2">
-                                    <div className="flex flex-wrap gap-2">
-                                      <select
-                                        className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm sm:min-w-[12rem]"
-                                        value={attachOrientationId}
-                                        onChange={(e) => setAttachOrientationId(e.target.value)}
-                                      >
-                                        <option value="">Agregar orientación existente…</option>
-                                        {unattachedOrientations.map((orientation) => (
-                                          <option key={orientation.id} value={orientation.id}>
-                                            {orientation.name}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <button
-                                        type="button"
-                                        disabled={!attachOrientationId}
-                                        onClick={() => void attachOrientation()}
-                                        className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-50"
-                                      >
-                                        Agregar
-                                      </button>
-                                    </div>
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                      <input
-                                        className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm sm:min-w-[12rem]"
-                                        placeholder="Nueva orientación"
-                                        value={newOrientationName}
-                                        onChange={(e) => setNewOrientationName(e.target.value)}
-                                      />
-                                      <button
-                                        type="button"
-                                        disabled={!newOrientationName.trim()}
-                                        onClick={() => void createOrientation()}
-                                        className="inline-flex items-center gap-1 rounded bg-white px-3 py-1.5 text-sm text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-50 disabled:opacity-50"
-                                      >
-                                        <Plus className="h-4 w-4" aria-hidden />
-                                        Crear
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        ) : null}
-                      </li>
-                    )
-                  })}
-                </ul>
+              <div className="space-y-3 p-4 text-sm text-gray-500">
+                <p>{courseSearch.trim() ? `Ningún curso coincide con «${courseSearch.trim()}» y estos filtros.` : 'No hay cursos con este estado de oferta.'}</p>
+                <button type="button" onClick={() => { setCourseSearch(''); setOfferingFilter('all') }} className="font-medium text-emerald-700 hover:underline">Limpiar filtros</button>
               </div>
+            ) : (
+              <ul className="max-h-80 space-y-1 overflow-y-auto p-2 lg:max-h-[min(70vh,640px)]">
+                {filteredCourses.map((course) => (
+                  <li key={course.id}>
+                    <button type="button" aria-current={selectedCourseId === course.id ? 'true' : undefined} onClick={() => setSelectedCourseId(course.id)} className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left ${selectedCourseId === course.id ? 'border-emerald-300 bg-emerald-50' : 'border-transparent hover:bg-gray-50'}`}>
+                      <span className="min-w-0 flex-1">
+                        <span className="block break-words text-sm font-medium text-gray-900">{course.name}</span>
+                        <span className="mt-1 block text-xs text-gray-500">
+                          {activeSchoolYearId ? (isOfferedInCycle(course) ? 'Ofertado' : 'No ofertado') : (course.code ? `Código ${course.code}` : 'Curso del catálogo')}
+                          {!course.isActive ? ' · Catálogo inactivo' : ''}
+                        </span>
+                      </span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </aside>
 
-          <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+          <section aria-label="Detalle del curso" className={`${!selectedCourse ? 'hidden lg:block' : ''} min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm`}>
             {!selectedCourse ? (
-              <div className="flex min-h-[400px] flex-col items-center justify-center p-8 text-center text-gray-500">
-                <Pencil className="mb-3 h-10 w-10 text-gray-300" aria-hidden />
-                <p className="text-sm">Seleccioná un curso en la lista.</p>
+              <div className="flex min-h-60 flex-col items-center justify-center p-8 text-center lg:min-h-[400px]">
+                <BookOpen className="mb-3 h-10 w-10 text-emerald-200" aria-hidden />
+                <h2 className="font-semibold text-gray-700">Seleccioná un curso</h2>
+                <p className="mt-1 text-sm text-gray-500">Acá vas a ver sus asignaturas y orientaciones.</p>
               </div>
             ) : (
-              <div className="space-y-4 p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-4">
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900">
-                      {selectedCourseOrientation?.orientation.name ?? courseShortLabel(selectedCourse.name)}
-                    </h2>
-                    <p className="mt-1 text-sm text-gray-500">
-                      {selectedCourseOrientation
-                        ? `Asignaturas de ${selectedCourseOrientation.orientation.name}`
-                        : `Comunes de ${courseShortLabel(selectedCourse.name)}`}
-                    </p>
+              <div className="space-y-5 p-4 sm:p-5">
+                <button type="button" onClick={() => setSelectedCourseId(null)} className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 lg:hidden">
+                  <ArrowLeft className="h-4 w-4" aria-hidden />Volver a cursos
+                </button>
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-4">
+                  <div className="min-w-0">
+                    <h2 className="break-words text-xl font-bold text-gray-900">{courseShortLabel(selectedCourse.name)}</h2>
+                    <p className="mt-1 text-xs text-gray-500">{schoolYearLabel}{!selectedCourse.isActive ? ' · Catálogo inactivo' : ''}</p>
                   </div>
-                  <label className="flex items-center gap-2 text-xs text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={showHistoricalSubjects}
-                      onChange={(e) => setShowHistoricalSubjects(e.target.checked)}
-                    />
-                    Ver histórico
+                  <div className="space-y-1">
+                    <button type="button" role="switch" aria-label={`Oferta de ${selectedCourse.name} en el ciclo`} aria-checked={isOfferedInCycle(selectedCourse)} disabled={!activeSchoolYearId || updatingOffering} onClick={() => void toggleCourseOffering(selectedCourse)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                      {updatingOffering ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : (
+                        <span className={`relative h-5 w-9 shrink-0 rounded-full ${isOfferedInCycle(selectedCourse) ? 'bg-emerald-600' : 'bg-gray-300'}`} aria-hidden>
+                          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow ${isOfferedInCycle(selectedCourse) ? 'left-4' : 'left-0.5'}`} />
+                        </span>
+                      )}
+                      {activeSchoolYearId ? (isOfferedInCycle(selectedCourse) ? 'Ofertado en el ciclo' : 'No ofertado en el ciclo') : 'Elegí un ciclo para ofertar'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <label className="w-full min-w-0 space-y-1 text-sm font-medium text-gray-700 sm:w-auto sm:max-w-sm sm:flex-1">
+                    <span>Ver asignaturas</span>
+                    <select aria-label="Ver asignaturas" value={selectedCourseOrientation?.id ?? ''} onChange={(event) => setSelectedCourseOrientationId(event.target.value || null)} className="input-field">
+                      <option value="">Asignaturas comunes</option>
+                      {courseOrientations.map((row) => <option key={row.id} value={row.id}>{row.orientation.name}{!row.isActive ? ' (inactiva)' : ''}</option>)}
+                    </select>
                   </label>
+                  <details className="text-sm text-gray-600">
+                    <summary className="cursor-pointer rounded-lg px-2 py-2 hover:bg-gray-50">Más opciones</summary>
+                    <label className="mt-2 flex items-center gap-2 rounded-lg bg-gray-50 p-3 text-xs">
+                      <input type="checkbox" checked={showHistoricalSubjects} onChange={(e) => setShowHistoricalSubjects(e.target.checked)} />Ver asignaturas históricas
+                    </label>
+                  </details>
                 </div>
 
                 {selectedCourseOrientation ? (
-                  <div className="space-y-4">
-                    <div className="rounded-md bg-sky-50 p-3">
-                      <div className="mb-2 text-xs font-semibold uppercase text-sky-900">
-                        Comunes heredadas de {courseShortLabel(selectedCourse.name)}
-                      </div>
-                      {common.length === 0 ? (
-                        <p className="text-sm text-sky-900/70">Todavía no hay comunes cargadas.</p>
-                      ) : (
-                        <ul className="grid gap-1 text-sm text-gray-800 sm:grid-cols-2">
-                          {common.map((subject) => (
-                            <li key={subject.id}>{subject.name}</li>
+                  <details key={selectedCourseOrientation.id} className="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">
+                    <summary className="cursor-pointer font-medium">Comunes heredadas de {courseShortLabel(selectedCourse.name)} ({common.length})</summary>
+                    {common.length === 0 ? <p className="mt-3 text-sky-900/70">Todavía no hay comunes cargadas.</p> : (
+                      <ul className="mt-3 grid gap-1 text-gray-800 sm:grid-cols-2">{common.map((subject) => <li key={subject.id}>{subject.name}</li>)}</ul>
+                    )}
+                  </details>
+                ) : null}
+
+                <SubjectListBlock
+                  key={`${selectedCourse.id}:${selectedCourseOrientation?.id ?? 'common'}`}
+                  title={selectedCourseOrientation ? `Asignaturas de ${selectedCourseOrientation.orientation.name}` : 'Asignaturas comunes'}
+                  subjects={selectedCourseOrientation ? selectedSpecificSubjects : common}
+                  loading={subjectsLoading}
+                  addLabel={selectedCourseOrientation ? 'Agregar específica' : 'Agregar asignatura'}
+                  onCreate={(draft) => createSubject(draft, { common: !selectedCourseOrientation, orientationId: selectedCourseOrientation?.orientationId })}
+                  onUpdate={updateSubject}
+                  onRemove={removeSubject}
+                  showStatus={showHistoricalSubjects}
+                />
+
+                <div className="rounded-lg border border-gray-200">
+                  <button type="button" aria-expanded={orientationsOpen} aria-controls="course-orientations" onClick={() => setOrientationsOpen((value) => !value)} className="flex min-h-11 w-full items-center gap-2 p-3 text-left text-sm hover:bg-gray-50">
+                    {orientationsOpen ? <ChevronDown className="h-4 w-4 text-gray-500" aria-hidden /> : <ChevronRight className="h-4 w-4 text-gray-500" aria-hidden />}
+                    <span className="flex-1 font-medium text-gray-700">Gestionar orientaciones</span>
+                    <span className="text-xs text-gray-500">{courseOrientations.length}</span>
+                  </button>
+                  {orientationsOpen ? (
+                    <div id="course-orientations" className="space-y-3 border-t border-gray-100 p-3">
+                      {courseOrientations.length === 0 ? <p className="text-sm text-gray-500">Este curso no tiene orientaciones.</p> : (
+                        <ul className="divide-y divide-gray-100">
+                          {courseOrientations.map((row) => (
+                            <li key={row.id} className="py-2">
+                              {editingOrientationId === row.id ? (
+                                <form onSubmit={(event) => { event.preventDefault(); void updateOrientation(row) }} className="space-y-2">
+                                  <label className="block space-y-1 text-sm text-gray-700">
+                                    <span>Nombre de la orientación</span>
+                                    <input autoFocus required className="input-field" value={editingOrientationName} onChange={(e) => setEditingOrientationName(e.target.value)} />
+                                  </label>
+                                  <div className="flex flex-wrap gap-2">
+                                    <button type="submit" className="min-h-9 rounded-lg bg-emerald-600 px-3 py-2 text-xs text-white">Guardar</button>
+                                    <button type="button" onClick={() => { setEditingOrientationId(null); setEditingOrientationName('') }} className="min-h-9 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600">Cancelar</button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <button type="button" onClick={() => setSelectedCourseOrientationId(row.id)} className="min-w-0 flex-1 rounded-lg py-2 text-left hover:bg-gray-50">
+                                    <span className="block break-words text-sm font-medium text-gray-900">{row.orientation.name}</span>
+                                    <span className="mt-1 block text-xs text-gray-500">{byOrientation.get(row.orientationId)?.length ?? 0} específicas{!row.isActive ? ' · Inactiva' : ''}</span>
+                                  </button>
+                                  <UserActionsMenu name={`orientación ${row.orientation.name}`} actions={[
+                                    { label: 'Editar nombre', icon: Pencil, onSelect: () => { setEditingOrientationId(row.id); setEditingOrientationName(row.orientation.name) } },
+                                    { label: row.isActive ? 'Desactivar en el curso' : 'Activar en el curso', icon: Power, onSelect: () => void toggleOrientationOffer(row) },
+                                    { label: 'Quitar del curso', icon: X, destructive: true, onSelect: () => void removeOrientationFromCourse(row) },
+                                    { label: 'Eliminar del catálogo', icon: Trash2, destructive: true, onSelect: () => void deleteOrientation(row) },
+                                  ]} />
+                                </div>
+                              )}
+                            </li>
                           ))}
                         </ul>
                       )}
+                      <button type="button" aria-expanded={showAddOrientation} aria-controls="add-orientation-form" onClick={() => setShowAddOrientation((value) => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
+                        <Plus className="h-4 w-4" aria-hidden />Agregar orientación
+                      </button>
+                      {showAddOrientation ? (
+                        <form id="add-orientation-form" onSubmit={(event) => { event.preventDefault(); void (orientationMode === 'existing' ? attachOrientation() : createOrientation()) }} className="space-y-3 rounded-lg bg-gray-50 p-3">
+                          <div role="group" aria-label="Tipo de orientación" className="flex flex-wrap gap-2">
+                            {(['existing', 'new'] as const).map((mode) => <button key={mode} type="button" aria-pressed={orientationMode === mode} onClick={() => setOrientationMode(mode)} className={`min-h-9 rounded-lg px-3 py-2 text-xs ${orientationMode === mode ? 'bg-white font-medium text-emerald-800 shadow-sm' : 'text-gray-600'}`}>{mode === 'existing' ? 'Del catálogo' : 'Crear nueva'}</button>)}
+                          </div>
+                          {orientationMode === 'existing' ? (
+                            <label className="block space-y-1 text-sm text-gray-700">
+                              <span>Orientación del catálogo</span>
+                              <select aria-label="Orientación del catálogo" required className="input-field" value={attachOrientationId} onChange={(e) => setAttachOrientationId(e.target.value)}>
+                                <option value="">Seleccioná una orientación</option>
+                                {unattachedOrientations.map((orientation) => <option key={orientation.id} value={orientation.id}>{orientation.name}</option>)}
+                              </select>
+                              {unattachedOrientations.length === 0 ? <span className="block text-xs text-gray-500">No quedan orientaciones para agregar. Podés crear una nueva.</span> : null}
+                            </label>
+                          ) : (
+                            <label className="block space-y-1 text-sm text-gray-700"><span>Nueva orientación</span><input required className="input-field" value={newOrientationName} onChange={(e) => setNewOrientationName(e.target.value)} /></label>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            <button type="submit" disabled={orientationMode === 'existing' ? !attachOrientationId : !newOrientationName.trim()} className="min-h-10 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-50">{orientationMode === 'existing' ? 'Agregar al curso' : 'Crear y agregar'}</button>
+                            <button type="button" onClick={() => setShowAddOrientation(false)} className="min-h-10 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600">Cancelar</button>
+                          </div>
+                        </form>
+                      ) : null}
                     </div>
-
-                    <SubjectListBlock
-                      title="Específicas"
-                      subjects={selectedSpecificSubjects}
-                      loading={subjectsLoading}
-                      addLabel="Agregar específica"
-                      onCreate={(d) =>
-                        createSubject(d, { common: false, orientationId: selectedCourseOrientation.orientationId })
-                      }
-                      onUpdate={updateSubject}
-                      onRemove={removeSubject}
-                      showStatus={showHistoricalSubjects}
-                    />
-                  </div>
-                ) : (
-                  <SubjectListBlock
-                    title="Comunes"
-                    subjects={common}
-                    loading={subjectsLoading}
-                    addLabel="Agregar"
-                    onCreate={(d) => createSubject(d, { common: true })}
-                    onUpdate={updateSubject}
-                    onRemove={removeSubject}
-                    showStatus={showHistoricalSubjects}
-                  />
-                )}
+                  ) : null}
+                </div>
               </div>
             )}
           </section>

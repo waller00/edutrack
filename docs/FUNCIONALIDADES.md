@@ -283,6 +283,34 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
 **Pantallas:** `/me/roll-call` (agenda del día del docente) y `/me/roll-call/[eventId]/[ymd]`
 (la planilla, pensada para el celular). Control: `/admin/student-attendance`.
 
+- **Agenda del día del docente:** el día se elige con flechas o con la fecha, y viaja en la URL
+  (`?date=`). Las clases se ordenan en **Ahora**, **Más tarde** y **Terminadas**.
+  - Cada clase muestra el grupo, la asignatura, la hora y el estado de la lista: "Abre 09:50",
+    "Pasá la lista", "Sin pasar", "Pasada 10:07" o "Fuera de plazo".
+  - Con suplencia dice quién da la clase: "Suplencia: cubrís a …" o "La pasa … (suplencia)".
+    Para administración dice "Docente: …".
+- **La planilla dice qué clase es:**
+  - el grupo y la asignatura;
+  - el día en palabras, con la hora;
+  - el titular o el suplente;
+  - quién pasó la lista y a qué hora.
+- **La lista abre 10 minutos antes de la clase** (`ROLL_CALL_OPENS_BEFORE_MINUTES`). Antes no se
+  puede pasar, ni siquiera desde administración ni desde la libreta: nadie sabe todavía quién vino.
+  El servidor responde `NOT_STARTED` con la hora de apertura (`opensAt`). La planilla abierta antes
+  de hora se habilita sola al llegar esa hora.
+- **Aviso en toda la app:** mientras la clase está abierta y la lista sin pasar, aparece una franja
+  debajo del encabezado, en cualquier pantalla, con el botón "Pasar lista".
+  - Si una clase de hoy terminó sin lista, la franja pasa a ámbar y se puede dejar para más tarde
+    (una hora).
+  - No avisa al titular que cubre un suplente, ni a quien tiene licencia ese día, ni en un día no
+    laborable.
+  - Datos: `GET /student-attendance/reminder`, siempre con las clases propias.
+- **Administración ve el estado de cada lista del día:**
+  - en "Clases del día" del Inicio, con "Listas pasadas: X de Y";
+  - al tocar una clase en la Agenda: quién la pasó, a qué hora y cuántos presentes, tardes y
+    ausentes hubo (`GET /admin/student-attendance/sessions/:eventId/:ymd/status`).
+  - En los dos lugares hay enlace a la lista, si se puede pasar con alcance total.
+
 - **Estados:** Presente, Llegada tarde, Ausente, Ausente justificado. El docente marca los
   primeros tres; el justificado es acto de administración y deja una fila de transición
   (`StudentAttendanceJustification`) con motivo obligatorio, igual que en el personal.
@@ -293,8 +321,9 @@ estudiantes, que no tienen cuenta en EduTrack. Son modelos y enums separados a p
   en la hora anterior quedan explícitamente sin marcar.
 - **Cohorte:** se resuelve desde el evento con la misma precedencia que la integración Moodle
   (`courseOrientationId` > `orientationId` > tronco común) sobre las matrículas activas del ciclo.
-- **Ventana de edición:** el docente edita durante N horas tras el fin de la clase
-  (`studentRollCallEditWindowHours`, por defecto 48); después solo administración, con auditoría.
+- **Ventana de edición:** se abre 10 minutos antes de la clase. El docente edita durante N horas
+  tras el fin de la clase (`studentRollCallEditWindowHours`, por defecto 48); después solo
+  administración, con auditoría.
 - **Listas sin pasar:** una clase terminada sin lista queda **pendiente**; no se generan faltas
   automáticas. Administración las ve en un panel por curso y fecha.
 - **Faltas:** se guardan por clase. La consolidación diaria (presente / media falta / falta) se

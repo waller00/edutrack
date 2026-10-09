@@ -23,6 +23,7 @@ import {
   type DayMarkSelectValue,
 } from '@/lib/libreta/absence-day'
 import { isBasicCycleLevel } from '@/lib/libreta/absences'
+import { notStartedNotice } from '@/lib/rollcall/rollcall-window'
 import { libretaCode } from './MisLibretas'
 import StudentAbsencesDetail from './StudentAbsencesDetail'
 
@@ -57,10 +58,11 @@ function StudentAvatar({
  * Por qué no se puede pasar lista ese día. Son las mismas reglas que el pase de lista del docente:
  * antes la libreta dejaba cambiar cualquier día pasado.
  */
-export function markBlockedText(reason: string | null | undefined): string | null {
+export function markBlockedText(reason: string | null | undefined, opensAt?: string | null): string | null {
   if (reason === 'WINDOW_EXPIRED') return 'Se venció el plazo para pasar lista de este día. Si hay que corregirla, pedíselo a administración.'
   if (reason === 'LOCKED') return 'Administración cerró la lista de este día.'
   if (reason === 'NOT_ASSIGNED') return 'La lista de este día la pasa quien dicta la clase.'
+  if (reason === 'NOT_STARTED') return notStartedNotice(opensAt)
   return null
 }
 
@@ -310,9 +312,9 @@ export default function InasistenciasSection() {
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       )}
 
-      {board?.canGrade && markBlockedText(board.markBlockedReason) && (
+      {board?.canGrade && markBlockedText(board.markBlockedReason, board.opensAt) && (
         <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          {markBlockedText(board.markBlockedReason)}
+          {markBlockedText(board.markBlockedReason, board.opensAt)}
         </p>
       )}
 

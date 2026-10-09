@@ -50,18 +50,11 @@ export function getRollCallStatusChipClass(status: RollCallStatus | null): strin
   }
 }
 
-/** Estado de la planilla de una clase, tal como lo muestra la agenda del docente. */
+/**
+ * Estado guardado de la planilla de una clase. Lo que se muestra (abre a las…, sin pasar, fuera de
+ * plazo) depende además de la hora: ver `rollcall-phase.ts`.
+ */
 export type SessionStatus = 'PENDING' | 'TAKEN'
-
-export function getSessionStatusLabel(status: SessionStatus, canEdit: boolean): string {
-  if (status === 'TAKEN') return canEdit ? 'Lista pasada' : 'Lista cerrada'
-  return canEdit ? 'Sin pasar' : 'Fuera de plazo'
-}
-
-export function getSessionStatusChipClass(status: SessionStatus, canEdit: boolean): string {
-  if (status === 'TAKEN') return canEdit ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
-  return canEdit ? 'bg-amber-100 text-amber-900' : 'bg-red-100 text-red-800'
-}
 
 /**
  * Ciclo al tocar el nombre del alumno: presente → tarde → ausente → presente.

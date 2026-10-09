@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   getRollCallStatusButtonClass,
   getRollCallStatusChipClass,
-  getSessionStatusChipClass,
-  getSessionStatusLabel,
   nextStatusOnTap,
   ROLL_CALL_STATUS_LABEL,
   ROLL_CALL_STATUS_SHORT,
@@ -47,22 +45,6 @@ describe('getRollCallStatusChipClass', () => {
     expect(getRollCallStatusChipClass('ABSENT')).toContain('red')
     expect(getRollCallStatusChipClass('ABSENT_JUSTIFIED')).toContain('sky')
     expect(getRollCallStatusChipClass(null)).toContain('gray')
-  })
-})
-
-describe('estado de la planilla', () => {
-  it('distingue pasada, cerrada, sin pasar y fuera de plazo', () => {
-    expect(getSessionStatusLabel('TAKEN', true)).toBe('Lista pasada')
-    expect(getSessionStatusLabel('TAKEN', false)).toBe('Lista cerrada')
-    expect(getSessionStatusLabel('PENDING', true)).toBe('Sin pasar')
-    expect(getSessionStatusLabel('PENDING', false)).toBe('Fuera de plazo')
-  })
-
-  it('colorea sin pasar en ámbar y fuera de plazo en rojo', () => {
-    expect(getSessionStatusChipClass('TAKEN', true)).toContain('emerald')
-    expect(getSessionStatusChipClass('TAKEN', false)).toContain('gray')
-    expect(getSessionStatusChipClass('PENDING', true)).toContain('amber')
-    expect(getSessionStatusChipClass('PENDING', false)).toContain('red')
   })
 })
 

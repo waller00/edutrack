@@ -99,7 +99,7 @@ export default function StudentPhotoField({
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-slate-50">
+      <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-slate-50 sm:h-32 sm:w-32">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element -- blob local, no una URL remota
           <img src={preview} alt={`Foto de ${firstName} ${lastName}`} className="h-full w-full object-cover" />

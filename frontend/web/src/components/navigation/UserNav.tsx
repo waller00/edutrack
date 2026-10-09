@@ -32,6 +32,7 @@ import { logoutUrl } from '@/lib/auth/urls'
 import { clearObservabilityUser } from '@/lib/observability/user-session'
 import { getRoleLabel } from '@/lib/roles/display'
 import { useAuth, type AuthMe } from '@/contexts/AuthContext'
+import RollCallReminderBar from '@/components/rollcall/RollCallReminderBar'
 import { SidebarSlotContext } from './sidebar-slot'
 
 type MeUser = AuthMe
@@ -660,6 +661,8 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
               </a>
               {accountButton}
             </div>
+            {/* Durante la clase, debajo del encabezado y en cualquier pantalla: "pasá la lista". */}
+            {me && hasPermission(me, 'student-attendance.take') && <RollCallReminderBar />}
           </header>
           <div className="min-w-0">{children}</div>
         </div>
