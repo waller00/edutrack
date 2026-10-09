@@ -57,6 +57,16 @@ vi.mock('@/components/forms/PhoneBirthdateFields', () => ({
 
 const mockedApi = vi.mocked(api)
 
+/**
+ * "Mi Perfil" se ve antes de que lleguen los datos, y un efecto los copia al formulario después.
+ * Escribir o buscar el usuario apenas aparece el título fallaba según la velocidad de la máquina
+ * (en CI, con cobertura): se espera a que el formulario tenga el correo.
+ */
+async function waitForProfileLoaded(email = 't@school.edu') {
+  await screen.findByText('Mi Perfil')
+  await waitFor(() => expect(screen.getByLabelText('Correo')).toHaveValue(email))
+}
+
 const baseMe = {
   id: 'u1',
   username: 'teacher1',
@@ -90,7 +100,7 @@ describe('ProfilePage', () => {
   it('muestra validación de correo al guardar', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe, email: 'correo-malo' }).mockResolvedValueOnce({ enabled: false })
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded('correo-malo')
     fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
     await waitFor(() => {
       expect(screen.getByText('Correo inválido')).toBeInTheDocument()
@@ -104,7 +114,7 @@ describe('ProfilePage', () => {
       .mockResolvedValueOnce({}) // PUT /auth/profile
       .mockResolvedValueOnce({ ...baseMe }) // refresh() tras guardar
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     expect(screen.getByLabelText(/correo/i)).toHaveValue(baseMe.email)
     fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
     await waitFor(() => {
@@ -122,7 +132,7 @@ describe('ProfilePage', () => {
   it('muestra acciones para contraseña y 2FA', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
     expect(screen.getByRole('heading', { name: 'Seguridad de la cuenta' })).toBeVisible()
     expect(screen.getByRole('link', { name: /cambiar contraseña/i })).toHaveAttribute(
@@ -143,7 +153,7 @@ describe('ProfilePage', () => {
       .mockResolvedValueOnce({ ok: true })
     renderProfile()
 
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
     await screen.findByText('Activada')
     fireEvent.click(screen.getByText('Desactivar verificación en dos pasos'))
@@ -187,7 +197,7 @@ describe('ProfilePage', () => {
   it('muestra el formulario de entrada y carga notificaciones al abrir su sección', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     expect(screen.getByRole('button', { name: 'Datos personales' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('heading', { name: 'Datos personales' })).toBeVisible()
     expect(screen.queryByRole('link', { name: /cambiar contraseña/i })).not.toBeInTheDocument()
@@ -201,7 +211,7 @@ describe('ProfilePage', () => {
   it('conserva los cambios del formulario al pasar por otras secciones', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Nuevo nombre' } })
     fireEvent.change(screen.getByLabelText('Correo'), { target: { value: 'nuevo@school.edu' } })
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
@@ -215,7 +225,7 @@ describe('ProfilePage', () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
       .mockResolvedValueOnce({}).mockResolvedValueOnce({ ...baseMe })
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     expect(screen.getByText(baseMe.username)).not.toBeVisible()
     fireEvent.click(screen.getByText('Identificación de la cuenta'))
     expect(screen.getByText(baseMe.username)).toBeVisible()
@@ -236,7 +246,7 @@ describe('ProfilePage', () => {
     mockedApi.mockResolvedValueOnce(admin).mockResolvedValueOnce({ enabled: false })
       .mockResolvedValueOnce({}).mockResolvedValueOnce(admin)
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     fireEvent.click(screen.getByText('Identificación de la cuenta'))
     const ci = screen.getByLabelText('Cédula')
     expect(ci).toBeEnabled()
@@ -251,7 +261,7 @@ describe('ProfilePage', () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: false })
       .mockRejectedValueOnce(new Error('409 conflict'))
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     fireEvent.change(screen.getByLabelText('Correo'), { target: { value: 'nuevo@school.edu' } })
     fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent('ya registrados')
@@ -262,7 +272,7 @@ describe('ProfilePage', () => {
   it('deja la desactivación desplegable y muestra los códigos de respaldo si 2FA está activo', async () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: true })
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
     const recovery = await screen.findByRole('link', { name: 'Códigos de respaldo' })
     expect(recovery).toHaveAttribute('href', 'http://localhost:4000/auth/account/recovery-codes')
@@ -275,7 +285,7 @@ describe('ProfilePage', () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce({ enabled: true })
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo consultar')
     expect(screen.queryByRole('link', { name: /configurar 2fa/i })).not.toBeInTheDocument()
@@ -287,7 +297,7 @@ describe('ProfilePage', () => {
     mockedApi.mockResolvedValueOnce({ ...baseMe }).mockResolvedValueOnce({ enabled: true })
       .mockRejectedValueOnce(new Error('Código incorrecto'))
     renderProfile()
-    await screen.findByText('Mi Perfil')
+    await waitForProfileLoaded()
     fireEvent.click(screen.getByRole('button', { name: 'Seguridad' }))
     await screen.findByText('Activada')
     fireEvent.click(screen.getByText('Desactivar verificación en dos pasos'))

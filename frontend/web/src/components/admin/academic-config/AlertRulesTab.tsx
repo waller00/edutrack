@@ -60,11 +60,6 @@ function RuleCard({ rule, onSave }: { rule: AlertRule; onSave: (rule: AlertRule)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setValue(thresholdToInput(rule))
-    setActive(rule.isActive)
-  }, [rule])
-
   async function save() {
     const threshold = text.unit ? inputToThreshold(rule.type, value) : 0
     if (threshold === null) {
@@ -174,7 +169,9 @@ export default function AlertRulesTab({ onError }: { onError: (message: string) 
         generan por sí solas promociones, repeticiones ni sanciones.
       </p>
       {rules.map((rule) => (
-        <RuleCard key={rule.type} rule={rule} onSave={save} />
+        // La clave lleva lo guardado: si el servidor devuelve otro umbral, la tarjeta arranca de cero
+        // con él. Antes un efecto lo copiaba después de montar y podía pisar lo recién escrito.
+        <RuleCard key={`${rule.type}:${rule.threshold}:${rule.isActive}:${rule.source}`} rule={rule} onSave={save} />
       ))}
     </div>
   )
