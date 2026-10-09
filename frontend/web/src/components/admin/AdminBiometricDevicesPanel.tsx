@@ -2,8 +2,19 @@
 
 import { api } from '@/lib/api/client'
 import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
-import { Check, Eye, Fingerprint, Loader2, Pencil, Plus, Power, RefreshCw, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  Check,
+  Loader2,
+  Pencil,
+  Plus,
+  Power,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import SettingsDetails from './settings/SettingsDetails'
 
 type DeviceCounts = {
   mappings: number
@@ -72,11 +83,19 @@ function formatDate(value?: string | null) {
   }
 }
 
-function DetailRow({ label, value }: { label: string; value: string | number }) {
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string
+  value: string | number
+}) {
   return (
     <div className="rounded-lg border border-gray-100 bg-slate-50/60 px-3 py-2">
-      <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-gray-900">{value}</dd>
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words text-sm font-medium text-gray-900">
+        {value}
+      </dd>
     </div>
   )
 }
@@ -84,6 +103,11 @@ function DetailRow({ label, value }: { label: string; value: string | number }) 
 export default function AdminBiometricDevicesPanel() {
   const [devices, setDevices] = useState<BiometricDevice[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [search, setSearch] = useState('')
+  const [discardAction, setDiscardAction] = useState<
+    'create' | 'close' | 'reload' | null
+  >(null)
   const [saving, setSaving] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mode, setMode] = useState<PanelMode>('view')
@@ -99,13 +123,23 @@ export default function AdminBiometricDevicesPanel() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    setLoadError(false)
     setMsg(null)
     try {
-      const res = await api<{ devices: BiometricDevice[] }>('/biometric/admin/devices')
+      const res = await api<{ devices: BiometricDevice[] }>(
+        '/biometric/admin/devices',
+      )
       setDevices(res.devices)
-      setSelectedId((current) => current || res.devices[0]?.id || null)
+      setSelectedId((current) =>
+        res.devices.some((device) => device.id === current) ? current : null,
+      )
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'No se pudieron cargar los lectores.')
+      setLoadError(true)
+      setMsg(
+        error instanceof Error
+          ? error.message
+          : 'No se pudieron cargar los lectores.',
+      )
     } finally {
       setLoading(false)
     }
@@ -137,13 +171,14 @@ export default function AdminBiometricDevicesPanel() {
 
   function closePanel() {
     setMode('view')
-    setSelectedId(devices[0]?.id || null)
+    setSelectedId(null)
     setForm(emptyForm)
   }
 
   async function save() {
     setSaving(true)
     setMsg(null)
+    setDiscardAction(null)
     const body: Record<string, unknown> = {
       code: form.code.trim(),
       name: form.name.trim(),
@@ -155,19 +190,29 @@ export default function AdminBiometricDevicesPanel() {
 
     try {
       if (mode === 'edit' && selectedId) {
-        const res = await api<{ device: BiometricDevice }>(`/biometric/admin/devices/${selectedId}`, {
-          method: 'PUT',
-          body: JSON.stringify(body),
-        })
-        setDevices((prev) => prev.map((device) => (device.id === selectedId ? res.device : device)))
+        const res = await api<{ device: BiometricDevice }>(
+          `/biometric/admin/devices/${selectedId}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify(body),
+          },
+        )
+        setDevices((prev) =>
+          prev.map((device) =>
+            device.id === selectedId ? res.device : device,
+          ),
+        )
         setSelectedId(res.device.id)
         setMode('view')
         setMsg('Lector actualizado correctamente.')
       } else {
-        const res = await api<{ device: BiometricDevice }>('/biometric/admin/devices', {
-          method: 'POST',
-          body: JSON.stringify({ ...body, secret: form.secret }),
-        })
+        const res = await api<{ device: BiometricDevice }>(
+          '/biometric/admin/devices',
+          {
+            method: 'POST',
+            body: JSON.stringify({ ...body, secret: form.secret }),
+          },
+        )
         setDevices((prev) => [res.device, ...prev])
         setSelectedId(res.device.id)
         setMode('view')
@@ -175,7 +220,11 @@ export default function AdminBiometricDevicesPanel() {
         setMsg('Lector creado correctamente.')
       }
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'No se pudo guardar el lector.')
+      setMsg(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo guardar el lector.',
+      )
     } finally {
       setSaving(false)
     }
@@ -185,262 +234,533 @@ export default function AdminBiometricDevicesPanel() {
     setSaving(true)
     setMsg(null)
     try {
-      const res = await api<{ device: BiometricDevice }>(`/biometric/admin/devices/${device.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ isActive: !device.isActive }),
-      })
-      setDevices((prev) => prev.map((row) => (row.id === device.id ? res.device : row)))
-      setMsg(res.device.isActive ? 'Lector habilitado.' : 'Lector deshabilitado.')
+      const res = await api<{ device: BiometricDevice }>(
+        `/biometric/admin/devices/${device.id}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ isActive: !device.isActive }),
+        },
+      )
+      setDevices((prev) =>
+        prev.map((row) => (row.id === device.id ? res.device : row)),
+      )
+      setMsg(
+        res.device.isActive ? 'Lector habilitado.' : 'Lector deshabilitado.',
+      )
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'No se pudo cambiar el estado.')
+      setMsg(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo cambiar el estado.',
+      )
     } finally {
       setSaving(false)
     }
   }
 
-  const canSave = form.code.trim().length >= 2 && form.name.trim().length >= 2 && (mode === 'edit' || form.secret.length >= 8)
+  const canSave =
+    form.code.trim().length >= 2 &&
+    form.name.trim().length >= 2 &&
+    (mode === 'edit' || form.secret.length >= 8)
   const showForm = mode === 'edit' || mode === 'create'
-  const isRowSelectionEnabled = !showForm
+  const showPanel = showForm || Boolean(selectedDevice)
+  const originalForm =
+    mode === 'edit' && selectedDevice ? toForm(selectedDevice) : emptyForm
+  const dirty =
+    showForm && JSON.stringify(form) !== JSON.stringify(originalForm)
+  const normalized = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+  const visibleDevices = devices.filter((device) =>
+    normalized(
+      `${device.name} ${device.code} ${device.admsSerial ?? ''}`,
+    ).includes(normalized(search)),
+  )
+
+  function perform(action: 'create' | 'close' | 'reload') {
+    setDiscardAction(null)
+    if (action === 'create') openCreate()
+    else if (action === 'close') closePanel()
+    else {
+      closePanel()
+      void load()
+    }
+  }
+  function requestAction(action: 'create' | 'close' | 'reload') {
+    if (dirty) setDiscardAction(action)
+    else perform(action)
+  }
 
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border border-emerald-100 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
-              <Fingerprint className="h-5 w-5" aria-hidden />
-            </span>
-            <div>
-              <h2 className="text-base font-semibold tracking-tight text-gray-900">Lectores biométricos</h2>
-              <p className="text-sm text-gray-500">
-                {activeCount} activos de {devices.length} configurados
-              </p>
-            </div>
-          </div>
-          <div className="grid gap-2 sm:flex sm:flex-wrap">
-            <button type="button" onClick={() => void load()} className="btn-secondary inline-flex items-center gap-2 text-sm">
-              <RefreshCw className="h-4 w-4" aria-hidden />
-              Recargar
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-slate-900">Lectores biométricos</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {activeCount} activos de {devices.length} configurados
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => requestAction('reload')}
+            disabled={saving || loading}
+            className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-emerald-700 disabled:opacity-50"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden />
+            Recargar
+          </button>
+          <button
+            type="button"
+            onClick={() => requestAction('create')}
+            disabled={saving}
+            className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Nuevo lector
+          </button>
+        </div>
+      </header>
+      {msg && (
+        <p
+          role={loadError || msg.startsWith('No se') ? 'alert' : 'status'}
+          className={`rounded-xl border p-3 text-sm ${loadError || msg.startsWith('No se') ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}
+        >
+          {msg}
+        </p>
+      )}
+      {discardAction && (
+        <div
+          role="alert"
+          className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <p>Tenés cambios del lector sin guardar.</p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => setDiscardAction(null)}
+              className="font-medium hover:underline"
+            >
+              Seguir editando
             </button>
-            <button type="button" onClick={openCreate} className="btn-primary inline-flex items-center gap-2 text-sm">
-              <Plus className="h-4 w-4" aria-hidden />
-              Nuevo lector
+            <button
+              type="button"
+              onClick={() => perform(discardAction)}
+              className="font-medium text-red-700 hover:underline"
+            >
+              Descartar cambios y continuar
             </button>
           </div>
         </div>
-      </section>
-
-      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="min-w-0 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <div className="grid w-max min-w-full grid-cols-[minmax(210px,1.4fr)_120px_155px_150px_110px] gap-3 border-b border-gray-100 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 max-lg:hidden">
-              <span>Lector</span>
-              <span>Estado</span>
-              <span>Última conexión</span>
-              <span>Uso</span>
-              <span className="text-right">Acciones</span>
-            </div>
-
-            {loading ? (
-              <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-500">
-                <Loader2 className="h-5 w-5 animate-spin text-emerald-600" aria-hidden />
-                Cargando lectores…
-              </div>
-            ) : devices.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-gray-500">Todavía no hay lectores configurados.</div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {devices.map((device) => (
-                  <article
-                    key={device.id}
-                    role="button"
-                    tabIndex={0}
+      )}
+      <div
+        className={`grid gap-4 ${showPanel ? 'lg:grid-cols-[minmax(0,1fr)_360px]' : ''}`}
+      >
+        <section
+          aria-label="Lista de lectores"
+          className={`min-w-0 rounded-xl border border-slate-200 bg-white p-4 ${showPanel ? 'hidden lg:block' : ''}`}
+        >
+          <label
+            htmlFor="device-search"
+            className="mb-1.5 block text-sm font-medium text-slate-700"
+          >
+            Buscar lector
+          </label>
+          <div className="relative mb-4">
+            <Search
+              className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400"
+              aria-hidden
+            />
+            <input
+              id="device-search"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Nombre, código o número de serie"
+              className="input-field w-full pl-9 text-sm"
+            />
+          </div>
+          {loading ? (
+            <p
+              role="status"
+              className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Cargando lectores…
+            </p>
+          ) : loadError ? (
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="py-4 text-sm font-medium text-emerald-700 hover:underline"
+            >
+              Reintentar
+            </button>
+          ) : visibleDevices.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">
+              {devices.length === 0
+                ? 'Todavía no hay lectores configurados.'
+                : 'Ningún lector coincide con la búsqueda.'}
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {visibleDevices.map((device) => (
+                <li key={device.id}>
+                  <button
+                    type="button"
+                    aria-label={`Ver lector ${device.name}`}
                     aria-pressed={selectedId === device.id}
-                    onClick={() => {
-                      if (isRowSelectionEnabled) openView(device)
-                    }}
-                    onKeyDown={(event) => {
-                      if (!isRowSelectionEnabled) return
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        openView(device)
-                      }
-                    }}
-                    className={`grid cursor-pointer gap-3 border-l-4 px-4 py-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 lg:w-max lg:min-w-full lg:grid-cols-[minmax(210px,1.4fr)_120px_155px_150px_110px] lg:items-center ${
-                      selectedId === device.id
-                        ? 'border-l-emerald-500 bg-emerald-50 shadow-inner'
-                        : 'border-l-transparent hover:bg-slate-50'
-                    }`}
+                    disabled={showForm || saving}
+                    onClick={() => openView(device)}
+                    className={`flex w-full items-start justify-between gap-3 rounded-lg border p-3 text-left transition focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:opacity-50 ${selectedId === device.id ? 'border-emerald-300 bg-emerald-50' : 'border-slate-100 hover:border-emerald-200 hover:bg-slate-50'}`}
                   >
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <h3 className="truncate text-sm font-semibold text-gray-950">{device.name}</h3>
-                        <span className="max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-700">
-                          {device.code}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-gray-500">{device.admsSerial || 'Sin serial ADMS'}</p>
-                    </div>
-
-                    <div>
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${device.isActive ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100' : 'bg-gray-100 text-gray-600 ring-1 ring-gray-200'}`}>
+                    <span className="min-w-0">
+                      <span className="block break-words text-sm font-semibold text-slate-900">
+                        {device.name}
+                      </span>
+                      <span className="mt-1 block break-all text-xs text-slate-500">
+                        {device.code}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        Última conexión: {formatDate(device.lastSeenAt)}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 flex-col items-end gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${device.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
+                      >
                         {device.isActive ? 'Activo' : 'Deshabilitado'}
                       </span>
-                    </div>
-
-                    <p className="whitespace-nowrap text-xs font-medium text-gray-700">{formatDate(device.lastSeenAt)}</p>
-
-                    <p className="whitespace-nowrap text-xs text-gray-500">
-                      <strong className="text-gray-800">{device._count.mappings}</strong> vínculos ·{' '}
-                      <strong className="text-gray-800">{device._count.punches}</strong> marcas
-                    </p>
-
-                    <div className="flex items-center gap-1.5 lg:justify-end">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openView(device)
-                        }}
-                        className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 shadow-sm transition hover:bg-gray-50"
-                        title="Ver información"
-                      >
-                        <Eye className="h-4 w-4" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openEdit(device)
-                        }}
-                        className="rounded-lg border border-emerald-200 bg-white p-2 text-emerald-700 shadow-sm transition hover:bg-emerald-50"
-                        title="Editar lector"
-                      >
-                        <Pencil className="h-4 w-4" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          void toggleActive(device)
-                        }}
-                        disabled={saving}
-                        className={`rounded-lg border bg-white p-2 shadow-sm transition disabled:opacity-60 ${
-                          device.isActive ? 'border-red-200 text-red-700 hover:bg-red-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
-                        }`}
-                        title={device.isActive ? 'Deshabilitar lector' : 'Habilitar lector'}
-                      >
-                        <Power className="h-4 w-4" aria-hidden />
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <aside className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          {showForm ? (
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-950">{mode === 'create' ? 'Nuevo lector' : 'Editar lector'}</h3>
-                  <p className="mt-1 text-xs text-gray-500">{mode === 'edit' ? selectedDevice?.name : 'Alta de terminal biométrica'}</p>
-                </div>
-                <button type="button" onClick={closePanel} className="rounded-lg border border-gray-200 p-2 text-gray-500 hover:bg-gray-50" title="Cerrar">
-                  <X className="h-4 w-4" aria-hidden />
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Nombre</span>
-                  <input className="input-modern w-full text-sm" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Entrada principal" />
-                </label>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Código</span>
-                  <input className="input-modern w-full font-mono text-sm" value={form.code} onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))} placeholder="F22-ENTRADA" />
-                </label>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Serial ADMS</span>
-                  <input className="input-modern w-full text-sm" value={form.admsSerial} onChange={(e) => setForm((prev) => ({ ...prev, admsSerial: e.target.value }))} placeholder="SN del equipo (opcional)" />
-                  <span className="block text-[11px] text-gray-400">Número de serie real del terminal ZKTeco. Si lo dejás vacío, el equipo se identifica por su código.</span>
-                </label>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Secreto</span>
-                  <input className="input-modern w-full text-sm" type="password" value={form.secret} onChange={(e) => setForm((prev) => ({ ...prev, secret: e.target.value }))} placeholder={mode === 'edit' ? 'Dejar vacío para mantener' : 'Mínimo 8 caracteres'} />
-                </label>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium uppercase tracking-wide text-gray-500">IPs permitidas</span>
-                  <textarea className="input-modern min-h-20 w-full text-sm" value={form.allowedIpsText} onChange={(e) => setForm((prev) => ({ ...prev, allowedIpsText: e.target.value }))} placeholder="Una por línea" />
-                </label>
-                <label className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 bg-slate-50/60 px-3 py-2.5">
-                  <span className="text-sm font-medium text-gray-800">Habilitado</span>
-                  <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" checked={form.isActive} onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
-                </label>
-              </div>
-
-              <div className="grid gap-2 sm:flex sm:flex-wrap">
-                <button type="button" onClick={() => void save()} disabled={!canSave || saving} className="btn-primary inline-flex items-center gap-2 text-sm disabled:opacity-60">
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Check className="h-4 w-4" aria-hidden />}
-                  Guardar
-                </button>
-                <button type="button" onClick={closePanel} className="btn-secondary inline-flex items-center gap-2 text-sm">
-                  <X className="h-4 w-4" aria-hidden />
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : selectedDevice ? (
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="truncate text-sm font-semibold text-gray-950">{selectedDevice.name}</h3>
-                  <p className="mt-1 font-mono text-xs text-gray-500">{selectedDevice.code}</p>
-                </div>
-                <button type="button" onClick={() => openEdit(selectedDevice)} className="rounded-lg border border-emerald-200 p-2 text-emerald-700 hover:bg-emerald-50" title="Editar lector">
-                  <Pencil className="h-4 w-4" aria-hidden />
-                </button>
-              </div>
-
-              <dl className="grid gap-2">
-                <DetailRow label="Estado" value={selectedDevice.isActive ? 'Activo' : 'Deshabilitado'} />
-                <DetailRow label="Última conexión" value={formatDate(selectedDevice.lastSeenAt)} />
-                <DetailRow label="Serial ADMS" value={selectedDevice.admsSerial || 'Sin serial'} />
-                <DetailRow label="Zona horaria" value={selectedDevice.timezone} />
-                <DetailRow label="Vínculos" value={selectedDevice._count.mappings} />
-                <DetailRow label="Marcas recibidas" value={selectedDevice._count.punches} />
-                <DetailRow label="Solicitudes" value={selectedDevice._count.linkRequests} />
-                <DetailRow label="Creado" value={formatDate(selectedDevice.createdAt)} />
-              </dl>
-
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">IPs permitidas</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {selectedDevice.allowedIps.length > 0 ? (
-                    selectedDevice.allowedIps.map((ip) => (
-                      <span key={ip} className="rounded bg-slate-100 px-2 py-1 font-mono text-xs text-gray-700">{ip}</span>
-                    ))
-                  ) : (
-                    <span className="text-sm text-gray-500">Sin restricción por IP</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex min-h-64 items-center justify-center text-center text-sm text-gray-500">
-              Seleccioná un lector para ver su información.
-            </div>
+                      <span className="text-xs font-medium text-emerald-700">
+                        Ver detalle
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
-        </aside>
+        </section>
+        {showPanel && (
+          <aside
+            aria-label="Detalle del lector"
+            className="min-w-0 space-y-4 rounded-xl border border-slate-200 bg-white p-4"
+          >
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => requestAction('close')}
+              className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-emerald-700 disabled:opacity-50"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden />
+              Volver a lectores
+            </button>
+            {showForm ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void save()
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <h3 className="font-semibold text-slate-900">
+                    {mode === 'create' ? 'Nuevo lector' : 'Editar lector'}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {mode === 'edit'
+                      ? selectedDevice?.name
+                      : 'Completá los datos del equipo.'}
+                  </p>
+                </div>
+                <fieldset disabled={saving} className="min-w-0 space-y-3">
+                  <div>
+                    <label
+                      htmlFor="device-name"
+                      className="mb-1.5 block text-sm font-medium text-slate-700"
+                    >
+                      Nombre
+                    </label>
+                    <input
+                      id="device-name"
+                      className="input-field w-full text-sm"
+                      value={form.name}
+                      onChange={(e) =>
+                        setForm((previous) => ({
+                          ...previous,
+                          name: e.target.value,
+                        }))
+                      }
+                      required
+                      minLength={2}
+                      placeholder="Entrada principal"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="device-code"
+                      className="mb-1.5 block text-sm font-medium text-slate-700"
+                    >
+                      Código
+                    </label>
+                    <input
+                      id="device-code"
+                      className="input-field w-full text-sm"
+                      value={form.code}
+                      onChange={(e) =>
+                        setForm((previous) => ({
+                          ...previous,
+                          code: e.target.value,
+                        }))
+                      }
+                      required
+                      minLength={2}
+                      placeholder="F22-ENTRADA"
+                    />
+                  </div>
+                  {mode === 'create' && (
+                    <div>
+                      <label
+                        htmlFor="device-secret"
+                        className="mb-1.5 block text-sm font-medium text-slate-700"
+                      >
+                        Clave del lector
+                      </label>
+                      <input
+                        id="device-secret"
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        minLength={8}
+                        className="input-field w-full text-sm"
+                        value={form.secret}
+                        onChange={(e) =>
+                          setForm((previous) => ({
+                            ...previous,
+                            secret: e.target.value,
+                          }))
+                        }
+                        placeholder="Mínimo 8 caracteres"
+                      />
+                    </div>
+                  )}
+                  <label className="flex cursor-pointer items-center justify-between gap-4 rounded-lg bg-slate-50 p-3">
+                    <span className="text-sm font-medium text-slate-700">
+                      Lector habilitado
+                    </span>
+                    <input
+                      aria-label="Lector habilitado"
+                      type="checkbox"
+                      className="h-4 w-4 shrink-0 rounded border-slate-300 accent-emerald-600"
+                      checked={form.isActive}
+                      onChange={(e) =>
+                        setForm((previous) => ({
+                          ...previous,
+                          isActive: e.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <SettingsDetails
+                    title="Conexión y opciones avanzadas"
+                    description="Número de serie y restricciones de acceso."
+                  >
+                    <div>
+                      <label
+                        htmlFor="device-serial"
+                        className="mb-1.5 block text-sm font-medium text-slate-700"
+                      >
+                        Número de serie (ADMS)
+                      </label>
+                      <input
+                        id="device-serial"
+                        className="input-field w-full text-sm"
+                        value={form.admsSerial}
+                        onChange={(e) =>
+                          setForm((previous) => ({
+                            ...previous,
+                            admsSerial: e.target.value,
+                          }))
+                        }
+                        placeholder="Opcional"
+                      />
+                      <p className="mt-1.5 text-xs text-slate-500">
+                        Si queda vacío, el equipo se identifica por su código.
+                      </p>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="device-ips"
+                        className="mb-1.5 block text-sm font-medium text-slate-700"
+                      >
+                        IPs permitidas
+                      </label>
+                      <textarea
+                        id="device-ips"
+                        className="input-field min-h-20 w-full text-sm"
+                        value={form.allowedIpsText}
+                        onChange={(e) =>
+                          setForm((previous) => ({
+                            ...previous,
+                            allowedIpsText: e.target.value,
+                          }))
+                        }
+                        placeholder="Una por línea o separadas por comas"
+                      />
+                      <p className="mt-1.5 text-xs text-slate-500">
+                        Vacío: sin restricción por IP.
+                      </p>
+                    </div>
+                    {mode === 'edit' && (
+                      <div>
+                        <label
+                          htmlFor="device-secret"
+                          className="mb-1.5 block text-sm font-medium text-slate-700"
+                        >
+                          Nueva clave del lector
+                        </label>
+                        <input
+                          id="device-secret"
+                          type="password"
+                          autoComplete="new-password"
+                          className="input-field w-full text-sm"
+                          value={form.secret}
+                          onChange={(e) =>
+                            setForm((previous) => ({
+                              ...previous,
+                              secret: e.target.value,
+                            }))
+                          }
+                          placeholder="Dejar vacío para mantener la actual"
+                        />
+                      </div>
+                    )}
+                  </SettingsDetails>
+                </fieldset>
+                <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+                  <button
+                    type="submit"
+                    disabled={!canSave || saving}
+                    className="btn-primary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60 sm:w-auto"
+                  >
+                    {saving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Check className="h-4 w-4" aria-hidden />
+                    )}
+                    {saving ? 'Guardando…' : 'Guardar lector'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => requestAction('close')}
+                    className="btn-secondary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60 sm:w-auto"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            ) : (
+              selectedDevice && (
+                <>
+                  <div>
+                    <h3 className="break-words font-semibold text-slate-900">
+                      {selectedDevice.name}
+                    </h3>
+                    <p className="mt-1 break-all text-xs text-slate-500">
+                      {selectedDevice.code}
+                    </p>
+                  </div>
+                  <dl className="grid gap-2">
+                    <DetailRow
+                      label="Estado"
+                      value={
+                        selectedDevice.isActive ? 'Activo' : 'Deshabilitado'
+                      }
+                    />
+                    <DetailRow
+                      label="Última conexión"
+                      value={formatDate(selectedDevice.lastSeenAt)}
+                    />
+                  </dl>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => openEdit(selectedDevice)}
+                    className="btn-secondary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden />
+                    Editar lector
+                  </button>
+                  <SettingsDetails
+                    title="Información técnica y uso"
+                    description="Conexión, marcas y vínculos del equipo."
+                  >
+                    <dl className="grid gap-2">
+                      <DetailRow
+                        label="Serial ADMS"
+                        value={selectedDevice.admsSerial || 'Sin serial'}
+                      />
+                      <DetailRow
+                        label="Zona horaria"
+                        value={selectedDevice.timezone}
+                      />
+                      <DetailRow
+                        label="Vínculos"
+                        value={selectedDevice._count.mappings}
+                      />
+                      <DetailRow
+                        label="Marcas recibidas"
+                        value={selectedDevice._count.punches}
+                      />
+                      <DetailRow
+                        label="Solicitudes"
+                        value={selectedDevice._count.linkRequests}
+                      />
+                      <DetailRow
+                        label="Creado"
+                        value={formatDate(selectedDevice.createdAt)}
+                      />
+                    </dl>
+                    <div>
+                      <p className="text-xs text-slate-500">IPs permitidas</p>
+                      <p className="mt-1 break-all text-sm text-slate-700">
+                        {selectedDevice.allowedIps.length
+                          ? selectedDevice.allowedIps.join(', ')
+                          : 'Sin restricción por IP'}
+                      </p>
+                    </div>
+                  </SettingsDetails>
+                  <SettingsDetails
+                    title="Cambiar estado del lector"
+                    description={
+                      selectedDevice.isActive
+                        ? 'Deshabilitar el registro de nuevas marcas.'
+                        : 'Habilitar el registro de nuevas marcas.'
+                    }
+                  >
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void toggleActive(selectedDevice)}
+                      className="btn-secondary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      <Power className="h-4 w-4" aria-hidden />
+                      {selectedDevice.isActive
+                        ? 'Deshabilitar lector'
+                        : 'Habilitar lector'}
+                    </button>
+                  </SettingsDetails>
+                </>
+              )
+            )}
+          </aside>
+        )}
       </div>
-
-      {msg ? (
-        <div className={`rounded-lg border px-3 py-2.5 text-sm ${msg.includes('No se') || msg.includes('API') || msg.includes('existe') ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`} role="status">
-          {msg}
-        </div>
-      ) : null}
     </div>
   )
 }

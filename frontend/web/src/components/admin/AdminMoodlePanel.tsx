@@ -1,8 +1,9 @@
 'use client'
 
 import { api } from '@/lib/api/client'
-import { BookOpen, Loader2, Plug, RefreshCw, Save } from 'lucide-react'
+import { Loader2, Plug, RefreshCw, Save } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import SettingsDetails from './settings/SettingsDetails'
 
 type MoodleSettings = {
   moodleConfigured: boolean
@@ -17,8 +18,18 @@ type MoodleHealth = {
   configured: boolean
   baseUrl: string | null
   syncEnabled: boolean
-  connection: { ok: boolean; siteName?: string; moodleVersion?: string; error?: string }
-  outbox: { pending: number; processing: number; failed: number; completed: number }
+  connection: {
+    ok: boolean
+    siteName?: string
+    moodleVersion?: string
+    error?: string
+  }
+  outbox: {
+    pending: number
+    processing: number
+    failed: number
+    completed: number
+  }
   reconcile?: {
     running: boolean
     startedAt: string | null
@@ -28,12 +39,16 @@ type MoodleHealth = {
   }
 }
 
-const shellCard = 'rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm'
-const labelCls = 'block text-xs font-medium uppercase tracking-wide text-gray-500'
+const shellCard =
+  'space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5'
 
 export default function AdminMoodlePanel() {
   const [data, setData] = useState<MoodleSettings | null>(null)
   const [health, setHealth] = useState<MoodleHealth | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [savedData, setSavedData] = useState<MoodleSettings | null>(null)
+  const [confirmReload, setConfirmReload] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState<'status' | 'reconcile' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -41,6 +56,7 @@ export default function AdminMoodlePanel() {
   const loadSettings = useCallback(async () => {
     const r = await api<MoodleSettings>('/admin/system-settings')
     setData(r)
+    setSavedData(r)
   }, [])
 
   const loadHealth = useCallback(async () => {
@@ -49,11 +65,16 @@ export default function AdminMoodlePanel() {
   }, [])
 
   const loadAll = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    setConfirmReload(false)
+    setMsg(null)
     try {
       await Promise.all([loadSettings(), loadHealth()])
     } catch {
-      setData(null)
-      setHealth(null)
+      setLoadError(true)
+    } finally {
+      setLoading(false)
     }
   }, [loadSettings, loadHealth])
 
@@ -64,7 +85,9 @@ export default function AdminMoodlePanel() {
   useEffect(() => {
     if (!health?.reconcile?.running) return
     const t = setInterval(() => {
-      void loadHealth()
+      void loadHealth().catch(() =>
+        setMsg('No se pudo actualizar el estado de Moodle.'),
+      )
     }, 5000)
     return () => clearInterval(t)
   }, [health?.reconcile?.running, loadHealth])
@@ -83,8 +106,14 @@ export default function AdminMoodlePanel() {
         }),
       })
       setData(updated)
+      setSavedData(updated)
+      setConfirmReload(false)
       setMsg('Configuración Moodle guardada.')
-      await loadHealth()
+      await loadHealth().catch(() =>
+        setMsg(
+          'Configuración Moodle guardada. No se pudo actualizar el estado de conexión.',
+        ),
+      )
     } catch {
       setMsg('No se pudo guardar.')
     } finally {
@@ -109,176 +138,356 @@ export default function AdminMoodlePanel() {
     setBusy('reconcile')
     setMsg(null)
     try {
-      const r = await api<{ message: string; reconcile?: MoodleHealth['reconcile'] }>('/admin/moodle/reconcile', {
+      const r = await api<{
+        message: string
+        reconcile?: MoodleHealth['reconcile']
+      }>('/admin/moodle/reconcile', {
         method: 'POST',
       })
       setMsg(r.message)
       await loadHealth()
     } catch (error: unknown) {
-      const message = error instanceof Error && error.message ? error.message : 'No se pudo iniciar la sincronización.'
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'No se pudo iniciar la sincronización.'
       setMsg(message)
     } finally {
       setBusy(null)
     }
   }
 
-  if (!data) {
+  const dirty =
+    data?.moodleSyncEnabled !== savedData?.moodleSyncEnabled ||
+    data?.moodleSyncStudents !== savedData?.moodleSyncStudents ||
+    data?.moodleReconcileIntervalMs !== savedData?.moodleReconcileIntervalMs
+
+  if (loading)
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
-        <p className="text-sm text-gray-500">Cargando Moodle…</p>
+      <p
+        role="status"
+        className={`${shellCard} flex items-center gap-2 text-sm text-slate-500`}
+      >
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        Cargando Moodle…
+      </p>
+    )
+  if (loadError || !data)
+    return (
+      <div
+        role="alert"
+        className={`${shellCard} flex flex-wrap items-center justify-between gap-3 text-sm text-red-800`}
+      >
+        <p>No se pudo cargar la configuración de Moodle.</p>
+        <button
+          type="button"
+          onClick={() => void loadAll()}
+          className="font-medium hover:underline"
+        >
+          Reintentar
+        </button>
       </div>
     )
-  }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/40 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-emerald-100">
-              <BookOpen className="h-5 w-5 text-emerald-700" aria-hidden />
-            </span>
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-gray-900">Integración Moodle</h2>
-              <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-gray-600">
-                Sincronización EduTrack → Moodle (usuarios, cursos e inscripciones). Requiere{' '}
-                <code className="text-xs">MOODLE_BASE_URL</code> y <code className="text-xs">MOODLE_WS_TOKEN</code> en el
-                servidor.
-              </p>
-            </div>
-          </div>
-          <div className="grid gap-2 sm:flex sm:flex-wrap">
-            <button type="button" onClick={() => void loadAll()} className="btn-secondary inline-flex items-center gap-2 text-sm">
-              <RefreshCw className="h-4 w-4" aria-hidden />
-              Recargar
-            </button>
-            <button type="button" onClick={() => void save()} className="btn-primary inline-flex items-center gap-2 text-sm disabled:opacity-60" disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
-              Guardar
-            </button>
-          </div>
-        </div>
-      </section>
-
+    <div className="space-y-4">
       {msg && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">{msg}</div>
+        <p
+          role={msg.includes('No se pudo') ? 'alert' : 'status'}
+          className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"
+        >
+          {msg}
+        </p>
       )}
-
-      <section className={`${shellCard} space-y-4`}>
-        <h3 className="text-sm font-semibold text-gray-900">Estado de conexión</h3>
-        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+      <section className={shellCard}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <dt className={labelCls}>Configurado</dt>
-            <dd className="mt-1 font-medium">{data.moodleConfigured ? 'Sí' : 'No (faltan env vars)'}</dd>
+            <h2 className="font-semibold text-slate-900">Integración Moodle</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Sincronizá usuarios, cursos e inscripciones con el aula virtual.
+            </p>
           </div>
-          <div>
-            <dt className={labelCls}>URL</dt>
-            <dd className="mt-1 font-mono text-xs break-all">{health?.baseUrl ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className={labelCls}>Conexión REST</dt>
-            <dd className="mt-1">
-              {health?.connection.ok ? (
-                <span className="text-emerald-700 font-medium">
-                  OK — {health.connection.siteName}
-                  {health.connection.moodleVersion ? ` (${health.connection.moodleVersion})` : ''}
-                </span>
-              ) : (
-                <span className="text-red-700">{health?.connection.error ?? 'Sin probar'}</span>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt className={labelCls}>Sync activo</dt>
-            <dd className="mt-1">
-              {data.moodleSyncEnabledEffective ? (
-                <span className="text-emerald-700 font-medium">Sí</span>
-              ) : (
-                <span className="text-amber-700">No</span>
-              )}
-              {data.moodleSyncEnabledFromEnv && !data.moodleSyncEnabled && (
-                <span className="block text-xs text-gray-500 mt-0.5">Forzado por MOODLE_SYNC_ENABLED en .env</span>
-              )}
-            </dd>
-          </div>
-        </dl>
-        <div className="flex flex-wrap gap-2 pt-2">
-          <button type="button" className="btn-secondary text-sm inline-flex items-center gap-2" disabled={busy !== null} onClick={() => void testConnection()}>
-            {busy === 'status' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-medium ${health?.connection.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}
+          >
+            {!data.moodleConfigured
+              ? 'Sin configurar'
+              : health?.connection.ok
+                ? 'Conectado'
+                : 'Sin conexión'}
+          </span>
+        </div>
+        {!data.moodleConfigured && (
+          <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+            La conexión debe configurarse en el servidor antes de sincronizar.
+          </p>
+        )}
+        {health?.reconcile?.running && (
+          <p
+            role="status"
+            className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800"
+          >
+            Sincronización en curso. Podés salir de esta pantalla; seguirá en
+            segundo plano.
+          </p>
+        )}
+        {health?.reconcile?.lastError && (
+          <p
+            role="alert"
+            className="rounded-lg bg-red-50 p-3 text-sm text-red-800"
+          >
+            {health.reconcile.lastError}
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn-secondary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60 sm:w-auto"
+            disabled={busy !== null || saving}
+            onClick={() => void testConnection()}
+          >
+            {busy === 'status' ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Plug className="h-4 w-4" aria-hidden />
+            )}
             Probar conexión
           </button>
-          <button type="button" className="btn-secondary text-sm inline-flex items-center gap-2" disabled={busy !== null || !data.moodleConfigured || health?.reconcile?.running} onClick={() => void reconcileNow()}>
-            {busy === 'reconcile' || health?.reconcile?.running ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {health?.reconcile?.running ? 'Sincronizando…' : 'Sincronizar ahora'}
+          <button
+            type="button"
+            className="btn-secondary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60 sm:w-auto"
+            disabled={
+              busy !== null ||
+              saving ||
+              !data.moodleConfigured ||
+              health?.reconcile?.running
+            }
+            onClick={() => void reconcileNow()}
+          >
+            {busy === 'reconcile' || health?.reconcile?.running ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw className="h-4 w-4" aria-hidden />
+            )}
+            {health?.reconcile?.running
+              ? 'Sincronizando…'
+              : 'Sincronizar ahora'}
           </button>
         </div>
-        {health && (
-          <div className="space-y-1 text-xs text-gray-500">
-            <p>
-              Outbox: {health.outbox.pending} pendientes, {health.outbox.failed} fallidas, {health.outbox.completed}{' '}
-              completadas
+      </section>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          void save()
+        }}
+        className="space-y-4"
+      >
+        <section className={shellCard}>
+          <label className="flex cursor-pointer items-start justify-between gap-4">
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-slate-900">
+                Sincronización automática
+              </span>
+              <span className="mt-1 block text-xs text-slate-500">
+                Actualizá Moodle cuando haya cambios en EduTrack.
+              </span>
+            </span>
+            <input
+              aria-label="Sincronización automática"
+              type="checkbox"
+              checked={data.moodleSyncEnabled}
+              disabled={saving}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-emerald-600"
+              onChange={(e) =>
+                setData((previous) =>
+                  previous
+                    ? { ...previous, moodleSyncEnabled: e.target.checked }
+                    : previous,
+                )
+              }
+            />
+          </label>
+          {data.moodleSyncEnabledFromEnv && !data.moodleSyncEnabled && (
+            <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+              La sincronización sigue activa por la configuración del servidor.
+              Para desactivarla por completo, revisá esa configuración.
             </p>
-            {health.reconcile?.running && (
-              <p className="text-emerald-700">Sincronización completa en curso. Podés salir de esta pantalla; sigue en segundo plano.</p>
-            )}
-            {!health.reconcile?.running && health.reconcile?.lastSummary && (
-              <p>
-                Última sincronización: cursos={health.reconcile.lastSummary.courses ?? 0}, inscripciones docentes=
-                {health.reconcile.lastSummary.teacherEnrolments ?? 0}, inscripciones estudiantes=
-                {health.reconcile.lastSummary.studentEnrolments ?? 0}
-                {(health.reconcile.lastSummary.errors ?? 0) > 0 ? `, avisos=${health.reconcile.lastSummary.errors}` : ''}.
+          )}
+          <SettingsDetails
+            title="Opciones de sincronización"
+            description={`Revisar cursos cada ${data.moodleReconcileIntervalMs / 60000} minutos`}
+          >
+            <div>
+              <label
+                htmlFor="moodle-interval"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
+              >
+                Intervalo de revisión (minutos)
+              </label>
+              <input
+                id="moodle-interval"
+                type="number"
+                min={1}
+                max={1440}
+                step="any"
+                required
+                disabled={saving}
+                className="input-field w-full text-sm sm:max-w-xs"
+                value={data.moodleReconcileIntervalMs / 60000}
+                onChange={(e) =>
+                  setData((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          moodleReconcileIntervalMs: Math.round(
+                            Number(e.target.value) * 60000,
+                          ),
+                        }
+                      : previous,
+                  )
+                }
+              />
+              <p className="mt-1.5 text-xs text-slate-500">
+                Entre 1 minuto y 24 horas. El valor habitual es 15 minutos.
               </p>
-            )}
+            </div>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-slate-50 p-3">
+              <input
+                aria-label="Sincronizar estudiantes"
+                type="checkbox"
+                checked={data.moodleSyncStudents}
+                disabled={saving}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-emerald-600"
+                onChange={(e) =>
+                  setData((previous) =>
+                    previous
+                      ? { ...previous, moodleSyncStudents: e.target.checked }
+                      : previous,
+                  )
+                }
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-slate-700">
+                  Sincronizar estudiantes
+                </span>
+                <span className="mt-1 block text-xs text-slate-500">
+                  Incluye las cuentas de estudiantes y sus inscripciones en los
+                  cursos.
+                </span>
+              </span>
+            </label>
+          </SettingsDetails>
+        </section>
+        {confirmReload && (
+          <div
+            role="alert"
+            className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+          >
+            <p>Tenés cambios de Moodle sin guardar. Al recargar se perderán.</p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmReload(false)}
+                className="font-medium hover:underline"
+              >
+                Seguir editando
+              </button>
+              <button
+                type="button"
+                onClick={() => void loadAll()}
+                className="font-medium text-red-700 hover:underline"
+              >
+                Descartar cambios y recargar
+              </button>
+            </div>
           </div>
         )}
-      </section>
-
-      <section className={`${shellCard} space-y-5`}>
-        <div className="border-b border-gray-100 pb-4">
-          <h3 className="text-sm font-semibold text-gray-900">Worker de sincronización</h3>
-          <p className="text-xs text-gray-500">Controla el outbox de usuarios y la reconciliación periódica de cursos.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
+          <button
+            type="button"
+            disabled={saving || busy !== null}
+            onClick={() => {
+              if (dirty) setConfirmReload(true)
+              else void loadAll()
+            }}
+            className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-emerald-700 disabled:opacity-50"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden />
+            Recargar
+          </button>
+          <div className="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
+            {dirty && (
+              <span className="text-xs text-amber-700">
+                Cambios sin guardar
+              </span>
+            )}
+            <button
+              type="submit"
+              disabled={saving || busy !== null}
+              className="btn-primary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60 sm:w-auto"
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Save className="h-4 w-4" aria-hidden />
+              )}
+              {saving ? 'Guardando…' : 'Guardar Moodle'}
+            </button>
+          </div>
         </div>
-        <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-gray-100 bg-slate-50/40 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+      </form>
+      <SettingsDetails
+        title="Detalles de conexión y actividad"
+        description={
+          health
+            ? `${health.outbox.pending} pendientes · ${health.outbox.failed} fallidas`
+            : 'Información de conexión y últimas sincronizaciones'
+        }
+      >
+        <dl className="grid gap-4 text-sm sm:grid-cols-2">
           <div>
-            <span className="text-sm font-medium text-gray-800">Sincronización habilitada</span>
-            <p className="text-xs text-gray-500 mt-0.5">Guarda en BD; también respeta MOODLE_SYNC_ENABLED=true en .env</p>
+            <dt className="text-xs text-slate-500">Dirección de Moodle</dt>
+            <dd className="mt-1 break-all text-slate-700">
+              {health?.baseUrl ?? 'Sin dirección configurada'}
+            </dd>
           </div>
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-gray-300 text-emerald-600"
-            checked={data.moodleSyncEnabled}
-            onChange={(e) => setData((prev) => (prev ? { ...prev, moodleSyncEnabled: e.target.checked } : prev))}
-          />
-        </label>
-        <label className="block space-y-2 sm:max-w-sm">
-          <span className={labelCls}>Intervalo reconciliación (ms)</span>
-          <input
-            type="number"
-            min={60000}
-            max={86400000}
-            step={60000}
-            className="input-modern w-full text-sm tabular-nums"
-            value={data.moodleReconcileIntervalMs}
-            onChange={(e) =>
-              setData((prev) => (prev ? { ...prev, moodleReconcileIntervalMs: Number(e.target.value) || 900000 } : prev))
-            }
-          />
-          <span className="text-xs text-gray-500">Default 900000 (15 min). Mínimo 60000 (1 min).</span>
-        </label>
-        <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-gray-100 bg-slate-50/40 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <span className="text-sm font-medium text-gray-800">Sincronizar estudiantes (legacy)</span>
-            <p className="text-xs text-gray-500 mt-0.5">Usuarios nologin en cursos por oferta completa</p>
+            <dt className="text-xs text-slate-500">Conexión</dt>
+            <dd className="mt-1 text-slate-700">
+              {health?.connection.ok
+                ? `${health.connection.siteName ?? 'Moodle'}${health.connection.moodleVersion ? ` (${health.connection.moodleVersion})` : ''}`
+                : (health?.connection.error ?? 'Sin probar')}
+            </dd>
           </div>
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-gray-300 text-emerald-600"
-            checked={data.moodleSyncStudents}
-            onChange={(e) => setData((prev) => (prev ? { ...prev, moodleSyncStudents: e.target.checked } : prev))}
-          />
-        </label>
-      </section>
+          <div>
+            <dt className="text-xs text-slate-500">Sincronización efectiva</dt>
+            <dd className="mt-1 text-slate-700">
+              {data.moodleSyncEnabledEffective ? 'Activa' : 'Desactivada'}
+            </dd>
+          </div>
+          {health && (
+            <div>
+              <dt className="text-xs text-slate-500">
+                Tareas de sincronización
+              </dt>
+              <dd className="mt-1 text-slate-700">
+                {health.outbox.pending} pendientes · {health.outbox.processing}{' '}
+                en curso · {health.outbox.failed} fallidas ·{' '}
+                {health.outbox.completed} completadas
+              </dd>
+            </div>
+          )}
+        </dl>
+        {health?.reconcile?.lastSummary && (
+          <p className="text-xs text-slate-500">
+            Última sincronización: {health.reconcile.lastSummary.courses ?? 0}{' '}
+            cursos, {health.reconcile.lastSummary.teacherEnrolments ?? 0}{' '}
+            inscripciones docentes y{' '}
+            {health.reconcile.lastSummary.studentEnrolments ?? 0} inscripciones
+            de estudiantes. Avisos: {health.reconcile.lastSummary.errors ?? 0}.
+          </p>
+        )}
+      </SettingsDetails>
     </div>
   )
 }

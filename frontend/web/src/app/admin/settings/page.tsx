@@ -18,58 +18,85 @@ type SettingsSection = OperationalSettingsSection | 'readers' | 'moodle'
 const SETTINGS_SECTIONS: {
   id: SettingsSection
   label: string
-  desc: string
   Icon: typeof Settings
 }[] = [
   {
     id: 'system',
     label: 'Sistema',
-    desc: 'Estado general y monitor automático.',
     Icon: Settings,
   },
   {
     id: 'attendance',
     label: 'Asistencia',
-    desc: 'Tolerancias de entrada, salida y marcas repetidas.',
     Icon: Timer,
   },
   {
     id: 'moodle',
     label: 'Moodle',
-    desc: 'Sincronización con LMS, conexión REST y worker.',
     Icon: BookOpen,
   },
   {
     id: 'readers',
     label: 'Lectores',
-    desc: 'Terminales biométricos habilitados.',
     Icon: Cpu,
   },
 ]
 
 export default function AdminSystemSettingsPage() {
   const [data, setData] = useState<SettingsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [savedData, setSavedData] = useState<SettingsResponse | null>(null)
+  const [confirmReload, setConfirmReload] = useState(false)
+  const [visited, setVisited] = useState<SettingsSection[]>([])
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [section, setSection] = useState<SettingsSection>('system')
 
+  function normalize(data: SettingsResponse): SettingsResponse {
+    return {
+      ...data,
+      attendanceEarlyExitToleranceMinutes:
+        data.attendanceEarlyExitToleranceMinutes ??
+        data.attendanceLateToleranceMinutes ??
+        5,
+      biometricDuplicateWindowMinutes:
+        data.biometricDuplicateWindowMinutes ?? 5,
+      institutionTimezone: data.institutionTimezone ?? 'America/Montevideo',
+      institutionTimezoneOptions: data.institutionTimezoneOptions ?? [
+        { value: 'America/Montevideo', label: 'Uruguay — Montevideo' },
+      ],
+      studentRollCallEditWindowHours: data.studentRollCallEditWindowHours ?? 48,
+      studentRollCallCopyPreviousEnabled:
+        data.studentRollCallCopyPreviousEnabled ?? true,
+      studentDailyAbsenceThresholdPercent:
+        data.studentDailyAbsenceThresholdPercent ?? 50,
+    }
+  }
+
   const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    setConfirmReload(false)
+    setMsg(null)
     try {
-      const r = await api<SettingsResponse>('/admin/system-settings')
-      setData({
-        ...r,
-        attendanceEarlyExitToleranceMinutes:
-          r.attendanceEarlyExitToleranceMinutes ?? r.attendanceLateToleranceMinutes ?? 5,
-        biometricDuplicateWindowMinutes: r.biometricDuplicateWindowMinutes ?? 5,
-        institutionTimezone: r.institutionTimezone ?? 'America/Montevideo',
-        institutionTimezoneOptions: r.institutionTimezoneOptions ?? [
-          { value: 'America/Montevideo', label: 'Uruguay — Montevideo' },
-        ],
-      })
+      const updated = normalize(
+        await api<SettingsResponse>('/admin/system-settings'),
+      )
+      setData(updated)
+      setSavedData(updated)
     } catch {
-      setData(null)
+      setLoadError(true)
+    } finally {
+      setLoading(false)
     }
   }, [])
+  const dirty = JSON.stringify(data) !== JSON.stringify(savedData)
+
+  function reload() {
+    if (dirty) setConfirmReload(true)
+    else void load()
+  }
 
   useEffect(() => {
     void load()
@@ -78,13 +105,26 @@ export default function AdminSystemSettingsPage() {
   useEffect(() => {
     const params = new URLSearchParams(globalThis.location.search)
     const s = params.get('section')
-    if (s === 'attendance' || s === 'system' || s === 'readers' || s === 'moodle') setSection(s)
+    if (
+      s === 'attendance' ||
+      s === 'system' ||
+      s === 'readers' ||
+      s === 'moodle'
+    ) {
+      setSection(s)
+      setVisited([s])
+    }
   }, [])
 
   function selectSection(nextSection: SettingsSection) {
     setSection(nextSection)
+    setVisited((previous) =>
+      previous.includes(nextSection) ? previous : [...previous, nextSection],
+    )
     const url =
-      nextSection === 'system' ? '/admin/settings' : `/admin/settings?section=${nextSection}`
+      nextSection === 'system'
+        ? '/admin/settings'
+        : `/admin/settings?section=${nextSection}`
     globalThis.history.replaceState(null, '', url)
   }
 
@@ -98,15 +138,23 @@ export default function AdminSystemSettingsPage() {
         body: JSON.stringify({
           attendanceNoShowGraceMinutes: data.attendanceNoShowGraceMinutes,
           attendanceLateToleranceMinutes: data.attendanceLateToleranceMinutes,
-          attendanceEarlyExitToleranceMinutes: data.attendanceEarlyExitToleranceMinutes,
+          attendanceEarlyExitToleranceMinutes:
+            data.attendanceEarlyExitToleranceMinutes,
           attendanceClassBridgeGapMinutes: data.attendanceClassBridgeGapMinutes,
           attendanceMonitorEnabled: data.attendanceMonitorEnabled,
           attendanceMonitorIntervalMs: data.attendanceMonitorIntervalMs,
           biometricDuplicateWindowMinutes: data.biometricDuplicateWindowMinutes,
           institutionTimezone: data.institutionTimezone,
+          studentRollCallEditWindowHours: data.studentRollCallEditWindowHours,
+          studentRollCallCopyPreviousEnabled:
+            data.studentRollCallCopyPreviousEnabled,
+          studentDailyAbsenceThresholdPercent:
+            data.studentDailyAbsenceThresholdPercent,
         }),
       })
-      setData(updated)
+      setData(normalize(updated))
+      setSavedData(normalize(updated))
+      setConfirmReload(false)
       setMsg('Configuración guardada correctamente.')
     } catch {
       setMsg('No se pudo guardar la configuración.')
@@ -117,78 +165,92 @@ export default function AdminSystemSettingsPage() {
 
   return (
     <RoleGuard permission="settings.manage">
-      <main className="responsive-page max-w-7xl space-y-6">
-        <div className="flex flex-col gap-2">
-          <p className="text-sm font-semibold uppercase text-emerald-700">Solo administradores</p>
-          <h1 className="text-2xl font-bold text-gray-950">Configuración del sistema</h1>
-          <p className="max-w-3xl text-sm text-gray-600">
-            Ajustes operativos centrales del sistema, separados por área para que cada cambio tenga su lugar.
-          </p>
-        </div>
-
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden" aria-label="Secciones de configuración">
+      <main className="responsive-page max-w-5xl space-y-4">
+        <header className="flex items-start gap-3">
+          <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
+            <Settings className="h-6 w-6" aria-hidden />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">
+              Configuración del sistema
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Elegí un área para revisar y ajustar su configuración.
+            </p>
+          </div>
+        </header>
+        <div
+          role="group"
+          aria-label="Secciones de configuración"
+          className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:grid-cols-4"
+        >
           {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
             <button
               key={id}
               type="button"
               onClick={() => selectSection(id)}
               aria-pressed={section === id}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                section === id
-                  ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm'
-                  : 'border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50'
-              }`}
+              aria-controls={
+                id === 'system' || id === 'attendance'
+                  ? 'settings-operational'
+                  : `settings-${id}`
+              }
+              className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition ${section === id ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}
             >
               <Icon className="h-4 w-4 shrink-0" aria-hidden />
               {label}
             </button>
           ))}
         </div>
-
-        <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <aside className="hidden self-start rounded-xl border border-gray-200 bg-white p-2 shadow-sm lg:block">
-            {SETTINGS_SECTIONS.map(({ id, label, desc, Icon }) => (
+        <div
+          id="settings-operational"
+          hidden={section === 'readers' || section === 'moodle'}
+        >
+          {loading ? (
+            <p
+              role="status"
+              className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Cargando configuración…
+            </p>
+          ) : loadError ? (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+            >
+              <p>No se pudo cargar la configuración.</p>
               <button
-                key={id}
                 type="button"
-                onClick={() => selectSection(id)}
-                className={`flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition ${
-                  section === id ? 'bg-emerald-50 text-emerald-900' : 'text-gray-700 hover:bg-slate-50'
-                }`}
+                onClick={() => void load()}
+                className="font-medium hover:underline"
               >
-                <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 ring-1 ring-emerald-100">
-                  <Icon className="h-4 w-4" aria-hidden />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-semibold">{label}</span>
-                  <span className="block text-xs text-gray-500">{desc}</span>
-                </span>
+                Reintentar
               </button>
-            ))}
-          </aside>
-
-          <div className="min-w-0">
-            {section === 'readers' ? (
-              <AdminBiometricDevicesPanel />
-            ) : section === 'moodle' ? (
-              <AdminMoodlePanel />
-            ) : !data ? (
-              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
-                <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
-                <p className="text-sm text-gray-500">Cargando configuración…</p>
-              </div>
-            ) : (
+            </div>
+          ) : (
+            data && (
               <AdminOperationalSettingsPanel
-                section={section}
+                section={section === 'attendance' ? 'attendance' : 'system'}
                 data={data}
                 setData={setData}
                 saving={saving}
                 msg={msg}
-                onSave={save}
-                onReload={load}
+                dirty={dirty}
+                confirmReload={confirmReload}
+                onReload={reload}
+                onDiscardReload={() => void load()}
+                onCancelReload={() => setConfirmReload(false)}
+                onSave={() => void save()}
               />
-            )}
-          </div>
+            )
+          )}
+        </div>
+        <div id="settings-moodle" hidden={section !== 'moodle'}>
+          {visited.includes('moodle') && <AdminMoodlePanel />}
+        </div>
+        <div id="settings-readers" hidden={section !== 'readers'}>
+          {visited.includes('readers') && <AdminBiometricDevicesPanel />}
         </div>
       </main>
     </RoleGuard>

@@ -1,16 +1,20 @@
 'use client'
 
-import { Loader2, RefreshCw, Save, Shield, SlidersHorizontal } from 'lucide-react'
+import { Loader2, RefreshCw, Save } from 'lucide-react'
 import type { Dispatch, SetStateAction } from 'react'
+import SettingsDetails from './settings/SettingsDetails'
 
-/** Offset GMT en vivo de una zona IANA (refleja horario de verano). Ej: "GMT-03:00". */
+/** Offset GMT actual de una zona IANA, incluido el horario de verano. */
 function gmtOffsetLabel(tz: string): string {
   try {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(
-      new Date(),
+    return (
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        timeZoneName: 'shortOffset',
+      })
+        .formatToParts(new Date())
+        .find((part) => part.type === 'timeZoneName')?.value ?? ''
     )
-    const name = parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
-    return name.replace(/^UTC/, 'GMT') || 'GMT'
   } catch {
     return ''
   }
@@ -39,27 +43,23 @@ type Props = {
   setData: Dispatch<SetStateAction<OperationalSettingsData | null>>
   saving: boolean
   msg: string | null
+  dirty?: boolean
+  confirmReload?: boolean
+  onDiscardReload?: () => void
+  onCancelReload?: () => void
   onSave: () => void
   onReload: () => void
 }
 
-const shellCard = 'rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm'
-const labelCls = 'block text-xs font-medium uppercase tracking-wide text-gray-500'
+const fieldClass = 'input-field w-full text-sm tabular-nums'
+const cardClass =
+  'space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5'
 
-function SaveBar({ saving, onSave, onReload }: Pick<Props, 'saving' | 'onSave' | 'onReload'>) {
-  return (
-    <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
-      <button type="button" onClick={() => void onReload()} className="btn-secondary inline-flex items-center justify-center gap-2 text-sm">
-        <RefreshCw className="h-4 w-4" aria-hidden />
-        Recargar
-      </button>
-      <button type="button" onClick={onSave} className="btn-primary inline-flex items-center justify-center gap-2 text-sm disabled:opacity-60" disabled={saving}>
-        {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
-        {saving ? 'Guardando…' : 'Guardar configuración'}
-      </button>
-    </div>
-  )
-}
+type NumberKey = {
+  [K in keyof OperationalSettingsData]: OperationalSettingsData[K] extends number
+    ? K
+    : never
+}[keyof OperationalSettingsData]
 
 export default function AdminOperationalSettingsPanel({
   section = 'system',
@@ -67,265 +67,326 @@ export default function AdminOperationalSettingsPanel({
   setData,
   saving,
   msg,
+  dirty,
+  confirmReload,
   onSave,
   onReload,
+  onDiscardReload,
+  onCancelReload,
 }: Props) {
-  const copy = {
-    system: {
-      title: 'Configuración del sistema',
-      desc: 'Estado general del sistema y comportamiento del monitor automático.',
-      Icon: Shield,
-    },
-    attendance: {
-      title: 'Asistencia y registro horario',
-      desc: 'Parámetros separados para evaluar entradas y salidas del personal.',
-      Icon: SlidersHorizontal,
-    },
-  }[section]
-  const HeaderIcon = copy.Icon
+  function numberField(
+    key: NumberKey,
+    label: string,
+    min: number,
+    max: number,
+    hint: string,
+    divisor = 1,
+  ) {
+    const id = `setting-${key}`
+    return (
+      <div className="min-w-0">
+        <label
+          htmlFor={id}
+          className="mb-1.5 block text-sm font-medium text-slate-700"
+        >
+          {label}
+        </label>
+        <input
+          id={id}
+          type="number"
+          min={min}
+          max={max}
+          step={1 / divisor}
+          required
+          disabled={saving}
+          className={fieldClass}
+          value={data[key] / divisor}
+          aria-describedby={`${id}-hint`}
+          onChange={(e) =>
+            setData((previous) =>
+              previous
+                ? { ...previous, [key]: Number(e.target.value) * divisor }
+                : previous,
+            )
+          }
+        />
+        <p id={`${id}-hint`} className="mt-1.5 text-xs text-slate-500">
+          {hint}
+        </p>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/40 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-emerald-100">
-              <HeaderIcon className="h-5 w-5 text-emerald-700" aria-hidden />
-            </span>
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-gray-900">{copy.title}</h2>
-              <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-gray-600">{copy.desc}</p>
-            </div>
-          </div>
-          <SaveBar saving={saving} onSave={onSave} onReload={onReload} />
-        </div>
-      </section>
-
-      {section === 'system' && (
-        <>
-        <section className={`${shellCard} space-y-5`}>
-          <div className="border-b border-gray-100 pb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Zona horaria institucional</h3>
-            <p className="text-xs text-gray-500">
-              Define el calendario civil y los horarios que usa el backend (eventos, asistencias, reportes).
-            </p>
-          </div>
-          <label className="block space-y-2 sm:max-w-md">
-            <span className={labelCls}>Zona horaria (IANA)</span>
-            <select
-              className="input-modern w-full text-sm"
-              value={data.institutionTimezone}
-              onChange={(e) => setData((prev) => (prev ? { ...prev, institutionTimezone: e.target.value } : prev))}
-            >
-              {data.institutionTimezoneOptions.map((opt) => {
-                const gmt = gmtOffsetLabel(opt.value)
-                return (
-                  <option key={opt.value} value={opt.value}>
-                    {gmt ? `${opt.label} (${gmt})` : opt.label}
-                  </option>
-                )
-              })}
-            </select>
-            <span className="block text-xs text-slate-500">
-              Por defecto: Uruguay (Montevideo). Los cambios aplican al guardar; puede requerir recargar otras pantallas.
-            </span>
-          </label>
-        </section>
-
-        <section className={`${shellCard} space-y-5`}>
-          <div className="border-b border-gray-100 pb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Monitor automático</h3>
-            <p className="text-xs text-gray-500">Controla la generación automática de incidencias operativas.</p>
-          </div>
-          <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-gray-100 bg-slate-50/40 px-4 py-3.5 transition hover:border-emerald-100 hover:bg-emerald-50/20 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-            <span className="text-sm font-medium text-gray-800">Monitor automático de incidentes</span>
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-              checked={data.attendanceMonitorEnabled}
-              onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceMonitorEnabled: e.target.checked } : prev))}
-            />
-          </label>
-          <label className="block space-y-2">
-            <span className={labelCls}>Intervalo del monitor (ms)</span>
-            <input
-              type="number"
-              min={30000}
-              max={3600000}
-              step={1000}
-              className="input-modern w-full text-sm tabular-nums sm:max-w-xs"
-              value={data.attendanceMonitorIntervalMs}
-              onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceMonitorIntervalMs: Number(e.target.value) || 30000 } : prev))}
-            />
-          </label>
-        </section>
-        </>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSave()
+      }}
+      className="space-y-4"
+    >
+      {msg && (
+        <p
+          role={msg.includes('No se pudo') ? 'alert' : 'status'}
+          className={`rounded-xl border p-3 text-sm ${msg.includes('No se pudo') ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}
+        >
+          {msg}
+        </p>
       )}
-
-      {section === 'attendance' && (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <section className={`${shellCard} space-y-5`}>
-            <div className="border-b border-gray-100 pb-4">
-              <h3 className="text-sm font-semibold text-gray-900">Entrada</h3>
-              <p className="text-xs text-gray-500">Reglas usadas para presentes, tardanzas y no-show al iniciar actividad.</p>
-            </div>
-            <label className="block space-y-2">
-              <span className={labelCls}>Tolerancia llegada tarde (min)</span>
-              <input
-                type="number"
-                min={0}
-                max={120}
-                className="input-modern w-full text-sm tabular-nums"
-                value={data.attendanceLateToleranceMinutes}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceLateToleranceMinutes: Number(e.target.value) || 0 } : prev))}
-              />
-              <span className="block text-xs text-slate-500">
-                Minutos de gracia luego del inicio de la clase antes de marcar la entrada como TARDE.
-              </span>
-            </label>
-            <label className="block space-y-2">
-              <span className={labelCls}>Ausencia docente (min)</span>
-              <input
-                type="number"
-                min={1}
-                max={180}
-                className="input-modern w-full text-sm tabular-nums"
-                value={data.attendanceNoShowGraceMinutes}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceNoShowGraceMinutes: Number(e.target.value) || 1 } : prev))}
-              />
-              <span className="block text-xs text-slate-500">
-                Minutos sin marcar luego del inicio para dar al docente por ausente y generar el incidente.
-              </span>
-            </label>
-            <label className="block space-y-2">
-              <span className={labelCls}>Ventana de entrada anticipada (min)</span>
-              <input
-                type="number"
-                min={90}
-                max={240}
-                className="input-modern w-full text-sm tabular-nums"
-                value={data.attendanceClassBridgeGapMinutes}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceClassBridgeGapMinutes: Number(e.target.value) || 90 } : prev))}
-              />
-              <span className="block text-xs text-slate-500">
-                Cuánto antes del inicio de una clase se admite una marca de entrada para asociarla a esa
-                clase (entre 90 y 240 min).
-              </span>
-            </label>
-          </section>
-
-          <section className={`${shellCard} space-y-5`}>
-            <div className="border-b border-gray-100 pb-4">
-              <h3 className="text-sm font-semibold text-gray-900">Salida</h3>
-              <p className="text-xs text-gray-500">Reglas usadas para salida normal y salida anticipada al cerrar actividad.</p>
-            </div>
-            <label className="block space-y-2">
-              <span className={labelCls}>Tolerancia salida anticipada (min)</span>
-              <input
-                type="number"
-                min={0}
-                max={120}
-                className="input-modern w-full text-sm tabular-nums"
-                value={data.attendanceEarlyExitToleranceMinutes}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, attendanceEarlyExitToleranceMinutes: Number(e.target.value) || 0 } : prev))}
-              />
-            </label>
-          </section>
-
-          <section className={`${shellCard} space-y-5 lg:col-span-2`}>
-            <div className="border-b border-gray-100 pb-4">
-              <h3 className="text-sm font-semibold text-gray-900">Pase de lista estudiantil</h3>
-              <p className="text-xs text-gray-500">
-                Reglas del pase de lista que toman los docentes sobre sus clases. No afectan la asistencia del personal.
+      {section === 'system' ? (
+        <>
+          <section className={cardClass}>
+            <div>
+              <h2 className="font-semibold text-slate-900">
+                Zona horaria institucional
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Se aplica a los horarios, las asistencias y los reportes.
               </p>
             </div>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <label className="block space-y-2">
-                <span className={labelCls}>Ventana de edición del docente (horas)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={720}
-                  className="input-modern w-full text-sm tabular-nums"
-                  value={data.studentRollCallEditWindowHours}
-                  onChange={(e) =>
-                    setData((prev) => (prev ? { ...prev, studentRollCallEditWindowHours: Number(e.target.value) || 1 } : prev))
-                  }
-                />
-                <span className="block text-xs text-slate-500">
-                  Horas tras el fin de la clase en que el docente todavía puede corregir su planilla. Después solo
-                  administración, y el cambio queda en auditoría. Se aplica retroactivamente al cambiarla.
-                </span>
+            <div className="sm:max-w-md">
+              <label
+                htmlFor="setting-timezone"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
+              >
+                Zona horaria
               </label>
-              <label className="block space-y-2">
-                <span className={labelCls}>Umbral de falta diaria (%)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  className="input-modern w-full text-sm tabular-nums"
-                  value={data.studentDailyAbsenceThresholdPercent}
-                  onChange={(e) =>
-                    setData((prev) =>
-                      prev ? { ...prev, studentDailyAbsenceThresholdPercent: Number(e.target.value) || 1 } : prev,
-                    )
-                  }
-                />
-                <span className="block text-xs text-slate-500">
-                  Porcentaje de clases del día con ausencia a partir del cual el día cuenta como falta entera. Por
-                  debajo, y con al menos una ausencia, cuenta como media falta.
-                </span>
-              </label>
+              <select
+                id="setting-timezone"
+                className={fieldClass}
+                value={data.institutionTimezone}
+                disabled={saving}
+                onChange={(e) =>
+                  setData((previous) =>
+                    previous
+                      ? { ...previous, institutionTimezone: e.target.value }
+                      : previous,
+                  )
+                }
+              >
+                {data.institutionTimezoneOptions.map((option) => {
+                  const offset = gmtOffsetLabel(option.value)
+                  return (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                      {offset ? ` (${offset})` : ''}
+                    </option>
+                  )
+                })}
+              </select>
+              <p className="mt-1.5 text-xs text-slate-500">
+                El cambio se aplica al guardar. Recargá las demás pantallas para
+                actualizar sus horarios.
+              </p>
             </div>
-            <label className="flex items-start gap-3">
+          </section>
+          <section className={cardClass}>
+            <label className="flex cursor-pointer items-start justify-between gap-4">
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-900">
+                  Monitor automático de incidentes
+                </span>
+                <span className="mt-1 block text-sm text-slate-500">
+                  Detecta ausencias y otras incidencias del personal.
+                </span>
+              </span>
+              <input
+                aria-label="Monitor automático de incidentes"
+                type="checkbox"
+                checked={data.attendanceMonitorEnabled}
+                disabled={saving}
+                className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 accent-emerald-600 focus:ring-emerald-500"
+                onChange={(e) =>
+                  setData((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          attendanceMonitorEnabled: e.target.checked,
+                        }
+                      : previous,
+                  )
+                }
+              />
+            </label>
+            <SettingsDetails
+              title="Frecuencia de revisión"
+              description={`Cada ${data.attendanceMonitorIntervalMs / 1000} segundos`}
+            >
+              {numberField(
+                'attendanceMonitorIntervalMs',
+                'Intervalo de revisión (segundos)',
+                30,
+                3600,
+                'Tiempo entre revisiones automáticas: entre 30 segundos y 1 hora.',
+                1000,
+              )}
+            </SettingsDetails>
+          </section>
+        </>
+      ) : (
+        <>
+          <section className={cardClass}>
+            <div>
+              <h2 className="font-semibold text-slate-900">
+                Asistencia del personal
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Definí el margen permitido al entrar y salir de clase.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {numberField(
+                'attendanceLateToleranceMinutes',
+                'Tolerancia de llegada tarde (minutos)',
+                0,
+                120,
+                'Pasado este margen, la entrada se registra como tarde.',
+              )}
+              {numberField(
+                'attendanceEarlyExitToleranceMinutes',
+                'Tolerancia de salida anticipada (minutos)',
+                0,
+                120,
+                'Margen permitido antes de terminar la clase.',
+              )}
+            </div>
+          </section>
+          <SettingsDetails
+            title="Ausencias y entradas anticipadas"
+            description="Cuándo registrar una ausencia y cuánto antes admitir una entrada."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              {numberField(
+                'attendanceNoShowGraceMinutes',
+                'Registrar ausencia después de (minutos)',
+                1,
+                180,
+                'Tiempo sin una marca de entrada desde el inicio de clase.',
+              )}
+              {numberField(
+                'attendanceClassBridgeGapMinutes',
+                'Admitir entradas hasta (minutos antes)',
+                15,
+                240,
+                'Permite asociar una entrada anticipada a la clase, entre 15 y 240 minutos antes.',
+              )}
+            </div>
+          </SettingsDetails>
+          <SettingsDetails
+            title="Pase de lista estudiantil"
+            description={`${data.studentRollCallEditWindowHours} horas para corregir · Falta diaria desde ${data.studentDailyAbsenceThresholdPercent}% de ausencias`}
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              {numberField(
+                'studentRollCallEditWindowHours',
+                'Plazo para corregir el pase de lista (horas)',
+                1,
+                720,
+                'Desde el fin de clase. Después, sólo administración puede corregirlo. El cambio también se aplica a listas anteriores.',
+              )}
+              {numberField(
+                'studentDailyAbsenceThresholdPercent',
+                'Umbral de falta diaria (%)',
+                1,
+                100,
+                'Porcentaje de clases ausentes que cuenta como falta entera. Por debajo, una ausencia cuenta como media falta.',
+              )}
+            </div>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-slate-50 p-3">
               <input
                 type="checkbox"
-                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                aria-label="Sugerir copiar la hora anterior"
                 checked={data.studentRollCallCopyPreviousEnabled}
+                disabled={saving}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-emerald-600"
                 onChange={(e) =>
-                  setData((prev) => (prev ? { ...prev, studentRollCallCopyPreviousEnabled: e.target.checked } : prev))
+                  setData((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          studentRollCallCopyPreviousEnabled: e.target.checked,
+                        }
+                      : previous,
+                  )
                 }
               />
               <span className="min-w-0">
-                <span className="block text-sm font-medium text-gray-900">Sugerir copiar la hora anterior</span>
-                <span className="block text-xs text-slate-500">
-                  Cuando el mismo grupo ya tiene una lista tomada ese día, ofrecer precargarla. Siempre es una
-                  sugerencia editable que el docente debe confirmar.
+                <span className="block text-sm font-medium text-slate-700">
+                  Sugerir copiar la hora anterior
+                </span>
+                <span className="mt-1 block text-xs text-slate-500">
+                  El docente puede usar la lista anterior del mismo grupo y día.
+                  Debe revisarla y confirmarla.
                 </span>
               </span>
             </label>
-          </section>
-
-          <section className={`${shellCard} space-y-5 lg:col-span-2`}>
-            <div className="border-b border-gray-100 pb-4">
-              <h3 className="text-sm font-semibold text-gray-900">Biométrico</h3>
-              <p className="text-xs text-gray-500">Ventana para huellas repetidas: la entrada conserva la primera y la salida conserva la última.</p>
-            </div>
-            <label className="block space-y-2 sm:max-w-sm">
-              <span className={labelCls}>Ventana huellas repetidas (min)</span>
-              <input
-                type="number"
-                min={0}
-                max={120}
-                className="input-modern w-full text-sm tabular-nums"
-                value={data.biometricDuplicateWindowMinutes}
-                onChange={(e) => setData((prev) => (prev ? { ...prev, biometricDuplicateWindowMinutes: Number(e.target.value) || 0 } : prev))}
-              />
-            </label>
-          </section>
+          </SettingsDetails>
+          <SettingsDetails
+            title="Marcas biométricas repetidas"
+            description={`Agrupar marcas tomadas dentro de ${data.biometricDuplicateWindowMinutes} minutos`}
+          >
+            {numberField(
+              'biometricDuplicateWindowMinutes',
+              'Ventana de marcas repetidas (minutos)',
+              0,
+              120,
+              'Se conserva la primera marca de entrada y la última de salida.',
+            )}
+          </SettingsDetails>
+        </>
+      )}
+      {confirmReload && (
+        <div
+          role="alert"
+          className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <p>Tenés cambios sin guardar. Al recargar se perderán.</p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={onCancelReload}
+              className="font-medium hover:underline"
+            >
+              Seguir editando
+            </button>
+            <button
+              type="button"
+              onClick={onDiscardReload}
+              className="font-medium text-red-700 hover:underline"
+            >
+              Descartar cambios y recargar
+            </button>
+          </div>
         </div>
       )}
-
-      {msg ? (
-        <div
-          className={`rounded-lg border px-3 py-2.5 text-sm ${
-            msg.includes('No se pudo') ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50/80 text-emerald-900'
-          }`}
-          role="status"
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
+        <button
+          type="button"
+          onClick={onReload}
+          disabled={saving}
+          className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-emerald-700 disabled:opacity-50"
         >
-          {msg}
+          <RefreshCw className="h-4 w-4" aria-hidden />
+          Recargar
+        </button>
+        <div className="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
+          {dirty && (
+            <span className="text-xs text-amber-700">Cambios sin guardar</span>
+          )}
+          <button
+            type="submit"
+            disabled={saving}
+            className="btn-primary inline-flex w-full items-center justify-center gap-2 disabled:opacity-60 sm:w-auto"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Save className="h-4 w-4" aria-hidden />
+            )}
+            {saving ? 'Guardando…' : 'Guardar configuración'}
+          </button>
         </div>
-      ) : null}
-    </div>
+      </div>
+    </form>
   )
 }
