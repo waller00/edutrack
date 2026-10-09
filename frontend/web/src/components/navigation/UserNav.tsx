@@ -17,6 +17,8 @@ import {
   Menu,
   Receipt,
   MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
   School,
   Settings,
   ShieldCheck,
@@ -193,6 +195,31 @@ function visibleGroups(me: MeUser) {
 
 const ALL_HREFS = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href))
 
+const COLLAPSED_KEY = 'edutrack.sidebar.collapsed'
+const OPEN_GROUPS_KEY = 'edutrack.sidebar.openGroups'
+
+/**
+ * Preferencias del menú lateral en este navegador. Hacen falta porque los ítems son enlaces que
+ * recargan la página: sin guardarlas, cada clic volvía a abrir el menú y cerraba los grupos que
+ * el usuario había desplegado. Sin storage (modo privado) el menú funciona igual, sin recordar.
+ */
+function readStored<T>(key: string, parse: (raw: string) => T): T | null {
+  try {
+    const raw = globalThis.localStorage?.getItem(key)
+    return raw == null ? null : parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function writeStored(key: string, value: string) {
+  try {
+    globalThis.localStorage?.setItem(key, value)
+  } catch {
+    /* sin storage, la preferencia dura hasta recargar */
+  }
+}
+
 /**
  * ¿Este ítem es el activo?
  *
@@ -208,18 +235,161 @@ function pathIsActive(pathname: string, href: string) {
   return !ALL_HREFS.some((other) => other !== href && other.length > href.length && matches(other))
 }
 
+type VisibleGroup = ReturnType<typeof visibleGroups>[number]
+
+function NavItemLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = itemIcon(item.label)
+  return (
+    <a
+      href={item.href}
+      aria-current={active ? 'page' : undefined}
+      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+        active ? 'bg-emerald-600 text-white shadow-sm' : 'text-gray-600 hover:bg-emerald-50 hover:text-emerald-800'
+      }`}
+    >
+      <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-white' : 'text-gray-400'}`} aria-hidden />
+      <span className="truncate">{item.label}</span>
+    </a>
+  )
+}
+
+/** Grupo del menú abierto: el título despliega o pliega sus ítems. */
+function SidebarGroup({
+  group,
+  pathname,
+  expanded,
+  onToggle,
+}: {
+  group: VisibleGroup
+  pathname: string
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const Icon = group.icon
+  const groupActive = group.items.some((item) => pathIsActive(pathname, item.href))
+  const listId = `nav-group-${group.title.replace(/\W+/g, '-').toLowerCase()}`
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+          groupActive ? 'bg-emerald-50 text-emerald-800' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-950'
+        }`}
+        aria-expanded={expanded}
+        aria-controls={listId}
+      >
+        <Icon className={`h-5 w-5 shrink-0 ${groupActive ? 'text-emerald-700' : 'text-gray-500'}`} aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{group.title}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {expanded && (
+        <div id={listId} className="mt-1 space-y-0.5 pl-4">
+          {group.items.map((item) => (
+            <NavItemLink key={item.href + item.label} item={item} active={pathIsActive(pathname, item.href)} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Grupo con el menú contraído: sólo el ícono. Al pasar el mouse o llegar con el teclado, sus ítems
+ * se despliegan al costado; el clic vuelve a abrir el menú con ese grupo desplegado.
+ *
+ * El panel arranca pegado al ícono (`pl-2` y no `ml-2`): con un margen, el mouse cruzaba un hueco
+ * fuera del grupo y el panel se cerraba antes de llegar.
+ */
+function RailGroup({ group, pathname, onOpen }: { group: VisibleGroup; pathname: string; onOpen: () => void }) {
+  const Icon = group.icon
+  const groupActive = group.items.some((item) => pathIsActive(pathname, item.href))
+  return (
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={group.title}
+        aria-label={`${group.title}: abrir el menú`}
+        className={`mx-auto flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${
+          groupActive ? 'bg-emerald-600 text-white shadow-sm' : 'text-gray-500 hover:bg-emerald-50 hover:text-emerald-800'
+        }`}
+      >
+        <Icon className="h-5 w-5" aria-hidden />
+      </button>
+      <div className="invisible absolute left-full top-0 z-50 pl-2 opacity-0 transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+        <div className="w-60 space-y-0.5 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+          <p className="px-3 pb-1 pt-0.5 text-xs font-semibold uppercase tracking-wide text-gray-500">{group.title}</p>
+          {group.items.map((item) => (
+            <NavItemLink key={item.href + item.label} item={item} active={pathIsActive(pathname, item.href)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Contraer o expandir el menú lateral. Sólo en escritorio: en el celular el menú es un panel. */
+function SidebarToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const Icon = collapsed ? PanelLeftOpen : PanelLeftClose
+  return (
+    <div className="hidden border-t border-gray-200 p-2 lg:block">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'}
+        title={collapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'}
+        className={`flex w-full items-center gap-2 rounded-lg py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 ${
+          collapsed ? 'justify-center' : 'px-3'
+        }`}
+      >
+        <Icon className="h-5 w-5 shrink-0" aria-hidden />
+        {!collapsed && <span>Contraer menú</span>}
+      </button>
+    </div>
+  )
+}
+
 export default function UserNav({ children = null }: { children?: React.ReactNode }) {
   const { me, loading } = useAuth()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  const [collapsed, setCollapsed] = useState(false)
   const [unreadInApp, setUnreadInApp] = useState(0)
   const pathname = usePathname()
+
+  // Se leen después de montar: en el servidor no hay storage.
+  useEffect(() => {
+    setCollapsed(readStored(COLLAPSED_KEY, (raw) => raw === '1') ?? false)
+    const stored = readStored<Record<string, boolean>>(OPEN_GROUPS_KEY, (raw) => JSON.parse(raw))
+    if (stored && typeof stored === 'object') setOpenGroups((current) => ({ ...stored, ...current }))
+  }, [])
 
   useEffect(() => {
     setUserMenuOpen(false)
     setMobileOpen(false)
   }, [pathname])
+
+  function toggleCollapsed() {
+    const next = !collapsed
+    setCollapsed(next)
+    writeStored(COLLAPSED_KEY, next ? '1' : '0')
+  }
+
+  /** Sólo se guarda lo que el usuario abre o cierra; abrir el grupo de la página actual es automático. */
+  function setGroupOpen(title: string, open: boolean) {
+    const next = { ...openGroups, [title]: open }
+    setOpenGroups(next)
+    writeStored(OPEN_GROUPS_KEY, JSON.stringify(next))
+  }
+
+  /** Con el menú contraído, el clic en un grupo abre el menú con ese grupo desplegado. */
+  function openFromRail(title: string) {
+    setGroupOpen(title, true)
+    toggleCollapsed()
+  }
 
   useEffect(() => {
     if (!me || !canAccessModules(me)) {
@@ -338,12 +508,24 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     )
   }
 
+  // En el celular el menú es un panel que se abre entero: contraído sólo aplica en escritorio.
+  const rail = collapsed && !mobileOpen
+
   const sidebar = hasDashboardShell ? (
-    <aside className="sidebar-modern fixed inset-y-0 left-0 z-40 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-white lg:w-72">
-      <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-5">
-        <a href="/" className="flex min-w-0 items-center gap-2 text-xl font-bold text-emerald-600 transition-colors hover:text-emerald-700">
+    <aside
+      aria-label="Menú principal"
+      className={`sidebar-modern fixed inset-y-0 left-0 z-40 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-white transition-[width] duration-200 ${
+        rail ? 'lg:w-16' : 'lg:w-72'
+      }`}
+    >
+      <div className={`flex h-16 items-center gap-3 border-b border-gray-200 ${rail ? 'justify-center px-2' : 'px-5'}`}>
+        <a
+          href="/"
+          title="EduTrack"
+          className="flex min-w-0 items-center gap-2 text-xl font-bold text-emerald-600 transition-colors hover:text-emerald-700"
+        >
           <img src="/logo.svg" alt="EduTrack" className="h-8 w-8 shrink-0" />
-          <span className="truncate">EduTrack</span>
+          {!rail && <span className="truncate">EduTrack</span>}
         </a>
         <button
           type="button"
@@ -355,58 +537,38 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
-        <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Panel de trabajo</p>
-          <p className="mt-0.5 truncate text-sm text-emerald-950">{me?.name || me?.email || 'Usuario'}</p>
-        </div>
+      {/* Contraído no hay scroll: con `overflow-y-auto` el panel que se despliega al costado quedaba recortado. */}
+      <nav className={`flex-1 py-4 ${rail ? 'overflow-visible px-2' : 'overflow-y-auto px-3'}`}>
+        {!rail && (
+          <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Panel de trabajo</p>
+            <p className="mt-0.5 truncate text-sm text-emerald-950">{me?.name || me?.email || 'Usuario'}</p>
+          </div>
+        )}
 
-        <div className="space-y-1.5">
+        <div className={rail ? 'space-y-2' : 'space-y-1.5'}>
           {groups.map((group) => {
-            const Icon = group.icon
+            if (rail) {
+              return (
+                <RailGroup key={group.title} group={group} pathname={pathname} onOpen={() => openFromRail(group.title)} />
+              )
+            }
             const groupActive = group.items.some((item) => pathIsActive(pathname, item.href))
             const expanded = openGroups[group.title] ?? (groupActive || group.title === 'Inicio')
             return (
-              <div key={group.title}>
-                <button
-                  type="button"
-                  onClick={() => setOpenGroups((current) => ({ ...current, [group.title]: !expanded }))}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
-                    groupActive ? 'bg-emerald-50 text-emerald-800' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-950'
-                  }`}
-                  aria-expanded={expanded}
-                >
-                  <Icon className={`h-5 w-5 shrink-0 ${groupActive ? 'text-emerald-700' : 'text-gray-500'}`} aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">{group.title}</span>
-                  <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden />
-                </button>
-                {expanded && (
-                  <div className="mt-1 space-y-0.5 pl-4">
-                    {group.items.map((item) => {
-                      const ActiveIcon = itemIcon(item.label)
-                      const active = pathIsActive(pathname, item.href)
-                      return (
-                        <a
-                          key={item.href + item.label}
-                          href={item.href}
-                          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-                            active
-                              ? 'bg-emerald-600 text-white shadow-sm'
-                              : 'text-gray-600 hover:bg-emerald-50 hover:text-emerald-800'
-                          }`}
-                        >
-                          <ActiveIcon className={`h-4 w-4 shrink-0 ${active ? 'text-white' : 'text-gray-400'}`} aria-hidden />
-                          <span className="truncate">{item.label}</span>
-                        </a>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
+              <SidebarGroup
+                key={group.title}
+                group={group}
+                pathname={pathname}
+                expanded={expanded}
+                onToggle={() => setGroupOpen(group.title, !expanded)}
+              />
             )
           })}
         </div>
       </nav>
+
+      <SidebarToggle collapsed={rail} onToggle={toggleCollapsed} />
     </aside>
   ) : null
 
@@ -438,7 +600,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
         onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setMobileOpen(false) }}
       />
       <div className={`lg:block ${mobileOpen ? 'block' : 'hidden'}`}>{sidebar}</div>
-      <div className="min-h-screen lg:pl-72">
+      <div className={`min-h-screen transition-[padding] duration-200 ${collapsed ? 'lg:pl-16' : 'lg:pl-72'}`}>
         <header className="header-modern sticky top-0 z-30 bg-white/90">
           <div className="flex h-16 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
             <button
