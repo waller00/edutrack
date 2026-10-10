@@ -104,8 +104,11 @@ body {
   @apply border-b border-gray-100 pb-4 mb-4;
 }
 
-.input-field {
-  @apply w-full border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200;
+@layer components {
+  /* Las utilidades de cada campo deben poder reservar espacio para sus íconos. */
+  .input-field {
+    @apply w-full border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200;
+  }
 }
 
 .select-field {
