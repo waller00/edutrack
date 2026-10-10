@@ -38,6 +38,12 @@ export type PlannedInstance = {
   courseOfferingId: string | null
   courseLabel: string | null
   subjectLabel: string | null
+  /**
+   * Desde cuándo la ocurrencia es un compromiso del docente: no antes de que se cargara la clase ni
+   * de que existiera su cuenta. Lo anterior, si nadie estuvo, no es una ausencia (ver
+   * `startedBeforeCommitment`). `null` si no se sabe.
+   */
+  commitmentStart?: Date | null
 }
 
 export type ResolvedAttendanceByInstance = {

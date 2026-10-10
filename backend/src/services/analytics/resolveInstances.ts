@@ -26,6 +26,16 @@ function formatUserDisplayName(u: {
   return u.username || 'Sin nombre'
 }
 
+/**
+ * ¿La ocurrencia empezó antes de que la clase o el docente existieran (`commitmentStart`)? Pasa con
+ * un horario cargado con fecha de inicio pasada, con la clase de la mañana de un horario cargado a la
+ * tarde, o con un docente nuevo al que le asignan una serie ya empezada.
+ */
+export function startedBeforeCommitment(planned: Pick<PlannedInstance, 'commitmentStart' | 'plannedStartTime'>): boolean {
+  if (!planned.commitmentStart || !planned.plannedStartTime) return false
+  return new Date(planned.plannedStartTime).getTime() < new Date(planned.commitmentStart).getTime()
+}
+
 function normalizeAttendanceStatus(status: AttendanceStatus): ResolvedAttendanceByInstance['checkInStatusResolved'] {
   return status as any
 }
@@ -200,6 +210,10 @@ export async function resolveAttendanceAndJustification(params: {
     const span = findSpanCoveringPlannedInstance(planned, spansByUserDate)
     const effectiveIn = selectedIn ?? span?.checkIn ?? null
     const effectiveOut = selectedOut ?? span?.checkOut ?? null
+
+    // Antes de que existieran la clase o el docente, si nadie estuvo no hubo clase: no es una
+    // ausencia. Si hubo presencia (una marca o un fichaje que cubre el horario), cuenta como siempre.
+    if (startedBeforeCommitment(planned) && !effectiveIn && !effectiveOut) continue
 
     const actualInTime = effectiveIn ? new Date(effectiveIn.time) : null
     const plannedEnd = planned.plannedEndTime

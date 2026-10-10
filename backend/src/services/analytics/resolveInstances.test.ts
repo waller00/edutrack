@@ -136,3 +136,63 @@ describe('resolveAttendanceAndJustification', () => {
     expect(byUser.get('suplente')!.checkInStatusResolved).toBe('PRESENT')
   })
 })
+
+describe('ocurrencias de antes de que existieran la clase o el docente', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: 'user-1', email: 'n@e', name: 'Nuevo', username: 'nuevo', firstName: 'Nu', lastName: 'Evo', orgRole: { code: 'TEACHER' } },
+    ])
+    prismaMock.medicalLeave.findMany.mockResolvedValue([])
+    prismaMock.attendance.findMany.mockResolvedValue([])
+  })
+
+  // Clase de las 18:40 a las 19:30 del 24/5; el horario se cargó a las 20:00.
+  const before = () => ({
+    ...planned({ eventId: 'ev-1', plannedInstanceId: 'ev-1_2026-05-24' }),
+    commitmentStart: new Date('2026-05-24T23:00:00.000Z'),
+  })
+
+  it('sin nadie presente no es una ausencia: no aparece', async () => {
+    expect(await resolveAttendanceAndJustification({ plannedInstances: [before()] })).toEqual([])
+  })
+
+  it('después de cargarse, la clase sin marcas sigue siendo una ausencia', async () => {
+    const after = { ...before(), commitmentStart: new Date('2026-05-24T20:00:00.000Z') }
+    const [row] = await resolveAttendanceAndJustification({ plannedInstances: [after] })
+    expect(row.checkInStatusResolved).toBe('ABSENT_NOT_JUSTIFIED')
+  })
+
+  it('si igual marcó en esa clase, cuenta como siempre (no se pierden horas)', async () => {
+    prismaMock.attendance.findMany.mockResolvedValue([
+      {
+        id: 'in-1',
+        userId: 'user-1',
+        eventId: 'ev-1',
+        date: new Date('2026-05-24T00:00:00.000Z'),
+        time: new Date('2026-05-24T21:38:00.000Z'),
+        type: 'CHECK_IN',
+        status: 'PRESENT',
+        notes: null,
+      },
+    ])
+    const [row] = await resolveAttendanceAndJustification({ plannedInstances: [before()] })
+    expect(row.checkInStatusResolved).toBe('PRESENT')
+  })
+
+  it('un fichaje que cubre el horario, aunque no esté vinculado a la clase, también cuenta', async () => {
+    prismaMock.attendance.findMany.mockResolvedValue([
+      { id: 'in-1', userId: 'user-1', eventId: null, date: new Date('2026-05-24T00:00:00.000Z'), time: new Date('2026-05-24T21:30:00.000Z'), type: 'CHECK_IN', status: 'PRESENT', notes: null },
+      { id: 'out-1', userId: 'user-1', eventId: null, date: new Date('2026-05-24T00:00:00.000Z'), time: new Date('2026-05-24T22:40:00.000Z'), type: 'CHECK_OUT', status: 'EXIT', notes: null },
+    ])
+    const [row] = await resolveAttendanceAndJustification({ plannedInstances: [before()] })
+    expect(row.checkInStatusResolved).toBe('PRESENT')
+    expect(row.durationMinutes).toBe(50)
+  })
+
+  it('sin fecha de compromiso, nada cambia', async () => {
+    const legacy = { ...before(), commitmentStart: null }
+    const [row] = await resolveAttendanceAndJustification({ plannedInstances: [legacy] })
+    expect(row.checkInStatusResolved).toBe('ABSENT_NOT_JUSTIFIED')
+  })
+})

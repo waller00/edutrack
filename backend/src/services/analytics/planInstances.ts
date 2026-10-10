@@ -29,6 +29,26 @@ type EventRow = {
   courseOfferingId: string | null
   courseOffering: { id: string; course: { name: string; code: string | null } } | null
   subject: { name: string } | null
+  createdAt?: Date | null
+  revisionOf?: string | null
+  assignedUser?: { createdAt: Date | null } | null
+}
+
+/**
+ * Desde cuándo las ocurrencias de un evento son un compromiso del docente: no antes de que se
+ * cargara la clase ni de que existiera su cuenta.
+ *
+ * Una serie semanal se puede crear con fecha de inicio pasada (o hoy, con la clase de la mañana ya
+ * dada), y una clase se puede asignar a un docente nuevo: sin este límite, esas ocurrencias que
+ * nadie pudo cumplir aparecían como ausencias. Una versión nueva de la serie (`revisionOf`) hereda
+ * la historia de la anterior, así que para ella sólo cuenta el docente.
+ */
+export function commitmentStartOf(ev: Pick<EventRow, 'createdAt' | 'revisionOf' | 'assignedUser'>): Date | null {
+  const times = [ev.revisionOf ? null : ev.createdAt, ev.assignedUser?.createdAt]
+    .filter((value): value is Date => value != null)
+    .map((value) => new Date(value).getTime())
+    .filter((ms) => !Number.isNaN(ms))
+  return times.length > 0 ? new Date(Math.max(...times)) : null
 }
 
 type AcademicContext = Pick<PlannedInstance, 'courseOfferingId' | 'courseLabel' | 'subjectLabel'>
@@ -54,6 +74,7 @@ function buildInstance(ev: EventRow, ymd: string, isRecurringInstance: boolean, 
     plannedStartTime: combineDateWithUtcTime(ymd, ev.startTime),
     plannedEndTime: combineDateWithUtcTime(ymd, ev.endTime),
     userIdRequired: ev.assignedUserId,
+    commitmentStart: commitmentStartOf(ev),
     ...academic,
   }
 }
@@ -125,6 +146,9 @@ export async function getPlannedInstances(params: {
       courseOfferingId: true,
       courseOffering: { select: { id: true, course: { select: { name: true, code: true } } } },
       subject: { select: { name: true } },
+      createdAt: true,
+      revisionOf: true,
+      assignedUser: { select: { createdAt: true } },
     },
   })
 
