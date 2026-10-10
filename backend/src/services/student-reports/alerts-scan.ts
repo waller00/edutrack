@@ -35,11 +35,13 @@ export const NOTIFIED_ALERT_TYPES: ReadonlySet<StudentAlertType> = new Set(['ABS
 /** Con más alertas nuevas que esto, se manda un resumen en vez de una notificación por alerta. */
 export const MAX_INDIVIDUAL_NOTIFICATIONS = 5
 
-const TAB_BY_TYPE: Record<StudentAlertType, string> = {
-  GRADE_DROP: 'bajas',
+/** Dónde se ve cada alerta de faltas: su pestaña en Asistencia de estudiantes. */
+const ATTENDANCE_TAB: Partial<Record<StudentAlertType, string>> = {
   ABSENCE_STREAK: 'seguidas',
   ABSENCE_THRESHOLD: 'faltas',
 }
+
+const attendanceUrl = (type: StudentAlertType) => `/admin/student-attendance?tab=${ATTENDANCE_TAB[type] ?? 'faltas'}`
 
 const fullName = (s: { firstName: string; lastName: string }) => `${s.lastName}, ${s.firstName}`
 const gradeUnits = (hundredths: number) => formatAbsenceUnits(hundredths)
@@ -116,11 +118,11 @@ export function notificationsFor(alerts: readonly AlertCandidate[]) {
       {
         title: `${notified.length} alertas nuevas de faltas`,
         body: 'Faltas seguidas o estudiantes que llegaron a 18 o 25 faltas. Revisalas en Reportes.',
-        actionUrl: '/admin/reportes?tab=alertas',
+        actionUrl: attendanceUrl('ABSENCE_THRESHOLD'),
       },
     ]
   }
-  return notified.map((a) => ({ title: a.title, body: a.body, actionUrl: `/admin/reportes?tab=${TAB_BY_TYPE[a.type]}` }))
+  return notified.map((a) => ({ title: a.title, body: a.body, actionUrl: attendanceUrl(a.type) }))
 }
 
 export async function scanStudentAlerts(schoolYearId?: string | null): Promise<{ created: number }> {

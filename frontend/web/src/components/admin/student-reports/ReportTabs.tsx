@@ -4,13 +4,11 @@ import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
   absencesText,
   gradeText,
-  ReportCardPeriodSelect,
   ReportState,
   shortDate,
   studentName,
   Table,
   useReport,
-  useReportCardPeriods,
   useSchoolYearQuery,
   type StudentRef,
 } from './shared'
@@ -43,18 +41,17 @@ function PercentBar({ percent }: { percent: number | null }) {
   )
 }
 
-export function LowGradesTab() {
-  const { periods, periodId, setPeriodId, error: periodsError } = useReportCardPeriods()
+/** Notas bajas del boletín elegido: por curso y por materia. El selector de boletín lo pone quien lo usa. */
+export function LowGradesReport({ periodId }: { periodId: string }) {
   const { data, loading, error } = useReport<LowGradesResponse>(
     periodId ? `/admin/student-reports/low-grades?periodId=${periodId}` : null,
   )
   return (
     <div className="space-y-4">
-      <ReportCardPeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
       <p className="text-xs text-gray-500">
         Nota baja: la banda de alerta de la escala del nivel, sobre la nota oficial (R) del boletín.
       </p>
-      <ReportState loading={loading} error={periodsError ?? error} empty={!data || data.rows.length === 0} emptyText="No hay libretas para este boletín." />
+      <ReportState loading={loading} error={error} empty={!data || data.rows.length === 0} emptyText="No hay libretas para este boletín." />
       {!loading && data && data.rows.length > 0 && (
         <>
           <Table head={['Curso', 'Alumnos con alguna nota baja', '%']} minWidth={480}>
@@ -99,21 +96,20 @@ export function LowGradesTab() {
 type GradeDropRow = StudentRef & { subjectId: string; subjectName: string; previous: number; current: number }
 type GradeDropsResponse = { period: { name: string }; previous: { name: string } | null; rows: GradeDropRow[] }
 
-export function GradeDropsTab() {
-  const { periods, periodId, setPeriodId, error: periodsError } = useReportCardPeriods()
+/** Quiénes bajaron respecto del boletín anterior, en el boletín elegido. */
+export function GradeDropsReport({ periodId }: { periodId: string }) {
   const { data, loading, error } = useReport<GradeDropsResponse>(
     periodId ? `/admin/student-reports/grade-drops?periodId=${periodId}` : null,
   )
   const emptyText = data && !data.previous ? 'Es el primer boletín: no hay uno anterior con qué comparar.' : 'Nadie bajó respecto del boletín anterior.'
   return (
     <div className="space-y-4">
-      <ReportCardPeriodSelect periods={periods} value={periodId} onChange={setPeriodId} />
       {data?.previous && (
         <p className="text-xs text-gray-500">
           Compara la R de cada materia de {data.period.name} con la de {data.previous.name}.
         </p>
       )}
-      <ReportState loading={loading} error={periodsError ?? error} empty={!data || data.rows.length === 0} emptyText={emptyText} />
+      <ReportState loading={loading} error={error} empty={!data || data.rows.length === 0} emptyText={emptyText} />
       {!loading && data && data.rows.length > 0 && (
         <Table head={['Alumno', 'Curso', 'Materia', data.previous?.name ?? 'Anterior', data.period.name]}>
           {data.rows.map((row) => (

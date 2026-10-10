@@ -4,7 +4,7 @@ import Link from 'next/link'
 import SettingsDetails from '@/components/admin/settings/SettingsDetails'
 import { ArrowRight } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { hasPermission, permissionScope } from '@/lib/auth/permissions'
+import { hasAnyPermission, hasPermission, permissionScope } from '@/lib/auth/permissions'
 
 export default function HomeQuickAccess() {
   const { me } = useAuth()
@@ -67,10 +67,14 @@ export default function HomeQuickAccess() {
       show: hasPermission(me, 'gradebook.read', 'all'),
     },
     {
-      label: 'Reportes de estudiantes',
-      description: 'Alertas y seguimiento de estudiantes.',
-      href: '/admin/reportes',
-      show: hasPermission(me, 'student-reports.read', 'all'),
+      label: 'Asistencia de estudiantes',
+      description: 'Justificaciones, faltas seguidas y 18/25 faltas.',
+      href: '/admin/student-attendance',
+      show: hasAnyPermission(
+        me,
+        ['student-attendance.justify', 'student-attendance.manage', 'student-reports.read'],
+        'all',
+      ),
     },
     {
       label: 'Usuarios',

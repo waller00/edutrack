@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts'
 import SettingsDetails from '@/components/admin/settings/SettingsDetails'
+import GradeFollowUp from '@/components/admin/student-reports/GradeFollowUp'
 import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
@@ -117,13 +118,59 @@ function Stat({
   )
 }
 
-export default function AcademicDashboard() {
+export type DashboardView = 'summary' | 'performance' | 'management' | 'followup'
+
+/** Las vistas del tablero; "Seguimiento" sólo para quien ve los reportes de estudiantes. */
+function ViewSwitcher({
+  view,
+  onChange,
+  followUp,
+}: {
+  view: DashboardView
+  onChange: (view: DashboardView) => void
+  followUp: boolean
+}) {
+  const options: (readonly [DashboardView, string])[] = [
+    ['summary', 'Resumen'],
+    ['performance', 'Rendimiento'],
+    ['management', 'Gestión'],
+    ...(followUp ? ([['followup', 'Seguimiento']] as const) : []),
+  ]
+  return (
+    <div
+      role="group"
+      aria-label="Vistas de indicadores académicos"
+      className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1"
+    >
+      {options.map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={view === id}
+          onClick={() => onChange(id)}
+          className={`min-h-10 flex-1 rounded-lg px-3 py-2 text-sm ${view === id ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export default function AcademicDashboard({
+  followUp = false,
+  initialView,
+}: {
+  /** Suma la vista "Seguimiento": quiénes tienen notas bajas y quiénes bajaron de boletín. */
+  followUp?: boolean
+  initialView?: DashboardView
+} = {}) {
   const schoolYear = useOptionalAdminSchoolYear()
   const query = schoolYear?.schoolYearScopedQuery ?? ''
   const yearLoading = schoolYear?.loading ?? false
   const requestId = useRef(0)
-  const [view, setView] = useState<'summary' | 'performance' | 'management'>(
-    'summary',
+  const [view, setView] = useState<DashboardView>(
+    initialView === 'followup' && !followUp ? 'summary' : (initialView ?? 'summary'),
   )
   const [data, setData] = useState<Dashboard | null>(null)
   const [comparison, setComparison] = useState<ComparisonRow[]>([])
@@ -205,6 +252,16 @@ export default function AcademicDashboard() {
     return cancelPendingLoad
   }, [load, cancelPendingLoad])
 
+  // El seguimiento tiene su propio selector de boletín: no depende de que cargue el tablero.
+  if (view === 'followup') {
+    return (
+      <div className="space-y-6">
+        <ViewSwitcher view={view} onChange={setView} followUp={followUp} />
+        <GradeFollowUp />
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <p className="flex items-center gap-2 py-8 text-sm text-gray-500">
@@ -285,29 +342,7 @@ export default function AcademicDashboard() {
         </p>
       </div>
 
-      <div
-        role="group"
-        aria-label="Vistas de indicadores académicos"
-        className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1"
-      >
-        {(
-          [
-            ['summary', 'Resumen'],
-            ['performance', 'Rendimiento'],
-            ['management', 'Gestión'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            aria-pressed={view === id}
-            onClick={() => setView(id)}
-            className={`min-h-10 flex-1 rounded-lg px-3 py-2 text-sm ${view === id ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <ViewSwitcher view={view} onChange={setView} followUp={followUp} />
       {view === 'summary' && (
         <section>
           <h2 className="mb-2 text-sm font-semibold text-gray-900">

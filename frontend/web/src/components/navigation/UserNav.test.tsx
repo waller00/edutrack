@@ -296,3 +296,28 @@ it.each(['TEACHER', 'INSPECCION', 'COORDINADOR'])('muestra cursos por permiso de
   expect(screen.getByRole('link', { name: role === 'TEACHER' ? 'Mis Libretas' : 'Libretas' })).toHaveAttribute('href', '/libreta')
   expect(screen.queryByRole('link', { name: 'Configuración de libreta' })).not.toBeInTheDocument()
 })
+
+it('adscripción: las faltas en Asistencia de estudiantes, las notas en Inteligencia académica, sin "Reportes"', async () => {
+  mockUsePathname.mockReturnValue('/admin/student-attendance')
+  mockApiByUrl({
+    role: 'ADSCRIPTO',
+    isActive: true,
+    isApproved: true,
+    permissions: [
+      { id: 'student-attendance.justify', scope: 'all' },
+      { id: 'student-reports.read', scope: 'all' },
+      { id: 'gradebook.read', scope: 'all' },
+    ],
+  })
+  globalThis.localStorage.clear()
+  renderNav()
+
+  expect(await screen.findByRole('link', { name: 'Asistencia de estudiantes' })).toHaveAttribute(
+    'href',
+    '/admin/student-attendance',
+  )
+  fireEvent.click(screen.getByRole('button', { name: /Libreta @/ }))
+  expect(screen.getByRole('link', { name: 'Inteligencia académica' })).toHaveAttribute('href', '/libreta/indicadores')
+  expect(screen.queryByRole('link', { name: 'Reportes de estudiantes' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /^Reportes/ })).not.toBeInTheDocument()
+})

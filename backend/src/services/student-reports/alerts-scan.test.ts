@@ -92,7 +92,7 @@ describe('newAlerts / notificationsFor', () => {
   })
 
   it('una notificación por alerta, o un resumen si son muchas', () => {
-    expect(notificationsFor([candidate('18')])).toEqual([{ title: 't18', body: 'b', actionUrl: '/admin/reportes?tab=faltas' }])
+    expect(notificationsFor([candidate('18')])).toEqual([{ title: 't18', body: 'b', actionUrl: '/admin/student-attendance?tab=faltas' }])
     const many = Array.from({ length: MAX_INDIVIDUAL_NOTIFICATIONS + 1 }, (_, i) => candidate(String(i)))
     const [summary] = notificationsFor(many)
     expect(notificationsFor(many)).toHaveLength(1)
@@ -104,6 +104,14 @@ describe('newAlerts / notificationsFor', () => {
     const streak: AlertCandidate = { ...candidate('2026-10-05'), type: 'ABSENCE_STREAK', title: 'racha' }
     expect(notificationsFor([gradeDrop])).toEqual([])
     expect(notificationsFor([gradeDrop, streak, candidate('18')]).map((n) => n.title)).toEqual(['racha', 't18'])
+  })
+
+  it('cada aviso lleva a su pestaña de Asistencia de estudiantes', () => {
+    const streak: AlertCandidate = { ...candidate('2026-10-05'), type: 'ABSENCE_STREAK' }
+    expect(notificationsFor([streak])[0].actionUrl).toBe('/admin/student-attendance?tab=seguidas')
+    expect(notificationsFor([candidate('18')])[0].actionUrl).toBe('/admin/student-attendance?tab=faltas')
+    const many = Array.from({ length: MAX_INDIVIDUAL_NOTIFICATIONS + 1 }, (_, i) => candidate(String(i)))
+    expect(notificationsFor(many)[0].actionUrl).toBe('/admin/student-attendance?tab=faltas')
   })
 
   it('el resumen cuenta sólo las de faltas', () => {
@@ -141,7 +149,7 @@ describe('scanStudentAlerts', () => {
     expect(pushMock.mock.calls.map(([userId]) => userId)).toEqual(['adscripta', 'direccion'])
     expect(pushMock.mock.calls[0][1]).toMatchObject({
       title: 'Díaz, Ana llegó a 18 faltas',
-      url: '/admin/reportes?tab=faltas',
+      url: '/admin/student-attendance?tab=faltas',
     })
   })
 

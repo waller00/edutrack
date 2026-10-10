@@ -7,6 +7,7 @@ import { withSchoolYear } from '@/lib/admin/school-year-query'
 import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
+import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import {
   groupByLevel,
   lastClosedMeeting,
@@ -43,8 +44,8 @@ export function useReportCardPeriods() {
     api<{ data: ReportCardPeriod[] }>(withSchoolYear(REPORT_CARD_PERIODS_PATH, query))
       .then((res) => {
         setPeriods(res.data)
-        const today = new Date().toISOString().slice(0, 10)
-        setPeriodId((current) => current || lastClosedMeeting(res.data, today)?.id || '')
+        // Hoy en Uruguay: con `toISOString` después de las 21 h ya era mañana.
+        setPeriodId((current) => current || lastClosedMeeting(res.data, todayYmdUruguay())?.id || '')
       })
       .catch(() => setError('No se pudieron cargar las reuniones de boletín'))
   }, [query])

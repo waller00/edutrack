@@ -129,3 +129,41 @@ it('separa el resumen, el rendimiento y la gestión sin perder cifras', async ()
   expect(screen.getByText('Completas')).toBeVisible()
   expect(screen.getByText('No generan')).not.toBeVisible()
 })
+
+describe('vista Seguimiento', () => {
+  beforeEach(() => {
+    const dashboardApi = mockedApi.getMockImplementation()
+    mockedApi.mockImplementation((path: string) => {
+      const url = String(path)
+      if (url.includes('/admin/student-reports/low-grades')) {
+        return Promise.resolve({ period: { name: '1.ª Entrega' }, rows: [], courses: [] } as never)
+      }
+      if (url.includes('/admin/student-reports/grade-drops')) {
+        return Promise.resolve({ period: { name: '1.ª Entrega' }, previous: null, rows: [] } as never)
+      }
+      return dashboardApi!(path)
+    })
+  })
+
+  it('sólo aparece si quien mira ve los reportes de estudiantes', async () => {
+    render(<AcademicDashboard />)
+    await screen.findByRole('heading', { name: 'Estudiantes' })
+    expect(screen.queryByRole('button', { name: 'Seguimiento' })).not.toBeInTheDocument()
+  })
+
+  it('muestra quiénes tienen notas bajas y quiénes bajaron, con su propio boletín', async () => {
+    render(<AcademicDashboard followUp />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Seguimiento' }))
+
+    expect(screen.getByRole('button', { name: 'Seguimiento' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('heading', { name: 'Notas bajas por curso y materia' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Bajaron respecto del boletín anterior' })).toBeInTheDocument()
+    // El filtro de "Reunión" del tablero no aparece: el seguimiento tiene su selector de boletín.
+    expect(screen.queryByText('La última con notas')).not.toBeInTheDocument()
+  })
+
+  it('puede abrir directo en el seguimiento', async () => {
+    render(<AcademicDashboard followUp initialView="followup" />)
+    expect(await screen.findByRole('heading', { name: 'Notas bajas por curso y materia' })).toBeInTheDocument()
+  })
+})

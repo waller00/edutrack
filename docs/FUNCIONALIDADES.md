@@ -780,10 +780,25 @@ nivel, reunión y grupo.
 
 ## 14. Reportes y exportaciones
 
-### Reportes de estudiantes (`/admin/reportes`)
+### Reportes de estudiantes
 
 Permiso `student-reports.read` (administración, dirección y adscripción). Todo se deriva al leer
-(`services/student-reports/`); la pestaña vive en la URL (`?tab=`).
+(`services/student-reports/`). No tienen pantalla propia: cada reporte vive donde se trabaja su tema.
+
+- **Faltas** → **Asistencia de estudiantes** (`/admin/student-attendance`), en las pestañas "Faltas
+  seguidas" (`?tab=seguidas`) y "18 y 25 faltas" (`?tab=faltas`).
+  - Comparten pantalla con "Justificaciones" y "Listas sin pasar": quien ve que un alumno llegó a 18
+    lo justifica ahí mismo.
+  - Cada pestaña se muestra con su permiso.
+- **Notas** → **Inteligencia académica** (`/libreta/indicadores`), en la vista "Seguimiento"
+  (`?view=seguimiento`): un solo boletín para las dos listas.
+  - El tablero dice cuántos están "en alerta" o "en descenso"; el seguimiento, quiénes.
+  - Adscripción, que no tiene `academic-analytics.read`, entra con `student-reports.read` y ve sólo
+    esa vista.
+- `/admin/reportes` queda como redirección para los avisos guardados y los enlaces viejos:
+  - `faltas` → 18 y 25;
+  - `notas` y `bajas` → Seguimiento;
+  - el resto → Faltas seguidas.
 
 - **Notas bajas:** % de alumnos con nota baja por materia y curso en una reunión de boletín, más el
   total por curso con alumnos distintos. Nota baja = banda de alerta (`isAlert`) de la escala del
@@ -793,9 +808,11 @@ Permiso `student-reports.read` (administración, dirección y adscripción). Tod
   (EBI: alguna ausencia sin justificar ese día; EMS: la consolidación diaria da falta). Fines de
   semana y feriados no son días de clase, así que no cortan la racha.
 - **18 / 25 faltas:** con el mismo conteo que la libreta (por día en ciclo básico).
-- **Alertas:** cada una se guarda en `StudentAlert` (unique tipo + alumno + clave) y se avisa **una
-  sola vez** por notificación `STUDENT_ALERT` a DIRECCION y ADSCRIPTO; con más de 5 nuevas, un
-  resumen. El escaneo corre cada hora y, además, unos minutos después de guardar una lista.
+- **Alertas:** cada una se guarda en `StudentAlert` (unique tipo + alumno + clave). Las de faltas
+  (seguidas y 18/25) se avisan **una sola vez** por notificación `STUDENT_ALERT` y push a DIRECCION y
+  ADSCRIPTO, con enlace a su pestaña de Asistencia de estudiantes; con más de 5 nuevas, un resumen.
+  Las bajas de nota se registran pero no avisan. El escaneo corre cada hora y, además, unos minutos
+  después de guardar una lista.
 
 ### Asistencia del personal
 

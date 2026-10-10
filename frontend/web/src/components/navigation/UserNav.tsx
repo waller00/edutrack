@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import {
   BarChart3,
-  BellRing,
   BookMarked,
   BookOpen,
   CalendarDays,
@@ -80,8 +79,13 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Cursos', href: '/admin/courses', permission: ['courses.read', 'courses.manage'] },
       { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage', permissionScope: 'all' },
       { label: 'Mensualidades', href: '/admin/tuition', permission: 'students.manage', permissionScope: 'all' },
-      // Lo ven adscripción y dirección para justificar; administración también tiene `justify`.
-      { label: 'Pase de lista y justificaciones', href: '/admin/student-attendance', permission: 'student-attendance.justify', permissionScope: 'all' },
+      // Justificaciones, faltas seguidas, 18/25 faltas y listas sin pasar: adscripción, dirección y administración.
+      {
+        label: 'Asistencia de estudiantes',
+        href: '/admin/student-attendance',
+        permission: ['student-attendance.justify', 'student-attendance.manage', 'student-reports.read'],
+        permissionScope: 'all',
+      },
     ],
   },
   {
@@ -98,18 +102,13 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Control de libretas', href: '/libreta/control', permission: 'gradebook.review', permissionScope: 'all' },
       { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
       { label: 'Reunión de profesores', href: '/libreta/reunion', permission: 'gradebook.read', permissionScope: 'all' },
-      { label: 'Inteligencia académica', href: '/libreta/indicadores', permission: 'academic-analytics.read', permissionScope: 'all' },
+      // Con sólo los reportes de estudiantes (adscripción) se ve el seguimiento de notas.
+      { label: 'Inteligencia académica', href: '/libreta/indicadores', permission: ['academic-analytics.read', 'student-reports.read'], permissionScope: 'all' },
       { label: 'Configuración de libreta', href: '/libreta/configuracion', permission: 'academic-config.manage', permissionScope: 'all' },
     ],
   },
-  {
-    title: 'Reportes',
-    icon: BellRing,
-    items: [
-      // Notas bajas, bajas de boletín, faltas seguidas y 18/25 faltas, con sus alertas.
-      { label: 'Reportes de estudiantes', href: '/admin/reportes', permission: 'student-reports.read', permissionScope: 'all' },
-    ],
-  },
+  // Los reportes de estudiantes se repartieron: las faltas en "Asistencia de estudiantes" y las notas
+  // en el seguimiento de "Inteligencia académica".
   {
     title: 'Análisis',
     icon: BarChart3,
@@ -141,7 +140,6 @@ function isPublicPath(pathname: string) {
 
 function itemIcon(label: string) {
   if (/pase de lista/i.test(label)) return ClipboardList
-  if (/reportes/i.test(label)) return BellRing
   if (/libreta|evaluacion|cierre de per|visado|reunión|reunion/i.test(label)) return BookOpen
   if (/curso/i.test(label)) return BookOpen
   if (/estudiante/i.test(label)) return GraduationCap
