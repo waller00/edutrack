@@ -90,19 +90,25 @@ describe('AdminProfilesPanel', () => {
   it('carga roles y permisos por módulo', async () => {
     render(<AdminProfilesPanel />)
 
-    expect(await screen.findByText('Gestión de perfiles')).toBeInTheDocument()
+    expect(await screen.findByText('Roles / Perfiles')).toBeInTheDocument()
     expect(screen.getAllByText('Docente').length).toBeGreaterThan(0)
     expect(screen.getByText('Asistencias')).toBeInTheDocument()
-    // El label de permiso ahora es un input editable.
-    expect(screen.getByDisplayValue('Ver mis asistencias')).toBeInTheDocument()
-    expect(screen.getAllByText('2 permisos activos').length).toBeGreaterThan(0)
+    expect(screen.getByText('Ver mis asistencias')).not.toBeVisible()
+    fireEvent.click(screen.getByText('Asistencias'))
+    expect(screen.getByText('Ver mis asistencias')).toBeVisible()
+    expect(
+      screen.getAllByText(/2 permisos habilitados/).length,
+    ).toBeGreaterThan(0)
   })
 
   it('marca un permiso y guarda el perfil', async () => {
     render(<AdminProfilesPanel />)
-    const checkbox = await screen.findByRole('checkbox', { name: 'Activar reportes.read' })
+    fireEvent.click(await screen.findByText('Reportes'))
+    const checkbox = screen.getByRole('checkbox', {
+      name: 'Activar reportes.read',
+    })
     fireEvent.click(checkbox)
-    fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Guardar cambios$/ }))
 
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(
@@ -115,17 +121,30 @@ describe('AdminProfilesPanel', () => {
 
   it('el botón Guardar está deshabilitado sin cambios', async () => {
     render(<AdminProfilesPanel />)
-    await screen.findByText('Gestión de perfiles')
-    expect(screen.getByRole('button', { name: /^Guardar$/ })).toBeDisabled()
+    await screen.findByText('Roles / Perfiles')
+    expect(
+      screen.getByRole('button', { name: /^Guardar cambios$/ }),
+    ).toBeDisabled()
   })
 
   it('activa todo un módulo con el toggle del encabezado', async () => {
     render(<AdminProfilesPanel />)
     // STAFF arranca sin permisos: activar el módulo Asistencias marca su permiso.
-    fireEvent.change(await screen.findByLabelText('Perfil a configurar'), { target: { value: 'STAFF' } })
-    const moduleToggle = await screen.findByRole('checkbox', { name: 'Activar todo el módulo Asistencias' })
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Configurar Staff' }),
+    )
+    fireEvent.click(screen.getByText('Asistencias'))
+    const moduleToggle = await screen.findByRole('checkbox', {
+      name: 'Activar todo el módulo Asistencias',
+    })
     fireEvent.click(moduleToggle)
-    expect((screen.getByRole('checkbox', { name: 'Activar attendance.read' }) as HTMLInputElement).checked).toBe(true)
+    expect(
+      (
+        screen.getByRole('checkbox', {
+          name: 'Activar attendance.read',
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(true)
   })
 
   it('crea un perfil nuevo', async () => {
@@ -133,13 +152,18 @@ describe('AdminProfilesPanel', () => {
     await screen.findAllByText('Docente')
 
     fireEvent.click(screen.getByRole('button', { name: /Nuevo perfil/ }))
-    fireEvent.change(screen.getByPlaceholderText('Ej: Coordinador'), { target: { value: 'Coordinador' } })
-    fireEvent.click(screen.getAllByRole('button', { name: /^Guardar$/ })[0])
+    fireEvent.change(screen.getByPlaceholderText('Ej: Coordinador'), {
+      target: { value: 'Coordinador' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Crear perfil$/ }))
 
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith('/admin/profiles', expect.objectContaining({ method: 'POST' })),
+      expect(mockedApi).toHaveBeenCalledWith(
+        '/admin/profiles',
+        expect.objectContaining({ method: 'POST' }),
+      ),
     )
-    expect(await screen.findByText('Perfil creado.')).toBeInTheDocument()
+    expect(await screen.findByText(/Perfil creado\./)).toBeInTheDocument()
   })
 
   it('renombra un perfil personalizado', async () => {
@@ -147,19 +171,36 @@ describe('AdminProfilesPanel', () => {
     mockedApi.mockReset()
     const withCustom = {
       ...response,
-      roles: [...response.roles, { role: 'COORDINADOR', label: 'Coordinador', permissions: [] }],
+      roles: [
+        ...response.roles,
+        { role: 'COORDINADOR', label: 'Coordinador', permissions: [] },
+      ],
     }
     mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
       const u = String(url)
       const method = init?.method ?? 'GET'
-      if (u === '/admin/org-roles') return [...orgRoles, { code: 'COORDINADOR', label: 'Coordinador', builtIn: false, active: true }] as never
-      if (u === '/admin/profiles' && method === 'GET') return withCustom as never
-      if (u === '/admin/org-roles/COORDINADOR' && method === 'PATCH') return {} as never
+      if (u === '/admin/org-roles')
+        return [
+          ...orgRoles,
+          {
+            code: 'COORDINADOR',
+            label: 'Coordinador',
+            builtIn: false,
+            active: true,
+          },
+        ] as never
+      if (u === '/admin/profiles' && method === 'GET')
+        return withCustom as never
+      if (u === '/admin/org-roles/COORDINADOR' && method === 'PATCH')
+        return {} as never
       return {} as never
     })
 
     render(<AdminProfilesPanel />)
-    fireEvent.change(await screen.findByLabelText('Perfil a configurar'), { target: { value: 'COORDINADOR' } })
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Configurar Coordinador' }),
+    )
+    fireEvent.click(screen.getByText('Opciones del perfil'))
     const renameInput = await screen.findByLabelText('Nuevo nombre del perfil')
     fireEvent.change(renameInput, { target: { value: 'Coordinación' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar nombre' }))
@@ -167,15 +208,284 @@ describe('AdminProfilesPanel', () => {
     await waitFor(() =>
       expect(mockedApi).toHaveBeenCalledWith(
         '/admin/org-roles/COORDINADOR',
-        expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('Coordinación') }),
+        expect.objectContaining({
+          method: 'PATCH',
+          body: expect.stringContaining('Coordinación'),
+        }),
       ),
     )
   })
 
   it('no permite eliminar perfiles del sistema', async () => {
     render(<AdminProfilesPanel />)
-    await screen.findByText('Gestión de perfiles')
-    // TEACHER es builtIn → el botón Eliminar está deshabilitado.
-    expect(screen.getByRole('button', { name: /Eliminar perfil/ })).toBeDisabled()
+    await screen.findByText('Roles / Perfiles')
+    fireEvent.click(screen.getByText('Opciones del perfil'))
+    expect(
+      screen.queryByRole('button', { name: /Eliminar perfil/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Desactivar perfil/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('busca perfiles y permite limpiar una búsqueda sin resultados', async () => {
+    render(<AdminProfilesPanel />)
+    await screen.findByRole('button', { name: 'Configurar Docente' })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar perfil' }), {
+      target: { value: 'teacher' },
+    })
+    expect(
+      screen.getByRole('button', { name: 'Configurar Docente' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Configurar Staff' }),
+    ).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar perfil' }), {
+      target: { value: 'inexistente' },
+    })
+    expect(
+      screen.getByText('No hay perfiles que coincidan con los filtros.'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar filtros' }))
+    expect(
+      screen.getByRole('button', { name: 'Configurar Staff' }),
+    ).toBeInTheDocument()
+  })
+
+  it('encuentra permisos por nombre o código sin cambiar permisos ocultos', async () => {
+    render(<AdminProfilesPanel />)
+    await screen.findByText('Asistencias')
+    fireEvent.change(
+      screen.getByRole('searchbox', { name: 'Buscar permiso' }),
+      { target: { value: 'REPORTES.READ' } },
+    )
+    expect(screen.queryByText('Asistencias')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: 'Activar reportes.read' }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('checkbox', { name: /Activar todo el módulo/ }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Activar reportes.read' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        '/admin/profiles/TEACHER/permissions',
+        expect.objectContaining({
+          body: JSON.stringify({
+            permissions: [
+              {
+                id: 'attendance.read',
+                enabled: true,
+                scope: 'own',
+                label: 'Ver mis asistencias',
+              },
+              {
+                id: 'reportes.read',
+                enabled: false,
+                scope: 'own',
+                label: 'Ver reportes internos',
+              },
+            ],
+          }),
+        }),
+      ),
+    )
+  })
+
+  it('muestra un resumen de accesos y conserva el alcance al guardar', async () => {
+    render(<AdminProfilesPanel />)
+    fireEvent.click(await screen.findByText('Asistencias'))
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'Alcance de attendance.read' }),
+      { target: { value: 'all' } },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Resumen de accesos' }))
+    expect(
+      screen.getByText(
+        'Este resumen incluye cambios que todavía no se guardaron.',
+        { exact: false },
+      ),
+    ).toBeVisible()
+    expect(screen.getByText('Todos los registros')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        '/admin/profiles/TEACHER/permissions',
+        expect.objectContaining({
+          body: expect.stringContaining('"scope":"all"'),
+        }),
+      ),
+    )
+  })
+
+  it('conserva el borrador de otro perfil después de guardar', async () => {
+    render(<AdminProfilesPanel />)
+    fireEvent.click(await screen.findByText('Reportes'))
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Activar reportes.read' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Configurar Staff' }))
+    fireEvent.click(screen.getByText('Asistencias'))
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Activar todo el módulo Asistencias',
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await screen.findByText('Perfil guardado.')
+    fireEvent.click(screen.getByRole('button', { name: 'Configurar Docente' }))
+    fireEvent.click(screen.getByText('Reportes'))
+    expect(
+      screen.getByRole('checkbox', { name: 'Activar reportes.read' }),
+    ).not.toBeChecked()
+    expect(
+      screen.getByRole('button', { name: 'Guardar cambios' }),
+    ).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Deshacer cambios' }))
+    expect(
+      screen.getByRole('checkbox', { name: 'Activar reportes.read' }),
+    ).toBeChecked()
+  })
+
+  it('personaliza los nombres desde opciones sin perder el resto de permisos', async () => {
+    render(<AdminProfilesPanel />)
+    fireEvent.click(await screen.findByText('Personalizar nombres de permisos'))
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Editar nombres visibles' }),
+    )
+    fireEvent.click(screen.getByText('Asistencias'))
+    fireEvent.change(
+      screen.getByLabelText('Nombre visible de attendance.read'),
+      { target: { value: 'Consultar asistencia' } },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        '/admin/profiles/TEACHER/permissions',
+        expect.objectContaining({
+          body: expect.stringContaining('Consultar asistencia'),
+        }),
+      ),
+    )
+  })
+
+  it('genera el código a partir del nombre completo al crear un perfil', async () => {
+    render(<AdminProfilesPanel />)
+    await screen.findByText('Asistencias')
+    fireEvent.click(screen.getByRole('button', { name: 'Nuevo perfil' }))
+    fireEvent.change(screen.getByPlaceholderText('Ej: Coordinador'), {
+      target: { value: 'C' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Ej: Coordinador'), {
+      target: { value: 'Coordinación académica' },
+    })
+    expect(screen.getByPlaceholderText('COORDINADOR')).toHaveValue(
+      'COORDINACION_ACADEMICA',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Crear perfil' }))
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        '/admin/profiles',
+        expect.objectContaining({
+          body: expect.stringContaining('"code":"COORDINACION_ACADEMICA"'),
+        }),
+      ),
+    )
+  })
+
+  it('lista y reactiva un perfil inactivo que no aparece en la matriz de permisos', async () => {
+    let active = false
+    mockedApi.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/admin/org-roles')
+        return [
+          ...orgRoles,
+          { code: 'COORDINADOR', label: 'Coordinador', builtIn: false, active },
+        ] as never
+      if (url === '/admin/profiles')
+        return {
+          ...response,
+          roles: active
+            ? [
+                ...response.roles,
+                {
+                  ...response.roles[0],
+                  role: 'COORDINADOR',
+                  label: 'Coordinador',
+                },
+              ]
+            : response.roles,
+        } as never
+      if (url === '/admin/org-roles/COORDINADOR' && init?.method === 'PATCH') {
+        active = true
+        return {} as never
+      }
+      return {} as never
+    })
+    render(<AdminProfilesPanel />)
+    await screen.findByRole('button', { name: 'Configurar Coordinador' })
+    fireEvent.click(screen.getByRole('button', { name: 'Inactivos' }))
+    expect(
+      screen.queryByRole('button', { name: 'Configurar Docente' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Configurar Coordinador' }),
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Guardar cambios' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Opciones del perfil'))
+    fireEvent.click(screen.getByRole('button', { name: 'Activar perfil' }))
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith('/admin/org-roles/COORDINADOR', {
+        method: 'PATCH',
+        body: '{"active":true}',
+      }),
+    )
+    await screen.findByText('Perfil activado.')
+    fireEvent.click(screen.getByText('Asistencias'))
+    expect(
+      screen.getByRole('checkbox', { name: 'Activar attendance.read' }),
+    ).toBeChecked()
+  })
+
+  it('muestra errores de guardado y conserva los cambios para reintentar', async () => {
+    mockApiByUrl()
+    const base = mockedApi.getMockImplementation()!
+    mockedApi.mockImplementation(async (url, init) => {
+      if (init?.method === 'PUT') throw new Error('No se pudo guardar')
+      return base(url, init)
+    })
+    render(<AdminProfilesPanel />)
+    fireEvent.click(await screen.findByText('Reportes'))
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Activar reportes.read' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No se pudo guardar',
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'Activar reportes.read' }),
+    ).not.toBeChecked()
+    expect(
+      screen.getByRole('button', { name: 'Guardar cambios' }),
+    ).toBeEnabled()
+  })
+
+  it('permite reintentar la carga sin presentar un estado vacío como éxito', async () => {
+    mockedApi.mockRejectedValue(new Error('Sin conexión'))
+    render(<AdminProfilesPanel />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sin conexión')
+    expect(
+      screen.queryByText('Todavía no hay perfiles.'),
+    ).not.toBeInTheDocument()
+    mockApiByUrl()
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+    expect(
+      await screen.findByRole('button', { name: 'Configurar Docente' }),
+    ).toBeInTheDocument()
   })
 })

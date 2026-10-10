@@ -3,7 +3,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 
 export default function AdminProfilesPage() {
   return (
-    <RoleGuard permission="profiles.manage">
+    <RoleGuard permission="profiles.manage" permissionScope="all">
       <AdminProfilesPanel />
     </RoleGuard>
   )

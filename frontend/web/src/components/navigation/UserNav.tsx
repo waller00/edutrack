@@ -122,8 +122,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Mi perfil', href: '/profile' },
       { label: 'Configuración del sistema', href: '/admin/settings', permission: 'settings.manage', permissionScope: 'all' },
-      { label: 'Roles / Perfiles', href: '/admin/profiles', permission: 'profiles.manage' },
-      { label: 'Auditoría', href: '/admin/audit', permission: 'audit.read' },
+      { label: 'Roles / Perfiles', href: '/admin/profiles', permission: 'profiles.manage', permissionScope: 'all' },
+      { label: 'Auditoría', href: '/admin/audit', permission: 'audit.read', permissionScope: 'all' },
     ],
   },
 ]

@@ -3,7 +3,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 
 export default function AdminAuditPage() {
   return (
-    <RoleGuard permission="audit.read">
+    <RoleGuard permission="audit.read" permissionScope="all">
       <AdminAuditPanel />
     </RoleGuard>
   )

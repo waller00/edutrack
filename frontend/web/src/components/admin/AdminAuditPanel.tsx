@@ -2,11 +2,25 @@
 
 import { api } from '@/lib/api/client'
 import { auditMetadataDisplay } from '@/lib/admin/audit-detail-es'
-import { countActiveAuditFilters, getAuditActionBadgeClass } from '@/lib/admin/audit-display'
+import {
+  countActiveAuditFilters,
+  getAuditActionBadgeClass,
+  type AuditFilters,
+} from '@/lib/admin/audit-display'
 import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
-import DateField from '@/components/forms/DateField'
-import { ClipboardList, Filter, Loader2, RefreshCw, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import DateRangePicker from '@/components/forms/DateRangePicker'
+import SettingsDetails from './settings/SettingsDetails'
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Loader2,
+  RefreshCw,
+  UserRound,
+  X,
+} from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 type AuditRow = {
   id: string
@@ -23,15 +37,37 @@ type AuditRow = {
   entityId: string | null
   metadata: unknown
 }
-
 type ActionCat = { code: string; label: string }
-
 type ListResponse = {
   total: number
   page: number
   pageSize: number
   actionCatalog: ActionCat[]
   data: AuditRow[]
+}
+
+const EMPTY_FILTERS: AuditFilters = {
+  action: '',
+  actorUserId: '',
+  from: '',
+  to: '',
+}
+const PAGE_SIZE = 25
+const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
+const ENTITY_LABELS: Record<string, string> = {
+  User: 'Usuario',
+  Event: 'Agenda / clase',
+  MedicalLeave: 'Licencia',
+  SystemSettings: 'Configuración del sistema',
+  OrgRole: 'Perfil',
+  GradeBook: 'Libreta',
+  GradingScale: 'Escala de calificación',
+  AcademicPeriod: 'Período académico',
+  ActivityType: 'Tipo de actividad',
+  AcademicAlertRule: 'Regla de alerta',
+  Attendance: 'Asistencia',
+  Student: 'Estudiante',
+  Substitution: 'Suplencia',
 }
 
 function formatWhen(iso: string) {
@@ -42,448 +78,529 @@ function formatWhen(iso: string) {
   }
 }
 
-function shortId(id: string | null | undefined): string {
-  if (!id) return ''
-  const t = id.trim()
-  if (t.length <= 16) return t
-  return `${t.slice(0, 8)}…${t.slice(-4)}`
+function actorLabel(row: AuditRow) {
+  return row.actorName || row.actorEmail || 'Usuario no identificado'
 }
 
-const shellCard =
-  'rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm'
-
-function AuditDetailBlock({ detail }: { detail: ReturnType<typeof auditMetadataDisplay> }) {
-  if (detail.lines.length === 0 && !detail.technicalJson) {
-    return <span className="text-gray-400">-</span>
-  }
-
+function AuditActivity({
+  row,
+  onFilterPerson,
+}: {
+  row: AuditRow
+  onFilterPerson: (row: AuditRow) => void
+}) {
+  const detail = auditMetadataDisplay(row.action, row.metadata)
+  const when = formatWhen(row.occurredAt)
+  const who = actorLabel(row)
+  const technicalFields = [
+    ['Código de acción', row.action],
+    ['ID del registro', row.id],
+    ['Origen', row.source],
+    ['Dirección IP', row.actorIp],
+    ['ID de usuario', row.actorUserId],
+    ['ID del elemento', row.entityId],
+    ['Navegador / dispositivo', row.userAgent],
+  ]
   return (
-    <div className="max-w-xl space-y-2">
-      {detail.lines.length > 0 ? (
-        <ul className="list-disc space-y-1.5 pl-4 text-sm leading-relaxed text-gray-800 marker:text-emerald-600">
-          {detail.lines.map((line, idx) => (
-            <li key={idx} className="break-words">
-              {line}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {detail.technicalJson ? (
-        <details className="group text-xs">
-          <summary className="cursor-pointer list-none text-emerald-700 hover:text-emerald-800 [&::-webkit-details-marker]:hidden">
-            <span className="border-b border-dotted border-emerald-300 group-open:border-transparent">
-              Datos técnicos (JSON)
+    <details className="group/audit bg-white open:bg-slate-50/40">
+      <summary
+        aria-label={`Ver detalle de ${row.actionLabel}, ${who}, ${when}`}
+        className="flex cursor-pointer list-none items-start gap-3 p-4 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-emerald-600 [&::-webkit-details-marker]:hidden"
+      >
+        <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_180px] md:items-center md:gap-4">
+          <div className="min-w-0">
+            <span
+              className={`inline-flex max-w-full rounded-lg px-2.5 py-1 text-sm font-medium ${getAuditActionBadgeClass(row.action)}`}
+            >
+              {row.actionLabel || row.action}
             </span>
-          </summary>
-          <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-gray-100 bg-slate-50 px-3 py-2 font-mono text-[11px] leading-relaxed text-gray-600 whitespace-pre-wrap break-words">
-            {detail.technicalJson}
-          </pre>
-        </details>
-      ) : null}
-    </div>
+          </div>
+          <span className="min-w-0 break-words text-sm text-slate-700">
+            {(row.actorName || row.actorEmail) && (
+              <span className="text-xs text-slate-500 md:sr-only">
+                Usuario:{' '}
+              </span>
+            )}
+            {who}
+          </span>
+          <time
+            dateTime={row.occurredAt}
+            className="text-xs tabular-nums text-slate-500"
+          >
+            {when}
+          </time>
+        </div>
+        <ChevronDown
+          className="mt-1 h-4 w-4 shrink-0 text-slate-400 transition group-open/audit:rotate-180"
+          aria-hidden
+        />
+      </summary>
+      <div className="space-y-4 border-t border-slate-100 p-4 sm:p-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-slate-900">
+              Detalle de la actividad
+            </h3>
+            {detail.lines.length ? (
+              <ul className="list-disc space-y-1.5 pl-4 text-sm text-slate-700 marker:text-emerald-600">
+                {detail.lines.map((line, index) => (
+                  <li key={index} className="break-words">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-500">
+                Sin información adicional.
+              </p>
+            )}
+            {row.entityType && (
+              <p className="mt-3 text-xs text-slate-500">
+                Elemento: {ENTITY_LABELS[row.entityType] || row.entityType}
+              </p>
+            )}
+          </div>
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-slate-900">
+              Persona que realizó la acción
+            </h3>
+            <p className="break-words text-sm text-slate-700">{who}</p>
+            {row.actorName && row.actorEmail && (
+              <p className="mt-1 break-all text-xs text-slate-500">
+                {row.actorEmail}
+              </p>
+            )}
+            {row.actorUserId && (
+              <button
+                type="button"
+                onClick={() => onFilterPerson(row)}
+                className="mt-2 inline-flex min-h-10 items-center gap-2 text-sm font-medium text-emerald-700 hover:underline"
+              >
+                <UserRound className="h-4 w-4 shrink-0" aria-hidden />
+                Ver actividad de esta persona
+              </button>
+            )}
+          </div>
+        </div>
+        <SettingsDetails
+          title="Datos técnicos"
+          description="Identificadores, conexión y datos originales del registro."
+        >
+          <dl className="grid gap-3 sm:grid-cols-2">
+            {technicalFields
+              .filter(([, value]) => value)
+              .map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="text-xs font-medium text-slate-500">
+                    {label}
+                  </dt>
+                  <dd className="mt-1 break-all font-mono text-xs text-slate-700">
+                    {value}
+                  </dd>
+                </div>
+              ))}
+          </dl>
+          {detail.technicalJson && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-slate-500">
+                Datos originales (JSON)
+              </p>
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-600">
+                {detail.technicalJson}
+              </pre>
+            </div>
+          )}
+        </SettingsDetails>
+      </div>
+    </details>
   )
 }
 
-export default function AdminAuditPanel({ compact = false }: { compact?: boolean } = {}) {
+export default function AdminAuditPanel({
+  compact = false,
+}: { compact?: boolean } = {}) {
   const [rows, setRows] = useState<AuditRow[]>([])
   const [catalog, setCatalog] = useState<ActionCat[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [pageSize] = useState(25)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [action, setAction] = useState('')
-  const [actorUserId, setActorUserId] = useState('')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const q = new URLSearchParams()
-      q.set('page', String(page))
-      q.set('pageSize', String(pageSize))
-      if (action) q.set('action', action)
-      if (actorUserId.trim()) q.set('actorUserId', actorUserId.trim())
-      if (from) q.set('from', new Date(`${from}T00:00:00.000Z`).toISOString())
-      if (to) q.set('to', new Date(`${to}T23:59:59.999Z`).toISOString())
-      const r = await api<ListResponse>(`/admin/audit-logs?${q.toString()}`)
-      setRows(r.data)
-      setCatalog(r.actionCatalog)
-      setTotal(r.total)
-    } catch {
-      setError('No se pudo cargar el registro de auditoría.')
-      setRows([])
-    } finally {
-      setLoading(false)
-    }
-  }, [page, pageSize, action, actorUserId, from, to])
+  const [filters, setFilters] = useState<AuditFilters>(EMPTY_FILTERS)
+  const [actorDraft, setActorDraft] = useState('')
+  const [actorName, setActorName] = useState('')
+  const [actorError, setActorError] = useState('')
+  const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    async function load() {
+      try {
+        const q = new URLSearchParams({
+          page: String(page),
+          pageSize: String(PAGE_SIZE),
+        })
+        if (filters.action) q.set('action', filters.action)
+        if (filters.actorUserId) q.set('actorUserId', filters.actorUserId)
+        // El día civil de Uruguay empieza a las 03:00 UTC y termina al día siguiente.
+        if (filters.from)
+          q.set(
+            'from',
+            new Date(`${filters.from}T00:00:00.000-03:00`).toISOString(),
+          )
+        if (filters.to)
+          q.set(
+            'to',
+            new Date(`${filters.to}T23:59:59.999-03:00`).toISOString(),
+          )
+        const data = await api<ListResponse>(`/admin/audit-logs?${q}`)
+        if (cancelled) return
+        const lastPage = Math.max(1, Math.ceil(data.total / PAGE_SIZE))
+        if (page > lastPage) {
+          setPage(lastPage)
+          return
+        }
+        setRows(data.data)
+        setCatalog(data.actionCatalog)
+        setTotal(data.total)
+      } catch (err) {
+        if (cancelled) return
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'No se pudo cargar el registro de auditoría.',
+        )
+        setRows([])
+        setTotal(0)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
     void load()
-  }, [load])
+    return () => {
+      cancelled = true
+    }
+  }, [page, filters, refresh])
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const activeFilterCount = countActiveAuditFilters({ action, actorUserId, from, to })
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const activeFilterCount = countActiveAuditFilters(filters)
+  const personFilterLabel =
+    actorName ||
+    rows.find((row) => row.actorUserId === filters.actorUserId)?.actorName ||
+    'Usuario específico'
+
+  function updateFilters(patch: Partial<AuditFilters>) {
+    setPage(1)
+    setFilters((current) => ({ ...current, ...patch }))
+  }
+
+  function clearPersonFilter() {
+    setActorDraft('')
+    setActorName('')
+    setActorError('')
+    updateFilters({ actorUserId: '' })
+  }
 
   function clearFilters() {
     setPage(1)
-    setAction('')
-    setActorUserId('')
-    setFrom('')
-    setTo('')
+    setFilters(EMPTY_FILTERS)
+    setActorDraft('')
+    setActorName('')
+    setActorError('')
   }
 
-  const containerClass = compact ? 'space-y-5' : 'responsive-page max-w-7xl space-y-6'
+  function applyPersonFilter() {
+    const value = actorDraft.trim()
+    if (value && !UUID.test(value)) {
+      setActorError('Ingresá un ID de usuario válido.')
+      return
+    }
+    setActorError('')
+    setActorName('')
+    updateFilters({ actorUserId: value })
+  }
 
-  const labelCls = 'block text-xs font-medium uppercase tracking-wide text-gray-500'
+  function filterPerson(row: AuditRow) {
+    if (!row.actorUserId) return
+    setActorDraft(row.actorUserId)
+    setActorName(actorLabel(row))
+    setActorError('')
+    updateFilters({ actorUserId: row.actorUserId })
+  }
 
   return (
-    <div className={containerClass}>
-      <section
-        className={
-          compact
-            ? 'rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/40 p-4 shadow-sm sm:p-5'
-            : 'rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/30 p-4 shadow-sm sm:p-6'
-        }
-      >
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
-          <span
-            className={`inline-flex shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-emerald-100 ${
-              compact ? 'h-11 w-11' : 'h-14 w-14'
-            }`}
-          >
-            <ClipboardList
-              className={compact ? 'h-5 w-5 text-emerald-700' : 'h-7 w-7 text-emerald-700'}
-              aria-hidden
-            />
+    <main
+      className={compact ? 'space-y-4' : 'responsive-page max-w-7xl space-y-4'}
+    >
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
+            <ClipboardList className="h-6 w-6" aria-hidden />
           </span>
-          <div className="min-w-0 flex-1">
+          <div>
             {compact ? (
-              <h2 className="text-lg font-semibold tracking-tight text-gray-900">Auditoría de actividades</h2>
+              <h2 className="text-lg font-semibold text-slate-950">
+                Auditoría de actividades
+              </h2>
             ) : (
-              <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Auditoría de actividades</h1>
+              <h1 className="text-2xl font-bold text-slate-950">
+                Auditoría de actividades
+              </h1>
             )}
-            <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-gray-600">
-              Registro de solo lectura de acciones relevantes: autenticación, cambios administrativos, licencias y
-              parámetros del sistema.
+            <p className="mt-1 text-sm text-slate-600">
+              Consultá qué pasó, quién realizó la acción y cuándo.
             </p>
           </div>
         </div>
-      </section>
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => setRefresh((current) => current + 1)}
+          className="btn-secondary gap-2 text-sm disabled:opacity-50"
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <RefreshCw className="h-4 w-4" aria-hidden />
+          )}
+          {loading ? 'Actualizando…' : 'Actualizar'}
+        </button>
+      </header>
 
-      <section className={`${shellCard} space-y-5`}>
-        <div className="flex flex-col gap-4 border-b border-gray-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-              <Filter className="h-4 w-4" aria-hidden />
-            </span>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">
-                Filtros
-                {activeFilterCount > 0 ? (
-                  <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-700">
-                    {activeFilterCount}
-                  </span>
-                ) : null}
-              </h3>
-              <p className="text-xs text-gray-500">Acotá por tipo de acción, actor o rango de fechas.</p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {activeFilterCount > 0 ? (
-              <button
-                type="button"
-                className="btn-secondary inline-flex items-center justify-center gap-1.5 text-sm"
-                onClick={clearFilters}
-                disabled={loading}
-              >
-                <Trash2 className="h-4 w-4" aria-hidden />
-                Limpiar
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="btn-secondary inline-flex items-center justify-center gap-2 text-sm disabled:opacity-50"
-              onClick={() => void load()}
-              disabled={loading}
+      <section
+        aria-label="Filtros de auditoría"
+        className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+      >
+        <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(260px,1fr)_auto]">
+          <div>
+            <label
+              htmlFor="audit-action"
+              className="mb-1 block text-sm font-medium text-slate-700"
             >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}
-              {loading ? 'Actualizando…' : 'Aplicar y recargar'}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <label className="block space-y-2">
-            <span className={labelCls}>Tipo de acción</span>
+              Tipo de acción
+            </label>
             <select
-              className="input-modern w-full text-sm"
-              value={action}
-              onChange={(e) => {
-                setPage(1)
-                setAction(e.target.value)
-              }}
+              id="audit-action"
+              className="select-field min-h-11 bg-white text-sm"
+              value={filters.action}
+              onChange={(event) =>
+                updateFilters({ action: event.target.value })
+              }
             >
-              <option value="">Todas</option>
-              {catalog.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.label}
+              <option value="">Todas las acciones</option>
+              {catalog.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.label}
                 </option>
               ))}
             </select>
-          </label>
-          <label className="block space-y-2">
-            <span className={labelCls}>UUID del actor</span>
-            <input
-              className="input-modern w-full font-mono text-xs"
-              placeholder="Opcional"
-              value={actorUserId}
-              onChange={(e) => {
-                setPage(1)
-                setActorUserId(e.target.value)
-              }}
-            />
-          </label>
-          <label className="block space-y-2">
-            <span className={labelCls}>Desde</span>
-            <DateField
-              className="input-modern w-full text-sm"
-              value={from}
-              onChange={(v) => {
-                setPage(1)
-                setFrom(v)
-              }}
-            />
-            <span className="text-[11px] text-gray-400">Fecha local, inicio del día</span>
-          </label>
-          <label className="block space-y-2">
-            <span className={labelCls}>Hasta</span>
-            <DateField
-              className="input-modern w-full text-sm"
-              value={to}
-              onChange={(v) => {
-                setPage(1)
-                setTo(v)
-              }}
-            />
-            <span className="text-[11px] text-gray-400">Fecha local, fin del día</span>
-          </label>
+          </div>
+          <DateRangePicker
+            startDate={filters.from}
+            endDate={filters.to}
+            onChange={({ startDate, endDate }) =>
+              updateFilters({ from: startDate, to: endDate })
+            }
+          />
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 sm:col-span-2 lg:col-span-1"
+            >
+              <X className="h-4 w-4" aria-hidden />
+              Limpiar filtros
+            </button>
+          )}
         </div>
+        {filters.actorUserId && (
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            <span className="min-w-0 break-words">
+              Actividad de:{' '}
+              <strong className="font-medium">{personFilterLabel}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={clearPersonFilter}
+              aria-label="Quitar filtro de usuario"
+              className="rounded-md p-2 hover:bg-emerald-100"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        )}
+        <SettingsDetails
+          title="Filtrar por persona"
+          description="Elegí una persona desde el detalle de una actividad o usá su identificador."
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              applyPersonFilter()
+            }}
+            className="space-y-2"
+          >
+            <label
+              htmlFor="audit-actor"
+              className="block text-sm font-medium text-slate-700"
+            >
+              ID de usuario
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                id="audit-actor"
+                value={actorDraft}
+                onChange={(event) => {
+                  setActorDraft(event.target.value)
+                  setActorError('')
+                }}
+                className="input-field min-w-0 font-mono text-sm"
+                placeholder="Identificador de quien realizó la acción"
+                aria-invalid={Boolean(actorError)}
+                aria-describedby={actorError ? 'audit-actor-error' : undefined}
+              />
+              <button type="submit" className="btn-secondary shrink-0 text-sm">
+                Filtrar usuario
+              </button>
+            </div>
+            {actorError && (
+              <p
+                id="audit-actor-error"
+                role="alert"
+                className="text-xs text-red-700"
+              >
+                {actorError}
+              </p>
+            )}
+          </form>
+        </SettingsDetails>
       </section>
 
       {error && (
         <div
-          className="rounded-xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-800"
           role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
         >
-          {error}
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setRefresh((current) => current + 1)}
+            className="font-semibold underline"
+          >
+            Reintentar
+          </button>
         </div>
       )}
 
-      <section className={`${shellCard} overflow-hidden p-0`}>
-        <div className="border-b border-gray-100 bg-slate-50/90 px-5 py-3.5">
-          <h3 className="text-sm font-semibold text-gray-900">Movimientos registrados</h3>
-          <p className="text-xs text-gray-500">Ordenados del más reciente al más antiguo.</p>
-        </div>
-
-        <div>
-          {loading ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-gray-500">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-600/70" aria-hidden />
-              <p className="text-sm">Cargando movimientos…</p>
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="mx-4 my-10 rounded-lg border border-dashed border-gray-200 bg-slate-50/50 px-6 py-12 text-center">
-              <p className="text-sm font-medium text-gray-700">No hay movimientos para mostrar</p>
-              <p className="mt-1 text-xs text-gray-500">Probá ampliar fechas o quitar filtros.</p>
-            </div>
-          ) : (
-            <>
-              <div className="divide-y divide-gray-100 lg:hidden">
-                {rows.map((r) => {
-                  const detail = auditMetadataDisplay(r.action, r.metadata)
-                  return (
-                    <article key={r.id} className="space-y-4 px-4 py-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold leading-snug text-gray-900">{r.actionLabel}</div>
-                          <div className={`mt-1 inline-flex max-w-full rounded-md px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wide ${getAuditActionBadgeClass(r.action)}`}>
-                            <span className="truncate">{r.action}</span>
-                          </div>
-                        </div>
-                        <time className="shrink-0 whitespace-nowrap text-xs font-medium tabular-nums text-gray-500">
-                          {formatWhen(r.occurredAt)}
-                        </time>
-                      </div>
-
-                      <dl className="grid gap-3 text-sm sm:grid-cols-3">
-                        <div className="min-w-0">
-                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Actor</dt>
-                          <dd className="mt-1 truncate font-medium text-gray-800" title={r.actorEmail || undefined}>
-                            {r.actorName || r.actorEmail || '-'}
-                          </dd>
-                        </div>
-                        <div className="min-w-0">
-                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">IP</dt>
-                          <dd className="mt-1 truncate font-mono text-xs text-gray-700" title={r.actorIp || undefined}>
-                            {r.actorIp || '-'}
-                          </dd>
-                        </div>
-                        <div className="min-w-0">
-                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Entidad</dt>
-                          <dd className="mt-1 truncate text-gray-800" title={r.entityType || undefined}>
-                            {r.entityType || '-'}
-                          </dd>
-                          {r.entityId ? (
-                            <dd className="mt-0.5 truncate font-mono text-[11px] text-gray-400" title={r.entityId}>
-                              {shortId(r.entityId)}
-                            </dd>
-                          ) : null}
-                        </div>
-                      </dl>
-
-                      <div className="rounded-lg border border-gray-100 bg-slate-50/60 px-3 py-3">
-                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                          Detalle
-                        </div>
-                        <AuditDetailBlock detail={detail} />
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
-
-              <div className="hidden overflow-x-auto px-1 lg:block">
-                <table className="w-full min-w-[1180px] table-fixed text-left text-sm">
-                  <colgroup>
-                    <col className="w-[170px]" />
-                    <col className="w-[245px]" />
-                    <col className="w-[170px]" />
-                    <col className="w-[210px]" />
-                    <col className="w-[165px]" />
-                    <col />
-                  </colgroup>
-                  <thead>
-                    <tr className="border-b border-gray-200 bg-white">
-                      <th className="whitespace-nowrap px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                        Cuándo
-                      </th>
-                      <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">Acción</th>
-                      <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">Actor</th>
-                      <th className="whitespace-nowrap px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                        IP
-                      </th>
-                      <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                        Entidad
-                      </th>
-                      <th className="px-4 py-3.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                        Detalle
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {rows.map((r, i) => {
-                      const detail = auditMetadataDisplay(r.action, r.metadata)
-                      return (
-                        <tr
-                          key={r.id}
-                          className={`align-top transition-colors ${
-                            i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
-                          } hover:bg-emerald-50/25`}
-                        >
-                          <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-gray-800">
-                            {formatWhen(r.occurredAt)}
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <div className="break-words font-medium leading-snug text-gray-900">{r.actionLabel}</div>
-                            <span
-                              className={`mt-1 inline-flex max-w-full rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-wide ${getAuditActionBadgeClass(r.action)}`}
-                              title={r.action}
-                            >
-                              <span className="truncate">{r.action}</span>
-                            </span>
-                          </td>
-                          <td className="px-4 py-3.5 text-gray-800">
-                            {r.actorName ? (
-                              <div className="min-w-0 truncate font-medium" title={r.actorEmail || undefined}>
-                                {r.actorName}
-                              </div>
-                            ) : r.actorEmail ? (
-                              <span className="block truncate text-gray-600" title={r.actorEmail}>
-                                {r.actorEmail}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <div className="truncate font-mono text-xs text-gray-600" title={r.actorIp || undefined}>
-                              {r.actorIp || '-'}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3.5 text-gray-700">
-                            {r.entityType || r.entityId ? (
-                              <div className="min-w-0">
-                                <div className="truncate text-sm" title={r.entityType || undefined}>
-                                  {r.entityType || '-'}
-                                </div>
-                                {r.entityId ? (
-                                  <div
-                                    className="mt-0.5 truncate font-mono text-[11px] text-gray-400"
-                                    title={r.entityId}
-                                  >
-                                    {shortId(r.entityId)}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <AuditDetailBlock detail={detail} />
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
+      <section
+        aria-label="Movimientos registrados"
+        aria-busy={loading}
+        className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 p-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">
+              Movimientos registrados
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Más recientes primero. Abrí una actividad para ver el detalle.
+            </p>
+          </div>
+          {!loading && !error && (
+            <span className="text-xs tabular-nums text-slate-500">
+              {total} {total === 1 ? 'registro' : 'registros'}
+            </span>
           )}
         </div>
-
-        {total > 0 && !loading && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 bg-slate-50/50 px-5 py-4 text-sm text-gray-600">
-            <span className="tabular-nums">
-              <span className="font-medium text-gray-800">{total}</span> evento{total === 1 ? '' : 's'} · página{' '}
-              <span className="font-medium text-gray-800">
-                {page} / {totalPages}
-              </span>
-            </span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="btn-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-45"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Anterior
-              </button>
-              <button
-                type="button"
-                className="btn-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-45"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Siguiente
-              </button>
-            </div>
+        {loading ? (
+          <div
+            role="status"
+            className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            Cargando movimientos…
           </div>
+        ) : (
+          !error &&
+          (rows.length ? (
+            <>
+              <div
+                aria-hidden
+                className="hidden gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 md:flex"
+              >
+                <div className="grid flex-1 grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_180px] gap-4 text-xs font-medium text-slate-500">
+                  <span>Actividad</span>
+                  <span>Usuario</span>
+                  <span>Fecha y hora</span>
+                </div>
+                <span className="w-4" />
+              </div>
+              <div className="divide-y divide-slate-100">
+                {rows.map((row) => (
+                  <AuditActivity
+                    key={row.id}
+                    row={row}
+                    onFilterPerson={filterPerson}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="p-8 text-center">
+              <p className="text-sm font-medium text-slate-700">
+                {activeFilterCount
+                  ? 'No hay movimientos que coincidan con los filtros.'
+                  : 'Todavía no hay movimientos registrados.'}
+              </p>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-3 min-h-10 text-sm font-medium text-emerald-700 hover:underline"
+                >
+                  Quitar filtros y ver todos
+                </button>
+              )}
+            </div>
+          ))
         )}
       </section>
-    </div>
+
+      {total > 0 && !loading && !error && (
+        <div className="flex flex-col gap-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+          <p className="tabular-nums">
+            Mostrando{' '}
+            <span className="font-medium text-slate-900">
+              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}
+            </span>{' '}
+            de <span className="font-medium text-slate-900">{total}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+              Anterior
+            </button>
+            <span className="text-xs tabular-nums">
+              Página {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage((current) => current + 1)}
+              className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              Siguiente
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        </div>
+      )}
+    </main>
   )
 }
