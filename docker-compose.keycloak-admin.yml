@@ -1,0 +1,36 @@
+# Opt-in: cargar DESPUES de cloud, proxy y close-ports.prod.
+# Procedimiento completo: docs/KEYCLOAK_ADMIN_PRIVADO.md
+services:
+  # Reservar el 443 de Tailscale para Serve. El origen Cloudflare conserva
+  # HTTPS en la IP publica; no se publica 443 sobre todas las interfaces.
+  reverse-proxy:
+    ports: !override
+      - "80:80"
+      - "${KEYCLOAK_PUBLIC_BIND_IP:?Definir la IPv4 publica del origen}:443:443"
+
+  keycloak:
+    environment:
+      KC_HOSTNAME: https://auth.edutrack-uy.com
+      KC_HOSTNAME_ADMIN: https://${KEYCLOAK_ADMIN_PRIVATE_HOST:?Definir el hostname MagicDNS sin esquema ni barra final}
+    ports: !override []
+
+  keycloak-admin-proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    environment:
+      KEYCLOAK_ADMIN_PRIVATE_HOST: ${KEYCLOAK_ADMIN_PRIVATE_HOST:?Definir el hostname MagicDNS}
+      # Evita sustituir variables propias de Nginx al renderizar el template.
+      NGINX_ENVSUBST_FILTER: ^KEYCLOAK_ADMIN_PRIVATE_HOST$
+    ports:
+      - "127.0.0.1:18090:8080"
+    volumes:
+      - ./nginx/keycloak-admin/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      keycloak:
+        condition: service_started
+    networks: [net]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

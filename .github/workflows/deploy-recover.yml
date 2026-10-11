@@ -50,12 +50,13 @@ jobs:
                 compose "${compose_args[@]}" up -d "${services[@]}"
               }
             fi
-            CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml"
+            CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml -f docker-compose.keycloak-admin.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             compose $CF up -d pg redis keycloak-db
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
             compose_recreate_services $CF keycloak
             bash scripts/keycloak-apply-realm-settings.sh
+            compose $CF up -d --no-deps keycloak-admin-proxy
             compose_recreate_services $CF auth web reverse-proxy
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             echo "Producción recuperada"
