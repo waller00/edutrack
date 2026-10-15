@@ -122,13 +122,27 @@ jobs:
       group: deploy-production-server
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Deploy to Production
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Prepare production SSH transport
+        id: production_connection
+        uses: ./.github/actions/production-ssh
         with:
-          host: ${{ secrets.SSH_HOST }}
+          enabled: ${{ vars.PRODUCTION_SSH_TAILSCALE || 'false' }}
+          public-host: ${{ secrets.SSH_HOST }}
+          private-host: ${{ vars.PRODUCTION_SSH_TAILSCALE_HOST || '100.92.202.72' }}
+          oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
+      - name: Deploy to Production
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        with:
+          host: ${{ steps.production_connection.outputs.host }}
+          fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
@@ -184,7 +198,7 @@ jobs:
             # El reverse proxy y el cierre de puertos son parte del despliegue, no un ajuste manual:
             # sin `close-ports.prod.yml`, `docker-compose.cloud.yml` vuelve a publicar 3000/4000/8089
             # en 0.0.0.0 y deja la API, el front y Keycloak accesibles sin pasar por Cloudflare.
-            CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml"
+            CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml -f docker-compose.keycloak-admin.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
             compose $CF up -d --no-build pg redis keycloak-db keycloak
@@ -192,6 +206,7 @@ jobs:
             # Build con la app aún arriba; no hacer `compose down` (deja el sitio en 521 si falla el build).
             compose $CF build web auth
             bash scripts/keycloak-apply-realm-settings.sh
+            compose $CF up -d --no-deps keycloak-admin-proxy
             compose_recreate_services $CF web auth reverse-proxy
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh
@@ -280,13 +295,27 @@ jobs:
       group: deploy-production-server
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Manual deploy to Production (rollback/forward)
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Prepare production SSH transport
+        id: production_connection
+        uses: ./.github/actions/production-ssh
         with:
-          host: ${{ secrets.SSH_HOST }}
+          enabled: ${{ vars.PRODUCTION_SSH_TAILSCALE || 'false' }}
+          public-host: ${{ secrets.SSH_HOST }}
+          private-host: ${{ vars.PRODUCTION_SSH_TAILSCALE_HOST || '100.92.202.72' }}
+          oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
+      - name: Manual deploy to Production (rollback/forward)
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        with:
+          host: ${{ steps.production_connection.outputs.host }}
+          fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
@@ -343,13 +372,14 @@ jobs:
             # El reverse proxy y el cierre de puertos son parte del despliegue, no un ajuste manual:
             # sin `close-ports.prod.yml`, `docker-compose.cloud.yml` vuelve a publicar 3000/4000/8089
             # en 0.0.0.0 y deja la API, el front y Keycloak accesibles sin pasar por Cloudflare.
-            CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml"
+            CF="-f docker-compose.cloud.yml -f docker-compose.proxy.yml -f docker-compose.close-ports.prod.yml -f docker-compose.keycloak-admin.yml"
             docker network inspect edutrack_moodle-net >/dev/null 2>&1 || docker network create edutrack_moodle-net
             bash scripts/validate-production-routes.sh --env .env --production
             compose $CF up -d --no-build pg redis keycloak-db keycloak
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/postgres-apply-role-password.sh
             compose $CF build web auth
             bash scripts/keycloak-apply-realm-settings.sh
+            compose $CF up -d --no-deps keycloak-admin-proxy
             compose_recreate_services $CF web auth reverse-proxy
             DEPLOY_COMPOSE_FILES="$CF" bash scripts/deploy-wait-healthy.sh
             bash scripts/keycloak-apply-realm-settings.sh

@@ -1,0 +1,46 @@
+  # Nunca registrar query strings ni Referer (pueden contener códigos o tokens OIDC).
+  map $request_uri $log_path {
+    ~^(?<path_without_query>[^?]*) $path_without_query;
+  }
+  log_format access_safe escape=json '$remote_addr - $remote_user [$time_local] "$request_method $log_path $server_protocol" $status $body_bytes_sent "-" "$http_user_agent"';
+
+# Solo accesible desde loopback del host, detras de Tailscale Serve.
+server {
+    access_log /dev/stdout access_safe;
+    listen 8080;
+    server_name ${KEYCLOAK_ADMIN_PRIVATE_HOST};
+    server_tokens off;
+    client_max_body_size 20m;
+
+    # Resolver Docker: recupera el upstream si cambia la IP de Keycloak.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $keycloak_upstream keycloak:8080;
+
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host ${KEYCLOAK_ADMIN_PRIVATE_HOST};
+    proxy_set_header X-Forwarded-Host ${KEYCLOAK_ADMIN_PRIVATE_HOST};
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Port 443;
+    # No confiar en XFF suministrado por el navegador. Aqui se registra el salto
+    # local de Serve; la atribucion del dispositivo corresponde a Tailscale.
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header Forwarded "";
+    proxy_set_header X-Forwarded-Prefix "";
+    proxy_connect_timeout 10s;
+    proxy_read_timeout 60s;
+
+    location = / {
+        return 302 https://${KEYCLOAK_ADMIN_PRIVATE_HOST}/admin/master/console/;
+    }
+
+    # Consola, API administrativa, autenticacion master y recursos estaticos.
+    location ~ ^/(admin(?:/|$)|realms/master(?:/|$)|resources/) {
+        proxy_pass http://$keycloak_upstream$request_uri;
+    }
+
+    location / {
+        return 404;
+    }
+}

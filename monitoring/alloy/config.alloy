@@ -43,15 +43,27 @@ loki.source.docker "containers" {
 	refresh_interval = "10s"
 }
 
+// Defensa adicional para logs de aplicación/error y líneas antiguas reingeridas.
+// stage.replace sustituye cada grupo capturado: capturar sólo el valor sensible.
 loki.process "redact" {
 	stage.replace {
-		expression = "(?i)(authorization[=: ]+)([^ ,;]+)"
-		replace    = "$1[REDACTED]"
+		expression = "(?:https?://|/)[^\\s\"?<>]*\\?([^\\s\"<>]*)"
+		replace = "[REDACTED]"
 	}
 
 	stage.replace {
-		expression = "(?i)((cookie|token|password|secret|api[_-]?key)[=: ]+)([^ ,;]+)"
-		replace    = "$1[REDACTED]"
+		expression = "(?i)authorization[\"\\x27]?\\s*[:=]\\s*[\"\\x27]?([^\"\\x27\\r\\n,}]+)"
+		replace = "[REDACTED]"
+	}
+
+	stage.replace {
+		expression = "(?i)(?:cookie|set-cookie)[\"\\x27]?\\s*[:=]\\s*[\"\\x27]?([^\"\\x27\\r\\n}]+)"
+		replace = "[REDACTED]"
+	}
+
+	stage.replace {
+		expression = "(?i)(?:id_token_hint|id_token|access_token|refresh_token|token|password|secret|api[_-]?key)[\"\\x27]?\\s*[:=]\\s*[\"\\x27]?([^\\s\"\\x27,;&}]+)"
+		replace = "[REDACTED]"
 	}
 
 	forward_to = [loki.write.local.receiver]

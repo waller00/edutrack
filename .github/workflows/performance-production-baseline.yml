@@ -66,8 +66,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Prepare production SSH transport
+        id: production_connection
+        uses: ./.github/actions/production-ssh
+        with:
+          enabled: ${{ vars.PRODUCTION_SSH_TAILSCALE || 'false' }}
+          public-host: ${{ secrets.SSH_HOST }}
+          private-host: ${{ vars.PRODUCTION_SSH_TAILSCALE_HOST || '100.92.202.72' }}
+          oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
       - name: Conectar runner efimero a Tailscale
-        if: inputs.publish_metrics_to_grafana
+        if: inputs.publish_metrics_to_grafana && vars.PRODUCTION_SSH_TAILSCALE != 'true'
         uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -91,7 +100,8 @@ jobs:
       - name: Fotografia inicial del droplet
         uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         with:
-          host: ${{ secrets.SSH_HOST }}
+          host: ${{ steps.production_connection.outputs.host }}
+          fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
@@ -172,10 +182,11 @@ jobs:
           curl --fail --silent --show-error --max-time 10 "${K6_BASE_URL}/ready"
 
       - name: Fotografia final del droplet
-        if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' }}
+        if: ${{ always() && inputs.confirmation == 'RUN_PRODUCTION_BASELINE' && steps.production_connection.outcome == 'success' }}
         uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         with:
-          host: ${{ secrets.SSH_HOST }}
+          host: ${{ steps.production_connection.outputs.host }}
+          fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22

@@ -5,11 +5,16 @@
 #      ./scripts/dc-cloud.sh exec pg psql -U postgres -c "SELECT 1"
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXTRA_FILES=()
+if [ -n "${KEYCLOAK_ADMIN_PRIVATE_HOST:-}" ] || { [ -f "$ROOT/.env" ] && grep -qE '^KEYCLOAK_ADMIN_PRIVATE_HOST=.+' "$ROOT/.env"; }; then
+  EXTRA_FILES=(-f "$ROOT/docker-compose.keycloak-admin.yml")
+fi
 if docker compose version >/dev/null 2>&1; then
   exec docker compose \
     -f "$ROOT/docker-compose.cloud.yml" \
     -f "$ROOT/docker-compose.proxy.yml" \
     -f "$ROOT/docker-compose.close-ports.prod.yml" \
+    "${EXTRA_FILES[@]}" \
     "$@"
 fi
 echo "Falta el plugin Compose v2. En Ubuntu/Droplet:" >&2
