@@ -39,6 +39,7 @@ performance/results/
 *.exe
 data.sql
 data.sql.gz
+datos.sql
 # Dumps Postgres (copias locales / restores; no versionar)
 *.dump
 prod-asistencias*.dump

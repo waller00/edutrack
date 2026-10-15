@@ -54,6 +54,27 @@ describe('auth middleware — permisos y sesión', () => {
     expect(await userPermissionScope('u1', 'users.read')).toBeNull()
   })
 
+  it('authGuard y los permisos comparten una sola consulta por pedido', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'u1', email: 'u1@e.com', role: 'STAFF' })
+    prismaMock.user.findUnique.mockResolvedValue(
+      account([grant('gradebook.read', 'OWN')], { emailVerifiedAt: new Date(), lockUntil: null }),
+    )
+    const req: any = { cookies: { sid: 'sid-1' } }
+    const scope = await new Promise((resolve, reject) => {
+      requestCacheMiddleware({} as never, {} as never, () => {
+        authGuard(req, mockRes(), async () => {
+          try {
+            resolve(await userPermissionScope('u1', 'gradebook.read'))
+          } catch (e) {
+            reject(e)
+          }
+        })
+      })
+    })
+    expect(scope).toBe('own')
+    expect(prismaMock.user.findUnique).toHaveBeenCalledTimes(1)
+  })
+
   it('userPermissionScope: con un grant ALL y otro OWN del mismo permiso gana ALL', async () => {
     prismaMock.user.findUnique.mockResolvedValueOnce(account([grant('x', 'OWN'), grant('x', 'ALL'), grant('x', 'OWN')]))
     expect(await userPermissionScope('u1', 'x')).toBe('all')

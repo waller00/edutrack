@@ -4,13 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Clock, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
-import DateField from '@/components/forms/DateField'
-import {
-  formatDateInUruguay,
-  formatTimeInUruguay,
-  getTodayYmdInUruguay,
-  uruguayWallTimeOnDayIso,
-} from '@/lib/forms/datetime-uy'
+import { formatDateInUruguay, formatTimeInUruguay, getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
 import { resolveRealEventId } from '@/lib/events/event-instance-id'
 
 type DayEvent = {
@@ -39,12 +33,12 @@ type Props = {
   onMarked?: () => void
 }
 
-function toIsoDateTime(ymd: string, timeIso?: string): string {
-  return timeIso ? uruguayWallTimeOnDayIso(ymd, timeIso) : new Date().toISOString()
-}
-
+/**
+ * Marca en el momento: sólo las clases de hoy, y la hora la pone el servidor. Marcar otro día o
+ * con la hora planificada dejaba registrar presencias que nadie vio.
+ */
 export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
-  const [day, setDay] = useState(getTodayYmdInUruguay())
+  const [day] = useState(getTodayYmdInUruguay)
   const [events, setEvents] = useState<DayEvent[]>([])
   const [attendances, setAttendances] = useState<DayAttendance[]>([])
   const [loading, setLoading] = useState(true)
@@ -92,15 +86,9 @@ export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
     setMarking(key)
     setMessage(null)
     try {
-      const instant = toIsoDateTime(day, type === 'CHECK_OUT' ? event.endTime : event.startTime)
       await api('/attendance/register', {
         method: 'POST',
-        body: JSON.stringify({
-          type,
-          date: instant,
-          time: instant,
-          eventId: resolveRealEventId(event),
-        }),
+        body: JSON.stringify({ type, eventId: resolveRealEventId(event) }),
       })
       setMessage(type === 'CHECK_IN' ? 'Entrada registrada' : 'Salida registrada')
       await load()
@@ -114,17 +102,12 @@ export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
 
   return (
     <section className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-4 shadow-sm">
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-3">
         <div className="flex items-center gap-2">
           <Clock className="h-5 w-5 text-emerald-700" aria-hidden />
           <h2 className="text-base font-semibold text-slate-900">Marcar asistencia hoy</h2>
         </div>
-        <DateField
-          value={day}
-          onChange={setDay}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm"
-          aria-label="Día a marcar"
-        />
+        <p className="mt-1 text-xs text-slate-500">Se registra la hora en que marcás.</p>
       </div>
 
       {message ? (
@@ -136,7 +119,7 @@ export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {
           <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
         </div>
       ) : events.length === 0 ? (
-        <p className="text-sm text-slate-600">No tenés clases asignadas para este día.</p>
+        <p className="text-sm text-slate-600">No tenés clases asignadas para hoy.</p>
       ) : (
         <ul className="space-y-2">
           {events.map((ev) => (

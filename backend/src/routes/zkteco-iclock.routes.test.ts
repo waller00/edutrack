@@ -99,7 +99,7 @@ describe("zkteco iclock routes", () => {
       .send("1001\t2026-05-21 10:00:00\t0\t1\n");
 
     expect(res.status).toBe(200);
-    expect(res.text).toBe("OK:0");
+    expect(res.text).toBe("OK:1");
     expect(processMock).not.toHaveBeenCalled();
   });
 
@@ -111,7 +111,7 @@ describe("zkteco iclock routes", () => {
       .send("1001\t2026-05-21 10:00:00\t0\t1\n");
 
     expect(res.status).toBe(200);
-    expect(res.text).toBe("OK:0");
+    expect(res.text).toBe("OK:1");
     expect(processMock).not.toHaveBeenCalled();
   });
 

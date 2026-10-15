@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import cookieParser from "cookie-parser";
@@ -60,7 +60,17 @@ const validBody = {
   eventId: eid,
 };
 
+/** El registro manual usa la hora del servidor: cada caso fija "ahora". */
+function markAt(iso: string) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(iso));
+}
+
 describe("attendance /register (prisma mock)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.schoolYear.findFirst.mockResolvedValue(null);
@@ -100,6 +110,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("404 evento inexistente", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue(null);
     const res = await request(app())
       .post("/attendance/register")
@@ -109,6 +120,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("403 no asignado al evento", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "otro-usuario",
@@ -125,6 +137,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("permite registrar asistencia al suplente oficial usando el horario de la suplencia", async () => {
+    markAt("2026-05-05T13:04:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "titular-1",
@@ -168,6 +181,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("409 duplicado mismo día y tipo", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
@@ -199,6 +213,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("201 registro feliz", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
@@ -222,9 +237,177 @@ describe("attendance /register (prisma mock)", () => {
       .send(validBody);
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("a1");
+    // Como el reloj: `date` es el inicio del día civil y `time`, el instante en que se marcó.
+    const data = prismaMock.attendance.create.mock.calls[0][0].data;
+    expect(data.date.toISOString()).toBe("2025-06-01T03:00:00.000Z");
+    expect(data.time.toISOString()).toBe("2025-06-01T08:05:00.000Z");
+  });
+
+  it("POST /attendance/register usa la hora del servidor, no la que manda el cliente", async () => {
+    // El cliente dice 08:00 (a horario); en realidad son las 08:30: llegó tarde.
+    markAt("2025-06-01T08:30:00.000Z");
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eid,
+      assignedUserId: "user-1",
+      type: "CLASE",
+      status: "SCHEDULED",
+      startDate: new Date("2025-06-01T00:00:00.000Z"),
+      startTime: new Date("2025-06-01T08:00:00.000Z"),
+      endTime: new Date("2025-06-01T09:00:00.000Z"),
+    });
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.attendance.create.mockResolvedValue({ id: "a1", user: {}, event: {} });
+
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${markerTok()}`)
+      .send({ ...validBody, time: "2025-06-01T08:00:00.000Z" });
+
+    expect(res.status).toBe(200);
+    const data = prismaMock.attendance.create.mock.calls[0][0].data;
+    expect(data.status).toBe("LATE");
+    expect(data.time.toISOString()).toBe("2025-06-01T08:30:00.000Z");
+  });
+
+  it("POST /attendance/register 400 si se intenta marcar otro día", async () => {
+    markAt("2025-06-02T12:00:00.000Z");
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${markerTok()}`)
+      .send(validBody);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("ATTENDANCE_ONLY_TODAY");
+    expect(prismaMock.event.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /attendance/register sin fecha marca hoy", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eid,
+      assignedUserId: "user-1",
+      type: "CLASE",
+      status: "SCHEDULED",
+      startDate: new Date("2025-06-01T00:00:00.000Z"),
+      startTime: new Date("2025-06-01T08:00:00.000Z"),
+      endTime: new Date("2025-06-01T09:00:00.000Z"),
+    });
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.attendance.create.mockResolvedValue({ id: "a1", user: {}, event: {} });
+
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${markerTok()}`)
+      .send({ type: "CHECK_IN", eventId: eid });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+  });
+
+  it("POST /attendance/register 409 si la clase no se dicta hoy", async () => {
+    // Serie de los lunes; hoy es martes.
+    markAt("2025-06-03T21:00:00.000Z");
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eid,
+      assignedUserId: "user-1",
+      type: "CLASE",
+      status: "SCHEDULED",
+      parentEventId: null,
+      isRecurring: true,
+      recurrenceType: "WEEKLY",
+      daysOfWeek: [1],
+      startDate: new Date("2025-03-03T21:00:00.000Z"),
+      startTime: new Date("2025-03-03T21:00:00.000Z"),
+      endTime: new Date("2025-03-03T22:00:00.000Z"),
+      recurrenceEnd: new Date("2025-12-01T00:00:00.000Z"),
+      childEvents: [],
+    });
+
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${markerTok()}`)
+      .send({ type: "CHECK_IN", eventId: eid });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("NO_OCCURRENCE");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /attendance/register 409 si la entrada todavía no abrió", async () => {
+    // Clase 05:00–06:00 UY; a las 02:00 UY faltan 3 h y la entrada abre 90 min antes.
+    markAt("2025-06-01T05:00:00.000Z");
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eid,
+      assignedUserId: "user-1",
+      type: "CLASE",
+      status: "SCHEDULED",
+      startDate: new Date("2025-06-01T00:00:00.000Z"),
+      startTime: new Date("2025-06-01T08:00:00.000Z"),
+      endTime: new Date("2025-06-01T09:00:00.000Z"),
+    });
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${markerTok()}`)
+      .send({ type: "CHECK_IN", eventId: eid });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("ATTENDANCE_NOT_OPEN");
+    expect(res.body.message).toContain("03:30");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /attendance/register 409 si se marca la entrada después del fin de la clase", async () => {
+    markAt("2025-06-01T09:30:00.000Z");
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eid,
+      assignedUserId: "user-1",
+      type: "CLASE",
+      status: "SCHEDULED",
+      startDate: new Date("2025-06-01T00:00:00.000Z"),
+      startTime: new Date("2025-06-01T08:00:00.000Z"),
+      endTime: new Date("2025-06-01T09:00:00.000Z"),
+    });
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${markerTok()}`)
+      .send({ type: "CHECK_IN", eventId: eid });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("ATTENDANCE_CLASS_ENDED");
+    expect(prismaMock.attendance.create).not.toHaveBeenCalled();
+  });
+
+  it("POST /attendance/register busca duplicados en todo el día civil, también de noche", async () => {
+    // 21:30 UY del 1/6 son las 00:30 UTC del 2/6.
+    markAt("2025-06-02T00:30:00.000Z");
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eid,
+      assignedUserId: "user-1",
+      type: "CLASE",
+      status: "SCHEDULED",
+      startDate: new Date("2025-06-01T03:00:00.000Z"),
+      startTime: new Date("2025-06-02T00:30:00.000Z"),
+      endTime: new Date("2025-06-02T01:30:00.000Z"),
+    });
+    prismaMock.attendance.findFirst.mockResolvedValue({ id: "dup" });
+
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${markerTok()}`)
+      .send({ type: "CHECK_IN", eventId: eid });
+
+    expect(res.status).toBe(409);
+    const range = prismaMock.attendance.findFirst.mock.calls[0][0].where.date;
+    expect(range.gte.toISOString()).toBe("2025-06-01T03:00:00.000Z");
+    expect(range.lte.toISOString()).toBe("2025-06-02T02:59:59.999Z");
   });
 
   it("POST /attendance/register respeta tolerancia de llegada tarde configurada", async () => {
+    markAt("2025-06-01T08:10:00.000Z");
     prismaMock.systemSettings.upsert.mockResolvedValueOnce({
       id: "default",
       attendanceNoShowGraceMinutes: 15,
@@ -260,15 +443,22 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("POST /attendance/register en una clase recurrente compara contra la hora de ESE día, no la del primero", async () => {
-    // La serie empezó en marzo a las 18:00 (21:00Z); se marca un lunes de junio a las 18:03.
+    // La serie de los lunes empezó en marzo a las 18:00 (21:00Z); se marca un lunes de junio a las 18:03.
+    markAt("2025-06-02T21:03:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
       type: "CLASE",
       status: "SCHEDULED",
-      startDate: new Date("2025-03-03T03:00:00.000Z"),
+      parentEventId: null,
+      isRecurring: true,
+      recurrenceType: "WEEKLY",
+      daysOfWeek: [1],
+      startDate: new Date("2025-03-03T21:00:00.000Z"),
       startTime: new Date("2025-03-03T21:00:00.000Z"),
       endTime: new Date("2025-03-03T22:00:00.000Z"),
+      recurrenceEnd: new Date("2025-12-01T00:00:00.000Z"),
+      childEvents: [],
     });
     prismaMock.attendance.findFirst.mockResolvedValue(null);
     prismaMock.attendance.create.mockResolvedValue({ id: "a1", status: "PRESENT", user: {}, event: {} });
@@ -283,6 +473,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("POST /attendance/register 403 si licencia activa cubre el horario del evento", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
@@ -312,6 +503,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("POST /attendance/register 500 si falla la creación", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
@@ -1043,6 +1235,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("POST /attendance/register 400 si el evento está cancelado", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
@@ -1059,6 +1252,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("POST /attendance/register permite a un suplente oficial", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "otro-docente",
@@ -1068,7 +1262,15 @@ describe("attendance /register (prisma mock)", () => {
       startTime: new Date("2025-06-01T08:00:00.000Z"),
       endTime: new Date("2025-06-01T09:00:00.000Z"),
     });
-    prismaMock.$queryRaw.mockResolvedValueOnce([{ id: "sub-1" }]).mockResolvedValueOnce([]);
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          id: "sub-1",
+          startTime: new Date("2025-06-01T08:00:00.000Z"),
+          endTime: new Date("2025-06-01T09:00:00.000Z"),
+        },
+      ])
+      .mockResolvedValueOnce([]);
     prismaMock.attendance.findFirst.mockResolvedValue(null);
     prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     prismaMock.attendance.create.mockResolvedValue({ id: "a-sup", user: {}, event: {} });
@@ -1080,6 +1282,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("POST /attendance/register 403 en día no laborable", async () => {
+    markAt("2025-06-01T08:05:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",
@@ -1102,6 +1305,7 @@ describe("attendance /register (prisma mock)", () => {
   });
 
   it("POST /attendance/register procesa CHECK_OUT con tolerancia de salida", async () => {
+    markAt("2025-06-01T09:00:00.000Z");
     prismaMock.event.findUnique.mockResolvedValue({
       id: eid,
       assignedUserId: "user-1",

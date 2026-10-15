@@ -158,7 +158,10 @@ r.all("/cdata", async (req, res) => {
       }
     }
 
-    res.status(200).type("text/plain").send(`OK:${processed}`);
+    console.info("[zkteco-iclock] ATTLOG", { sn, recibidas: records.length, procesadas: processed });
+    // Se confirman los registros RECIBIDOS, no los procesados: devolver cuántos tenían PIN vinculado
+    // le decía a quien prueba números qué PIN existen. El detalle queda en el log.
+    res.status(200).type("text/plain").send(`OK:${records.length}`);
     return;
   }
 

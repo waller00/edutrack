@@ -13,6 +13,12 @@ import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attenda
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
 import { findNonWorkingDayForInstant } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
+import { earlyEntryWindowMinutes } from '../services/attendance/coverage-spans.js';
+import {
+  classifyOccurrence,
+  isOccurrenceOk,
+  type OccurrenceErrorCode,
+} from '../services/student-attendance/occurrence.js';
 import {
   getAppTimezone,
   isYmdDateString,
@@ -20,7 +26,6 @@ import {
   uruguayWallToUtc,
   uruguayYmdEndOfDayToUtc,
   uruguayYmdOfInstant,
-  wallTimeOnDay,
 } from '../config/app-timezone.js';
 import { justifyAttendance } from '../services/attendance-justifications.js';
 import { recordAuditEventNow } from '../services/audit-log.js';
@@ -37,12 +42,14 @@ function mapAttendanceUser<T extends { user?: Parameters<typeof attachRoleCode>[
 const r = Router();
 
 // Esquemas de validación
+// El registro manual es siempre "ahora": la hora la pone el servidor. `date` se acepta sólo para
+// rechazar un día que no es hoy; `time` se ignora (queda por compatibilidad con clientes viejos).
 const attendanceSchema = z.object({
   type: z.enum(['CHECK_IN', 'CHECK_OUT']),
-  date: z.string().datetime(),
-  time: z.string().datetime(),
+  date: z.string().datetime().optional(),
+  time: z.string().datetime().optional(),
   notes: z.string().optional(),
-  eventId: z.string().uuid(), // Ahora es obligatorio
+  eventId: z.string().uuid(),
 });
 
 const attendanceUpdateSchema = z.object({
@@ -106,11 +113,9 @@ function applyDateRangeFilter(where: any, startDate?: unknown, endDate?: unknown
   }
 }
 
-function attendanceDayRangeForInstant(value: string | Date) {
-  const start = uruguayStartOfDayFromInstant(typeof value === 'string' ? new Date(value) : value)
-  const end = new Date(start)
-  end.setUTCHours(23, 59, 59, 999)
-  return { start, end }
+/** El día civil (Montevideo) del instante; terminarlo a las 23:59 UTC dejaba fuera las 21:00–23:59. */
+function attendanceDayRangeForInstant(at: Date) {
+  return { start: uruguayStartOfDayFromInstant(at), end: uruguayYmdEndOfDayToUtc(uruguayYmdOfInstant(at)) }
 }
 
 function buildAdminAttendanceWhere(query: Record<string, unknown>) {
@@ -453,7 +458,72 @@ async function buildVirtualAbsenceRows(query: Record<string, unknown>, attendanc
   return [...titularAbsenceRows, ...substituteAbsenceRows]
 }
 
-// Registrar asistencia (CHECK_IN o CHECK_OUT) — alta de un registro propio.
+type ManualMarkRejection = { status: number; code: string; message: string }
+type ManualMarkSchedule = { startAt: Date; endAt: Date }
+
+const MANUAL_MARK_OCCURRENCE_MESSAGE: Partial<Record<OccurrenceErrorCode, string>> = {
+  NO_OCCURRENCE: 'Esta clase no se dicta hoy.',
+  OCCURRENCE_SUSPENDED: 'La clase está suspendida hoy.',
+  OUT_OF_EFFECTIVE_WINDOW: 'El horario de esta clase cambió: recargá la página.',
+}
+
+function isManualMarkRejection(value: ManualMarkSchedule | ManualMarkRejection): value is ManualMarkRejection {
+  return 'code' in value
+}
+
+/**
+ * Horario de la clase de hoy del titular: la ocurrencia real del día, con sus reprogramaciones
+ * y suspensiones (el `startTime` de una serie es la fecha-hora de su primer día, no la de hoy).
+ */
+function titularScheduleOn(event: any, ymd: string): ManualMarkSchedule | ManualMarkRejection {
+  const occurrence = classifyOccurrence(event, ymd)
+  if (!isOccurrenceOk(occurrence)) {
+    return {
+      status: 409,
+      code: occurrence.code,
+      message: MANUAL_MARK_OCCURRENCE_MESSAGE[occurrence.code] ?? 'Esta clase no se dicta hoy.',
+    }
+  }
+  return { startAt: occurrence.startAt, endAt: occurrence.endAt }
+}
+
+function formatWallTime(instant: Date): string {
+  return DateTime.fromJSDate(instant).setZone(getAppTimezone()).toFormat('HH:mm')
+}
+
+/**
+ * La marca manual vale en el momento en que se hace: abre con la misma anticipación que el
+ * reloj biométrico acepta una entrada, y una entrada después del fin de la clase no se registra.
+ */
+function manualMarkTimingRejection(params: {
+  type: 'CHECK_IN' | 'CHECK_OUT'
+  now: Date
+  schedule: ManualMarkSchedule
+  earlyMinutes: number
+}): ManualMarkRejection | null {
+  const opensAt = new Date(params.schedule.startAt.getTime() - params.earlyMinutes * 60_000)
+  if (params.now.getTime() < opensAt.getTime()) {
+    return {
+      status: 409,
+      code: 'ATTENDANCE_NOT_OPEN',
+      message: `La asistencia de esta clase se marca desde las ${formatWallTime(opensAt)}.`,
+    }
+  }
+  if (params.type === 'CHECK_IN' && params.now.getTime() > params.schedule.endAt.getTime()) {
+    return {
+      status: 409,
+      code: 'ATTENDANCE_CLASS_ENDED',
+      message: 'La clase ya terminó: la entrada no se puede marcar después. Pedí a administración que la corrija.',
+    }
+  }
+  return null
+}
+
+function sendManualMarkRejection(res: any, rejection: ManualMarkRejection) {
+  return res.status(rejection.status).json({ message: rejection.message, code: rejection.code })
+}
+
+// Registrar asistencia (CHECK_IN o CHECK_OUT) — alta de un registro propio, en el momento.
 r.post('/register', authGuard, requirePermission('attendance.create'), async (req, res) => {
   try {
     const user = req.user;
@@ -464,22 +534,23 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       return res.status(400).json({ message: 'Datos inválidos', errors: parsed.error.errors });
     }
 
-    const { type, date, time, notes, eventId } = parsed.data;
+    const { type, date, notes, eventId } = parsed.data;
 
-    // Obtener el evento para calcular el status
+    // La hora es la del servidor: marcar otro día o a otra hora alimentaría la liquidación con
+    // una presencia que nadie vio.
+    const now = new Date()
+    const todayYmd = uruguayYmdOfInstant(now)
+    if (date && uruguayYmdOfInstant(new Date(date)) !== todayYmd) {
+      return res.status(400).json({
+        message: 'La asistencia se marca en el momento: sólo se puede registrar para hoy.',
+        code: 'ATTENDANCE_ONLY_TODAY',
+      })
+    }
+
+    // Todos los campos: `classifyOccurrence` expande la serie con sus excepciones del día.
     const event = await prisma.event.findUnique({
       where: { id: eventId },
-      select: {
-        id: true,
-        title: true,
-        startDate: true,
-        startTime: true,
-        endTime: true,
-        type: true,
-        status: true,
-        assignedUserId: true,
-        schoolYearId: true,
-      },
+      include: { childEvents: true },
     });
 
     if (!event) {
@@ -490,13 +561,12 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       return res.status(400).json({ message: 'No se puede generar asistencia para un horario inexistente o suspendido' });
     }
 
-    const attendanceDateForSubstitution = uruguayStartOfDayFromInstant(new Date(date))
     const substitutionRows = await prisma.$queryRaw<{ id: string; startTime: Date; endTime: Date }[]>`
       SELECT "id", "startTime", "endTime"
       FROM "Substitution"
       WHERE "eventId" = ${eventId}
         AND "substituteUserId" = ${user.sub}
-        AND "date" = ${attendanceDateForSubstitution}
+        AND "date" = ${uruguayStartOfDayFromInstant(now)}
       LIMIT 1
     `;
 
@@ -504,11 +574,21 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
     if (event.assignedUserId !== user.sub && substitutionRows.length === 0) {
       return res.status(403).json({ message: 'No estás asignado a este evento' });
     }
-    const substitutionSchedule = event.assignedUserId !== user.sub ? substitutionRows[0] : null
+
+    // El suplente marca con el horario de su suplencia; el titular, con la ocurrencia de hoy.
+    const schedule =
+      event.assignedUserId === user.sub
+        ? titularScheduleOn(event, todayYmd)
+        : { startAt: substitutionRows[0].startTime, endAt: substitutionRows[0].endTime }
+    if (isManualMarkRejection(schedule)) return sendManualMarkRejection(res, schedule)
+    const evStart = schedule.startAt
+    // Una clase que cruza la medianoche termina al día siguiente.
+    const evEnd =
+      schedule.endAt.getTime() < evStart.getTime() ? new Date(schedule.endAt.getTime() + 86_400_000) : schedule.endAt
 
     // Un mismo usuario no debe tener más de una entrada/salida para el mismo evento
     // en el mismo día civil. La hora exacta puede variar entre UI, biométrico y API.
-    const duplicateDay = attendanceDayRangeForInstant(date)
+    const duplicateDay = attendanceDayRangeForInstant(now)
     const existingAttendance = await prisma.attendance.findFirst({
       where: {
         userId: user.sub,
@@ -522,15 +602,6 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       return res.status(409).json({ message: getDuplicateAttendanceMessage(type) });
     }
 
-    // El horario de la ocurrencia del día marcado: la suplencia ya lo trae; el de la serie se
-    // proyecta (su startTime es la fecha-hora del primer día de la serie, no la de hoy).
-    const attendanceYmd = uruguayYmdOfInstant(new Date(date))
-    const evStart =
-      substitutionSchedule?.startTime ??
-      (event.startTime ? wallTimeOnDay(event.startTime, attendanceYmd) : new Date(event.startDate))
-    let evEnd = substitutionSchedule?.endTime ?? (event.endTime ? wallTimeOnDay(event.endTime, attendanceYmd) : evStart)
-    // Una clase que cruza la medianoche termina al día siguiente.
-    if (evEnd.getTime() < evStart.getTime()) evEnd = new Date(evEnd.getTime() + 86_400_000)
     const nonWorkingDay = await findNonWorkingDayForInstant(evStart)
     if (nonWorkingDay) {
       return res.status(403).json({
@@ -550,11 +621,18 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       })
     }
 
-    const actualTime = new Date(time);
     const runtimeSettings = await getAttendanceOperationalSettings();
+    const timingRejection = manualMarkTimingRejection({
+      type,
+      now,
+      schedule: { startAt: evStart, endAt: evEnd },
+      earlyMinutes: earlyEntryWindowMinutes(runtimeSettings.classBridgeGapMinutes),
+    })
+    if (timingRejection) return sendManualMarkRejection(res, timingRejection)
+
     const status = getAttendanceStatus({
       type,
-      actualTime,
+      actualTime: now,
       startTime: evStart,
       endTime: evEnd,
       hasApprovedLicense: false,
@@ -566,8 +644,9 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       data: {
         userId: user.sub,
         type,
-        date: new Date(date),
-        time: actualTime,
+        // Como el reloj biométrico: `date` es el inicio del día civil y `time`, el instante.
+        date: uruguayStartOfDayFromInstant(now),
+        time: now,
         notes,
         eventId,
         schoolYearId: event.schoolYearId,

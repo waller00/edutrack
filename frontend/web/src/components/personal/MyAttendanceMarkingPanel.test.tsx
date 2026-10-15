@@ -38,7 +38,7 @@ describe('MyAttendanceMarkingPanel', () => {
     mockedApi.mockReset()
   })
 
-  it('registers CHECK_OUT using the event end time', async () => {
+  it('marca la salida sin mandar fecha ni hora: las pone el servidor', async () => {
     mockedApi
       .mockResolvedValueOnce([dayEvent] as never)
       .mockResolvedValueOnce([] as never)
@@ -62,8 +62,17 @@ describe('MyAttendanceMarkingPanel', () => {
     const body = JSON.parse(String(postCall?.[1]?.body))
     expect(body.type).toBe('CHECK_OUT')
     expect(body.eventId).toBe('event-1')
-    expect(body.time).toContain('T09:30:00.000Z')
-    expect(body.time).not.toContain('T08:00:00.000Z')
+    expect(body).not.toHaveProperty('time')
+    expect(body).not.toHaveProperty('date')
+  })
+
+  it('sólo muestra las clases de hoy, sin selector de día', async () => {
+    mockedApi.mockResolvedValueOnce([dayEvent] as never).mockResolvedValueOnce([] as never)
+
+    render(<MyAttendanceMarkingPanel userId="user-1" />)
+
+    await screen.findByText('Clase prueba')
+    expect(screen.queryByLabelText('Día a marcar')).toBeNull()
   })
 
   it('envía el uuid de la serie, no el id compuesto de la ocurrencia', async () => {

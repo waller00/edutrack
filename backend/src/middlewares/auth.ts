@@ -34,10 +34,7 @@ export async function authGuard(req: Request, res: Response, next: NextFunction)
 
       // Una sesión válida en Redis no alcanza: el usuario pudo ser dado de baja,
       // dejado pendiente o bloqueado por un admin después de iniciar sesión.
-      const account = await prisma.user.findUnique({
-        where: { id: session.userId },
-        select: { isActive: true, isApproved: true, emailVerifiedAt: true, lockUntil: true },
-      });
+      const account = await loadAccount(session.userId);
       if (!account) return res.status(401).json({ message: "No autorizado" });
       if (!account.isActive || !account.isApproved) {
         return res.status(403).json(blockedAccountBody(account, session.email));
@@ -117,23 +114,35 @@ export async function userPermissionScope(
  * la cuenta o el rol no están activos. Dentro de un pedido se resuelve una sola vez
  * (`memoizeInRequest`): la matriz se sigue leyendo en vivo, pedido a pedido.
  */
-async function loadPermissionScopes(userId: string): Promise<Map<string, "own" | "all"> | null> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      isActive: true,
-      isApproved: true,
-      orgRole: {
-        select: {
-          active: true,
-          grants: {
-            where: { enabled: true },
-            select: { scope: true, permission: { select: { code: true } } },
+/**
+ * Estado de la cuenta y permisos de su rol, en UNA consulta por pedido: la comparten `authGuard`
+ * y todos los chequeos de permiso (`memoizeInRequest`). Antes eran una consulta cada uno.
+ */
+function loadAccount(userId: string) {
+  return memoizeInRequest(`account:${userId}`, () =>
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        isActive: true,
+        isApproved: true,
+        emailVerifiedAt: true,
+        lockUntil: true,
+        orgRole: {
+          select: {
+            active: true,
+            grants: {
+              where: { enabled: true },
+              select: { scope: true, permission: { select: { code: true } } },
+            },
           },
         },
       },
-    },
-  });
+    }),
+  );
+}
+
+async function loadPermissionScopes(userId: string): Promise<Map<string, "own" | "all"> | null> {
+  const user = await loadAccount(userId);
   if (!user?.isActive || !user.isApproved || !user.orgRole?.active) return null;
   const scopes = new Map<string, "own" | "all">();
   for (const grant of user.orgRole.grants) {

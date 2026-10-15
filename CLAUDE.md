@@ -128,6 +128,11 @@ docker compose up -d --build auth  # rebuild solo el backend
 
 > **Dos sistemas de asistencia distintos.** `Attendance` es del **personal** (`userId → User`, marcas biométricas). El pase de lista estudiantil vive en `StudentAttendanceSession` / `StudentAttendanceEntry` / `StudentAttendanceJustification`, con su propio enum `StudentAttendanceStatus`. No mezclarlos: una consulta sobre `Attendance.status` nunca debe contar alumnos.
 
+> **El marcado manual del personal es "ahora".** `POST /attendance/register` toma la hora del
+> servidor, sólo vale para una clase que se dicta hoy (`classifyOccurrence`) y abre con la misma
+> anticipación que el reloj (`earlyEntryWindowMinutes`). Como el biométrico, guarda `date` = inicio
+> del día civil y `time` = instante. Alimenta la liquidación: no aceptar hora ni día del cliente.
+
 > **Las notas viven en `GradeBook*`, no en Moodle.** EduTrack es la fuente de verdad de las calificaciones; Moodle se **importa** y nunca se pisa. Los valores se guardan en centésimos como `Int` (un 8 es `800`), igual que `amountCents` — nunca `Float` ni `Decimal`.
 
 ---
@@ -264,6 +269,10 @@ Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 
 - Framework: **Vitest** (backend y frontend)
 - Mocks: `vi.hoisted()` para mocks de módulos al tope del archivo
+- Permisos en tests de rutas: el token Bearer de prueba se resuelve con la **matriz de fábrica**
+  del rol (`DEFAULT_PROFILE_PERMISSIONS`). Para un perfil a medida, el token declara los extra:
+  `signAccessToken({ ..., role: 'TEACHER', permissions: { 'events.update': 'own' } })`. Si un test
+  necesita darle a un rol algo que de fábrica no tiene, es un perfil a medida: declararlo así.
 - Cobertura: `npm run test:coverage` → genera `coverage/lcov.info`
 - E2E: Playwright en `frontend/web`
 

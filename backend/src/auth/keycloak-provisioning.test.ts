@@ -25,6 +25,7 @@ import {
   KeycloakAccountConflictError,
   linkKeycloakAccount,
   provisionUserFromClaims,
+  resetUnverifiedEmailLinkForTests,
   SsoRegistrationRequiredError,
 } from "./keycloak-provisioning.js";
 
@@ -218,5 +219,53 @@ describe("backfillKeycloakLinks", () => {
     prismaMock.user.findMany.mockResolvedValue([]);
     expect(await backfillKeycloakLinks()).toEqual({ linked: 0, missing: [] });
     expect(findIdsByEmailMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("vínculo por email después del relleno de arranque", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetUnverifiedEmailLinkForTests();
+    syncIdentityMock.mockResolvedValue(undefined);
+    prismaMock.user.update.mockResolvedValue({});
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue({ ...ana });
+  });
+
+  async function closeByBackfill() {
+    prismaMock.user.findMany.mockResolvedValueOnce([]);
+    await backfillKeycloakLinks();
+  }
+
+  it("antes de que termine el relleno, un email sin verificar todavía vincula (usuarios viejos)", async () => {
+    const result = await provisionUserFromClaims({ sub: "kc-1", email: "ana@e.com", email_verified: false });
+    expect(result.id).toBe("u-1");
+  });
+
+  it("terminado el relleno, un email sin verificar ya no vincula: sólo pudo ponerlo alguien en su consola", async () => {
+    await closeByBackfill();
+
+    const error = await provisionError({ sub: "kc-atacante", email: "ana@e.com", email_verified: false });
+
+    expect(error).toBeInstanceOf(KeycloakAccountConflictError);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
+  it("terminado el relleno, un email verificado por Keycloak sí vincula", async () => {
+    await closeByBackfill();
+
+    const result = await provisionUserFromClaims({ sub: "kc-1", email: "ana@e.com", email_verified: true });
+
+    expect(result.id).toBe("u-1");
+    expect(prismaMock.user.update.mock.calls[0][0].data.keycloakId).toBe("kc-1");
+  });
+
+  it("si el relleno falla (Keycloak caído), el vínculo por email sigue abierto", async () => {
+    prismaMock.user.findMany.mockResolvedValueOnce([{ id: "u-9", email: "x@e.com" }]);
+    findIdsByEmailMock.mockRejectedValueOnce(new Error("Keycloak admin token error 503"));
+    await expect(backfillKeycloakLinks()).rejects.toThrow();
+
+    const result = await provisionUserFromClaims({ sub: "kc-1", email: "ana@e.com", email_verified: false });
+    expect(result.id).toBe("u-1");
   });
 });

@@ -9,7 +9,7 @@ const { prismaMock, rosterMock, accessMock, scopeMock, saveGradesMock, previewMo
     gradeBook: { findMany: vi.fn(), findUnique: vi.fn() },
     substitution: { findMany: vi.fn() },
     assessment: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
-    gradeBookPeriod: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    gradeBookPeriod: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     periodGrade: { findMany: vi.fn(), upsert: vi.fn() },
     periodGradeRevision: { create: vi.fn(), findMany: vi.fn() },
     gradeRevision: { create: vi.fn(), findMany: vi.fn() },
@@ -137,6 +137,7 @@ beforeEach(() => {
   prismaMock.studentPhoto.findUnique.mockResolvedValue(null)
   prismaMock.student.findMany.mockResolvedValue([])
   prismaMock.studentAccommodation.updateMany.mockResolvedValue({ count: 0 })
+  prismaMock.gradeBookPeriod.updateMany.mockResolvedValue({ count: 1 })
   prismaMock.teacherMeetingRecord.findMany.mockResolvedValue([])
   prismaMock.studentEnrollment.findFirst.mockResolvedValue(null)
   prismaMock.inAppNotification.createMany.mockResolvedValue({ count: 0 })
@@ -827,7 +828,8 @@ describe('POST /:id/periods/:periodId/close', () => {
       .set('Authorization', `Bearer ${tok()}`)
 
     expect(res.status).toBe(200)
-    expect(prismaMock.gradeBookPeriod.update.mock.calls[0][0].data.status).toBe('CLOSED')
+    expect(prismaMock.gradeBookPeriod.updateMany.mock.calls[0][0].data.status).toBe('CLOSED')
+    expect(prismaMock.gradeBookPeriod.updateMany.mock.calls[0][0].where).toEqual({ id: 'gbp-1', status: { not: 'CLOSED' } })
     expect(prismaMock.$executeRaw).toHaveBeenCalled()
   })
 
@@ -841,6 +843,19 @@ describe('POST /:id/periods/:periodId/close', () => {
       .set('Authorization', `Bearer ${tok()}`)
 
     expect(res.body.closedLate).toBe(true)
+  })
+
+  it('si otra persona lo cerró en el medio, no cierra dos veces ni duplica la auditoría', async () => {
+    readyForClosure({ saved: COMPLETE })
+    prismaMock.gradeBookPeriod.updateMany.mockResolvedValueOnce({ count: 0 })
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/periods/${PERIOD_ID}/close`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('ALREADY_CLOSED')
+    expect(prismaMock.$executeRaw).not.toHaveBeenCalled()
   })
 
   it('no vuelve a cerrar un período ya cerrado', async () => {
@@ -2410,8 +2425,10 @@ describe('planilla del liceo: tramos y entregas', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.coveredPeriodCodes).toEqual(['MARZO_ABRIL'])
-    const closedIds = prismaMock.gradeBookPeriod.update.mock.calls.map((call: any) => call[0].where.id)
-    expect(closedIds).toEqual(['gbp-e1', 'gbp-marabr'])
+    // La entrega se cierra con el update condicional; los tramos que informa, después.
+    expect(prismaMock.gradeBookPeriod.updateMany.mock.calls[0][0].where.id).toBe('gbp-e1')
+    const closedTramos = prismaMock.gradeBookPeriod.update.mock.calls.map((call: any) => call[0].where.id)
+    expect(closedTramos).toEqual(['gbp-marabr'])
   })
 
   it('guardar sólo R no borra la C que ya estaba', async () => {

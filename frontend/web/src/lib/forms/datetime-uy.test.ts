@@ -5,7 +5,6 @@ import {
   formatDateTimeInUruguay,
   formatTimeInUruguay,
   isUruguayWallDateTimeInPast,
-  uruguayWallTimeOnDayIso,
 } from '@/lib/forms/datetime-uy'
 
 describe('datetime-uy', () => {
@@ -46,11 +45,5 @@ describe('datetime-uy', () => {
     expect(isUruguayWallDateTimeInPast('2026-06-15', '11:00', ref)).toBe(true)
     expect(isUruguayWallDateTimeInPast('2026-06-15', '12:00', ref)).toBe(false)
     expect(isUruguayWallDateTimeInPast('2026-06-16', '08:00', ref)).toBe(false)
-  })
-
-  it('pone la hora civil de una clase en otro día sin correrla de fecha', () => {
-    // Serie de marzo a las 21:30 de Uruguay (00:30Z del día siguiente), marcada el 2 de junio.
-    expect(uruguayWallTimeOnDayIso('2026-06-02', '2026-03-04T00:30:00.000Z')).toBe('2026-06-03T00:30:00.000Z')
-    expect(uruguayWallTimeOnDayIso('2026-06-02', '2026-03-03T11:00:00.000Z')).toBe('2026-06-02T11:00:00.000Z')
   })
 })

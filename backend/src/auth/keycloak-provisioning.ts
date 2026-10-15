@@ -60,14 +60,29 @@ const USER_SELECT = {
  * `keycloakId` (anteriores al vínculo y que el relleno de arranque no alcanzó). El username no
  * vincula nunca: con `editUsernameAllowed` cualquiera se pone el de otro en la consola de cuenta.
  */
-async function findLinkedUser(kcId: string, email: string | undefined) {
+/**
+ * ¿Se puede vincular por un email que Keycloak no verificó? Sólo hasta que el relleno de arranque
+ * termina bien: para entonces todo usuario con cuenta en Keycloak ya tiene su `keycloakId`, y un email
+ * no verificado que aparece después sólo pudo ponerlo alguien en su consola de cuenta. Para vincular
+ * a mano: marcar el email como verificado en Keycloak (o reiniciar, y el relleno lo vincula).
+ */
+let unverifiedEmailLinkOpen = true;
+
+/** Sólo tests: vuelve al estado de arranque (relleno todavía no terminado). */
+export function resetUnverifiedEmailLinkForTests(): void {
+  unverifiedEmailLinkOpen = true;
+}
+
+async function findLinkedUser(kcId: string, email: string | undefined, emailVerified: boolean) {
   const linked = await prisma.user.findUnique({ where: { keycloakId: kcId }, select: USER_SELECT });
   if (linked || !email) return linked;
   const byEmail = await prisma.user.findFirst({
     where: { email: { equals: email, mode: "insensitive" } },
     select: USER_SELECT,
   });
-  if (byEmail?.keycloakId && byEmail.keycloakId !== kcId) throw new KeycloakAccountConflictError();
+  if (!byEmail) return null;
+  if (byEmail.keycloakId && byEmail.keycloakId !== kcId) throw new KeycloakAccountConflictError();
+  if (!emailVerified && !unverifiedEmailLinkOpen) throw new KeycloakAccountConflictError();
   return byEmail;
 }
 
@@ -106,7 +121,7 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
   const fullName = claims.name ?? ([firstName, lastName].filter(Boolean).join(" ") || null);
   const emailVerified = claims.email_verified === true;
 
-  const existing = await findLinkedUser(kcId, email);
+  const existing = await findLinkedUser(kcId, email, emailVerified);
 
   if (existing) {
     // Postgres es la fuente de verdad de autorización: NO sobreescribimos el
@@ -179,7 +194,10 @@ export async function linkKeycloakAccount(userId: string, kcId: string | null | 
  */
 export async function backfillKeycloakLinks(): Promise<{ linked: number; missing: string[] }> {
   const pending = await prisma.user.findMany({ where: { keycloakId: null }, select: { id: true, email: true } });
-  if (pending.length === 0) return { linked: 0, missing: [] };
+  if (pending.length === 0) {
+    unverifiedEmailLinkOpen = false;
+    return { linked: 0, missing: [] };
+  }
 
   const idsByEmail = await findKeycloakUserIdsByEmail(pending.map((user) => user.email.toLowerCase()));
   let linked = 0;
@@ -201,5 +219,7 @@ export async function backfillKeycloakLinks(): Promise<{ linked: number; missing
       console.warn(`[keycloak] vínculo omitido para el usuario ${user.id}:`, error);
     }
   }
+  // Terminó (si Keycloak no respondía, `findKeycloakUserIdsByEmail` lanzó y esto no se alcanza).
+  unverifiedEmailLinkOpen = false;
   return { linked, missing };
 }

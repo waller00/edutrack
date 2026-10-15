@@ -2327,10 +2327,15 @@ r.post('/:id/periods/:periodId/close', requirePermission('gradebook.close'), asy
     const now = new Date()
     const closedLate = isLateClosure(ctx.period.closesOn, now)
     const closedByUserId = req.user?.id ?? req.user?.sub
-    await prisma.gradeBookPeriod.update({
-      where: { id: ctx.state.id },
+    // Condicional: si dos personas cierran a la vez, sólo una cierra (y audita); la otra ve que
+    // ya estaba cerrado, en vez de dejar dos registros del mismo hito.
+    const { count } = await prisma.gradeBookPeriod.updateMany({
+      where: { id: ctx.state.id, status: { not: 'CLOSED' } },
       data: { status: 'CLOSED', closedByUserId, closedAt: now, closedLate },
     })
+    if (count === 0) {
+      return res.status(409).json({ message: 'El período ya está cerrado.', code: 'ALREADY_CLOSED' })
+    }
     const coveredCodes = await closeCoveredTramos(ctx, { closedByUserId, closedAt: now })
 
     // Cerrar es un hito reglamentario: la trazabilidad se espera, no se dispara y se olvida.

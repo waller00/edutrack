@@ -25,48 +25,35 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: [
         "src/**/*.test.ts",
+        "src/**/*.itest.ts",
         "src/**/*.d.ts",
-        // Bootstrap / wiring / observabilidad: no es lógica unit-testeable.
+        // Arranque y cableado: no es lógica unit-testeable.
         "src/server.ts",
         "src/app.ts",
         "src/instrument.ts",
-        // Integración Moodle (REST + outbox + reconciliación): validada en entorno real / e2e.
-        "src/integrations/moodle/**",
-        "src/services/moodle.ts",
-        // Catálogo académico (cursos/materias/orientaciones): Prisma CRUD + transacciones,
-        // validado por courses-subjects.routes.test.ts e integración; mismo criterio que admin-students.
-        "src/routes/courses.ts",
-        // CRUD admin de ciclos lectivos: Prisma puro, mismo criterio que admin-students.
-        "src/routes/admin-school-years.ts",
-        // Token de registro SSO en Redis (BFF): integración, mismo criterio que session-store.
-        "src/auth/sso-registration.ts",
-        // Clientes de Keycloak (Admin API/OIDC) y Redis: integración validada end-to-end contra
-        // servicios reales. La vinculación SSO y las rutas del BFF sí tienen unit tests y se miden.
+        // Clientes de base, Redis, Keycloak y Moodle (HTTP/IO), y helpers que sólo usa la suite.
+        "src/db/**",
+        "src/test-utils/**",
         "src/auth/keycloak.ts",
         "src/auth/session-store.ts",
-        "src/db/redis.ts",
-        // Helpers usados solo por la suite de tests.
-        "src/test-utils/**",
-        // Handler Prisma/raw SQL de alumnos y mensualidades; validado por integración/e2e.
-        "src/routes/admin-students.ts",
-        // Dashboard y cronología de asistencia: agregaciones Prisma; validado en e2e/UI.
-        "src/routes/analytics.ts",
-        "src/services/analytics/**",
-        "!src/services/analytics/timeline-sort.ts",
-        // Panel admin de pruebas (wipe/reset/simular ADMS): cubierto por admin-testing.routes.test.ts con mocks
+        "src/auth/sso-registration.ts",
+        "src/integrations/moodle/client.ts",
+        "src/integrations/moodle/enrolment-map.ts",
+        "src/integrations/moodle/object-map.ts",
+        // Herramientas del entorno de pruebas.
         "src/services/admin-testing-tools.ts",
         "src/routes/admin-testing.ts",
-        // Suplencias e incidencias de asistencia: Prisma/transacciones; rutas validadas con mocks en *.routes.test.ts
+        // DEUDA: módulos con tests insuficientes (menos de ~80% de líneas). Sacar de esta lista a
+        // medida que se cubran; el resto del backend ya se mide entero (Moodle, analytics, licencias).
+        "src/routes/admin-school-years.ts",
+        "src/routes/courses.ts",
+        "src/routes/admin-students.ts",
+        "src/routes/analytics.ts",
         "src/routes/substitutions.ts",
         "src/services/substitutions.ts",
         "src/routes/attendance-incidents.ts",
         "src/services/attendance-incidents.ts",
-        // Reconciliación automática de asistencias por licencia (Prisma cross-entity):
-        // mismo criterio que attendance-incidents, validado por integración/e2e.
-        "src/services/medicalLeaveReconciliation.ts",
-        // Capa de integración de hardware biométrico (ingesta de huellas, vinculación de
-        // dispositivos): se valida con dispositivo real (e2e) y los *.routes.test.ts. Las rutas
-        // que reciben marcas (iClock, ADMS) son la frontera de seguridad del lector y se miden.
+        "src/services/analytics/exports/monthlySummaryPdf.ts",
         "src/services/biometric-ingest-core.ts",
         "src/services/biometric-link.ts",
         "src/routes/biometric-link.ts",
