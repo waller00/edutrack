@@ -122,13 +122,27 @@ jobs:
       group: deploy-production-server
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Deploy to Production
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Prepare production SSH transport
+        id: production_connection
+        uses: ./.github/actions/production-ssh
         with:
-          host: ${{ secrets.SSH_HOST }}
+          enabled: ${{ vars.PRODUCTION_SSH_TAILSCALE || 'false' }}
+          public-host: ${{ secrets.SSH_HOST }}
+          private-host: ${{ vars.PRODUCTION_SSH_TAILSCALE_HOST || '100.92.202.72' }}
+          oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
+      - name: Deploy to Production
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        with:
+          host: ${{ steps.production_connection.outputs.host }}
+          fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
@@ -281,13 +295,27 @@ jobs:
       group: deploy-production-server
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Manual deploy to Production (rollback/forward)
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Prepare production SSH transport
+        id: production_connection
+        uses: ./.github/actions/production-ssh
         with:
-          host: ${{ secrets.SSH_HOST }}
+          enabled: ${{ vars.PRODUCTION_SSH_TAILSCALE || 'false' }}
+          public-host: ${{ secrets.SSH_HOST }}
+          private-host: ${{ vars.PRODUCTION_SSH_TAILSCALE_HOST || '100.92.202.72' }}
+          oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
+      - name: Manual deploy to Production (rollback/forward)
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        with:
+          host: ${{ steps.production_connection.outputs.host }}
+          fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22

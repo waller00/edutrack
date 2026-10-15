@@ -18,11 +18,26 @@ jobs:
   recover-production:
     if: github.event.inputs.target_env == 'production'
     runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Recover production stack
-        uses: appleboy/ssh-action@v1.2.0
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Prepare production SSH transport
+        id: production_connection
+        uses: ./.github/actions/production-ssh
         with:
-          host: ${{ secrets.SSH_HOST }}
+          enabled: ${{ vars.PRODUCTION_SSH_TAILSCALE || 'false' }}
+          public-host: ${{ secrets.SSH_HOST }}
+          private-host: ${{ vars.PRODUCTION_SSH_TAILSCALE_HOST || '100.92.202.72' }}
+          oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
+      - name: Recover production stack
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        with:
+          host: ${{ steps.production_connection.outputs.host }}
+          fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22

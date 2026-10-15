@@ -1,0 +1,44 @@
+name: Verify production SSH through Tailscale
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Prepare private connection (always private in this test)
+        id: production_connection
+        uses: ./.github/actions/production-ssh
+        with:
+          enabled: 'true'
+          private-host: ${{ vars.PRODUCTION_SSH_TAILSCALE_HOST || '100.92.202.72' }}
+          oauth-client-id: ${{ secrets.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ secrets.TS_DEPLOY_AUDIENCE }}
+      - name: Verify key authentication and server identity without deploying
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        with:
+          host: ${{ steps.production_connection.outputs.host }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          fingerprint: SHA256:dJ8zFDAOeippOmWV1Ll2fdx+7rLm7nFtFHWV5iv5mmY
+          port: 22
+          timeout: 30s
+          command_timeout: 2m
+          script: |
+            set -eu
+            test "$(id -un)" = root
+            printf 'Private SSH authentication OK\n'
+            hostname
+            git -C /root/edutrack rev-parse --short HEAD
+            docker ps --format '{{.Names}} {{.Status}}'
+            test -r /root/edutrack/docker-compose.cloud.yml
+            printf 'Read-only check finished. No deployment or firewall changes.\n'

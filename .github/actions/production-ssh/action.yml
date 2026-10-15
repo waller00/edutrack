@@ -1,0 +1,78 @@
+name: Prepare production SSH transport
+description: Select public SSH during migration, or validate Tailscale before SSH.
+inputs:
+  enabled:
+    description: Set to true only after the private smoke test passes.
+    default: 'false'
+  public-host:
+    description: Existing SSH_HOST, preserved during migration.
+    required: false
+  private-host:
+    description: Production IPv4 address in the Tailscale 100.64.0.0/10 range.
+    default: '100.92.202.72'
+  oauth-client-id:
+    description: Dedicated Tailscale deployment federated identity client ID.
+    required: false
+  audience:
+    description: Dedicated Tailscale deployment federated identity audience.
+    required: false
+outputs:
+  host:
+    description: Validated SSH destination, with no fallback after a private failure.
+    value: ${{ steps.transport.outputs.host }}
+runs:
+  using: composite
+  steps:
+    - name: Validate transport configuration
+      id: transport
+      shell: bash
+      env:
+        PRIVATE_ENABLED: ${{ inputs.enabled }}
+        PUBLIC_HOST: ${{ inputs.public-host }}
+        PRIVATE_HOST: ${{ inputs.private-host }}
+        TS_CLIENT_ID: ${{ inputs.oauth-client-id }}
+        TS_AUDIENCE: ${{ inputs.audience }}
+      run: |
+        set -euo pipefail
+        case "$PRIVATE_ENABLED" in
+          true)
+            test -n "$TS_CLIENT_ID" || { echo 'Missing TS_DEPLOY_CLIENT_ID'; exit 1; }
+            test -n "$TS_AUDIENCE" || { echo 'Missing TS_DEPLOY_AUDIENCE'; exit 1; }
+            python3 - <<'PY'
+        import ipaddress, os
+        address = ipaddress.ip_address(os.environ['PRIVATE_HOST'])
+        if address not in ipaddress.ip_network('100.64.0.0/10'):
+            raise SystemExit('SSH private destination must be a Tailscale IPv4 address')
+        PY
+            printf 'host=%s\n' "$PRIVATE_HOST" >> "$GITHUB_OUTPUT"
+            echo 'Transport: Tailscale; public fallback disabled.'
+            ;;
+          false|'')
+            test -n "$PUBLIC_HOST" || { echo 'Missing SSH_HOST'; exit 1; }
+            [[ "$PUBLIC_HOST" != *$'\n'* && "$PUBLIC_HOST" != *$'\r'* ]] || exit 1
+            printf 'host=%s\n' "$PUBLIC_HOST" >> "$GITHUB_OUTPUT"
+            echo 'Transport: existing public SSH (migration not enabled).'
+            ;;
+          *) echo 'PRODUCTION_SSH_TAILSCALE must be true, false or unset'; exit 1 ;;
+        esac
+
+    - name: Connect ephemeral deployment runner
+      if: inputs.enabled == 'true'
+      uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+      with:
+        oauth-client-id: ${{ inputs.oauth-client-id }}
+        audience: ${{ inputs.audience }}
+        tags: tag:github-deploy
+
+    - name: Verify SSH port through Tailscale
+      if: inputs.enabled == 'true'
+      shell: bash
+      env:
+        PRIVATE_HOST: ${{ inputs.private-host }}
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import os, socket
+        with socket.create_connection((os.environ['PRIVATE_HOST'], 22), timeout=15):
+            print('Private TCP 22 reachable; SSH authentication is checked in the next step.')
+        PY
