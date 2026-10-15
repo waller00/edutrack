@@ -64,7 +64,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
         </p>
         <Link href="/libreta" className="inline-flex items-center gap-1 text-sm text-emerald-700 hover:underline">
           <ArrowLeft className="h-4 w-4" aria-hidden />
-          Volver a Mis Libretas
+          Volver a las libretas
         </Link>
       </div>
     )
@@ -76,7 +76,7 @@ export default function LibretaShell({ children }: { children: React.ReactNode }
     <div className="space-y-4">
       <header className="border-b border-gray-200 pb-2">
         <p className="text-xs text-gray-500">
-          <Link href="/libreta" className="text-emerald-700 hover:underline">Mis Libretas</Link>
+          <Link href="/libreta" className="text-emerald-700 hover:underline">Libretas</Link>
           {' / '}Libro del Profesor
         </p>
         <div className="flex flex-wrap items-center justify-between gap-2">

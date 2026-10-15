@@ -49,20 +49,20 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('users.create', 'Usuarios', 'create', 'Crear usuarios', true, 'all'),
     perm('users.update', 'Usuarios', 'update', 'Editar usuarios', true, 'all'),
     perm('users.security', 'Usuarios', 'security', 'Bloquear usuarios y restablecer contraseñas', true, 'all'),
-    perm('attendance.read', 'Asistencias', 'read', 'Ver asistencias', true, 'all'),
-    perm('attendance.update', 'Asistencias', 'update', 'Editar asistencias', true, 'all'),
-    perm('attendance.delete', 'Asistencias', 'delete', 'Eliminar asistencias', true, 'all'),
-    perm('attendance.biometric', 'Asistencias', 'biometric', 'Registrar asistencia biométrica', true, 'all'),
-    perm('events.read', 'Eventos', 'read', 'Ver eventos', true, 'all'),
-    perm('events.create', 'Eventos', 'create', 'Crear eventos', true, 'all'),
-    perm('events.update', 'Eventos', 'update', 'Editar eventos', true, 'all'),
-    perm('events.cancel', 'Eventos', 'cancel', 'Cancelar eventos', true, 'all'),
-    perm('events.delete', 'Eventos', 'delete', 'Eliminar eventos', true, 'all'),
+    perm('attendance.read', 'Asistencia del personal', 'read', 'Ver asistencia del personal', true, 'all'),
+    perm('attendance.update', 'Asistencia del personal', 'update', 'Editar asistencia del personal', true, 'all'),
+    perm('attendance.delete', 'Asistencia del personal', 'delete', 'Eliminar asistencia del personal', true, 'all'),
+    perm('attendance.biometric', 'Asistencia del personal', 'biometric', 'Registrar asistencia biométrica', true, 'all'),
+    perm('events.read', 'Agenda y clases', 'read', 'Ver eventos', true, 'all'),
+    perm('events.create', 'Agenda y clases', 'create', 'Crear eventos', true, 'all'),
+    perm('events.update', 'Agenda y clases', 'update', 'Editar eventos', true, 'all'),
+    perm('events.cancel', 'Agenda y clases', 'cancel', 'Cancelar eventos', true, 'all'),
+    perm('events.delete', 'Agenda y clases', 'delete', 'Eliminar eventos', true, 'all'),
     perm('licenses.read', 'Licencias', 'read', 'Ver licencias', true, 'all'),
     perm('licenses.create', 'Licencias', 'create', 'Crear licencias', true, 'all'),
     perm('licenses.update', 'Licencias', 'update', 'Editar licencias', true, 'all'),
     perm('licenses.delete', 'Licencias', 'delete', 'Desactivar licencias', true, 'all'),
-    perm('analytics.read', 'Analytics', 'read', 'Ver analytics', true, 'all'),
+    perm('analytics.read', 'Indicadores del personal', 'read', 'Ver indicadores del personal', true, 'all'),
     perm('reports.read', 'Reportes', 'read', 'Ver reportes', true, 'all'),
     perm('exports.create', 'Exportaciones', 'create', 'Crear exportaciones', true, 'all'),
     perm('school-years.manage', 'Ciclos lectivos', 'manage', 'Gestionar ciclos lectivos', true, 'all'),
@@ -79,24 +79,24 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.inspect', 'Libreta', 'inspect', 'Consultar libretas y registrar visitas de inspección', true, 'all'),
     perm('gradebook.manage', 'Libreta', 'manage', 'Corregir y reabrir fuera de plazo', true, 'all'),
     perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
-    perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),
-    perm('student-reports.read', 'Reportes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
-    perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de clases', true, 'all'),
-    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver pase de lista', true, 'all'),
-    perm('student-attendance.justify', 'Pase de lista', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
-    perm('student-attendance.manage', 'Pase de lista', 'manage', 'Controlar y justificar el pase de lista', true, 'all'),
+    perm('academic-analytics.read', 'Rendimiento académico', 'read', 'Ver rendimiento académico', true, 'all'),
+    perm('student-reports.read', 'Reportes de estudiantes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
+    perm('student-attendance.take', 'Asistencia de estudiantes', 'take', 'Pasar lista de clases', true, 'all'),
+    perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver pase de lista', true, 'all'),
+    perm('student-attendance.justify', 'Asistencia de estudiantes', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
+    perm('student-attendance.manage', 'Asistencia de estudiantes', 'manage', 'Controlar y justificar el pase de lista', true, 'all'),
     perm('settings.manage', 'Configuración', 'manage', 'Gestionar configuración del sistema', true, 'all'),
     perm('audit.read', 'Auditoría', 'read', 'Ver auditoría', true, 'all'),
     perm('profiles.manage', 'Perfiles', 'manage', 'Gestionar perfiles', true, 'all'),
   ],
   TEACHER: [
-    perm('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
-    perm('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
+    perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
+    perm('events.read', 'Agenda y clases', 'read', 'Ver mis eventos', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
-    perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de mis clases', true, 'own'),
-    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
+    perm('student-attendance.take', 'Asistencia de estudiantes', 'take', 'Pasar lista de mis clases', true, 'own'),
+    perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver mis libretas', true, 'own'),
     perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en mis libretas', true, 'own'),
     perm('gradebook.plan', 'Libreta', 'plan', 'Planificar mis libretas', true, 'own'),
@@ -104,13 +104,13 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.export', 'Libreta', 'export', 'Exportar mis libretas', true, 'own'),
   ],
   STAFF: [
-    perm('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
-    perm('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
+    perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
+    perm('events.read', 'Agenda y clases', 'read', 'Ver mis eventos', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
-    perm('student-attendance.take', 'Pase de lista', 'take', 'Pasar lista de mis clases', true, 'own'),
-    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
+    perm('student-attendance.take', 'Asistencia de estudiantes', 'take', 'Pasar lista de mis clases', true, 'own'),
+    perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver el pase de lista de mis clases', true, 'own'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver mis libretas', true, 'own'),
     perm('gradebook.grade', 'Libreta', 'grade', 'Calificar en mis libretas', true, 'own'),
     perm('gradebook.plan', 'Libreta', 'plan', 'Planificar mis libretas', true, 'own'),
@@ -120,8 +120,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
   // Adscripto: controla el avance de las libretas y observa, pero NO visa. Es personal del
   // liceo, así que conserva la línea base "propia" (sus asistencias, eventos y licencias).
   ADSCRIPTO: [
-    perm('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
-    perm('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
+    perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
+    perm('events.read', 'Agenda y clases', 'read', 'Ver mis eventos', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
@@ -132,10 +132,10 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
     // Justificar es trabajo de adscripción, no del docente. Se le da el permiso acotado y no
     // `student-attendance.manage`, que además habilita reabrir listas ya cerradas.
-    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista del centro', true, 'all'),
-    perm('student-attendance.justify', 'Pase de lista', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
+    perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver el pase de lista del centro', true, 'all'),
+    perm('student-attendance.justify', 'Asistencia de estudiantes', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
     // Las alertas de faltas le llegan a adscripción, que es quien sigue al alumno.
-    perm('student-reports.read', 'Reportes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
+    perm('student-reports.read', 'Reportes de estudiantes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
   ],
   // Dirección: además de observar, es el único rol con `gradebook.endorse`. Ese permiso, y no un
   // `if` en una ruta, es lo que cumple la nota funcional del pliego ("el visado formal corresponde
@@ -145,8 +145,8 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
   // libreta de un docente salvo las calificaciones y los juicios. Por eso el permiso de calificar
   // está partido en dos — con una sola llave no habría forma de expresar esa mitad.
   DIRECCION: [
-    perm('attendance.read', 'Asistencias', 'read', 'Ver mis asistencias', true, 'own'),
-    perm('events.read', 'Eventos', 'read', 'Ver mis eventos', true, 'own'),
+    perm('attendance.read', 'Asistencia del personal', 'read', 'Ver mis asistencias', true, 'own'),
+    perm('events.read', 'Agenda y clases', 'read', 'Ver mis eventos', true, 'own'),
     perm('licenses.read', 'Licencias', 'read', 'Ver mis licencias', true, 'own'),
     perm('notifications.read', 'Notificaciones', 'read', 'Ver mis notificaciones', true, 'own'),
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
@@ -155,12 +155,12 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('gradebook.review', 'Libreta', 'review', 'Controlar libretas y registrar observaciones', true, 'all'),
     perm('gradebook.export', 'Libreta', 'export', 'Exportar libretas y boletines', true, 'all'),
     perm('gradebook.endorse', 'Libreta', 'endorse', 'Visar libretas', true, 'all'),
-    perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),
+    perm('academic-analytics.read', 'Rendimiento académico', 'read', 'Ver rendimiento académico', true, 'all'),
     // En ciclo básico dirección también justifica faltas, previa o posteriormente. Igual que
     // adscripción: el permiso acotado, sin `manage`.
-    perm('student-attendance.read', 'Pase de lista', 'read', 'Ver el pase de lista del centro', true, 'all'),
-    perm('student-attendance.justify', 'Pase de lista', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
-    perm('student-reports.read', 'Reportes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
+    perm('student-attendance.read', 'Asistencia de estudiantes', 'read', 'Ver el pase de lista del centro', true, 'all'),
+    perm('student-attendance.justify', 'Asistencia de estudiantes', 'justify', 'Justificar faltas y fijar media falta', true, 'all'),
+    perm('student-reports.read', 'Reportes de estudiantes', 'read', 'Ver reportes y alertas de estudiantes', true, 'all'),
   ],
   // Inspección: consulta y observa dentro de su ámbito. Sin `gradebook.endorse` —los visados de
   // Dirección no le son modificables— y sin la línea base "propia", porque no es personal del
@@ -170,9 +170,23 @@ export const DEFAULT_PROFILE_PERMISSIONS: Record<BuiltinProfileRole, readonly De
     perm('courses.read', 'Cursos', 'read', 'Ver cursos y materias', true, 'all'),
     perm('gradebook.read', 'Libreta', 'read', 'Ver libretas de su ámbito', true, 'all'),
     perm('gradebook.inspect', 'Libreta', 'inspect', 'Registrar visitas de inspección y observaciones', true, 'all'),
-    perm('academic-analytics.read', 'Análisis académico', 'read', 'Ver indicadores académicos', true, 'all'),
+    perm('academic-analytics.read', 'Rendimiento académico', 'read', 'Ver rendimiento académico', true, 'all'),
   ],
 } as const
+
+/**
+ * Módulos de permisos renombrados para que digan de quién son. "Asistencias" era la del personal y
+ * "Pase de lista" incluía justificar faltas de estudiantes: en Roles / Perfiles se confundían igual
+ * que en el menú. El arranque renombra también los permisos viejos que ya no están en la matriz
+ * (por ejemplo `attendance.create`), que si no quedarían solos bajo el nombre anterior.
+ */
+export const RENAMED_PERMISSION_MODULES: Readonly<Record<string, string>> = {
+  Asistencias: 'Asistencia del personal',
+  'Pase de lista': 'Asistencia de estudiantes',
+  Analytics: 'Indicadores del personal',
+  'Análisis académico': 'Rendimiento académico',
+  Eventos: 'Agenda y clases',
+}
 
 export const REMOVED_PROFILE_PERMISSION_IDS: Record<BuiltinProfileRole, Set<string>> = {
   ADMIN: new Set(['licenses.approve']),

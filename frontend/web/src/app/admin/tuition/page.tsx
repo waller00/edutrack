@@ -11,6 +11,7 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { api } from '@/lib/api/client'
 import { MONTH_NAMES, formatTuitionAmount, type TuitionList, type TuitionStatus, type TuitionStudent } from '@/lib/admin/tuition'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 const PAGE_SIZE = 20
 const FILTERS = [{ id: 'all', label: 'Todos' }, { id: 'pending', label: 'Pendientes' }, { id: 'paid', label: 'Pagados' }, { id: 'none', label: 'Sin registrar' }] as const
@@ -77,13 +78,10 @@ function TuitionWorkspace({ initialYear }: { initialYear: number }) {
   function filterStatus(value: TuitionStatus | 'all') { setStatus(value); setPage(1) }
 
   return <main className="responsive-page max-w-[1600px] space-y-5">
-    <header className="flex flex-wrap items-start justify-between gap-4">
-      <div className="flex items-center gap-4">
-        <div className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 sm:flex"><Receipt className="h-6 w-6" aria-hidden /></div>
-        <div><h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Mensualidades</h1><p className="mt-1 text-sm text-slate-500">Consultá las cuotas del mes y registrá los pagos.</p></div>
-      </div>
-      <Link href="/admin/students" className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-white hover:text-emerald-700"><ArrowLeft className="h-4 w-4" aria-hidden />Estudiantes</Link>
-    </header>
+    <ModuleHeader
+      id="tuition"
+      actions={<Link href="/admin/students" className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-white hover:text-emerald-700"><ArrowLeft className="h-4 w-4" aria-hidden />Estudiantes</Link>}
+    />
 
     <details className="group rounded-xl border border-slate-200 bg-white shadow-sm">
       <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-2 p-4 text-sm font-medium text-slate-700 [&::-webkit-details-marker]:hidden">

@@ -508,7 +508,7 @@ function humanTimelineTitle(item: AttendanceTimelineApiItem) {
   if (item.type === 'BIOMETRIC_ENTRY') return `${teacher} registró entrada por huella`
   if (item.type === 'BIOMETRIC_EXIT') return `${teacher} registró salida por huella`
   if (item.type === 'LATE_ARRIVAL') return `${teacher} llegó tarde a ${className}`
-  if (item.type === 'PENDING_ABSENCE') return `Hay una ausencia pendiente de justificar: ${className}`
+  if (item.type === 'PENDING_ABSENCE') return `Falta del docente sin justificar: ${className}`
   if (item.type === 'EARLY_EXIT') return `${teacher} registró retiro anticipado`
   if (item.type === 'OUT_OF_SCHEDULE_PUNCH') return 'Se detectó una marcación fuera de horario'
   if (item.type === 'UNIDENTIFIED_PUNCH') return 'Se detectó una marcación no identificada'
@@ -516,8 +516,8 @@ function humanTimelineTitle(item: AttendanceTimelineApiItem) {
   if (item.type === 'SUBSTITUTION' && !item.title.toLowerCase().includes('cubre')) {
     return `${teacher} tiene ausencia prevista sin justificar en ${className}`
   }
-  if (item.type === 'CLASS_ATTENDANCE' && item.status === 'PRESENT') return `${className} - Presente`
-  if (item.type === 'CLASS_ATTENDANCE' && item.status === 'SCHEDULED') return `${className} - Programada`
+  if (item.type === 'CLASS_ATTENDANCE' && item.status === 'PRESENT') return `${className} · docente presente`
+  if (item.type === 'CLASS_ATTENDANCE' && item.status === 'SCHEDULED') return `${className} · programada`
   return item.title
 }
 
@@ -525,6 +525,7 @@ function humanTimelineTitle(item: AttendanceTimelineApiItem) {
 function ClassRollCallStatus({ rollCall, now, canOpen }: { rollCall: DayRollCall; now: Date; canOpen: boolean }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-sm text-slate-400">Estudiantes · </span>
       <span
         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-medium ${dayRollCallChipClass(
           dayRollCallPhase(rollCall, now),
@@ -867,7 +868,7 @@ export function HomeAdminTimeline() {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="min-w-0 break-words text-sm font-semibold text-slate-900">
-                              {item.type === 'PENDING_ABSENCE' ? `Ausencia en ${timelineClassName(item)}` : humanTimelineTitle(item)}
+                              {item.type === 'PENDING_ABSENCE' ? `Falta del docente en ${timelineClassName(item)}` : humanTimelineTitle(item)}
                             </p>
                             <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
                               {item.statusLabel}
@@ -916,15 +917,15 @@ export function HomeAdminTimeline() {
                       <li key={item.id} className="px-4 py-3.5">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="break-words text-sm font-semibold text-slate-900">{timelineClassName(item)}</h3>
+                            <h3 className="break-words text-sm font-semibold text-slate-900">{timelineClassName(item)}</h3>
+                            <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-600">
+                              <span className="min-w-0 truncate">
+                                <span className="text-slate-400">Docente · </span>
+                                {timelineTeacherName(item)}
+                              </span>
                               <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClassForStatus(item.status)}`}>
                                 {item.statusLabel}
                               </span>
-                            </div>
-                            <p className="truncate text-sm text-slate-600">
-                              <span className="text-slate-400">Docente · </span>
-                              {timelineTeacherName(item)}
                             </p>
                             <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                               {item.group ? <span>{item.group.name}</span> : null}

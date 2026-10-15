@@ -16,7 +16,7 @@ function RedirectToNewPlace() {
 
 /**
  * Ruta legacy. Los reportes de estudiantes se repartieron: las faltas están en Asistencia de
- * estudiantes y las notas en el Seguimiento de Inteligencia académica. La ruta se conserva por los
+ * estudiantes y las notas en el Seguimiento de Rendimiento académico. La ruta se conserva por los
  * avisos guardados y los enlaces viejos.
  */
 export default function LegacyStudentReportsPage() {

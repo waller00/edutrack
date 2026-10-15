@@ -27,7 +27,6 @@ import AttendanceJustifyModal from '@/components/admin/AttendanceJustifyModal'
 import PersonAttendanceDrawer from '@/components/admin/PersonAttendanceDrawer'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import {
-  BarChart3,
   ChevronDown,
   ChevronRight,
   Search,
@@ -35,6 +34,7 @@ import {
 } from 'lucide-react'
 import StatusDistribution, { type DistributionItem } from '@/components/charts/StatusDistribution'
 import ScrollRegion from '@/components/common/ScrollRegion'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type NovedadesFormat = 'XLSX' | 'CSV'
 
@@ -1062,22 +1062,15 @@ function AdminAttendanceContent() {
   return (
     <>
       <main className="responsive-page max-w-7xl space-y-5">
-        {/* Header moderno */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <BarChart3 className="h-7 w-7 text-emerald-600" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Asistencias</h1>
-              <p className="text-gray-600">Control y seguimiento del personal</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <span className="text-sm text-slate-500"><strong className="font-semibold tabular-nums text-slate-800">{total}</strong> registros totales</span>
-            {canExport && <AttendanceExportMenu pending={!!(reportExporting || novedadesExporting)} onAttendance={exportReport} onPayroll={exportNovedades} />}
-          </div>
-        </div>
+        <ModuleHeader
+          id="staff-attendance"
+          actions={
+            <>
+              <span className="text-sm text-slate-500"><strong className="font-semibold tabular-nums text-slate-800">{total}</strong> registros totales</span>
+              {canExport && <AttendanceExportMenu pending={!!(reportExporting || novedadesExporting)} onAttendance={exportReport} onPayroll={exportNovedades} />}
+            </>
+          }
+        />
 
         {/* Filtros modernos */}
         <div className="card">

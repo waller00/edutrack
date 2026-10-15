@@ -18,7 +18,6 @@ import {
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
-  BarChart3,
   ChevronDown,
   FileSpreadsheet,
   FileText,
@@ -41,6 +40,7 @@ import {
 import TrendLineChart from '@/components/charts/TrendLineChart'
 import BreakdownBarChart from '@/components/charts/BreakdownBarChart'
 import StatusDonutChart from '@/components/charts/StatusDonutChart'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type OrgRoleFilter = 'ADMIN' | 'STAFF' | 'TEACHER'
 
@@ -899,18 +899,8 @@ export default function AdminAnalyticsPage() {
   return (
     <RoleGuard permission="analytics.read" permissionScope="all">
       <main className="responsive-page max-w-7xl space-y-4">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
-              <BarChart3 className="h-6 w-6" aria-hidden />
-            </span>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Indicadores</h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Revisá la asistencia del personal y su evolución en el período.
-              </p>
-            </div>
-          </div>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <ModuleHeader id="staff-indicators" />
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -957,7 +947,7 @@ export default function AdminAnalyticsPage() {
               </details>
             )}
           </div>
-        </header>
+        </div>
         <section aria-label="Filtros de indicadores" className={cardClass}>
           <div className="grid gap-3 md:grid-cols-2">
             <DateRangePicker

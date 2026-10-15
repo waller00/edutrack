@@ -35,7 +35,7 @@ const RULE_TEXT: Record<
     shortHint: 'Cantidad de asignaturas con nota de reunión en alerta.',
     hint:
       'El estudiante queda en alerta con esta cantidad o más de asignaturas en el tramo de alerta de la escala, ' +
-      'mirando la nota de reunión (R). Es lo que marca la matriz de la reunión y lo que cuenta Inteligencia académica.',
+      'mirando la nota de reunión (R). Es lo que marca la matriz de la reunión y lo que cuenta Rendimiento académico.',
     unit: 'subjects',
   },
   SCORE_DROP: {

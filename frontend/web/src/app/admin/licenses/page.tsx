@@ -18,9 +18,10 @@ import { getAdminFlashMessageClass } from '@/lib/admin/ui-helpers'
 import { formatDateInUruguay } from '@/lib/forms/datetime-uy'
 import DateField from '@/components/forms/DateField'
 import DateRangePicker from '@/components/forms/DateRangePicker'
-import { ChevronDown, FileText, Loader2, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { ChevronDown, Loader2, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
 import ScrollRegion from '@/components/common/ScrollRegion'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type License = {
   id: string
@@ -548,22 +549,15 @@ function LicensesPageContent() {
       <main className="responsive-page max-w-7xl space-y-5">
         {/* Header alineado a otros módulos admin */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
-              <FileText className="h-7 w-7 text-emerald-600" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-gray-900">Gestión de licencias</h1>
-              <p className="mt-1 text-sm text-gray-600">Registrá licencias y consultá los días no laborables.</p>
-              <details className="mt-2 max-w-2xl text-xs text-slate-500">
-                <summary className="cursor-pointer">Cómo se aplican las licencias</summary>
-                <p className="mt-2 leading-relaxed">Registro centralizado por la dirección o administración. El personal solo consulta sus licencias en su
-                panel. Una licencia cubre sus días enteros: cada clase de esos días aparece como ausencia justificada
-                cuando termina, no antes. Si la licencia se desactiva o se acorta, esas ausencias vuelven a quedar sin
-                justificar (las justificadas a mano no se tocan).</p>
-              </details>
-            </div>
-          </div>
+          <ModuleHeader id="staff-licenses">
+            <details className="mt-2 max-w-2xl text-xs text-slate-500">
+              <summary className="cursor-pointer">Cómo se aplican las licencias</summary>
+              <p className="mt-2 leading-relaxed">Registro centralizado por la dirección o administración. El personal solo consulta sus licencias en su
+              panel. Una licencia cubre sus días enteros: cada clase de esos días aparece como ausencia justificada
+              cuando termina, no antes. Si la licencia se desactiva o se acorta, esas ausencias vuelven a quedar sin
+              justificar (las justificadas a mano no se tocan).</p>
+            </details>
+          </ModuleHeader>
           {activeSection === 'licenses' ? (
             <div className="flex flex-col items-end gap-3 shrink-0">
               {canCreate && <button

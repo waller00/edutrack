@@ -193,11 +193,15 @@ Registro **sin login obligatorio** del alumnado:
 
 ---
 
-## 9. Asistencias
+## 9. Asistencia del personal
+
+> Es la asistencia de **docentes y funcionarios**. La de los estudiantes es otra cosa: se pasa en
+> el pase de lista (§11 bis) y se controla en "Asistencia de estudiantes". En pantalla, ninguna de
+> las dos se nombra sin decir de quién es.
 
 ### 9.1 Gestión administrativa
 
-**Pantalla:** `/admin/attendance`
+**Pantalla:** "Asistencia del personal" (`/admin/attendance`)
 
 - Listado institucional con filtros: fechas, usuario, tipo (entrada/salida), estado, rol, ciclo lectivo.
 - Alta/edición/baja manual de registros (según permisos).
@@ -577,7 +581,7 @@ adscripción, dirección, inspección y administración.
   consecutivos.
 - **Riesgo (§5.7):** se marca al estudiante con N o más asignaturas en tramo de alerta. El umbral
   es la regla *Asignaturas en alerta* del ciclo (3 por defecto), la misma que usan los indicadores,
-  así "en alerta" significa lo mismo en la reunión y en Inteligencia académica. El descenso
+  así "en alerta" significa lo mismo en la reunión y en Rendimiento académico. El descenso
   sostenido exige **tres** bajas consecutivas: dos
   puntos son ruido, no tendencia. Las alertas son informativas y no generan por sí solas
   decisiones administrativas, promociones ni sanciones.
@@ -663,7 +667,9 @@ personal y las novedades de sueldos.
 
 ### Backoffice de inteligencia académica (§5, RF-200)
 
-**Pantalla:** `/libreta/indicadores`, permiso `academic-analytics.read` de alcance ALL. Filtros de
+**Pantalla:** "Rendimiento académico" (`/libreta/indicadores`), permiso `academic-analytics.read`
+de alcance ALL. En el menú se llama así para que no se confunda con los indicadores del personal.
+Filtros de
 nivel, reunión y grupo.
 
 - **Tres bloques** como pide el pliego: *Estudiantes* (total, evaluados, sin evaluaciones, en
@@ -790,7 +796,7 @@ Permiso `student-reports.read` (administración, dirección y adscripción). Tod
   - Comparten pantalla con "Justificaciones" y "Listas sin pasar": quien ve que un alumno llegó a 18
     lo justifica ahí mismo.
   - Cada pestaña se muestra con su permiso.
-- **Notas** → **Inteligencia académica** (`/libreta/indicadores`), en la vista "Seguimiento"
+- **Notas** → **Rendimiento académico** (`/libreta/indicadores`), en la vista "Seguimiento"
   (`?view=seguimiento`): un solo boletín para las dos listas.
   - El tablero dice cuántos están "en alerta" o "en descenso"; el seguimiento, quiénes.
   - Adscripción, que no tiene `academic-analytics.read`, entra con `student-reports.read` y ve sólo
@@ -892,9 +898,29 @@ Supervisión y parametrización — `/libreta/reunion`, `/libreta/control`, `/li
 `/libreta/indicadores`, `/libreta/estudiante/[id]`, `/libreta/configuracion`.
 
 ### General
-`/`, `/profile`, `/notifications` (`/student/attendance` es legacy y redirige a `/me/roll-call`)
+`/`, `/guia`, `/profile`, `/notifications` (`/student/attendance` es legacy y redirige a `/me/roll-call`)
 
-El menú lateral (`UserNav`) agrupa entradas según **permisos**, no solo por rol fijo.
+### Menú, nombres y Guía
+
+El menú lateral (`UserNav`) muestra cada entrada según **permisos**, no por rol fijo, y agrupa por
+**destinatario**, para que lo del personal y lo de los estudiantes no se mezclen:
+
+| Grupo | Qué tiene |
+|-------|-----------|
+| Inicio | Inicio y la **Guía** (`/guia`) |
+| Mi trabajo | Lo propio: Mi agenda, Pase de lista, Mis libretas, Mis asistencias, Mis licencias |
+| Personal | Asistencia del personal, Licencias, Agenda y clases, Usuarios, Indicadores del personal |
+| Estudiantes | Estudiantes, Asistencia de estudiantes, Mensualidades |
+| Académico | Ciclos lectivos, Cursos |
+| Libretas | Libretas, Control, Visado, Reunión de profesores, Rendimiento académico, Configuración de libreta |
+| Configuración | Mi perfil, Configuración del sistema, Roles / Perfiles, Auditoría |
+
+- **Nombres y descripciones:** salen de un solo catálogo (`frontend/web/src/lib/navigation/modules.ts`),
+  que también usan Inicio, el encabezado de cada pantalla (`ModuleHeader`) y la Guía.
+- **Encabezado:** cada pantalla dice de qué grupo es y para qué sirve. Si tiene una pantalla parecida
+  con la que se confunde, ofrece el enlace ("¿Buscás las faltas de los estudiantes?").
+- **La Guía:** explica la diferencia entre las dos asistencias y lista sólo lo que la persona
+  puede usar. Inicio la ofrece la primera vez, con un aviso que se cierra.
 
 ---
 

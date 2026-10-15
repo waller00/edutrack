@@ -7,7 +7,7 @@ import GradeFollowUp from '@/components/admin/student-reports/GradeFollowUp'
 import AcademicDashboard from './AcademicDashboard'
 
 /**
- * Inteligencia académica según quién mira:
+ * Rendimiento académico (el "backoffice de inteligencia académica" del RF-200) según quién mira:
  * - con los indicadores (`academic-analytics.read`), el tablero, más "Seguimiento" si también ve los
  *   reportes de estudiantes;
  * - con sólo los reportes (adscripción), sólo el seguimiento de notas: antes lo veía en "Reportes".

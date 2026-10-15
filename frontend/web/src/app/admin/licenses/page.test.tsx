@@ -46,7 +46,7 @@ describe('LicensesPage', () => {
 
     render(<LicensesPage />)
 
-    expect(await screen.findByText('Gestión de licencias')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Licencias' })).toBeInTheDocument()
     expect((await screen.findAllByText('Licencia médica presentada')).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Rechazar' })).not.toBeInTheDocument()
@@ -226,7 +226,7 @@ describe('LicensesPage', () => {
     })
 
     render(<LicensesPage />)
-    await screen.findByText('Gestión de licencias')
+    await screen.findByRole('heading', { level: 1, name: 'Licencias' })
 
     fireEvent.click(screen.getByRole('button', { name: /nueva licencia/i }))
     fireEvent.change(screen.getByLabelText('Usuario de licencia'), { target: { value: 'u1' } })

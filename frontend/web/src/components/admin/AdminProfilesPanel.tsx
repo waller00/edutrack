@@ -16,6 +16,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type PermissionScope = 'own' | 'all'
 type PermissionSource = 'system' | 'custom'
@@ -599,20 +600,22 @@ export default function AdminProfilesPanel({
     <main
       className={compact ? 'space-y-4' : 'responsive-page max-w-7xl space-y-4'}
     >
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
-            <ShieldCheck className="h-6 w-6" aria-hidden />
-          </span>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-950">
-              Roles / Perfiles
-            </h1>
-            <p className="mt-1 text-sm text-slate-600">
-              Elegí un perfil y definí qué puede ver y hacer.
-            </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        {compact ? (
+          <div className="flex items-start gap-3">
+            <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
+              <ShieldCheck className="h-6 w-6" aria-hidden />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-950">Roles / Perfiles</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Elegí un perfil y definí qué puede ver y hacer.
+              </p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <ModuleHeader id="profiles" />
+        )}
         <button
           type="button"
           onClick={() => {
@@ -625,7 +628,7 @@ export default function AdminProfilesPanel({
           <Plus className="h-4 w-4" aria-hidden />
           Nuevo perfil
         </button>
-      </header>
+      </div>
 
       {message && (
         <div

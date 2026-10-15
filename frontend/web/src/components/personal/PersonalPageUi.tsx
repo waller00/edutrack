@@ -1,27 +1,4 @@
-import type { ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
-
-export function PersonalHeader({
-  title,
-  description,
-  icon,
-}: {
-  title: string
-  description: string
-  icon: ReactNode
-}) {
-  return (
-    <header className="flex items-start gap-3">
-      <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-600 sm:block">
-        {icon}
-      </span>
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
-      </div>
-    </header>
-  )
-}
 
 export function PersonalLoading() {
   return (

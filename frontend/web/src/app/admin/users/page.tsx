@@ -43,10 +43,10 @@ import {
   Trash2,
   TriangleAlert,
   Unlock,
-  Users,
   X,
 } from 'lucide-react'
 import ScrollRegion from '@/components/common/ScrollRegion'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type Notice = { text: string; tone: 'success' | 'error' }
 
@@ -442,17 +442,7 @@ function AdminUsersPageContent() {
     <>
       <main className="responsive-page max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
-              <Users className="h-6 w-6 text-emerald-700" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Usuarios</h1>
-              <p className="mt-1 text-sm text-slate-600">
-                Gestioná las cuentas y las solicitudes de acceso.
-              </p>
-            </div>
-          </div>
+          <ModuleHeader id="users" />
           {canCreate && <button type="button" onClick={() => setCreating(true)} className="btn-primary shrink-0">
             <Plus className="h-4 w-4" aria-hidden />Nuevo usuario
           </button>}

@@ -210,7 +210,8 @@ describe('Home page', () => {
     expect(screen.getByText('Necesita tu atención')).toBeInTheDocument()
     expect(screen.queryByText('Clases del día')).not.toBeInTheDocument()
     expect(screen.queryByText('Actividad reciente')).not.toBeInTheDocument()
-    expect(screen.getByText('Ausencia en Historia 2°B')).toBeInTheDocument()
+    // Dice de quién es la falta: "Ausencia" sola se leía como la de un alumno.
+    expect(screen.getByText('Falta del docente en Historia 2°B')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Revisar' })).toHaveAttribute(
       'href',
       '/admin/attendance',
@@ -227,7 +228,7 @@ describe('Home page', () => {
     ).toBeInTheDocument()
     expect(
       screen.getAllByText(
-        'Hay una ausencia pendiente de justificar: Historia 2°B',
+        'Falta del docente sin justificar: Historia 2°B',
       )[0],
     ).toBeInTheDocument()
     expect(screen.getAllByText('Pendiente')[0]).toBeInTheDocument()
@@ -331,6 +332,10 @@ describe('Home page', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Lista sin pasar')).toBeInTheDocument()
     expect(screen.getByText('Listas pasadas: 1 de 2.')).toBeInTheDocument()
+    // Cada estado dice de quién es: "Presente" va con el docente; la lista, con los estudiantes.
+    const teacherLine = screen.getByText('Ana Pérez', { selector: 'span' }).closest('p')!
+    expect(teacherLine).toHaveTextContent('Docente · Ana PérezPresente')
+    expect(screen.getAllByText('Estudiantes ·')).toHaveLength(2)
     const links = screen.getAllByRole('link', { name: 'Ver lista' })
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
       '/me/roll-call/ev-2/2026-05-24',
@@ -551,7 +556,7 @@ it.each(rolePermissions)(
       (item) => item.id === 'academic-analytics.read',
     )
     expect(
-      Boolean(screen.queryByRole('link', { name: /Inteligencia académica/ })),
+      Boolean(screen.queryByRole('link', { name: /Rendimiento académico/ })),
     ).toBe(withAnalytics)
     expect(
       calls.mock.calls.some(([url]) =>
@@ -586,7 +591,7 @@ it('un perfil personalizado con indicadores no recibe enlaces a módulos que no 
   renderHome()
   await screen.findByText('Resumen del día')
   expect(
-    screen.queryByRole('link', { name: 'Asistencias' }),
+    screen.queryByRole('link', { name: 'Asistencia del personal' }),
   ).not.toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Agenda' })).not.toBeInTheDocument()
 })

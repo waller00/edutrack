@@ -101,13 +101,13 @@ describe('<LibretaShell />', () => {
     expect(screen.queryByText(/Ciclo lectivo cerrado/)).not.toBeInTheDocument()
   })
 
-  it('ante un error ofrece la vuelta a Mis Libretas en lugar de dejar el marco vacío', async () => {
+  it('ante un error ofrece la vuelta a las libretas en lugar de dejar el marco vacío', async () => {
     mockedApi.mockRejectedValue(new Error('No asignada'))
 
     renderShell()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No asignada')
-    expect(screen.getByRole('link', { name: /Volver a Mis Libretas/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Volver a las libretas/ })).toBeInTheDocument()
     expect(screen.queryByText('contenido de la sección')).not.toBeInTheDocument()
   })
 

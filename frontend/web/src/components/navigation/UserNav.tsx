@@ -3,33 +3,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import {
-  BarChart3,
-  BookMarked,
-  BookOpen,
-  CalendarDays,
   ChevronDown,
-  ClipboardList,
-  History,
-  GraduationCap,
-  LayoutDashboard,
+  CircleHelp,
   LogOut,
   Menu,
-  Receipt,
-  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
-  School,
   Settings,
-  ShieldCheck,
   User,
-  UserRound,
-  Users,
   X,
-  type LucideIcon,
 } from 'lucide-react'
 import { logoutUrl } from '@/lib/auth/urls'
 import { clearObservabilityUser } from '@/lib/observability/user-session'
 import { getRoleLabel } from '@/lib/roles/display'
+import { hasPermission } from '@/lib/auth/permissions'
+import { APP_MODULES, visibleNavGroups, type AppModule, type VisibleNavGroup } from '@/lib/navigation/modules'
 import { useAuth, type AuthMe } from '@/contexts/AuthContext'
 import RollCallReminderBar from '@/components/rollcall/RollCallReminderBar'
 import NotificationBell from '@/components/notifications/NotificationBell'
@@ -39,98 +27,12 @@ import { SidebarSlotContext } from './sidebar-slot'
 
 type MeUser = AuthMe
 
-type NavItem = {
-  label: string
-  href: string
-  permission?: string | string[]
-  permissionScope?: 'own' | 'all'
-}
-
-type NavGroup = {
-  title: string
-  icon: LucideIcon
-  items: NavItem[]
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    title: 'Inicio',
-    icon: LayoutDashboard,
-    // Los avisos no van en el menú: están en la campana del encabezado.
-    items: [{ label: 'Inicio', href: '/' }],
-  },
-  {
-    title: 'Equipo',
-    icon: Users,
-    items: [
-      { label: 'Asistencias', href: '/admin/attendance', permission: 'attendance.read', permissionScope: 'all' },
-      { label: 'Agenda y clases', href: '/admin/events', permission: 'events.read', permissionScope: 'all' },
-      { label: 'Usuarios', href: '/admin/users', permission: 'users.read', permissionScope: 'all' },
-      { label: 'Licencias', href: '/admin/licenses', permission: 'licenses.read', permissionScope: 'all' },
-      { label: 'Mi agenda', href: '/me/events', permission: 'events.read', permissionScope: 'own' },
-      { label: 'Pase de lista', href: '/me/roll-call', permission: 'student-attendance.take', permissionScope: 'own' },
-      { label: 'Mis asistencias', href: '/me/attendance', permission: 'attendance.read', permissionScope: 'own' },
-      { label: 'Mis licencias', href: '/me/licenses', permission: 'licenses.read', permissionScope: 'own' },
-    ],
-  },
-  {
-    title: 'Académico',
-    icon: School,
-    items: [
-      { label: 'Ciclos lectivos', href: '/admin/school-years', permission: 'school-years.manage', permissionScope: 'all' },
-      { label: 'Cursos', href: '/admin/courses', permission: ['courses.read', 'courses.manage'] },
-      { label: 'Estudiantes', href: '/admin/students', permission: 'students.manage', permissionScope: 'all' },
-      { label: 'Mensualidades', href: '/admin/tuition', permission: 'students.manage', permissionScope: 'all' },
-      // Justificaciones, faltas seguidas, 18/25 faltas y listas sin pasar: adscripción, dirección y administración.
-      {
-        label: 'Asistencia de estudiantes',
-        href: '/admin/student-attendance',
-        permission: ['student-attendance.justify', 'student-attendance.manage', 'student-reports.read'],
-        permissionScope: 'all',
-      },
-    ],
-  },
-  {
-    title: 'Libreta @',
-    icon: BookMarked,
-    items: [
-      // El orden espeja cómo se usa: primero las libretas propias, después lo transversal.
-      // Al docente le alcanza "Mis Libretas": Evaluaciones, Inasistencias y Cierre están en el menú
-      // de cada libreta. Los accesos directos de acá sólo abrían un selector de libreta para llegar
-      // a la misma sección, y el lateral mostraba una copia recortada de ese menú. Las rutas
-      // (`/libreta/evaluaciones`, `/libreta/inasistencias`, `/libreta/cierre-alumno`) siguen vivas.
-      { label: 'Mis Libretas', href: '/libreta', permission: 'gradebook.read' },
-      // Supervisión: adscripción, dirección e inspección.
-      { label: 'Control de libretas', href: '/libreta/control', permission: 'gradebook.review', permissionScope: 'all' },
-      { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
-      { label: 'Reunión de profesores', href: '/libreta/reunion', permission: 'gradebook.read', permissionScope: 'all' },
-      // Con sólo los reportes de estudiantes (adscripción) se ve el seguimiento de notas.
-      { label: 'Inteligencia académica', href: '/libreta/indicadores', permission: ['academic-analytics.read', 'student-reports.read'], permissionScope: 'all' },
-      { label: 'Configuración de libreta', href: '/libreta/configuracion', permission: 'academic-config.manage', permissionScope: 'all' },
-    ],
-  },
-  // Los reportes de estudiantes se repartieron: las faltas en "Asistencia de estudiantes" y las notas
-  // en el seguimiento de "Inteligencia académica".
-  {
-    title: 'Análisis',
-    icon: BarChart3,
-    items: [
-      { label: 'Indicadores', href: '/admin/analytics', permission: 'analytics.read' },
-    ],
-  },
-  {
-    title: 'Configuración',
-    // Engranaje y no deslizadores: ese ícono se lee como "filtros", y para un docente el grupo
-    // sólo tiene "Mi perfil".
-    icon: Settings,
-    items: [
-      { label: 'Mi perfil', href: '/profile' },
-      { label: 'Configuración del sistema', href: '/admin/settings', permission: 'settings.manage', permissionScope: 'all' },
-      { label: 'Roles / Perfiles', href: '/admin/profiles', permission: 'profiles.manage', permissionScope: 'all' },
-      { label: 'Auditoría', href: '/admin/audit', permission: 'audit.read', permissionScope: 'all' },
-    ],
-  },
-]
+/*
+ * Los grupos, los nombres, los íconos y los permisos del menú salen del catálogo de módulos
+ * (`lib/navigation/modules.ts`), el mismo que usan Inicio, los encabezados y la Guía. Los grupos
+ * van por destinatario —Mi trabajo, Personal, Estudiantes…— para que la asistencia del personal y
+ * la de los estudiantes no queden mezcladas. Los avisos no van en el menú: están en la campana.
+ */
 
 const PUBLIC_PATHS = ['/login', '/register', '/forgot', '/reset', '/verify', '/onboarding', '/register-step-by-step']
 
@@ -142,59 +44,12 @@ function isPublicPath(pathname: string) {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 }
 
-function itemIcon(label: string) {
-  if (/pase de lista/i.test(label)) return ClipboardList
-  if (/libreta|evaluacion|cierre de per|visado|reunión|reunion/i.test(label)) return BookOpen
-  if (/curso/i.test(label)) return BookOpen
-  if (/estudiante/i.test(label)) return GraduationCap
-  if (/mensualidad/i.test(label)) return Receipt
-  if (/agenda|evento|clase|turno/i.test(label)) return CalendarDays
-  if (/asistencia/i.test(label)) return ClipboardList
-  if (/^mi perfil$/i.test(label)) return UserRound
-  if (/perfil|rol/i.test(label)) return ShieldCheck
-  if (/auditor/i.test(label)) return History
-  if (/consulta/i.test(label)) return MessageCircle
-  if (/config/i.test(label)) return Settings
-  return LayoutDashboard
-}
-
-function permissionMap(me: MeUser) {
-  const map = new Map<string, 'own' | 'all'>()
-  for (const id of me.permissionIds ?? []) map.set(id, 'own')
-  for (const permission of me.permissions ?? []) map.set(permission.id, permission.scope === 'all' ? 'all' : 'own')
-  return map
-}
-
-function canSeeItem(me: MeUser, item: NavItem) {
-  if (item.permission) {
-    const ids = Array.isArray(item.permission) ? item.permission : [item.permission]
-    return ids.some((id) => {
-      const scope = permissionMap(me).get(id)
-      if (scope === undefined) return false
-      if (item.permissionScope === 'all') return scope === 'all'
-      if (item.permissionScope === 'own') return scope === 'own'
-      return true
-    })
-  }
-
-  return true
-}
-
-function hasPermission(me: MeUser, permission: string, permissionScope?: 'own' | 'all') {
-  const scope = permissionMap(me).get(permission)
-  return Boolean(scope && (!permissionScope || permissionScope === scope || scope === 'all'))
-}
-
 function visibleGroups(me: MeUser) {
-  return NAV_GROUPS
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => canSeeItem(me, item)).map((item) => item.href === '/libreta' && hasPermission(me, 'gradebook.read', 'all') ? { ...item, label: 'Libretas' } : item),
-    }))
-    .filter((group) => group.items.length > 0)
+  return visibleNavGroups(me)
 }
 
-const ALL_HREFS = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href))
+
+const ALL_HREFS = APP_MODULES.map((entry) => entry.href)
 
 const COLLAPSED_KEY = 'edutrack.sidebar.collapsed'
 const OPEN_GROUPS_KEY = 'edutrack.sidebar.openGroups'
@@ -225,7 +80,7 @@ function writeStored(key: string, value: string) {
  * ¿Este ítem es el activo?
  *
  * No alcanza con que la URL empiece con el href: `/libreta` es prefijo de `/libreta/visado`, así
- * que "Mis Libretas" se marcaría como activo en todo el módulo. Gana el href **más específico**
+ * que "Mis libretas" se marcaría como activo en todo el módulo. Gana el href **más específico**
  * que coincida.
  */
 function pathIsActive(pathname: string, href: string) {
@@ -236,10 +91,10 @@ function pathIsActive(pathname: string, href: string) {
   return !ALL_HREFS.some((other) => other !== href && other.length > href.length && matches(other))
 }
 
-type VisibleGroup = ReturnType<typeof visibleGroups>[number]
+type VisibleGroup = VisibleNavGroup
 
-function NavItemLink({ item, active }: { item: NavItem; active: boolean }) {
-  const Icon = itemIcon(item.label)
+function NavItemLink({ item, active }: { item: AppModule; active: boolean }) {
+  const Icon = item.icon
   return (
     <a
       href={item.href}
@@ -267,7 +122,7 @@ function SidebarGroup({
   onToggle: () => void
 }) {
   const Icon = group.icon
-  const groupActive = group.items.some((item) => pathIsActive(pathname, item.href))
+  const groupActive = group.modules.some((item) => pathIsActive(pathname, item.href))
   const listId = `nav-group-${group.title.replace(/\W+/g, '-').toLowerCase()}`
   return (
     <div>
@@ -286,8 +141,8 @@ function SidebarGroup({
       </button>
       {expanded && (
         <div id={listId} className="mt-1 space-y-0.5 pl-4">
-          {group.items.map((item) => (
-            <NavItemLink key={item.href + item.label} item={item} active={pathIsActive(pathname, item.href)} />
+          {group.modules.map((item) => (
+            <NavItemLink key={item.id} item={item} active={pathIsActive(pathname, item.href)} />
           ))}
         </div>
       )}
@@ -304,7 +159,7 @@ function SidebarGroup({
  */
 function RailGroup({ group, pathname, onOpen }: { group: VisibleGroup; pathname: string; onOpen: () => void }) {
   const Icon = group.icon
-  const groupActive = group.items.some((item) => pathIsActive(pathname, item.href))
+  const groupActive = group.modules.some((item) => pathIsActive(pathname, item.href))
   return (
     <div className="group relative">
       <button
@@ -321,8 +176,8 @@ function RailGroup({ group, pathname, onOpen }: { group: VisibleGroup; pathname:
       <div className="invisible absolute left-full top-0 z-50 pl-2 opacity-0 transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
         <div className="w-60 space-y-0.5 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
           <p className="px-3 pb-1 pt-0.5 text-xs font-semibold uppercase tracking-wide text-gray-500">{group.title}</p>
-          {group.items.map((item) => (
-            <NavItemLink key={item.href + item.label} item={item} active={pathIsActive(pathname, item.href)} />
+          {group.modules.map((item) => (
+            <NavItemLink key={item.id} item={item} active={pathIsActive(pathname, item.href)} />
           ))}
         </div>
       </div>
@@ -424,7 +279,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     setOpenGroups((current) => {
       const next = { ...current }
       for (const group of visibleGroups(me)) {
-        const active = group.items.some((item) => pathIsActive(pathname, item.href))
+        const active = group.modules.some((item) => pathIsActive(pathname, item.href))
         if (active || next[group.title] == null) next[group.title] = active || group.title === 'Inicio'
       }
       return next
@@ -464,6 +319,13 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
           >
             <User className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
             Mi perfil
+          </a>
+          <a
+            href="/guia"
+            className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+          >
+            <CircleHelp className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+            Guía de EduTrack
           </a>
           {hasPermission(me, 'settings.manage', 'all') && (
             <a
@@ -560,7 +422,7 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
                 <RailGroup key={group.title} group={group} pathname={pathname} onOpen={() => openFromRail(group.title)} />
               )
             }
-            const groupActive = group.items.some((item) => pathIsActive(pathname, item.href))
+            const groupActive = group.modules.some((item) => pathIsActive(pathname, item.href))
             const expanded = openGroups[group.title] ?? (groupActive || group.title === 'Inicio')
             return (
               <SidebarGroup

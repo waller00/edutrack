@@ -8,6 +8,7 @@ import {
   HomeUpcomingSchedule,
 } from '@/components/home/HomeRolePanels'
 import HomeQuickAccess from '@/components/home/HomeQuickAccess'
+import GuideWelcomeBanner from '@/components/guide/GuideWelcomeBanner'
 import { hasPermission } from '@/lib/auth/permissions'
 import { api } from '@/lib/api/client'
 import { getWelcomeMessage } from '@/lib/home/dashboard'
@@ -156,6 +157,9 @@ export default function Home() {
           </span>
         </div>
       </header>
+
+      {/* Para quien recién llega: qué hace cada sección. Se cierra una vez. */}
+      {canRoleDashboard && <GuideWelcomeBanner />}
 
       {canRoleDashboard && canTeamDashboard && (
         <HomeAdminTimeline />

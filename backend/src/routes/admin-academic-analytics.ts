@@ -23,7 +23,7 @@ import {
 } from '../services/gradebook/analytics.js'
 
 /**
- * Backoffice de inteligencia académica (§5).
+ * Backoffice de inteligencia académica (§5); en pantalla, "Rendimiento académico".
  *
  * Montado bajo `/admin/academic-analytics` con `academic-analytics.read` de alcance ALL. Lee del
  * mismo esquema transaccional: a escala de un liceo no compensa el repositorio analítico aparte

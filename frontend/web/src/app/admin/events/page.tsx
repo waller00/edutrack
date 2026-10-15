@@ -49,6 +49,7 @@ import {
   type RecurrenceRangeMode,
 } from '@/lib/admin/event-recurrence'
 import ScrollRegion from '@/components/common/ScrollRegion'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
 type CourseOrientationOpt = {
@@ -1334,15 +1335,7 @@ function AdminEventsContent() {
     <>
       <main className="responsive-page max-w-7xl space-y-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <Calendar className="h-7 w-7 text-emerald-600" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Agenda y clases</h1>
-              <p className="text-gray-600">Organizá clases, jornadas, reuniones y suplencias.</p>
-            </div>
-          </div>
+          <ModuleHeader id="agenda" />
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
             {canCreate && <EventsImportMenu
               pending={importingEvents}

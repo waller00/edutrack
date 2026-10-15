@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GraduationCap, Plus, Receipt } from 'lucide-react'
+import { Plus, Receipt } from 'lucide-react'
 import Link from 'next/link'
 import RoleGuard from '@/components/auth/RoleGuard'
 import PaginationControls from '@/components/common/PaginationControls'
@@ -31,6 +31,7 @@ import {
   type StudentListRow,
   type StudentSummary,
 } from '@/components/admin/students/student-types'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 const EMPTY_FILTERS: StudentFilters = {
   draftQ: '',
@@ -322,29 +323,21 @@ export default function AdminStudentsPage() {
   return (
     <RoleGuard permission="students.manage" permissionScope="all">
       <main className="responsive-page max-w-[1600px] space-y-5">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:flex">
-              <GraduationCap className="h-7 w-7 text-emerald-600" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-gray-950">Estudiantes</h1>
-              <p className="max-w-3xl text-sm text-gray-600">
-                Matrícula, contacto y acceso al aula virtual.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/admin/tuition" className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100">
-              <Receipt className="h-4 w-4" aria-hidden />
-              Mensualidades
-            </Link>
-            <button type="button" onClick={openCreate} className="btn-primary shrink-0">
-              <Plus className="h-4 w-4" aria-hidden />
-              Nuevo estudiante
-            </button>
-          </div>
-        </header>
+        <ModuleHeader
+          id="students"
+          actions={
+            <>
+              <Link href="/admin/tuition" className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100">
+                <Receipt className="h-4 w-4" aria-hidden />
+                Mensualidades
+              </Link>
+              <button type="button" onClick={openCreate} className="btn-primary shrink-0">
+                <Plus className="h-4 w-4" aria-hidden />
+                Nuevo estudiante
+              </button>
+            </>
+          }
+        />
 
         <StudentsSummaryCards summary={summary} loading={loading} />
 

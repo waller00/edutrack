@@ -73,7 +73,7 @@ describe('MyAttendancePage', () => {
       expect(screen.getByText('Total: 2 registros')).toBeInTheDocument(),
     )
     expect(
-      screen.getByRole('heading', { name: 'Mis Asistencias' }),
+      screen.getByRole('heading', { name: 'Mis asistencias' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Entrada')).toBeInTheDocument()
     expect(screen.getByText('Presente')).toBeInTheDocument()

@@ -20,6 +20,7 @@ import {
   type RollCallPhase,
 } from '@/lib/rollcall/rollcall-phase'
 import { rollCallHref, timingOf, type RollCallClassRow } from '@/lib/rollcall/class-row'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
 
@@ -130,17 +131,11 @@ export default function RollCallTodayList() {
 
   return (
     <div className="space-y-5">
-      <header className="flex flex-wrap items-center gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100">
-          <ClipboardList className="h-7 w-7 text-emerald-600" aria-hidden />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold text-gray-900">Pase de lista</h1>
-          <p className="text-sm text-gray-600">
-            La lista de cada clase se abre 10 minutos antes de empezar y se puede corregir durante el plazo.
-          </p>
-        </div>
-      </header>
+      <ModuleHeader id="roll-call">
+        <p className="text-sm text-gray-600">
+          La lista de cada clase se abre 10 minutos antes de empezar y se puede corregir durante el plazo.
+        </p>
+      </ModuleHeader>
 
       <nav aria-label="Elegir día" className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-2">
         <button type="button" className="btn-secondary px-2.5 py-1.5 text-sm" onClick={() => goTo(addDaysYmd(date, -1))}>

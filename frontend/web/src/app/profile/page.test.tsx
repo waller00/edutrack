@@ -58,12 +58,12 @@ vi.mock('@/components/forms/PhoneBirthdateFields', () => ({
 const mockedApi = vi.mocked(api)
 
 /**
- * "Mi Perfil" se ve antes de que lleguen los datos, y un efecto los copia al formulario después.
+ * "Mi perfil" se ve antes de que lleguen los datos, y un efecto los copia al formulario después.
  * Escribir o buscar el usuario apenas aparece el título fallaba según la velocidad de la máquina
  * (en CI, con cobertura): se espera a que el formulario tenga el correo.
  */
 async function waitForProfileLoaded(email = 't@school.edu') {
-  await screen.findByText('Mi Perfil')
+  await screen.findByRole('heading', { level: 1, name: 'Mi perfil' })
   await waitFor(() => expect(screen.getByLabelText('Correo')).toHaveValue(email))
 }
 

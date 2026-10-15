@@ -9,6 +9,7 @@ import {
   DEFAULT_PROFILE_PERMISSIONS,
   normalizePermissionId,
   REMOVED_PROFILE_PERMISSION_IDS,
+  RENAMED_PERMISSION_MODULES,
   permissionSourceResolved,
 } from './profile-permissions-defaults.js'
 
@@ -51,9 +52,20 @@ export async function listPermissionCatalog() {
   }))
 }
 
+/**
+ * Pasa los módulos de nombre viejo al nuevo (`RENAMED_PERMISSION_MODULES`). Va por nombre de
+ * módulo y no por código: así alcanza también a los permisos que ya no están en la matriz.
+ */
+export async function renameLegacyPermissionModules(client: PrismaClient = prisma): Promise<void> {
+  for (const [from, to] of Object.entries(RENAMED_PERMISSION_MODULES)) {
+    await client.permission.updateMany({ where: { module: from }, data: { module: to } })
+  }
+}
+
 /** Upsert canónico de la matriz de los roles built-in (por código de `OrgRole`). */
 export async function upsertCanonicalProfilePermissions(client: PrismaClient = prisma): Promise<void> {
   await ensureBuiltinOrgRoles()
+  await renameLegacyPermissionModules(client)
   for (const code of BUILTIN_PROFILE_ROLES) {
     const org = await client.orgRole.findUnique({ where: { code } })
     if (!org) continue
@@ -93,6 +105,7 @@ export async function upsertCanonicalProfilePermissions(client: PrismaClient = p
 
 async function ensureCanonicalProfilePermissionsPresent(client: PrismaClient = prisma): Promise<void> {
   await ensureBuiltinOrgRoles()
+  await renameLegacyPermissionModules(client)
   for (const code of BUILTIN_PROFILE_ROLES) {
     const org = await client.orgRole.findUnique({ where: { code } })
     if (!org) continue

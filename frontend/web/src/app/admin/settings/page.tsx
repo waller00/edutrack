@@ -10,6 +10,7 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import { api } from '@/lib/api/client'
 import { BookOpen, Cpu, Loader2, Settings, Timer } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type SettingsResponse = OperationalSettingsData
 
@@ -166,19 +167,7 @@ export default function AdminSystemSettingsPage() {
   return (
     <RoleGuard permission="settings.manage" permissionScope="all">
       <main className="responsive-page max-w-5xl space-y-4">
-        <header className="flex items-start gap-3">
-          <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
-            <Settings className="h-6 w-6" aria-hidden />
-          </span>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              Configuración del sistema
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Elegí un área para revisar y ajustar su configuración.
-            </p>
-          </div>
-        </header>
+        <ModuleHeader id="settings" />
         <div
           role="group"
           aria-label="Secciones de configuración"

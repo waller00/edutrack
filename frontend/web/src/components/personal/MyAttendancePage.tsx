@@ -1,7 +1,7 @@
 'use client'
 
 import RoleGuard from '@/components/auth/RoleGuard'
-import { BarChart3, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -29,11 +29,11 @@ import {
   type MyAttendanceStatus,
 } from '@/lib/attendance/my-attendance-display'
 import {
-  PersonalHeader,
   PersonalLoading,
   PersonalError,
   PersonalPagination,
 } from './PersonalPageUi'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type AttendanceRecord = {
   id: string
@@ -147,11 +147,7 @@ function AttendanceContent() {
   return (
     <main className="responsive-page max-w-6xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <PersonalHeader
-          title="Mis Asistencias"
-          description="Tu historial y el resumen del período."
-          icon={<BarChart3 className="h-6 w-6" aria-hidden />}
-        />
+        <ModuleHeader id="my-attendance" />
         <button
           type="button"
           onClick={() => setRefresh((value) => value + 1)}

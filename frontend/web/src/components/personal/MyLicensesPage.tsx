@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { FileText } from 'lucide-react'
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api/client'
@@ -14,11 +13,11 @@ import { ymdToDmy } from '@/lib/forms/date-mask'
 import DateRangePicker from '@/components/forms/DateRangePicker'
 import SettingsDetails from '@/components/admin/settings/SettingsDetails'
 import {
-  PersonalHeader,
   PersonalLoading,
   PersonalError,
   PersonalPagination,
 } from './PersonalPageUi'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type License = {
   id: string
@@ -106,11 +105,7 @@ function LicensesContent() {
   const safePage = Math.min(page, Math.max(1, Math.ceil(visible.length / 20)))
   return (
     <main className="responsive-page max-w-6xl space-y-5">
-      <PersonalHeader
-        title="Mis Licencias"
-        description="Consultá las licencias registradas por la institución."
-        icon={<FileText className="h-6 w-6" aria-hidden />}
-      />
+      <ModuleHeader id="my-licenses" />
       <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
         <div
           role="group"

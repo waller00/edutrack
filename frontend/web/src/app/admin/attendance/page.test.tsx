@@ -35,7 +35,7 @@ describe('AdminAttendance', () => {
 
     render(<AdminAttendance />)
 
-    expect(await screen.findByRole('heading', { name: 'Asistencias' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Asistencia del personal' })).toBeInTheDocument()
     expect((await screen.findAllByText('No hay registros de asistencia')).length).toBeGreaterThan(0)
     expect(screen.getByText('registros totales')).toBeInTheDocument()
   })
@@ -450,7 +450,7 @@ describe('AdminAttendance', () => {
     })
 
     render(<AdminAttendance />)
-    await screen.findByRole('heading', { name: 'Asistencias' })
+    await screen.findByRole('heading', { name: 'Asistencia del personal' })
 
     fireEvent.click(screen.getByRole('button', { name: /Período/ }))
     fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '01/10/2026' } })

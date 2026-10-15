@@ -4,7 +4,7 @@ import type { AlertRule } from './analytics.js'
 /**
  * Umbrales de alerta académica (§5.7, RF-200).
  *
- * Los usan la matriz de reunión ("en alerta") e Inteligencia académica, que tienen que contar lo
+ * Los usan la matriz de reunión ("en alerta") y Rendimiento académico, que tienen que contar lo
  * mismo. Hasta ahora no coincidían: la matriz usaba un 3 fijo y los indicadores sólo las reglas
  * cargadas en la base, que no había ninguna, así que ahí nunca nadie estaba en alerta.
  */

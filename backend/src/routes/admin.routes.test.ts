@@ -51,6 +51,7 @@ const {
     },
     permission: {
       upsert: vi.fn(),
+      updateMany: vi.fn(),
       findMany: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),

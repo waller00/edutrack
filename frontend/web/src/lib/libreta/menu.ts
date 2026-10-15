@@ -28,7 +28,7 @@ export const LIBRETA_SECTIONS: readonly LibretaSection[] = [
   { id: 'planificacion', label: 'Planificación', abbr: 'Plan', hint: 'Qué pensás dar en el año y cómo lo replanificaste.' },
   { id: 'desarrollo', label: 'Desarrollo del curso', abbr: 'Des', hint: 'Registro clase a clase: qué se trabajó y cuántas horas se dictaron.' },
   { id: 'evaluaciones', label: 'Calificaciones (Or · Otras · Ev · C · R)', abbr: 'Cal', hint: 'Carta por alumno como la planilla: notas sueltas por tramo, C y R, e informe de cada entrega.' },
-  { id: 'inasistencias', label: 'Inasistencias', abbr: 'Ina', hint: 'Faltas y llegadas tarde acumuladas del grupo.' },
+  { id: 'inasistencias', label: 'Inasistencias', abbr: 'Ina', hint: 'Faltas y llegadas tarde de los estudiantes del grupo, que salen del pase de lista.' },
   { id: 'cierre', label: 'Cierre de períodos', abbr: 'Cie', hint: 'C, R, informe y conducta, por alumno o de todo el grupo, y cierre de cada entrega.' },
   { id: 'visados', label: 'Visados', abbr: 'Vis', hint: 'Qué observó adscripción o dirección y qué períodos están visados.' },
   { id: 'mensajes', label: 'Observaciones y mensajes', abbr: 'Msj', hint: 'Intercambio con adscripción, dirección e inspección.' },

@@ -12,6 +12,7 @@ vi.mock('@/components/auth/RoleGuard', () => ({
 vi.mock('@/lib/api/client', () => ({ api: vi.fn() }))
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ me: { id: 'self' } }),
+  useOptionalAuth: () => null,
 }))
 
 describe('MyLicensesPage', () => {
@@ -40,7 +41,7 @@ describe('MyLicensesPage', () => {
       await screen.findByText('Licencia médica presentada'),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Mis Licencias' }),
+      screen.getByRole('heading', { name: 'Mis licencias' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Control')).not.toBeVisible()
     fireEvent.click(screen.getByText('Notas de la licencia'))

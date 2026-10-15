@@ -145,7 +145,11 @@ describe('UserNav', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /admin@example.com/i }))
     const menuLinks = screen.getAllByRole('link')
-    expect(menuLinks.map((link) => link.textContent?.trim()).slice(-2)).toEqual(['Mi perfil', 'Configuración del sistema'])
+    expect(menuLinks.map((link) => link.textContent?.trim()).slice(-3)).toEqual([
+      'Mi perfil',
+      'Guía de EduTrack',
+      'Configuración del sistema',
+    ])
     expect(screen.getByRole('link', { name: /configuración del sistema/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /cerrar sesión/i }))
 
@@ -191,8 +195,9 @@ describe('UserNav', () => {
     expect(screen.queryByRole('link', { name: 'Mis asistencias' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Mi agenda' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Eventos asignados' })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('link', { name: 'Asistencias' })).toHaveLength(1)
-    expect(screen.getByRole('link', { name: 'Asistencias' })).toHaveAttribute('href', '/admin/attendance')
+    // Dice de quién es: "Asistencias" a secas se confundía con la de los estudiantes.
+    expect(screen.getAllByRole('link', { name: 'Asistencia del personal' })).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Asistencia del personal' })).toHaveAttribute('href', '/admin/attendance')
   })
 
   it('muestra módulos por permiso aunque el rol no sea ADMIN', async () => {
@@ -243,7 +248,7 @@ describe('UserNav: menú lateral que se contrae', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Contraer menú lateral' }))
 
     expect(screen.getByRole('button', { name: 'Expandir menú lateral' })).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByRole('button', { name: 'Equipo: abrir el menú' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Personal: abrir el menú' })).toBeInTheDocument()
     // El panel del costado tiene los ítems del grupo, para llegar sin abrir el menú.
     expect(screen.getByRole('link', { name: 'Usuarios' })).toHaveAttribute('href', '/admin/users')
     expect(screen.queryByText('Panel de trabajo')).not.toBeInTheDocument()
@@ -261,10 +266,10 @@ describe('UserNav: menú lateral que se contrae', () => {
     globalThis.localStorage.setItem('edutrack.sidebar.collapsed', '1')
     renderNav()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Libreta @: abrir el menú' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Libretas: abrir el menú' }))
 
     expect(screen.getByRole('button', { name: 'Contraer menú lateral' })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('button', { name: /Libreta @/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'Libretas' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('link', { name: 'Visado de libretas' })).toBeInTheDocument()
     expect(globalThis.localStorage.getItem('edutrack.sidebar.collapsed')).toBe('0')
   })
@@ -273,10 +278,10 @@ describe('UserNav: menú lateral que se contrae', () => {
     const { unmount } = renderNav()
     await screen.findByRole('link', { name: 'Usuarios' })
 
-    fireEvent.click(screen.getByRole('button', { name: /Libreta @/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Libretas' }))
     expect(screen.getByRole('link', { name: 'Reunión de profesores' })).toBeInTheDocument()
     expect(JSON.parse(globalThis.localStorage.getItem('edutrack.sidebar.openGroups') ?? '{}')).toMatchObject({
-      'Libreta @': true,
+      Libretas: true,
     })
     unmount()
 
@@ -292,8 +297,9 @@ it.each(['TEACHER', 'INSPECCION', 'COORDINADOR'])('muestra cursos por permiso de
   globalThis.localStorage.clear()
   renderNav()
   expect(await screen.findByRole('link', { name: 'Cursos' })).toHaveAttribute('href', '/admin/courses')
-  fireEvent.click(screen.getByRole('button', { name: /Libreta @/ }))
-  expect(screen.getByRole('link', { name: role === 'TEACHER' ? 'Mis Libretas' : 'Libretas' })).toHaveAttribute('href', '/libreta')
+  // El docente tiene sus libretas en "Mi trabajo"; quien ve todas, en el grupo "Libretas".
+  fireEvent.click(screen.getByRole('button', { name: role === 'TEACHER' ? 'Mi trabajo' : 'Libretas' }))
+  expect(screen.getByRole('link', { name: role === 'TEACHER' ? 'Mis libretas' : 'Libretas' })).toHaveAttribute('href', '/libreta')
   expect(screen.queryByRole('link', { name: 'Configuración de libreta' })).not.toBeInTheDocument()
 })
 
@@ -311,13 +317,13 @@ it('docente: la libreta es una sola entrada; sus secciones están en el menú de
   globalThis.localStorage.clear()
   renderNav()
 
-  expect(await screen.findByRole('link', { name: 'Mis Libretas' })).toHaveAttribute('href', '/libreta')
+  expect(await screen.findByRole('link', { name: 'Mis libretas' })).toHaveAttribute('href', '/libreta')
   for (const name of ['Evaluaciones', 'Inasistencias de Libreta', 'Cierre de períodos']) {
     expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
   }
 })
 
-it('adscripción: las faltas en Asistencia de estudiantes, las notas en Inteligencia académica, sin "Reportes"', async () => {
+it('adscripción: las faltas en Asistencia de estudiantes, las notas en Rendimiento académico, sin "Reportes"', async () => {
   mockUsePathname.mockReturnValue('/admin/student-attendance')
   mockApiByUrl({
     role: 'ADSCRIPTO',
@@ -336,8 +342,8 @@ it('adscripción: las faltas en Asistencia de estudiantes, las notas en Intelige
     'href',
     '/admin/student-attendance',
   )
-  fireEvent.click(screen.getByRole('button', { name: /Libreta @/ }))
-  expect(screen.getByRole('link', { name: 'Inteligencia académica' })).toHaveAttribute('href', '/libreta/indicadores')
+  fireEvent.click(screen.getByRole('button', { name: 'Libretas' }))
+  expect(screen.getByRole('link', { name: 'Rendimiento académico' })).toHaveAttribute('href', '/libreta/indicadores')
   expect(screen.queryByRole('link', { name: 'Reportes de estudiantes' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^Reportes/ })).not.toBeInTheDocument()
 })
@@ -351,4 +357,29 @@ it('el primer elemento del teclado salta el menú y lleva al contenido', async (
   const skip = await screen.findByRole('link', { name: 'Saltar al contenido' })
   expect(skip).toHaveAttribute('href', '#contenido-principal')
   expect(document.getElementById('contenido-principal')).toHaveAttribute('tabindex', '-1')
+})
+
+it('el menú va por destinatario: lo propio, el personal y los estudiantes no se mezclan', async () => {
+  mockUsePathname.mockReturnValue('/')
+  mockApiByUrl({
+    role: 'ADMIN',
+    isActive: true,
+    isApproved: true,
+    permissions: [
+      { id: 'attendance.read', scope: 'all' },
+      { id: 'student-attendance.manage', scope: 'all' },
+      { id: 'students.manage', scope: 'all' },
+    ],
+  })
+  globalThis.localStorage.clear()
+  renderNav()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Personal' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Estudiantes' }))
+  const staffGroup = document.getElementById('nav-group-personal')!
+  const studentsGroup = document.getElementById('nav-group-estudiantes')!
+  expect(staffGroup).toHaveTextContent('Asistencia del personal')
+  expect(staffGroup).not.toHaveTextContent('Asistencia de estudiantes')
+  expect(studentsGroup).toHaveTextContent('Asistencia de estudiantes')
+  expect(studentsGroup).not.toHaveTextContent('Asistencia del personal')
 })

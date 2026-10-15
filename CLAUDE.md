@@ -267,6 +267,18 @@ Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 
 ## Frontend
 
+> **Nombres, descripciones, íconos y permisos de cada sección salen de
+> `lib/navigation/modules.ts`.** Lo usan el menú (agrupado por destinatario: Mi trabajo, Personal,
+> Estudiantes, Académico, Libretas, Configuración), los accesos de Inicio, la Guía (`/guia`) y
+> `ModuleHeader` (`components/common/`), el encabezado de toda pantalla de módulo. Una sección nueva
+> se agrega al catálogo y su pantalla usa `ModuleHeader`; no repetir el nombre a mano.
+
+> **Ninguna etiqueta dice "asistencia" o "control" sin decir de quién es.** Hay dos asistencias que
+> no se mezclan: la del **personal** ("Asistencia del personal", "Mis asistencias") y la de los
+> **estudiantes** ("Pase de lista", "Asistencia de estudiantes"). Lo que se confunde va en `related`
+> del catálogo y el encabezado ofrece "¿Buscás…?". Los módulos de permisos siguen la misma regla
+> (`RENAMED_PERMISSION_MODULES` en `identity/profile-permissions-defaults.ts`).
+
 > **Elegir un alumno es `StudentCombobox`** (`components/forms/`): busca al escribir (nombre,
 > apellido o cédula, sin tildes) y "todos" es una opción más del mismo desplegable (`allLabel`),
 > no un selector aparte. No volver a un `<select>` con la lista del grupo.

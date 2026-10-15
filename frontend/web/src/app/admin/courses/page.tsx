@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type CourseDraft = {
   name: string
@@ -426,21 +427,17 @@ function CoursesContent() {
 
   return (
       <main className="responsive-page max-w-[1600px] space-y-5">
-        <header className="flex flex-wrap items-center gap-3">
-          <div className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:flex">
-            <BookOpen className="h-7 w-7 text-emerald-600" aria-hidden />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-bold">Cursos y asignaturas</h1>
-            <p className="text-sm text-gray-600">{canManage ? 'Elegí un curso para gestionar su oferta y sus asignaturas.' : 'Consultá los cursos, sus asignaturas y orientaciones.'}</p>
-          </div>
-          {canManage && <button type="button" aria-expanded={showCreateCourse} aria-controls="new-course-form" onClick={() => {
+        <ModuleHeader
+          id="courses"
+          actions={canManage && <button type="button" aria-expanded={showCreateCourse} aria-controls="new-course-form" onClick={() => {
             setCourseDraft((draft) => ({ ...draft, offerInSchoolYear: Boolean(activeSchoolYearId) }))
             setShowCreateCourse((value) => !value)
           }} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
             <Plus className="h-4 w-4" aria-hidden />Nuevo curso
           </button>}
-        </header>
+        >
+          {canManage && <p className="text-sm text-gray-600">Elegí un curso para gestionar su oferta y sus asignaturas.</p>}
+        </ModuleHeader>
 
         {msg ? <div role="status" className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-800">{msg}</div> : null}
 

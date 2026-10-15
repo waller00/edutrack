@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     orgRole: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), upsert: vi.fn() },
-    permission: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), upsert: vi.fn() },
+    permission: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     rolePermission: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn(), create: vi.fn(), count: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -202,6 +202,24 @@ describe('seed de matriz canónica', () => {
     prismaMock.rolePermission.count.mockResolvedValue(10)
     await ensureDefaultProfilePermissionsIfNeeded()
     expect(prismaMock.permission.upsert).toHaveBeenCalled()
+  })
+
+  it('al arrancar renombra los módulos viejos, también los de permisos que ya no están en la matriz', async () => {
+    // "Asistencias" y "Pase de lista" se confundían en Roles / Perfiles igual que en el menú.
+    // `attendance.create` ya no es de la matriz, así que el upsert no lo toca: va por nombre.
+    seedMocks()
+    prismaMock.rolePermission.count.mockResolvedValue(10)
+    await ensureDefaultProfilePermissionsIfNeeded()
+    const renames = prismaMock.permission.updateMany.mock.calls.map(([args]: any) => [args.where.module, args.data.module])
+    expect(renames).toEqual(
+      expect.arrayContaining([
+        ['Asistencias', 'Asistencia del personal'],
+        ['Pase de lista', 'Asistencia de estudiantes'],
+        ['Analytics', 'Indicadores del personal'],
+      ]),
+    )
+    const attendanceRead = prismaMock.permission.upsert.mock.calls.find(([args]: any) => args.where.code === 'attendance.read')
+    expect(attendanceRead?.[0].update.module).toBe('Asistencia del personal')
   })
 
   it('ensureDefaultProfilePermissionsIfNeeded sin filas hace el seed canónico', async () => {

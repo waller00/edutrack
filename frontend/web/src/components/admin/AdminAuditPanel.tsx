@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 type AuditRow = {
   id: string
@@ -316,26 +317,24 @@ export default function AdminAuditPanel({
     <main
       className={compact ? 'space-y-4' : 'responsive-page max-w-7xl space-y-4'}
     >
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
-            <ClipboardList className="h-6 w-6" aria-hidden />
-          </span>
-          <div>
-            {compact ? (
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        {compact ? (
+          <div className="flex items-start gap-3">
+            <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
+              <ClipboardList className="h-6 w-6" aria-hidden />
+            </span>
+            <div>
               <h2 className="text-lg font-semibold text-slate-950">
                 Auditoría de actividades
               </h2>
-            ) : (
-              <h1 className="text-2xl font-bold text-slate-950">
-                Auditoría de actividades
-              </h1>
-            )}
-            <p className="mt-1 text-sm text-slate-600">
-              Consultá qué pasó, quién realizó la acción y cuándo.
-            </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Consultá qué pasó, quién realizó la acción y cuándo.
+              </p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <ModuleHeader id="audit" />
+        )}
         <button
           type="button"
           disabled={loading}
@@ -349,7 +348,7 @@ export default function AdminAuditPanel({
           )}
           {loading ? 'Actualizando…' : 'Actualizar'}
         </button>
-      </header>
+      </div>
 
       <section
         aria-label="Filtros de auditoría"

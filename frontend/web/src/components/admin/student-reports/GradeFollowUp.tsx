@@ -4,7 +4,7 @@ import { GradeDropsReport, LowGradesReport } from './ReportTabs'
 import { ReportCardPeriodSelect, useReportCardPeriods } from './shared'
 
 /**
- * Seguimiento de notas de Inteligencia académica: quiénes están en la banda de alerta y quiénes
+ * Seguimiento de notas de Rendimiento académico: quiénes están en la banda de alerta y quiénes
  * bajaron respecto del boletín anterior. Las cifras del tablero ("En alerta", "En descenso") dicen
  * cuántos; esto dice quiénes. Un solo boletín para las dos listas.
  */

@@ -1,7 +1,7 @@
 'use client'
 import type { FormEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Bell, ChevronDown, ExternalLink, FileText, KeyRound, Mail, Save, ShieldCheck, User, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Bell, ChevronDown, ExternalLink, FileText, KeyRound, Mail, Save, ShieldCheck, X } from 'lucide-react'
 import { PendingButtonContent } from '@/components/common/PendingButtonContent'
 import { api } from '@/lib/api/client'
 import { accountPasswordUrl, accountRecoveryCodesUrl, accountTwoFactorUrl } from '@/lib/auth/urls'
@@ -17,6 +17,7 @@ import {
   getProfileErrorMessage,
   validateProfileForm,
 } from '@/lib/profile/profile-form'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 export default function ProfilePage() {
   const { me, loading, refresh } = useAuth()
@@ -172,20 +173,14 @@ export default function ProfilePage() {
 
   return (
     <main className="responsive-page max-w-4xl space-y-4">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <span className="hidden rounded-xl bg-emerald-50 p-3 text-emerald-700 sm:block">
-            <User className="h-6 w-6" aria-hidden />
+      <ModuleHeader
+        id="profile"
+        actions={
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+            {me.roleLabel || getRoleLabel(me.role)}
           </span>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Mi Perfil</h1>
-            <p className="mt-1 text-sm text-slate-500">Actualizá tus datos y las preferencias de tu cuenta.</p>
-          </div>
-        </div>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-          {me.roleLabel || getRoleLabel(me.role)}
-        </span>
-      </header>
+        }
+      />
 
       <div role="group" aria-label="Secciones del perfil" className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
         {([

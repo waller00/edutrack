@@ -2,7 +2,7 @@
 
 import RoleGuard from '@/components/auth/RoleGuard'
 import { useState, useEffect } from 'react'
-import { Calendar, MapPin } from 'lucide-react'
+import { MapPin } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -19,11 +19,11 @@ import {
 import DateRangePicker from '@/components/forms/DateRangePicker'
 import SettingsDetails from '@/components/admin/settings/SettingsDetails'
 import {
-  PersonalHeader,
   PersonalLoading,
   PersonalError,
   PersonalPagination,
 } from './PersonalPageUi'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 export type AssignedEventRow = {
   id: string
@@ -146,11 +146,7 @@ function EventsContent() {
   const safePage = Math.min(page, Math.max(1, Math.ceil(visible.length / 20)))
   return (
     <main className="responsive-page max-w-6xl space-y-5">
-      <PersonalHeader
-        title="Mi agenda"
-        description="Clases, turnos y reuniones que tenés asignados."
-        icon={<Calendar className="h-6 w-6" aria-hidden />}
-      />
+      <ModuleHeader id="my-agenda" />
       <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
         <div
           className="flex flex-wrap gap-1"

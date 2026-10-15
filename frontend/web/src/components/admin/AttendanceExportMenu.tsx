@@ -51,7 +51,7 @@ export default function AttendanceExportMenu({ pending, onAttendance, onPayroll 
       </button>
       {open && (
         <div ref={panel} id={id} role="dialog" aria-label="Opciones de exportación" onBlur={(event) => { if (event.relatedTarget && !root.current?.contains(event.relatedTarget as Node)) setOpen(false) }} className="absolute right-0 z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-          <p className="px-2 py-2 text-xs font-semibold text-slate-500">Asistencias</p>
+          <p className="px-2 py-2 text-xs font-semibold text-slate-500">Asistencia del personal</p>
           <button type="button" aria-label="Exportar asistencias a Excel" onClick={() => select(() => onAttendance('excel'))} className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-700 hover:bg-emerald-50">
             <FileSpreadsheet className="h-4 w-4 text-emerald-600" aria-hidden />Excel (.xlsx)
           </button>

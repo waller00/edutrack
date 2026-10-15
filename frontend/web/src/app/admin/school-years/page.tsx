@@ -33,7 +33,6 @@ import {
   AlertTriangle,
   ArrowRight,
   BookOpen,
-  CalendarRange,
   CheckCircle2,
   Archive,
   Loader2,
@@ -46,6 +45,7 @@ import {
   Users,
 } from 'lucide-react'
 import ScrollRegion from '@/components/common/ScrollRegion'
+import ModuleHeader from '@/components/common/ModuleHeader'
 
 const STATUS_LABEL: Record<string, string> = {
   PLANNED: 'Planificado',
@@ -773,24 +773,19 @@ export default function AdminSchoolYearsPage() {
   return (
     <RoleGuard permission="school-years.manage" permissionScope="all">
       <main className="responsive-page max-w-7xl space-y-4">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
-              <CalendarRange className="h-6 w-6 text-emerald-700" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-950">Ciclos lectivos</h1>
-              <p className="mt-1 text-sm text-gray-600">Organizá los años lectivos y su oferta de cursos.</p>
-              <details className="mt-2 max-w-2xl text-xs text-slate-500">
-                <summary className="cursor-pointer">Cómo funcionan los ciclos</summary>
-                <p className="mt-2 leading-relaxed">Cada ciclo se crea planificado. Al iniciarlo podés elegir cursos y asignar estudiantes. La columna Cursos muestra la oferta de ese año; el selector global filtra los listados del resto del sistema. Para crear otro ciclo, primero cerrá el activo.</p>
-              </details>
-            </div>
-          </div>
-          <button type="button" className="btn-primary shrink-0 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!canCreateSchoolYear} aria-expanded={createOpen} onClick={() => setCreateOpen((open) => !open)} title={!canCreateSchoolYear ? 'Primero cerrá el ciclo lectivo activo.' : undefined}>
-            <Plus className="h-4 w-4" aria-hidden />Nuevo ciclo lectivo
-          </button>
-        </header>
+        <ModuleHeader
+          id="school-years"
+          actions={
+            <button type="button" className="btn-primary shrink-0 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!canCreateSchoolYear} aria-expanded={createOpen} onClick={() => setCreateOpen((open) => !open)} title={!canCreateSchoolYear ? 'Primero cerrá el ciclo lectivo activo.' : undefined}>
+              <Plus className="h-4 w-4" aria-hidden />Nuevo ciclo lectivo
+            </button>
+          }
+        >
+          <details className="max-w-2xl text-xs text-slate-500">
+            <summary className="cursor-pointer">Cómo funcionan los ciclos</summary>
+            <p className="mt-2 leading-relaxed">Cada ciclo se crea planificado. Al iniciarlo podés elegir cursos y asignar estudiantes. La columna Cursos muestra la oferta de ese año; el selector global filtra los listados del resto del sistema. Para crear otro ciclo, primero cerrá el activo.</p>
+          </details>
+        </ModuleHeader>
 
         {!loading && (
           <div className={`rounded-xl border px-4 py-3 ${activeYear ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
