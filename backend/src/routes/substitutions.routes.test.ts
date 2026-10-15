@@ -25,6 +25,7 @@ const { prismaMock } = vi.hoisted(() => ({
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 vi.mock("../services/non-working-days.js", () => ({
   findNonWorkingDayForDate: vi.fn().mockResolvedValue(null),
+  findNonWorkingDayForInstant: vi.fn().mockResolvedValue(null),
 }));
 
 import substitutionRoutes from "./substitutions.js";

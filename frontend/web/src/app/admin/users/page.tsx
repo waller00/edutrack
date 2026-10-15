@@ -324,7 +324,8 @@ function AdminUsersPageContent() {
     if (
       !confirm(
         `¿Eliminar definitivamente a ${name}?\n\n` +
-          'Esta acción no se puede deshacer: se borra la cuenta (incluido el acceso) y sus datos asociados. ' +
+          'Esta acción no se puede deshacer: se borra la cuenta (incluido el acceso). ' +
+          'Si tiene historial (eventos, asistencias, licencias o suplencias) no se elimina y queda dado de baja. ' +
           'El historial de auditoría se conserva de forma anónima.',
       )
     )

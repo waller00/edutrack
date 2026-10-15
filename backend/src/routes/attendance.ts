@@ -11,7 +11,7 @@ import { findApprovedLicenseCoveringEventTime } from '../services/medicalLeaveRe
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
 import { attachResolvedSchoolYearToAttendanceWhere } from '../attendance/attendance-school-year.js';
 import { resolveSchoolYearIdForList } from '../services/school-year-service.js';
-import { findNonWorkingDayForDate } from '../services/non-working-days.js';
+import { findNonWorkingDayForInstant } from '../services/non-working-days.js';
 import { getAttendanceOperationalSettings } from '../config/system-settings.js';
 import {
   getAppTimezone,
@@ -19,9 +19,12 @@ import {
   uruguayStartOfDayFromInstant,
   uruguayWallToUtc,
   uruguayYmdEndOfDayToUtc,
+  uruguayYmdOfInstant,
+  wallTimeOnDay,
 } from '../config/app-timezone.js';
 import { justifyAttendance } from '../services/attendance-justifications.js';
 import { recordAuditEventNow } from '../services/audit-log.js';
+import { isAdminTestingToolsEnabled } from '../config/testing-tools.js';
 import { getPlannedInstances } from '../services/analytics/planInstances.js';
 import { resolveAttendanceAndJustification } from '../services/analytics/resolveInstances.js';
 import { buildPayrollAttendanceData } from '../services/analytics/exports/payrollAttendanceReport.js';
@@ -76,10 +79,6 @@ const materializeAbsenceSchema = z.object({
   status: z.enum(['ABSENT_NOT_JUSTIFIED', 'ABSENT_JUSTIFIED', 'SUBSTITUTED']).optional(),
   notes: z.string().optional(),
 });
-
-function normalizeAttendanceDate(date: string) {
-  return new Date(date)
-}
 
 function parseAttendanceRangeStart(value: unknown) {
   const raw = typeof value === 'string' ? value : value != null ? String(value) : ''
@@ -523,9 +522,16 @@ r.post('/register', authGuard, requirePermission('attendance.create'), async (re
       return res.status(409).json({ message: getDuplicateAttendanceMessage(type) });
     }
 
-    const evStart = substitutionSchedule?.startTime ?? (event.startTime ? new Date(event.startTime) : new Date(event.startDate))
-    const evEnd = substitutionSchedule?.endTime ?? (event.endTime ? new Date(event.endTime) : evStart)
-    const nonWorkingDay = await findNonWorkingDayForDate(evStart)
+    // El horario de la ocurrencia del día marcado: la suplencia ya lo trae; el de la serie se
+    // proyecta (su startTime es la fecha-hora del primer día de la serie, no la de hoy).
+    const attendanceYmd = uruguayYmdOfInstant(new Date(date))
+    const evStart =
+      substitutionSchedule?.startTime ??
+      (event.startTime ? wallTimeOnDay(event.startTime, attendanceYmd) : new Date(event.startDate))
+    let evEnd = substitutionSchedule?.endTime ?? (event.endTime ? wallTimeOnDay(event.endTime, attendanceYmd) : evStart)
+    // Una clase que cruza la medianoche termina al día siguiente.
+    if (evEnd.getTime() < evStart.getTime()) evEnd = new Date(evEnd.getTime() + 86_400_000)
+    const nonWorkingDay = await findNonWorkingDayForInstant(evStart)
     if (nonWorkingDay) {
       return res.status(403).json({
         message: `No se puede registrar asistencia: ${nonWorkingDay.reason}`,
@@ -1041,8 +1047,12 @@ r.post('/:id/justify', authGuard, requirePermission('attendance.update', 'all'),
   }
 });
 
-// Eliminar todas las asistencias (solo ADMIN)
+// Eliminar todas las asistencias que coinciden con el filtro. Borra historial de liquidación sin
+// vuelta atrás: es una herramienta de pruebas y sólo existe donde lo están.
 r.delete('/purge-all', authGuard, requirePermission('attendance.delete', 'all'), async (_req, res) => {
+  if (!isAdminTestingToolsEnabled()) {
+    return res.status(403).json({ message: 'Herramienta de pruebas deshabilitada en este entorno.' })
+  }
   try {
     const q = _req.query as Record<string, unknown>
     const where = buildAdminAttendanceWhere(q)
@@ -1325,7 +1335,7 @@ r.post('/mark-absences', authGuard, requirePermission('attendance.update', 'all'
 
       const eventDate = uruguayStartOfDayFromInstant(new Date(event.startTime || event.startDate));
 
-      const nonWorkingDay = await findNonWorkingDayForDate(new Date(event.startTime || event.startDate));
+      const nonWorkingDay = await findNonWorkingDayForInstant(new Date(event.startTime || event.startDate));
       if (nonWorkingDay) {
         continue;
       }

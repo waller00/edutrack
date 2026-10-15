@@ -56,7 +56,7 @@ jobs:
           command_timeout: 50m
           script: |
             set -e
-            REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
+            REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
             REPO_DIR="/root/edutrack"
             git_sync_from_url() {
               local repo_url="$1" target_ref="$2"
@@ -136,7 +136,7 @@ jobs:
           command_timeout: 50m
           script: |
             set -e
-            REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
+            REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
             REPO_DIR="/root/edutrack"
             git_sync_from_url() {
               local repo_url="$1" target_ref="$2"
@@ -215,7 +215,7 @@ jobs:
           command_timeout: 50m
           script: |
             set -e
-            REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
+            REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
             REPO_DIR="/root/edutrack"
             TARGET_REF="${{ github.event.inputs.git_ref }}"
             git_sync_from_url() {
@@ -294,7 +294,7 @@ jobs:
           command_timeout: 50m
           script: |
             set -e
-            REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/joaquinwaller/edutrack.git"
+            REPO_HTTPS="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
             REPO_DIR="/root/edutrack"
             TARGET_REF="${{ github.event.inputs.git_ref }}"
             git_sync_from_url() {

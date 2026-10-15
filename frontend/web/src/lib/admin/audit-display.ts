@@ -21,7 +21,15 @@ export type AuditActionTone = 'danger' | 'warning' | 'success' | 'info' | 'neutr
 export function getAuditActionTone(action: string): AuditActionTone {
   const a = (action || '').toUpperCase()
   if (a.includes('FAILURE') || a.includes('ERROR') || a.includes('DENIED')) return 'danger'
-  if (a.includes('LOCK') || a.includes('DELET') || a.includes('DEACTIVAT') || a.includes('RESET') || a.includes('DISABLE')) {
+  if (
+    a.includes('LOCK') ||
+    a.includes('DELET') ||
+    a.includes('DEACTIVAT') ||
+    a.includes('RESET') ||
+    a.includes('DISABLE') ||
+    a.includes('CANCEL') ||
+    a.includes('REVOK')
+  ) {
     return 'warning'
   }
   if (a.includes('SUCCESS') || a.includes('CREATED') || a.includes('ENABLE')) return 'success'

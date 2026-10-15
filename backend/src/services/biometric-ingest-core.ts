@@ -401,11 +401,15 @@ export async function findBiometricDeviceByCode(code: string) {
 }
 
 /** Resuelve dispositivo por número de serie ADMS (SN) o por código interno. */
+/**
+ * Lector del protocolo iClock por su número de serie. Sólo `admsSerial`: el `code` lo elige
+ * administración ("F22-ENTRADA") y es fácil de adivinar; ya no identifica a un reloj.
+ */
 export async function findBiometricDeviceByAdmsSn(sn: string) {
   return prisma.biometricDevice.findFirst({
     where: {
       isActive: true,
-      OR: [{ code: sn }, { admsSerial: sn }],
+      admsSerial: sn,
     },
     select: {
       id: true,

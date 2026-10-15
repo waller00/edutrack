@@ -27,6 +27,11 @@ describe('getAuditActionTone', () => {
     expect(getAuditActionTone('USER_CREATED_BY_ADMIN')).toBe('success')
     expect(getAuditActionTone('USER_UPDATED_BY_ADMIN')).toBe('info')
     expect(getAuditActionTone('SYSTEM_SETTINGS_UPDATED')).toBe('info')
+    // Suspender o revocar no es neutro: se destaca como las bajas.
+    expect(getAuditActionTone('EVENT_CANCELLED')).toBe('warning')
+    expect(getAuditActionTone('EVENT_DELETED')).toBe('warning')
+    expect(getAuditActionTone('STUDENT_ATTENDANCE_RANGE_REVOKED')).toBe('warning')
+    expect(getAuditActionTone('EVENT_UPDATED')).toBe('info')
     expect(getAuditActionTone('SOMETHING_ELSE')).toBe('neutral')
   })
 })

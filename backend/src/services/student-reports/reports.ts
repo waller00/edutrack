@@ -189,6 +189,7 @@ async function activeEnrollments(schoolYearId: string) {
     select: {
       studentId: true,
       courseOfferingId: true,
+      orientationId: true,
       courseOrientationId: true,
       student: { select: { firstName: true, lastName: true } },
       courseOffering: { select: { course: { select: { name: true, level: true } } } },
@@ -197,6 +198,7 @@ async function activeEnrollments(schoolYearId: string) {
   return rows.map((row) => ({
     studentId: row.studentId,
     courseOfferingId: row.courseOfferingId,
+    orientationId: row.orientationId ?? null,
     courseOrientationId: row.courseOrientationId,
     firstName: row.student?.firstName ?? '',
     lastName: row.student?.lastName ?? '',
@@ -259,6 +261,20 @@ function isFullUnjustifiedDay(statuses: readonly string[], basicCycle: boolean, 
   return consolidateDay(cells, { thresholdPercent }) === 'ABSENCE'
 }
 
+type GroupRef = { courseOfferingId: string | null; orientationId: string | null; courseOrientationId: string | null }
+
+/**
+ * ¿La lista es de una clase del grupo del alumno? Misma precedencia que el roster
+ * (`buildRosterEnrollmentWhere`): orientación del curso > orientación > tronco común. Contar el
+ * día de otra orientación como día de clase del alumno cortaba su racha sin que hubiera venido.
+ */
+function sessionOfGroup(session: GroupRef, enrollment: GroupRef): boolean {
+  if (session.courseOfferingId !== enrollment.courseOfferingId) return false
+  if (session.courseOrientationId) return session.courseOrientationId === enrollment.courseOrientationId
+  if (session.orientationId) return session.orientationId === enrollment.orientationId
+  return true
+}
+
 export async function loadAbsenceStreaks(schoolYearId: string): Promise<AbsenceStreakRow[]> {
   const enrollments = await activeEnrollments(schoolYearId)
   if (enrollments.length === 0) return []
@@ -284,8 +300,8 @@ export async function loadAbsenceStreaks(schoolYearId: string): Promise<AbsenceS
     // Días de clase de cada grupo (con lista tomada). Entre ellos no hay fines de semana ni feriados.
     prisma.studentAttendanceSession.findMany({
       where: { schoolYearId, status: 'TAKEN' },
-      distinct: ['courseOfferingId', 'courseOrientationId', 'occurrenceYmd'],
-      select: { courseOfferingId: true, courseOrientationId: true, occurrenceYmd: true },
+      distinct: ['courseOfferingId', 'orientationId', 'courseOrientationId', 'occurrenceYmd'],
+      select: { courseOfferingId: true, orientationId: true, courseOrientationId: true, occurrenceYmd: true },
     }),
     getStudentRollCallSettings(),
   ])
@@ -297,18 +313,11 @@ export async function loadAbsenceStreaks(schoolYearId: string): Promise<AbsenceS
   }
 
   const rows: AbsenceStreakRow[] = []
-  for (const e of enrollments.filter((en) => absentStudents.includes(en.studentId))) {
-    // Días del grupo del alumno: los de su oferta, de tronco común o de su orientación.
+  const absentSet = new Set(absentStudents)
+  for (const e of enrollments.filter((en) => absentSet.has(en.studentId))) {
+    // Días del grupo del alumno: los de tronco común y los de su orientación.
     const classDays = [
-      ...new Set(
-        sessionDays
-          .filter(
-            (s) =>
-              s.courseOfferingId === e.courseOfferingId &&
-              (s.courseOrientationId == null || s.courseOrientationId === e.courseOrientationId),
-          )
-          .map((s) => s.occurrenceYmd),
-      ),
+      ...new Set(sessionDays.filter((s) => sessionOfGroup(s, e)).map((s) => s.occurrenceYmd)),
     ].sort()
     const fullDays = new Set(
       absentDays.filter((ymd) => {

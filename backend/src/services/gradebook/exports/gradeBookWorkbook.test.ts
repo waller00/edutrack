@@ -141,6 +141,27 @@ describe('hoja Planilla', () => {
     expect(planillaColumns(PERIODS, []).some((c) => c.label === 'Prueba')).toBe(false)
   })
 
+  it('un semestre de EMS (tramo con reunión de boletín) lleva su juicio después de C y R', () => {
+    const semestre = {
+      id: 's1',
+      name: '1.er Semestre',
+      kind: 'TRAMO' as const,
+      judgementLabel: null,
+      requiresConceptualJudgement: true,
+    }
+    expect(planillaColumns([semestre], []).map((c) => `${c.field}:${c.label}`)).toEqual([
+      'ORAL:Or', 'OTRAS:Otras', 'ESCRITO:Ev', 'C:C', 'R:R', 'TEXT:Juicio conceptual',
+    ])
+
+    const workbook = new ExcelJS.Workbook()
+    const sheet = buildPlanillaSheet(workbook, META, STUDENTS.slice(0, 1), [semestre], [], [
+      { periodId: 's1', studentId: 's1', valueHundredths: 900, meetingValueHundredths: 900, conceptualJudgement: 'Muy buen semestre.' },
+    ], 0)
+    // Nº · Estudiante · Documento · Or · Otras · Ev · C · R · Juicio
+    expect(cellAt(sheet, 7, 7)).toBe(9)
+    expect(cellAt(sheet, 7, 9)).toBe('Muy buen semestre.')
+  })
+
   it('las notas sueltas van juntas y sin promediar; C y R como número', () => {
     const workbook = new ExcelJS.Workbook()
     const sheet = buildPlanillaSheet(workbook, META, STUDENTS.slice(0, 1), PERIODS, GRADES, [

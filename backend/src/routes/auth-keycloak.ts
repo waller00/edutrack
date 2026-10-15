@@ -23,8 +23,14 @@ import {
   newSessionId,
   saveSession,
 } from "../auth/session-store.js";
-import { provisionUserFromClaims, SsoRegistrationRequiredError } from "../auth/keycloak-provisioning.js";
+import {
+  KeycloakAccountConflictError,
+  provisionUserFromClaims,
+  SsoRegistrationRequiredError,
+} from "../auth/keycloak-provisioning.js";
 import { createSsoRegistration } from "../auth/sso-registration.js";
+import { hitRateLimit } from "../middlewares/rate-limit.js";
+import { clientIp } from "../lib/client-ip.js";
 
 /**
  * Rutas de autenticacion del patron BFF (Keycloak como IdP).
@@ -42,6 +48,12 @@ const r = Router();
 
 const OAUTH_PREFIX = "bff:oauth:";
 const OAUTH_TTL_SECONDS = 600;
+/**
+ * Ata el `state` del flujo OIDC al navegador que lo empezó. Con el `state` sólo en Redis, un
+ * atacante podía iniciar el login con su cuenta y hacerle abrir a la víctima su URL de callback:
+ * la víctima terminaba trabajando (y cargando datos) dentro de la sesión del atacante.
+ */
+const OAUTH_STATE_COOKIE = "oauth_state";
 
 function frontendUrl(): string {
   return (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -83,6 +95,23 @@ function clearSessionCookie(res: any) {
   // Borra tanto la cookie con dominio (config actual) como la variante host-only previa.
   if (cfg.domain) res.clearCookie("sid", { ...base, domain: cfg.domain });
   res.clearCookie("sid", base);
+}
+
+/**
+ * `SameSite=Lax` siempre, aunque la sesión use otra política: la vuelta desde Keycloak es una
+ * navegación GET de primer nivel y con `Strict` la cookie no viajaría si Keycloak está en otro sitio.
+ */
+function oauthStateCookieOptions() {
+  const cfg = resolveCookieConfig();
+  return { httpOnly: true, secure: cfg.secure, sameSite: "lax", domain: cfg.domain, path: "/auth" } as const;
+}
+
+function setOauthStateCookie(res: any, state: string) {
+  res.cookie(OAUTH_STATE_COOKIE, state, { ...oauthStateCookieOptions(), maxAge: OAUTH_TTL_SECONDS * 1000 });
+}
+
+function clearOauthStateCookie(res: any) {
+  res.clearCookie(OAUTH_STATE_COOKIE, oauthStateCookieOptions());
 }
 
 async function startSessionFromTokens(
@@ -150,6 +179,7 @@ async function beginLoginFlow(
     "EX",
     OAUTH_TTL_SECONDS,
   );
+  setOauthStateCookie(res, state);
   res.redirect(authUrl);
 }
 
@@ -167,6 +197,11 @@ r.get("/login", async (req, res) => {
 
 r.get("/callback", async (req, res) => {
   const state = typeof req.query.state === "string" ? req.query.state : "";
+  const browserState = req.cookies?.[OAUTH_STATE_COOKIE];
+  clearOauthStateCookie(res);
+  // El callback tiene que volver al mismo navegador que pidió el login (ver OAUTH_STATE_COOKIE).
+  if (!state || browserState !== state) return res.redirect(`${frontendUrl()}/login?error=state`);
+
   const redis = getRedis();
   if (!redis) return res.status(503).json({ message: "Redis no disponible" });
 
@@ -193,6 +228,11 @@ r.get("/callback", async (req, res) => {
         const token = await createSsoRegistration(error.profile);
         clearSessionCookie(res);
         return res.redirect(`${frontendUrl()}/register?sso=${encodeURIComponent(token)}`);
+      }
+      if (error instanceof KeycloakAccountConflictError) {
+        console.warn("[auth/callback] cuenta de Keycloak sin vínculo válido:", tokens.claims.sub);
+        clearSessionCookie(res);
+        return res.redirect(`${frontendUrl()}/login?error=account_link`);
       }
       throw error;
     }
@@ -273,10 +313,17 @@ r.post("/account/2fa/disable", async (req, res) => {
   }
 });
 
-function publicApiUrl(req: any): string {
+/**
+ * Origen público de la API para los enlaces que salen por correo.
+ *
+ * Nunca se arma con el `Host` del pedido: con un `Host` inventado, el correo legítimo que recibe
+ * la víctima llevaba un token válido a un dominio del atacante. Sin `PUBLIC_API_URL` se usa el
+ * origen de `KEYCLOAK_REDIRECT_URI`, que ya es la URL pública del callback de esta misma API.
+ */
+function publicApiUrl(): string {
   const configured = (process.env.PUBLIC_API_URL || process.env.API_PUBLIC_URL || "").trim().replace(/\/$/, "");
   if (configured) return configured;
-  return `${req.protocol}://${req.get("host")}`;
+  return new URL(redirectUri()).origin;
 }
 
 function twoFactorEmailSecret(): string {
@@ -353,7 +400,7 @@ r.post("/account/2fa/disable-email", async (req, res) => {
   }
 
   try {
-    await sendDisable2faEmail({ req, kcId: session.kcId, userId: user.id, email: user.email });
+    await sendDisable2faEmail({ kcId: session.kcId, userId: user.id, email: user.email });
   } catch (error) {
     console.error("[auth/account/2fa/disable-email] mail:", error);
     return res.status(502).json({ message: "No se pudo enviar el correo de confirmación." });
@@ -361,19 +408,50 @@ r.post("/account/2fa/disable-email", async (req, res) => {
   res.json({ ok: true });
 });
 
+/** Pedidos por IP al formulario público: alcanza para equivocarse de usuario, no para bombardear. */
+const DISABLE_2FA_PUBLIC_LIMIT = { bucket: "2fa-disable-public", max: 5, windowSeconds: 600 } as const;
+/** Un correo por cuenta en esta ventana, aunque los pedidos lleguen desde muchas IPs. */
+const DISABLE_2FA_MAIL_COOLDOWN_SECONDS = 120;
+
+/** Reserva el envío para la cuenta. Sin Redis no hay cómo coordinar y se deja pasar. */
+async function reserveDisable2faMail(userId: string): Promise<boolean> {
+  const redis = getRedis();
+  if (!redis) return true;
+  try {
+    const reserved = await redis.set(
+      `bff:2fa-disable-mail:${userId}`,
+      "1",
+      "EX",
+      DISABLE_2FA_MAIL_COOLDOWN_SECONDS,
+      "NX",
+    );
+    return reserved === "OK";
+  } catch {
+    return true;
+  }
+}
+
 r.post("/account/2fa/disable-email-public", async (req, res) => {
   const identifier = typeof req.body?.identifier === "string" ? req.body.identifier.trim() : "";
   res.set("Content-Type", "text/html; charset=utf-8");
   const generic = () => res.send(renderDisable2faRequestSentPage());
   if (!identifier || identifier.length > 255) return generic();
 
+  // El formulario se postea desde la pantalla de Keycloak y navega a esta respuesta: el límite
+  // contesta HTML, no el JSON del middleware. Dice que hay que esperar sin revelar nada de la cuenta.
+  const hit = await hitRateLimit(DISABLE_2FA_PUBLIC_LIMIT, clientIp(req) ?? "unknown");
+  if (hit.limited) {
+    res.setHeader("Retry-After", String(hit.retryAfterSeconds));
+    return res.status(429).send(renderDisable2faTooManyRequestsPage());
+  }
+
   try {
-    const normalizedEmail = identifier.toLowerCase();
+    // Sin distinguir mayúsculas: "Lucia.Fernandez" es el usuario "lucia.fernandez".
     const user = await prisma.user.findFirst({
       where: {
         OR: [
-          { email: normalizedEmail },
-          { username: identifier },
+          { email: { equals: identifier, mode: "insensitive" } },
+          { username: { equals: identifier, mode: "insensitive" } },
         ],
       },
       select: { id: true, email: true, emailVerifiedAt: true },
@@ -386,7 +464,8 @@ r.post("/account/2fa/disable-email-public", async (req, res) => {
     const status = await getKeycloakUserOtpStatus(kcId);
     if (!status.enabled) return generic();
 
-    await sendDisable2faEmail({ req, kcId, userId: user.id, email: user.email });
+    if (!(await reserveDisable2faMail(user.id))) return generic();
+    await sendDisable2faEmail({ kcId, userId: user.id, email: user.email });
     return generic();
   } catch (error) {
     console.error("[auth/account/2fa/disable-email-public]:", error);
@@ -461,6 +540,15 @@ function renderDisable2faRequestSentPage(): string {
   });
 }
 
+function renderDisable2faTooManyRequestsPage(): string {
+  return renderDisable2faStatusPage({
+    title: "Demasiados intentos",
+    message: "Hiciste varios pedidos seguidos. Esperá unos minutos y volvé a intentarlo.",
+    buttonText: "Volver al ingreso",
+    buttonHref: `${frontendUrl()}/login`,
+  });
+}
+
 function renderDisable2faSuccessPage(): string {
   return renderDisable2faStatusPage({
     title: "2FA desactivado correctamente",
@@ -470,9 +558,9 @@ function renderDisable2faSuccessPage(): string {
   });
 }
 
-async function sendDisable2faEmail(input: { req: any; kcId: string; userId: string; email: string }): Promise<void> {
+async function sendDisable2faEmail(input: { kcId: string; userId: string; email: string }): Promise<void> {
   const token = createDisable2faEmailToken({ kcId: input.kcId, userId: input.userId, email: input.email });
-  const url = `${publicApiUrl(input.req)}/auth/account/2fa/disable-email?token=${encodeURIComponent(token)}`;
+  const url = `${publicApiUrl()}/auth/account/2fa/disable-email?token=${encodeURIComponent(token)}`;
   await sendMail({
     to: input.email,
     subject: "Confirmar desactivación de 2FA",
@@ -493,7 +581,7 @@ r.get("/account/2fa/disable-email", (req, res) => {
   }
   const data = verifyDisable2faEmailToken(token);
   if (!data) return res.redirect(`${frontendUrl()}/profile?twoFactorDisableError=token`);
-  const confirmUrl = `${publicApiUrl(req)}/auth/account/2fa/disable-email/confirm`;
+  const confirmUrl = `${publicApiUrl()}/auth/account/2fa/disable-email/confirm`;
   res.set("Content-Type", "text/html; charset=utf-8");
   return res.send(renderDisable2faConfirmPage(confirmUrl, token));
 });

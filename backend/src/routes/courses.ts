@@ -243,10 +243,39 @@ r.put('/orientations/:orientationId', authGuard, requirePermission('courses.mana
   }
 })
 
+/**
+ * ¿La orientación (o la orientación de un curso) tiene clases, libretas, matrículas o listas?
+ * Borrarla no fallaba: las dejaba con la orientación en `null`, y en silencio las clases de esa
+ * orientación pasaban a ser de tronco común (lista con todo el grupo, libreta general, otro curso
+ * Moodle). Con uso se desactiva, como los cursos y las asignaturas.
+ */
+async function orientationInUse(where: { orientationId: string } | { courseOrientationId: string }) {
+  const [events, gradeBooks, enrollments, sessions] = await Promise.all([
+    prisma.event.count({ where }),
+    prisma.gradeBook.count({ where }),
+    prisma.studentEnrollment.count({ where }),
+    prisma.studentAttendanceSession.count({ where }),
+  ])
+  return events + gradeBooks + enrollments + sessions > 0
+}
+
 r.delete('/orientations/:orientationId', authGuard, requirePermission('courses.manage', 'all'), async (req, res) => {
   try {
     const oid = z.string().uuid().safeParse(req.params.orientationId)
     if (!oid.success) return res.status(400).json({ message: 'Orientación inválida' })
+    const linkedCourseOrientations = await prisma.courseOrientation.findMany({
+      where: { orientationId: oid.data },
+      select: { id: true },
+    })
+    const inUse =
+      (await orientationInUse({ orientationId: oid.data })) ||
+      (
+        await Promise.all(linkedCourseOrientations.map((co) => orientationInUse({ courseOrientationId: co.id })))
+      ).some(Boolean)
+    if (inUse) {
+      await prisma.orientation.update({ where: { id: oid.data }, data: { isActive: false } })
+      return res.json({ ok: true, deactivated: true })
+    }
     await (prisma as any).orientation.delete({
       where: { id: oid.data },
     })
@@ -602,6 +631,10 @@ r.delete('/:courseId/orientations/:courseOrientationId', authGuard, requirePermi
       select: { id: true },
     })
     if (!row) return res.status(404).json({ message: 'Orientación no asociada a este curso' })
+    if (await orientationInUse({ courseOrientationId: row.id })) {
+      await prisma.courseOrientation.update({ where: { id: row.id }, data: { isActive: false } })
+      return res.json({ ok: true, deactivated: true })
+    }
     await (prisma as any).courseOrientation.delete({
       where: { id: row.id },
     })

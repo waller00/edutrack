@@ -7,6 +7,8 @@ import { signAccessToken } from "../test-utils/bearer-token.js";
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     $transaction: vi.fn(async (cb) => cb(prismaMock)),
+    // Feriados (`findNonWorkingDayForDate`): ninguno. Antes faltaba y el error se tragaba en modo test.
+    $queryRaw: vi.fn().mockResolvedValue([]),
     user: { findFirst: vi.fn() },
     course: { findFirst: vi.fn() },
     courseOffering: { findFirst: vi.fn(), findUnique: vi.fn() },
@@ -39,12 +41,21 @@ vi.mock("../services/school-year-service.js", () => ({
   isYmdWithinSchoolYear: vi.fn(() => true),
 }));
 vi.mock("@prisma/client", () => ({
+  Prisma: { sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }) },
   AuditAction: {
     EVENT_CREATED: "EVENT_CREATED",
+    EVENT_UPDATED: "EVENT_UPDATED",
+    EVENT_CANCELLED: "EVENT_CANCELLED",
+    EVENT_DELETED: "EVENT_DELETED",
   },
 }));
 
 import eventsRoutes from "./events.js";
+
+/** Perfil a medida: docente al que administración le dio editar y suspender sus eventos (de fábrica no los tiene). */
+function editorTok(role: "TEACHER" | "STAFF" = "TEACHER") {
+  return signAccessToken({ sub: "u1", email: "u@u.com", role, permissions: { "events.update": "own", "events.cancel": "own" } });
+}
 import { isYmdWithinSchoolYear } from "../services/school-year-service.js";
 const isYmdWithinSchoolYearMock = vi.mocked(isYmdWithinSchoolYear);
 
@@ -405,7 +416,7 @@ describe("events routes (prisma mock)", () => {
       ],
     });
     prismaMock.event.update.mockResolvedValue({ id: "e1" });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
@@ -437,7 +448,7 @@ describe("events routes (prisma mock)", () => {
     });
     prismaMock.courseOffering.findUnique.mockResolvedValueOnce({ schoolYearId: "sy-2025", course: { level: "CICLO_BASICO" } });
     prismaMock.subject.findFirst.mockResolvedValueOnce(null);
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
@@ -720,7 +731,7 @@ describe("events routes (prisma mock)", () => {
     });
     prismaMock.event.create.mockResolvedValueOnce({ id: "e2", title: "Clase nueva", assignedUserId: "00000000-0000-4000-8000-000000000099", user: {}, assignedUser: null });
     prismaMock.event.update.mockResolvedValueOnce({ id: "e1", status: "CANCELLED" });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
@@ -791,7 +802,7 @@ describe("events routes (prisma mock)", () => {
       userId: "other",
       assignedUserId: "another",
     });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
@@ -820,7 +831,7 @@ describe("events routes (prisma mock)", () => {
       subjectId: null,
       _count: { attendances: 0 },
     });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
@@ -856,7 +867,7 @@ describe("events routes (prisma mock)", () => {
       _count: { attendances: 0 },
     });
     prismaMock.event.update.mockResolvedValue({ id: "e1", title: "Nuevo" });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
@@ -879,7 +890,7 @@ describe("events routes (prisma mock)", () => {
       status: "SCHEDULED",
     });
     prismaMock.event.update.mockResolvedValue({ id: "e1", description: null, assignedUserId: null });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
 
     const res = await request(app())
       .put("/events/e1")
@@ -928,7 +939,7 @@ describe("events routes (prisma mock)", () => {
       courseId,
       schoolYearId: "sy-2026",
     });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
 
     const res = await request(app())
       .put(`/events/e1?schoolYearId=sy-2026`)
@@ -977,7 +988,7 @@ describe("events routes (prisma mock)", () => {
     });
     prismaMock.event.create.mockResolvedValueOnce({ id: "e2", title: "Clase", assignedUserId: null });
     prismaMock.event.update.mockResolvedValueOnce({ id: "e1", status: "CANCELLED" });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
 
     const res = await request(app())
       .put("/events/e1")
@@ -1014,7 +1025,7 @@ describe("events routes (prisma mock)", () => {
       status: "SCHEDULED",
     });
     prismaMock.event.update.mockResolvedValue({ id: "e1", title: "Titulo corregido" });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
 
     const res = await request(app())
       .put("/events/e1")
@@ -1035,7 +1046,7 @@ describe("events routes (prisma mock)", () => {
       assignedUserId: null,
     });
     prismaMock.event.update.mockRejectedValueOnce(new Error("db"));
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1")
       .set("Authorization", `Bearer ${tok}`)
@@ -1068,7 +1079,7 @@ describe("events routes (prisma mock)", () => {
     status: "SCHEDULED",
     ...extra,
   });
-  const putTok = () => signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+  const putTok = () => editorTok();
 
   it("PUT /events/:id resuelve courseOrientationId válido", async () => {
     prismaMock.event.findUnique.mockResolvedValue(existingForPut());
@@ -1172,7 +1183,7 @@ describe("events routes (prisma mock)", () => {
 
   it("PUT /events/:id/cancel 404 si no existe", async () => {
     prismaMock.event.findUnique.mockResolvedValue(null);
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1/cancel")
       .set("Authorization", `Bearer ${tok}`)
@@ -1187,7 +1198,7 @@ describe("events routes (prisma mock)", () => {
       status: "SCHEDULED",
       description: "Desc",
     });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1/cancel")
       .set("Authorization", `Bearer ${tok}`)
@@ -1203,7 +1214,7 @@ describe("events routes (prisma mock)", () => {
       description: "Desc",
     });
     prismaMock.event.update.mockResolvedValue({ id: "e1", status: "CANCELLED" });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1/cancel")
       .set("Authorization", `Bearer ${tok}`)
@@ -1220,7 +1231,7 @@ describe("events routes (prisma mock)", () => {
       description: "Desc",
     });
     prismaMock.event.update.mockResolvedValue({ id: "e1", status: "CANCELLED", description: "Desc" });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1/cancel")
       .set("Authorization", `Bearer ${tok}`)
@@ -1237,7 +1248,7 @@ describe("events routes (prisma mock)", () => {
       description: "Desc",
     });
     prismaMock.event.update.mockRejectedValueOnce(new Error("db"));
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1/cancel")
       .set("Authorization", `Bearer ${tok}`)
@@ -1277,7 +1288,7 @@ describe("events routes (prisma mock)", () => {
       status: "CANCELLED",
       description: "",
     });
-    const tok = signAccessToken({ sub: "u1", email: "u@u.com", role: "TEACHER" });
+    const tok = editorTok();
     const res = await request(app())
       .put("/events/e1/cancel")
       .set("Authorization", `Bearer ${tok}`)
@@ -1308,6 +1319,47 @@ describe("events routes (prisma mock)", () => {
       }),
     );
     expect(prismaMock.event.delete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /events/:id se audita como eliminación, no como alta", async () => {
+    prismaMock.event.findUnique.mockResolvedValueOnce({ id: "e1", title: "Evento", status: "SCHEDULED", description: null });
+    prismaMock.event.update.mockResolvedValueOnce({ id: "e1", status: "CANCELLED" });
+    const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
+    await request(app()).delete("/events/e1").set("Authorization", `Bearer ${tok}`);
+
+    const actions = prismaMock.auditLog.create.mock.calls.map((call: any[]) => call[0].data.action);
+    expect(actions).toContain("EVENT_DELETED");
+    expect(actions).not.toContain("EVENT_CREATED");
+  });
+
+  it("PUT /events/:id/cancel queda en la auditoría", async () => {
+    prismaMock.event.findUnique.mockResolvedValue({ userId: "u1", assignedUserId: null, status: "SCHEDULED", description: "" });
+    prismaMock.event.update.mockResolvedValue({ id: "e1", title: "Matemática", status: "CANCELLED" });
+    const tok = editorTok();
+    await request(app()).put("/events/e1/cancel").set("Authorization", `Bearer ${tok}`).send({ reason: "Paro" });
+
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "EVENT_CANCELLED",
+          entityId: "e1",
+          metadata: { title: "Matemática", reason: "Paro" },
+        }),
+      }),
+    );
+  });
+
+  it("DELETE /events/purge-all no existe fuera del entorno de pruebas", async () => {
+    const previous = process.env.ALLOW_ADMIN_TESTING_TOOLS;
+    process.env.ALLOW_ADMIN_TESTING_TOOLS = "0";
+    try {
+      const tok = signAccessToken({ sub: "a", email: "a@a.com", role: "ADMIN" });
+      const res = await request(app()).delete("/events/purge-all").set("Authorization", `Bearer ${tok}`);
+      expect(res.status).toBe(403);
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_ADMIN_TESTING_TOOLS;
+      else process.env.ALLOW_ADMIN_TESTING_TOOLS = previous;
+    }
   });
 
   describe("POST /events/import", () => {

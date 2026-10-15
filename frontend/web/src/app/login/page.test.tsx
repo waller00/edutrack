@@ -78,6 +78,21 @@ describe('LoginPage (Keycloak)', () => {
     expect(errorLocationMock.href).toContain('/auth/login')
   })
 
+  it('si la cuenta de acceso no tiene vínculo válido pide revisión a administración, no reintentar', async () => {
+    const linkLocationMock = { href: '', search: '?error=account_link' }
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: linkLocationMock,
+    })
+
+    render(<LoginPage />)
+
+    expect(await screen.findByRole('heading', { name: /Tu acceso necesita revisión/i })).toBeInTheDocument()
+    expect(screen.getByText(/Pedile a administración que la revise/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Volvé a intentar/i)).not.toBeInTheDocument()
+    expect(linkLocationMock.href).toBe('')
+  })
+
   it('no redirige automaticamente despues de cerrar sesion', async () => {
     const loggedOutLocationMock = { href: '', search: '?loggedOut=1' }
     Object.defineProperty(window, 'location', {

@@ -52,7 +52,7 @@ describe('AdminAuditPanel', () => {
       screen.queryByRole('button', { name: 'Limpiar filtros' }),
     ).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByRole('combobox'), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Tipo de acción' }), {
       target: { value: 'AUTH_LOGIN_FAILURE' },
     })
 
@@ -68,11 +68,12 @@ describe('AdminAuditPanel', () => {
 
   it('abre el detalle legible y mantiene los datos técnicos en un segundo desplegable', async () => {
     render(<AdminAuditPanel />)
-    fireEvent.click(
-      await screen.findByLabelText(/Ver detalle de Login fallido/),
+    const activity = await screen.findByLabelText(
+      /Ver detalle de Login fallido/,
     )
+    expect(screen.getByText('1.2.3.4')).toBeVisible()
+    fireEvent.click(activity)
     expect(screen.getByText('La contraseña no coincide.')).toBeVisible()
-    expect(screen.getByText('1.2.3.4')).not.toBeVisible()
     fireEvent.click(screen.getByText('Datos técnicos'))
     expect(screen.getByText('1.2.3.4')).toBeVisible()
     expect(screen.getByText('AUTH_LOGIN_FAILURE')).toBeVisible()
@@ -118,6 +119,7 @@ describe('AdminAuditPanel', () => {
       ),
     )
     expect(screen.getByText('Actividad de:')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Persona Ana' })).toBeVisible()
     fireEvent.click(
       screen.getByRole('button', { name: 'Quitar filtro de usuario' }),
     )
@@ -131,31 +133,45 @@ describe('AdminAuditPanel', () => {
     })
   })
 
-  it('no consulta la API con un ID incompleto y valida antes de aplicar el filtro avanzado', async () => {
+  it('elige una persona por nombre y correo sin pedir su ID', async () => {
+    mockedApi.mockImplementation(async (url) => {
+      if (String(url).startsWith('/admin/audit-logs/users?')) {
+        return {
+          total: 1,
+          data: [{ id: row.actorUserId, name: 'Ana', email: 'a@b.com' }],
+        } as never
+      }
+      return response as never
+    })
     render(<AdminAuditPanel />)
     await screen.findByText('Login fallido', { selector: 'span' })
-    fireEvent.click(screen.getByText('Filtrar por persona'))
-    const calls = mockedApi.mock.calls.length
+    expect(
+      screen.queryByLabelText('ID de usuario', { selector: 'input' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Persona Todos los usuarios' }),
+    )
     fireEvent.change(
-      screen.getByLabelText('ID de usuario', { selector: 'input' }),
-      { target: { value: '111' } },
+      screen.getByRole('combobox', {
+        name: 'Buscar usuario por nombre o correo',
+      }),
+      {
+        target: { value: 'a@b.com' },
+      },
     )
-    expect(mockedApi.mock.calls).toHaveLength(calls)
-    fireEvent.click(screen.getByRole('button', { name: 'Filtrar usuario' }))
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Ingresá un ID de usuario válido.',
-    )
-    expect(mockedApi.mock.calls).toHaveLength(calls)
-    fireEvent.change(
-      screen.getByLabelText('ID de usuario', { selector: 'input' }),
-      { target: { value: '  ' + row.actorUserId + '  ' } },
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Filtrar usuario' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Ana a@b.com' }))
     await waitFor(() =>
       expect(String(mockedApi.mock.calls.at(-1)?.[0])).toContain(
         'actorUserId=' + row.actorUserId,
       ),
     )
+    expect(screen.getByRole('button', { name: 'Persona Ana' })).toBeVisible()
+    expect(
+      screen.queryByRole('dialog', { name: 'Elegir persona' }),
+    ).not.toBeInTheDocument()
+    expect(
+      mockedApi.mock.calls.some(([url]) => String(url).includes('q=a%40b.com')),
+    ).toBe(true)
   })
 
   it('pagina desde el servidor y vuelve a la primera página al cambiar filtros', async () => {
@@ -170,7 +186,7 @@ describe('AdminAuditPanel', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Siguiente' })).toBeDisabled(),
     )
-    fireEvent.change(screen.getByRole('combobox'), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Tipo de acción' }), {
       target: { value: 'AUTH_LOGIN_FAILURE' },
     })
     await waitFor(() =>
@@ -225,7 +241,7 @@ describe('AdminAuditPanel', () => {
     mockedApi.mockResolvedValue({ ...response, total: 0, data: [] } as never)
     render(<AdminAuditPanel />)
     await screen.findByText('Todavía no hay movimientos registrados.')
-    fireEvent.change(screen.getByRole('combobox'), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Tipo de acción' }), {
       target: { value: 'AUTH_LOGIN_FAILURE' },
     })
     await screen.findByText('No hay movimientos que coincidan con los filtros.')

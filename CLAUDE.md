@@ -30,6 +30,12 @@ docker compose up -d --build
 
 El backend corre `prisma db push --skip-generate` automáticamente al arrancar (ver `backend/docker-entrypoint.sh`). **No hay `migrate deploy`**; el proyecto usa `db push` (sin tabla `_prisma_migrations`).
 
+> **Un `@unique` nuevo sobre una tabla con datos necesita SQL previo.** En producción `db push` corre
+> sin `--accept-data-loss` y rechaza agregar ese UNIQUE: no aplica nada del esquema y el código nuevo
+> falla. El DDL va idempotente en `prisma/migrations/<fecha>_<nombre>/migration.sql` (con los nombres
+> de índice que genera Prisma; verificar con `prisma migrate diff`) y se agrega a `npm run db:prepush`,
+> que el entrypoint corre **antes** de `db push`. `db:optimize` corre en segundo plano: no sirve para esto.
+
 URLs locales:
 
 | Servicio | URL |
@@ -99,6 +105,27 @@ docker compose up -d --build auth  # rebuild solo el backend
 - Esquema: `backend/prisma/schema.prisma`
 - Modelos principales: `User`, `SchoolYear`, `Course`, `CourseOffering`, `CourseOrientation`, `Subject`, `SubjectCourseAssignment`, `Student`, `StudentEnrollment`, `Event`, `Substitution`, `Attendance`, `MedicalLeave`, `MoodleObjectMap`, `MoodleEnrolmentMap`, `MoodleSyncTask`, `BiometricDevice`, `BiometricPunch`, `SystemSettings`
 
+> **El login vincula por `User.keycloakId` (el `sub`), nunca por username.** El email sólo vincula una
+> vez, a usuarios todavía sin `keycloakId` (el arranque los rellena con `backfillKeycloakLinks`). Email
+> y username los edita el usuario en la consola de Keycloak: buscar por ellos es tomar cuentas ajenas.
+> Toda alta que crea la cuenta en Keycloak guarda el vínculo con `linkKeycloakAccount`.
+
+> **La IP del cliente es `clientIp(req)` (`src/lib/client-ip.ts`).** Nunca el primer valor de
+> `X-Forwarded-For`: lo escribe el cliente. `trust proxy` sólo cree en el salto inmediato y privado
+> (nginx), así `req.ip` es la IP real. La usan auditoría, rate limit y las IPs permitidas de lectores.
+
+> **Los lectores iClock (`/iclock/*`) no se autentican**: sólo los distingue `admsSerial` + la IP.
+> Un lector sin `allowedIps` no recibe marcas, y el `code` no identifica a un reloj.
+
+> **Borrar físicamente sólo lo que no tiene historial.** Estudiantes con notas, asistencias o cuotas
+> pagas (`STUDENT_HAS_HISTORY`), ciclos con libretas y orientaciones en uso (se desactivan) no se
+> borran: las cascadas se llevaban escolaridad, listas y libretas. `DELETE /events/purge-all` y
+> `/attendance/purge-all` son herramientas de pruebas (`isAdminTestingToolsEnabled`).
+
+> **Un usuario con historial no se borra: se da de baja.** Borrarlo arrastra en cascada su
+> asistencia, sus licencias y los eventos que creó (con ellos, listas de estudiantes y suplencias).
+> `DELETE /admin/users/:id` lo rechaza con `USER_HAS_HISTORY`.
+
 > **Dos sistemas de asistencia distintos.** `Attendance` es del **personal** (`userId → User`, marcas biométricas). El pase de lista estudiantil vive en `StudentAttendanceSession` / `StudentAttendanceEntry` / `StudentAttendanceJustification`, con su propio enum `StudentAttendanceStatus`. No mezclarlos: una consulta sobre `Attendance.status` nunca debe contar alumnos.
 
 > **Las notas viven en `GradeBook*`, no en Moodle.** EduTrack es la fuente de verdad de las calificaciones; Moodle se **importa** y nunca se pisa. Los valores se guardan en centésimos como `Int` (un 8 es `800`), igual que `amountCents` — nunca `Float` ni `Decimal`.
@@ -119,6 +146,12 @@ Módulo: `backend/src/integrations/moodle/`
 - `client.ts` — HTTP + variables de entorno Moodle
 
 Detalle completo: [docs/MOODLE_INTEGRACION.md](docs/MOODLE_INTEGRACION.md)
+
+> **El titular que deja una clase pierde el curso Moodle** (`revokeStaleTeachers`), pasados
+> `TEACHER_ACCESS_GRACE_DAYS` desde la reasignación (versión reemplazada) o la cancelación de la
+> serie. Si la fase de titulares tuvo cualquier error no se revoca nada en esa corrida. Moodle guarda
+> **una** matrícula manual por usuario y curso: al titular nunca se lo inscribe además como suplente
+> del mismo curso (le pondría fecha de fin).
 
 ---
 
@@ -145,6 +178,11 @@ Frontend: `/me/roll-call` y `/admin/student-attendance`. La franja que aparece e
 la clase es `components/rollcall/RollCallReminderBar.tsx` (montada en `UserNav`). Las fases de una
 lista ("Abre 09:50", "Pasá la lista", "Sin pasar", "Pasada 10:07") salen de `lib/rollcall/rollcall-phase.ts`,
 calculadas con la hora del cliente: no confiar en un `canEdit` viejo.
+
+> **Guardar la lista y justificar pueden pisarse.** `saveRollCall` resuelve los estados contra las
+> marcas bloqueadas (`FOR UPDATE`) dentro de su transacción, no contra lo leído antes, y
+> `justifyEntryTx` sólo justifica si la marca **sigue** en `ABSENT` (update condicional). No volver a
+> resolver estados fuera de la transacción.
 
 > `occurrenceDate` **debe** calcularse con `uruguayWallToUtc(ymd, 0, 0)`, idéntico a lo que escribe
 > `resolveSubstitutionOccurrence` en `Substitution.date`. Si difieren, el suplente recibe un 403

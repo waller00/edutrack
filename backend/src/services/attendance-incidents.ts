@@ -4,7 +4,7 @@ import { uruguayStartOfDayFromInstant } from "../config/app-timezone.js";
 import { toYmdUtc } from "./analytics/dateRange.js";
 import { buildPresenceSpans, resolveOccurrenceOutcome } from "./attendance/coverage-spans.js";
 import { findApprovedLicenseCoveringEventTime } from "./medicalLeaveReconciliation.js";
-import { isNonWorkingDate } from "./non-working-days.js";
+import { isNonWorkingInstant } from "./non-working-days.js";
 import { notifyUsers } from "./notifications/notify.js";
 
 async function notifyAdminsAttendanceIncident(title: string, body: string, actionUrl = "/admin/attendance") {
@@ -197,7 +197,7 @@ export async function scanAndCreateTeacherNoShowIncidents(now = new Date()) {
     const userId = ev.assignedUserId;
     if (!userId) continue;
     const anchorTime = new Date(ev.startTime ?? ev.startDate);
-    if (await isNonWorkingDate(anchorTime)) continue;
+    if (await isNonWorkingInstant(anchorTime)) continue;
     const day = uruguayStartOfDayFromInstant(anchorTime);
     if (await hasSubstitutionForDay(tx, ev.id, userId, day)) continue;
 

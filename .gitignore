@@ -7,6 +7,7 @@ frontend/web/out/
 frontend/web/build/
 .env
 .env.*
+!.env.compose.example
 !.env.monitoring.example
 !.env.k6.example
 !.env.proxy.example
@@ -51,7 +52,3 @@ cookies.txt
 __pycache__/
 docs/postman/postman-run-report.json
 frontend/web/tsconfig.tsbuildinfo
-
-# Archivos locales de asistentes
-CLAUDE.md
-claude.md

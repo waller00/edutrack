@@ -49,6 +49,8 @@ export type ReconcileSummary = {
   enabled: boolean;
   courses: number;
   teacherEnrolments: number;
+  /** Titulares que ya no dictan la asignatura (clase reasignada o cancelada) y perdieron el acceso. */
+  teacherRevocations: number;
   substituteEnrolments: number;
   substituteRevocations: number;
   studentEnrolments: number;
@@ -327,15 +329,42 @@ async function ensureStudentSubjectCourseFor(
   });
 }
 
+/**
+ * Días que conserva el acceso el titular de una clase reasignada (versión de la serie reemplazada)
+ * o cancelada: para terminar de corregir lo que tenía pendiente en Moodle.
+ */
+export const TEACHER_ACCESS_GRACE_DAYS = 30;
+
+const DAY_MS = 86_400_000;
+
+type TeacherPhase = {
+  /** `userId::moodleCourseId` de quienes dictan hoy la asignatura. */
+  keys: Set<string>;
+  /** Hubo errores: la lista puede estar incompleta y no se revoca nada en esta corrida. */
+  incomplete: boolean;
+};
+
 /** Fase 1 — docentes titulares. Devuelve las claves `userId::moodleCourseId` para la revocación. */
-async function reconcileTeacherEnrolments(ctx: ReconcileContext): Promise<Set<string>> {
+async function reconcileTeacherEnrolments(ctx: ReconcileContext): Promise<TeacherPhase> {
+  const graceStart = new Date(ctx.now.getTime() - TEACHER_ACCESS_GRACE_DAYS * DAY_MS);
   const events = await prisma.event.findMany({
-    where: { assignedUserId: { not: null }, courseOfferingId: { not: null } },
+    where: {
+      assignedUserId: { not: null },
+      courseOfferingId: { not: null },
+      AND: [
+        // La versión vieja de una serie reasignada (`splitEventDefinitionForEdit`) sigue con el
+        // docente anterior: sin este filtro quedaba como profesor del curso Moodle para siempre.
+        { OR: [{ supersededById: null }, { effectiveUntil: { gte: graceStart } }] },
+        // Una serie cancelada tampoco da acceso, pasada la gracia.
+        { OR: [{ status: { not: "CANCELLED" } }, { updatedAt: { gte: graceStart } }] },
+      ],
+    },
     select: { assignedUserId: true, ...academicEventSelect },
   });
 
   const teacherUserCourseKeys = new Set<string>();
   const processed = new Set<string>();
+  let incomplete = false;
 
   for (const ev of events) {
     const off = ev.courseOffering;
@@ -347,7 +376,11 @@ async function reconcileTeacherEnrolments(ctx: ReconcileContext): Promise<Set<st
         : await ensureLegacyOfferingCourse(ctx, off); // fallback legacy: evento sin asignatura.
 
       const moodleUserId = await resolveMoodleUserId(ctx, ev.assignedUserId!);
-      if (moodleUserId == null) continue;
+      if (moodleUserId == null) {
+        // Sin usuario Moodle (o no se pudo sincronizar ahora): no se sabe su curso con certeza.
+        incomplete = true;
+        continue;
+      }
 
       const dedupe = `${ev.assignedUserId}::${courseId}`;
       teacherUserCourseKeys.add(dedupe);
@@ -364,11 +397,43 @@ async function reconcileTeacherEnrolments(ctx: ReconcileContext): Promise<Set<st
       });
       ctx.summary.teacherEnrolments += 1;
     } catch (e) {
+      incomplete = true;
       ctx.summary.errors += 1;
       logError("titular", ev.assignedUserId, e);
     }
   }
-  return teacherUserCourseKeys;
+  return { keys: teacherUserCourseKeys, incomplete };
+}
+
+/**
+ * Fase 3b — titulares que ya no dictan la asignatura. Antes no se revocaba nunca: quien dejaba una
+ * clase seguía como profesor del curso Moodle (notas que después se importan a la libreta, datos de
+ * menores). Si además es suplente vigente del curso, conserva ese acceso (con su ventana).
+ */
+async function revokeStaleTeachers(
+  ctx: ReconcileContext,
+  teachers: TeacherPhase,
+  substituteDesiredKeys: Set<string>,
+): Promise<void> {
+  if (teachers.incomplete) {
+    console.warn("[moodle] reconcile: hubo errores con titulares; no se revoca ninguno en esta corrida.");
+    return;
+  }
+  const activeTeacherMaps = await listActiveEnrolments("TEACHER_EVENT");
+  for (const m of activeTeacherMaps) {
+    const key = `${m.userId}::${m.moodleCourseId}`;
+    if (teachers.keys.has(key)) continue;
+    try {
+      if (!substituteDesiredKeys.has(key)) {
+        await unenrolUser(m.moodleUserId, m.moodleCourseId);
+      }
+      await markEnrolmentRevoked(m.id);
+      ctx.summary.teacherRevocations += 1;
+    } catch (e) {
+      ctx.summary.errors += 1;
+      logError("revocación titular", m.userId, e);
+    }
+  }
 }
 
 type SubGroup = { userId: string; moodleUserId: number; courseId: number; start: Date; end: Date };
@@ -421,11 +486,19 @@ async function collectSubstituteGroups(ctx: ReconcileContext): Promise<Map<strin
 }
 
 /** Fase 2 — suplentes activos. Devuelve las claves `userId::moodleCourseId` aún vigentes. */
-async function reconcileSubstituteEnrolments(ctx: ReconcileContext): Promise<Set<string>> {
+async function reconcileSubstituteEnrolments(
+  ctx: ReconcileContext,
+  teacherKeys: Set<string>,
+): Promise<Set<string>> {
   const groups = await collectSubstituteGroups(ctx);
   const desiredKeys = new Set<string>();
   for (const g of groups.values()) {
-    desiredKeys.add(`${g.userId}::${g.courseId}`);
+    const key = `${g.userId}::${g.courseId}`;
+    // El titular del curso ya tiene acceso sin vencimiento. Moodle guarda UNA matrícula por usuario
+    // y curso: inscribirlo además como suplente le ponía la fecha de fin de la suplencia a su
+    // matrícula de titular, y al terminar la suplencia perdía el curso propio.
+    if (teacherKeys.has(key)) continue;
+    desiredKeys.add(key);
     try {
       await enrolUser(g.moodleUserId, g.courseId, ctx.roles.substitute, {
         timestart: g.start,
@@ -595,6 +668,7 @@ async function runReconcileMoodle(
     enabled: false,
     courses: 0,
     teacherEnrolments: 0,
+    teacherRevocations: 0,
     substituteEnrolments: 0,
     substituteRevocations: 0,
     studentEnrolments: 0,
@@ -617,9 +691,10 @@ async function runReconcileMoodle(
     moodleUserCache: new Map(),
   };
 
-  const teacherUserCourseKeys = await reconcileTeacherEnrolments(ctx);
-  const substituteDesiredKeys = await reconcileSubstituteEnrolments(ctx);
-  await revokeStaleSubstitutes(ctx, teacherUserCourseKeys, substituteDesiredKeys);
+  const teachers = await reconcileTeacherEnrolments(ctx);
+  const substituteDesiredKeys = await reconcileSubstituteEnrolments(ctx, teachers.keys);
+  await revokeStaleSubstitutes(ctx, teachers.keys, substituteDesiredKeys);
+  await revokeStaleTeachers(ctx, teachers, substituteDesiredKeys);
 
   if (opts.syncStudents) {
     await reconcileStudentEnrolments(ctx);

@@ -8,6 +8,7 @@ vi.mock('../db/prisma.js', () => ({ prisma: prismaMock }))
 vi.mock('../auth/session-store.js', () => ({ getSession: getSessionMock }))
 
 import { userPermissionScope, requirePermission, requireRole, requireAnyRole, authGuard } from './auth.js'
+import { requestCacheMiddleware } from '../lib/request-cache.js'
 
 function mockRes() {
   const res: Record<string, ReturnType<typeof vi.fn>> = {}
@@ -22,20 +23,61 @@ describe('auth middleware — permisos y sesión', () => {
     getSessionMock.mockReset()
   })
 
-  it('userPermissionScope: en test resuelve por roleCode', async () => {
-    expect(await userPermissionScope('u1', 'x', 'ADMIN')).toBe('all')
-    expect(await userPermissionScope('u1', 'x', 'STAFF')).toBe('own')
+  it('userPermissionScope: en test resuelve con la matriz de fábrica del rol', async () => {
+    expect(await userPermissionScope('u1', 'users.read', 'ADMIN')).toBe('all')
+    expect(await userPermissionScope('u1', 'gradebook.grade', 'TEACHER')).toBe('own')
+    // Antes cualquier permiso daba `own` a cualquier rol: un docente "podía" editar eventos.
+    expect(await userPermissionScope('u1', 'events.update', 'TEACHER')).toBeNull()
+    expect(await userPermissionScope('u1', 'gradebook.grade', 'DIRECCION')).toBeNull()
+    expect(await userPermissionScope('u1', 'gradebook.plan', 'DIRECCION')).toBe('all')
+    expect(await userPermissionScope('u1', 'x', 'ROL_INEXISTENTE')).toBeNull()
+  })
+
+  const grant = (code: string, scope: 'ALL' | 'OWN') => ({ scope, permission: { code } })
+  const account = (grants: unknown[], over: Record<string, unknown> = {}) => ({
+    isActive: true,
+    isApproved: true,
+    orgRole: { active: true, grants },
+    ...over,
   })
 
   it('userPermissionScope: rama DB (sin roleCode)', async () => {
-    prismaMock.user.findUnique.mockResolvedValueOnce({ isActive: true, isApproved: true, orgRole: { active: true, grants: [{ scope: 'ALL' }] } })
+    prismaMock.user.findUnique.mockResolvedValueOnce(account([grant('users.read', 'ALL')]))
     expect(await userPermissionScope('u1', 'users.read')).toBe('all')
-    prismaMock.user.findUnique.mockResolvedValueOnce({ isActive: true, isApproved: true, orgRole: { active: true, grants: [{ scope: 'OWN' }] } })
+    prismaMock.user.findUnique.mockResolvedValueOnce(account([grant('users.read', 'OWN')]))
     expect(await userPermissionScope('u1', 'users.read')).toBe('own')
-    prismaMock.user.findUnique.mockResolvedValueOnce({ isActive: true, isApproved: true, orgRole: { active: true, grants: [] } })
+    prismaMock.user.findUnique.mockResolvedValueOnce(account([grant('otro.permiso', 'ALL')]))
+    expect(await userPermissionScope('u1', 'users.read')).toBeNull()
+    prismaMock.user.findUnique.mockResolvedValueOnce(account([grant('users.read', 'ALL')], { isActive: false }))
     expect(await userPermissionScope('u1', 'users.read')).toBeNull()
     prismaMock.user.findUnique.mockResolvedValueOnce(null)
     expect(await userPermissionScope('u1', 'users.read')).toBeNull()
+  })
+
+  it('userPermissionScope: con un grant ALL y otro OWN del mismo permiso gana ALL', async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce(account([grant('x', 'OWN'), grant('x', 'ALL'), grant('x', 'OWN')]))
+    expect(await userPermissionScope('u1', 'x')).toBe('all')
+  })
+
+  it('userPermissionScope: dentro de un pedido consulta la matriz una sola vez', async () => {
+    prismaMock.user.findUnique.mockResolvedValue(
+      account([grant('gradebook.read', 'OWN'), grant('gradebook.grade', 'OWN')]),
+    )
+    const scopes = await new Promise<unknown[]>((resolve, reject) => {
+      requestCacheMiddleware({} as never, {} as never, () => {
+        Promise.all([
+          userPermissionScope('u1', 'gradebook.read'),
+          userPermissionScope('u1', 'gradebook.grade'),
+          userPermissionScope('u1', 'gradebook.plan'),
+        ]).then(resolve, reject)
+      })
+    })
+    expect(scopes).toEqual(['own', 'own', null])
+    expect(prismaMock.user.findUnique).toHaveBeenCalledTimes(1)
+
+    // Otro pedido vuelve a leer la matriz: un cambio de permisos aplica en el pedido siguiente.
+    await userPermissionScope('u1', 'gradebook.read')
+    expect(prismaMock.user.findUnique).toHaveBeenCalledTimes(2)
   })
 
   it('requirePermission: sin userId → 403', async () => {
@@ -48,12 +90,17 @@ describe('auth middleware — permisos y sesión', () => {
 
   it('requirePermission: scope ok → next; requiredScope all con own → 403', async () => {
     const next1 = vi.fn()
-    await requirePermission('x')({ user: { id: 'u1', role: 'STAFF' } } as never, mockRes(), next1)
+    await requirePermission('gradebook.read')({ user: { id: 'u1', role: 'STAFF' } } as never, mockRes(), next1)
     expect(next1).toHaveBeenCalled()
 
     const res2 = mockRes()
-    await requirePermission('x', 'all')({ user: { id: 'u1', role: 'STAFF' } } as never, res2, vi.fn())
+    await requirePermission('gradebook.read', 'all')({ user: { id: 'u1', role: 'STAFF' } } as never, res2, vi.fn())
     expect(res2.status).toHaveBeenCalledWith(403)
+
+    // Un permiso que el rol no tiene en su matriz no pasa, aunque el alcance pedido sea `own`.
+    const res3 = mockRes()
+    await requirePermission('users.read')({ user: { id: 'u1', role: 'STAFF' } } as never, res3, vi.fn())
+    expect(res3.status).toHaveBeenCalledWith(403)
   })
 
   it('requireRole / requireAnyRole sin coincidencia → 403', () => {

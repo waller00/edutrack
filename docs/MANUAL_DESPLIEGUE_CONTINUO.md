@@ -8,7 +8,7 @@
 
 ## 1. Introducción
 
-Este manual describe cómo se implementa y opera el **despliegue continuo** de EduTrack en **testing** y **producción**, utilizando la infraestructura y herramientas actuales del repositorio `joaquinwaller/edutrack`.
+Este manual describe cómo se implementa y opera el **despliegue continuo** de EduTrack en **testing** y **producción**, utilizando la infraestructura y herramientas actuales del repositorio del proyecto en GitHub.
 
 El objetivo es que el despliegue sea **reproducible**, **automatizado** y **fácil de mantener**, reduciendo errores manuales y tiempos de entrega.
 
@@ -84,7 +84,7 @@ Este manual cubre:
 
 ### Repositorio y ramas
 
-- Repositorio: `https://github.com/joaquinwaller/edutrack`
+- Repositorio: el de EduTrack en GitHub (los workflows lo toman de `github.repository`)
 - Ramas del pipeline de deploy: **`main`** (producción), **`develop`** (testing)
 
 ### En cada Droplet

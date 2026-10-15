@@ -138,7 +138,7 @@ Si bien todo el equipo participa transversalmente del aseguramiento de calidad, 
 |---|---|
 | Jorge Marrero | Pruebas de backend (servicios, rutas, integración) y análisis de cobertura |
 | Robert Taffura | Pruebas de frontend, *e2e* (Playwright) y validación funcional en *testing* |
-| Joaquin Waller | *Pipelines* de CI/CD, despliegue, seguridad (Trivy) y observabilidad |
+| Responsable de DevOps | *Pipelines* de CI/CD, despliegue, seguridad (Trivy) y observabilidad |
 
 La **revisión de código entre pares** es obligatoria: ningún integrante fusiona sus propios cambios sin la aprobación de otro, lo que asegura una mirada independiente sobre cada modificación.
 

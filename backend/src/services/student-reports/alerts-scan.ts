@@ -131,8 +131,10 @@ export async function scanStudentAlerts(schoolYearId?: string | null): Promise<{
 
   const candidates = await collectAlertCandidates(yearId)
   if (candidates.length === 0) return { created: 0 }
+  // Sólo las del ciclo: el estudiante sigue siendo el mismo al año siguiente y sus 18 faltas de
+  // entonces no pueden contar como ya avisadas.
   const existing = await prisma.studentAlert.findMany({
-    where: { studentId: { in: [...new Set(candidates.map((c) => c.studentId))] } },
+    where: { schoolYearId: yearId, studentId: { in: [...new Set(candidates.map((c) => c.studentId))] } },
     select: { type: true, studentId: true, key: true },
   })
   const fresh = newAlerts(candidates, existing)

@@ -20,9 +20,11 @@ describe('audit-log', () => {
     expect(cat[0]).toHaveProperty('label')
   })
 
-  it('clientIpFromRequest: prioriza x-forwarded-for, limpia IPv6-mapped, o undefined', () => {
-    expect(clientIpFromRequest({ headers: { 'x-forwarded-for': '1.2.3.4, 5.6.7.8' }, ip: '9.9.9.9' })).toBe('1.2.3.4')
-    expect(clientIpFromRequest({ headers: {}, ip: '::ffff:10.0.0.1' })).toBe('10.0.0.1')
-    expect(clientIpFromRequest({ headers: {}, ip: undefined as unknown as string })).toBeUndefined()
+  it('clientIpFromRequest: usa req.ip (ya resuelto por trust proxy), limpia IPv6-mapped, o undefined', () => {
+    // El primer valor de X-Forwarded-For lo escribe el cliente: no puede decidir la IP auditada.
+    const spoofed = { headers: { 'x-forwarded-for': '1.2.3.4, 5.6.7.8' }, ip: '9.9.9.9' }
+    expect(clientIpFromRequest(spoofed)).toBe('9.9.9.9')
+    expect(clientIpFromRequest({ ip: '::ffff:10.0.0.1' })).toBe('10.0.0.1')
+    expect(clientIpFromRequest({ ip: undefined as unknown as string })).toBeUndefined()
   })
 })

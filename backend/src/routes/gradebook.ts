@@ -255,12 +255,16 @@ async function loadContext(req: any, res: any): Promise<{ row: NonNullable<Grade
     return null
   }
 
-  const { userId, readScope, gradeScope, planScope } = await scopesOf(req)
+  const [{ userId, readScope, gradeScope, planScope }, { editWindowDays }] = await Promise.all([
+    scopesOf(req),
+    getGradeBookSettings(),
+  ])
   const access = await resolveGradeBookAccess({
     userId,
     readScope,
     gradeScope,
     planScope,
+    editWindowDays,
     gradeBook: {
       teacherUserId: row.teacherUserId,
       schoolYearId: row.schoolYearId,
@@ -925,9 +929,9 @@ r.get('/:id/students/:studentId/absences', requirePermission('gradebook.read'), 
         absenceHundredths: 0,
         entries: [],
       }
-      if (row.status === 'ABSENT' || row.status === 'ABSENT_JUSTIFIED') {
-        bucket.absenceHundredths += row.weightHundredths
-      }
+      // La tarde también suma (media falta), igual que en el acumulado: si no, las materias no
+      // sumaban el total que se muestra arriba.
+      bucket.absenceHundredths += row.weightHundredths
       bucket.entries.push(row)
       bySubjectMap.set(key, bucket)
     }
@@ -2739,7 +2743,8 @@ r.post('/:id/moodle/import', requirePermission('gradebook.grade'), async (req: a
       where: { id: parsed.data.gradingScaleId },
       include: { levels: { orderBy: { sortOrder: 'asc' } } },
     })
-    if (!scale?.minValueHundredths || !scale.maxValueHundredths) {
+    // `== null` y no `!`: una escala que empieza en 0 tiene rango, y `!0` la rechazaba.
+    if (scale?.minValueHundredths == null || scale.maxValueHundredths == null) {
       return res.status(400).json({
         message: 'La escala elegida no declara un rango numérico; no se puede convertir desde Moodle.',
         code: 'SCALE_WITHOUT_RANGE',
@@ -2802,6 +2807,7 @@ r.post('/:id/moodle/import', requirePermission('gradebook.grade'), async (req: a
         name: item.name,
         assessmentId: assessment.id,
         skippedUnmatched: plan.skippedUnmatched,
+        skippedNoRange: plan.skippedNoRange,
         ...saved,
       })
     }
@@ -2990,7 +2996,7 @@ r.get('/:id/exports/xlsx', requirePermission('gradebook.export'), async (req: an
       }),
       prisma.academicPeriod.findMany({
         where: { schoolYearId: row.schoolYearId, isActive: true, ...(level ? { level } : {}) },
-        select: { id: true, name: true, kind: true, judgementLabel: true },
+        select: { id: true, name: true, kind: true, judgementLabel: true, requiresConceptualJudgement: true },
         orderBy: { sortOrder: 'asc' },
       }),
     ])
@@ -3153,7 +3159,9 @@ r.get('/:id/exports/students/:studentId/pdf', requirePermission('gradebook.expor
 })
 
 /** Excel de orales/escritos/otras actividades de un solo alumno. */
-r.get('/:id/exports/students/:studentId/xlsx', requirePermission('gradebook.read'), async (req: any, res) => {
+// Exportar es `gradebook.export`, como el resto de las descargas: con `read` alcanzaba para que
+// inspección bajara el Excel de cualquier alumno aunque no pudiera bajar el PDF.
+r.get('/:id/exports/students/:studentId/xlsx', requirePermission('gradebook.export'), async (req: any, res) => {
   try {
     const ctx = await loadContext(req, res)
     if (!ctx) return

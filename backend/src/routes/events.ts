@@ -23,6 +23,7 @@ import { notifyUsers } from '../services/notifications/notify.js';
 import { attachRoleCode, selectOrgRoleCode } from '../identity/user-role-prisma.js';
 import { AuditAction } from '@prisma/client';
 import { recordAuditEvent } from '../services/audit-log.js';
+import { isAdminTestingToolsEnabled } from '../config/testing-tools.js';
 import {
   getActiveSchoolYearId,
   resolveSchoolYearIdForList,
@@ -1249,7 +1250,12 @@ r.get('/all', authGuard, requirePermission('events.read', 'all'), async (req, re
 });
 
 // Eliminar todos los eventos (solo ADMIN)
+// Borrado FÍSICO de toda la agenda: en cascada se lleva las listas de estudiantes y las suplencias.
+// Es una herramienta de pruebas (el borrado normal es lógico), así que sólo existe donde lo están.
 r.delete('/purge-all', authGuard, requirePermission('events.delete', 'all'), async (_req, res) => {
+  if (!isAdminTestingToolsEnabled()) {
+    return res.status(403).json({ message: 'Herramienta de pruebas deshabilitada en este entorno.' })
+  }
   try {
     const deleted = await prisma.event.deleteMany({})
     res.json({ ok: true, deletedCount: deleted.count, message: 'Todos los eventos fueron eliminados' })
@@ -1698,7 +1704,7 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
       }
 
       recordAuditEvent({
-        action: AuditAction.EVENT_CREATED,
+        action: AuditAction.EVENT_UPDATED,
         actorUserId: user.sub,
         req,
         entityType: 'Event',
@@ -1735,6 +1741,15 @@ r.put('/:id', authGuard, requirePermission('events.update'), async (req, res) =>
     if (parsed.data.assignedUserId !== undefined && parsed.data.assignedUserId !== null) {
       void ensureMoodleUserById(parsed.data.assignedUserId);
     }
+
+    recordAuditEvent({
+      action: AuditAction.EVENT_UPDATED,
+      actorUserId: user.sub,
+      req,
+      entityType: 'Event',
+      entityId: id,
+      metadata: { title: event.title, changedFields: Object.keys(parsed.data) },
+    })
 
     res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
@@ -1790,6 +1805,15 @@ r.put('/:id/cancel', authGuard, requirePermission('events.cancel'), async (req, 
       }
     });
 
+    recordAuditEvent({
+      action: AuditAction.EVENT_CANCELLED,
+      actorUserId: user.sub,
+      req,
+      entityType: 'Event',
+      entityId: id,
+      metadata: { title: event.title, reason: reason || null },
+    })
+
     res.json(mapNestedEventUsers(event as unknown as Record<string, unknown>));
   } catch (error) {
     console.error('Error cancelando evento:', error);
@@ -1823,7 +1847,7 @@ r.delete('/:id', authGuard, requirePermission('events.delete', 'all'), async (re
     }
 
     recordAuditEvent({
-      action: AuditAction.EVENT_CREATED,
+      action: AuditAction.EVENT_DELETED,
       actorUserId: user.sub,
       req,
       entityType: 'Event',
@@ -1938,7 +1962,7 @@ r.post('/:id/occurrences/:ymd/cancel', authGuard, requirePermission('events.canc
     }
 
     recordAuditEvent({
-      action: AuditAction.EVENT_CREATED,
+      action: AuditAction.EVENT_CANCELLED,
       actorUserId: req.user!.sub,
       req,
       entityType: 'Event',
@@ -2012,7 +2036,7 @@ r.put('/:id/occurrences/:ymd', authGuard, requirePermission('events.update'), as
     }
 
     recordAuditEvent({
-      action: AuditAction.EVENT_CREATED,
+      action: AuditAction.EVENT_UPDATED,
       actorUserId: req.user!.sub,
       req,
       entityType: 'Event',
@@ -2038,7 +2062,7 @@ r.delete('/:id/occurrences/:ymd', authGuard, requirePermission('events.update'),
     await (prisma.event as any).delete({ where: { id: existingChildId } });
 
     recordAuditEvent({
-      action: AuditAction.EVENT_CREATED,
+      action: AuditAction.EVENT_UPDATED,
       actorUserId: req.user!.sub,
       req,
       entityType: 'Event',

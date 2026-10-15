@@ -61,6 +61,34 @@ describe('AdminBiometricDevicesPanel', () => {
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
   })
 
+  it('avisa qué le falta a un lector para recibir marcas por iClock', async () => {
+    const configured = {
+      ...devices[1],
+      id: 'd3',
+      name: 'ZKTeco F22 Configurado',
+      allowedIps: ['190.64.10.20'],
+    }
+    mockedApi.mockResolvedValue({ devices: [...devices, configured] })
+    render(<AdminBiometricDevicesPanel />)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Ver lector ZKTeco F22 Local' }),
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No recibe marcas del reloj (iClock): falta número de serie e IPs permitidas.',
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ver lector ZKTeco F22 Testing' }),
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('falta IPs permitidas.')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ver lector ZKTeco F22 Configurado' }),
+    )
+    expect(screen.queryByText(/No recibe marcas del reloj/)).not.toBeInTheDocument()
+  })
+
   it('busca por nombre, código y serial sin cambiar los datos', async () => {
     mockedApi.mockResolvedValue({ devices })
     render(<AdminBiometricDevicesPanel />)

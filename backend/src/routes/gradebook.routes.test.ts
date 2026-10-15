@@ -278,6 +278,37 @@ describe('GET /gradebook/:id', () => {
     expect(res.body.students[0].badges).toEqual(['ADEC', 'GEN'])
   })
 
+  it('el detalle de faltas por materia suma lo mismo que el acumulado (las tardes también)', async () => {
+    prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
+    rosterMock.mockResolvedValue([
+      { studentId: 's1', studentEnrollmentId: 'e1', firstName: 'Ana', lastName: 'B', documentId: null },
+    ])
+    const session = (subjectId: string, name: string) => ({
+      occurrenceYmd: '2026-05-04',
+      startAt: new Date('2026-05-04T11:00:00.000Z'),
+      endAt: new Date('2026-05-04T12:00:00.000Z'),
+      subjectId,
+      subject: { name },
+      event: { title: name },
+    })
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
+      { id: 'm1', status: 'LATE', note: null, absenceWeightHundredths: null, session: session('mat', 'Matemática') },
+      { id: 'm2', status: 'LATE', note: null, absenceWeightHundredths: null, session: session('mat', 'Matemática') },
+      { id: 'h1', status: 'ABSENT', note: null, absenceWeightHundredths: null, session: session('his', 'Historia') },
+    ])
+
+    const res = await request(app())
+      .get(`/gradebook/${GB_ID}/students/s1/absences`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.overall.absenceHundredths).toBe(200)
+    const bySubject = Object.fromEntries(
+      res.body.bySubject.map((s: { subjectId: string; absenceHundredths: number }) => [s.subjectId, s.absenceHundredths]),
+    )
+    expect(bySubject).toEqual({ mat: 100, his: 100 })
+  })
+
   it('cuenta las faltas en unidades, con la media falta', async () => {
     prismaMock.gradeBook.findUnique.mockResolvedValue(ROW)
     rosterMock.mockResolvedValue([
@@ -1130,6 +1161,20 @@ describe('POST /:id/moodle/import', () => {
 
     expect(res.status).toBe(400)
     expect(res.body.code).toBe('SCALE_WITHOUT_RANGE')
+  })
+
+  it('acepta una escala que empieza en 0: tiene rango', async () => {
+    readyForImport()
+    prismaMock.gradingScale.findUnique.mockResolvedValue({ ...SCALE_ROW, minValueHundredths: 0 })
+
+    const res = await request(app())
+      .post(`/gradebook/${GB_ID}/moodle/import`)
+      .set('Authorization', `Bearer ${tok()}`)
+      .send(importBody)
+
+    expect(res.status).toBe(200)
+    // 100/100 sobre 0-12 sigue siendo 12.
+    expect(saveGradesMock.mock.calls[0][0].entries).toEqual([{ studentId: STUDENT_A, valueHundredths: 1200 }])
   })
 
   it('sólo importa los ítems pedidos', async () => {

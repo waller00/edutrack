@@ -47,6 +47,9 @@ enum AuditAction {
   MEDICAL_LEAVE_DEACTIVATED
   SYSTEM_SETTINGS_UPDATED
   EVENT_CREATED
+  EVENT_UPDATED
+  EVENT_CANCELLED
+  EVENT_DELETED
   BIOMETRIC_LINK_STARTED
   BIOMETRIC_LINK_DETECTED
   BIOMETRIC_LINK_CONFIRMED
@@ -115,6 +118,9 @@ model User {
   phone                                  String?
   birthdate                              DateTime?
   googleId                               String?                          @unique
+  /// `sub` de la cuenta de Keycloak dueña de este usuario. El login vincula por acá, nunca por
+  /// email o username: esos datos los puede editar el usuario en la consola de Keycloak.
+  keycloakId                             String?                          @unique
   /// Id del usuario espejo en Moodle (integración). Fuente de verdad sigue siendo EduTrack.
   moodleUserId                           Int?                             @unique
   roleId                                 String
@@ -1534,7 +1540,9 @@ model StudentAlert {
   payload      Json
   createdAt    DateTime         @default(now())
 
-  @@unique([type, studentId, key])
+  /// Por ciclo: el estudiante es el mismo de un año al otro, y las 18 faltas de 2026 no pueden
+  /// silenciar el aviso de las 18 de 2027.
+  @@unique([schoolYearId, type, studentId, key])
   @@index([schoolYearId, createdAt])
 }
 

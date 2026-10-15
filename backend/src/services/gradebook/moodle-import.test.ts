@@ -130,4 +130,17 @@ describe('buildImportPlan', () => {
     const plan = buildImportPlan({ ...base, grades: [{ moodleUserId: 101, itemId: 99, raw: 90 }] })
     expect(plan.entries).toEqual([])
   })
+
+  it('un ítem sin rango no se importa: antes ponía la nota mínima a todo el grupo', () => {
+    const plan = buildImportPlan({
+      ...base,
+      item: { ...ITEM, gradeMin: 0, gradeMax: 0 },
+      grades: [
+        { moodleUserId: 101, itemId: 10, raw: 0 },
+        { moodleUserId: 102, itemId: 10, raw: 0 },
+      ],
+    })
+    expect(plan.entries).toEqual([])
+    expect(plan.skippedNoRange).toBe(2)
+  })
 })

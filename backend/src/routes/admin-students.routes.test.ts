@@ -21,7 +21,11 @@ const {
       create: vi.fn(),
       update: vi.fn(),
       findUniqueOrThrow: vi.fn(),
+      delete: vi.fn(),
     },
+    assessmentGrade: { count: vi.fn() },
+    periodGrade: { count: vi.fn() },
+    studentAttendanceEntry: { count: vi.fn() },
     user: { findFirst: vi.fn(), findUnique: vi.fn() },
     course: { findUnique: vi.fn() },
     studentPhoto: { findUnique: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
@@ -38,7 +42,7 @@ const {
     courseOffering: { findUnique: vi.fn() },
     courseOrientation: { findFirst: vi.fn() },
     studentTuitionYear: { createMany: vi.fn(), deleteMany: vi.fn() },
-    studentTuitionMonth: { findMany: vi.fn(), deleteMany: vi.fn() },
+    studentTuitionMonth: { findMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
     $transaction: vi.fn(),
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
@@ -711,5 +715,44 @@ describe('materias bajas', () => {
       .send({ schoolYearId: SY_ID, subjectId: SUBJECT_ID })
 
     expect(res.status).toBe(400)
+  })
+})
+
+describe('DELETE /admin/students/:id', () => {
+  beforeEach(() => {
+    for (const counter of [
+      prismaMock.assessmentGrade.count,
+      prismaMock.periodGrade.count,
+      prismaMock.studentAttendanceEntry.count,
+      prismaMock.studentTuitionMonth.count,
+    ]) {
+      counter.mockReset().mockResolvedValue(0)
+    }
+    prismaMock.student.delete.mockReset().mockResolvedValue({ id: STUDENT_ID })
+  })
+
+  it('borra a un estudiante cargado por error, sin historial', async () => {
+    const res = await request(app())
+      .delete(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(200)
+    expect(prismaMock.student.delete).toHaveBeenCalledWith({ where: { id: STUDENT_ID } })
+    // Sólo las cuotas pagas cuentan como historial.
+    expect(prismaMock.studentTuitionMonth.count).toHaveBeenCalledWith({ where: { studentId: STUDENT_ID, paid: true } })
+  })
+
+  it('no borra a un estudiante con notas: se llevaba su escolaridad en cascada', async () => {
+    prismaMock.periodGrade.count.mockResolvedValue(4)
+    prismaMock.studentAttendanceEntry.count.mockResolvedValue(120)
+
+    const res = await request(app())
+      .delete(`/admin/students/${STUDENT_ID}`)
+      .set('Authorization', `Bearer ${tok()}`)
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('STUDENT_HAS_HISTORY')
+    expect(res.body.detail).toEqual({ assessmentGrades: 0, periodGrades: 4, attendanceEntries: 120, paidTuitionMonths: 0 })
+    expect(prismaMock.student.delete).not.toHaveBeenCalled()
   })
 })

@@ -63,6 +63,14 @@ function loginHeading(state: {
       description: 'Tu cuenta está pendiente de aprobación o fue inhabilitada. Contactá a un administrador.',
     }
   }
+  // La cuenta de acceso no coincide con un usuario de EduTrack de forma segura: reintentar no sirve.
+  if (state.externalError === 'account_link') {
+    return {
+      title: 'Tu acceso necesita revisión',
+      description:
+        'La cuenta con la que ingresaste no coincide con tu usuario de EduTrack. Pedile a administración que la revise.',
+    }
+  }
   return {
     title: 'No se pudo iniciar sesión',
     description: state.autoLoginBlocked
@@ -192,7 +200,7 @@ export default function LoginPage() {
               <p className="text-sm text-emerald-800">Cerramos tu sesión correctamente.</p>
             </div>
           )}
-          {externalError && externalError !== 'account' && (
+          {externalError && externalError !== 'account' && externalError !== 'account_link' && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
               <p className="text-sm text-red-700">Volvé a intentar. Si el problema continúa, contactá al soporte de EduTrack.</p>

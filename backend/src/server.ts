@@ -11,6 +11,7 @@ import {
   parseEnvBool,
 } from "./config/system-settings.js";
 import { refreshInstitutionTimezoneCache } from "./config/institution-timezone.js";
+import { backfillKeycloakLinks } from "./auth/keycloak-provisioning.js";
 import {
   isMoodleIntegrationEnabled,
   processOutboxOnce,
@@ -49,6 +50,15 @@ Promise.allSettled([
       console.log(`   ZKTeco iClock ADMS: http://${host}:${port}/iclock/`);
     });
     startMetricsServer();
+    // Usuarios anteriores a `User.keycloakId`: se vinculan por email una sola vez. No bloquea el
+    // arranque porque consulta la Admin API de Keycloak usuario por usuario.
+    backfillKeycloakLinks()
+      .then(({ linked, missing }) => {
+        if (linked === 0 && missing.length === 0) return;
+        console.log(`[keycloak] vínculos: ${linked} nuevos; ${missing.length} usuarios sin cuenta en Keycloak`);
+        if (missing.length > 0) console.log(`[keycloak] sin cuenta: ${missing.slice(0, 20).join(", ")}`);
+      })
+      .catch((e) => console.error("[keycloak] relleno de vínculos:", e));
     if (iclockPort > 0 && iclockPort !== port) {
       http.createServer(app).listen(iclockPort, host, () => {
         console.log(`   ZKTeco iClock ADMS (dedicado): http://${host}:${iclockPort}/iclock/`);
@@ -126,6 +136,7 @@ const moodleSyncInterval = setInterval(() => {
     const summary = await reconcileMoodle({ syncStudents: settings.syncStudents });
     console.log(
       `[moodle] reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} ` +
+        `docentes-revocados=${summary.teacherRevocations} ` +
         `suplentes=${summary.substituteEnrolments} revocados=${summary.substituteRevocations} ` +
         `estudiantes=${summary.studentEnrolments} sin-cuenta=${summary.studentsWithoutAccount} ` +
         `errores=${summary.errors}`,

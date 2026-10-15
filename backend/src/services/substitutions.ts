@@ -1,7 +1,7 @@
 import type { Request } from "express";
 import { prisma } from "../db/prisma.js";
 import { uruguayStartOfDayFromInstant, isYmdDateString } from "../config/app-timezone.js";
-import { findNonWorkingDayForDate } from "./non-working-days.js";
+import { findNonWorkingDayForInstant } from "./non-working-days.js";
 import { recordAuditEventNow } from "./audit-log.js";
 import { resolveSubstitutionOccurrence, SubstitutionError } from "./substitution-occurrence.js";
 
@@ -131,7 +131,7 @@ export async function createSubstitution(params: {
     },
   });
 
-  const nonWorkingDay = await findNonWorkingDayForDate(occurrence.startTime);
+  const nonWorkingDay = await findNonWorkingDayForInstant(occurrence.startTime);
   if (nonWorkingDay) {
     throw new SubstitutionError(`No se puede registrar suplencia: ${nonWorkingDay.reason}`);
   }

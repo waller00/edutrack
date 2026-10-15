@@ -16,6 +16,7 @@ import { firstZodIssueMessage, strongPasswordSchema } from "../auth/password-pol
 import { getOrgRoleIdByCodeOrThrow, normalizeOrgRoleCode } from "../identity/org-role-service.js";
 import { createKeycloakUser, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentity, syncRegisteredSsoUser } from "../auth/keycloak.js";
 import { consumeSsoRegistration, getSsoRegistration } from "../auth/sso-registration.js";
+import { linkKeycloakAccount } from "../auth/keycloak-provisioning.js";
 import { getSession, newSessionId, saveSession } from "../auth/session-store.js";
 import { sendVerificationEmail, VERIFY_RESEND_COOLDOWN_SECONDS } from "../auth/email-verification.js";
 import { USERNAME_REGEX, usernameSchema } from "../auth/account-validation.js";
@@ -125,7 +126,7 @@ async function enabledPermissionsForRole(roleCode: string) {
 async function generateUniqueUsername(firstName: string, lastName: string, client: any = prisma) {
   // Unicidad SOLO contra usuarios reales de la app. Un username que solo exista en Keycloak
   // (cuenta huérfana) NO bloquea el nombre limpio: ese huérfano se borra antes de crear (ver
-  // freeKeycloakUsernameIfOrphan). Así "joaquin.waller" se reusa en vez de saltar a ".p".
+  // freeKeycloakUsernameIfOrphan). Así "lucia.fernandez" se reusa en vez de saltar a ".p".
   return generateUniqueUsernameWith(firstName, lastName, async (candidate) => {
     const existing = await client.user.findUnique({ where: { username: candidate }, select: { id: true } });
     return Boolean(existing);
@@ -412,6 +413,7 @@ r.post("/register", async (req, res) => {
         role: registerRoleCode,
         emailVerified: ssoProfile.emailVerified,
       });
+      await linkKeycloakAccount(user.id, ssoProfile.kcId);
       if (ssoRegistrationToken) await consumeSsoRegistration(ssoRegistrationToken);
     } else {
       // Si el username quedó ocupado en Keycloak por una cuenta huérfana (sin usuario en la app),
@@ -419,7 +421,7 @@ r.post("/register", async (req, res) => {
       await freeKeycloakUsernameIfOrphan(user.username, async (mail) =>
         Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
       );
-      await createKeycloakUser({
+      const kcId = await createKeycloakUser({
         email,
         username: user.username,
         firstName,
@@ -428,6 +430,7 @@ r.post("/register", async (req, res) => {
         role: registerRoleCode,
         emailVerified: false,
       });
+      await linkKeycloakAccount(user.id, kcId);
     }
   } catch (e) {
     // Atomicidad: si Keycloak falla y nosotros creamos el usuario (no era un placeholder SSO

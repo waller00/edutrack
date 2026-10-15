@@ -24,6 +24,7 @@ import {
   User,
   Users,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 import { logoutUrl } from '@/lib/auth/urls'
 import { clearObservabilityUser } from '@/lib/observability/user-session'
@@ -46,7 +47,7 @@ type NavItem = {
 
 type NavGroup = {
   title: string
-  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
+  icon: LucideIcon
   items: NavItem[]
 }
 

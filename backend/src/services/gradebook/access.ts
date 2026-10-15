@@ -26,23 +26,25 @@ export type GradeBookAccess = {
 
 const NO_ACCESS: GradeBookAccess = { level: 'NONE', canRead: false, canGrade: false, canPlan: false }
 
+type GradeBookScope = {
+  schoolYearId: string
+  courseOfferingId: string
+  subjectId: string
+  orientationId: string | null
+  courseOrientationId: string | null
+}
+
+/** Primera y última clase que quien pide cubrió como suplente en esta libreta. */
+export type SubstitutionSpan = { first: Date; last: Date }
+
 /**
- * ¿Quien pide fue suplente en alguna clase de esta libreta?
+ * ¿Quien pide fue suplente en alguna clase de esta libreta? Devuelve el rango de sus suplencias.
  *
  * Se resuelve por los eventos del scope de la libreta y no por el evento puntual: la libreta es
  * la unidad, y quien cubrió una de sus clases pertenece a ella.
- *
- * Alcance deliberado: da acceso a la libreta entera, no sólo al día suplido. Para leer el grupo
- * es lo correcto; cuando lleguen las evaluaciones (que sí llevan fecha) la escritura tendrá que
- * acotarse a la ventana de la suplencia, porque si no un suplente de un día de marzo podría
- * calificar todo el año.
  */
-async function hasSubstitution(
-  db: PrismaClient,
-  gradeBook: { schoolYearId: string; courseOfferingId: string; subjectId: string; orientationId: string | null; courseOrientationId: string | null },
-  userId: string,
-): Promise<boolean> {
-  const found = await db.substitution.findFirst({
+async function substitutionSpan(db: PrismaClient, gradeBook: GradeBookScope, userId: string): Promise<SubstitutionSpan | null> {
+  const span = await db.substitution.aggregate({
     where: {
       substituteUserId: userId,
       event: {
@@ -53,9 +55,25 @@ async function hasSubstitution(
         courseOrientationId: gradeBook.courseOrientationId,
       },
     },
-    select: { id: true },
+    _min: { date: true },
+    _max: { date: true },
   })
-  return Boolean(found)
+  if (!span._min.date || !span._max.date) return null
+  return { first: span._min.date, last: span._max.date }
+}
+
+const DAY_MS = 86_400_000
+
+/**
+ * ¿El suplente todavía puede escribir? Leer, lee la libreta entera siempre; escribir, sólo desde su
+ * primera clase hasta el día después de la última más la ventana de edición de notas (la misma que
+ * tiene el titular para una evaluación). Antes la escritura no tenía límite: quien cubrió un día de
+ * marzo podía calificar, poner C y R y cerrar períodos todo el año.
+ */
+export function isSubstitutionWriteOpen(span: SubstitutionSpan, windowDays: number, now = new Date()): boolean {
+  const opensAt = span.first.getTime()
+  const closesAt = span.last.getTime() + DAY_MS + windowDays * DAY_MS
+  return now.getTime() >= opensAt && now.getTime() <= closesAt
 }
 
 /**
@@ -87,6 +105,9 @@ export async function resolveGradeBookAccess(
       courseOrientationId: string | null
       status: 'ACTIVE' | 'ARCHIVED'
     }
+    /** Ventana de edición de notas en días (`getGradeBookSettings().editWindowDays`). Acota al suplente. */
+    editWindowDays: number
+    now?: Date
   },
   db: PrismaClient = defaultPrisma,
 ): Promise<GradeBookAccess> {
@@ -112,8 +133,16 @@ export async function resolveGradeBookAccess(
   const substitutionCouldHelp =
     params.readScope === 'own' || params.gradeScope === 'own' || params.planScope === 'own'
 
-  if (substitutionCouldHelp && (await hasSubstitution(db, gradeBook, params.userId))) {
-    return { level: 'SUBSTITUTE', ...ownWrite }
+  const span = substitutionCouldHelp ? await substitutionSpan(db, gradeBook, params.userId) : null
+  if (span) {
+    if (isSubstitutionWriteOpen(span, params.editWindowDays, params.now)) {
+      return { level: 'SUBSTITUTE', ...ownWrite }
+    }
+    // Fuera de su ventana el suplente sigue leyendo, pero no escribe. Si además supervisa, que
+    // decida la rama de supervisión.
+    if (params.readScope !== 'all') {
+      return { level: 'SUBSTITUTE', canRead: params.readScope !== null, canGrade: false, canPlan: false }
+    }
   }
 
   // Supervisión escribe sólo con alcance `all`: el permiso `own` no alcanza sobre libreta ajena.

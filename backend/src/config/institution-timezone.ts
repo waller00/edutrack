@@ -4,37 +4,19 @@ import { prisma } from '../db/prisma.js'
 export const DEFAULT_INSTITUTION_TIMEZONE = 'America/Montevideo'
 
 /**
- * Zonas IANA ofrecidas en el selector. El offset GMT NO se incluye en el label porque
- * cambia con el horario de verano: el frontend lo calcula y lo muestra en vivo.
+ * Zonas que se pueden elegir. Sólo Uruguay: el frontend formatea y arma fechas con
+ * `America/Montevideo` y `-03:00` fijos, así que otra zona dejaba al backend y a la pantalla en días
+ * distintos (la lista "de hoy", los filtros por fecha, las fases del pase de lista). Agregar una zona
+ * acá exige antes que el frontend tome la zona de la configuración.
  */
 export const INSTITUTION_TIMEZONE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'America/Montevideo', label: 'Uruguay — Montevideo' },
-  { value: 'America/Argentina/Buenos_Aires', label: 'Argentina — Buenos Aires' },
-  { value: 'America/Argentina/Cordoba', label: 'Argentina — Córdoba' },
-  { value: 'America/Santiago', label: 'Chile — Santiago' },
-  { value: 'America/Sao_Paulo', label: 'Brasil — São Paulo' },
-  { value: 'America/Manaus', label: 'Brasil — Manaos' },
-  { value: 'America/Asuncion', label: 'Paraguay — Asunción' },
-  { value: 'America/La_Paz', label: 'Bolivia — La Paz' },
-  { value: 'America/Lima', label: 'Perú — Lima' },
-  { value: 'America/Bogota', label: 'Colombia — Bogotá' },
-  { value: 'America/Caracas', label: 'Venezuela — Caracas' },
-  { value: 'America/Guayaquil', label: 'Ecuador — Guayaquil' },
-  { value: 'America/Mexico_City', label: 'México — Ciudad de México' },
-  { value: 'America/Costa_Rica', label: 'Costa Rica — San José' },
-  { value: 'America/Panama', label: 'Panamá — Panamá' },
-  { value: 'America/Santo_Domingo', label: 'Rep. Dominicana — Santo Domingo' },
-  { value: 'America/Havana', label: 'Cuba — La Habana' },
-  { value: 'America/New_York', label: 'Estados Unidos — Nueva York (Este)' },
-  { value: 'America/Chicago', label: 'Estados Unidos — Chicago (Central)' },
-  { value: 'America/Denver', label: 'Estados Unidos — Denver (Montaña)' },
-  { value: 'America/Los_Angeles', label: 'Estados Unidos — Los Ángeles (Pacífico)' },
-  { value: 'Europe/Madrid', label: 'España — Madrid' },
-  { value: 'Europe/London', label: 'Reino Unido — Londres' },
-  { value: 'Europe/Paris', label: 'Francia — París' },
-  { value: 'Europe/Rome', label: 'Italia — Roma' },
-  { value: 'UTC', label: 'UTC' },
 ]
+
+/** ¿Se puede guardar? Válida para Luxon no alcanza: tiene que estar entre las opciones. */
+export function isSupportedInstitutionTimezone(tz: string): boolean {
+  return INSTITUTION_TIMEZONE_OPTIONS.some((option) => option.value === tz.trim())
+}
 
 let cachedTimezone = DEFAULT_INSTITUTION_TIMEZONE
 

@@ -8,7 +8,7 @@ vi.mock('@prisma/client', () => ({
   Prisma: { sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }) },
 }))
 
-import { utcDay, findNonWorkingDayForDate, isNonWorkingDate } from './non-working-days.js'
+import { utcDay, findNonWorkingDayForDate, findNonWorkingDayForInstant, isNonWorkingDate } from './non-working-days.js'
 
 describe('non-working-days', () => {
   beforeEach(() => prismaMock.$queryRaw.mockReset())
@@ -27,9 +27,17 @@ describe('non-working-days', () => {
     expect(await findNonWorkingDayForDate(new Date('2026-06-08'))).toBeNull()
   })
 
-  it('findNonWorkingDayForDate: en entorno test, si el query falla devuelve null', async () => {
+  it('findNonWorkingDayForDate: si el query falla, el error se propaga (no se toma como día hábil)', async () => {
     prismaMock.$queryRaw.mockRejectedValueOnce(new Error('db down'))
-    expect(await findNonWorkingDayForDate(new Date('2026-06-08'))).toBeNull()
+    await expect(findNonWorkingDayForDate(new Date('2026-06-08'))).rejects.toThrow('db down')
+  })
+
+  it('findNonWorkingDayForInstant: una clase nocturna mira el feriado de SU día, no el de mañana', async () => {
+    prismaMock.$queryRaw.mockResolvedValueOnce([])
+    // 21:30 del 7 de junio en Uruguay = 00:30 UTC del 8.
+    await findNonWorkingDayForInstant(new Date('2026-06-08T00:30:00.000Z'))
+    const day = prismaMock.$queryRaw.mock.calls[0][0].values[0] as Date
+    expect(day.toISOString()).toBe('2026-06-07T00:00:00.000Z')
   })
 
   it('isNonWorkingDate: refleja si hay fila', async () => {

@@ -177,6 +177,8 @@ export type ImportPlan = {
   item: MoodleGradeItem
   entries: ImportPlanEntry[]
   skippedUnmatched: number
+  /** Notas que no se importan porque el ítem no tiene rango (mínimo = máximo) y no hay cómo convertirlas. */
+  skippedNoRange: number
 }
 
 /**
@@ -195,6 +197,13 @@ export function buildImportPlan(params: {
   const entries: ImportPlanEntry[] = []
   let skippedUnmatched = 0
 
+  // Sin rango no hay conversión posible. Antes se importaba como la nota mínima para todo el grupo:
+  // un 1 a cada alumno por un ítem que en Moodle quizá ni era numérico. Mejor no tocar nada.
+  if (params.item.gradeMax <= params.item.gradeMin) {
+    const withGrade = params.grades.filter((g) => g.itemId === params.item.id && g.raw != null).length
+    return { item: params.item, entries, skippedUnmatched, skippedNoRange: withGrade }
+  }
+
   for (const grade of params.grades) {
     if (grade.itemId !== params.item.id || grade.raw == null) continue
     const studentId = params.studentByMoodleUser.get(grade.moodleUserId)
@@ -212,7 +221,7 @@ export function buildImportPlan(params: {
     })
   }
 
-  return { item: params.item, entries, skippedUnmatched }
+  return { item: params.item, entries, skippedUnmatched, skippedNoRange: 0 }
 }
 
 export { loadReport as loadMoodleReport }

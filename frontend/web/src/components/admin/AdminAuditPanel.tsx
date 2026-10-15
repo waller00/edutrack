@@ -10,6 +10,7 @@ import {
 import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 import DateRangePicker from '@/components/forms/DateRangePicker'
 import SettingsDetails from './settings/SettingsDetails'
+import AuditPersonFilter, { type AuditPerson } from './AuditPersonFilter'
 import {
   ChevronDown,
   ChevronLeft,
@@ -53,7 +54,6 @@ const EMPTY_FILTERS: AuditFilters = {
   to: '',
 }
 const PAGE_SIZE = 25
-const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
 const ENTITY_LABELS: Record<string, string> = {
   User: 'Usuario',
   Event: 'Agenda / clase',
@@ -96,7 +96,6 @@ function AuditActivity({
     ['Código de acción', row.action],
     ['ID del registro', row.id],
     ['Origen', row.source],
-    ['Dirección IP', row.actorIp],
     ['ID de usuario', row.actorUserId],
     ['ID del elemento', row.entityId],
     ['Navegador / dispositivo', row.userAgent],
@@ -107,7 +106,7 @@ function AuditActivity({
         aria-label={`Ver detalle de ${row.actionLabel}, ${who}, ${when}`}
         className="flex cursor-pointer list-none items-start gap-3 p-4 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-emerald-600 [&::-webkit-details-marker]:hidden"
       >
-        <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_180px] md:items-center md:gap-4">
+        <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_minmax(0,0.6fr)_160px] md:items-center md:gap-4">
           <div className="min-w-0">
             <span
               className={`inline-flex max-w-full rounded-lg px-2.5 py-1 text-sm font-medium ${getAuditActionBadgeClass(row.action)}`}
@@ -122,6 +121,10 @@ function AuditActivity({
               </span>
             )}
             {who}
+          </span>
+          <span className="min-w-0 break-all font-mono text-xs text-slate-600">
+            <span className="font-sans text-slate-500 md:sr-only">IP: </span>
+            {row.actorIp || 'No registrada'}
           </span>
           <time
             dateTime={row.occurredAt}
@@ -226,9 +229,7 @@ export default function AdminAuditPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<AuditFilters>(EMPTY_FILTERS)
-  const [actorDraft, setActorDraft] = useState('')
-  const [actorName, setActorName] = useState('')
-  const [actorError, setActorError] = useState('')
+  const [person, setPerson] = useState<AuditPerson | null>(null)
   const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
@@ -285,48 +286,30 @@ export default function AdminAuditPanel({
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const activeFilterCount = countActiveAuditFilters(filters)
-  const personFilterLabel =
-    actorName ||
-    rows.find((row) => row.actorUserId === filters.actorUserId)?.actorName ||
-    'Usuario específico'
 
   function updateFilters(patch: Partial<AuditFilters>) {
     setPage(1)
     setFilters((current) => ({ ...current, ...patch }))
   }
 
-  function clearPersonFilter() {
-    setActorDraft('')
-    setActorName('')
-    setActorError('')
-    updateFilters({ actorUserId: '' })
+  function selectPerson(person: AuditPerson | null) {
+    setPerson(person)
+    updateFilters({ actorUserId: person?.id || '' })
   }
 
   function clearFilters() {
     setPage(1)
     setFilters(EMPTY_FILTERS)
-    setActorDraft('')
-    setActorName('')
-    setActorError('')
-  }
-
-  function applyPersonFilter() {
-    const value = actorDraft.trim()
-    if (value && !UUID.test(value)) {
-      setActorError('Ingresá un ID de usuario válido.')
-      return
-    }
-    setActorError('')
-    setActorName('')
-    updateFilters({ actorUserId: value })
+    setPerson(null)
   }
 
   function filterPerson(row: AuditRow) {
     if (!row.actorUserId) return
-    setActorDraft(row.actorUserId)
-    setActorName(actorLabel(row))
-    setActorError('')
-    updateFilters({ actorUserId: row.actorUserId })
+    selectPerson({
+      id: row.actorUserId,
+      name: actorLabel(row),
+      email: row.actorEmail || '',
+    })
   }
 
   return (
@@ -372,7 +355,7 @@ export default function AdminAuditPanel({
         aria-label="Filtros de auditoría"
         className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       >
-        <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(260px,1fr)_auto]">
+        <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <div>
             <label
               htmlFor="audit-action"
@@ -396,6 +379,7 @@ export default function AdminAuditPanel({
               ))}
             </select>
           </div>
+          <AuditPersonFilter value={person} onChange={selectPerson} />
           <DateRangePicker
             startDate={filters.from}
             endDate={filters.to}
@@ -407,7 +391,7 @@ export default function AdminAuditPanel({
             <button
               type="button"
               onClick={clearFilters}
-              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 sm:col-span-2 lg:col-span-1"
+              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 sm:col-span-2 xl:col-span-3 xl:justify-self-end"
             >
               <X className="h-4 w-4" aria-hidden />
               Limpiar filtros
@@ -418,11 +402,13 @@ export default function AdminAuditPanel({
           <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
             <span className="min-w-0 break-words">
               Actividad de:{' '}
-              <strong className="font-medium">{personFilterLabel}</strong>
+              <strong className="font-medium">
+                {person?.name || person?.email || 'Usuario específico'}
+              </strong>
             </span>
             <button
               type="button"
-              onClick={clearPersonFilter}
+              onClick={() => selectPerson(null)}
               aria-label="Quitar filtro de usuario"
               className="rounded-md p-2 hover:bg-emerald-100"
             >
@@ -430,51 +416,6 @@ export default function AdminAuditPanel({
             </button>
           </div>
         )}
-        <SettingsDetails
-          title="Filtrar por persona"
-          description="Elegí una persona desde el detalle de una actividad o usá su identificador."
-        >
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              applyPersonFilter()
-            }}
-            className="space-y-2"
-          >
-            <label
-              htmlFor="audit-actor"
-              className="block text-sm font-medium text-slate-700"
-            >
-              ID de usuario
-            </label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                id="audit-actor"
-                value={actorDraft}
-                onChange={(event) => {
-                  setActorDraft(event.target.value)
-                  setActorError('')
-                }}
-                className="input-field min-w-0 font-mono text-sm"
-                placeholder="Identificador de quien realizó la acción"
-                aria-invalid={Boolean(actorError)}
-                aria-describedby={actorError ? 'audit-actor-error' : undefined}
-              />
-              <button type="submit" className="btn-secondary shrink-0 text-sm">
-                Filtrar usuario
-              </button>
-            </div>
-            {actorError && (
-              <p
-                id="audit-actor-error"
-                role="alert"
-                className="text-xs text-red-700"
-              >
-                {actorError}
-              </p>
-            )}
-          </form>
-        </SettingsDetails>
       </section>
 
       {error && (
@@ -529,9 +470,10 @@ export default function AdminAuditPanel({
                 aria-hidden
                 className="hidden gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 md:flex"
               >
-                <div className="grid flex-1 grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_180px] gap-4 text-xs font-medium text-slate-500">
+                <div className="grid flex-1 grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_minmax(0,0.6fr)_160px] gap-4 text-xs font-medium text-slate-500">
                   <span>Actividad</span>
                   <span>Usuario</span>
+                  <span>Dirección IP</span>
                   <span>Fecha y hora</span>
                 </div>
                 <span className="w-4" />

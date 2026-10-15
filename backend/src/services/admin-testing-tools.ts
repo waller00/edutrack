@@ -3,13 +3,9 @@ import { prisma } from '../db/prisma.js'
 import { ensureBuiltinOrgRoles } from '../identity/org-role-seed.js'
 import { upsertCanonicalProfilePermissions } from '../identity/profile-permissions-repository.js'
 import { processBiometricIngest } from './biometric-ingest-core.js'
+import { isAdminTestingToolsEnabled } from '../config/testing-tools.js'
 
-export function isAdminTestingToolsEnabled() {
-  const flag = String(process.env.ALLOW_ADMIN_TESTING_TOOLS ?? '').trim().toLowerCase()
-  if (flag === '1' || flag === 'true' || flag === 'yes') return true
-  if (flag === '0' || flag === 'false' || flag === 'no') return false
-  return process.env.NODE_ENV !== 'production'
-}
+export { isAdminTestingToolsEnabled }
 
 function buildValidCi(baseNumber: number) {
   const base7 = String(Math.abs(baseNumber) % 9_999_999).padStart(7, '0')
@@ -120,7 +116,8 @@ export async function resetDatabaseToSingleAdmin(opts?: {
 
   try {
     const { createKeycloakUser } = await import('../auth/keycloak.js')
-    await createKeycloakUser({
+    const { linkKeycloakAccount } = await import('../auth/keycloak-provisioning.js')
+    const kcId = await createKeycloakUser({
       email: adminEmail,
       username: adminUsername,
       firstName: 'Admin',
@@ -129,6 +126,7 @@ export async function resetDatabaseToSingleAdmin(opts?: {
       role: 'ADMIN',
       emailVerified: true,
     })
+    await linkKeycloakAccount(admin.id, kcId)
   } catch (e) {
     console.error('[admin-testing] keycloak admin user:', e)
   }

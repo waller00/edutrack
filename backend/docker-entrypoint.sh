@@ -6,9 +6,14 @@ PUSH_FLAGS="${PRISMA_DB_PUSH_FLAGS:-}"
 PUSH_TIMEOUT_SEC="${PRISMA_DB_PUSH_TIMEOUT_SEC:-120}"
 PUSH_REQUIRED="${PRISMA_DB_PUSH_REQUIRED:-0}"
 
+set +e
+# DDL que db push no puede aplicar solo (UNIQUE sobre tablas con datos). Va antes y en primer plano:
+# el código nuevo depende de esas columnas. Idempotente; si falla, db push decide como siempre.
+echo "[auth] db:prepush (DDL previo a db push)"
+npm run db:prepush || echo "[auth] WARN: db:prepush falló; db push puede rechazar el schema."
+
 echo "[auth] prisma db push --skip-generate ${PUSH_FLAGS} (timeout ${PUSH_TIMEOUT_SEC}s)"
 
-set +e
 if command -v timeout >/dev/null 2>&1; then
   timeout "$PUSH_TIMEOUT_SEC" npx prisma db push --skip-generate ${PUSH_FLAGS}
   push_status=$?

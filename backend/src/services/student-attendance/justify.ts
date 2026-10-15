@@ -35,6 +35,22 @@ export async function justifyEntryTx(
     rangeId?: string | null
   },
 ) {
+  // Condicional: la marca se leyó antes de abrir la transacción, y en el medio el docente pudo
+  // cambiarla (vino, llegó tarde) u otra persona justificarla. Sólo se justifica si SIGUE siendo
+  // una ausencia sin justificar; si no, `null` y no se escribe nada.
+  const { count } = await tx.studentAttendanceEntry.updateMany({
+    where: { id: entry.id, status: 'ABSENT' },
+    data: {
+      status: 'ABSENT_JUSTIFIED',
+      note: appendJustificationNote(entry.note, input.reason),
+      // Justificar y graduar la falta son el mismo trámite para adscripción: se hace de una.
+      // Sin valor, el peso queda como estaba (y una ausencia sin peso vale una falta entera).
+      ...(input.absenceWeightHundredths != null
+        ? { absenceWeightHundredths: input.absenceWeightHundredths }
+        : {}),
+    },
+  })
+  if (count === 0) return null
   const justification = await tx.studentAttendanceJustification.create({
     data: {
       entryId: entry.id,
@@ -48,18 +64,7 @@ export async function justifyEntryTx(
       rangeId: input.rangeId ?? null,
     },
   })
-  const row = await tx.studentAttendanceEntry.update({
-    where: { id: entry.id },
-    data: {
-      status: 'ABSENT_JUSTIFIED',
-      note: appendJustificationNote(entry.note, input.reason),
-      // Justificar y graduar la falta son el mismo trámite para adscripción: se hace de una.
-      // Sin valor, el peso queda como estaba (y una ausencia sin peso vale una falta entera).
-      ...(input.absenceWeightHundredths != null
-        ? { absenceWeightHundredths: input.absenceWeightHundredths }
-        : {}),
-    },
-  })
+  const row = await tx.studentAttendanceEntry.findUniqueOrThrow({ where: { id: entry.id } })
   return { row, justificationId: justification.id }
 }
 
@@ -91,6 +96,13 @@ export async function justifyStudentAbsence(input: JustifyInput) {
   }
 
   const updated = await prisma.$transaction((tx) => justifyEntryTx(tx, entry, { ...input, reason }))
+  if (!updated) {
+    throw new RollCallError(
+      409,
+      'NOT_JUSTIFIABLE',
+      'La marca cambió mientras tanto y ya no es una ausencia sin justificar. Recargá la lista.',
+    )
+  }
 
   await recordAuditEventNow({
     action: AuditAction.STUDENT_ATTENDANCE_JUSTIFIED,

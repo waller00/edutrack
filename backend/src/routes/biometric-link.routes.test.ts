@@ -73,6 +73,17 @@ describe("biometric-link routes", () => {
     );
   });
 
+  it("POST /biometric/admin/devices rechaza una IP permitida mal escrita", async () => {
+    const res = await request(app()).post("/biometric/admin/devices").send({
+      code: "F22",
+      name: "Entrada",
+      secret: "secret-local",
+      allowedIps: ["190.64.10.20", "liceo.com.uy"],
+    });
+    expect(res.status).toBe(400);
+    expect(linkMock.createAdminBiometricDevice).not.toHaveBeenCalled();
+  });
+
   it("PUT /biometric/admin/devices/:id actualiza lector", async () => {
     linkMock.updateAdminBiometricDevice.mockResolvedValue({ id: "d1", code: "F22", name: "Entrada 2" });
     const res = await request(app()).put("/biometric/admin/devices/d1").send({

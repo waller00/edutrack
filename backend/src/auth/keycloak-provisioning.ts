@@ -1,5 +1,5 @@
 import { prisma } from "../db/prisma.js";
-import { syncKeycloakUserIdentity } from "./keycloak.js";
+import { findKeycloakUserIdsByEmail, syncKeycloakUserIdentity } from "./keycloak.js";
 import type { SsoRegistrationProfile } from "./sso-registration.js";
 
 export type ProvisionedUser = {
@@ -33,6 +33,60 @@ function normalizeUsername(value: unknown, email?: string): string | undefined {
 }
 
 /**
+ * La cuenta de Keycloak que entra no puede quedarse con el usuario local que coincide: ya está
+ * vinculado a otra cuenta, o sólo coincide el username (que el usuario edita en Keycloak).
+ */
+export class KeycloakAccountConflictError extends Error {
+  constructor() {
+    super("KEYCLOAK_ACCOUNT_CONFLICT");
+    this.name = "KeycloakAccountConflictError";
+  }
+}
+
+const USER_SELECT = {
+  id: true,
+  email: true,
+  username: true,
+  firstName: true,
+  lastName: true,
+  keycloakId: true,
+  orgRole: { select: { code: true } },
+} as const;
+
+/**
+ * Usuario local de la cuenta de Keycloak.
+ *
+ * El vínculo es el `sub`. El email sólo sirve una vez, para usuarios que todavía no tienen
+ * `keycloakId` (anteriores al vínculo y que el relleno de arranque no alcanzó). El username no
+ * vincula nunca: con `editUsernameAllowed` cualquiera se pone el de otro en la consola de cuenta.
+ */
+async function findLinkedUser(kcId: string, email: string | undefined) {
+  const linked = await prisma.user.findUnique({ where: { keycloakId: kcId }, select: USER_SELECT });
+  if (linked || !email) return linked;
+  const byEmail = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: USER_SELECT,
+  });
+  if (byEmail?.keycloakId && byEmail.keycloakId !== kcId) throw new KeycloakAccountConflictError();
+  return byEmail;
+}
+
+/**
+ * Email y verificación a guardar. Un email nuevo sin verificar en Keycloak se acepta pero queda
+ * sin verificar acá: si no, la cuenta seguiría figurando verificada con una dirección que nadie
+ * comprobó (y la recuperación de 2FA por correo iría a parar ahí).
+ */
+function emailUpdate(currentEmail: string, email: string | undefined, emailVerified: boolean) {
+  if (!email) return {};
+  const changed = currentEmail.toLowerCase() !== email;
+  return {
+    ...(currentEmail !== email ? { email } : {}),
+    ...(changed ? { emailVerifiedAt: emailVerified ? new Date() : null } : {}),
+    ...(!changed && emailVerified ? { emailVerifiedAt: new Date() } : {}),
+  };
+}
+
+/**
  * Sincroniza (o crea) el usuario local a partir de los claims de Keycloak.
  *
  * Keycloak es la fuente de verdad de autenticación e identidad (email, nombre).
@@ -41,6 +95,8 @@ function normalizeUsername(value: unknown, email?: string): string | undefined {
  * posteriores (ver más abajo). Postgres manda en autorización.
  */
 export async function provisionUserFromClaims(claims: Record<string, any>): Promise<ProvisionedUser> {
+  const kcId = cleanClaim(claims.sub);
+  if (!kcId) throw new Error("Claims sin sub");
   const email = cleanClaim(claims.email)?.toLowerCase();
   const claimUsername = normalizeUsername(claims.preferred_username ?? claims.username, email);
   if (!email && !claimUsername) throw new Error("Claims sin email ni username");
@@ -50,21 +106,7 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
   const fullName = claims.name ?? ([firstName, lastName].filter(Boolean).join(" ") || null);
   const emailVerified = claims.email_verified === true;
 
-  // Prioriza el match por email (clave estable de Keycloak); el username es respaldo.
-  const userSelect = {
-    id: true,
-    email: true,
-    username: true,
-    firstName: true,
-    lastName: true,
-    orgRole: { select: { code: true } },
-  } as const;
-  let existing = email
-    ? await prisma.user.findUnique({ where: { email }, select: userSelect })
-    : null;
-  if (!existing && claimUsername) {
-    existing = await prisma.user.findUnique({ where: { username: claimUsername }, select: userSelect });
-  }
+  const existing = await findLinkedUser(kcId, email);
 
   if (existing) {
     // Postgres es la fuente de verdad de autorización: NO sobreescribimos el
@@ -74,16 +116,16 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
     await prisma.user.update({
       where: { id: existing.id },
       data: {
-        ...(email && existing.email !== email ? { email } : {}),
+        ...(existing.keycloakId ? {} : { keycloakId: kcId }),
+        ...emailUpdate(existing.email, email, emailVerified),
         ...(nextUsername && !existing.username ? { username: nextUsername } : {}),
         ...(firstName ? { firstName } : {}),
         ...(lastName ? { lastName } : {}),
         ...(fullName ? { name: fullName } : {}),
-        ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
       },
     });
     await syncKeycloakUserIdentity({
-      kcId: String(claims.sub || ""),
+      kcId,
       email: email || existing.email,
       username: nextUsername,
       firstName: firstName || existing.firstName,
@@ -98,8 +140,16 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
 
   if (!email) throw new Error("Claims sin email para crear usuario local");
 
+  // Sólo coincide el username: o es la misma persona con el email cambiado en Keycloak (lo resuelve
+  // administración alineando el email) o alguien que se puso el username de otro. En ninguno de los
+  // dos casos corresponde ni entrar a esa cuenta ni abrir un alta nueva con ese username.
+  if (claimUsername) {
+    const byUsername = await prisma.user.findUnique({ where: { username: claimUsername }, select: { id: true } });
+    if (byUsername) throw new KeycloakAccountConflictError();
+  }
+
   throw new SsoRegistrationRequiredError({
-    kcId: String(claims.sub || ""),
+    kcId,
     email,
     username: claimUsername ?? null,
     firstName,
@@ -107,4 +157,49 @@ export async function provisionUserFromClaims(claims: Record<string, any>): Prom
     name: fullName,
     emailVerified,
   });
+}
+
+/**
+ * Guarda el vínculo al crear la cuenta en Keycloak. Nunca pisa un vínculo existente. Si falla,
+ * no rompe el alta: el primer login lo completa por email.
+ */
+export async function linkKeycloakAccount(userId: string, kcId: string | null | undefined): Promise<void> {
+  if (!kcId) return;
+  try {
+    await prisma.user.updateMany({ where: { id: userId, keycloakId: null }, data: { keycloakId: kcId } });
+  } catch (error) {
+    console.warn("[keycloak] no se pudo guardar el vínculo de la cuenta:", error);
+  }
+}
+
+/**
+ * Vincula por email a los usuarios anteriores a `keycloakId`. Corre al arrancar, así el vínculo
+ * por email del login (lo único que queda de la vinculación vieja) ya no tiene a quién aplicarse.
+ * Es idempotente: sólo mira usuarios sin vínculo y nunca pisa uno existente.
+ */
+export async function backfillKeycloakLinks(): Promise<{ linked: number; missing: string[] }> {
+  const pending = await prisma.user.findMany({ where: { keycloakId: null }, select: { id: true, email: true } });
+  if (pending.length === 0) return { linked: 0, missing: [] };
+
+  const idsByEmail = await findKeycloakUserIdsByEmail(pending.map((user) => user.email.toLowerCase()));
+  let linked = 0;
+  const missing: string[] = [];
+  for (const user of pending) {
+    const kcId = idsByEmail.get(user.email.toLowerCase());
+    if (!kcId) {
+      missing.push(user.id);
+      continue;
+    }
+    try {
+      const { count } = await prisma.user.updateMany({
+        where: { id: user.id, keycloakId: null },
+        data: { keycloakId: kcId },
+      });
+      linked += count;
+    } catch (error) {
+      // P2002: esa cuenta de Keycloak ya está vinculada a otro usuario. No se adivina cuál es el bueno.
+      console.warn(`[keycloak] vínculo omitido para el usuario ${user.id}:`, error);
+    }
+  }
+  return { linked, missing };
 }

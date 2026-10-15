@@ -10,7 +10,7 @@ const { prismaMock } = vi.hoisted(() => ({
     substitution: { findUnique: vi.fn() },
     nonWorkingDay: { findMany: vi.fn() },
     studentAttendanceSession: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    studentAttendanceEntry: { findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+    studentAttendanceEntry: { findUnique: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(), findMany: vi.fn() },
     studentAttendanceJustification: { create: vi.fn() },
     studentEnrollment: { findFirst: vi.fn(), findMany: vi.fn() },
     studentAbsenceJustificationRange: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
@@ -140,7 +140,8 @@ describe("admin student-attendance routes", () => {
       studentId: "st-1",
       session: { id: "sess-1", occurrenceYmd: "2026-05-11", eventId: "ev-1" },
     });
-    prismaMock.studentAttendanceEntry.update.mockResolvedValue({ id: ENTRY_ID, status: "ABSENT_JUSTIFIED" });
+    prismaMock.studentAttendanceEntry.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.studentAttendanceEntry.findUniqueOrThrow.mockResolvedValue({ id: ENTRY_ID, status: "ABSENT_JUSTIFIED" });
 
     const res = await request(app())
       .post(`/admin/student-attendance/entries/${ENTRY_ID}/justify`)
@@ -153,10 +154,34 @@ describe("admin student-attendance routes", () => {
         data: expect.objectContaining({ previousStatus: "ABSENT", newStatus: "ABSENT_JUSTIFIED" }),
       }),
     );
-    expect(prismaMock.studentAttendanceEntry.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "ABSENT_JUSTIFIED" }) }),
+    expect(prismaMock.studentAttendanceEntry.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: ENTRY_ID, status: "ABSENT" },
+        data: expect.objectContaining({ status: "ABSENT_JUSTIFIED" }),
+      }),
     );
     expect(prismaMock.$executeRaw).toHaveBeenCalled();
+  });
+
+  it("409 si el docente cambió la marca mientras se justificaba: no se justifica a un presente", async () => {
+    prismaMock.studentAttendanceEntry.findUnique.mockResolvedValue({
+      id: ENTRY_ID,
+      status: "ABSENT",
+      note: null,
+      studentId: "st-1",
+      session: { id: "sess-1", occurrenceYmd: "2026-05-11", eventId: "ev-1" },
+    });
+    // Leída como ausente; al escribir ya no lo es.
+    prismaMock.studentAttendanceEntry.updateMany.mockResolvedValue({ count: 0 });
+
+    const res = await request(app())
+      .post(`/admin/student-attendance/entries/${ENTRY_ID}/justify`)
+      .set("Authorization", `Bearer ${tok()}`)
+      .send({ reason: "Certificado médico" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("NOT_JUSTIFIABLE");
+    expect(prismaMock.studentAttendanceJustification.create).not.toHaveBeenCalled();
   });
 
   it("400 al reabrir sin motivo", async () => {
@@ -198,7 +223,8 @@ describe("admin student-attendance routes", () => {
       });
       prismaMock.studentAbsenceJustificationRange.create.mockResolvedValue({ id: "range-1" });
       prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([{ id: ENTRY_ID, note: null }]);
-      prismaMock.studentAttendanceEntry.update.mockResolvedValue({});
+      prismaMock.studentAttendanceEntry.updateMany.mockResolvedValue({ count: 1 });
+      prismaMock.studentAttendanceEntry.findUniqueOrThrow.mockResolvedValue({});
     });
 
     it("crea el rango y justifica las ausencias ya marcadas", async () => {

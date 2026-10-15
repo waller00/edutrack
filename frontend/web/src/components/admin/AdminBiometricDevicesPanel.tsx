@@ -3,6 +3,7 @@
 import { api } from '@/lib/api/client'
 import { formatDateTimeInUruguay } from '@/lib/forms/datetime-uy'
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   Loader2,
@@ -72,6 +73,17 @@ function ipsFromText(value: string) {
     .split(/[\n,]/)
     .map((ip) => ip.trim())
     .filter(Boolean)
+}
+
+/**
+ * Qué le falta al lector para recibir marcas directo del reloj (iClock). El protocolo no autentica
+ * al equipo: sin número de serie ni IPs permitidas el backend rechaza sus marcas.
+ */
+function iclockMissing(device: Pick<BiometricDevice, 'admsSerial' | 'allowedIps'>): string[] {
+  const missing: string[] = []
+  if (!device.admsSerial?.trim()) missing.push('número de serie')
+  if (device.allowedIps.length === 0) missing.push('IPs permitidas')
+  return missing
 }
 
 function formatDate(value?: string | null) {
@@ -585,10 +597,10 @@ export default function AdminBiometricDevicesPanel() {
                             admsSerial: e.target.value,
                           }))
                         }
-                        placeholder="Opcional"
+                        placeholder="El que muestra el equipo"
                       />
                       <p className="mt-1.5 text-xs text-slate-500">
-                        Si queda vacío, el equipo se identifica por su código.
+                        Necesario para recibir marcas directo del reloj (iClock).
                       </p>
                     </div>
                     <div>
@@ -611,7 +623,9 @@ export default function AdminBiometricDevicesPanel() {
                         placeholder="Una por línea o separadas por comas"
                       />
                       <p className="mt-1.5 text-xs text-slate-500">
-                        Vacío: sin restricción por IP.
+                        Necesario para iClock: el reloj solo puede enviar marcas
+                        desde estas IPs (la IP pública del liceo). Vacío: no
+                        recibe marcas por iClock.
                       </p>
                     </div>
                     {mode === 'edit' && (
@@ -687,6 +701,21 @@ export default function AdminBiometricDevicesPanel() {
                       value={formatDate(selectedDevice.lastSeenAt)}
                     />
                   </dl>
+                  {iclockMissing(selectedDevice).length > 0 && (
+                    <p
+                      role="status"
+                      className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                    >
+                      <AlertTriangle
+                        className="mt-0.5 h-4 w-4 shrink-0"
+                        aria-hidden
+                      />
+                      <span>
+                        No recibe marcas del reloj (iClock): falta{' '}
+                        {iclockMissing(selectedDevice).join(' e ')}.
+                      </span>
+                    </p>
+                  )}
                   <button
                     type="button"
                     disabled={saving}
@@ -731,7 +760,7 @@ export default function AdminBiometricDevicesPanel() {
                       <p className="mt-1 break-all text-sm text-slate-700">
                         {selectedDevice.allowedIps.length
                           ? selectedDevice.allowedIps.join(', ')
-                          : 'Sin restricción por IP'}
+                          : 'Ninguna: no recibe marcas por iClock'}
                       </p>
                     </div>
                   </SettingsDetails>

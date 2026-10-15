@@ -35,7 +35,11 @@ const {
     },
     substitution: {
       deleteMany: vi.fn(),
+      count: vi.fn().mockResolvedValue(0),
     },
+    event: { count: vi.fn().mockResolvedValue(0) },
+    attendance: { count: vi.fn().mockResolvedValue(0) },
+    medicalLeave: { count: vi.fn().mockResolvedValue(0) },
     orgRole: {
       upsert: vi.fn(),
       findFirst: vi.fn(),
@@ -698,7 +702,7 @@ describe("admin routes (prisma mock)", () => {
     expect(prismaMock.user.delete).not.toHaveBeenCalled();
   });
 
-  it("DELETE /admin/users/:id ok si está de baja: borra suplencias, usuario y cuenta Keycloak", async () => {
+  it("DELETE /admin/users/:id ok si está de baja y sin historial: borra usuario y cuenta Keycloak", async () => {
     prismaMock.user.findUnique.mockResolvedValue({
       id: "u1",
       email: "u1@a.com",
@@ -706,15 +710,32 @@ describe("admin routes (prisma mock)", () => {
       isActive: false,
       orgRole: { code: "TEACHER" },
     });
-    prismaMock.substitution.deleteMany.mockResolvedValue({ count: 0 });
     prismaMock.user.delete.mockResolvedValue({ id: "u1" });
     const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
     expect(res.status).toBe(200);
-    expect(prismaMock.substitution.deleteMany).toHaveBeenCalledWith({
-      where: { OR: [{ originalTeacherUserId: "u1" }, { substituteUserId: "u1" }] },
-    });
+    expect(prismaMock.substitution.deleteMany).not.toHaveBeenCalled();
     expect(prismaMock.user.delete).toHaveBeenCalledWith({ where: { id: "u1" } });
     expect(deleteKeycloakUserByEmailMock).toHaveBeenCalledWith("u1@a.com");
+  });
+
+  it("DELETE /admin/users/:id 409 con historial: no arrastra eventos, asistencias ni suplencias", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: "u1",
+      email: "u1@a.com",
+      name: "De baja",
+      isActive: false,
+      orgRole: { code: "STAFF" },
+    });
+    // Creó clases: borrarlo se llevaba esas clases y sus listas de estudiantes en cascada.
+    prismaMock.event.count.mockResolvedValueOnce(12);
+    prismaMock.substitution.count.mockResolvedValueOnce(3);
+    const res = await request(app()).delete("/admin/users/u1").set(adminHdr());
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("USER_HAS_HISTORY");
+    expect(res.body.detail).toEqual({ eventsCreated: 12, attendances: 0, medicalLeaves: 0, substitutions: 3 });
+    expect(prismaMock.user.delete).not.toHaveBeenCalled();
+    expect(prismaMock.substitution.deleteMany).not.toHaveBeenCalled();
+    expect(deleteKeycloakUserByEmailMock).not.toHaveBeenCalled();
   });
 
   it("DELETE /admin/users/:id 409 si hay FK que lo impiden (P2003)", async () => {
@@ -886,6 +907,57 @@ describe("admin routes (prisma mock)", () => {
     const tok = signAccessToken({ sub: "t", email: "t@t.com", role: "TEACHER" });
     const res = await request(app()).get("/admin/users").set("Authorization", `Bearer ${tok}`);
     expect(res.status).toBe(403);
+  });
+
+  describe("GET /admin/audit-logs/users", () => {
+    it("busca por nombre o correo, pagina y solo selecciona datos del selector", async () => {
+      const users = [{ id: "u1", name: "Ana García", email: "ana@example.com" }];
+      prismaMock.user.count.mockResolvedValue(45);
+      prismaMock.user.findMany.mockResolvedValue(users);
+      const res = await request(app())
+        .get("/admin/audit-logs/users?page=2&pageSize=20&q=%20Ana%20")
+        .set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ total: 45, page: 2, pageSize: 20, data: users });
+      const where = { OR: [
+        { name: { contains: "Ana", mode: "insensitive" } },
+        { email: { contains: "Ana", mode: "insensitive" } },
+        { username: { contains: "Ana", mode: "insensitive" } },
+        { firstName: { contains: "Ana", mode: "insensitive" } },
+        { lastName: { contains: "Ana", mode: "insensitive" } },
+      ] };
+      expect(prismaMock.user.count).toHaveBeenCalledWith({ where });
+      expect(prismaMock.user.findMany).toHaveBeenCalledWith({
+        where, skip: 20, take: 20,
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+        select: { id: true, name: true, email: true },
+      });
+    });
+
+    it("lista también administradores y usuarios inactivos para consultar su historial", async () => {
+      prismaMock.user.count.mockResolvedValue(0);
+      prismaMock.user.findMany.mockResolvedValue([]);
+      const res = await request(app()).get("/admin/audit-logs/users").set(adminHdr());
+      expect(res.status).toBe(200);
+      expect(prismaMock.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: {}, skip: 0, take: 20,
+      }));
+    });
+
+    it.each(["page=0", "pageSize=51", "q=" + "a".repeat(121)])("rechaza parámetros inválidos: %s", async (query) => {
+      const res = await request(app()).get("/admin/audit-logs/users?" + query).set(adminHdr());
+      expect(res.status).toBe(400);
+      expect(prismaMock.user.findMany).not.toHaveBeenCalled();
+    });
+
+    it("requiere autenticación y lectura de auditoría con alcance global", async () => {
+      expect((await request(app()).get("/admin/audit-logs/users")).status).toBe(401);
+      const own = await request(app()).get("/admin/audit-logs/users").set({
+        Authorization: `Bearer ${signAccessToken({ sub: "teacher", email: "t@example.com", role: "TEACHER" })}`,
+      });
+      expect(own.status).toBe(403);
+      expect(prismaMock.user.findMany).not.toHaveBeenCalled();
+    });
   });
 
   it("GET /admin/audit-logs devuelve datos y catálogo de acciones", async () => {
@@ -1067,19 +1139,24 @@ describe("admin routes (prisma mock)", () => {
       expect(res.status).toBe(400);
     });
 
-    it("PUT 200 actualiza zona horaria", async () => {
-      const updatedRow = {
-        ...settingsRow,
-        institutionTimezone: "America/Santiago",
-      };
-      prismaMock.systemSettings.upsert.mockResolvedValueOnce(updatedRow);
-      prismaMock.systemSettings.findUnique.mockResolvedValueOnce(updatedRow);
+    it("PUT 200 guarda la zona de Uruguay", async () => {
+      prismaMock.systemSettings.upsert.mockResolvedValueOnce(settingsRow);
+      prismaMock.systemSettings.findUnique.mockResolvedValueOnce(settingsRow);
+      const res = await request(app())
+        .put("/admin/system-settings")
+        .set(adminHdr())
+        .send({ institutionTimezone: "America/Montevideo" });
+      expect(res.status).toBe(200);
+      expect(res.body.institutionTimezone).toBe("America/Montevideo");
+    });
+
+    it("PUT 400 con una zona válida que la app no soporta: el frontend está fijo en Uruguay", async () => {
       const res = await request(app())
         .put("/admin/system-settings")
         .set(adminHdr())
         .send({ institutionTimezone: "America/Santiago" });
-      expect(res.status).toBe(200);
-      expect(res.body.institutionTimezone).toBe("America/Santiago");
+      expect(res.status).toBe(400);
+      expect(prismaMock.systemSettings.upsert).not.toHaveBeenCalled();
     });
 
     it("PUT 400 con valores fuera de rango", async () => {

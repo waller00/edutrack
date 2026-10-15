@@ -255,6 +255,8 @@ export type PlanillaPeriod = {
   name: string
   kind: 'DIAGNOSTICO' | 'TRAMO' | 'ENTREGA'
   judgementLabel: string | null
+  /** Los semestres de EMS son tramos que piden juicio (reunión de boletín); los de EBI no. */
+  requiresConceptualJudgement?: boolean
 }
 
 export type PlanillaAssessmentGrade = {
@@ -296,10 +298,16 @@ export function planillaColumns(
     const categories: PlanillaCategory[] = withPrueba.has(period.id)
       ? ['ORAL', 'OTRAS', 'ESCRITO', 'PRUEBA']
       : ['ORAL', 'OTRAS', 'ESCRITO']
+    // Un tramo que es reunión de boletín (los semestres de EMS) lleva su juicio, como la entrega en
+    // EBI. Filtrar por `kind === 'ENTREGA'` dejaba sin juicio a toda la planilla de EMS.
+    const judgement = period.requiresConceptualJudgement
+      ? [{ ...text, label: period.judgementLabel ?? 'Juicio conceptual' }]
+      : []
     return [
       ...categories.map((category) => ({ periodId: period.id, field: category, label: CATEGORY_LABEL[category] })),
       grade('C'),
       grade('R'),
+      ...judgement,
     ]
   })
 }

@@ -11,10 +11,12 @@ const { prismaMock } = vi.hoisted(() => ({
     studentEnrollment: { findMany: vi.fn() },
     studentAttendanceSession: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn() },
     studentAttendanceEntry: { upsert: vi.fn() },
+    studentAbsenceJustificationRange: { findMany: vi.fn() },
     medicalLeave: { findMany: vi.fn() },
     systemSettings: { upsert: vi.fn() },
     auditLog: { create: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   },
 }));
@@ -107,6 +109,9 @@ describe("student-attendance routes", () => {
     prismaMock.studentAttendanceSession.findMany.mockResolvedValue([]);
     prismaMock.studentAttendanceSession.upsert.mockResolvedValue({ id: "sess-1" });
     prismaMock.studentAttendanceEntry.upsert.mockResolvedValue({});
+    prismaMock.studentAbsenceJustificationRange.findMany.mockResolvedValue([]);
+    // Marcas actuales de la lista, que el guardado bloquea dentro de la transacción.
+    prismaMock.$queryRaw.mockResolvedValue([]);
     prismaMock.medicalLeave.findMany.mockResolvedValue([]);
     (findNonWorkingDayForDate as any).mockResolvedValue(null);
   });
@@ -227,6 +232,7 @@ describe("student-attendance routes", () => {
       lockedAt: null,
       entries: [{ studentId: STUDENT_A, status: "ABSENT_JUSTIFIED" }],
     });
+    prismaMock.$queryRaw.mockResolvedValue([{ studentId: STUDENT_A, status: "ABSENT_JUSTIFIED" }]);
     await request(app())
       .put(`/student-attendance/sessions/${EVENT_ID}/${YMD}`)
       .set("Authorization", `Bearer ${tok()}`)

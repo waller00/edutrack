@@ -1404,9 +1404,10 @@ function AdminAttendanceContent() {
               <div className="text-sm text-gray-500">—</div>
             ) : (
               (() => {
-                const first = showingExitStats ? stats.exitCount : stats.presentCount
-                const second = showingExitStats ? stats.earlyExitCount : stats.lateCount
-                const third = showingExitStats ? 0 : stats.absentCount
+                // Un contador ausente en la respuesta dibujaba las barras con NaN (y sin barra).
+                const first = (showingExitStats ? stats.exitCount : stats.presentCount) ?? 0
+                const second = (showingExitStats ? stats.earlyExitCount : stats.lateCount) ?? 0
+                const third = showingExitStats ? 0 : (stats.absentCount ?? 0)
                 const max = Math.max(1, first, second, third)
                 const hMax = 90
                 const bar = (value: number) => (value / max) * hMax

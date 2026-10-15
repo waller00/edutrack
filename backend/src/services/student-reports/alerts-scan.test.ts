@@ -172,4 +172,15 @@ describe('scanStudentAlerts', () => {
     expect(prismaMock.studentAlert.createMany).not.toHaveBeenCalled()
     expect(prismaMock.inAppNotification.createMany).not.toHaveBeenCalled()
   })
+
+  it('las alertas ya avisadas se buscan en el ciclo: las 18 faltas del año pasado no silencian las de este', async () => {
+    await scanStudentAlerts('sy-2027')
+
+    expect(prismaMock.studentAlert.findMany.mock.calls[0][0].where).toEqual(
+      expect.objectContaining({ schoolYearId: 'sy-2027' }),
+    )
+    expect(prismaMock.studentAlert.createMany.mock.calls[0][0].data).toEqual([
+      expect.objectContaining({ schoolYearId: 'sy-2027', type: 'ABSENCE_THRESHOLD', key: '18' }),
+    ])
+  })
 })

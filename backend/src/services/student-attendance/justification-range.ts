@@ -78,10 +78,18 @@ export async function createJustificationRange(input: CreateRangeInput) {
       },
       select: { id: true, note: true },
     })
+    // La que el docente cambió entre la lectura y ahora ya no es ausencia: se saltea, no frena el rango.
+    const justifiedEntryIds: string[] = []
     for (const entry of existing) {
-      await justifyEntryTx(tx, entry, { reason, notes: input.notes, actorUserId: input.actorUserId, rangeId: range.id })
+      const done = await justifyEntryTx(tx, entry, {
+        reason,
+        notes: input.notes,
+        actorUserId: input.actorUserId,
+        rangeId: range.id,
+      })
+      if (done) justifiedEntryIds.push(entry.id)
     }
-    return { range, justifiedEntryIds: existing.map((e) => e.id) }
+    return { range, justifiedEntryIds }
   })
 
   await recordAuditEventNow({

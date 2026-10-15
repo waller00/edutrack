@@ -114,32 +114,21 @@ export async function saveRollCall(params: SaveParams) {
   }
 
   const existing = await findSession(params.event.id, params.occurrenceYmd)
-  const previousStatusByStudent = new Map<string, StudentAttendanceStatus>(
-    (existing?.entries ?? []).map((e) => [e.studentId, e.status]),
-  )
   const rosterByStudent = new Map(params.roster.map((r) => [r.studentId, r]))
 
-  const resolved = params.entries.map((incoming) => {
-    const previous = previousStatusByStudent.get(incoming.studentId) ?? null
-    return {
-      ...incoming,
-      previous,
-      status: resolveIncomingEntryStatus(previous, incoming.status),
-      revertedJustification: overridesJustification(previous, incoming.status),
-    }
-  })
-
   // Justificación por días (ciclo básico): la ausencia que cae en un rango vigente entra ya
-  // justificada, a nombre de quien cargó el rango. Una tarde o una presencia no se tocan.
+  // justificada, a nombre de quien cargó el rango. Una tarde o una presencia no se tocan. Se
+  // buscan para todas las ausencias que manda el docente; dentro de la transacción sólo se aplican
+  // a las que quedan como ausencia sin justificar.
   const ranges = await activeRangesFor(
-    resolved.filter((e) => e.status === 'ABSENT').map((e) => e.studentId),
+    params.entries.filter((e) => e.status === 'ABSENT').map((e) => e.studentId),
     params.occurrenceYmd,
   )
 
   const now = new Date()
   const occurrenceDate = occurrenceDateOf(params.occurrenceYmd)
 
-  const session = await prisma.$transaction(async (tx) => {
+  const { session, resolved } = await prisma.$transaction(async (tx) => {
     const header = await tx.studentAttendanceSession.upsert({
       where: { eventId_occurrenceYmd: { eventId: params.event.id, occurrenceYmd: params.occurrenceYmd } },
       create: {
@@ -172,6 +161,26 @@ export async function saveRollCall(params: SaveParams) {
         endAt: params.endAt,
         ...(params.notes === undefined ? {} : { notes: params.notes }),
       },
+    })
+
+    // Las marcas de la lista se bloquean y el estado se resuelve contra lo que hay AHORA, no
+    // contra lo leído antes de la transacción: si adscripción justificó una falta en el medio, el
+    // ABSENT que reenvía el docente no la pisa (y una justificación concurrente espera a este guardado).
+    const locked = await tx.$queryRaw<{ studentId: string; status: StudentAttendanceStatus }[]>`
+      SELECT "studentId", "status"::text AS "status"
+      FROM "StudentAttendanceEntry"
+      WHERE "sessionId" = ${header.id}
+      FOR UPDATE
+    `
+    const currentByStudent = new Map(locked.map((row) => [row.studentId, row.status]))
+    const resolved = params.entries.map((incoming) => {
+      const previous = currentByStudent.get(incoming.studentId) ?? null
+      return {
+        ...incoming,
+        previous,
+        status: resolveIncomingEntryStatus(previous, incoming.status),
+        revertedJustification: overridesJustification(previous, incoming.status),
+      }
     })
 
     for (const entry of resolved) {
@@ -209,11 +218,11 @@ export async function saveRollCall(params: SaveParams) {
           ...(isAbsent ? {} : { absenceWeightHundredths: null }),
         },
       })
-      // `ranges` sólo tiene a quienes quedaron ausentes: no hace falta volver a mirar el estado.
-      await justifyFromRange(tx, saved, ranges.get(entry.studentId))
+      // Sólo una ausencia sin justificar: una que ya estaba justificada se queda como está.
+      if (entry.status === 'ABSENT') await justifyFromRange(tx, saved, ranges.get(entry.studentId))
     }
 
-    return header
+    return { session: header, resolved }
   })
 
   const isFirstTake = !existing
@@ -227,7 +236,7 @@ export async function saveRollCall(params: SaveParams) {
     outsideWindow: params.outsideWindow,
     byAdmin: params.actedAsAdmin,
     revertedJustifications: resolved.filter((e) => e.revertedJustification).map((e) => e.studentId),
-    rangeJustified: [...ranges.keys()],
+    rangeJustified: resolved.filter((e) => e.status === 'ABSENT' && ranges.has(e.studentId)).map((e) => e.studentId),
   }
   const auditInput = {
     action: isFirstTake ? AuditAction.STUDENT_ROLL_CALL_TAKEN : AuditAction.STUDENT_ROLL_CALL_UPDATED,

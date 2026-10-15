@@ -19,6 +19,19 @@ type StoredExport = {
 
 const store = new Map<string, StoredExport>()
 
+/**
+ * Cuánto vive una exportación en memoria. La descarga se pide apenas termina; sin vencimiento,
+ * cada PDF/XLSX generado quedaba en el proceso hasta el próximo reinicio.
+ */
+export const EXPORT_TTL_MS = 15 * 60 * 1000
+
+/** Borra las exportaciones vencidas. Barato: se llama en cada alta y lectura. */
+export function pruneExpiredExports(now = Date.now()) {
+  for (const [id, e] of store) {
+    if (now - e.createdAt.getTime() > EXPORT_TTL_MS) store.delete(id)
+  }
+}
+
 export function createExportId() {
   return crypto.randomUUID()
 }
@@ -30,6 +43,7 @@ export function setExport(id: string, partial: Partial<StoredExport>) {
 }
 
 export function getExport(id: string) {
+  pruneExpiredExports()
   const e = store.get(id)
   if (!e) return null
   return e
@@ -42,6 +56,7 @@ export function createPendingExport(params: {
   filename: string
   contentType: string
 }) {
+  pruneExpiredExports()
   const exportId = params.exportId || createExportId()
   store.set(exportId, {
     exportId,

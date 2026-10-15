@@ -447,6 +447,21 @@ export async function getKeycloakUserIdByEmail(email: string): Promise<string | 
   return findKeycloakUserIdByEmail(token, email);
 }
 
+/**
+ * Id de Keycloak de cada email, con un solo token de administración. Los emails sin cuenta no
+ * aparecen en el mapa. Lo usa el relleno de `User.keycloakId` al arrancar.
+ */
+export async function findKeycloakUserIdsByEmail(emails: readonly string[]): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  if (emails.length === 0) return found;
+  const token = await getAdminToken();
+  for (const email of emails) {
+    const kcId = await findKeycloakUserIdByEmail(token, email);
+    if (kcId) found.set(email, kcId);
+  }
+  return found;
+}
+
 async function findKeycloakUserByUsername(
   token: string,
   username: string,

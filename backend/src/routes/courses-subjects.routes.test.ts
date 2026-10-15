@@ -11,6 +11,12 @@ const { prismaMock } = vi.hoisted(() => ({
     courseOffering: { findFirst: vi.fn(), update: vi.fn(), upsert: vi.fn() },
     subject: { findMany: vi.fn(), create: vi.fn(), findFirst: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     subjectCourseAssignment: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    orientation: { update: vi.fn(), delete: vi.fn() },
+    courseOrientation: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    event: { count: vi.fn() },
+    gradeBook: { count: vi.fn() },
+    studentEnrollment: { count: vi.fn() },
+    studentAttendanceSession: { count: vi.fn() },
   },
 }))
 
@@ -130,5 +136,47 @@ describe('courses / subjects', () => {
       .set('Authorization', `Bearer ${tok}`)
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
+  })
+})
+
+describe('borrar orientaciones', () => {
+  const orientationId = '00000000-0000-4000-8000-0000000000a1'
+  const hdr = () => ({
+    Authorization: `Bearer ${signAccessToken({ sub: 'adm', id: 'adm', email: 'a@a.com', role: 'ADMIN' })}`,
+  })
+
+  beforeEach(() => {
+    for (const counter of [
+      prismaMock.event.count,
+      prismaMock.gradeBook.count,
+      prismaMock.studentEnrollment.count,
+      prismaMock.studentAttendanceSession.count,
+    ]) {
+      counter.mockReset().mockResolvedValue(0)
+    }
+    prismaMock.courseOrientation.findMany.mockReset().mockResolvedValue([])
+    prismaMock.orientation.update.mockReset().mockResolvedValue({})
+    prismaMock.orientation.delete.mockReset().mockResolvedValue({})
+  })
+
+  it('en uso, se desactiva: borrarla convertía sus clases en tronco común', async () => {
+    prismaMock.courseOrientation.findMany.mockResolvedValue([{ id: 'co-1' }])
+    // La orientación no tiene uso directo, pero su orientación del curso tiene libretas.
+    prismaMock.gradeBook.count.mockImplementation(async ({ where }: any) => (where.courseOrientationId === 'co-1' ? 2 : 0))
+
+    const res = await request(app()).delete(`/courses/orientations/${orientationId}`).set(hdr())
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: true, deactivated: true })
+    expect(prismaMock.orientation.update).toHaveBeenCalledWith({ where: { id: orientationId }, data: { isActive: false } })
+    expect(prismaMock.orientation.delete).not.toHaveBeenCalled()
+  })
+
+  it('sin uso, se borra', async () => {
+    const res = await request(app()).delete(`/courses/orientations/${orientationId}`).set(hdr())
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: true })
+    expect(prismaMock.orientation.delete).toHaveBeenCalledWith({ where: { id: orientationId } })
   })
 })

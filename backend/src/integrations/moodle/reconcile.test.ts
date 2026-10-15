@@ -125,6 +125,11 @@ function courseIdFor(idnumber: string): number {
 
 const moodleUserByEduId: Record<string, number> = { u1: 500, u2: 600, sub1: 700, sub2: 800 };
 
+/** `listActiveEnrolments(sourceType)` como la base: devuelve sólo las filas de ese origen. */
+function activeMaps(maps: Array<{ sourceType: string }>) {
+  return (sourceType: string) => Promise.resolve(maps.filter((m) => m.sourceType === sourceType));
+}
+
 beforeEach(() => {
   enabledMock.mockReset().mockReturnValue(true);
   ensureCategoryMock.mockReset().mockResolvedValue(10);
@@ -317,7 +322,7 @@ describe("reconcileMoodle: revocación de suplentes", () => {
 
   it("revoca el acceso de una suplencia vencida (ya no aparece como activa)", async () => {
     // Sin suplencias vigentes; el mapa tiene una activa vencida.
-    listActiveEnrolmentsMock.mockResolvedValue([expiredSubMap]);
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([expiredSubMap]));
     const summary = await reconcileMoodle();
     expect(unenrolUserMock).toHaveBeenCalledWith(700, courseId);
     expect(markRevokedMock).toHaveBeenCalledWith("map-sub-1");
@@ -328,7 +333,7 @@ describe("reconcileMoodle: revocación de suplentes", () => {
     // sub1 es a la vez titular del curso de Matemática por un evento vigente.
     prismaMock.event.findMany.mockResolvedValue([teacherEvent({ assignedUserId: "sub1" })]);
     prismaMock.user.findUnique.mockResolvedValue({ moodleUserId: 700 });
-    listActiveEnrolmentsMock.mockResolvedValue([expiredSubMap]);
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([expiredSubMap]));
     const summary = await reconcileMoodle();
     expect(unenrolUserMock).not.toHaveBeenCalled();
     // Se marca la fila de suplencia como revocada, pero el acceso titular permanece.
@@ -338,7 +343,7 @@ describe("reconcileMoodle: revocación de suplentes", () => {
 
   it("NO revoca si el suplente tiene otra suplencia vigente/futura en el mismo curso", async () => {
     prismaMock.substitution.findMany.mockResolvedValue([substitution()]); // vigente
-    listActiveEnrolmentsMock.mockResolvedValue([expiredSubMap]);
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([expiredSubMap]));
     const summary = await reconcileMoodle();
     expect(unenrolUserMock).not.toHaveBeenCalled();
     expect(markRevokedMock).not.toHaveBeenCalled();
@@ -351,7 +356,7 @@ describe("reconcileMoodle: revocación de suplentes", () => {
     prismaMock.substitution.findMany.mockResolvedValue([
       substitution({ substituteUserId: "sub2" }),
     ]);
-    listActiveEnrolmentsMock.mockResolvedValue([expiredSubMap]);
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([expiredSubMap]));
     const summary = await reconcileMoodle();
     const matId = courseIdFor("et-subject-offering-off1-mat");
     expect(enrolUserMock).toHaveBeenCalledWith(800, matId, 9, expect.any(Object));
@@ -359,6 +364,90 @@ describe("reconcileMoodle: revocación de suplentes", () => {
     expect(markRevokedMock).toHaveBeenCalledWith("map-sub-1");
     expect(summary.substituteEnrolments).toBe(1);
     expect(summary.substituteRevocations).toBe(1);
+  });
+});
+
+describe("reconcileMoodle: titulares que dejan la asignatura", () => {
+  const matId = () => courseIdFor("et-subject-offering-off1-mat");
+  const teacherMap = (over: Record<string, unknown> = {}) => ({
+    id: "map-t-u2",
+    userId: "u2",
+    moodleUserId: 600,
+    moodleCourseId: matId(),
+    roleId: 3,
+    sourceType: "TEACHER_EVENT" as const,
+    sourceId: null,
+    startsAt: null,
+    endsAt: null,
+    ...over,
+  });
+
+  it("sólo dan acceso las versiones vigentes y las series no canceladas (con gracia)", async () => {
+    await reconcileMoodle({ now: new Date("2026-06-30T12:00:00.000Z") });
+    const where = prismaMock.event.findMany.mock.calls[0][0].where;
+    const graceStart = new Date("2026-05-31T12:00:00.000Z");
+    expect(where.AND).toEqual([
+      { OR: [{ supersededById: null }, { effectiveUntil: { gte: graceStart } }] },
+      { OR: [{ status: { not: "CANCELLED" } }, { updatedAt: { gte: graceStart } }] },
+    ]);
+  });
+
+  it("revoca al titular que ya no dicta la asignatura (la clase pasó a otro docente)", async () => {
+    // Hoy la dicta u1; el mapa activo es de u2, el titular anterior.
+    prismaMock.event.findMany.mockResolvedValue([teacherEvent()]);
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([teacherMap()]));
+
+    const summary = await reconcileMoodle();
+
+    expect(unenrolUserMock).toHaveBeenCalledWith(600, matId());
+    expect(markRevokedMock).toHaveBeenCalledWith("map-t-u2");
+    expect(summary.teacherRevocations).toBe(1);
+    // El titular actual no se toca.
+    expect(unenrolUserMock).not.toHaveBeenCalledWith(500, matId());
+  });
+
+  it("no revoca a ningún titular si la fase tuvo errores (un hipo de Moodle no saca accesos)", async () => {
+    prismaMock.event.findMany.mockResolvedValue([teacherEvent()]);
+    ensureSubjectCourseMock.mockRejectedValueOnce(new Error("Moodle no responde"));
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([teacherMap({ userId: "u1", moodleUserId: 500 })]));
+
+    const summary = await reconcileMoodle();
+
+    expect(unenrolUserMock).not.toHaveBeenCalled();
+    expect(markRevokedMock).not.toHaveBeenCalled();
+    expect(summary.errors).toBe(1);
+  });
+
+  it("no revoca si no se pudo resolver el usuario Moodle de un titular", async () => {
+    prismaMock.event.findMany.mockResolvedValue([teacherEvent({ assignedUserId: "sin-moodle" })]);
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([teacherMap()]));
+
+    await reconcileMoodle();
+
+    expect(unenrolUserMock).not.toHaveBeenCalled();
+  });
+
+  it("el ex titular que hoy es suplente del curso conserva el acceso de su suplencia", async () => {
+    prismaMock.event.findMany.mockResolvedValue([teacherEvent()]);
+    prismaMock.substitution.findMany.mockResolvedValue([substitution({ substituteUserId: "u2" })]);
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([teacherMap()]));
+
+    const summary = await reconcileMoodle();
+
+    expect(unenrolUserMock).not.toHaveBeenCalled();
+    expect(markRevokedMock).toHaveBeenCalledWith("map-t-u2");
+    expect(summary.teacherRevocations).toBe(1);
+  });
+
+  it("al titular del curso no se lo inscribe además como suplente (le pondría fecha de fin)", async () => {
+    prismaMock.event.findMany.mockResolvedValue([teacherEvent()]);
+    prismaMock.substitution.findMany.mockResolvedValue([substitution({ substituteUserId: "u1" })]);
+
+    const summary = await reconcileMoodle();
+
+    expect(enrolUserMock).toHaveBeenCalledWith(500, matId(), 3);
+    expect(enrolUserMock).not.toHaveBeenCalledWith(500, matId(), 9, expect.anything());
+    expect(summary.substituteEnrolments).toBe(0);
   });
 });
 
@@ -452,7 +541,7 @@ describe("reconcileMoodle: resiliencia y estudiantes", () => {
   });
 
   it("con syncStudents revoca asignaturas que ya no corresponden al estudiante", async () => {
-    listActiveEnrolmentsMock.mockResolvedValue([
+    listActiveEnrolmentsMock.mockImplementation(activeMaps([
       {
         id: "map-old",
         userId: "s1",
@@ -464,7 +553,7 @@ describe("reconcileMoodle: resiliencia y estudiantes", () => {
         startsAt: null,
         endsAt: null,
       },
-    ]);
+    ]));
     const summary = await reconcileMoodle({ syncStudents: true });
     expect(unenrolUserMock).toHaveBeenCalledWith(7000, 1234);
     expect(markRevokedMock).toHaveBeenCalledWith("map-old");

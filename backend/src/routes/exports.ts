@@ -227,8 +227,10 @@ r.post('/', authGuard, requirePermission('exports.create', 'all'), async (req, r
       status: 'DONE',
       downloadUrl: getDownloadUrl(exportId),
     })
-  } catch (error: any) {
-    return res.status(500).json({ message: 'Error interno del servidor', error: error?.message || String(error) })
+  } catch (error) {
+    // El detalle va al log, no al cliente: puede traer SQL, rutas o datos de otras personas.
+    console.error('[exports] generar exportación:', error)
+    return res.status(500).json({ message: 'Error interno del servidor' })
   }
 })
 

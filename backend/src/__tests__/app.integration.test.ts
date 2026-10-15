@@ -43,6 +43,22 @@ describe("App HTTP (integración ligera)", () => {
     expect(metrics).toContain("edutrack_backend_http_request_duration_seconds_bucket");
   });
 
+  it("una ruta inexistente responde 404 en JSON, no la página HTML de Express", async () => {
+    const res = await request(app).get("/no-existe");
+    expect(res.status).toBe(404);
+    expect(res.headers["content-type"]).toContain("application/json");
+    expect(res.body).toEqual({ message: "No encontrado" });
+  });
+
+  it("un JSON mal formado responde 400 en JSON sin el detalle del parser", async () => {
+    const res = await request(app)
+      .post("/auth/verify")
+      .set("Content-Type", "application/json")
+      .send("{mal");
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ message: "Solicitud inválida" });
+  });
+
   it("GET /ready responde ok cuando la DB acepta queries", async () => {
     const res = await request(app).get("/ready");
     expect(res.status).toBe(200);

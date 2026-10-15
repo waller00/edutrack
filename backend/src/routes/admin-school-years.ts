@@ -508,6 +508,12 @@ r.delete('/:id', async (req, res) => {
   try {
     const row = await prisma.schoolYear.findUnique({ where: { id } })
     if (!row) return res.status(404).json({ message: 'Ciclo no encontrado' })
+    // Eventos, matrículas y listas frenan el borrado por FK; las libretas no: caen en cascada con
+    // sus notas. Pueden quedar sin eventos (si se borraron), así que se miran aparte.
+    const gradeBooks = await prisma.gradeBook.count({ where: { schoolYearId: id } })
+    if (gradeBooks > 0) {
+      return res.status(409).json({ message: 'No se puede borrar porque el ciclo tiene libretas con calificaciones.' })
+    }
     await prisma.schoolYear.delete({ where: { id } })
     return res.json({ ok: true, deleted: serializeYear({ ...row, coursesCount: 0 }) })
   } catch (e: unknown) {

@@ -33,8 +33,6 @@ export default defineConfig({
         // Integración Moodle (REST + outbox + reconciliación): validada en entorno real / e2e.
         "src/integrations/moodle/**",
         "src/services/moodle.ts",
-        "src/routes/exports.ts",
-        "src/middlewares/rate-limit.ts",
         // Catálogo académico (cursos/materias/orientaciones): Prisma CRUD + transacciones,
         // validado por courses-subjects.routes.test.ts e integración; mismo criterio que admin-students.
         "src/routes/courses.ts",
@@ -42,12 +40,10 @@ export default defineConfig({
         "src/routes/admin-school-years.ts",
         // Token de registro SSO en Redis (BFF): integración, mismo criterio que session-store.
         "src/auth/sso-registration.ts",
-        // Autenticación Keycloak/BFF (OIDC + Admin API + Redis): integración validada
-        // end-to-end contra Keycloak/Redis reales, no por unit tests.
+        // Clientes de Keycloak (Admin API/OIDC) y Redis: integración validada end-to-end contra
+        // servicios reales. La vinculación SSO y las rutas del BFF sí tienen unit tests y se miden.
         "src/auth/keycloak.ts",
-        "src/auth/keycloak-provisioning.ts",
         "src/auth/session-store.ts",
-        "src/routes/auth-keycloak.ts",
         "src/db/redis.ts",
         // Helpers usados solo por la suite de tests.
         "src/test-utils/**",
@@ -57,7 +53,6 @@ export default defineConfig({
         "src/routes/analytics.ts",
         "src/services/analytics/**",
         "!src/services/analytics/timeline-sort.ts",
-        "src/services/exports/**",
         // Panel admin de pruebas (wipe/reset/simular ADMS): cubierto por admin-testing.routes.test.ts con mocks
         "src/services/admin-testing-tools.ts",
         "src/routes/admin-testing.ts",
@@ -69,14 +64,12 @@ export default defineConfig({
         // Reconciliación automática de asistencias por licencia (Prisma cross-entity):
         // mismo criterio que attendance-incidents, validado por integración/e2e.
         "src/services/medicalLeaveReconciliation.ts",
-        // Capa de integración de hardware biométrico (protocolo ZKTeco ADMS, ingesta de
-        // huellas, vinculación de dispositivos): se valida con dispositivo real (e2e) y los
-        // *.routes.test.ts; mismo criterio que integrations/zkteco.
+        // Capa de integración de hardware biométrico (ingesta de huellas, vinculación de
+        // dispositivos): se valida con dispositivo real (e2e) y los *.routes.test.ts. Las rutas
+        // que reciben marcas (iClock, ADMS) son la frontera de seguridad del lector y se miden.
         "src/services/biometric-ingest-core.ts",
         "src/services/biometric-link.ts",
         "src/routes/biometric-link.ts",
-        "src/routes/biometric-adms.ts",
-        "src/routes/zkteco-iclock.ts",
       ],
       thresholds: {
         // La cobertura mide la capa de dominio/lógica (la integración/IO se excluye arriba).

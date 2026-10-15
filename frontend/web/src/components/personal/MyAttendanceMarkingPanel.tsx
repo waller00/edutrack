@@ -5,7 +5,12 @@ import { Clock, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { formatValidationErrorFromApi } from '@/lib/api/validation-message'
 import DateField from '@/components/forms/DateField'
-import { formatDateInUruguay, formatTimeInUruguay, getTodayYmdInUruguay } from '@/lib/forms/datetime-uy'
+import {
+  formatDateInUruguay,
+  formatTimeInUruguay,
+  getTodayYmdInUruguay,
+  uruguayWallTimeOnDayIso,
+} from '@/lib/forms/datetime-uy'
 import { resolveRealEventId } from '@/lib/events/event-instance-id'
 
 type DayEvent = {
@@ -35,21 +40,7 @@ type Props = {
 }
 
 function toIsoDateTime(ymd: string, timeIso?: string): string {
-  const now = new Date()
-  if (timeIso) {
-    const t = new Date(timeIso)
-    return new Date(
-      Date.UTC(
-        parseInt(ymd.slice(0, 4), 10),
-        parseInt(ymd.slice(5, 7), 10) - 1,
-        parseInt(ymd.slice(8, 10), 10),
-        t.getUTCHours(),
-        t.getUTCMinutes(),
-        t.getUTCSeconds(),
-      ),
-    ).toISOString()
-  }
-  return now.toISOString()
+  return timeIso ? uruguayWallTimeOnDayIso(ymd, timeIso) : new Date().toISOString()
 }
 
 export default function MyAttendanceMarkingPanel({ userId, onMarked }: Props) {

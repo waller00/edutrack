@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  # Igual que sonar.yml: push a las ramas largas y PR hacia ellas. Antes corría en todo push y
+  # además en el PR, así que una rama con PR abierto se testeaba dos veces por commit.
   push:
+    branches: [main, develop]
   pull_request:
+    branches: [main, develop]
 
 permissions:
   contents: read

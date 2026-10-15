@@ -6,6 +6,11 @@ import request from "supertest";
 const { redisMock, buildLoginUrlMock, getSessionMock, prismaMock, sendMailMock } = vi.hoisted(() => ({
   redisMock: {
     set: vi.fn().mockResolvedValue("OK"),
+    get: vi.fn(),
+    del: vi.fn().mockResolvedValue(1),
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+    ttl: vi.fn().mockResolvedValue(300),
   },
   buildLoginUrlMock: vi.fn().mockResolvedValue({
     codeVerifier: "verifier-1",
@@ -39,10 +44,18 @@ const { redisMock, buildLoginUrlMock, getSessionMock, prismaMock, sendMailMock }
   sendMailMock: vi.fn().mockResolvedValue(undefined),
 }));
 
-const { getKeycloakUserIdByEmailMock, verifyKeycloakUserOtpCodeMock, deleteKeycloakUserOtpCredentialsMock } = vi.hoisted(() => ({
+const {
+  getKeycloakUserIdByEmailMock,
+  verifyKeycloakUserOtpCodeMock,
+  deleteKeycloakUserOtpCredentialsMock,
+  exchangeCodeMock,
+  provisionUserFromClaimsMock,
+} = vi.hoisted(() => ({
   getKeycloakUserIdByEmailMock: vi.fn().mockResolvedValue("kc-1"),
   verifyKeycloakUserOtpCodeMock: vi.fn().mockResolvedValue(true),
   deleteKeycloakUserOtpCredentialsMock: vi.fn().mockResolvedValue(1),
+  exchangeCodeMock: vi.fn(),
+  provisionUserFromClaimsMock: vi.fn(),
 }));
 
 vi.mock("../db/redis.js", () => ({
@@ -69,7 +82,7 @@ vi.mock("../auth/keycloak.js", () => ({
   buildLogoutUrl: vi.fn().mockResolvedValue(null),
   buildAccountConsoleUrl: vi.fn((path = "") => `https://auth.local/account/${path}`),
   deleteKeycloakUserOtpCredentials: deleteKeycloakUserOtpCredentialsMock,
-  exchangeCode: vi.fn(),
+  exchangeCode: exchangeCodeMock,
   getKeycloakUserIdByEmail: getKeycloakUserIdByEmailMock,
   getKeycloakUserOtpStatus: vi.fn().mockResolvedValue({ enabled: true, count: 1 }),
   redirectUri: vi.fn(() => "http://localhost:4000/auth/callback"),
@@ -80,7 +93,8 @@ vi.mock("../auth/keycloak.js", () => ({
 
 vi.mock("../auth/keycloak-provisioning.js", () => ({
   SsoRegistrationRequiredError: class SsoRegistrationRequiredError extends Error {},
-  provisionUserFromClaims: vi.fn(),
+  KeycloakAccountConflictError: class KeycloakAccountConflictError extends Error {},
+  provisionUserFromClaims: provisionUserFromClaimsMock,
 }));
 
 vi.mock("../auth/sso-registration.js", () => ({
@@ -88,6 +102,7 @@ vi.mock("../auth/sso-registration.js", () => ({
 }));
 
 import keycloakAuthRoutes from "./auth-keycloak.js";
+import { KeycloakAccountConflictError } from "../auth/keycloak-provisioning.js";
 
 function app() {
   const a = express();
@@ -104,6 +119,7 @@ describe("auth-keycloak account routes", () => {
     process.env.FRONTEND_URL = "http://localhost:3000";
     process.env.TWO_FACTOR_DISABLE_EMAIL_SECRET = "test-2fa-disable-secret";
     redisMock.set.mockResolvedValue("OK");
+    redisMock.incr.mockResolvedValue(1);
     prismaMock.user.findFirst.mockResolvedValue({
       id: "user-1",
       email: "u@example.com",
@@ -248,5 +264,146 @@ describe("auth-keycloak account routes", () => {
 
     expect(replay.headers.location).toContain("twoFactorDisableError=token");
     expect(deleteKeycloakUserOtpCredentialsMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("auth-keycloak login OIDC", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.FRONTEND_URL = "http://localhost:3000";
+    redisMock.set.mockResolvedValue("OK");
+    redisMock.get.mockResolvedValue(JSON.stringify({ codeVerifier: "verifier-1", returnTo: "/libreta" }));
+    exchangeCodeMock.mockResolvedValue({
+      accessToken: "access-1",
+      expiresAt: Date.now() + 60_000,
+      claims: { sub: "kc-1", email: "u@example.com" },
+    });
+    provisionUserFromClaimsMock.mockResolvedValue({ id: "user-1", email: "u@example.com", role: "STAFF" });
+  });
+
+  const setCookies = (res: request.Response) => ([] as string[]).concat(res.headers["set-cookie"] ?? []);
+
+  it("GET /auth/login ata el state al navegador con una cookie", async () => {
+    const res = await request(app()).get("/auth/login?returnTo=/libreta");
+
+    expect(res.status).toBe(302);
+    const cookie = setCookies(res).find((c) => c.startsWith("oauth_state="));
+    expect(cookie).toContain("oauth_state=state-1");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Path=/auth");
+  });
+
+  it("GET /auth/callback rechaza un state que no inició este navegador", async () => {
+    const sinCookie = await request(app()).get("/auth/callback?state=state-1&code=abc");
+    const otraCookie = await request(app())
+      .get("/auth/callback?state=state-1&code=abc")
+      .set("Cookie", "oauth_state=state-del-atacante");
+
+    for (const res of [sinCookie, otraCookie]) {
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe("http://localhost:3000/login?error=state");
+    }
+    expect(redisMock.get).not.toHaveBeenCalled();
+    expect(exchangeCodeMock).not.toHaveBeenCalled();
+  });
+
+  it("GET /auth/callback con el state de este navegador abre la sesión y borra la cookie", async () => {
+    const res = await request(app())
+      .get("/auth/callback?state=state-1&code=abc")
+      .set("Cookie", "oauth_state=state-1");
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/libreta");
+    expect(exchangeCodeMock).toHaveBeenCalled();
+    const cookies = setCookies(res);
+    expect(cookies.some((c) => c.startsWith("sid=sid-new"))).toBe(true);
+    expect(cookies.some((c) => c.startsWith("oauth_state=;"))).toBe(true);
+  });
+
+  it("GET /auth/callback manda a revisión una cuenta de Keycloak sin vínculo válido", async () => {
+    provisionUserFromClaimsMock.mockRejectedValueOnce(new KeycloakAccountConflictError());
+
+    const res = await request(app())
+      .get("/auth/callback?state=state-1&code=abc")
+      .set("Cookie", "oauth_state=state-1");
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/login?error=account_link");
+  });
+});
+
+describe("auth-keycloak 2FA por correo (público)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.FRONTEND_URL = "http://localhost:3000";
+    process.env.TWO_FACTOR_DISABLE_EMAIL_SECRET = "test-2fa-disable-secret";
+    delete process.env.PUBLIC_API_URL;
+    delete process.env.API_PUBLIC_URL;
+    redisMock.set.mockResolvedValue("OK");
+    redisMock.incr.mockResolvedValue(1);
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: "user-1",
+      email: "u@example.com",
+      emailVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+  });
+
+  const pedir = () =>
+    request(app())
+      .post("/auth/account/2fa/disable-email-public")
+      .set("Host", "atacante.example")
+      .type("form")
+      .send({ identifier: "u@example.com" });
+
+  it("el enlace del correo usa la URL pública de la API, nunca el Host del pedido", async () => {
+    const res = await pedir();
+
+    expect(res.status).toBe(200);
+    const mail = sendMailMock.mock.calls.at(-1)![0] as { text: string; html: string };
+    expect(mail.text).toContain("http://localhost:4000/auth/account/2fa/disable-email?token=");
+    expect(mail.text).not.toContain("atacante.example");
+    expect(mail.html).not.toContain("atacante.example");
+  });
+
+  it("encuentra la cuenta sin distinguir mayúsculas en usuario ni correo", async () => {
+    await request(app())
+      .post("/auth/account/2fa/disable-email-public")
+      .type("form")
+      .send({ identifier: "Lucia.Fernandez" });
+
+    expect(prismaMock.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { email: { equals: "Lucia.Fernandez", mode: "insensitive" } },
+            { username: { equals: "Lucia.Fernandez", mode: "insensitive" } },
+          ],
+        },
+      }),
+    );
+  });
+
+  it("manda un solo correo por cuenta dentro de la espera, con la misma respuesta", async () => {
+    redisMock.set.mockResolvedValueOnce(null);
+
+    const res = await pedir();
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("Revisá tu correo");
+    expect(redisMock.set).toHaveBeenCalledWith("bff:2fa-disable-mail:user-1", "1", "EX", expect.any(Number), "NX");
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it("limita los pedidos por IP y contesta HTML", async () => {
+    redisMock.incr.mockResolvedValueOnce(6);
+
+    const res = await pedir();
+
+    expect(res.status).toBe(429);
+    expect(res.headers["content-type"]).toContain("text/html");
+    expect(res.text).toContain("Demasiados intentos");
+    expect(prismaMock.user.findFirst).not.toHaveBeenCalled();
+    expect(sendMailMock).not.toHaveBeenCalled();
   });
 });

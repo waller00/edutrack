@@ -5,6 +5,7 @@ import {
   isBiometricSecretValid,
   processBiometricIngest,
 } from "../services/biometric-ingest-core.js";
+import { clientIp } from "../lib/client-ip.js";
 
 const r = Router();
 
@@ -17,16 +18,9 @@ const admsIngestSchema = z.object({
   payload: z.unknown().optional(),
 });
 
-function normalizeIp(ip: string | undefined) {
-  if (!ip) return "";
-  return ip.replace("::ffff:", "").trim();
-}
-
-function resolveRequestIp(req: any) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    ?.trim();
-  return normalizeIp(forwarded || req.ip || req.connection?.remoteAddress || "");
+/** IP real del lector: se compara contra `allowedIps`, así que no puede venir del cliente. */
+function resolveRequestIp(req: { ip?: string }) {
+  return clientIp(req) ?? "";
 }
 
 r.post("/adms-ingest", async (req, res) => {

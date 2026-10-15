@@ -152,6 +152,24 @@ describe('loadAbsenceStreaks', () => {
     expect(await loadAbsenceStreaks('sy-1')).toEqual([])
   })
 
+  it('un día con lista sólo de otra orientación no es día de clase del alumno ni corta su racha', async () => {
+    const week = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08']
+    prismaMock.studentAttendanceSession.findMany.mockResolvedValue([
+      { courseOfferingId: 'off-1', orientationId: null, courseOrientationId: null, occurrenceYmd: week[0] },
+      // El martes sólo tuvo clase la orientación B.
+      { courseOfferingId: 'off-1', orientationId: 'or-b', courseOrientationId: null, occurrenceYmd: week[1] },
+      { courseOfferingId: 'off-1', orientationId: null, courseOrientationId: null, occurrenceYmd: week[2] },
+      { courseOfferingId: 'off-1', orientationId: null, courseOrientationId: null, occurrenceYmd: week[3] },
+    ])
+    prismaMock.studentEnrollment.findMany.mockResolvedValue([{ ...enrollment('a', 'EBI'), orientationId: 'or-a' }])
+    const absent = [week[0], week[2], week[3]].map((d) => mark('a', d))
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValueOnce(absent).mockResolvedValueOnce(absent)
+
+    expect(await loadAbsenceStreaks('sy-1')).toEqual([
+      expect.objectContaining({ studentId: 'a', from: week[0], to: week[3], days: 3 }),
+    ])
+  })
+
   it('una falta justificada no suma a la racha', async () => {
     prismaMock.studentEnrollment.findMany.mockResolvedValue([enrollment('a', 'EBI')])
     const absent = [mark('a', days[0]), mark('a', days[2])]

@@ -1,4 +1,6 @@
 import "dotenv/config";
+// Primero que las rutas: hace que el rechazo de un handler async llegue al manejador de errores.
+import "./lib/async-errors.js";
 /** En Windows, `fetch`/undici a veces eligiendo IPv6 mal enrutado; priorizamos IPv4 (misma API que curl). */
 import dns from "node:dns";
 import express from "express";
@@ -11,6 +13,9 @@ import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.js";
 import keycloakAuthRoutes from "./routes/auth-keycloak.js";
 import { rateLimit } from "./middlewares/rate-limit.js";
+import { trustImmediatePrivateProxy } from "./lib/client-ip.js";
+import { jsonErrorHandler } from "./lib/error-handler.js";
+import { requestCacheMiddleware } from "./lib/request-cache.js";
 import adminRoutes from "./routes/admin.js";
 import adminTestingRoutes from "./routes/admin-testing.js";
 import attendanceRoutes from "./routes/attendance.js";
@@ -115,8 +120,9 @@ const corsOptions: CorsOptions = {
 // 1. Forzar que responda a los OPTIONS antes que nada
 app.options("*", cors(corsOptions));
 
-// 2. Confiar en el proxy (DigitalOcean/Cloudflare)
-app.set("trust proxy", 1);
+// 2. Confiar en el proxy propio (nginx detrás de Cloudflare), y sólo si conecta desde una red
+// privada: un cliente que pega directo al puerto de la API no puede dictar su IP.
+app.set("trust proxy", trustImmediatePrivateProxy);
 
 // CORS primero: el preflight OPTIONS debe recibir cabeceras aunque Helmet limite otras cosas.
 app.use(cors(corsOptions));
@@ -126,7 +132,8 @@ app.use(
     crossOriginResourcePolicy: { policy: "cross-origin" },
   }),
 );
-app.use(morgan("dev"));
+// `dev` colorea con códigos ANSI que en producción ensucian los logs de Loki.
+app.use(morgan(process.env.NODE_ENV === "production" ? "tiny" : "dev"));
 app.use(httpMetricsMiddleware);
 
 const iclockTextParser = express.text({
@@ -147,6 +154,8 @@ app.use("/iclock", iclockTextParser, zktecoIclockRoutes);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
+// Después de los parsers de cuerpo: así toda la cadena de la ruta corre dentro del mismo pedido.
+app.use(requestCacheMiddleware);
 
 app.use("/auth/login", rateLimit({ bucket: "login", max: 10, windowSeconds: 60 }));
 // Público (sin sesión): cada pedido puede mandar un correo, así que se acota por IP además de la
@@ -179,7 +188,13 @@ app.get("/ready", async (_req, res) => {
   res.status(result.ok ? 200 : 503).json({ ok: result.ok });
 });
 
+// Ruta inexistente: JSON como el resto de la API, no la página HTML de Express.
+app.use((_req, res) => {
+  res.status(404).json({ message: "No encontrado" });
+});
+
 // Captura de errores de Express en Sentry (no-op si SENTRY_DSN no esta definido).
 Sentry.setupExpressErrorHandler(app);
+app.use(jsonErrorHandler);
 
 export default app;

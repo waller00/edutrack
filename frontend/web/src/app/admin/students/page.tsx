@@ -437,7 +437,7 @@ export default function AdminStudentsPage() {
             }
             message={
               pendingAction.kind === 'delete'
-                ? `Se eliminará el registro de ${pendingAction.row.lastName}, ${pendingAction.row.firstName} junto con sus matrículas y cuotas. Esta acción no se puede deshacer.`
+                ? `Se eliminará el registro de ${pendingAction.row.lastName}, ${pendingAction.row.firstName} junto con sus matrículas. Esta acción no se puede deshacer. Si ya tiene notas, asistencias o cuotas pagas no se elimina: se da de baja su matrícula.`
                 : pendingAction.op === 'provision'
                   ? `Se creará la cuenta de ${pendingAction.name} en Moodle y se le enviará el acceso por correo.`
                   : `Se generará una nueva contraseña temporal y se le enviará por correo a ${pendingAction.name}.`

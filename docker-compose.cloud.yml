@@ -57,8 +57,10 @@ services:
     logging: *default-logging
     image: quay.io/keycloak/keycloak:26.3.3
     restart: unless-stopped
-    # start-dev: arranque tolerante. Endurecer a `start` con KC_HOSTNAME real + SSL via Cloudflare.
-    command: ["start-dev", "--import-realm"]
+    # Modo producción (`start-dev` no es para servir usuarios reales: sin caché de temas, defaults
+    # de desarrollo). TLS lo termina Cloudflare/nginx, por eso HTTP queda habilitado detrás del proxy.
+    # El primer arranque compila la configuración y tarda un poco más.
+    command: ["start", "--import-realm"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
@@ -69,7 +71,12 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
+      # Producción define KEYCLOAK_HOSTNAME (auth.edutrack-uy.com). Sin él (testing por IP), el
+      # hostname se deduce del pedido como en `start-dev`; poné KEYCLOAK_HOSTNAME_STRICT=true para exigirlo.
       KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-}
+      KC_HOSTNAME_STRICT: ${KEYCLOAK_HOSTNAME_STRICT:-false}
+      # Un solo nodo: sin caché distribuida ni descubrimiento de cluster.
+      KC_CACHE: local
       JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m"
     volumes:
       - ./keycloak/realm-edutrack.json:/opt/keycloak/data/import/realm-edutrack.json:ro

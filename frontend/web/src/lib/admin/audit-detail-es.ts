@@ -83,6 +83,38 @@ function formatWhenShort(iso: string): string {
   }
 }
 
+/** `2026-06-20` → `20/06/2026`. Lo que no es una fecha civil se muestra tal cual. */
+function formatYmd(value: unknown): string {
+  const s = String(value ?? '')
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s
+}
+
+const EVENT_FIELD_LABELS: Record<string, string> = {
+  title: 'el título',
+  description: 'la descripción',
+  type: 'el tipo',
+  startDate: 'la fecha de inicio',
+  endDate: 'la fecha de fin',
+  startTime: 'la hora de inicio',
+  endTime: 'la hora de fin',
+  location: 'el lugar',
+  assignedUserId: 'el docente asignado',
+  daysOfWeek: 'los días de la semana',
+  recurrenceEnd: 'el fin de la recurrencia',
+  isRecurring: 'la recurrencia',
+  courseOfferingId: 'el grupo',
+  subjectId: 'la asignatura',
+  orientationId: 'la orientación',
+  courseOrientationId: 'la orientación del curso',
+  status: 'el estado',
+}
+
+function eventTitleLine(r: Record<string, unknown>): string[] {
+  const title = r.title != null ? String(r.title) : ''
+  return title ? [`Título: «${title.length > 120 ? `${title.slice(0, 117)}…` : title}».`] : []
+}
+
 function joinUniqueLabels(keys: string[], catalog: Record<string, string>): string {
   const parts = keys.map((k) => catalog[k] ?? k.replace(/([A-Z])/g, ' $1').trim().toLowerCase())
   if (parts.length <= 1) return parts[0] ?? ''
@@ -198,6 +230,51 @@ export function auditMetadataDisplay(action: string, metadata: unknown): AuditDe
           : 'Sin asignatario: no se generó aviso de asignación.',
       )
       return { lines, technicalJson }
+    }
+    case 'EVENT_UPDATED': {
+      if (r.supersedesEventId) {
+        return {
+          lines: [
+            'La serie ya tenía asistencias: se cerró la versión anterior y se creó una nueva, vigente desde hoy, con los cambios.',
+          ],
+          technicalJson,
+        }
+      }
+      if (r.occurrenceOverridden) {
+        return { lines: [`Se cambió sólo la clase del ${formatYmd(r.occurrenceOverridden)}.`], technicalJson }
+      }
+      if (r.occurrenceExceptionRemoved) {
+        return {
+          lines: [`Se quitó el cambio del ${formatYmd(r.occurrenceExceptionRemoved)}: ese día vuelve a seguir la serie.`],
+          technicalJson,
+        }
+      }
+      const fields = Array.isArray(r.changedFields) ? r.changedFields.map((f) => String(f)) : []
+      return {
+        lines: [
+          ...eventTitleLine(r),
+          fields.length > 0
+            ? `Se modificó: ${joinUniqueLabels(fields, EVENT_FIELD_LABELS)}.`
+            : 'Se guardaron cambios en el evento.',
+        ],
+        technicalJson,
+      }
+    }
+    case 'EVENT_CANCELLED': {
+      const reason = r.reason != null && String(r.reason).trim() ? `Motivo: ${String(r.reason).trim()}.` : null
+      const what = r.occurrenceCancelled
+        ? `Se suspendió sólo la clase del ${formatYmd(r.occurrenceCancelled)}.`
+        : 'Se suspendió el evento completo.'
+      return { lines: [...eventTitleLine(r), what, ...(reason ? [reason] : [])], technicalJson }
+    }
+    case 'EVENT_DELETED': {
+      return {
+        lines: [
+          ...eventTitleLine(r),
+          'Se dio de baja el evento. La baja es lógica: se conservan sus asistencias y su historial.',
+        ],
+        technicalJson,
+      }
     }
     default:
       break

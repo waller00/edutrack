@@ -9,7 +9,7 @@ import { isMoodleSyncEnabledFromEnv, getMoodleOperationalSettings } from '../con
 import { getOrCreateSystemSettings } from '../config/system-settings.js'
 import {
   INSTITUTION_TIMEZONE_OPTIONS,
-  isValidInstitutionTimezone,
+  isSupportedInstitutionTimezone,
   normalizeInstitutionTimezone,
   refreshInstitutionTimezoneCache,
 } from '../config/institution-timezone.js'
@@ -43,6 +43,7 @@ import {
   reconcileMoodle,
 } from '../integrations/moodle/index.js'
 import { createKeycloakUser, deleteKeycloakUserByEmail, freeKeycloakUsernameIfOrphan, syncKeycloakUserIdentityByEmail } from '../auth/keycloak.js'
+import { linkKeycloakAccount } from '../auth/keycloak-provisioning.js'
 import { deleteSessionsForUser } from '../auth/session-store.js'
 import { usernameSchema } from '../auth/account-validation.js'
 import { firstZodIssueMessage } from '../auth/password-policy.js'
@@ -87,6 +88,7 @@ function startManualMoodleReconcile(syncStudents: boolean): boolean {
       manualMoodleReconcileState.lastSummary = summary as unknown as Record<string, number>
       console.log(
         `[moodle] manual reconcile: cursos=${summary.courses} docentes=${summary.teacherEnrolments} ` +
+          `docentes-revocados=${summary.teacherRevocations} ` +
           `suplentes=${summary.substituteEnrolments} revocados=${summary.substituteRevocations} ` +
           `estudiantes=${summary.studentEnrolments} sin-cuenta=${summary.studentsWithoutAccount} ` +
           `errores=${summary.errors}`,
@@ -624,12 +626,13 @@ r.post('/users', requirePermission('users.create', 'all'), async (req, res) => {
         Boolean(await prisma.user.findUnique({ where: { email: mail }, select: { id: true } })),
       )
     }
-    await createKeycloakUser({
+    const kcId = await createKeycloakUser({
       email,
       username,
       role: roleCode,
       emailVerified: false,
     })
+    await linkKeycloakAccount(user.id, kcId)
   } catch (e) {
     // Atomicidad: si Keycloak falla, deshacemos el alta local para no dejar usuarios
     // huérfanos (existen en la app pero no pueden acceder).
@@ -818,8 +821,21 @@ r.put('/users/:id', requirePermission('users.update', 'all'), async (req, res) =
   res.json({ ok: true })
 })
 
-// Eliminar definitivamente un usuario. Solo admin (users.update/all) y solo si ya está
-// dado de baja, para evitar borrados accidentales. Borra también la cuenta de Keycloak.
+/** Lo que un borrado definitivo destruiría (por cascada) o rompería (suplencias, FK Restrict). */
+async function userHistoryCounts(userId: string) {
+  const [eventsCreated, attendances, medicalLeaves, substitutions] = await Promise.all([
+    prisma.event.count({ where: { userId } }),
+    prisma.attendance.count({ where: { userId } }),
+    prisma.medicalLeave.count({ where: { userId } }),
+    prisma.substitution.count({
+      where: { OR: [{ originalTeacherUserId: userId }, { substituteUserId: userId }] },
+    }),
+  ])
+  return { eventsCreated, attendances, medicalLeaves, substitutions }
+}
+
+// Eliminar definitivamente un usuario. Solo admin (users.update/all), solo si ya está dado de
+// baja y sin historial, para evitar borrados accidentales. Borra también la cuenta de Keycloak.
 r.delete('/users/:id', requirePermission('users.update', 'all'), async (req, res) => {
   const id = req.params.id
   const target = await prisma.user.findUnique({
@@ -836,15 +852,21 @@ r.delete('/users/:id', requirePermission('users.update', 'all'), async (req, res
     })
   }
 
-  try {
-    await prisma.$transaction(async (tx) => {
-      // Relaciones con FK Restrict hacia User (suplencias): hay que quitarlas antes de borrar.
-      // El resto de relaciones se resuelven por Cascade / SetNull en el esquema.
-      await tx.substitution.deleteMany({
-        where: { OR: [{ originalTeacherUserId: id }, { substituteUserId: id }] },
-      })
-      await tx.user.delete({ where: { id } })
+  // Borrar arrastra en cascada su asistencia, sus licencias y los EVENTOS que creó (con ellos, las
+  // listas de estudiantes y las suplencias de esas clases), y antes se borraban a mano sus
+  // suplencias. Con historial no se borra: queda dado de baja, que ya le quita el acceso.
+  const history = await userHistoryCounts(id)
+  if (Object.values(history).some((count) => count > 0)) {
+    return res.status(409).json({
+      message:
+        'No se puede eliminar: el usuario tiene historial (eventos, asistencias, licencias o suplencias). Queda dado de baja.',
+      code: 'USER_HAS_HISTORY',
+      detail: history,
     })
+  }
+
+  try {
+    await prisma.user.delete({ where: { id } })
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
       return res.status(409).json({
@@ -1077,9 +1099,9 @@ r.put('/system-settings', requirePermission('settings.manage', 'all'), async (re
 
   if (
     parsed.data.institutionTimezone !== undefined &&
-    !isValidInstitutionTimezone(parsed.data.institutionTimezone)
+    !isSupportedInstitutionTimezone(parsed.data.institutionTimezone)
   ) {
-    return res.status(400).json({ message: 'Zona horaria inválida' })
+    return res.status(400).json({ message: 'Zona horaria no soportada' })
   }
 
   const data = parsed.data
@@ -1178,6 +1200,36 @@ r.post('/moodle/reconcile', requirePermission('settings.manage', 'all'), async (
       message: error instanceof Error ? error.message : 'Error en reconciliación Moodle',
     })
   }
+})
+
+// Selector de personas de auditoría: lectura mínima, sin requerir gestión de usuarios.
+r.get('/audit-logs/users', requirePermission('audit.read', 'all'), async (req, res) => {
+  const parsed = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(50).default(20),
+    q: z.string().trim().max(120).default(''),
+  }).safeParse(req.query)
+  if (!parsed.success) {
+    return res.status(400).json({ message: 'Parámetros inválidos', errors: parsed.error.errors })
+  }
+  const { page, pageSize, q } = parsed.data
+  // `name` es opcional: también se busca por usuario, nombre y apellido.
+  const where: Prisma.UserWhereInput = q ? {
+    OR: (['name', 'email', 'username', 'firstName', 'lastName'] as const).map((field) => ({
+      [field]: { contains: q, mode: 'insensitive' as const },
+    })),
+  } : {}
+  const [total, data] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.findMany({
+      where,
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: { id: true, name: true, email: true },
+    }),
+  ])
+  return res.json({ total, page, pageSize, data })
 })
 
 r.get('/audit-logs', requirePermission('audit.read', 'all'), async (req, res) => {

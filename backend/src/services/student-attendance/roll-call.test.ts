@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     studentAttendanceSession: { findUnique: vi.fn(), upsert: vi.fn() },
-    studentAttendanceEntry: { upsert: vi.fn(), update: vi.fn() },
+    studentAttendanceEntry: { upsert: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     studentAttendanceJustification: { create: vi.fn() },
     studentAbsenceJustificationRange: { findMany: vi.fn() },
     $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
   },
 }))
 
@@ -49,7 +50,10 @@ beforeEach(() => {
     note: null,
   }))
   prismaMock.studentAttendanceJustification.create.mockResolvedValue({ id: 'just-1' })
-  prismaMock.studentAttendanceEntry.update.mockResolvedValue({})
+  prismaMock.studentAttendanceEntry.updateMany.mockResolvedValue({ count: 1 })
+  prismaMock.studentAttendanceEntry.findUniqueOrThrow.mockResolvedValue({})
+  // Marcas actuales de la lista, bloqueadas dentro de la transacción: ninguna todavía.
+  prismaMock.$queryRaw.mockResolvedValue([])
   prismaMock.studentAbsenceJustificationRange.findMany.mockResolvedValue([
     { id: 'range-1', studentId: 'st-1', reason: 'Viaje familiar', createdByUserId: 'adscripta-1' },
     { id: 'range-2', studentId: 'st-2', reason: 'Médico', createdByUserId: 'direccion-1' },
@@ -75,8 +79,8 @@ describe('saveRollCall con justificación previa', () => {
       createdByUserId: 'adscripta-1',
       newStatus: 'ABSENT_JUSTIFIED',
     })
-    expect(prismaMock.studentAttendanceEntry.update).toHaveBeenCalledWith({
-      where: { id: 'entry-st-1' },
+    expect(prismaMock.studentAttendanceEntry.updateMany).toHaveBeenCalledWith({
+      where: { id: 'entry-st-1', status: 'ABSENT' },
       data: expect.objectContaining({ status: 'ABSENT_JUSTIFIED' }),
     })
   })
@@ -88,6 +92,19 @@ describe('saveRollCall con justificación previa', () => {
     ])
 
     expect(prismaMock.studentAbsenceJustificationRange.findMany).not.toHaveBeenCalled()
+    expect(prismaMock.studentAttendanceJustification.create).not.toHaveBeenCalled()
+  })
+
+  it('resuelve contra las marcas bloqueadas en la transacción: una justificación hecha en el medio no se pisa', async () => {
+    // Al leer la lista st-3 estaba ausente; mientras el docente guardaba, adscripción la justificó.
+    prismaMock.$queryRaw.mockResolvedValue([{ studentId: 'st-3', status: 'ABSENT_JUSTIFIED' }])
+
+    await save([{ studentId: 'st-3', status: 'ABSENT' }])
+
+    const sql = prismaMock.$queryRaw.mock.calls[0][0].join('?')
+    expect(sql).toContain('FOR UPDATE')
+    expect(prismaMock.studentAttendanceEntry.upsert.mock.calls[0][0].update.status).toBe('ABSENT_JUSTIFIED')
+    // Ya justificada: el rango no vuelve a justificarla.
     expect(prismaMock.studentAttendanceJustification.create).not.toHaveBeenCalled()
   })
 })

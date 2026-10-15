@@ -1769,9 +1769,33 @@ r.put('/:id', async (req: any, res) => {
   }
 })
 
+/**
+ * Lo que un borrado definitivo destruiría en cascada. Las notas (incluida la R oficial) y la
+ * asistencia son la escolaridad del alumno, y las cuotas pagas, plata cobrada: con cualquiera de
+ * eso no se borra, se da de baja la matrícula.
+ */
+async function studentHistoryCounts(studentId: string) {
+  const [assessmentGrades, periodGrades, attendanceEntries, paidTuitionMonths] = await Promise.all([
+    prisma.assessmentGrade.count({ where: { studentId } }),
+    prisma.periodGrade.count({ where: { studentId } }),
+    prisma.studentAttendanceEntry.count({ where: { studentId } }),
+    prisma.studentTuitionMonth.count({ where: { studentId, paid: true } }),
+  ])
+  return { assessmentGrades, periodGrades, attendanceEntries, paidTuitionMonths }
+}
+
 r.delete('/:id', async (req, res) => {
   const id = req.params.id
   try {
+    const history = await studentHistoryCounts(id)
+    if (Object.values(history).some((count) => count > 0)) {
+      return res.status(409).json({
+        message:
+          'No se puede eliminar: el estudiante tiene notas, asistencias o cuotas pagas. Dalo de baja en su matrícula.',
+        code: 'STUDENT_HAS_HISTORY',
+        detail: history,
+      })
+    }
     await prisma.student.delete({ where: { id } })
     return res.json({ ok: true })
   } catch (e: unknown) {

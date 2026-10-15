@@ -67,6 +67,15 @@ export function isUruguayWallDateTimeInPast(ymd: string, hhmm: string, reference
 }
 
 /**
+ * Instante ISO de la hora civil de `timeIso` (en Uruguay) puesta en el día `ymd`. Proyecta por la
+ * hora local, no la UTC: una clase de las 21:30 (00:30Z) cae en `ymd`, no en el día anterior.
+ */
+export function uruguayWallTimeOnDayIso(ymd: string, timeIso: string): string {
+  const hhmm = formatClockHhMmInUruguayFromIso(timeIso)
+  return new Date(`${ymd}T${hhmm}:00-03:00`).toISOString()
+}
+
+/**
  * Para rellenar selects HH:MM al editar: si viene ISO del API, proyecta a Uruguay;
  * si ya es "HH:MM", lo devuelve normalizado.
  */

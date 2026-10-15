@@ -49,6 +49,10 @@ function app() {
 const tok = (role = "TEACHER") =>
   signAccessToken({ sub: "user-1", email: "u@u.com", role: role as "TEACHER" });
 
+/** Perfil a medida con registro manual de asistencia: de fábrica no lo tiene ningún rol. */
+const markerTok = () =>
+  signAccessToken({ sub: "user-1", email: "u@u.com", role: "TEACHER", permissions: { "attendance.create": "own" } });
+
 const validBody = {
   type: "CHECK_IN",
   date: "2025-06-01T12:00:00.000Z",
@@ -90,7 +94,7 @@ describe("attendance /register (prisma mock)", () => {
   it("400 body inválido", async () => {
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send({});
     expect(res.status).toBe(400);
   });
@@ -99,7 +103,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.event.findUnique.mockResolvedValue(null);
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(404);
   });
@@ -115,7 +119,7 @@ describe("attendance /register (prisma mock)", () => {
     });
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(403);
   });
@@ -151,7 +155,7 @@ describe("attendance /register (prisma mock)", () => {
 
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send({
         ...validBody,
         date: "2026-05-05T03:00:00.000Z",
@@ -175,7 +179,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.attendance.findFirst.mockResolvedValue({ id: "dup" });
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(409);
     expect(String(res.body.message)).toMatch(/entrada|registro/i);
@@ -214,7 +218,7 @@ describe("attendance /register (prisma mock)", () => {
     });
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("a1");
@@ -249,8 +253,31 @@ describe("attendance /register (prisma mock)", () => {
     });
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send({ ...validBody, time: "2025-06-01T08:10:00.000Z" });
+    expect(res.status).toBe(200);
+    expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
+  });
+
+  it("POST /attendance/register en una clase recurrente compara contra la hora de ESE día, no la del primero", async () => {
+    // La serie empezó en marzo a las 18:00 (21:00Z); se marca un lunes de junio a las 18:03.
+    prismaMock.event.findUnique.mockResolvedValue({
+      id: eid,
+      assignedUserId: "user-1",
+      type: "CLASE",
+      status: "SCHEDULED",
+      startDate: new Date("2025-03-03T03:00:00.000Z"),
+      startTime: new Date("2025-03-03T21:00:00.000Z"),
+      endTime: new Date("2025-03-03T22:00:00.000Z"),
+    });
+    prismaMock.attendance.findFirst.mockResolvedValue(null);
+    prismaMock.attendance.create.mockResolvedValue({ id: "a1", status: "PRESENT", user: {}, event: {} });
+
+    const res = await request(app())
+      .post("/attendance/register")
+      .set("Authorization", `Bearer ${markerTok()}`)
+      .send({ ...validBody, date: "2025-06-02T21:03:00.000Z", time: "2025-06-02T21:03:00.000Z" });
+
     expect(res.status).toBe(200);
     expect(prismaMock.attendance.create.mock.calls[0][0].data.status).toBe("PRESENT");
   });
@@ -277,7 +304,7 @@ describe("attendance /register (prisma mock)", () => {
     ]);
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(403);
     expect(res.body.code).toBe("ATTENDANCE_BLOCKED_BY_LICENSE");
@@ -299,7 +326,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.attendance.create.mockRejectedValueOnce(new Error("db"));
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(500);
   });
@@ -446,7 +473,7 @@ describe("attendance /register (prisma mock)", () => {
         date: new Date("2026-05-20T03:00:00.000Z"),
         startTime: new Date("2026-05-20T18:00:00.000Z"),
         endTime: new Date("2026-05-20T19:00:00.000Z"),
-        substitute: { id: "subst-1", name: "Joaquin Waller", email: "jw@example.com", orgRole: { code: "TEACHER" } },
+        substitute: { id: "subst-1", name: "Lucia Fernandez", email: "lf@example.com", orgRole: { code: "TEACHER" } },
         event: { id: "ev-sup", title: "CLASE MATEMATICA 7 EBI", type: "CLASE" },
       },
     ]);
@@ -464,7 +491,7 @@ describe("attendance /register (prisma mock)", () => {
       kind: "VIRTUAL_ABSENCE",
       type: "CHECK_IN",
       status: "ABSENT_NOT_JUSTIFIED",
-      user: { id: "subst-1", name: "Joaquin Waller", role: "TEACHER" },
+      user: { id: "subst-1", name: "Lucia Fernandez", role: "TEACHER" },
       event: { id: "ev-sup", title: "CLASE MATEMATICA 7 EBI", type: "CLASE" },
     });
   });
@@ -482,7 +509,7 @@ describe("attendance /register (prisma mock)", () => {
         date: new Date("2026-05-20T03:00:00.000Z"),
         startTime: new Date("2026-05-20T18:00:00.000Z"),
         endTime: new Date("2026-05-20T19:00:00.000Z"),
-        substitute: { id: "subst-1", name: "Joaquin Waller", email: "jw@example.com", orgRole: { code: "TEACHER" } },
+        substitute: { id: "subst-1", name: "Lucia Fernandez", email: "lf@example.com", orgRole: { code: "TEACHER" } },
         event: { id: "ev-sup", title: "CLASE MATEMATICA 7 EBI", type: "CLASE" },
       },
     ]);
@@ -1026,7 +1053,7 @@ describe("attendance /register (prisma mock)", () => {
     });
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(400);
   });
@@ -1047,7 +1074,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.attendance.create.mockResolvedValue({ id: "a-sup", user: {}, event: {} });
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(200);
   });
@@ -1068,7 +1095,7 @@ describe("attendance /register (prisma mock)", () => {
       .mockResolvedValueOnce([{ id: "nwd-1", reason: "Feriado", date: new Date(), type: "HOLIDAY", notes: null }]);
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send(validBody);
     expect(res.status).toBe(403);
     expect(res.body.code).toBe("ATTENDANCE_BLOCKED_BY_NON_WORKING_DAY");
@@ -1089,7 +1116,7 @@ describe("attendance /register (prisma mock)", () => {
     prismaMock.attendance.create.mockResolvedValue({ id: "a-out", user: {}, event: {} });
     const res = await request(app())
       .post("/attendance/register")
-      .set("Authorization", `Bearer ${tok()}`)
+      .set("Authorization", `Bearer ${markerTok()}`)
       .send({ ...validBody, type: "CHECK_OUT", time: "2025-06-01T09:00:00.000Z" });
     expect(res.status).toBe(200);
   });
@@ -1111,6 +1138,22 @@ describe("attendance /register (prisma mock)", () => {
     expect(res.status).toBe(200);
     expect(res.body.deletedCount).toBe(0);
     expect(prismaMock.attendance.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /attendance/purge-all no existe fuera del entorno de pruebas", async () => {
+    const previous = process.env.ALLOW_ADMIN_TESTING_TOOLS;
+    process.env.ALLOW_ADMIN_TESTING_TOOLS = "0";
+    try {
+      const res = await request(app())
+        .delete("/attendance/purge-all")
+        .set("Authorization", `Bearer ${tok("ADMIN")}`);
+      expect(res.status).toBe(403);
+      expect(prismaMock.attendance.findMany).not.toHaveBeenCalled();
+      expect(prismaMock.attendance.deleteMany).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_ADMIN_TESTING_TOOLS;
+      else process.env.ALLOW_ADMIN_TESTING_TOOLS = previous;
+    }
   });
 
   it("GET /attendance/stats no cuenta incidencias si el tipo no es CHECK_IN", async () => {

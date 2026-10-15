@@ -24,7 +24,12 @@ const createLinkSchema = z.object({
   deviceCode: z.string().min(2).max(100).optional(),
 });
 
-const allowedIpsSchema = z.array(z.string().trim().min(1).max(45)).max(20).optional();
+// Son la única barrera del protocolo iClock: una entrada mal escrita dejaría al reloj sin marcas
+// sin que nadie se entere, así que se rechaza al guardar.
+const allowedIpsSchema = z
+  .array(z.string().trim().ip({ message: "IP inválida en la lista de IPs permitidas" }))
+  .max(20)
+  .optional();
 
 const createDeviceSchema = z.object({
   code: z.string().trim().min(2).max(100),

@@ -10,23 +10,13 @@ import {
   processBiometricIngest,
 } from "../services/biometric-ingest-core.js";
 import { tryCaptureBiometricLinkPunch } from "../services/biometric-link.js";
+import { clientIp } from "../lib/client-ip.js";
 
 const r = Router();
 
-function normalizeIp(ip: string | undefined) {
-  if (!ip) return "";
-  return ip.replace("::ffff:", "").trim();
-}
-
-function resolveRequestIp(req: {
-  headers: Record<string, unknown>;
-  ip?: string;
-  connection?: { remoteAddress?: string };
-}) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    ?.trim();
-  return normalizeIp(forwarded || req.ip || req.connection?.remoteAddress || "");
+/** IP real del reloj: es lo que se compara contra `allowedIps`, así que no puede venir del cliente. */
+function resolveRequestIp(req: { ip?: string }) {
+  return clientIp(req) ?? "";
 }
 
 function getSerialNumber(req: { query: Record<string, unknown> }): string {
@@ -61,9 +51,13 @@ function touchDeviceSeen(deviceId: string) {
   });
 }
 
+/**
+ * El protocolo iClock no autentica al reloj: lo único que lo distingue es la IP desde la que
+ * conecta. Sin IPs permitidas no se acepta nada. Antes una lista vacía significaba "cualquiera", y
+ * con el número de serie alcanzaba para inventar fichadas del personal desde internet.
+ */
 function deviceIpAllowed(allowedIps: string[], requestIp: string) {
-  if (allowedIps.length === 0) return true;
-  return allowedIps.includes(requestIp);
+  return requestIp !== "" && allowedIps.includes(requestIp);
 }
 
 /** GET/POST /iclock/cdata — registro y envío de fichadas (ATTLOG). */
@@ -92,7 +86,12 @@ r.all("/cdata", async (req, res) => {
   }
 
   if (!deviceIpAllowed(device.allowedIps, requestIp)) {
-    console.warn("[zkteco-iclock] IP no permitida", { sn, requestIp });
+    console.warn(
+      device.allowedIps.length === 0
+        ? "[zkteco-iclock] lector sin IPs permitidas: cargalas en Administración > Lectores"
+        : "[zkteco-iclock] IP no permitida",
+      { sn, requestIp },
+    );
     res.status(403).type("text/plain").send("ERROR: IP not allowed");
     return;
   }
@@ -182,7 +181,8 @@ r.get("/getrequest", async (req, res) => {
   const requestIp = resolveRequestIp(req);
   const device = await findBiometricDeviceByAdmsSn(sn);
   if (device) {
-    touchDeviceSeen(device.id);
+    // "Última conexión" sólo la marca el reloj de verdad, no cualquiera que conozca su serie.
+    if (deviceIpAllowed(device.allowedIps, requestIp)) touchDeviceSeen(device.id);
   } else {
     console.warn("[zkteco-iclock] getrequest sin dispositivo en BD", { sn, requestIp });
   }
@@ -195,8 +195,8 @@ r.all("/registry", async (req, res) => {
   const sn = getSerialNumber(req);
   if (sn) {
     const device = await findBiometricDeviceByAdmsSn(sn);
-    if (device) touchDeviceSeen(device.id);
-    else console.warn("[zkteco-iclock] registry sin dispositivo en BD", { sn });
+    if (!device) console.warn("[zkteco-iclock] registry sin dispositivo en BD", { sn });
+    else if (deviceIpAllowed(device.allowedIps, resolveRequestIp(req))) touchDeviceSeen(device.id);
   }
   res.status(200).type("text/plain").send("OK");
 });
@@ -206,7 +206,7 @@ r.post("/devicecmd", async (req, res) => {
   const sn = getSerialNumber(req);
   if (sn) {
     const device = await findBiometricDeviceByAdmsSn(sn);
-    if (device) touchDeviceSeen(device.id);
+    if (device && deviceIpAllowed(device.allowedIps, resolveRequestIp(req))) touchDeviceSeen(device.id);
   }
   res.status(200).type("text/plain").send("OK");
 });

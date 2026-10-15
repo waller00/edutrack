@@ -4,7 +4,7 @@ const { prismaMock, auditMock } = vi.hoisted(() => ({
   prismaMock: {
     studentEnrollment: { findFirst: vi.fn() },
     studentAbsenceJustificationRange: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    studentAttendanceEntry: { findMany: vi.fn(), update: vi.fn() },
+    studentAttendanceEntry: { findMany: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     studentAttendanceJustification: { create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -30,7 +30,8 @@ beforeEach(() => {
   prismaMock.studentAbsenceJustificationRange.create.mockResolvedValue({ id: 'range-1' })
   prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([])
   prismaMock.studentAttendanceJustification.create.mockResolvedValue({ id: 'just-1' })
-  prismaMock.studentAttendanceEntry.update.mockResolvedValue({})
+  prismaMock.studentAttendanceEntry.updateMany.mockResolvedValue({ count: 1 })
+  prismaMock.studentAttendanceEntry.findUniqueOrThrow.mockResolvedValue({})
 })
 
 describe('createJustificationRange', () => {
@@ -92,10 +93,25 @@ describe('createJustificationRange', () => {
       newStatus: 'ABSENT_JUSTIFIED',
       createdByUserId: 'adscripta-1',
     })
-    expect(prismaMock.studentAttendanceEntry.update).toHaveBeenCalledWith({
-      where: { id: 'e-2' },
+    expect(prismaMock.studentAttendanceEntry.updateMany).toHaveBeenCalledWith({
+      where: { id: 'e-2', status: 'ABSENT' },
       data: expect.objectContaining({ status: 'ABSENT_JUSTIFIED' }),
     })
+  })
+
+  it('saltea la marca que el docente cambió entre la lectura y la justificación, sin frenar el rango', async () => {
+    prismaMock.studentAttendanceEntry.findMany.mockResolvedValue([
+      { id: 'e-1', note: null },
+      { id: 'e-2', note: null },
+    ])
+    // e-1 ya no es ausencia (el docente marcó que vino): el update condicional no toca nada.
+    prismaMock.studentAttendanceEntry.updateMany.mockResolvedValueOnce({ count: 0 })
+
+    const result = await createJustificationRange(BASE)
+
+    expect(result.justifiedCount).toBe(1)
+    expect(prismaMock.studentAttendanceJustification.create).toHaveBeenCalledTimes(1)
+    expect(prismaMock.studentAttendanceJustification.create.mock.calls[0][0].data).toMatchObject({ entryId: 'e-2' })
   })
 })
 
@@ -110,7 +126,7 @@ describe('revokeJustificationRange', () => {
       where: { id: 'range-1' },
       data: { revokedAt: expect.any(Date), revokedByUserId: 'direccion-1' },
     })
-    expect(prismaMock.studentAttendanceEntry.update).not.toHaveBeenCalled()
+    expect(prismaMock.studentAttendanceEntry.updateMany).not.toHaveBeenCalled()
   })
 
   it('no revoca dos veces', async () => {

@@ -94,6 +94,14 @@ PATCH="$(jq '{
   resetPasswordAllowed,
   rememberMe,
   verifyEmail,
+  bruteForceProtected,
+  permanentLockout,
+  failureFactor,
+  waitIncrementSeconds,
+  maxFailureWaitSeconds,
+  quickLoginCheckMilliSeconds,
+  minimumQuickLoginWaitSeconds,
+  maxDeltaTimeSeconds,
   passwordPolicy,
   accessTokenLifespan,
   ssoSessionIdleTimeout,
@@ -120,7 +128,10 @@ AFTER_THEME="$(printf '%s' "$AFTER" | jq -r '.loginTheme')"
 AFTER_PASSWORD_POLICY="$(printf '%s' "$AFTER" | jq -r '.passwordPolicy')"
 AFTER_SSO_IDLE="$(printf '%s' "$AFTER" | jq -r '.ssoSessionIdleTimeout')"
 AFTER_SSO_MAX="$(printf '%s' "$AFTER" | jq -r '.ssoSessionMaxLifespan')"
+AFTER_BRUTE_FORCE="$(printf '%s' "$AFTER" | jq -r '.bruteForceProtected')"
+AFTER_EDIT_USERNAME="$(printf '%s' "$AFTER" | jq -r '.editUsernameAllowed')"
 echo ">> OK. loginTheme del realm '$REALM_NAME' = $AFTER_THEME"
+echo ">> OK. bruteForceProtected=$AFTER_BRUTE_FORCE editUsernameAllowed=$AFTER_EDIT_USERNAME"
 echo ">> OK. passwordPolicy del realm '$REALM_NAME' = $AFTER_PASSWORD_POLICY"
 echo ">> OK. ssoSessionIdleTimeout=$AFTER_SSO_IDLE ssoSessionMaxLifespan=$AFTER_SSO_MAX"
 

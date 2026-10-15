@@ -23,11 +23,11 @@ function substitution(overrides: Record<string, unknown> = {}) {
     endTime: new Date('2026-05-20T19:00:00.000Z'),
     substitute: {
       id: 'subst-1',
-      name: 'Joaquin Waller',
-      username: 'joaquin.waller',
+      name: 'Lucia Fernandez',
+      username: 'lucia.fernandez',
       firstName: null,
       lastName: null,
-      email: 'jw@example.com',
+      email: 'lf@example.com',
       orgRole: { code: 'TEACHER' },
     },
     event: {
@@ -66,7 +66,7 @@ describe('resolveSubstituteInstances', () => {
       checkInStatusResolved: 'ABSENT_NOT_JUSTIFIED',
       hasCheckIn: false,
       isJustifiedAbsence: false,
-      userDisplayName: 'Joaquin Waller',
+      userDisplayName: 'Lucia Fernandez',
       userRole: 'TEACHER',
     })
     expect(out[0]!.planned.plannedInstanceId).toBe('sub_sub-1')

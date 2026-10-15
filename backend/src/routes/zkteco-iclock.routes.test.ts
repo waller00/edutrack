@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import express from "express";
 import zktecoIclockRoutes from "./zkteco-iclock.js";
+import { trustImmediatePrivateProxy } from "../lib/client-ip.js";
 
 const { prismaMock, processMock, captureMock } = vi.hoisted(() => ({
   prismaMock: {
@@ -49,7 +50,8 @@ describe("zkteco iclock routes", () => {
       name: "F22",
       isActive: true,
       secretHash: "x",
-      allowedIps: [],
+      // Supertest conecta por loopback: es "la IP del reloj" en estos tests.
+      allowedIps: ["127.0.0.1", "::1"],
       timezone: "America/Montevideo",
       admsSerial: "SN123",
     });
@@ -130,6 +132,29 @@ describe("zkteco iclock routes", () => {
     expect(processMock).not.toHaveBeenCalled();
   });
 
+  it("un lector sin IPs permitidas no acepta fichadas de nadie", async () => {
+    findDeviceMock.mockResolvedValue({
+      id: "dev-1",
+      code: "F22-LOCAL-01",
+      name: "F22",
+      isActive: true,
+      secretHash: "x",
+      allowedIps: [],
+      timezone: "America/Montevideo",
+      admsSerial: "SN123",
+    });
+    const res = await request(app())
+      .post("/iclock/cdata?SN=SN123&table=ATTLOG")
+      .set("Content-Type", "text/plain")
+      .send("1001\t2026-05-21 10:00:00\t0\t1\n");
+    expect(res.status).toBe(403);
+    expect(processMock).not.toHaveBeenCalled();
+
+    // Tampoco marca "última conexión": eso lo hace sólo el reloj de verdad.
+    await request(app()).get("/iclock/getrequest?SN=SN123").expect(200);
+    expect(prismaMock.biometricDevice.update).not.toHaveBeenCalled();
+  });
+
   it("rechaza IP no permitida en ATTLOG", async () => {
     findDeviceMock.mockResolvedValue({
       id: "dev-1",
@@ -148,6 +173,40 @@ describe("zkteco iclock routes", () => {
       .send("1001\t2026-05-21 10:00:00\t0\t1\n");
     expect(res.status).toBe(403);
     expect(res.text).toContain("IP not allowed");
+  });
+
+  it("no acepta una IP permitida escrita por el cliente en X-Forwarded-For", async () => {
+    findDeviceMock.mockResolvedValue({
+      id: "dev-1",
+      code: "F22-LOCAL-01",
+      name: "F22",
+      isActive: true,
+      secretHash: "x",
+      allowedIps: ["10.0.0.5"],
+      timezone: "America/Montevideo",
+      admsSerial: "SN123",
+    });
+    const proxied = express();
+    proxied.set("trust proxy", trustImmediatePrivateProxy);
+    proxied.use(express.text({ type: () => true, limit: "1mb" }));
+    proxied.use("/iclock", zktecoIclockRoutes);
+
+    // nginx agrega la IP real al final; la permitida que el atacante pone adelante no cuenta.
+    const res = await request(proxied)
+      .post("/iclock/cdata?SN=SN123&table=ATTLOG")
+      .set("Content-Type", "text/plain")
+      .set("X-Forwarded-For", "10.0.0.5, 190.64.10.20")
+      .send("1001\t2026-05-21 10:00:00\t0\t1\n");
+    expect(res.status).toBe(403);
+    expect(processMock).not.toHaveBeenCalled();
+
+    const fromDevice = await request(proxied)
+      .post("/iclock/cdata?SN=SN123&table=ATTLOG")
+      .set("Content-Type", "text/plain")
+      .set("X-Forwarded-For", "10.0.0.5")
+      .send("1001\t2026-05-21 10:00:00\t0\t1\n");
+    expect(fromDevice.status).toBe(200);
+    expect(processMock).toHaveBeenCalledTimes(1);
   });
 
   it("POST registry responde OK", async () => {

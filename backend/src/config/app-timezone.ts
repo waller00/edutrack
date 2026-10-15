@@ -70,6 +70,21 @@ export function jsWeekdayInUruguay(d: Date): number {
   return DateTime.fromJSDate(d, { zone: 'utc' }).setZone(getAppTimezone()).weekday % 7
 }
 
+/** Día civil local (YYYY-MM-DD) del instante. */
+export function uruguayYmdOfInstant(at: Date): string {
+  return DateTime.fromJSDate(at, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')
+}
+
+/**
+ * La hora civil de `stored` puesta en el día `ymd`. Una serie recurrente guarda `startTime` y
+ * `endTime` como fecha-hora de su PRIMER día: para cualquier otra ocurrencia hay que proyectarlos,
+ * o se compara contra un día que no es (llegadas "tarde" por semanas, feriados del día equivocado).
+ */
+export function wallTimeOnDay(stored: Date, ymd: string): Date {
+  const wall = DateTime.fromJSDate(stored, { zone: 'utc' }).setZone(getAppTimezone())
+  return uruguayWallToUtc(ymd, wall.hour, wall.minute)
+}
+
 /** Inicio del día civil local (00:00) como instante UTC; para columnas `Attendance.date`. */
 export function uruguayStartOfDayFromInstant(at: Date): Date {
   const ymd = DateTime.fromJSDate(at, { zone: 'utc' }).setZone(getAppTimezone()).toFormat('yyyy-MM-dd')

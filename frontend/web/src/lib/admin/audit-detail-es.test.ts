@@ -109,6 +109,31 @@ describe('auditMetadataDisplay', () => {
     expect(noAssign.lines[2]).toContain('Sin asignatario')
   })
 
+  it('EVENT_UPDATED / CANCELLED / DELETED dicen qué pasó, no "evento creado"', () => {
+    expect(auditMetadataDisplay('EVENT_UPDATED', { occurrenceOverridden: '2026-06-20' }).lines).toEqual([
+      'Se cambió sólo la clase del 20/06/2026.',
+    ])
+    expect(auditMetadataDisplay('EVENT_UPDATED', { occurrenceExceptionRemoved: '2026-06-20' }).lines[0]).toContain(
+      'vuelve a seguir la serie',
+    )
+    expect(auditMetadataDisplay('EVENT_UPDATED', { supersedesEventId: 'e0' }).lines[0]).toContain('nueva')
+    expect(
+      auditMetadataDisplay('EVENT_UPDATED', { title: 'Matemática', changedFields: ['startTime', 'assignedUserId'] }).lines,
+    ).toEqual(['Título: «Matemática».', 'Se modificó: la hora de inicio y el docente asignado.'])
+
+    expect(auditMetadataDisplay('EVENT_CANCELLED', { occurrenceCancelled: '2026-06-20', reason: 'Paro' }).lines).toEqual([
+      'Se suspendió sólo la clase del 20/06/2026.',
+      'Motivo: Paro.',
+    ])
+    expect(auditMetadataDisplay('EVENT_CANCELLED', { title: 'Reunión', reason: null }).lines).toEqual([
+      'Título: «Reunión».',
+      'Se suspendió el evento completo.',
+    ])
+    expect(auditMetadataDisplay('EVENT_DELETED', { title: 'Evento', softDeleted: true }).lines[1]).toContain(
+      'se conservan sus asistencias',
+    )
+  })
+
   it('fallback: una sola clave conocida y desconocida', () => {
     expect(auditMetadataDisplay('UNKNOWN', { affectedUserId: 'u1' }).lines[0]).toContain('titular del registro')
     expect(auditMetadataDisplay('UNKNOWN', { reason: 'x' }).lines[0]).toBe('Motivo: x.')

@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
+import { clientIp } from "../lib/client-ip.js";
 
 const UA_MAX = 512;
 
@@ -22,6 +23,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   MEDICAL_LEAVE_DEACTIVATED: "Licencia / permiso desactivado",
   SYSTEM_SETTINGS_UPDATED: "Parámetros del sistema actualizados",
   EVENT_CREATED: "Evento creado",
+  EVENT_UPDATED: "Evento modificado",
+  EVENT_CANCELLED: "Evento suspendido",
+  EVENT_DELETED: "Evento eliminado",
   BIOMETRIC_LINK_STARTED: "Vinculación biométrica iniciada",
   BIOMETRIC_LINK_DETECTED: "Marca detectada para vinculación biométrica",
   BIOMETRIC_LINK_CONFIRMED: "Vinculación biométrica confirmada",
@@ -77,15 +81,9 @@ function truncateUa(ua: string | undefined): string | undefined {
   return `${t.slice(0, UA_MAX - 1)}…`;
 }
 
-/** IP del cliente detrás de proxy (trust proxy ya seteado en Express). */
-export function clientIpFromRequest(req: Pick<Request, "headers" | "ip">): string | undefined {
-  const fwd = String(req.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    ?.trim();
-  if (fwd) return fwd.slice(0, 45);
-  const ip = req.ip;
-  if (ip) return String(ip).replace("::ffff:", "").slice(0, 45);
-  return undefined;
+/** IP del cliente para la auditoría. Ver `clientIp`: nunca el primer valor de `X-Forwarded-For`. */
+export function clientIpFromRequest(req: { ip?: string | undefined }): string | undefined {
+  return clientIp(req);
 }
 
 export type RecordAuditEventInput = {

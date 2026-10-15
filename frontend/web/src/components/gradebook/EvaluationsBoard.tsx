@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api/client'
+import { useOptionalAuth } from '@/contexts/AuthContext'
+import { hasPermission } from '@/lib/auth/permissions'
 import { useStudentPhoto } from '@/lib/hooks/useStudentPhoto'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import {
@@ -741,6 +743,8 @@ function StudentCard({
 }) {
   const [exportBusy, setExportBusy] = useState<'print' | 'xlsx' | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  // El Excel sale del servidor y pide `gradebook.export` (inspección no lo tiene); imprimir es local.
+  const canExport = hasPermission(useOptionalAuth()?.me, 'gradebook.export')
   const photoUrl = useStudentPhoto(gradeBookId, student.studentId, student.hasPhoto)
 
   async function handlePrint() {
@@ -845,20 +849,22 @@ function StudentCard({
           >
             {exportBusy === 'print' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
           </button>
-          <button
-            type="button"
-            disabled={exportBusy !== null}
-            onClick={() => void handleExcel()}
-            className="inline-flex h-8 w-8 items-center justify-center rounded text-teal-700 hover:bg-teal-50 disabled:opacity-40"
-            aria-label="Exportar Excel del alumno"
-            title="Exportar a Excel"
-          >
-            {exportBusy === 'xlsx' ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FileSpreadsheet className="h-4 w-4" />
-            )}
-          </button>
+          {canExport && (
+            <button
+              type="button"
+              disabled={exportBusy !== null}
+              onClick={() => void handleExcel()}
+              className="inline-flex h-8 w-8 items-center justify-center rounded text-teal-700 hover:bg-teal-50 disabled:opacity-40"
+              aria-label="Exportar Excel del alumno"
+              title="Exportar a Excel"
+            >
+              {exportBusy === 'xlsx' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4" />
+              )}
+            </button>
+          )}
         </div>
       </div>
 

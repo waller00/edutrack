@@ -79,6 +79,18 @@ describe('exports routes', () => {
     resolveSchoolYearMock.mockResolvedValue('sy-1')
   })
 
+  it('un fallo interno no le muestra al cliente el mensaje del error', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    novedadesBuildMock.mockRejectedValueOnce(new Error('relation "Attendance" does not exist'))
+    const res = await request(app())
+      .post('/exports')
+      .set(adminHdr())
+      .send({ ...baseBody, reportKey: 'payroll_novedades', format: 'CSV' })
+    expect(res.status).toBe(500)
+    expect(res.body).toEqual({ message: 'Error interno del servidor' })
+    spy.mockRestore()
+  })
+
   it('400 con body inválido', async () => {
     const res = await request(app()).post('/exports').set(adminHdr()).send({ reportKey: 'nope' })
     expect(res.status).toBe(400)
