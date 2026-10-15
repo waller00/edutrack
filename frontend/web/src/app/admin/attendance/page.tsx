@@ -33,6 +33,8 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
+import StatusDistribution, { type DistributionItem } from '@/components/charts/StatusDistribution'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type NovedadesFormat = 'XLSX' | 'CSV'
 
@@ -454,7 +456,7 @@ function renderAttendancesTable(
   const rows = buildAttendancePairRows(attendances)
 
   return (
-    <div className="hidden overflow-x-auto sm:block">
+    <ScrollRegion label="Tabla de asistencias" className="hidden overflow-x-auto sm:block">
       <table className="w-full min-w-[980px]">
         <thead className="bg-gray-50">
           <tr>
@@ -536,7 +538,7 @@ function renderAttendancesTable(
           })}
         </tbody>
       </table>
-    </div>
+    </ScrollRegion>
   )
 }
 
@@ -1391,7 +1393,7 @@ function AdminAttendanceContent() {
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-emerald-600">Ver distribución de estados</summary>
           <div className="border-t border-slate-100 p-4 sm:p-6">
             <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="text-lg font-semibold">Distribución de Estados</h3>
+              <h3 className="text-base font-semibold text-slate-900">Distribución de estados</h3>
               <div className="text-sm text-gray-500">
                 {statsLoading
                   ? 'Cargando…'
@@ -1405,40 +1407,17 @@ function AdminAttendanceContent() {
             ) : (
               (() => {
                 // Un contador ausente en la respuesta dibujaba las barras con NaN (y sin barra).
-                const first = (showingExitStats ? stats.exitCount : stats.presentCount) ?? 0
-                const second = (showingExitStats ? stats.earlyExitCount : stats.lateCount) ?? 0
-                const third = showingExitStats ? 0 : (stats.absentCount ?? 0)
-                const max = Math.max(1, first, second, third)
-                const hMax = 90
-                const bar = (value: number) => (value / max) * hMax
-
-                const bar1H = bar(first)
-                const bar2H = bar(second)
-                const bar3H = bar(third)
-
-                return (
-                  <svg viewBox="0 0 600 140" className="w-full" role="img" aria-label="Distribución de estados">
-                    <rect x="40" y="20" width="520" height="100" fill="none" stroke="#e5e7eb" rx="8" />
-                    {/* Eje / baseline */}
-                    <line x1="60" y1="110" x2="560" y2="110" stroke="#e5e7eb" />
-
-                    {/* Barras */}
-                    <rect x="130" y={110 - bar1H} width="90" height={bar1H} fill="#16a34a" rx="6" />
-                    <rect x="255" y={110 - bar2H} width="90" height={bar2H} fill="#f59e0b" rx="6" />
-                    <rect x="380" y={110 - bar3H} width="90" height={bar3H} fill="#dc2626" rx="6" />
-
-                    {/* Labels */}
-                    <text x="175" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                      {showingExitStats ? `Salida (${first})` : `Presente (${first})`}
-                    </text>
-                    <text x="300" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                      {showingExitStats ? `Anticipada (${second})` : `Tarde (${second})`}
-                    </text>
-                    <text x="425" y="130" textAnchor="middle" fontSize="12" fill="#374151">
-                      {showingExitStats ? '' : `Ausente (${third})`}
-                    </text>
-                  </svg>
-                )
+                const items: DistributionItem[] = showingExitStats
+                  ? [
+                      { key: 'exit', label: 'Salida', count: stats.exitCount ?? 0, colorClass: 'bg-emerald-600' },
+                      { key: 'early', label: 'Anticipada', count: stats.earlyExitCount ?? 0, colorClass: 'bg-amber-500' },
+                    ]
+                  : [
+                      { key: 'present', label: 'Presente', count: stats.presentCount ?? 0, colorClass: 'bg-emerald-600' },
+                      { key: 'late', label: 'Tarde', count: stats.lateCount ?? 0, colorClass: 'bg-amber-500' },
+                      { key: 'absent', label: 'Ausente', count: stats.absentCount ?? 0, colorClass: 'bg-red-600' },
+                    ]
+                return <StatusDistribution items={items} label="Distribución de estados" />
               })()
             )}
           </div>

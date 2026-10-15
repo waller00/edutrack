@@ -5,6 +5,7 @@ import { Loader2, Plus } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
+import StudentCombobox from '@/components/forms/StudentCombobox'
 
 type Decision = {
   id: string
@@ -162,17 +163,14 @@ export default function MeetingDecisions({
 
       {canWrite ? (
         <div className="grid gap-2 border-t border-gray-100 pt-3 sm:grid-cols-[220px_1fr_auto]">
-          <label className="text-sm">
-            <span className="mb-1 block text-xs text-gray-600">Sobre</span>
-            <select className="select-field w-full" value={studentId} onChange={(e) => setStudentId(e.target.value)}>
-              <option value="">Todo el grupo</option>
-              {students.map((s) => (
-                <option key={s.studentId} value={s.studentId}>
-                  {s.lastName}, {s.firstName}
-                </option>
-              ))}
-            </select>
-          </label>
+          <StudentCombobox
+            className="text-sm"
+            label="Sobre"
+            students={students}
+            value={studentId || null}
+            allLabel="Todo el grupo"
+            onChange={(id) => setStudentId(id ?? '')}
+          />
           <label className="text-sm">
             <span className="mb-1 block text-xs text-gray-600">Decisión</span>
             <textarea

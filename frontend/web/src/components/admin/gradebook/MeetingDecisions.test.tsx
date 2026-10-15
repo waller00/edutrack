@@ -64,7 +64,9 @@ describe('<MeetingDecisions />', () => {
     setup()
     await screen.findByText(/no se registró ninguna decisión/)
 
-    fireEvent.change(screen.getByLabelText('Sobre'), { target: { value: 's2' } })
+    const picker = screen.getByRole('combobox', { name: 'Sobre' })
+    fireEvent.focus(picker)
+    fireEvent.mouseDown(screen.getByRole('option', { name: /SOSA, Beto/ }))
     fireEvent.change(screen.getByLabelText('Decisión'), { target: { value: 'Se deriva a APE.' } })
     fireEvent.click(screen.getByRole('button', { name: /Guardar juicio/ }))
 

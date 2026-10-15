@@ -186,6 +186,19 @@
     if (group) group.classList.add('et-hidden-field')
   }
 
+  /**
+   * Sólo la etiqueta que encabeza los botones sociales. Las otras bandas del pie son el texto
+   * propio de la pantalla: en "Recuperar contraseña" la instrucción quedaba pisada por
+   * "También podés ingresar con", sin ningún botón debajo.
+   */
+  function localizeSocialProvidersLabel() {
+    var providers = document.querySelector('#kc-social-providers')
+    if (!providers || !providers.querySelector('a[id^="social-"]')) return
+    var band = providers.previousElementSibling
+    var item = band && band.querySelector('.pf-v5-c-login__main-footer-band-item')
+    if (item) item.textContent = 'También podés ingresar con'
+  }
+
   function localizeVisibleText() {
     if (screenFlags().isLogin) {
       document.body.classList.add('et-login-no-page-title')
@@ -195,7 +208,7 @@
     replaceText('label[for="password"] .pf-v5-c-form__label-text', 'Contraseña')
     replaceText('.pf-v5-c-check__label', 'Recordarme')
     replaceText('#kc-login', 'Ingresar')
-    replaceText('.pf-v5-c-login__main-footer-band-item', 'También podés ingresar con')
+    localizeSocialProvidersLabel()
 
     var forgot = document.querySelector('a[href*="reset-credentials"]')
     if (forgot) forgot.textContent = 'Olvidé mi contraseña'

@@ -45,6 +45,7 @@ import {
   Trash2,
   Users,
 } from 'lucide-react'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 const STATUS_LABEL: Record<string, string> = {
   PLANNED: 'Planificado',
@@ -891,7 +892,7 @@ export default function AdminSchoolYearsPage() {
               Recargar
             </button>
           </div>
-          <div className="hidden overflow-x-auto sm:block">
+          <ScrollRegion label="Tabla de ciclos lectivos" className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[720px] table-fixed text-left text-sm">
               <colgroup>
                 <col className="w-[34%]" />
@@ -937,7 +938,7 @@ export default function AdminSchoolYearsPage() {
                 )}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
 
           <div className="space-y-3 p-4 sm:hidden">
             {visibleYears.length === 0 ? (

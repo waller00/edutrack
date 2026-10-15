@@ -47,8 +47,11 @@ describe('<PeriodBlock /> tramo', () => {
     expect(screen.getByText('Or')).toBeInTheDocument()
     expect(screen.getByText('Otras')).toBeInTheDocument()
     expect(screen.getByText('Ev')).toBeInTheDocument()
-    expect(screen.getByLabelText('7, Logrado')).toBeInTheDocument()
-    expect(screen.getByLabelText('9, Muy bueno')).toBeInTheDocument()
+    // Cada nota suelta se enfoca con el teclado y dice su fecha y comentario (antes, sólo el `title`).
+    const seven = screen.getByLabelText(/^7, Logrado\. /)
+    expect(seven).toHaveAttribute('tabindex', '0')
+    expect(seven.getAttribute('data-tip')).toContain('Logrado · ')
+    expect(screen.getByLabelText(/^9, Muy bueno\. /)).toBeInTheDocument()
     expect(screen.queryByText('8')).not.toBeInTheDocument()
     expect(screen.queryByText('Prueba')).not.toBeInTheDocument()
   })
@@ -65,7 +68,7 @@ describe('<PeriodBlock /> tramo', () => {
       />,
     )
     expect(screen.getByText('Prueba')).toBeInTheDocument()
-    expect(screen.getByLabelText('4, En proceso')).toBeInTheDocument()
+    expect(screen.getByLabelText(/^4, En proceso\. /)).toBeInTheDocument()
   })
 
   it('C y R se editan en la carta y cada una se guarda por separado', async () => {

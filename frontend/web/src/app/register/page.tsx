@@ -424,6 +424,49 @@ export default function RegisterPage() {
                 </>
               )}
 
+              {/* Nombres y apellidos en la misma línea, también en el celular. */}
+              <div className="grid min-w-0 grid-cols-2 gap-3 md:col-span-2 md:gap-6">
+                <FormField
+                  id="register-first-name"
+                  label="Nombres"
+                  required
+                  error={fieldError('firstName')}
+                  valid={fieldValid('firstName', firstName)}
+                >
+                  <input
+                    id="register-first-name"
+                    value={firstName}
+                    onChange={e=>setFirstName(e.target.value)}
+                    onBlur={() => markTouched('firstName')}
+                    aria-required
+                    aria-invalid={Boolean(fieldError('firstName'))}
+                    aria-describedby={fieldError('firstName') ? 'register-first-name-error' : undefined}
+                    className={fieldInputClass('input-field', fieldError('firstName'), fieldValid('firstName', firstName))}
+                    placeholder="Tus nombres"
+                  />
+                </FormField>
+
+                <FormField
+                  id="register-last-name"
+                  label="Apellidos"
+                  required
+                  error={fieldError('lastName')}
+                  valid={fieldValid('lastName', lastName)}
+                >
+                  <input
+                    id="register-last-name"
+                    value={lastName}
+                    onChange={e=>setLastName(e.target.value)}
+                    onBlur={() => markTouched('lastName')}
+                    aria-required
+                    aria-invalid={Boolean(fieldError('lastName'))}
+                    aria-describedby={fieldError('lastName') ? 'register-last-name-error' : undefined}
+                    className={fieldInputClass('input-field', fieldError('lastName'), fieldValid('lastName', lastName))}
+                    placeholder="Tus apellidos"
+                  />
+                </FormField>
+              </div>
+
               <FormField
                 id="register-national-id"
                 label="Cédula"
@@ -447,64 +490,11 @@ export default function RegisterPage() {
               </FormField>
 
               <FormField
-                id="register-first-name"
-                label="Nombres"
-                required
-                error={fieldError('firstName')}
-                valid={fieldValid('firstName', firstName)}
-              >
-                <input
-                  id="register-first-name"
-                  value={firstName}
-                  onChange={e=>setFirstName(e.target.value)}
-                  onBlur={() => markTouched('firstName')}
-                  aria-required
-                  aria-invalid={Boolean(fieldError('firstName'))}
-                  aria-describedby={fieldError('firstName') ? 'register-first-name-error' : undefined}
-                  className={fieldInputClass('input-field', fieldError('firstName'), fieldValid('firstName', firstName))}
-                  placeholder="Tus nombres"
-                />
-              </FormField>
-
-              <FormField
-                id="register-last-name"
-                label="Apellidos"
-                required
-                error={fieldError('lastName')}
-                valid={fieldValid('lastName', lastName)}
-              >
-                <input
-                  id="register-last-name"
-                  value={lastName}
-                  onChange={e=>setLastName(e.target.value)}
-                  onBlur={() => markTouched('lastName')}
-                  aria-required
-                  aria-invalid={Boolean(fieldError('lastName'))}
-                  aria-describedby={fieldError('lastName') ? 'register-last-name-error' : undefined}
-                  className={fieldInputClass('input-field', fieldError('lastName'), fieldValid('lastName', lastName))}
-                  placeholder="Tus apellidos"
-                />
-              </FormField>
-
-              <PhoneBirthdateFields
-                phoneLocal={phoneLocal}
-                birthdate={birthdate}
-                onPhoneChange={setPhoneLocal}
-                onBirthdateChange={setBirthdate}
-                birthdateRequired
-                phoneError={fieldError('phoneLocal')}
-                birthdateError={fieldError('birthdate')}
-                onPhoneBlur={() => markTouched('phoneLocal')}
-                onBirthdateBlur={() => markTouched('birthdate')}
-              />
-
-              <FormField
                 id="register-role"
                 label="Perfil"
                 required
                 error={fieldError('role')}
                 valid={fieldValid('role', role)}
-                className="md:col-span-2"
               >
                 <select
                   id="register-role"
@@ -521,6 +511,18 @@ export default function RegisterPage() {
                   <option value="TEACHER">Docente</option>
                 </select>
               </FormField>
+
+              <PhoneBirthdateFields
+                phoneLocal={phoneLocal}
+                birthdate={birthdate}
+                onPhoneChange={setPhoneLocal}
+                onBirthdateChange={setBirthdate}
+                birthdateRequired
+                phoneError={fieldError('phoneLocal')}
+                birthdateError={fieldError('birthdate')}
+                onPhoneBlur={() => markTouched('phoneLocal')}
+                onBirthdateBlur={() => markTouched('birthdate')}
+              />
             </div>
 
             {error && (

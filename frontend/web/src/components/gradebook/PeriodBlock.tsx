@@ -67,6 +67,15 @@ type BlockProps = {
   onAddGrade?: (category: ActivityCategory) => void
 }
 
+/**
+ * Una nota suelta se puede enfocar con el teclado: su fecha y comentario (el `title`, que sólo
+ * aparecía con el mouse) se muestran al enfocarla y se leen en el `aria-label`.
+ */
+function focusTipProps(label: string, tip: string | undefined) {
+  if (!tip) return {}
+  return { tabIndex: 0, 'data-tip': tip, 'aria-label': `${label}. ${tip}` }
+}
+
 /** Nota con el color y el símbolo de su tramo: nunca sólo color (RNF 7.2). */
 function GradeValue({
   value,
@@ -83,17 +92,20 @@ function GradeValue({
   const level = resolveLevel(value, levels)
   if (!level) {
     return (
-      <span className="tabular-nums text-slate-700" title={hint}>
+      <span className={`tabular-nums text-slate-700 ${hint ? 'focus-tip rounded' : ''}`} {...focusTipProps(display, hint)}>
         {display}
       </span>
     )
   }
   const style = levelStyle(level)
+  const tip = hint ? `${level.label} · ${hint}` : undefined
   return (
     <span
-      className={`inline-flex items-center gap-0.5 rounded border px-1 tabular-nums ${style.badgeClass}`}
-      title={[level.label, hint].filter(Boolean).join('\n')}
+      className={`inline-flex items-center gap-0.5 rounded border px-1 tabular-nums ${style.badgeClass} ${tip ? 'focus-tip' : ''}`}
+      title={tip ? undefined : level.label}
       aria-label={`${display}, ${level.label}`}
+      {...focusTipProps(`${display}, ${level.label}`, hint)}
+      data-tip={tip}
     >
       <span aria-hidden>{style.symbol}</span>
       {display}
@@ -115,7 +127,11 @@ function GradeChips({
     <span className="flex flex-wrap justify-center gap-0.5">
       {grades.map((grade) =>
         grade.isAbsent ? (
-          <span key={grade.key} className="rounded border border-slate-200 px-1 text-slate-500" title={gradeTooltipLine(grade)}>
+          <span
+            key={grade.key}
+            className="focus-tip rounded border border-slate-200 px-1 text-slate-500"
+            {...focusTipProps('Ausente', gradeTooltipLine(grade))}
+          >
             Aus
           </span>
         ) : (

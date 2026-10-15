@@ -29,6 +29,7 @@ import {
   gradeSelectToHundredths,
   type GradeRange,
 } from '@/lib/gradebook/grade-scale'
+import StudentCombobox from '@/components/forms/StudentCombobox'
 import { printStudentClosure } from '@/lib/gradebook/student-closure-export'
 import { formatClosureStamp, periodInfoMessage } from '@/lib/gradebook/period-info'
 import { libretaCode } from '@/components/libreta/MisLibretas'
@@ -40,6 +41,7 @@ import ConductSelect, { conductText, type ConductOption } from './ConductSelect'
 import CierreGrupoTable from './CierreGrupoTable'
 import StudentHistory from './StudentHistory'
 import { confirmDiscard, useUnsavedChangesWarning } from '@/lib/hooks/useUnsavedChangesWarning'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type ClosurePeriod = {
   periodId: string
@@ -499,34 +501,35 @@ export default function CierreAlumnoBoard({
           ))}
         </select>
 
-        <select
-          value={mode}
-          onChange={(e) => {
-            if (!confirmDiscard(unsaved, DISCARD_MESSAGE)) return
-            setMode(e.target.value as Mode)
-            setGroupDirty(false)
+        {/* Un solo buscador: "Todo el grupo" (cierre por período) es la primera opción y cada
+            alumno abre su cierre. Antes eran un selector de modo y otro de alumno. */}
+        <StudentCombobox
+          students={students}
+          value={mode === 'grupo' ? null : selected?.studentId ?? null}
+          allLabel="Todo el grupo, por período"
+          numbered
+          label="Alumno"
+          hideLabel
+          disabled={students.length === 0}
+          className="min-w-[16rem] flex-1"
+          onChange={(studentId) => {
+            if (studentId === null) {
+              if (mode === 'grupo' || !confirmDiscard(unsaved, DISCARD_MESSAGE)) return
+              setMode('grupo')
+              setGroupDirty(false)
+              return
+            }
+            if (mode === 'grupo') {
+              if (!confirmDiscard(unsaved, DISCARD_MESSAGE)) return
+              setMode('alumno')
+              setGroupDirty(false)
+              const idx = students.findIndex((s) => s.studentId === studentId)
+              if (idx >= 0) setFocusIndex(idx)
+              return
+            }
+            selectStudent(studentId)
           }}
-          className="rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Forma de cerrar"
-        >
-          <option value="alumno">Por alumno</option>
-          <option value="grupo">Todo el grupo, por período</option>
-        </select>
-
-        {mode === 'alumno' && (
-          <select
-            value={selected?.studentId ?? ''}
-            onChange={(e) => selectStudent(e.target.value)}
-            className="min-w-[14rem] flex-1 rounded border border-slate-300 bg-white px-2 py-1.5"
-            aria-label="Seleccionar alumno"
-          >
-            {students.map((s) => (
-              <option key={s.studentId} value={s.studentId}>
-                {s.lastName.toUpperCase()} {s.firstName.toUpperCase()}
-              </option>
-            ))}
-          </select>
-        )}
+        />
       </div>
 
       {mode === 'grupo' && <CierreGrupoTable gradeBookId={gradeBookId} onDirtyChange={setGroupDirty} />}
@@ -559,68 +562,72 @@ export default function CierreAlumnoBoard({
                 key={student.studentId}
                 className="rounded-lg border border-sky-200 bg-white p-3 shadow-sm"
               >
-                <div className="flex flex-wrap items-start gap-3">
-                  <StudentAvatar
-                    gradeBookId={gradeBookId}
-                    student={{ ...student, hasPhoto: isFocus ? sheet?.student.hasPhoto : student.hasPhoto }}
-                  />
-                  <div className="min-w-0 flex-1 text-sm">
-                    <p className="text-xs font-semibold text-slate-500">N.º {n}</p>
-                    <p>
-                      <span className="text-slate-500">Apellidos: </span>
-                      <span className="font-semibold text-slate-900">{student.lastName}</span>
-                    </p>
-                    <p>
-                      <span className="text-slate-500">Nombres: </span>
-                      <span className="font-semibold text-slate-900">{student.firstName}</span>
-                    </p>
-                    <p>
-                      <span className="text-slate-500">Documento: </span>
-                      <span className="tabular-nums text-slate-800">{student.documentId ?? '—'}</span>
-                    </p>
-                    <p>
-                      <span className="text-slate-500">Curso/Asig: </span>
-                      <span className="text-slate-800">{courseLabel}</span>
-                    </p>
+                {/* En pantallas anchas, los datos a la izquierda y los períodos a la derecha: apilados, la
+                    carta quedaba apaisada con el costado derecho vacío. */}
+                <div className={`grid gap-3 lg:items-start ${isFocus && periods.length > 0 ? 'lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)]' : ''}`}>
+                  <div className="flex items-start gap-3">
+                    <StudentAvatar
+                      gradeBookId={gradeBookId}
+                      student={{ ...student, hasPhoto: isFocus ? sheet?.student.hasPhoto : student.hasPhoto }}
+                    />
+                    <div className="min-w-0 flex-1 text-sm">
+                      <p className="text-xs font-semibold text-slate-500">N.º {n}</p>
+                      <p>
+                        <span className="text-slate-500">Apellidos: </span>
+                        <span className="font-semibold text-slate-900">{student.lastName}</span>
+                      </p>
+                      <p>
+                        <span className="text-slate-500">Nombres: </span>
+                        <span className="font-semibold text-slate-900">{student.firstName}</span>
+                      </p>
+                      <p>
+                        <span className="text-slate-500">Documento: </span>
+                        <span className="tabular-nums text-slate-800">{student.documentId ?? '—'}</span>
+                      </p>
+                      <p>
+                        <span className="text-slate-500">Curso/Asig: </span>
+                        <span className="text-slate-800">{courseLabel}</span>
+                      </p>
+                    </div>
+                    {isFocus && (
+                      <button
+                        type="button"
+                        disabled={printBusy || !sheet}
+                        onClick={handlePrint}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+                        aria-label="Imprimir cierre del alumno"
+                        title="Imprimir"
+                      >
+                        {printBusy ? (
+                          <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                        ) : (
+                          <Printer className="h-5 w-5" aria-hidden />
+                        )}
+                      </button>
+                    )}
                   </div>
-                  {isFocus && (
-                    <button
-                      type="button"
-                      disabled={printBusy || !sheet}
-                      onClick={handlePrint}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
-                      aria-label="Imprimir cierre del alumno"
-                      title="Imprimir"
-                    >
-                      {printBusy ? (
-                        <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                      ) : (
-                        <Printer className="h-5 w-5" aria-hidden />
-                      )}
-                    </button>
+
+                  {isFocus && periods.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {periods.map((period) => (
+                        <PeriodBlock
+                          key={period.periodId}
+                          period={{ ...period, id: period.periodId }}
+                          grades={periodBlockGrades(grades, assessments, period.periodId)}
+                          saved={{
+                            valueHundredths: period.valueHundredths,
+                            meetingValueHundredths: period.meetingValueHundredths ?? null,
+                            conceptualJudgement: period.conceptualJudgement,
+                          }}
+                          levels={sheet?.scale?.levels ?? []}
+                          decimals={sheet?.scale?.decimals ?? 0}
+                          status={period.status}
+                          editable={false}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
-
-                {isFocus && periods.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {periods.map((period) => (
-                      <PeriodBlock
-                        key={period.periodId}
-                        period={{ ...period, id: period.periodId }}
-                        grades={periodBlockGrades(grades, assessments, period.periodId)}
-                        saved={{
-                          valueHundredths: period.valueHundredths,
-                          meetingValueHundredths: period.meetingValueHundredths ?? null,
-                          conceptualJudgement: period.conceptualJudgement,
-                        }}
-                        levels={sheet?.scale?.levels ?? []}
-                        decimals={sheet?.scale?.decimals ?? 0}
-                        status={period.status}
-                        editable={false}
-                      />
-                    ))}
-                  </div>
-                )}
 
                 {isFocus && sheet && (
                   <div className="mt-3 overflow-hidden rounded border border-amber-200">
@@ -646,7 +653,7 @@ export default function CierreAlumnoBoard({
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto bg-white">
+                    <ScrollRegion label="Calificaciones y juicios" className="overflow-x-auto bg-white">
                       <table className="w-full min-w-[760px] text-sm">
                         <thead className="border-b border-amber-100 text-xs uppercase tracking-wide text-slate-500">
                           <tr>
@@ -818,7 +825,7 @@ export default function CierreAlumnoBoard({
                           })}
                         </tbody>
                       </table>
-                    </div>
+                    </ScrollRegion>
                     <p className="border-t border-amber-100 bg-amber-50/50 px-3 py-1.5 text-[11px] text-slate-600">
                       <strong>C</strong> es tu calificación y <strong>R</strong> la que quedó en la reunión: el
                       boletín y la reunión usan R. El <strong>juicio de reunión</strong> lo carga administración en

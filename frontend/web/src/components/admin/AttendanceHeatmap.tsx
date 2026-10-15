@@ -9,6 +9,7 @@ import {
   type AttendanceSummaryRow,
   type HeatmapCategory,
 } from '@/lib/attendance/summary'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 /** Columna 0=Lun … 6=Dom para un YYYY-MM-DD. */
 function mondayIndex(ymd: string): number {
@@ -54,7 +55,7 @@ export default function AttendanceHeatmap({
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2 overflow-x-auto">
+      <ScrollRegion label="Mapa de calor de asistencias" className="flex gap-2 overflow-x-auto">
         <div className="grid shrink-0 gap-1 pr-1 text-[10px] text-slate-400" style={{ gridTemplateRows: 'repeat(7, minmax(0, 1fr))' }}>
           {WEEKDAY_LABELS.map((label) => (
             <div key={label} className="flex h-3.5 items-center">
@@ -84,7 +85,7 @@ export default function AttendanceHeatmap({
             )
           })}
         </div>
-      </div>
+      </ScrollRegion>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-600">
         {LEGEND_ORDER.map((cat) => (

@@ -5,6 +5,7 @@ import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { useLibreta } from '@/contexts/LibretaContext'
 import { todayYmdUruguay } from '@/lib/libreta/absence-day'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Entry = {
   id: string
@@ -268,7 +269,7 @@ export default function DesarrolloSection() {
           Todavía no hay clases registradas.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        <ScrollRegion label="Desarrollo del curso" className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
               <tr>
@@ -292,7 +293,7 @@ export default function DesarrolloSection() {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
       )}
     </div>
   )

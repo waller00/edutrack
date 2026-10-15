@@ -265,6 +265,16 @@ Detalle funcional: [docs/FUNCIONALIDADES.md](docs/FUNCIONALIDADES.md) §11 ter
 
 ---
 
+## Frontend
+
+> **Elegir un alumno es `StudentCombobox`** (`components/forms/`): busca al escribir (nombre,
+> apellido o cédula, sin tildes) y "todos" es una opción más del mismo desplegable (`allLabel`),
+> no un selector aparte. No volver a un `<select>` con la lista del grupo.
+
+> **Una tabla con scroll horizontal va dentro de `ScrollRegion`** (`components/common/`): si
+> desborda, se vuelve enfocable para recorrerla con el teclado. Un `div` con `overflow-x-auto`
+> suelto deja las columnas de la derecha fuera del alcance de quien navega con Tab.
+
 ## Tests
 
 - Framework: **Vitest** (backend y frontend)

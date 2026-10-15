@@ -18,6 +18,7 @@ import {
   type EndorsementRow,
 } from '@/lib/gradebook/endorsements'
 import EndorsementRowDetail from './EndorsementRowDetail'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Period = { id: string; name: string }
 
@@ -319,7 +320,7 @@ export default function EndorsementGrid() {
       )}
 
       {!loading && rows.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+        <ScrollRegion label="Visado de libretas" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
           <table className="w-full min-w-[980px] text-sm">
             <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
               <tr>
@@ -353,7 +354,7 @@ export default function EndorsementGrid() {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
       )}
 
       <p className="text-xs text-gray-500">

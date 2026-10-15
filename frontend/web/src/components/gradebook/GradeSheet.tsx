@@ -17,6 +17,7 @@ import {
 } from '@/lib/gradebook/sheet'
 import { studentFullName } from '@/lib/gradebook/labels'
 import type { RosterStudent } from '@/lib/gradebook/types'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Scale = {
   id: string
@@ -188,7 +189,7 @@ export default function GradeSheet({
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+      <ScrollRegion label="Planilla de calificaciones" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full min-w-[520px]">
           <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
             <tr>
@@ -237,7 +238,7 @@ export default function GradeSheet({
             })}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
 
       {!readOnly && (
         <div className="flex items-center gap-3">

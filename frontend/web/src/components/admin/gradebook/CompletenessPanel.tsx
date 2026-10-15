@@ -14,6 +14,7 @@ import {
   REPORT_CARD_PERIODS_PATH,
   type ReportCardPeriod,
 } from '@/lib/gradebook/report-card-periods'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Stage = 'before' | 'after'
 
@@ -376,7 +377,7 @@ export default function CompletenessPanel() {
         </p>
       )}
       {!loading && periodId && visible.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+        <ScrollRegion label="Completitud de libretas" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
           <table className="w-full min-w-[860px] text-sm">
             <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
               <tr>
@@ -407,7 +408,7 @@ export default function CompletenessPanel() {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
       )}
     </div>
   )

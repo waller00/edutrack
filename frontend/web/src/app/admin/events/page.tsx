@@ -48,6 +48,7 @@ import {
   schoolYearRangeLabel,
   type RecurrenceRangeMode,
 } from '@/lib/admin/event-recurrence'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type CourseOpt = { id: string; name: string; code: string | null; isActive?: boolean }
 type CourseOrientationOpt = {
@@ -1735,7 +1736,7 @@ function AdminEventsContent() {
               ))}
             </ul>
             {/* Desktop: tabla */}
-            <div className="hidden overflow-x-auto sm:block">
+            <ScrollRegion label="Tabla de eventos" className="hidden overflow-x-auto sm:block">
               <table className="w-full min-w-[900px] table-fixed">
                 <colgroup>
                   <col className="w-10" />
@@ -1884,7 +1885,7 @@ function AdminEventsContent() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollRegion>
             </>
           )}
 

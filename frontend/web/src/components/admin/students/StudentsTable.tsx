@@ -5,6 +5,7 @@ import { getStudentStatusBadgeClass, getStudentStatusLabel } from '@/lib/admin/s
 import StudentActionsMenu from './StudentActionsMenu'
 import StudentMoodleBadge from './StudentMoodleBadge'
 import type { StudentListRow } from './student-types'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 const COLUMNS = [
   { key: 'student', label: 'Estudiante', width: 'w-[32%]' },
@@ -36,7 +37,7 @@ export default function StudentsTable({
   const columns = COLUMNS
 
   return (
-    <div className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 md:block">
+    <ScrollRegion label="Tabla de estudiantes" className="-mx-4 hidden overflow-x-auto border-t border-gray-100 sm:-mx-5 md:block">
       <table className="w-full min-w-[720px] table-fixed text-sm">
         <colgroup>
           {columns.map((c) => (
@@ -112,6 +113,6 @@ export default function StudentsTable({
           )}
         </tbody>
       </table>
-    </div>
+    </ScrollRegion>
   )
 }

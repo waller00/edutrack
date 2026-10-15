@@ -46,6 +46,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Notice = { text: string; tone: 'success' | 'error' }
 
@@ -736,7 +737,7 @@ function AdminUsersPageContent() {
         </div>
 
         <div className="hidden overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm sm:block">
-          <div className="overflow-x-auto">
+          <ScrollRegion label="Tabla de usuarios" className="overflow-x-auto">
             <table className="w-full min-w-[720px] table-fixed text-sm">
               <colgroup>
                 <col className="w-[32%]" />
@@ -765,7 +766,7 @@ function AdminUsersPageContent() {
                 )}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         </div>
 
         <div className="space-y-3 sm:hidden">

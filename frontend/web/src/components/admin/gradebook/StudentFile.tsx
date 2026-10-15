@@ -8,6 +8,7 @@ import { useOptionalAuth } from '@/contexts/AuthContext'
 import { hasPermission } from '@/lib/auth/permissions'
 import { formatHundredths } from '@/lib/academic-config/grade-value'
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Enrollment = {
   schoolYearId?: string
@@ -135,7 +136,7 @@ function YearEvolution({ year, history }: { year: File['evolutionByYear'][number
           Nota de reunión de cada período por asignatura. Un guion es un período sin datos.
         </p>
       </header>
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Ficha del estudiante" className="overflow-x-auto">
         <table className="w-full min-w-[600px] text-sm">
           <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
             <tr>
@@ -173,7 +174,7 @@ function YearEvolution({ year, history }: { year: File['evolutionByYear'][number
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
       {judgements.length > 0 && (
         <details className="border-t border-gray-100 px-4 py-3">
           <summary className="cursor-pointer text-sm font-medium text-gray-800">Juicios conceptuales</summary>

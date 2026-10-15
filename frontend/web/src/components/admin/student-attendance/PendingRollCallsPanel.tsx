@@ -9,6 +9,7 @@ import { useOptionalAdminSchoolYear } from '@/contexts/AdminSchoolYearContext'
 import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
 import PaginationControls from '@/components/common/PaginationControls'
 import DateRangeFields from '@/components/forms/DateRangeFields'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type PendingRow = {
   eventId: string
@@ -122,7 +123,7 @@ export default function PendingRollCallsPanel() {
           No hay listas pendientes en el período. 🎉
         </p>
       ) : (
-        <div className="-mx-4 overflow-x-auto sm:mx-0">
+        <ScrollRegion label="Listas sin pasar" className="-mx-4 overflow-x-auto sm:mx-0">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-gray-50 text-xs uppercase tracking-wider text-gray-600">
               <tr>
@@ -169,7 +170,7 @@ export default function PendingRollCallsPanel() {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
       )}
 
       {result ? (

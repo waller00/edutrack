@@ -24,8 +24,10 @@ import {
 } from '@/lib/libreta/absence-day'
 import { isBasicCycleLevel } from '@/lib/libreta/absences'
 import { notStartedNotice } from '@/lib/rollcall/rollcall-window'
+import StudentCombobox from '@/components/forms/StudentCombobox'
 import { libretaCode } from './MisLibretas'
 import StudentAbsencesDetail from './StudentAbsencesDetail'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 function StudentAvatar({
   gradeBookId,
@@ -225,36 +227,21 @@ export default function InasistenciasSection() {
           ))}
         </select>
 
-        <select
-          value={showAll ? 'all' : 'one'}
-          onChange={(e) => {
-            const all = e.target.value === 'all'
-            setShowAll(all)
-            if (!all && students[0]) setFocusStudentId(students[0].studentId)
-          }}
-          className="rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Modo de alumnos"
-        >
-          <option value="all">Todos los alumnos</option>
-          <option value="one">Un alumno</option>
-        </select>
-
-        <select
-          value={focusStudentId ?? students[0]?.studentId ?? ''}
+        {/* "Todos los alumnos" es una opción más del buscador, no un filtro aparte. */}
+        <StudentCombobox
+          students={students}
+          value={showAll ? null : focusStudentId ?? students[0]?.studentId ?? null}
+          allLabel="Todos los alumnos"
+          numbered
+          label="Alumno"
+          hideLabel
           disabled={students.length === 0}
-          onChange={(e) => {
-            setFocusStudentId(e.target.value)
-            setShowAll(false)
+          className="min-w-[14rem] flex-1"
+          onChange={(studentId) => {
+            setShowAll(studentId === null)
+            if (studentId) setFocusStudentId(studentId)
           }}
-          className="min-w-[14rem] flex-1 rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Seleccionar alumno"
-        >
-          {students.map((s) => (
-            <option key={s.studentId} value={s.studentId}>
-              {s.lastName.toUpperCase()} {s.firstName.toUpperCase()}
-            </option>
-          ))}
-        </select>
+        />
 
         <div className="flex items-center gap-1">
           <button
@@ -329,7 +316,7 @@ export default function InasistenciasSection() {
         </p>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+          <ScrollRegion label="Inasistencias del grupo" className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
             <table className="w-full min-w-[640px] text-sm">
               <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
@@ -381,7 +368,7 @@ export default function InasistenciasSection() {
                 })}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
 
           {canMark && (
             <div className="flex flex-wrap items-center justify-end gap-3 pt-1">

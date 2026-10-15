@@ -14,6 +14,7 @@ import { formatHundredths } from '@/lib/academic-config/grade-value'
 import { levelStyle } from '@/lib/academic-config/level-tokens'
 import { formatAbsenceUnits } from '@/lib/libreta/absences'
 import MeetingDecisions from './MeetingDecisions'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Group = {
   courseOfferingId: string
@@ -401,7 +402,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
         </p>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <ScrollRegion label="Matriz de calificaciones del grupo" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
             <table className={`w-full ${projection ? 'text-base' : 'text-sm'}`}>
               <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
@@ -467,7 +468,7 @@ export default function GroupMatrix({ projection = false }: { projection?: boole
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
 
           <p className="text-xs text-gray-500">
             <strong>{matrix.averageLabel}.</strong> Se calcula con la nota de reunión (R); una celda con{' '}

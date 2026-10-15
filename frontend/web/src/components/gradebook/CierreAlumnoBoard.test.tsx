@@ -185,10 +185,12 @@ describe('<CierreAlumnoBoard />', () => {
     await waitFor(() => expect(screen.getByLabelText('C de Marzo – Abril')).toBeInTheDocument())
 
     await user.selectOptions(screen.getByLabelText('C de Marzo – Abril'), '9')
-    await user.selectOptions(screen.getByLabelText('Seleccionar alumno'), 's2')
+    const picker = screen.getByRole('combobox', { name: 'Alumno' })
+    await user.click(picker)
+    await user.click(screen.getByRole('option', { name: /DÍAZ, Luis/ }))
 
     expect(confirm).toHaveBeenCalled()
-    expect(screen.getByLabelText('Seleccionar alumno')).toHaveValue('s1')
+    expect(picker).toHaveValue('1. CABRERA, Camila')
     expect(screen.getByLabelText('C de Marzo – Abril')).toHaveValue('9')
     // Las notas de la libreta se piden una sola vez.
     expect(apiMock.mock.calls.filter(([path]) => String(path).includes('/grades-board'))).toHaveLength(1)

@@ -216,13 +216,16 @@ export default function ProfilePage() {
         <p className="mt-1 text-sm text-slate-500">Mantené tus datos de contacto al día.</p>
         <form noValidate onSubmit={(event) => { event.preventDefault(); void saveProfile() }} className="mt-5 space-y-5">
           <fieldset disabled={saving} className="grid min-w-0 gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="profile-first-name" className="mb-2 block text-sm font-medium text-slate-700">Nombre</label>
-              <input id="profile-first-name" value={firstName} onChange={e => setFirstName(e.target.value)} autoComplete="given-name" className="input-field" />
-            </div>
-            <div>
-              <label htmlFor="profile-last-name" className="mb-2 block text-sm font-medium text-slate-700">Apellido</label>
-              <input id="profile-last-name" value={lastName} onChange={e => setLastName(e.target.value)} autoComplete="family-name" className="input-field" />
+            {/* Nombre y apellido van juntos en una línea también en el celular. */}
+            <div className="grid min-w-0 grid-cols-2 gap-3 sm:col-span-2 sm:gap-4">
+              <div className="min-w-0">
+                <label htmlFor="profile-first-name" className="mb-2 block text-sm font-medium text-slate-700">Nombre</label>
+                <input id="profile-first-name" value={firstName} onChange={e => setFirstName(e.target.value)} autoComplete="given-name" className="input-field" />
+              </div>
+              <div className="min-w-0">
+                <label htmlFor="profile-last-name" className="mb-2 block text-sm font-medium text-slate-700">Apellido</label>
+                <input id="profile-last-name" value={lastName} onChange={e => setLastName(e.target.value)} autoComplete="family-name" className="input-field" />
+              </div>
             </div>
             <div className="sm:col-span-2">
               <label htmlFor="profile-email" className="mb-2 block text-sm font-medium text-slate-700">Correo</label>

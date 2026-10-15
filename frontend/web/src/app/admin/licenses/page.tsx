@@ -20,6 +20,7 @@ import DateField from '@/components/forms/DateField'
 import DateRangePicker from '@/components/forms/DateRangePicker'
 import { ChevronDown, FileText, Loader2, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { withSchoolYear } from '@/lib/admin/school-year-query'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type License = {
   id: string
@@ -687,7 +688,7 @@ function LicensesPageContent() {
                     />
                   </div>
               </div>
-              <div className="hidden overflow-x-auto sm:block">
+              <ScrollRegion label="Tabla de licencias" className="hidden overflow-x-auto sm:block">
                 <table className="w-full min-w-[720px] table-fixed divide-y divide-gray-200">
                   <colgroup>
                     <col className="w-[14%]" />
@@ -727,7 +728,7 @@ function LicensesPageContent() {
                     )}
                   </tbody>
                 </table>
-              </div>
+              </ScrollRegion>
 
               <div className="space-y-3 p-4 sm:hidden">
                 {loadingNonWorkingDays ? (
@@ -805,7 +806,7 @@ function LicensesPageContent() {
                   </div>
                 )}
               </div>
-              <div className="hidden overflow-x-auto sm:block">
+              <ScrollRegion label="Tabla de licencias del personal" className="hidden overflow-x-auto sm:block">
                 <table className="w-full min-w-[720px] table-fixed divide-y divide-gray-200">
                   <colgroup>
                     <col className="w-[6%]" />
@@ -838,7 +839,7 @@ function LicensesPageContent() {
                     {renderLicensesRows()}
                   </tbody>
                 </table>
-              </div>
+              </ScrollRegion>
 
               <div className="space-y-3 p-4 sm:hidden">
                 {loading ? (

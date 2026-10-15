@@ -10,6 +10,7 @@ import { todayYmdUruguay } from '@/lib/libreta/absence-day'
 import { confirmDiscard, useUnsavedChangesWarning } from '@/lib/hooks/useUnsavedChangesWarning'
 import GradeSelect from './GradeSelect'
 import ConductSelect, { conductText, type ConductOption } from './ConductSelect'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Options = {
   periods: LibretaPeriod[]
@@ -286,7 +287,7 @@ export default function CierreGrupoTable({
         </p>
       ) : (
         sheet && (
-          <div className="overflow-x-auto rounded border border-amber-200 bg-white">
+          <ScrollRegion label="Cierre del grupo por período" className="overflow-x-auto rounded border border-amber-200 bg-white">
             <table className="w-full min-w-[720px] text-sm">
               <thead className="border-b border-amber-100 bg-amber-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
@@ -321,7 +322,7 @@ export default function CierreGrupoTable({
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         )
       )}
 

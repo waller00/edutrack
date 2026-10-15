@@ -297,6 +297,26 @@ it.each(['TEACHER', 'INSPECCION', 'COORDINADOR'])('muestra cursos por permiso de
   expect(screen.queryByRole('link', { name: 'Configuración de libreta' })).not.toBeInTheDocument()
 })
 
+it('docente: la libreta es una sola entrada; sus secciones están en el menú de cada libreta', async () => {
+  mockUsePathname.mockReturnValue('/libreta')
+  mockApiByUrl({
+    role: 'TEACHER',
+    isActive: true,
+    isApproved: true,
+    permissions: [
+      { id: 'gradebook.read', scope: 'own' },
+      { id: 'gradebook.close', scope: 'own' },
+    ],
+  })
+  globalThis.localStorage.clear()
+  renderNav()
+
+  expect(await screen.findByRole('link', { name: 'Mis Libretas' })).toHaveAttribute('href', '/libreta')
+  for (const name of ['Evaluaciones', 'Inasistencias de Libreta', 'Cierre de períodos']) {
+    expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
+  }
+})
+
 it('adscripción: las faltas en Asistencia de estudiantes, las notas en Inteligencia académica, sin "Reportes"', async () => {
   mockUsePathname.mockReturnValue('/admin/student-attendance')
   mockApiByUrl({
@@ -320,4 +340,15 @@ it('adscripción: las faltas en Asistencia de estudiantes, las notas en Intelige
   expect(screen.getByRole('link', { name: 'Inteligencia académica' })).toHaveAttribute('href', '/libreta/indicadores')
   expect(screen.queryByRole('link', { name: 'Reportes de estudiantes' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^Reportes/ })).not.toBeInTheDocument()
+})
+
+it('el primer elemento del teclado salta el menú y lleva al contenido', async () => {
+  mockUsePathname.mockReturnValue('/')
+  mockApiByUrl({ role: 'TEACHER', isActive: true, isApproved: true, permissions: [] })
+  globalThis.localStorage.clear()
+  renderNav()
+
+  const skip = await screen.findByRole('link', { name: 'Saltar al contenido' })
+  expect(skip).toHaveAttribute('href', '#contenido-principal')
+  expect(document.getElementById('contenido-principal')).toHaveAttribute('tabindex', '-1')
 })

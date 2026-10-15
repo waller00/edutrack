@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   FileSpreadsheet,
@@ -43,11 +44,13 @@ import type { GradeBookDetail, GradeBookHeader, RosterStudent } from '@/lib/grad
 import { libretaCode } from '@/components/libreta/MisLibretas'
 import StudentBadges, { type StudentBadgeFocus } from '@/components/libreta/StudentBadges'
 import StudentSheet from '@/components/libreta/StudentSheet'
+import StudentCombobox from '@/components/forms/StudentCombobox'
 import MoodleImportPanel from './MoodleImportPanel'
 import AssessmentsPanel from './AssessmentsPanel'
 import PeriodBlock, { type BlockLevel, type PeriodGradePatch } from './PeriodBlock'
 import GradeSelect from './GradeSelect'
 import StudentHistory from './StudentHistory'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Period = LibretaPeriod
 type Scale = GradeRange & { id: string; name: string; kind: 'NUMERIC' | 'ORDINAL'; decimals: number; levels?: BlockLevel[] }
@@ -602,7 +605,7 @@ function StudentDetailPanel({
         )
       })()}
 
-      <div className="overflow-x-auto rounded border border-slate-200">
+      <ScrollRegion label="Detalle de calificaciones" className="overflow-x-auto rounded border border-slate-200">
         {visibleRows.length === 0 ? (
           <p className="px-3 py-4 text-sm text-slate-500">Sin calificaciones para el filtro.</p>
         ) : (
@@ -666,7 +669,7 @@ function StudentDetailPanel({
             </tbody>
           </table>
         )}
-      </div>
+      </ScrollRegion>
 
       <StudentHistory gradeBookId={gradeBookId} studentId={student.studentId} />
     </div>
@@ -767,10 +770,19 @@ function StudentCard({
           decimals: r.assessment.gradingScale?.decimals ?? decimals,
           category: r.category,
         })),
+        periods,
+        decimals,
         periodResults: Object.fromEntries(
           periods.map((period) => {
             const saved = periodGrades.find((g) => g.periodId === period.id)
-            return [period.name, { c: saved?.valueHundredths ?? null, r: saved?.meetingValueHundredths ?? null }]
+            return [
+              period.name,
+              {
+                c: saved?.valueHundredths ?? null,
+                r: saved?.meetingValueHundredths ?? null,
+                judgement: saved?.conceptualJudgement ?? null,
+              },
+            ]
           }),
         ),
       })
@@ -795,114 +807,118 @@ function StudentCard({
 
   return (
     <li className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex flex-wrap items-start gap-3">
-        <StudentPhoto url={photoUrl} />
+      {/* En pantallas anchas, los datos del alumno a la izquierda y los períodos a la derecha:
+          apilados, la carta quedaba apaisada con todo el costado derecho vacío. */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)] lg:items-start">
+        <div className="flex items-start gap-3">
+          <StudentPhoto url={photoUrl} />
 
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">N° {index + 1}</p>
-            <StudentBadges
-              className="mt-0"
-              codes={student.badges}
-              onSelect={(_code, focus) => onOpenSheet(focus)}
-            />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">N° {index + 1}</p>
+              <StudentBadges
+                className="mt-0"
+                codes={student.badges}
+                onSelect={(_code, focus) => onOpenSheet(focus)}
+              />
+            </div>
+            <dl className="mt-1 grid gap-x-4 gap-y-0.5 text-sm sm:grid-cols-2 lg:grid-cols-1">
+              <div>
+                <dt className="inline text-xs text-slate-500">Apellidos: </dt>
+                <dd className="inline font-semibold text-sky-900">{student.lastName}</dd>
+              </div>
+              <div>
+                <dt className="inline text-xs text-slate-500">Nombres: </dt>
+                <dd className="inline font-semibold text-sky-900">{student.firstName}</dd>
+              </div>
+              <div>
+                <dt className="inline text-xs text-slate-500">Documento: </dt>
+                <dd className="inline font-mono text-sky-900">{student.documentId || '—'}</dd>
+              </div>
+              <div>
+                <dt className="inline text-xs text-slate-500">Curso/Asig: </dt>
+                <dd className="inline font-semibold text-sky-900">{courseLabel}</dd>
+              </div>
+            </dl>
           </div>
-          <dl className="mt-1 grid gap-x-4 gap-y-0.5 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="inline text-xs text-slate-500">Apellidos: </dt>
-              <dd className="inline font-semibold text-sky-900">{student.lastName}</dd>
-            </div>
-            <div>
-              <dt className="inline text-xs text-slate-500">Nombres: </dt>
-              <dd className="inline font-semibold text-sky-900">{student.firstName}</dd>
-            </div>
-            <div>
-              <dt className="inline text-xs text-slate-500">Documento: </dt>
-              <dd className="inline font-mono text-sky-900">{student.documentId || '—'}</dd>
-            </div>
-            <div>
-              <dt className="inline text-xs text-slate-500">Curso/Asig: </dt>
-              <dd className="inline font-semibold text-sky-900">{courseLabel}</dd>
-            </div>
-          </dl>
-        </div>
 
-        <div className="flex shrink-0 flex-col gap-1">
-          {canGrade && (
-            <button
-              type="button"
-              onClick={() => onToggleAdd()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-teal-600 text-teal-700 hover:bg-teal-50"
-              aria-label={`Agregar calificación a ${studentFullName(student)}`}
-              title="Agregar calificación"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={exportBusy !== null}
-            onClick={() => void handlePrint()}
-            className="inline-flex h-8 w-8 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
-            aria-label="Imprimir evaluaciones del alumno"
-            title="Imprimir"
-          >
-            {exportBusy === 'print' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
-          </button>
-          {canExport && (
+          <div className="flex shrink-0 flex-col gap-1">
+            {canGrade && (
+              <button
+                type="button"
+                onClick={() => onToggleAdd()}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-teal-600 text-teal-700 hover:bg-teal-50"
+                aria-label={`Agregar calificación a ${studentFullName(student)}`}
+                title="Agregar calificación"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="button"
               disabled={exportBusy !== null}
-              onClick={() => void handleExcel()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded text-teal-700 hover:bg-teal-50 disabled:opacity-40"
-              aria-label="Exportar Excel del alumno"
-              title="Exportar a Excel"
+              onClick={() => void handlePrint()}
+              className="inline-flex h-8 w-8 items-center justify-center rounded text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+              aria-label="Imprimir evaluaciones del alumno"
+              title="Imprimir"
             >
-              {exportBusy === 'xlsx' ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="h-4 w-4" />
-              )}
+              {exportBusy === 'print' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
             </button>
-          )}
+            {canExport && (
+              <button
+                type="button"
+                disabled={exportBusy !== null}
+                onClick={() => void handleExcel()}
+                className="inline-flex h-8 w-8 items-center justify-center rounded text-teal-700 hover:bg-teal-50 disabled:opacity-40"
+                aria-label="Exportar Excel del alumno"
+                title="Exportar a Excel"
+              >
+                {exportBusy === 'xlsx' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="h-4 w-4" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
+
+        {periods.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {periods.map((period) => {
+              const state = periodStates.get(period.id)
+              return (
+                <PeriodBlock
+                  key={period.id}
+                  period={period}
+                  grades={rows
+                    .filter((r) => r.assessment.periodId === period.id)
+                    .map((r) => ({
+                      key: r.assessmentId,
+                      category: r.category,
+                      valueHundredths: r.valueHundredths,
+                      isAbsent: r.isAbsent,
+                      date: r.assessment.date,
+                      title: r.assessment.title,
+                      comment: r.comment,
+                    }))}
+                  saved={periodGrades.find((g) => g.periodId === period.id) ?? null}
+                  levels={levels}
+                  decimals={decimals}
+                  scale={scale}
+                  status={state?.status}
+                  editable={canGrade && (state?.canEdit ?? false)}
+                  onSave={(patch) => onSavePeriodGrade(period.id, patch)}
+                  onAddGrade={(category) => onToggleAdd({ periodId: period.id, category })}
+                />
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {exportError && (
         <p role="alert" className="mt-2 text-sm text-red-700">{exportError}</p>
-      )}
-
-      {periods.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {periods.map((period) => {
-            const state = periodStates.get(period.id)
-            return (
-              <PeriodBlock
-                key={period.id}
-                period={period}
-                grades={rows
-                  .filter((r) => r.assessment.periodId === period.id)
-                  .map((r) => ({
-                    key: r.assessmentId,
-                    category: r.category,
-                    valueHundredths: r.valueHundredths,
-                    isAbsent: r.isAbsent,
-                    date: r.assessment.date,
-                    title: r.assessment.title,
-                    comment: r.comment,
-                  }))}
-                saved={periodGrades.find((g) => g.periodId === period.id) ?? null}
-                levels={levels}
-                decimals={decimals}
-                scale={scale}
-                status={state?.status}
-                editable={canGrade && (state?.canEdit ?? false)}
-                onSave={(patch) => onSavePeriodGrade(period.id, patch)}
-                onAddGrade={(category) => onToggleAdd({ periodId: period.id, category })}
-              />
-            )
-          })}
-        </div>
       )}
 
       <div className="mt-2">
@@ -1135,61 +1151,56 @@ export default function EvaluationsBoard({
           ))}
         </select>
 
-        <select
-          value={showAll ? 'all' : 'one'}
-          onChange={(e) => {
-            const all = e.target.value === 'all'
-            setShowAll(all)
-            if (!all && students.length) setFocusIndex(0)
-          }}
-          className="rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Modo de alumnos"
-        >
-          <option value="all">Todos los alumnos</option>
-          <option value="one">Un alumno</option>
-        </select>
-
-        <select
-          value={selectedStudentId}
+        {/* "Todos los alumnos" es una opción más del buscador, no un filtro aparte. */}
+        <StudentCombobox
+          students={students}
+          value={showAll ? null : selectedStudentId}
+          allLabel="Todos los alumnos"
+          numbered
+          label="Alumno"
+          hideLabel
           disabled={students.length === 0}
-          onChange={(e) => {
-            const idx = students.findIndex((s) => s.studentId === e.target.value)
+          className="min-w-[16rem] flex-1"
+          onChange={(studentId) => {
+            if (studentId === null) {
+              setShowAll(true)
+              setFocusIndex(0)
+              return
+            }
+            const idx = students.findIndex((s) => s.studentId === studentId)
             if (idx >= 0) {
               setFocusIndex(idx)
               setShowAll(false)
             }
           }}
-          className="min-w-[16rem] flex-1 rounded border border-slate-300 bg-white px-2 py-1.5"
-          aria-label="Seleccionar alumno"
-        >
-          {students.map((s) => (
-            <option key={s.studentId} value={s.studentId}>
-              {s.lastName.toUpperCase()} {s.firstName.toUpperCase()}
-            </option>
-          ))}
-        </select>
+        />
 
         <button
           type="button"
-          disabled={students.length === 0}
+          disabled={students.length === 0 || (!showAll && focusIndex === 0)}
           onClick={() => {
+            if (!showAll) setFocusIndex((i) => Math.max(0, i - 1))
             setShowAll(false)
-            setFocusIndex((i) => Math.min(students.length - 1, i + 1))
           }}
           className="rounded border border-slate-300 bg-white px-2 py-1.5 text-slate-700 hover:bg-white disabled:opacity-40"
-          aria-label="Alumno siguiente"
+          aria-label="Alumno anterior"
+          title="Alumno anterior"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronLeft className="h-4 w-4" aria-hidden />
         </button>
         <button
           type="button"
+          disabled={students.length === 0 || (!showAll && focusIndex >= students.length - 1)}
           onClick={() => {
-            setShowAll(true)
-            setFocusIndex(0)
+            // Desde "todos", el primero; si no, el que sigue.
+            if (!showAll) setFocusIndex((i) => Math.min(students.length - 1, i + 1))
+            setShowAll(false)
           }}
-          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase text-sky-800 hover:bg-white"
+          className="rounded border border-slate-300 bg-white px-2 py-1.5 text-slate-700 hover:bg-white disabled:opacity-40"
+          aria-label="Alumno siguiente"
+          title="Alumno siguiente"
         >
-          Todos
+          <ChevronRight className="h-4 w-4" />
         </button>
       </div>
 

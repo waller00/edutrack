@@ -14,6 +14,7 @@ import {
   type IncidentListResponse,
 } from '@/lib/attendance/incidents-types'
 import { formatDateInUruguay, formatTimeInUruguay } from '@/lib/forms/datetime-uy'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 type Props = {
   onMessage?: (msg: string) => void
@@ -130,7 +131,7 @@ export default function AdminIncidentsPanel({ onMessage }: Props) {
           No hay incidencias con estos filtros.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <ScrollRegion label="Tabla de incidencias" className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
@@ -186,7 +187,7 @@ export default function AdminIncidentsPanel({ onMessage }: Props) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
       )}
     </div>
   )

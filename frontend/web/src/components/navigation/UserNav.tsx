@@ -9,6 +9,7 @@ import {
   CalendarDays,
   ChevronDown,
   ClipboardList,
+  History,
   GraduationCap,
   LayoutDashboard,
   LogOut,
@@ -20,8 +21,8 @@ import {
   School,
   Settings,
   ShieldCheck,
-  SlidersHorizontal,
   User,
+  UserRound,
   Users,
   X,
   type LucideIcon,
@@ -94,11 +95,11 @@ const NAV_GROUPS: NavGroup[] = [
     icon: BookMarked,
     items: [
       // El orden espeja cómo se usa: primero las libretas propias, después lo transversal.
+      // Al docente le alcanza "Mis Libretas": Evaluaciones, Inasistencias y Cierre están en el menú
+      // de cada libreta. Los accesos directos de acá sólo abrían un selector de libreta para llegar
+      // a la misma sección, y el lateral mostraba una copia recortada de ese menú. Las rutas
+      // (`/libreta/evaluaciones`, `/libreta/inasistencias`, `/libreta/cierre-alumno`) siguen vivas.
       { label: 'Mis Libretas', href: '/libreta', permission: 'gradebook.read' },
-      { label: 'Inasistencias de Libreta', href: '/libreta/inasistencias', permission: 'gradebook.read', permissionScope: 'own' },
-      { label: 'Evaluaciones', href: '/libreta/evaluaciones', permission: 'gradebook.read', permissionScope: 'own' },
-      // Una sola entrada: "por alumno" y "por libreta" abrían la misma pantalla, que ya cierra de las dos formas.
-      { label: 'Cierre de períodos', href: '/libreta/cierre-alumno', permission: 'gradebook.close', permissionScope: 'own' },
       // Supervisión: adscripción, dirección e inspección.
       { label: 'Control de libretas', href: '/libreta/control', permission: 'gradebook.review', permissionScope: 'all' },
       { label: 'Visado de libretas', href: '/libreta/visado', permission: 'gradebook.read', permissionScope: 'all' },
@@ -119,7 +120,9 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     title: 'Configuración',
-    icon: SlidersHorizontal,
+    // Engranaje y no deslizadores: ese ícono se lee como "filtros", y para un docente el grupo
+    // sólo tiene "Mi perfil".
+    icon: Settings,
     items: [
       { label: 'Mi perfil', href: '/profile' },
       { label: 'Configuración del sistema', href: '/admin/settings', permission: 'settings.manage', permissionScope: 'all' },
@@ -147,7 +150,9 @@ function itemIcon(label: string) {
   if (/mensualidad/i.test(label)) return Receipt
   if (/agenda|evento|clase|turno/i.test(label)) return CalendarDays
   if (/asistencia/i.test(label)) return ClipboardList
+  if (/^mi perfil$/i.test(label)) return UserRound
   if (/perfil|rol/i.test(label)) return ShieldCheck
+  if (/auditor/i.test(label)) return History
   if (/consulta/i.test(label)) return MessageCircle
   if (/config/i.test(label)) return Settings
   return LayoutDashboard
@@ -599,6 +604,14 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
     <NotificationsProvider>
       <SidebarSlotContext.Provider value={slotValue}>
         <div className="min-h-screen bg-slate-50/80">
+          {/* Primer elemento del recorrido con teclado: sin él, cada página obligaba a pasar por
+              todos los grupos del menú lateral antes de llegar al contenido. */}
+          <a
+            href="#contenido-principal"
+            className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-emerald-700 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:shadow-lg"
+          >
+            Saltar al contenido
+          </a>
           <div
             aria-hidden="true"
             className={`fixed inset-0 z-40 bg-slate-950/40 transition-opacity lg:hidden ${mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
@@ -627,7 +640,9 @@ export default function UserNav({ children = null }: { children?: React.ReactNod
               {/* Durante la clase, debajo del encabezado y en cualquier pantalla: "pasá la lista". */}
               {me && hasPermission(me, 'student-attendance.take') && <RollCallReminderBar />}
             </header>
-            <div className="min-w-0">{children}</div>
+            <div id="contenido-principal" tabIndex={-1} className="min-w-0 focus:outline-none">
+              {children}
+            </div>
           </div>
         </div>
         <NotificationToast />

@@ -15,6 +15,7 @@ import {
   REPORT_CARD_PERIODS_PATH,
   type ReportCardPeriod,
 } from '@/lib/gradebook/report-card-periods'
+import ScrollRegion from '@/components/common/ScrollRegion'
 
 export type StudentRef = { studentId: string; firstName: string; lastName: string; courseName: string }
 
@@ -139,7 +140,7 @@ export function ReportState({ loading, error, empty, emptyText }: { loading: boo
 
 export function Table({ head, children, minWidth = 640 }: { head: string[]; children: React.ReactNode; minWidth?: number }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+    <ScrollRegion label="Tabla del reporte" className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
       <table className="w-full text-sm" style={{ minWidth }}>
         <thead className="border-b border-gray-100 text-xs uppercase tracking-wide text-gray-500">
           <tr>
@@ -152,6 +153,6 @@ export function Table({ head, children, minWidth = 640 }: { head: string[]; chil
         </thead>
         <tbody className="divide-y divide-gray-100">{children}</tbody>
       </table>
-    </div>
+    </ScrollRegion>
   )
 }
