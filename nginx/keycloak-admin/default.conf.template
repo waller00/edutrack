@@ -1,5 +1,12 @@
+  # Nunca registrar query strings ni Referer (pueden contener códigos o tokens OIDC).
+  map $request_uri $log_path {
+    ~^(?<path_without_query>[^?]*) $path_without_query;
+  }
+  log_format access_safe escape=json '$remote_addr - $remote_user [$time_local] "$request_method $log_path $server_protocol" $status $body_bytes_sent "-" "$http_user_agent"';
+
 # Solo accesible desde loopback del host, detras de Tailscale Serve.
 server {
+    access_log /dev/stdout access_safe;
     listen 8080;
     server_name ${KEYCLOAK_ADMIN_PRIVATE_HOST};
     server_tokens off;

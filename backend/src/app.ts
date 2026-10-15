@@ -6,7 +6,7 @@ import * as Sentry from "@sentry/node";
 import cors from "cors";
 import type { CorsOptions } from "cors";
 import helmet from "helmet";
-import morgan from "morgan";
+import { accessLog } from "./middlewares/access-log.js";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.js";
 import keycloakAuthRoutes from "./routes/auth-keycloak.js";
@@ -126,7 +126,7 @@ app.use(
     crossOriginResourcePolicy: { policy: "cross-origin" },
   }),
 );
-app.use(morgan("dev"));
+app.use(accessLog());
 app.use(httpMetricsMiddleware);
 
 const iclockTextParser = express.text({
